@@ -4,22 +4,18 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata
 from nof1_causal_lab.artifacts.duration import parse_duration_to_hours
-from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename
-from nof1_causal_lab.machine.execution import RetractedArtifact, TransitionEffects, apply_transition
-from nof1_causal_lab.machine.store import ArtifactStore
+from nof1_causal_lab.study.artifact_files import json_filename, parquet_filename
+from nof1_causal_lab.study.lineage import read_data_metadata
+from nof1_causal_lab.study.state import RetractedArtifact, apply_effects
+from nof1_causal_lab.study.store import ArtifactStore
 
 if TYPE_CHECKING:
+    from nof1_causal_lab.actions.effects import ActionEffects
+    from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata
     from nof1_causal_lab.artifacts.identity import GitOid
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.machine.artifacts import EpisodeState
-
-
-def read_data_metadata(store: ArtifactStore, revision: GitOid) -> PreparedDataMetadata:
-    return PreparedDataMetadata.model_validate(
-        store.read_json_file("panel", revision, json_filename("panel", "metadata"))
-    )
+    from nof1_causal_lab.study.state import StudyState
 
 
 def data_binding_issues(model: ModelSpec, metadata: PreparedDataMetadata) -> list[str]:
@@ -57,13 +53,13 @@ def require_data_binding(store: ArtifactStore, model: ModelSpec, revision: GitOi
 
 
 def evaluate_data_checks(
-    workspace_id: str, state: EpisodeState, effects: TransitionEffects
-) -> TransitionEffects:
+    workspace_id: str, state: StudyState, effects: ActionEffects
+) -> ActionEffects:
     """Profile newly prepared observations without reading or evaluating any model."""
-    from nof1_causal_lab.flows.transitions.validation.flow import profile_data
+    from nof1_causal_lab.actions.validation.flow import profile_data
 
     store = ArtifactStore(workspace_id)
-    selected = apply_transition(state, effects.produced, effects.retracted)
+    selected = apply_effects(state, effects.produced, effects.retracted)
     panel = selected.get("panel")
     if panel is None:
         raise ValueError("Data preparation produced no usable observations")
@@ -81,6 +77,6 @@ def evaluate_data_checks(
         retracted.append(
             RetractedArtifact(artifact_id="validation_report", reason_ref="panel.changed")
         )
-    return effects.model_copy(
-        update={"produced": [*effects.produced, report], "retracted": retracted}
+    return type(effects).model_validate(
+        {**effects.model_dump(), "produced": [*effects.produced, report], "retracted": retracted}
     )

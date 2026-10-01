@@ -1,5 +1,8 @@
 """Tests for posterior predictive checks (PPCs)."""
 
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from pathlib import Path
+
 import jax.numpy as jnp
 import jax.random as random
 import numpy as np
@@ -21,7 +24,7 @@ from nof1_causal_lab.models.ssm.execution.observation_families import (
     get_posterior_predictive_switch_index,
 )
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
-from tests.model_fixtures import full_dense_matrix_dynamics_spec, model_fixture
+from tests.model_fixtures import full_dense_matrix_dynamics_spec
 from tests.models.ssm._support import complex_mixed_family_config
 from tests.predictive_fixtures import sample_observation_fixture
 
@@ -194,13 +197,7 @@ class TestForwardSimulation:
         )
         from nof1_causal_lab.models.ssm.predictive import registry_runtime
 
-        spec = model_fixture(
-            n_latent=1,
-            n_manifest=2,
-            dynamics_spec=full_dense_matrix_dynamics_spec(1),
-            manifest_dists=["gaussian", "ordered_logistic"],
-            manifest_level_counts=[0, 3],
-        )
+        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'posterior_predictive/testforwardsimulation_test_posterior_runtime_assembles_ordered_cutpoints_from_sample_sites_model_fixture.json').read_text())
         n_draws = 2
         ordered_base = jnp.zeros((n_draws, 2), dtype=jnp.float32)
         ordered_base = ordered_base.at[:, 1].set(-1.0)
@@ -351,7 +348,9 @@ def test_overlays_preserve_quantiles_observations_and_selected_trajectories():
     assert [overlay.observed for overlay in result] == [[2.0, None, 9.0], [25.0, -1.0, 27.0]]
     expected_medians = [[6.0, 13.0, 6.0], [25.0, 6.0, 26.0]]
     for column, overlay in enumerate(result):
-        np.testing.assert_allclose(overlay.median, expected_medians[column], rtol=1e-6, atol=1e-6)
+        np.testing.assert_allclose(
+            np.asarray(overlay.median, dtype=float), expected_medians[column], rtol=1e-6, atol=1e-6
+        )
         np.testing.assert_array_equal(overlay.spaghetti_draws, draws[jnp.array([0, 3]), :, column])
 
 

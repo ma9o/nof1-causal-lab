@@ -6,8 +6,9 @@ from pathlib import Path
 
 import pyarrow as pa
 
-from nof1_causal_lab.machine.history import StudyRepository
-from nof1_causal_lab.machine.store import ArtifactStore, TransitionRecord
+from nof1_causal_lab.study.history import StudyRepository
+from nof1_causal_lab.study.records import AttemptRecord
+from nof1_causal_lab.study.store import ArtifactStore
 from nof1_causal_lab.utils import data as data_module
 
 
@@ -30,13 +31,13 @@ def seed(root, workspace, options):
     model = write(
         "model",
         {"panel": panel.revision},
-        "run:posterior",
+        "fit",
         json_files={"model.json": {"question": "Fixture question"}},
     )
     artifacts = [
         write(
             "raw_data",
-            producer="run:raw_data",
+            producer="prepare_data",
             parquet_files={"raw.parquet": pa.table({"value": [1]})},
         ),
         model,
@@ -58,7 +59,7 @@ def seed(root, workspace, options):
 
     def append(seq, operation, produced, trace=None, diagnostics=None):
         repository.append(
-            TransitionRecord(
+            AttemptRecord(
                 seq=seq,
                 ts=stamp,
                 action="fit"
@@ -66,13 +67,11 @@ def seed(root, workspace, options):
                 else "prepare_data"
                 if operation in {"raw_data", "measurements"}
                 else "edit_model",
-                operation_id=operation,
                 inputs={},
                 status="applied",
                 produced=produced,
                 diagnostics=diagnostics or {},
                 trace_ids=[trace] if trace else [],
-                resume=None,
             ),
             logs={
                 f"traces/{trace}.json": json.dumps({"artifact": operation, "trace": trace}).encode()
@@ -114,13 +113,6 @@ def seed(root, workspace, options):
             operation,
             [],
             trace,
-            {
-                "search_queries": {"parameter:test": "prior study"},
-                "validation_diagnostics": [],
-                "prior_predictive": {"samples": {"indicator:test": [0.5]}, "diagnostics": []},
-            }
-            if operation == "statistical_model_spec"
-            else None,
         )
 
 

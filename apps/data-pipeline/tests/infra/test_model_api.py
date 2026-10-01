@@ -1,7 +1,6 @@
 """Scientific edits are the sole model mutation contract; history remains inspectable."""
 
 from datetime import UTC, datetime
-from typing import TYPE_CHECKING
 from unittest.mock import AsyncMock, Mock
 from uuid import UUID, uuid4
 
@@ -12,14 +11,15 @@ from temporalio.api.failure.v1 import Failure
 from temporalio.api.update.v1 import Outcome
 from temporalio.client import WorkflowUpdateHandle, WorkflowUpdateStage
 
-from nof1_causal_lab import episode_api
+from nof1_causal_lab import study_api
 from nof1_causal_lab.actions.contracts import EditModelRequest
 from nof1_causal_lab.actions.messages import completion_messages
-from nof1_causal_lab.actions.results import ActionMessage, ActionPoll
-from nof1_causal_lab.machine.errors import ArtifactWriteRejected
-from nof1_causal_lab.machine.history import StudyRepository
-from nof1_causal_lab.machine.store import ArtifactStore, TransitionRecord, read_current_state
+from nof1_causal_lab.actions.results import ActionPoll
 from nof1_causal_lab.read_facade import create_read_facade_app
+from nof1_causal_lab.study.errors import ArtifactWriteRejected
+from nof1_causal_lab.study.history import StudyRepository
+from nof1_causal_lab.study.records import ActionMessage, AttemptRecord
+from nof1_causal_lab.study.store import ArtifactStore, read_current_state
 from nof1_causal_lab.utils import data as data_module
 from tests.action_fixtures import edit_and_check
 from tests.git_fixtures import artifact_revision, commit_id
@@ -27,14 +27,11 @@ from tests.helpers import make_model
 
 pytestmark = pytest.mark.contract
 
-if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.identity import OperationId
-
 
 @pytest.fixture
 def model_api(monkeypatch, tmp_path):
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
-    monkeypatch.setenv("EPISODE_FACADE_READ_ONLY", "0")
+    monkeypatch.setenv("READ_ONLY_FACADE", "0")
     calls = []
     pending = {}
 
@@ -47,7 +44,7 @@ def model_api(monkeypatch, tmp_path):
             assert wait_for_stage == WorkflowUpdateStage.ACCEPTED
             calls.append(envelope)
             pending[envelope.attempt_id] = (self.workspace, envelope)
-            return WorkflowUpdateHandle(Mock(), id, f"episode-{self.workspace}")
+            return WorkflowUpdateHandle(Mock(), id, f"study-{self.workspace}")
 
         async def query(self, method, attempt_id):
             return ActionPoll(done=False) if attempt_id in pending else None
@@ -62,7 +59,7 @@ def model_api(monkeypatch, tmp_path):
             seq = journal.latest_seq() + 1
             try:
                 effects = edit_and_check(self.workspace, request, state)
-                record = TransitionRecord(
+                record = AttemptRecord(
                     seq=seq,
                     attempt_id=envelope.attempt_id,
                     branch=envelope.branch,
@@ -75,10 +72,9 @@ def model_api(monkeypatch, tmp_path):
                     diagnostics=effects.diagnostics,
                     checks=effects.checks,
                     trace_ids=[],
-                    resume=None,
                 )
             except ArtifactWriteRejected as exc:
-                record = TransitionRecord(
+                record = AttemptRecord(
                     seq=seq,
                     attempt_id=envelope.attempt_id,
                     branch=envelope.branch,
@@ -87,11 +83,11 @@ def model_api(monkeypatch, tmp_path):
                     status="rejected",
                     reason=str(exc),
                     trace_ids=[],
-                    resume=None,
                 )
             timestamp = datetime.now(UTC)
-            record = record.model_copy(
-                update={
+            record = type(record).model_validate(
+                {
+                    **record.model_dump(),
                     "messages": (
                         ActionMessage(
                             timestamp=timestamp, level="info", label="EDIT_MODEL_STARTED"
@@ -115,7 +111,7 @@ def model_api(monkeypatch, tmp_path):
                             if record.status == "applied"
                             else "REVISION_CONFLICT",
                         ),
-                    )
+                    ),
                 }
             )
             journal.append(record)
@@ -123,7 +119,7 @@ def model_api(monkeypatch, tmp_path):
     async def handle(workspace):
         return Handle(workspace)
 
-    monkeypatch.setattr(episode_api, "_episode_handle", handle)
+    monkeypatch.setattr(study_api, "_study_handle", handle)
 
     class Client:
         def get_workflow_handle(self, workflow_id):
@@ -132,8 +128,50 @@ def model_api(monkeypatch, tmp_path):
     async def get_client():
         return Client()
 
-    monkeypatch.setattr(episode_api, "_get_client", get_client)
+    monkeypatch.setattr(study_api, "_get_client", get_client)
     return TestClient(create_read_facade_app()), calls, Handle("API").complete
+
+
+def test_data_diff_dispatch_captures_head_and_saved_report_is_a_read(model_api, monkeypatch):
+    from nof1_causal_lab.actions.data_diff import DataDiffReport, DataRef
+
+    client, calls, _ = model_api
+    repository = StudyRepository("API")
+    head = repository.head()
+    source = DataRef(kind="panel", revision=head)
+    response = client.post(
+        "/api/studies/API/data-diff",
+        json={"left": source.model_dump(), "right": source.model_dump()},
+    )
+    assert response.status_code == 202
+    assert calls[-1].request.action == "data_diff"
+    assert calls[-1].expected_head == head
+    assert repository.head() == head
+    report = DataDiffReport(left=(source,), right=(source,), variables=())
+    leaf = repository.append(
+        AttemptRecord(
+            seq=1,
+            attempt_id=UUID(response.json()["attempt_id"]),
+            action="data_diff",
+            ts="2026-09-30T00:00:00Z",
+            status="applied",
+            trace_ids=[],
+        ),
+        expected_head=head,
+        logs={"data-diff.json": report.model_dump_json().encode()},
+    )
+    monkeypatch.setenv("READ_ONLY_FACADE", "1")
+    assert client.get(f"/api/studies/API/data-diff/{leaf}").json() == report.model_dump(mode="json")
+    poll = client.get(f"/api/studies/API/actions/{response.json()['attempt_id']}").json()
+    assert poll["body"]["commit_id"] == leaf
+    assert poll["body"]["report"] == report.model_dump(mode="json")
+    assert (
+        client.post(
+            "/api/studies/API/data-diff",
+            json={"left": source.model_dump(), "right": source.model_dump()},
+        ).status_code
+        == 403
+    )
 
 
 @pytest.mark.parametrize(
@@ -158,10 +196,10 @@ def test_action_submission_surfaces_known_rejection_without_waiting(
     update = WorkflowUpdateHandle(Mock(), str(uuid4()), "episode-API", known_outcome=outcome)
     update.result = AsyncMock(side_effect=AssertionError("Submission must not wait for completion"))
     handle = Mock(start_update=AsyncMock(return_value=update))
-    monkeypatch.setattr(episode_api, "_episode_handle", AsyncMock(return_value=handle))
+    monkeypatch.setattr(study_api, "_study_handle", AsyncMock(return_value=handle))
 
     response = client.post(
-        "/api/episodes/API/actions",
+        "/api/studies/API/actions",
         json={"action": "edit_model", "expected_revision": None, "model": {"question": "Why?"}},
     )
 
@@ -181,7 +219,7 @@ def test_action_submission_surfaces_known_rejection_without_waiting(
 
 def test_edit_action_validates_identity_and_base_before_publication(model_api, monkeypatch):
     client, calls, complete = model_api
-    url = "/api/episodes/API/actions"
+    url = "/api/studies/API/actions"
     first = client.post(
         url,
         json={
@@ -203,7 +241,7 @@ def test_edit_action_validates_identity_and_base_before_publication(model_api, m
     assert "MODEL_INCOMPLETE" in {message["label"] for message in result["messages"]}
     assert all(message["timestamp"] for message in result["messages"])
     assert client.get(f"{url}/{uuid4()}").status_code == 404
-    initial = client.get("/api/episodes/API/model").json()
+    initial = client.get("/api/studies/API/model").json()
     assert initial["context"]["seq"] == 1
     assert initial["model"]["value"]["question"] == "Does X change Y?"
     revision = artifact_revision("API", "model", 1)
@@ -222,7 +260,7 @@ def test_edit_action_validates_identity_and_base_before_publication(model_api, m
     assert failed["body"] is None
     assert failed["messages"][-1]["level"] == "error"
     assert (
-        client.get("/api/episodes/API/model").json()["context"]["commit_id"]
+        client.get("/api/studies/API/model").json()["context"]["commit_id"]
         == initial["context"]["commit_id"]
     )
     invalid = client.post(
@@ -247,20 +285,20 @@ def test_edit_action_validates_identity_and_base_before_publication(model_api, m
     )
     assert second.status_code == 202
     complete(second.json()["attempt_id"])
-    assert client.get("/api/episodes/API/model").json()["model"]["value"] == model.model_dump(
+    assert client.get("/api/studies/API/model").json()["model"]["value"] == model.model_dump(
         mode="json"
     )
     assert (
-        client.get(
-            "/api/episodes/API/model", params={"at": initial["context"]["commit_id"]}
-        ).json()["model"]["value"]
+        client.get("/api/studies/API/model", params={"at": initial["context"]["commit_id"]}).json()[
+            "model"
+        ]["value"]
         == initial["model"]["value"]
     )
-    records = client.get("/api/episodes/API/timeline").json()["transitions"]
+    records = client.get("/api/studies/API/timeline").json()["attempts"]
     assert [entry["action"] for entry in records] == ["edit_model"] * 3
     assert all("move" not in entry for entry in records)
     assert all("provenance" not in item for entry in records for item in entry["produced"])
-    monkeypatch.setenv("EPISODE_FACADE_READ_ONLY", "1")
+    monkeypatch.setenv("READ_ONLY_FACADE", "1")
     assert client.get(attempt_url).json() == result
     assert client.get(f"{url}/{uuid4()}").status_code == 404
 
@@ -269,17 +307,17 @@ def test_only_four_scientific_actions_are_exposed(model_api):
     client, calls, _ = model_api
     schema = client.get("/openapi.json").json()
     paths = schema["paths"]
-    assert "/api/episodes/{workspace_id}/moves" not in paths
-    assert "/api/episodes/{workspace_id}/recipes/observational-study" not in paths
-    assert "put" not in paths["/api/episodes/{workspace_id}/model"]
-    assert "/api/episodes" not in paths
+    assert "/api/studies/{workspace_id}/moves" not in paths
+    assert "/api/studies/{workspace_id}/recipes/observational-study" not in paths
+    assert "put" not in paths["/api/studies/{workspace_id}/model"]
+    assert "/api/studies" not in paths
     body = {"action": "edit_model", "expected_revision": None, "model": {}}
     assert (
-        client.post("/api/episodes/API/actions", json={**body, "provenance": "human"}).status_code
+        client.post("/api/studies/API/actions", json={**body, "provenance": "human"}).status_code
         == 422
     )
     assert (
-        client.post("/api/episodes/API/actions", json={"action": "latent_structure"}).status_code
+        client.post("/api/studies/API/actions", json={"action": "latent_structure"}).status_code
         == 422
     )
     assert not calls
@@ -287,11 +325,10 @@ def test_only_four_scientific_actions_are_exposed(model_api):
     assert "Move" not in schema["components"]["schemas"]
 
 
-def test_operation_trace_index_retains_recorded_authoring_jobs(model_api):
+def test_artifact_trace_index_follows_the_current_producer(model_api):
     client, _, _ = model_api
     store, journal = ArtifactStore("TRACES"), StudyRepository("TRACES")
-    operations: list[OperationId | None] = ["latent_structure", "measurement_structure", None]
-    for seq, operation in enumerate(operations, 1):
+    for seq in (1, 2, 3):
         info = store.write_artifact(
             "model",
             derived_from={},
@@ -299,20 +336,14 @@ def test_operation_trace_index_retains_recorded_authoring_jobs(model_api):
             json_files={"model.json": make_model(["X", "Y"], [("X", "Y")]).model_dump(mode="json")},
         )
         journal.append(
-            TransitionRecord(
+            AttemptRecord(
                 seq=seq,
                 ts="2026-01-01T00:00:00Z",
                 action="edit_model",
-                operation_id=operation,
                 status="applied",
                 produced=[info],
                 trace_ids=[f"trace-{seq}"],
-                resume=None,
             )
         )
-    for seq, operation in enumerate(operations[:2], 1):
-        response = client.get(f"/api/episodes/TRACES/operations/{operation}/traces")
-        assert response.status_code == 200
-        assert response.json()["commit_id"] == commit_id("TRACES", seq)
-    latest = client.get("/api/episodes/TRACES/artifacts/model/traces")
+    latest = client.get("/api/studies/TRACES/artifacts/model/traces")
     assert latest.json()["commit_id"] == commit_id("TRACES", 3)

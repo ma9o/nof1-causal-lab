@@ -18,7 +18,8 @@ from nof1_causal_lab.models.ssm.counterfactual.estimands import summarize_draws
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.simulation import SimulationReport
-    from nof1_causal_lab.machine.store import ArtifactStore, TransitionRecord
+    from nof1_causal_lab.study.records import AttemptRecord
+    from nof1_causal_lab.study.store import ArtifactStore
 
 
 def summarize_causal_simulation(
@@ -26,14 +27,15 @@ def summarize_causal_simulation(
     report: SimulationReport,
     *,
     store: ArtifactStore,
-    inference: TransitionRecord | None,
+    inference: AttemptRecord | None,
 ) -> SimulationReport:
     """Report numeric causal effects only when identification and exact-fit evidence support them."""
     if not report.design.interventions:
         return report
     if inference is None or model.default_outcome is None:
-        return report.model_copy(
-            update={
+        return type(report).model_validate(
+            {
+                **report.model_dump(),
                 "causal_unavailable_reason": "Causal effects require an identified model outcome and a committed production fit for this model revision.",
             }
         )
@@ -57,15 +59,18 @@ def summarize_causal_simulation(
             inference=inference,
         )
     except ValueError as exc:
-        return report.model_copy(update={"causal_unavailable_reason": str(exc)})
+        return type(report).model_validate(
+            {**report.model_dump(), "causal_unavailable_reason": str(exc)}
+        )
     assert report.reference_latent_paths is not None
     assert report.reference_observations is not None
     reference = store.read_array(report.reference_latent_paths)
     action = store.read_array(report.latent_paths)
     if not np.isfinite(reference).all() or not np.isfinite(action).all():
-        return report.model_copy(
-            update={
-                "causal_unavailable_reason": "Non-finite histories do not support numeric causal effects."
+        return type(report).model_validate(
+            {
+                **report.model_dump(),
+                "causal_unavailable_reason": "Non-finite histories do not support numeric causal effects.",
             }
         )
     effects = (
@@ -96,4 +101,4 @@ def summarize_causal_simulation(
             "Some indicator contrasts are unavailable because their measurement windows extend before simulation start."
         ],
     )
-    return report.model_copy(update={"causal_result": result})
+    return type(report).model_validate({**report.model_dump(), "causal_result": result})

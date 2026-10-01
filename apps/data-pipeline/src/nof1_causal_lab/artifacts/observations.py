@@ -5,7 +5,7 @@ from __future__ import annotations
 from typing import Annotated, get_args
 
 from polars._typing import (
-    FillNullStrategy,  # noqa: TC002 - Pydantic resolves the native vocabulary.
+    FillNullStrategy,
 )
 from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, field_validator, model_validator
 
@@ -20,7 +20,7 @@ from nof1_causal_lab.utils.observation_semantics import (
 )
 
 from .duration import parse_duration_to_hours
-from .identity import IndicatorId  # noqa: TC001
+from .identity import IndicatorId
 
 VALID_AGGREGATIONS: set[str] = set(get_args(AggregationFunction.__value__))
 

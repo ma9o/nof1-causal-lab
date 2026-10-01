@@ -1,5 +1,8 @@
 """Predictive runtime and diagnostic-report integration on a small mixed model."""
 
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from pathlib import Path
+
 from dataclasses import replace
 
 import jax
@@ -15,7 +18,7 @@ from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
     sample_prior_predictive_from_runtime,
 )
 from tests.dynamics_fixtures import potential_term
-from tests.model_fixtures import default_lambda_block, model_fixture
+from tests.model_fixtures import compile_fit_fixture, default_lambda_block
 
 pytestmark = pytest.mark.inference(concern="predictive")
 
@@ -23,18 +26,8 @@ pytestmark = pytest.mark.inference(concern="predictive")
 def test_predictive_draws_feed_mixed_family_diagnostics():
     # Exhaustive family/link domains are checked by the observation-sampling
     # test. This case checks the complete prior/runtime/report connection.
-    spec = model_fixture(
-        n_latent=1,
-        n_manifest=2,
-        dynamics_spec=DynamicsSpec(
-            1, (potential_term(target=0, center=0.0, stiffness=0.4, quartic=0.2),)
-        ),
-        lambda_block=replace(default_lambda_block(2, 1), template=jnp.ones((2, 1))),
-        manifest_dists=["gaussian", "poisson"],
-        manifest_links=["identity", "log"],
-        manifest_names=["signal", "count"],
-    )
-    runtime = SSMModel(spec).get_prior_runtime_bundle()
+    spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'posterior_predictive_integration/predictive_draws_feed_mixed_family_diagnostics_model_fixture.json').read_text())
+    runtime = SSMModel(compile_fit_fixture(spec)).get_prior_runtime_bundle()
     times = jnp.array([0.0, 0.1, 0.25, 0.4, 0.7, 1.0], dtype=jnp.float32)
     samples = sample_prior_predictive_from_runtime(spec, runtime, times, num_samples=3, seed=7)
     assert samples.trajectory.latents.shape == (3, 6, 1)

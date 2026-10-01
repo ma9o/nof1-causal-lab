@@ -9,6 +9,7 @@ the helpers with real transformation or graph logic:
 - ModelSpec state and marginalized-scale accessors
 """
 
+
 from typing import Any
 
 import pytest
@@ -21,10 +22,7 @@ from nof1_causal_lab.utils.causal_design import (
     get_outcome_name,
     make_measurement_extraction_context,
 )
-from nof1_causal_lab.utils.model_structure import (
-    get_marginalized_scales,
-    get_state_names,
-)
+from nof1_causal_lab.utils.model_structure import get_state_names
 from tests.causal.graph_fixtures import make_graph
 from tests.helpers import fixture_entity_id, make_model
 
@@ -221,138 +219,3 @@ class TestModelSpecAccessors:
         assert get_state_names(ModelSpec.model_validate(plan)) == ["stress", "mood"]
 
 
-class TestGetMarginalizedScales:
-    @staticmethod
-    def _spec(induced_dependencies: list[dict[str, Any]]) -> ModelSpec:
-        state_names = sorted(
-            {str(state) for dependency in induced_dependencies for state in dependency["between"]}
-        )
-        source_names = sorted(
-            {
-                str(source)
-                for dependency in induced_dependencies
-                for source in dependency["source_confounders"]
-            }
-        )
-        from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec
-        from tests.helpers import fixture_entity_id, make_model
-
-        model = make_model(state_names or ["observed"])
-        confounders = tuple(
-            ConstructSpec(
-                id=fixture_entity_id("construct", name),
-                name=name,
-                description="Latent root",
-                role="exogenous",
-                temporal_status=(
-                    "time_invariant"
-                    if next(
-                        dep["kind"]
-                        for dep in induced_dependencies
-                        if name in dep["source_confounders"]
-                    )
-                    == "initial_state_correlation"
-                    else "time_varying"
-                ),
-            )
-            for name in source_names
-        )
-        pairs = {
-            (source, child)
-            for dep in induced_dependencies
-            for source in dep["source_confounders"]
-            for child in dep["between"]
-        }
-        return model.revised(
-            edges=replace_constructs(
-                model.edges
-                + tuple(
-                    CausalEdgeSpec(
-                        id=fixture_entity_id("edge", source + "->" + child),
-                        cause=next(item for item in confounders if item.name == source),
-                        effect=model.get_construct(fixture_entity_id("construct", child)),
-                        description="Explicit confounding",
-                    )
-                    for source, child in sorted(pairs)
-                ),
-                tuple(c for c in model.constructs if c.indicators) + confounders,
-            )
-        )
-
-    def test_golden_like_three_plus_one_confounders_yield_two_scales(self):
-        spec = self._spec(
-            [
-                {
-                    "between": ["screen_time", "sleep_quality"],
-                    "kind": "initial_state_correlation",
-                    "source_confounders": ["age", "living_situation", "personality_traits"],
-                },
-                {
-                    "between": ["screen_time", "stress"],
-                    "kind": "initial_state_correlation",
-                    "source_confounders": ["occupation_demands"],
-                },
-            ]
-        )
-        scales = get_marginalized_scales(spec)
-
-        assert [scale["parameter"] for scale in scales] == [
-            "tau_age__living_situation__personality_traits",
-            "tau_occupation_demands",
-        ]
-        merged, solo = scales
-        assert merged["sources"] == ["age", "living_situation", "personality_traits"]
-        assert merged["affected_states"] == ["screen_time", "sleep_quality"]
-        assert merged["directions"] == [("screen_time", "sleep_quality")]
-        assert merged["kind"] == "initial_state_correlation"
-        assert solo["sources"] == ["occupation_demands"]
-        assert solo["affected_states"] == ["screen_time", "stress"]
-
-    def test_multi_scale_per_dep_when_footprints_differ(self):
-        spec = self._spec(
-            [
-                {
-                    "between": ["x", "y"],
-                    "kind": "initial_state_correlation",
-                    "source_confounders": ["c1", "c2"],
-                },
-                {
-                    "between": ["x", "z"],
-                    "kind": "initial_state_correlation",
-                    "source_confounders": ["c2"],
-                },
-                {
-                    "between": ["y", "z"],
-                    "kind": "initial_state_correlation",
-                    "source_confounders": ["c2"],
-                },
-            ]
-        )
-        scales = get_marginalized_scales(spec)
-
-        assert len(scales) == 2
-        by_name = {scale["parameter"]: scale for scale in scales}
-        assert by_name["tau_c1"]["affected_states"] == ["x", "y"]
-        assert by_name["tau_c1"]["directions"] == [("x", "y")]
-        assert by_name["tau_c2"]["affected_states"] == ["x", "y", "z"]
-        assert by_name["tau_c2"]["directions"] == [
-            ("x", "y"),
-            ("x", "z"),
-            ("y", "z"),
-        ]
-
-    def test_empty_dependencies_yield_empty_scales(self):
-        assert get_marginalized_scales(self._spec([])) == []
-
-    def test_canonical_name_is_sorted(self):
-        spec = self._spec(
-            [
-                {
-                    "between": ["x", "y"],
-                    "kind": "initial_state_correlation",
-                    "source_confounders": ["zebra", "apple", "mango"],
-                }
-            ]
-        )
-        (scale,) = get_marginalized_scales(spec)
-        assert scale["parameter"] == "tau_apple__mango__zebra"

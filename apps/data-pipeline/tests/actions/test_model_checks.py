@@ -1,5 +1,8 @@
 """Checks follow scientific input changes and never become authoring gates."""
 
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from pathlib import Path
+
 from datetime import UTC, datetime, timedelta
 
 import jax.numpy as jnp
@@ -8,17 +11,19 @@ import pytest
 
 from nof1_causal_lab.actions.contracts import EditModelRequest
 from nof1_causal_lab.actions.data_checks import evaluate_data_checks
+from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.actions.messages import completion_messages
-from nof1_causal_lab.machine.artifacts import EpisodeState
-from nof1_causal_lab.machine.execution import TransitionEffects, apply_transition
-from nof1_causal_lab.machine.history import StudyRepository
-from nof1_causal_lab.machine.store import ArtifactStore, TransitionRecord
+from nof1_causal_lab.study.history import StudyRepository
+from nof1_causal_lab.study.records import AttemptRecord
+from nof1_causal_lab.study.state import StudyState, apply_effects
+from nof1_causal_lab.study.store import ArtifactStore
 from tests.action_fixtures import edit_and_check
-from tests.integration.transition_runner_fixtures import (
+from tests.integration.runner_fixtures import (
     panel_frame,
     panel_metadata,
     scientific_model,
 )
+from tests.model_fixtures import compile_fit_fixture
 
 pytestmark = pytest.mark.inference(concern="predictive")
 
@@ -42,7 +47,7 @@ def _publish(study, effects, action="edit_model"):
         checks=effects.checks,
     )
     repository.append(
-        TransitionRecord(
+        AttemptRecord(
             seq=len(repository.attempts()) + 1,
             ts=datetime.now(UTC).isoformat(),
             status="applied",
@@ -53,7 +58,6 @@ def _publish(study, effects, action="edit_model"):
             checks=effects.checks,
             messages=messages,
             trace_ids=[],
-            resume=None,
         )
     )
     return repository.state(repository.head()), messages
@@ -63,7 +67,7 @@ def _prepare(study, state, *, n_days=4):
     store, _ = study
     panel = store.write_artifact(
         "panel",
-        produced_by="run:measurements",
+        produced_by="prepare_data",
         derived_from={},
         json_files={"metadata.json": panel_metadata().model_dump(mode="json")},
         parquet_files={"panel.parquet": panel_frame(n_days=n_days)},
@@ -71,7 +75,7 @@ def _prepare(study, state, *, n_days=4):
     return evaluate_data_checks(
         store.workspace_id,
         state,
-        TransitionEffects(produced=[panel]),
+        ActionEffects(produced=[panel]),
     )
 
 
@@ -94,11 +98,11 @@ def test_automatic_exact_batch_reuse_and_input_invalidation(study, monkeypatch):
 
     monkeypatch.setattr(simulation, "generate_simulation_batch", counted)
     store, repository = study
-    model = scientific_model()
+    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'model_checks/automatic_exact_batch_reuse_and_input_invalidation_scientific_model.json').read_text())
     initial = edit_and_check(
         store.workspace_id,
         EditModelRequest(expected_revision=None, model=model),
-        EpisodeState(),
+        StudyState(),
     )
     assert initial.checks.predictive.reason == "NO_COMPATIBLE_PANEL"
     state, _ = _publish(study, initial)
@@ -169,8 +173,11 @@ def test_automatic_exact_batch_reuse_and_input_invalidation(study, monkeypatch):
     assert repository.state(historical).checks.predictive == report
 
 
-@pytest.mark.parametrize("failure", ["paths", "emission_mean"])
-def test_nonfinite_findings_save_but_generator_errors_do_not_publish(study, monkeypatch, failure):
+@pytest.mark.parametrize(('failure', 'scientific_model_payload', 'scientific_model_2_payload', 'scientific_model_3_payload'), [
+    pytest.param('paths', 'model_checks/nonfinite_findings_save_but_generator_errors_do_not_publish_scientific_model_paths.json', 'model_checks/nonfinite_findings_save_but_generator_errors_do_not_publish_scientific_model_2_paths.json', 'model_checks/nonfinite_findings_save_but_generator_errors_do_not_publish_scientific_model_3_paths.json', id='paths'),
+    pytest.param('emission_mean', 'model_checks/nonfinite_findings_save_but_generator_errors_do_not_publish_scientific_model_emission_mean.json', 'model_checks/nonfinite_findings_save_but_generator_errors_do_not_publish_scientific_model_2_emission_mean.json', 'model_checks/nonfinite_findings_save_but_generator_errors_do_not_publish_scientific_model_3_emission_mean.json', id='emission_mean'),
+])
+def test_nonfinite_findings_save_but_generator_errors_do_not_publish(study, monkeypatch, failure, scientific_model_payload, scientific_model_2_payload, scientific_model_3_payload):
     from nof1_causal_lab.models.ssm.predictive.types import PredictiveDraws, PredictiveTrajectory
 
     def nonfinite(model, samples, times, **_kwargs):
@@ -204,8 +211,8 @@ def test_nonfinite_findings_save_but_generator_errors_do_not_publish(study, monk
     store, repository = study
     initial = edit_and_check(
         store.workspace_id,
-        EditModelRequest(expected_revision=None, model=scientific_model()),
-        EpisodeState(),
+        EditModelRequest(expected_revision=None, model=ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / scientific_model_payload).read_text())),
+        StudyState(),
     )
     state, _ = _publish(study, initial)
     prepared = _prepare(study, state)
@@ -213,7 +220,7 @@ def test_nonfinite_findings_save_but_generator_errors_do_not_publish(study, monk
     checked = edit_and_check(
         store.workspace_id,
         EditModelRequest(
-            expected_revision=state.current["model"].revision, model=scientific_model()
+            expected_revision=state.current["model"].revision, model=ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / scientific_model_2_payload).read_text())
         ),
         state,
     )
@@ -234,12 +241,12 @@ def test_nonfinite_findings_save_but_generator_errors_do_not_publish(study, monk
 
     monkeypatch.setattr(simulation, "simulate_predictive_draws", broken)
     prepared = _prepare(study, state, n_days=5)
-    selected = apply_transition(state, prepared.produced, prepared.retracted)
+    selected = apply_effects(state, prepared.produced, prepared.retracted)
     with pytest.raises(RuntimeError, match="unexpected generator defect"):
         edit_and_check(
             store.workspace_id,
             EditModelRequest(
-                expected_revision=state.current["model"].revision, model=scientific_model()
+                expected_revision=state.current["model"].revision, model=ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / scientific_model_3_payload).read_text())
             ),
             selected,
         )
@@ -261,20 +268,20 @@ def test_joint_laws_can_be_checked_when_refitting_is_unsupported(study, monkeypa
     from tests.model_fixtures import parameter_draws
 
     store, _ = study
-    model = scientific_model()
+    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'model_checks/joint_laws_can_be_checked_when_refitting_is_unsupported_scientific_model.json').read_text())
     initial = edit_and_check(
-        store.workspace_id, EditModelRequest(expected_revision=None, model=model), EpisodeState()
+        store.workspace_id, EditModelRequest(expected_revision=None, model=model), StudyState()
     )
     state, _ = _publish(study, initial)
     panel = store.write_artifact(
         "panel",
-        produced_by="run:measurements",
+        produced_by="prepare_data",
         derived_from={},
         json_files={"metadata.json": panel_metadata().model_dump(mode="json")},
         parquet_files={"panel.parquet": panel_frame(n_days=4)},
     )
     conditioned = condition_model(
-        model,
+        compile_fit_fixture(model),
         ParticleMCMCPosterior(
             JointPosteriorDraws(
                 parameter_draws(model, 3),
@@ -285,25 +292,24 @@ def test_joint_laws_can_be_checked_when_refitting_is_unsupported(study, monkeypa
     )
     fitted = store.write_artifact(
         "model",
-        produced_by="run:posterior",
+        produced_by="fit",
         derived_from={"model": state.current["model"].revision, "panel": panel.revision},
         json_files={"model.json": conditioned.model_dump(mode="json")},
     )
-    data_effects = evaluate_data_checks(
-        store.workspace_id, state, TransitionEffects(produced=[panel])
-    )
+    data_effects = evaluate_data_checks(store.workspace_id, state, ActionEffects(produced=[panel]))
     from nof1_causal_lab.artifacts.posterior import InferenceReport
     from tests.inference_fixtures import inference_log
 
     fitted_log = inference_log(conditioned)
     # Historical fits used the first selected anchor, one day after this panel's
     # new support-boundary origin. Predictive checks must keep those coordinates.
-    historical_report = InferenceReport.model_validate(fitted_log.diagnostics["report"]).model_copy(
-        update={"time_origin": datetime(2024, 1, 2, tzinfo=UTC)}
+    historical_report = InferenceReport.model_validate(
+        {**fitted_log.diagnostics["report"], "time_origin": datetime(2024, 1, 2, tzinfo=UTC)}
     )
     study[1].append(
-        fitted_log.model_copy(
-            update={
+        type(fitted_log).model_validate(
+            {
+                **fitted_log.model_dump(),
                 "seq": 2,
                 "produced": [*data_effects.produced, fitted],
                 "diagnostics": {
@@ -313,7 +319,7 @@ def test_joint_laws_can_be_checked_when_refitting_is_unsupported(study, monkeypa
             }
         )
     )
-    state = apply_transition(state, [*data_effects.produced, fitted], [])
+    state = apply_effects(state, [*data_effects.produced, fitted], [])
     calls = []
 
     def sample(model, design, **kwargs):
@@ -359,11 +365,11 @@ def test_joint_laws_can_be_checked_when_refitting_is_unsupported(study, monkeypa
     assert checked.checks.predictive.status == "passed"
     assert checked.checks.predictive.law.kind == "fitted"
     assert checked.checks.predictive.law.interpretation == "in_sample_posterior_predictive"
-    state = apply_transition(state, checked.produced, checked.retracted, checked.checks)
+    state = apply_effects(state, checked.produced, checked.retracted, checked.checks)
     # Preparing the same observations creates a new revision, not a held-out study.
     prepared = _prepare(study, state)
     assert prepared.checks is None
-    state = apply_transition(state, prepared.produced, prepared.retracted)
+    state = apply_effects(state, prepared.produced, prepared.retracted)
     checked = edit_and_check(
         store.workspace_id,
         EditModelRequest(expected_revision=state.current["model"].revision, model=conditioned),
@@ -383,18 +389,18 @@ def test_joint_laws_can_be_checked_when_refitting_is_unsupported(study, monkeypa
         metadata = panel_metadata()
         frame = panel_frame(n_days=4)
         if calendar_free:
-            metadata = metadata.model_copy(update={"time_origin": None})
+            metadata = type(metadata).model_validate({**metadata.model_dump(), "time_origin": None})
         else:
             frame = frame.with_columns(
                 pl.col("anchor_time", "support_start", "support_end").str.to_datetime()
                 - timedelta(days=1)
             )
-            metadata = metadata.model_copy(
-                update={"time_origin": datetime(2023, 12, 31, tzinfo=UTC)}
+            metadata = type(metadata).model_validate(
+                {**metadata.model_dump(), "time_origin": datetime(2023, 12, 31, tzinfo=UTC)}
             )
         incompatible = store.write_artifact(
             "panel",
-            produced_by="run:measurements",
+            produced_by="prepare_data",
             derived_from={},
             json_files={"metadata.json": metadata.model_dump(mode="json")},
             parquet_files={"panel.parquet": frame},
@@ -410,7 +416,10 @@ def test_joint_laws_can_be_checked_when_refitting_is_unsupported(study, monkeypa
         assert detail in edited.checks.predictive.detail
         assert len(calls) == 2  # Only the two earlier, compatible checks generated a batch.
         state, messages = _publish(
-            study, edited.model_copy(update={"produced": [incompatible, *edited.produced]})
+            study,
+            type(edited).model_validate(
+                {**edited.model_dump(), "produced": [incompatible, *edited.produced]}
+            ),
         )
         assert study[1].state(study[1].head()).checks.predictive == edited.checks.predictive
         assert any(message.label == "SIMULATION_CHECK_NOT_EVALUATED" for message in messages)

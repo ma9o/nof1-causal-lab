@@ -15,10 +15,8 @@ type JsonSchema = any;
 
 const ROOT = dirname(dirname(resolve(import.meta.filename)));
 const SCHEMA_PATH = resolve(ROOT, "schemas", "contracts.json");
-const TOOLS_SCHEMA_PATH = resolve(ROOT, "schemas", "tools.json");
 const METADATA_PATH = resolve(ROOT, "schemas", "metadata.json");
 const OUTPUT_PATH = resolve(ROOT, "src", "generated", "models.ts");
-const TOOLS_OUTPUT_PATH = resolve(ROOT, "src", "generated", "tools.ts");
 const METADATA_OUTPUT_PATH = resolve(ROOT, "src", "generated", "metadata.ts");
 const checkOnly = process.argv.includes("--check");
 const changedPaths: string[] = [];
@@ -157,77 +155,6 @@ function stripFieldTitles(schema: JsonSchema, isTopLevel = true): JsonSchema {
   return result;
 }
 
-/**
- * Generate tools.ts from the tools.json schema exported by Python.
- *
- * Produces a typed constant with tool definitions per context and an
- * INTERACTIVE_CONTEXTS set, directly consumable by the refinement route.
- */
-function generateTools(): void {
-  const toolsSchema = JSON.parse(readFileSync(TOOLS_SCHEMA_PATH, "utf-8"));
-  const interactive: string[] = toolsSchema._interactive ?? [];
-
-  const lines: string[] = [
-    "/* eslint-disable */",
-    "/**",
-    " * AUTO-GENERATED — DO NOT EDIT",
-    " *",
-    " * Generated from Python ToolDefinition definitions via:",
-    " *   cd apps/data-pipeline && uv run python -m scripts.codegen.export_api",
-    " *   cd packages/api-types && bun run scripts/generate.ts",
-    " *",
-    " * Source of truth: apps/data-pipeline/src/nof1_causal_lab/flows/context_tools.py",
-    " */",
-    "",
-    "export interface ToolDefinition {",
-    "  name: string;",
-    "  description: string;",
-    "  /** JSON Schema for the tool's input parameters */",
-    "  parameters: Record<string, unknown>;",
-    "  /** JSON Schema for the tool's result payload, when declared */",
-    "  result?: Record<string, unknown> | null;",
-    "}",
-    "",
-    "export const CONTEXT_TOOLS: Record<string, ToolDefinition[]> = {",
-  ];
-
-  let totalTools = 0;
-  for (const [contextId, tools] of Object.entries(toolsSchema)) {
-    if (contextId.startsWith("_")) continue;
-    const toolArray = tools as Array<{
-      name: string;
-      description: string;
-      parameters: unknown;
-      result?: unknown;
-    }>;
-    lines.push(`  ${JSON.stringify(contextId)}: [`);
-    for (const tool of toolArray) {
-      lines.push("    {");
-      lines.push(`      name: ${JSON.stringify(tool.name)},`);
-      lines.push(`      description: ${JSON.stringify(tool.description)},`);
-      lines.push(`      parameters: ${JSON.stringify(tool.parameters)},`);
-      if ("result" in tool) {
-        lines.push(`      result: ${JSON.stringify(tool.result ?? null)},`);
-      }
-      lines.push("    },");
-      totalTools++;
-    }
-    lines.push("  ],");
-  }
-
-  lines.push("};");
-  lines.push("");
-  lines.push(
-    `export const INTERACTIVE_CONTEXTS: readonly string[] = ${JSON.stringify(interactive)} as const;`,
-  );
-  lines.push("");
-
-  writeOrCheck(TOOLS_OUTPUT_PATH, lines.join("\n"));
-  if (!checkOnly) {
-    console.log(`Generated ${totalTools} tool definitions → ${TOOLS_OUTPUT_PATH}`);
-  }
-}
-
 function generateMetadata(): void {
   const metadata = JSON.parse(readFileSync(METADATA_PATH, "utf-8"));
   const byDist = metadata.observationHyperparametersByDistribution;
@@ -243,10 +170,8 @@ function generateMetadata(): void {
     " * Source of truth: apps/data-pipeline/src/nof1_causal_lab/distributions.py",
     " */",
     "",
-    'import type { ArtifactId, ArtifactFileSpec, MachineDescription } from "./models";',
-    `export const MACHINE_DESCRIPTION: MachineDescription = ${JSON.stringify(metadata.machine, null, 2)};`,
+    'import type { ArtifactId } from "./models";',
     `export const ARTIFACT_IDS = ${JSON.stringify(metadata.artifactIds)} as const satisfies readonly ArtifactId[];`,
-    `export const ARTIFACT_FILE_SPECS: Record<ArtifactId, ArtifactFileSpec> = ${JSON.stringify(metadata.artifactFiles, null, 2)};`,
     "",
     `const _OBS_HYPERS_BY_DIST = ${JSON.stringify(byDist, null, 2)} as const;`,
     "",
@@ -279,7 +204,7 @@ async function main() {
       " *   cd packages/api-types && bun run scripts/generate.ts\n" +
       " *\n" +
       " * Source of truth: apps/data-pipeline/src/nof1_causal_lab/artifacts/catalog.py\n" +
-      " * plus facade API models exported from apps/data-pipeline/src/nof1_causal_lab/episode_api.py\n" +
+      " * plus facade API models exported from apps/data-pipeline/src/nof1_causal_lab/study_api.py\n" +
       " */",
     additionalProperties: false,
     strictIndexSignatures: false,
@@ -300,8 +225,6 @@ async function main() {
     console.log(`Generated ${count} types/interfaces → ${OUTPUT_PATH}`);
   }
 
-  // Generate tool definitions
-  generateTools();
   generateMetadata();
 
   if (checkOnly && changedPaths.length > 0) {

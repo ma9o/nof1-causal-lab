@@ -8,7 +8,7 @@ from pydantic import Field, model_validator
 
 from nof1_causal_lab.distributions import VALID_LIKELIHOODS_FOR_DTYPE
 
-from .likelihood import LikelihoodSpec  # noqa: TC001
+from .likelihood import LikelihoodSpec
 from .observations import ObservationSpec
 
 

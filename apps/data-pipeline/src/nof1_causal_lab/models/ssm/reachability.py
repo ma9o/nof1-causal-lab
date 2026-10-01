@@ -38,12 +38,12 @@ class CheckResult:
     def unevaluated(cls, check: str, target: str, reason: str, note: str) -> CheckResult:
         return cls(check, target, "not_evaluated", "", None, note, reason=reason)
 
-    def finding(self, construct_id: ConstructId | None = None) -> PredictiveCheckFinding:
+    def finding(self, construct_id: ConstructId, target: str) -> PredictiveCheckFinding:
         """Project the measured fields while retaining numerical evidence in the runtime."""
         return PredictiveCheckFinding(
             check=self.check,
             construct_id=construct_id,
-            target=self.target,
+            target=target,
             value=self.value,
             band=self.band,
             passed=self.passed,

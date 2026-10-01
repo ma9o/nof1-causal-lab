@@ -12,7 +12,7 @@ from .expressions import (
     Expression,
     walk_expression,
 )
-from .identity import MechanismId  # noqa: TC001
+from .identity import MechanismId
 
 
 class DynamicsMechanismSpec(BaseModel):

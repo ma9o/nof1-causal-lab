@@ -4,8 +4,8 @@ from __future__ import annotations
 
 import ast
 import re
-from datetime import date  # noqa: TC003 - Pydantic resolves date bounds at runtime.
-from typing import Annotated, Literal, Self, override
+from datetime import date
+from typing import TYPE_CHECKING, Annotated, Literal, Self, override
 
 from pydantic import (
     AfterValidator,
@@ -17,8 +17,6 @@ from pydantic import (
     model_validator,
 )
 
-from nof1_causal_lab.json_types import JsonObject  # noqa: TC001
-from nof1_causal_lab.measurement_types import AggregationFunction  # noqa: TC001
 from nof1_causal_lab.utils.aggregations import COMPUTED_RULE_FUNCTIONS
 from nof1_causal_lab.utils.observation_semantics import (
     IndicatorObservationSemantics,
@@ -26,8 +24,12 @@ from nof1_causal_lab.utils.observation_semantics import (
 )
 
 from .duration import parse_duration_to_hours
-from .identity import GitOid  # noqa: TC001
+from .identity import GitOid
 from .observations import ObservationSpec
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.measurement_types import AggregationFunction
+    from nof1_causal_lab.workers.context import MeasurementContext
 
 _SEMANTIC_COLLISIONS: list[tuple[str, set[str], str]] = [
     (
@@ -295,7 +297,7 @@ class DataPreparationSpec(BaseModel):
             for item in self.variables
         )
 
-    def extraction_context(self) -> JsonObject:
+    def extraction_context(self) -> MeasurementContext:
         return {
             "model_clock": self.default_window,
             "indicators": [item.model_dump(mode="json") for item in self.variables],

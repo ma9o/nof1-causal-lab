@@ -15,7 +15,7 @@ import yaml
 from dotenv import load_dotenv
 from pydantic import ConfigDict, TypeAdapter, with_config
 
-from nof1_causal_lab.llm_specs import (  # noqa: TC001 - resolved by Pydantic at the YAML boundary
+from nof1_causal_lab.llm_specs import (
     EmbeddedLLMSpec,
     EmbeddedReasoningEffort,
     HarnessEffort,

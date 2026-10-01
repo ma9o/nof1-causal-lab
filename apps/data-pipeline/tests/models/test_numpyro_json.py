@@ -1,19 +1,20 @@
 """The persistence boundary preserves native laws, dimensions, and scientific evidence."""
 
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from pathlib import Path
+
 import json
 
 import jax.numpy as jnp
 import numpy as np
 import numpyro.distributions as dist
 import pytest
-from notebooks.predictive_support import model_with_prior_payloads
 from pydantic import TypeAdapter, ValidationError
 
 from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
-from nof1_causal_lab.models.model_distributions import with_parameter_distributions
 from nof1_causal_lab.numpyro_json import NumPyroDistribution
 from nof1_causal_lab.prior_distributions import persistence_to_decay
-from tests.helpers import complete_test_model, make_model
+from tests.helpers import make_model
 
 _ADAPTER = TypeAdapter(NumPyroDistribution)
 
@@ -73,32 +74,15 @@ def test_invalid_native_constructors_are_rejected(payload):
 
 @pytest.mark.contract
 def test_parameter_changes_distribution_without_keeping_authoring_history():
-    model = complete_test_model(make_model(["X"]))
+    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'numpyro_json/parameter_changes_distribution_without_keeping_authoring_history_complete_test_model.json').read_text())
     parameter = model.parameters[0]
-    specified = model_with_prior_payloads(
-        model,
-        {
-            parameter.id: {
-                "distribution": "Normal",
-                "params": {"mu": 0.4, "sigma": 0.2},
-                "reference_interval_days": 7.0,
-                "reasoning": "Weekly effect estimate",
-                "sources": [
-                    {
-                        "title": "A study",
-                        "snippet": "Weekly estimate",
-                        "url": "https://example.com/study",
-                    }
-                ],
-            }
-        },
-    )
+    specified = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'numpyro_json/parameter_changes_distribution_without_keeping_authoring_history_model_with_prior_payloads.json').read_text())
     restored = type(model).model_validate_json(specified.model_dump_json())
     assert restored == specified
     assert restored.parameter(parameter.id).id == parameter.id
     assert isinstance(restored.distribution_for(parameter.id), dist.Normal)
     assert restored.parameter(parameter.id).reference_interval_days == 7.0
-    revised = with_parameter_distributions(restored, {parameter.id: dist.Normal(0.3, 0.1)})
+    revised = restored.revised(distributions={**restored.distributions, restored.parameter(parameter.id).distribution: dist.Normal(0.3, 0.1)})
     assert (
         revised.parameter(parameter.id).distribution
         == restored.parameter(parameter.id).distribution
@@ -117,37 +101,28 @@ def test_parameter_changes_distribution_without_keeping_authoring_history():
 
 @pytest.mark.contract
 def test_parameter_tool_boundary_validates_the_reference_interval():
-    model = complete_test_model(make_model(["X"]))
+    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'numpyro_json/parameter_tool_boundary_validates_the_reference_interval_complete_test_model.json').read_text())
     with pytest.raises(ValidationError):
-        model_with_prior_payloads(
-            model,
-            {
-                model.parameters[0].id: {
-                    "distribution": "Normal",
-                    "params": {"mu": 0.4, "sigma": 0.2},
-                    "reference_interval_days": -7.0,
-                }
-            },
-        )
+        ParameterSpec.model_validate({**model.parameters[0].model_dump(), "reference_interval_days": -7.0})
 
 
 @pytest.mark.contract
 def test_completed_model_requires_a_prior_on_each_parameter():
-    from evaluation.fixtures.prior_planning import complete_parameter_priors
 
     from nof1_causal_lab.compilation_errors import IncompleteModelError
-    from tests.helpers import complete_test_model, make_model
+    from tests.helpers import make_model
 
-    science = complete_test_model(make_model(["X"]))
+    science = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'numpyro_json/completed_model_requires_a_prior_on_each_parameter_complete_test_model.json').read_text())
     draft = science.revised(
         distributions={},
         parameters=tuple(
-            parameter.model_copy(update={"distribution": None}) for parameter in science.parameters
+            type(parameter).model_validate({**parameter.model_dump(), "distribution": None})
+            for parameter in science.parameters
         ),
     )
     with pytest.raises(IncompleteModelError, match="prior"):
         draft.require_priors()
-    completed = complete_parameter_priors(draft)
+    completed = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'numpyro_json/completed_model_requires_a_prior_on_each_parameter_complete_parameter_priors.json').read_text())
     completed.require_priors()
     assert [p.id for p in completed.parameters] == [p.id for p in draft.parameters]
     assert all(p.distribution is not None for p in completed.parameters)
@@ -156,7 +131,7 @@ def test_completed_model_requires_a_prior_on_each_parameter():
 
 @pytest.mark.contract
 def test_law_memberships_reject_dangling_unused_and_accidentally_shared_scalar_laws():
-    model = complete_test_model(make_model(["X"]))
+    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'numpyro_json/law_memberships_reject_dangling_unused_and_accidentally_shared_scalar_laws_complete_test_model.json').read_text())
     first, second = model.parameters[:2]
     assert first.distribution != second.distribution
     with pytest.raises(ValidationError, match="every reference must exist"):
@@ -168,7 +143,7 @@ def test_law_memberships_reject_dangling_unused_and_accidentally_shared_scalar_l
     with pytest.raises(ValidationError, match="exactly one parameter"):
         model.revised(
             parameters=tuple(
-                p.model_copy(update={"distribution": first.distribution})
+                type(p).model_validate({**p.model_dump(), "distribution": first.distribution})
                 if p.id == second.id
                 else p
                 for p in model.parameters

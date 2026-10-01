@@ -12,26 +12,21 @@ from nof1_causal_lab.artifacts.expressions import (
     LiteralExpression,
     StateExpression,
     coefficient,
-    map_expression,
-    state,
 )
 from nof1_causal_lab.artifacts.likelihood import (
     VALID_LINKS_FOR_DISTRIBUTION,
-    LikelihoodSpec,
     LinkFunction,
     ObservationLawSpec,
 )
-from nof1_causal_lab.distributions import DistributionFamily
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from nof1_causal_lab.artifacts.expressions import (
         CoefficientRole,
         Expression,
         ExpressionFunction,
     )
     from nof1_causal_lab.artifacts.identity import ConstructId
+    from nof1_causal_lab.distributions import DistributionFamily
 
 
 def function(name: ExpressionFunction, *arguments: Expression) -> CallExpression:
@@ -187,112 +182,3 @@ def likelihood_terms(law: ObservationLawSpec) -> LikelihoodTerms:
     if link not in VALID_LINKS_FOR_DISTRIBUTION[family]:
         raise ValueError(f"Unsupported response for {law.distribution}")
     return LikelihoodTerms(family, link, predictor, intercept, loadings, tuple(auxiliary))
-
-
-def observation_law(  # noqa: V103 - public editable conditional-law constructor
-    construct_id: ConstructId,
-    family: DistributionFamily,
-    link: LinkFunction,
-) -> ObservationLawSpec:
-    """Construct an editable scientific formula with explicit unassigned operands."""
-    if link not in VALID_LINKS_FOR_DISTRIBUTION[family]:
-        raise ValueError(f"link {link.value!r} is invalid for {family.value}")
-    if family == DistributionFamily.DELTA:
-        return ObservationLawSpec(distribution="Delta", arguments={"v": state(construct_id)})
-    predictor = coefficient(None, "observation_intercept") + coefficient(None, "loading") * state(
-        construct_id
-    )
-    match link:
-        case LinkFunction.LOG:
-            response = function("exp", predictor)
-        case LinkFunction.LOGIT:
-            response = function("sigmoid", predictor)
-        case LinkFunction.PROBIT:
-            response = function("normal_cdf", predictor)
-        case LinkFunction.INVERSE:
-            response = LiteralExpression(value=1) / predictor
-        case _:
-            response = predictor
-    match family:
-        case DistributionFamily.GAUSSIAN:
-            name, arguments = (
-                "Normal",
-                {"loc": predictor, "scale": coefficient(None, "observation_scale")},
-            )
-        case DistributionFamily.STUDENT_T:
-            name, arguments = (
-                "StudentT",
-                {
-                    "df": coefficient(None, "degrees_of_freedom"),
-                    "loc": predictor,
-                    "scale": coefficient(None, "observation_scale"),
-                },
-            )
-        case DistributionFamily.POISSON:
-            name, arguments = "Poisson", {"rate": response}
-        case DistributionFamily.GAMMA:
-            shape = coefficient(None, "shape")
-            name, arguments = "Gamma", {"concentration": shape, "rate": shape / response}
-        case DistributionFamily.BERNOULLI:
-            name, arguments = (
-                "Bernoulli",
-                {"logits": predictor} if link == LinkFunction.LOGIT else {"probs": response},
-            )
-        case DistributionFamily.NEGATIVE_BINOMIAL:
-            name, arguments = (
-                "NegativeBinomial2",
-                {"mean": response, "concentration": coefficient(None, "dispersion")},
-            )
-        case DistributionFamily.BETA:
-            concentration = coefficient(None, "concentration")
-            name, arguments = (
-                "Beta",
-                {
-                    "concentration1": response * concentration,
-                    "concentration0": (LiteralExpression(value=1) - response) * concentration,
-                },
-            )
-        case DistributionFamily.ORDERED_LOGISTIC:
-            name, arguments = (
-                "OrderedLogistic",
-                {
-                    "predictor": predictor,
-                    "cutpoints": function(
-                        "ordered_cutpoints",
-                        coefficient(None, "cutpoint_base"),
-                        coefficient(None, "cutpoint_gaps"),
-                    ),
-                },
-            )
-        case DistributionFamily.CATEGORICAL:
-            name, arguments = (
-                "Categorical",
-                {
-                    "logits": function(
-                        "category_logits",
-                        predictor,
-                        coefficient(None, "category_intercepts"),
-                        coefficient(None, "category_slopes"),
-                    )
-                },
-            )
-    return ObservationLawSpec(distribution=name, arguments=arguments)
-
-
-def revise_law(  # noqa: V103 - public immutable conditional-law editing API
-    likelihood: LikelihoodSpec, transform: Callable[[Expression], Expression]
-) -> LikelihoodSpec:
-    """Revise scientific operands while preserving the conditional formula."""
-    law = ObservationLawSpec(
-        distribution=likelihood.law.distribution,
-        arguments={
-            name: map_expression(value, transform)
-            for name, value in likelihood.law.arguments.items()
-        },
-    )
-    return LikelihoodSpec(
-        law=law,
-        standardized=likelihood.standardized,
-        reasoning=likelihood.reasoning,
-        sources=likelihood.sources,
-    )

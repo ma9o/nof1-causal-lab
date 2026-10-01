@@ -1,27 +1,7 @@
 /** AUTO-GENERATED from FastAPI OpenAPI. Run bun run codegen. */
 import type * as Domain from "./models";
 export interface paths {
-    "/api/episodes/{workspace_id}/actions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        get?: never;
-        put?: never;
-        /**
-         * Execute Scientific Action
-         * @description Accept durable work and return its receipt; retrieve results by polling the attempt.
-         */
-        post: operations["execute_scientific_action_api_episodes__workspace_id__actions_post"];
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/episodes/{workspace_id}/actions/{attempt_id}": {
+    "/api/studies/{workspace_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -29,10 +9,14 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Poll Scientific Action
-         * @description Read accumulated labels and the final scientific body without dispatching work.
+         * Get Study
+         * @description Current study state: the single read to poll while navigating.
+         *
+         *     Returns the four scientific action names and per-artifact existence,
+         *     freshness and revision from the selected Git branch snapshot, and the
+         *     attempt the study's Temporal workflow is executing on any branch, if any.
          */
-        get: operations["poll_scientific_action_api_episodes__workspace_id__actions__attempt_id__get"];
+        get: operations["get_study_api_studies__workspace_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -41,7 +25,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/episodes/{workspace_id}/model": {
+    "/api/studies/{workspace_id}/model": {
         parameters: {
             query?: never;
             header?: never;
@@ -55,7 +39,7 @@ export interface paths {
          *     Omit `at` for the selected branch head, or pass an exact Git commit ID.
          *     Use `context.commit_id` to pin subsequent reads. Failed attempts retain logs without advancing scientific state.
          */
-        get: operations["get_model_snapshot_api_episodes__workspace_id__model_get"];
+        get: operations["get_model_snapshot_api_studies__workspace_id__model_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -64,47 +48,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/episodes/{workspace_id}/revisions": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Get Revisions
-         * @description List stored model, observation and source revisions for deliberate selection.
-         */
-        get: operations["get_revisions_api_episodes__workspace_id__revisions_get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/episodes/{workspace_id}/revisions/model/{revision}": {
-        parameters: {
-            query?: never;
-            header?: never;
-            path?: never;
-            cookie?: never;
-        };
-        /**
-         * Read Model Revision
-         * @description Read a historical definition, including the input to an earlier fit.
-         */
-        get: operations["read_model_revision_api_episodes__workspace_id__revisions_model__revision__get"];
-        put?: never;
-        post?: never;
-        delete?: never;
-        options?: never;
-        head?: never;
-        patch?: never;
-        trace?: never;
-    };
-    "/api/episodes/{workspace_id}/model-diff": {
+    "/api/studies/{workspace_id}/model-diff": {
         parameters: {
             query?: never;
             header?: never;
@@ -129,7 +73,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/episodes/{workspace_id}/data-diff": {
+    "/api/studies/{workspace_id}/data-diff": {
         parameters: {
             query?: never;
             header?: never;
@@ -140,7 +84,7 @@ export interface paths {
         put?: never;
         /**
          * Post Data Diff
-         * @description Compare existing datasets without creating an action, fitting or simulating.
+         * @description Record a comparison as a read-only leaf off the branch head captured at dispatch.
          *
          *     Each side accepts a data reference or a nonempty array of references. Panel
          *     references select artifact revisions; simulation references select applied
@@ -148,6 +92,10 @@ export interface paths {
          *     Simulation calendar coordinates come from the saved report's origin.
          *     Exact anchors and measurement windows determine which predictive comparisons
          *     are available. Results preserve each history and report incompatible inputs.
+         *     Poll the returned attempt_id for the report and its commit_id. The study's
+         *     serialized writer saves the report beside the journal record; it never moves
+         *     the branch or changes scientific state. Failed comparisons also leave a leaf.
+         *     GET /data-diff/{commit_id} reads a saved report without running the comparison.
          */
         post: operations["data_diff"];
         delete?: never;
@@ -156,7 +104,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/episodes/{workspace_id}/revisions/data-profile/{panel_revision}": {
+    "/api/studies/{workspace_id}/data-diff/{commit_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -164,10 +112,10 @@ export interface paths {
             cookie?: never;
         };
         /**
-         * Read Data Profile
-         * @description Read the empirical profile for an observation revision independently of the model.
+         * Get Data Diff
+         * @description Read a comparison's saved evidence; timeline records contain no report payload.
          */
-        get: operations["read_data_profile_api_episodes__workspace_id__revisions_data_profile__panel_revision__get"];
+        get: operations["get_data_diff_api_studies__workspace_id__data_diff__commit_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -176,7 +124,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/episodes/{workspace_id}/model/definition": {
+    "/api/studies/{workspace_id}/model/definition": {
         parameters: {
             query?: never;
             header?: never;
@@ -187,7 +135,7 @@ export interface paths {
          * Get Model Definition
          * @description The canonical scientific value selected by this journal revision.
          */
-        get: operations["get_model_definition_api_episodes__workspace_id__model_definition_get"];
+        get: operations["get_model_definition_api_studies__workspace_id__model_definition_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -196,7 +144,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/episodes/{workspace_id}/model/inference-report": {
+    "/api/studies/{workspace_id}/model/inference-report": {
         parameters: {
             query?: never;
             header?: never;
@@ -205,9 +153,9 @@ export interface paths {
         };
         /**
          * Get Model Inference Report
-         * @description Read the inference transition report associated with the selected model revision.
+         * @description Read the fit report associated with the selected model revision.
          */
-        get: operations["get_model_inference_report_api_episodes__workspace_id__model_inference_report_get"];
+        get: operations["get_model_inference_report_api_studies__workspace_id__model_inference_report_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -216,7 +164,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/episodes/{workspace_id}/model/visuals/observations/{indicator_id}": {
+    "/api/studies/{workspace_id}/model/visuals/observations/{indicator_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -227,7 +175,7 @@ export interface paths {
          * Get Observation History
          * @description All prepared observations on their recorded temporal support.
          */
-        get: operations["get_observation_history_api_episodes__workspace_id__model_visuals_observations__indicator_id__get"];
+        get: operations["get_observation_history_api_studies__workspace_id__model_visuals_observations__indicator_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -236,7 +184,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/episodes/{workspace_id}/model/visuals/predictive/{indicator_id}": {
+    "/api/studies/{workspace_id}/model/visuals/predictive/{indicator_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -247,7 +195,7 @@ export interface paths {
          * Get Predictive History
          * @description Saved predictive paths on the exact schedule of their pinned inputs.
          */
-        get: operations["get_predictive_history_api_episodes__workspace_id__model_visuals_predictive__indicator_id__get"];
+        get: operations["get_predictive_history_api_studies__workspace_id__model_visuals_predictive__indicator_id__get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -256,7 +204,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/episodes/{workspace_id}/model/visuals/simulation": {
+    "/api/studies/{workspace_id}/model/visuals/simulation": {
         parameters: {
             query?: never;
             header?: never;
@@ -267,7 +215,7 @@ export interface paths {
          * Get Simulation Paths
          * @description A contiguous page of original simulation draws, without time thinning.
          */
-        get: operations["get_simulation_paths_api_episodes__workspace_id__model_visuals_simulation_get"];
+        get: operations["get_simulation_paths_api_studies__workspace_id__model_visuals_simulation_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -276,7 +224,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/episodes/{workspace_id}/model/visuals/parameters": {
+    "/api/studies/{workspace_id}/model/visuals/parameters": {
         parameters: {
             query?: never;
             header?: never;
@@ -287,7 +235,7 @@ export interface paths {
          * Get Parameter Draws
          * @description All coordinates and all draws of the retained joint posterior.
          */
-        get: operations["get_parameter_draws_api_episodes__workspace_id__model_visuals_parameters_get"];
+        get: operations["get_parameter_draws_api_studies__workspace_id__model_visuals_parameters_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -296,7 +244,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/episodes/{workspace_id}/model/visuals/mechanism": {
+    "/api/studies/{workspace_id}/model/visuals/mechanism": {
         parameters: {
             query?: never;
             header?: never;
@@ -309,14 +257,14 @@ export interface paths {
          * Get Mechanism Curves
          * @description Read conditional drift curves using the exact model equations; creates no scientific action.
          */
-        post: operations["get_mechanism_curves_api_episodes__workspace_id__model_visuals_mechanism_post"];
+        post: operations["get_mechanism_curves_api_studies__workspace_id__model_visuals_mechanism_post"];
         delete?: never;
         options?: never;
         head?: never;
         patch?: never;
         trace?: never;
     };
-    "/api/episodes/{workspace_id}/model/constructs": {
+    "/api/studies/{workspace_id}/model/constructs": {
         parameters: {
             query?: never;
             header?: never;
@@ -327,7 +275,7 @@ export interface paths {
          * Get Model Constructs
          * @description Authored constructs, using their canonical domain type.
          */
-        get: operations["get_model_constructs_api_episodes__workspace_id__model_constructs_get"];
+        get: operations["get_model_constructs_api_studies__workspace_id__model_constructs_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -336,7 +284,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/episodes/{workspace_id}/model/edges": {
+    "/api/studies/{workspace_id}/model/edges": {
         parameters: {
             query?: never;
             header?: never;
@@ -347,7 +295,7 @@ export interface paths {
          * Get Model Edges
          * @description Authored edges, using their canonical domain type.
          */
-        get: operations["get_model_edges_api_episodes__workspace_id__model_edges_get"];
+        get: operations["get_model_edges_api_studies__workspace_id__model_edges_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -356,7 +304,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/episodes/{workspace_id}/model/indicators": {
+    "/api/studies/{workspace_id}/model/indicators": {
         parameters: {
             query?: never;
             header?: never;
@@ -367,7 +315,7 @@ export interface paths {
          * Get Model Indicators
          * @description Authored indicators whose owners survive at the selected revision.
          */
-        get: operations["get_model_indicators_api_episodes__workspace_id__model_indicators_get"];
+        get: operations["get_model_indicators_api_studies__workspace_id__model_indicators_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -376,7 +324,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/episodes/{workspace_id}/model/parameters": {
+    "/api/studies/{workspace_id}/model/parameters": {
         parameters: {
             query?: never;
             header?: never;
@@ -387,7 +335,7 @@ export interface paths {
          * Get Model Parameters
          * @description Scientific parameter definitions from the selected model, without inference execution.
          */
-        get: operations["get_model_parameters_api_episodes__workspace_id__model_parameters_get"];
+        get: operations["get_model_parameters_api_studies__workspace_id__model_parameters_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -396,7 +344,7 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
-    "/api/episodes/{workspace_id}/model/views/{artifact_id}": {
+    "/api/studies/{workspace_id}/model/views/{artifact_id}": {
         parameters: {
             query?: never;
             header?: never;
@@ -407,7 +355,56 @@ export interface paths {
          * Get Model View
          * @description One display projection from the selected committed model revision.
          */
-        get: operations["get_model_view_api_episodes__workspace_id__model_views__artifact_id__get"];
+        get: operations["get_model_view_api_studies__workspace_id__model_views__artifact_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/studies/{workspace_id}/timeline": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Timeline
+         * @description The attempt journal: every action attempt in order.
+         *
+         *     Each record is `applied` (completed; data_diff leaves do not advance state),
+         *     `rejected` (rejected action, state unchanged), or `raised` (the action ran but threw — the record carries the
+         *     typed error). Re-running after a `raised`/`rejected` is just proposing the
+         *     action again. `dependencies` links each record to the earlier records whose
+         *     outputs its request named; `check` marks outputs only its checks read.
+         */
+        get: operations["get_timeline_api_studies__workspace_id__timeline_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/studies/{workspace_id}/events": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Events
+         * @description Live progress of one attempt: data-preparation step status and extraction fan-out.
+         *
+         *     Pass the last-seen event cursor as `after` to page forward. Progress is disposable
+         *     and never saved with the attempt; its record and traces are authoritative.
+         */
+        get: operations["get_events_api_studies__workspace_id__events_get"];
         put?: never;
         post?: never;
         delete?: never;
@@ -420,25 +417,19 @@ export interface paths {
 export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
-        /** @description The scientific result published by a successful action, including immutable revision references and the resulting model, data, or simulation findings. */
-        ActionBody: Domain.ActionBody;
+        ActionId: Domain.ActionId;
         /**
          * ActionMessage
          * @description One label emitted by an action; scientific measurements belong in its body.
          */
         ActionMessage: Domain.ActionMessage;
         /**
-         * ActionPoll
-         * @description Read an attempt: messages accumulate; a successful commit supplies the body.
-         */
-        ActionPoll: Domain.ActionPoll;
-        /**
          * ActionReceipt
          * @description A durable dispatch acknowledgment, without a scientific result body.
          */
         ActionReceipt: Domain.ActionReceipt;
         /** @enum {string} */
-        AggregationFunction: "mean" | "sum" | "min" | "max" | "std" | "var" | "last" | "first" | "count" | "median" | "p10" | "p25" | "p75" | "p90" | "p99" | "skew" | "kurtosis" | "iqr" | "range" | "cv" | "entropy" | "instability" | "trend" | "n_unique";
+        AggregationFunction: Domain.AggregationFunction;
         /** ArtifactFreshness */
         ArtifactFreshness: Domain.ArtifactFreshness;
         /** @enum {string} */
@@ -463,37 +454,9 @@ export interface components {
          * BinaryExpression
          * @description A supported scalar operation composing two expressions.
          */
-        "BinaryExpression-Input": {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "binary";
-            operator: components["schemas"]["BinaryOperator"];
-            left: components["schemas"]["Expression-Input"];
-            right: components["schemas"]["Expression-Input"];
-        };
-        /**
-         * BinaryExpression
-         * @description A supported scalar operation composing two expressions.
-         */
         "BinaryExpression-Output": Domain.BinaryExpression;
         /** @enum {string} */
-        BinaryOperator: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
-        /**
-         * CallExpression
-         * @description A supported mathematical function, including explicit discrete contrasts.
-         */
-        "CallExpression-Input": {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "call";
-            function: components["schemas"]["ExpressionFunction"];
-            /** Arguments */
-            arguments: components["schemas"]["Expression-Input"][];
-        };
+        BinaryOperator: Domain.BinaryOperator;
         /**
          * CallExpression
          * @description A supported mathematical function, including explicit discrete contrasts.
@@ -508,64 +471,21 @@ export interface components {
          * CausalEdgeSpec
          * @description A specification of a directed causal relationship between two constructs.
          */
-        "CausalEdgeSpec-Input": {
-            /** @description Persistent identity. Preserve when revising the same edge. */
-            id: components["schemas"]["EdgeId"];
-            /**
-             * Mechanisms
-             * @default []
-             */
-            mechanisms?: components["schemas"]["DynamicsMechanismSpec-Input"][];
-            /** @description Cause construct; shared endpoints have one identity. */
-            cause: components["schemas"]["ConstructSpec-Input"] | components["schemas"]["ConstructRef"];
-            /** @description Effect construct; shared endpoints have one identity. */
-            effect: components["schemas"]["ConstructSpec-Input"] | components["schemas"]["ConstructRef"];
-            /**
-             * Description
-             * @description Theoretical justification for this causal link
-             */
-            description: string;
-            /**
-             * Sources
-             * @description Literature sources supporting this causal link
-             */
-            sources?: components["schemas"]["LiteratureSource"][];
-        };
-        /**
-         * CausalEdgeSpec
-         * @description A specification of a directed causal relationship between two constructs.
-         */
         "CausalEdgeSpec-Output": Domain.CausalEdgeSpec;
         /**
          * CausalEffectResult
          * @description Causal effects and realized trajectories under the enclosing report's design.
          */
         CausalEffectResult: Domain.CausalEffectResult;
+        /** @enum {string} */
+        CheckGroup: Domain.CheckGroup;
         /**
          * CoefficientExpression
          * @description A scientifically typed coefficient operand, literal or parameter reference.
          */
-        CoefficientExpression: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "coefficient";
-            role: components["schemas"]["CoefficientRole"];
-            /**
-             * Value
-             * @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.
-             */
-            value?: number | components["schemas"]["ParameterId"] | null;
-            /**
-             * Construct Ids
-             * @description Additional constructs participating in this coefficient use.
-             * @default []
-             */
-            construct_ids?: components["schemas"]["ConstructId"][];
-        };
+        CoefficientExpression: Domain.CoefficientExpression;
         /** @enum {string} */
-        CoefficientRole: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+        CoefficientRole: Domain.CoefficientRole;
         /**
          * ComparisonConnection
          * @description Endpoint references and description for one side of a causal edge comparison.
@@ -582,59 +502,7 @@ export interface components {
          * @description A construct reference identifies a construct independently of its current name or
          *     revision.
          */
-        ConstructRef: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "construct";
-            id: components["schemas"]["ConstructId"];
-        };
-        /**
-         * ConstructSpec
-         * @description A specification of a theoretical entity in the scientific causal model.
-         */
-        "ConstructSpec-Input": {
-            /** @description Persistent identity. Preserve when revising or renaming. */
-            id: components["schemas"]["ConstructId"];
-            /**
-             * Name
-             * @description Construct name (e.g., 'stress', 'sleep_quality')
-             */
-            name: string;
-            /**
-             * Description
-             * @description What this theoretical construct represents
-             */
-            description: string;
-            /**
-             * Indicators
-             * @default []
-             */
-            indicators?: components["schemas"]["IndicatorSpec-Input"][];
-            /**
-             * Dynamics
-             * @default []
-             */
-            dynamics?: components["schemas"]["DynamicsMechanismSpec-Input"][];
-            /**
-             * Coefficients
-             * @default []
-             */
-            coefficients?: components["schemas"]["CoefficientExpression"][];
-            /**
-             * Innovation Family
-             * @default gaussian
-             * @enum {string}
-             */
-            innovation_family?: "gaussian" | "student_t";
-            /** @description Membership in a trajectory law in ModelSpec.distributions on ModelSpec.time_points. */
-            distribution?: components["schemas"]["DistributionId"] | null;
-            /** @description 'endogenous' or 'exogenous' (no modeled causal parents; may still be uncertain) */
-            role: components["schemas"]["Role"];
-            /** @description 'time_varying' (changes over time) or 'time_invariant' (fixed) */
-            temporal_status: components["schemas"]["TemporalStatus"];
-        };
+        ConstructRef: Domain.ConstructRef;
         /**
          * ConstructSpec
          * @description A specification of a theoretical entity in the scientific causal model.
@@ -650,6 +518,12 @@ export interface components {
          * @description Compare two immutable data selections, each containing one or more histories.
          */
         DataDiffRequest: {
+            /**
+             * Action
+             * @default data_diff
+             * @constant
+             */
+            action?: "data_diff";
             left: components["schemas"]["DataSelection"];
             right: components["schemas"]["DataSelection"];
         };
@@ -664,26 +538,10 @@ export interface components {
          */
         DataPointChange: Domain.DataPointChange;
         /**
-         * DataPreparationResult
-         * @description Prepared observations and their committed revision, with data-quality findings.
-         */
-        DataPreparationResult: Domain.DataPreparationResult;
-        /**
          * DataPreparationSpec
          * @description A versioned data definition supplied directly to prepare_data.
          */
-        DataPreparationSpec: {
-            /** Default Window */
-            default_window: string;
-            /** Variables */
-            variables: components["schemas"]["DataVariableSpec"][];
-            /**
-             * Context
-             * @description Optional context for interpreting the source data.
-             * @default
-             */
-            context?: string;
-        };
+        DataPreparationSpec: Domain.DataPreparationSpec;
         /**
          * DataProfileArtifact
          * @description Model-independent empirical measurements and data-quality findings.
@@ -726,86 +584,14 @@ export interface components {
          * DataVariableSpec
          * @description How to produce one observed variable, without any causal or latent model.
          */
-        DataVariableSpec: {
-            /** @description Persistent identity. Preserve when revising or renaming. */
-            id: components["schemas"]["IndicatorId"];
-            /**
-             * Name
-             * @description Indicator name (e.g., 'hrv', 'self_reported_stress')
-             */
-            name: string;
-            /** @description 'continuous', 'binary', 'count', 'ordinal', 'categorical' */
-            measurement_dtype: components["schemas"]["MeasurementDtype"];
-            /** @description Aggregation function applied when bucketing raw extractions within the indicator support window. Measurement-structure support is currently limited to: first, last, sum, count, mean, std. A computed_rule must produce this same summary. Available parser operators: count, cv, entropy, first, instability, iqr, kurtosis, last, max, mean, median, min, n_unique, p10, p25, p75, p90, p99, range, skew, std, sum, trend, var */
-            aggregation: components["schemas"]["AggregationFunction"];
-            /**
-             * Observation Window
-             * @description Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock.
-             */
-            observation_window?: string | null;
-            /**
-             * Fill Null
-             * @description Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown.
-             */
-            fill_null?: ("forward" | "backward" | "min" | "max" | "mean" | "zero" | "one") | number | null;
-            /**
-             * Fill Null Limit
-             * @description Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward.
-             */
-            fill_null_limit?: number | null;
-            /**
-             * Ordinal Levels
-             * @description Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding.
-             */
-            ordinal_levels?: string[] | null;
-            /**
-             * Categorical Levels
-             * @description Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding.
-             */
-            categorical_levels?: string[] | null;
-            /**
-             * How To Measure
-             * @description Scoring rubric and extraction instructions.
-             */
-            how_to_measure: string;
-            /**
-             * Source Columns
-             * @description Raw data column names referenced by how_to_measure. Used to project chunks to only relevant columns before extraction.
-             */
-            source_columns?: string[];
-            /** @description Optional deterministic support-window expression for extraction_mode='computed'. Use this when a computed indicator needs formulas, thresholds, or multiple source columns instead of a direct single-column aggregation. The expression must return one scalar per support window. */
-            computed_rule?: components["schemas"]["WindowExpression"] | null;
-            /**
-             * Extraction Mode
-             * @description 'computed' (deterministic pipeline extraction) or 'semantic' (LLM extraction). Use 'computed' when the indicator can be derived deterministically either from a direct source-column aggregation or from a computed_rule support-window expression over the declared source_columns.
-             * @default semantic
-             * @enum {string}
-             */
-            extraction_mode?: "computed" | "semantic";
-        };
+        DataVariableSpec: Domain.DataVariableSpec;
         /**
          * DensityPoint
          * @description A plotting coordinate evaluated from the native prior's log density.
          */
         DensityPoint: Domain.DensityPoint;
         /** @description A native law whose membership is defined by the model's scientific quantities. */
-        DistributionId: string;
-        /**
-         * DynamicsMechanismSpec
-         * @description A symbolic specification of an additive drift term or a node potential.
-         *
-         *     A node potential contributes its negative gradient to the drift.
-         */
-        "DynamicsMechanismSpec-Input": {
-            id: components["schemas"]["MechanismId"];
-            /**
-             * Kind
-             * @default drift
-             * @enum {string}
-             */
-            kind?: "drift" | "potential";
-            expression: components["schemas"]["Expression-Input"];
-        };
+        DistributionId: Domain.DistributionId;
         /**
          * DynamicsMechanismSpec
          * @description A symbolic specification of an additive drift term or a node potential.
@@ -818,26 +604,13 @@ export interface components {
          * @description An explicit causal edge's presence and endpoints in two model revisions.
          */
         EdgeComparison: Domain.EdgeComparison;
-        EdgeId: string;
+        EdgeId: Domain.EdgeId;
         /**
          * EdgeRef
          * @description An edge reference identifies a causal relationship independently of edits to its
          *     definition.
          */
         EdgeRef: Domain.EdgeRef;
-        /**
-         * EditModelRequest
-         * @description Replace one named base revision with a validated scientific definition.
-         */
-        EditModelRequest: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            action: "edit_model";
-            expected_revision: components["schemas"]["GitOid"] | null;
-            model: components["schemas"]["ModelSpec-Input"];
-        };
         /**
          * EffectSummary
          * @description An effect summary reports posterior location, uncertainty, and sign probability.
@@ -850,73 +623,41 @@ export interface components {
         EffectTrajectoryPoint: Domain.EffectTrajectoryPoint;
         /** EmpiricalPoint */
         EmpiricalPoint: Domain.EmpiricalPoint;
-        "Expression-Input": components["schemas"]["LiteralExpression"] | components["schemas"]["StateExpression"] | components["schemas"]["CoefficientExpression"] | components["schemas"]["BinaryExpression-Input"] | components["schemas"]["CallExpression-Input"];
+        /**
+         * EventsResponse
+         * @description An events response pages one running attempt's live progress.
+         */
+        EventsResponse: Domain.EventsResponse;
         "Expression-Output": Domain.Expression;
         /** @enum {string} */
-        ExpressionFunction: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+        ExpressionFunction: Domain.ExpressionFunction;
+        /**
+         * ExtractionPlanEvent
+         * @description The extraction fan-out plan.
+         */
+        ExtractionPlanEvent: Domain.ExtractionPlanEvent;
+        /**
+         * ExtractionSnapshotEvent
+         * @description Aggregate extraction worker counts.
+         */
+        ExtractionSnapshotEvent: Domain.ExtractionSnapshotEvent;
+        /**
+         * ExtractionWorkerEvent
+         * @description One extraction worker's state; a worker reports its LLM calls when it finishes.
+         */
+        ExtractionWorkerEvent: Domain.ExtractionWorkerEvent;
         /**
          * FactSource
          * @description A fact source locates supporting content within an artifact revision and records its freshness.
          */
         FactSource: Domain.FactSource;
         /**
-         * FilePreparationSpec
-         * @description Uploaded sources and the complete recipe for preparing their observations.
-         */
-        FilePreparationSpec: {
-            source: components["schemas"]["FileSourceRef"];
-            definition: components["schemas"]["DataPreparationSpec"];
-        };
-        /**
          * FileSourceRef
          * @description Explicit uploaded filenames, relative to this study's input directory.
          */
-        FileSourceRef: {
-            /** Files */
-            files: string[];
-            /**
-             * Start
-             * @description Inclusive UTC source-coverage date.
-             */
-            start?: string | null;
-            /**
-             * End
-             * @description Exclusive UTC source-coverage date.
-             */
-            end?: string | null;
-        };
+        FileSourceRef: Domain.FileSourceRef;
         /** @enum {string} */
         FitReliability: Domain.FitReliability;
-        /**
-         * FitRequest
-         * @description Condition explicitly selected model and observation revisions.
-         */
-        FitRequest: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            action: "fit";
-            model_revision: components["schemas"]["GitOid"];
-            panel_revision: components["schemas"]["GitOid"];
-            settings?: components["schemas"]["FitSettingsSpec"];
-        };
-        /**
-         * FitSettingsSpec
-         * @description Optional numerical controls applied to the configured particle sampler.
-         */
-        FitSettingsSpec: {
-            /** Num Samples */
-            num_samples?: number | null;
-            /** Num Warmup */
-            num_warmup?: number | null;
-            /** Num Chains */
-            num_chains?: number | null;
-            /** N Particles */
-            n_particles?: number | null;
-            /** Seed */
-            seed?: number | null;
-        };
         /**
          * FitSummary
          * @description A fit read contains the inference report summary and server-composed display findings.
@@ -962,68 +703,20 @@ export interface components {
          *     quality signals.
          */
         IndicatorEmpiricalProfile: Domain.IndicatorEmpiricalProfile;
-        IndicatorId: string;
+        IndicatorId: Domain.IndicatorId;
         /**
          * IndicatorPolarity
          * @description Indicator polarity states whether a measurement increases or decreases with its
          *     construct.
          * @enum {string}
          */
-        IndicatorPolarity: "positive" | "negative";
+        IndicatorPolarity: Domain.IndicatorPolarity;
         /**
          * IndicatorRef
          * @description An indicator reference identifies a measurement definition independently of its name or
          *     revision.
          */
         IndicatorRef: Domain.IndicatorRef;
-        /**
-         * IndicatorSpec
-         * @description Bind an observed-variable ID to a construct and an emission likelihood.
-         *
-         *     Extraction instructions belong to DataPreparationSpec. The shared observation
-         *     schema also permits generative models before any observations have been collected.
-         */
-        "IndicatorSpec-Input": {
-            /** @description Persistent identity. Preserve when revising or renaming. */
-            id: components["schemas"]["IndicatorId"];
-            /**
-             * Name
-             * @description Indicator name (e.g., 'hrv', 'self_reported_stress')
-             */
-            name: string;
-            /** @description 'continuous', 'binary', 'count', 'ordinal', 'categorical' */
-            measurement_dtype: components["schemas"]["MeasurementDtype"];
-            /** @description Aggregation function applied when bucketing raw extractions within the indicator support window. Measurement-structure support is currently limited to: first, last, sum, count, mean, std. A computed_rule must produce this same summary. Available parser operators: count, cv, entropy, first, instability, iqr, kurtosis, last, max, mean, median, min, n_unique, p10, p25, p75, p90, p99, range, skew, std, sum, trend, var */
-            aggregation: components["schemas"]["AggregationFunction"];
-            /**
-             * Observation Window
-             * @description Optional duration string describing the support window summarized by this indicator (for example '1mo' for a monthly average on a daily model clock). Resolved by the preparation window or the generative model clock.
-             */
-            observation_window?: string | null;
-            /**
-             * Fill Null
-             * @description Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown.
-             */
-            fill_null?: ("forward" | "backward" | "min" | "max" | "mean" | "zero" | "one") | number | null;
-            /**
-             * Fill Null Limit
-             * @description Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward.
-             */
-            fill_null_limit?: number | null;
-            /**
-             * Ordinal Levels
-             * @description Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding.
-             */
-            ordinal_levels?: string[] | null;
-            /**
-             * Categorical Levels
-             * @description Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding.
-             */
-            categorical_levels?: string[] | null;
-            likelihood?: components["schemas"]["LikelihoodSpec-Input"] | null;
-            /** @description Whether higher values move with (positive) or against (negative) the construct. */
-            construct_polarity: components["schemas"]["IndicatorPolarity"];
-        };
         /**
          * IndicatorSpec
          * @description Bind an observed-variable ID to a construct and an emission likelihood.
@@ -1039,29 +732,19 @@ export interface components {
         InferenceMetadata: Domain.InferenceMetadata;
         /**
          * InferenceReport
-         * @description Display findings recorded by an inference transition, separate from ModelSpec.
+         * @description Display findings recorded by a fit, separate from ModelSpec.
          */
         InferenceReport: Domain.InferenceReport;
         /**
          * InterventionSpec
          * @description Set a latent state at one model time, then let its dynamics resume.
          */
-        InterventionSpec: {
-            target: components["schemas"]["ConstructId"];
-            /**
-             * Time
-             * @description Absolute time in model days.
-             */
-            time: number;
-            /** Value */
-            value: number;
-        };
-        "JsonArray-Input": Domain.JsonArray;
+        InterventionSpec: Domain.InterventionSpec;
+        /** @enum {string} */
+        JournalStatus: Domain.JournalStatus;
         "JsonArray-Output": Domain.JsonArray;
-        "JsonObject-Input": Domain.JsonObject;
         "JsonObject-Output": Domain.JsonObject;
-        JsonScalar: boolean | number | string | null;
-        "JsonValue-Input": Domain.JsonValue;
+        JsonScalar: Domain.JsonScalar;
         "JsonValue-Output": Domain.JsonValue;
         /**
          * LOODiagnostics
@@ -1082,66 +765,19 @@ export interface components {
          * LikelihoodSpec
          * @description An indicator's conditional probability law and its scientific justification.
          */
-        "LikelihoodSpec-Input": {
-            law: components["schemas"]["ObservationLawSpec-Input"];
-            /**
-             * Standardized
-             * @description Whether observations are mean-centered and scaled before fitting.
-             * @default false
-             */
-            standardized?: boolean;
-            /**
-             * Reasoning
-             * @description Why this conditional law was chosen for the indicator
-             */
-            reasoning: string;
-            /**
-             * Sources
-             * @default []
-             */
-            sources?: components["schemas"]["LiteratureSource"][];
-        };
-        /**
-         * LikelihoodSpec
-         * @description An indicator's conditional probability law and its scientific justification.
-         */
         "LikelihoodSpec-Output": Domain.LikelihoodSpec;
         /**
          * LiteralExpression
          * @description A finite scalar constant in a model equation.
          */
-        LiteralExpression: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "literal";
-            /** Value */
-            value: number;
-        };
+        LiteralExpression: Domain.LiteralExpression;
         /**
          * LiteratureSource
          * @description A literature source records cited evidence supporting a scientific modeling decision.
          */
-        LiteratureSource: {
-            /**
-             * Title
-             * @description Title of the source (paper, meta-analysis, textbook, etc.)
-             */
-            title: string;
-            /**
-             * Url
-             * @description URL of the source if available
-             */
-            url?: string | null;
-            /**
-             * Snippet
-             * @description Relevant excerpt or paraphrase from the source
-             */
-            snippet: string;
-        };
+        LiteratureSource: Domain.LiteratureSource;
         /** @enum {string} */
-        MeasurementDtype: "continuous" | "binary" | "count" | "ordinal" | "categorical";
+        MeasurementDtype: Domain.MeasurementDtype;
         /**
          * MeasurementsData
          * @description Counts and representative observations read directly from one panel revision.
@@ -1152,7 +788,7 @@ export interface components {
          * @description Exact conditional drift contributions, not marginal or total causal effects.
          */
         MechanismCurves: Domain.MechanismCurves;
-        MechanismId: string;
+        MechanismId: Domain.MechanismId;
         /** MechanismViewRequest */
         MechanismViewRequest: {
             /** Owner Id */
@@ -1199,6 +835,11 @@ export interface components {
             points?: number;
         };
         /**
+         * ModelCheckReport
+         * @description Checks selected by their consumed inputs, retained with the study snapshot.
+         */
+        ModelCheckReport: Domain.ModelCheckReport;
+        /**
          * ModelData
          * @description Observed evidence paired with its source versions.
          */
@@ -1219,20 +860,10 @@ export interface components {
          */
         ModelDiffReport: Domain.ModelDiffReport;
         /**
-         * ModelEditResult
-         * @description The committed scientific model and checks produced by an edit.
-         */
-        ModelEditResult: Domain.ModelEditResult;
-        /**
          * ModelFindings
          * @description ModelSpec findings collect identification, validation, and fitted results with their input references.
          */
         ModelFindings: Domain.ModelFindings;
-        /**
-         * ModelFitResult
-         * @description The committed model, inference report, and checks produced by a fit.
-         */
-        ModelFitResult: Domain.ModelFitResult;
         /**
          * ModelGraphComparison
          * @description Identity-aligned topology changes, excluding laws and other entity attributes.
@@ -1249,48 +880,10 @@ export interface components {
          */
         ModelPredictiveReport: Domain.ModelPredictiveReport;
         /**
-         * ModelSimulationResult
-         * @description A committed trajectory or causal simulation report for its selected model and design.
-         */
-        ModelSimulationResult: Domain.ModelSimulationResult;
-        /**
          * ModelSnapshot
          * @description The canonical scientific definition with independently sourced inputs and findings.
          */
         ModelSnapshot: Domain.ModelSnapshot;
-        /**
-         * ModelSpec
-         * @description An evolving research question and connected causal graph with owned scientific detail.
-         */
-        "ModelSpec-Input": {
-            /** Question */
-            question?: string | null;
-            /**
-             * Edges
-             * @default []
-             */
-            edges?: components["schemas"]["CausalEdgeSpec-Input"][];
-            /**
-             * Parameters
-             * @default []
-             */
-            parameters?: components["schemas"]["ParameterSpec"][];
-            /**
-             * Distributions
-             * @description All explicit probability laws. Members are the parameters and constructs referring to each ID. Event coordinates are parameters by ID and element ID, then constructs by ID and time point. A scalar law belongs to one parameter and applies independently to its elements.
-             */
-            distributions?: {
-                [key: string]: components["schemas"]["NumPyroDistribution-Input"];
-            };
-            /**
-             * Time Points
-             * @default []
-             */
-            time_points?: number[];
-            /** Measurement Clock */
-            measurement_clock?: string | null;
-            default_outcome?: components["schemas"]["ConstructId"] | null;
-        };
         /**
          * ModelSpec
          * @description An evolving research question and connected causal graph with owned scientific detail.
@@ -1301,35 +894,12 @@ export interface components {
          * @description Context on why a treatment effect is not identifiable.
          */
         NonIdentifiableTreatmentStatus: Domain.NonIdentifiableTreatmentStatus;
-        "NumPyroDistribution-Input": {
-            /** Distribution */
-            distribution: string;
-            /** Params */
-            params: {
-                [key: string]: components["schemas"]["JsonValue-Input"];
-            };
-        };
         "NumPyroDistribution-Output": Domain.NumPyroDistribution;
         /**
          * ObservationHistory
          * @description All prepared observations, their true anchors and their measurement support.
          */
         ObservationHistory: Domain.ObservationHistory;
-        /**
-         * ObservationLawSpec
-         * @description A symbolic specification of an indicator's conditional observation distribution.
-         */
-        "ObservationLawSpec-Input": {
-            /**
-             * Distribution
-             * @enum {string}
-             */
-            distribution: "Delta" | "Normal" | "StudentT" | "Poisson" | "Gamma" | "Bernoulli" | "NegativeBinomial2" | "Beta" | "OrderedLogistic" | "Categorical";
-            /** Arguments */
-            arguments: {
-                [key: string]: components["schemas"]["Expression-Input"];
-            };
-        };
         /**
          * ObservationLawSpec
          * @description A symbolic specification of an indicator's conditional observation distribution.
@@ -1391,7 +961,7 @@ export interface components {
          */
         ParameterDraws: Domain.ParameterDraws;
         ParameterElementId: Domain.ParameterElementId;
-        ParameterId: string;
+        ParameterId: Domain.ParameterId;
         /**
          * ParameterRef
          * @description A scalar finding identifies its scientific parameter and declared logical component.
@@ -1401,33 +971,7 @@ export interface components {
          * ParameterSpec
          * @description A named uncertain quantity; fixed coefficients are literals in component slots.
          */
-        ParameterSpec: {
-            id: components["schemas"]["ParameterId"];
-            /**
-             * Name
-             * @description Authored parameter label; relationships use its persistent ID
-             */
-            name: string;
-            /**
-             * Description
-             * @description Human-readable description of what this parameter represents
-             */
-            description: string;
-            /**
-             * Distribution Transform
-             * @description Mapping from the authored law to the model quantity: identity leaves its scale unchanged; dt_persistence_to_ct_decay maps persistence p to -log(p) / interval; dt_effect_to_ct_rate divides an interval effect by its duration in days; initial_state_correlation applies the correlation support [-1, 1]. Joint laws require identity.
-             * @default identity
-             * @enum {string}
-             */
-            distribution_transform?: "identity" | "dt_persistence_to_ct_decay" | "dt_effect_to_ct_rate" | "initial_state_correlation";
-            /** @description Membership in a native law in ModelSpec.distributions; may be joint. None means the law has not been assigned yet. */
-            distribution?: components["schemas"]["DistributionId"] | null;
-            /**
-             * Reference Interval Days
-             * @description Positive duration in days over which an authored persistence or interval-effect law is defined, before conversion to continuous-time decay or rate. When omitted, persistence and interval effects use the model measurement clock.
-             */
-            reference_interval_days?: number | null;
-        };
+        ParameterSpec: Domain.ParameterSpec;
         /** PathSeries */
         PathSeries: Domain.PathSeries;
         /**
@@ -1470,33 +1014,13 @@ export interface components {
         PredictiveLawProvenance: Domain.PredictiveLawProvenance;
         PredictiveSummary: Domain.PredictiveSummary;
         /**
-         * PrepareDataRequest
-         * @description Prepare uploaded sources or a simulation replicate without a model.
-         */
-        PrepareDataRequest: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            action: "prepare_data";
-            /** Input */
-            input: components["schemas"]["FilePreparationSpec"] | components["schemas"]["SimulationReplicateRef"];
-        };
-        /**
          * PreparedDataMetadata
          * @description Self-contained semantics and provenance of one prepared observation table.
          */
         PreparedDataMetadata: Domain.PreparedDataMetadata;
-        /**
-         * PriorPredictiveDiagnostic
-         * @description A measured prior-predictive check and its evaluation criteria.
-         */
-        PriorPredictiveDiagnostic: Domain.PriorPredictiveDiagnostic;
-        /**
-         * PriorPredictiveResult
-         * @description Simulated observations and checks recorded by a model-authoring operation.
-         */
-        PriorPredictiveResult: Domain.PriorPredictiveResult;
+        ProgressEvent: Domain.ProgressEvent;
+        /** @enum {string} */
+        ProgressStep: Domain.ProgressStep;
         /**
          * RawDataColumnDescription
          * @description A stored column's physical type and authored interpretation.
@@ -1512,49 +1036,34 @@ export interface components {
          * @description Observed date bounds of the uploaded table, when it contains a date column.
          */
         RawDataDateRange: Domain.RawDataDateRange;
+        /**
+         * RecordDependency
+         * @description A journal record used an output of an earlier record.
+         */
+        RecordDependency: Domain.RecordDependency;
         /** RecordedPath */
         RecordedPath: Domain.RecordedPath;
         /** ResponseCurve */
         ResponseCurve: Domain.ResponseCurve;
         /**
-         * RevisionCatalog
-         * @description A revision catalog lists immutable model, source and observation inputs for selection.
+         * RetractedArtifact
+         * @description A current artifact removed by an action, with the finding that caused it.
          */
-        RevisionCatalog: Domain.RevisionCatalog;
+        RetractedArtifact: Domain.RetractedArtifact;
         /**
          * Role
          * @description A construct role states whether the variable is modeled as endogenous or treated as
          *     exogenous.
          * @enum {string}
          */
-        Role: "endogenous" | "exogenous";
+        Role: Domain.Role;
         /**
-         * SimulateRequest
-         * @description Generate through end with optional start and interventions; compare saved data with data_diff.
+         * RunningAction
+         * @description The attempt a study is executing, with the labels it has emitted so far.
          */
-        SimulateRequest: {
-            /**
-             * End
-             * @description Absolute end time in model days.
-             */
-            end: number;
-            /**
-             * Start
-             * @description Absolute start time in model days; omitted uses the model's latest state time, or zero for its initial-state law.
-             */
-            start?: number | null;
-            /**
-             * Interventions
-             * @default []
-             */
-            interventions?: components["schemas"]["InterventionSpec"][];
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            action: "simulate";
-            model_revision: components["schemas"]["GitOid"];
-        };
+        RunningAction: Domain.RunningAction;
+        /** @enum {string} */
+        ScientificActionId: Domain.ScientificActionId;
         /**
          * SimulationObservationLayout
          * @description Saved observation semantics and coordinates; generation truths remain separate.
@@ -1574,11 +1083,7 @@ export interface components {
          * SimulationReplicateRef
          * @description One replicate from a recorded, applied simulation in this study.
          */
-        SimulationReplicateRef: {
-            revision: components["schemas"]["GitOid"];
-            /** Replicate */
-            replicate: number;
-        };
+        SimulationReplicateRef: Domain.SimulationReplicateRef;
         /**
          * SimulationReport
          * @description Generated histories and derived findings with their resolved execution coordinates.
@@ -1652,11 +1157,6 @@ export interface components {
             value: components["schemas"]["PreparedDataMetadata"];
             source: components["schemas"]["FactSource"];
         };
-        /** Sourced[PriorPredictiveResult] */
-        Sourced_PriorPredictiveResult_: {
-            value: components["schemas"]["PriorPredictiveResult"];
-            source: components["schemas"]["FactSource"];
-        };
         /** Sourced[RawDataData] */
         Sourced_RawDataData_: {
             value: components["schemas"]["RawDataData"];
@@ -1702,14 +1202,19 @@ export interface components {
          * StateExpression
          * @description A construct's state or declared known input, referenced by identity.
          */
-        StateExpression: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            kind: "state";
-            construct_id: components["schemas"]["ConstructId"];
-        };
+        StateExpression: Domain.StateExpression;
+        /**
+         * StepError
+         * @description The error type and message of a failed step.
+         */
+        StepError: Domain.StepError;
+        /**
+         * StepEvent
+         * @description A data-preparation step changed status.
+         */
+        StepEvent: Domain.StepEvent;
+        /** @enum {string} */
+        StepStatus: Domain.StepStatus;
         /**
          * StructuralDisposition
          * @description A structural disposition classifies how compilation uses or excludes an authored model
@@ -1724,11 +1229,35 @@ export interface components {
          */
         StructuralItemDisposition: Domain.StructuralItemDisposition;
         /**
+         * StudyRevision
+         * @description One Git commit's parent links and its action log.
+         */
+        StudyRevision: Domain.StudyRevision;
+        /**
+         * StudyState
+         * @description Study state projects the artifact trees selected by one Git commit.
+         *
+         *     ``current`` maps artifact id → the revision info that is *current* for the
+         *     study. Absent key = the artifact does not exist (either never produced,
+         *     or produced-when-nonempty semantics withheld it).
+         */
+        StudyState: Domain.StudyState;
+        /**
+         * StudyStatus
+         * @description Study status reports committed artifacts, their freshness, actions, and any running one.
+         */
+        StudyStatus: Domain.StudyStatus;
+        /**
          * TemporalStatus
          * @description Temporal status states whether a construct varies within the individual over time.
          * @enum {string}
          */
-        TemporalStatus: "time_varying" | "time_invariant";
+        TemporalStatus: Domain.TemporalStatus;
+        /**
+         * TimelineResponse
+         * @description Typed attempt journal returned by the study read plane.
+         */
+        TimelineResponse: Domain.TimelineResponse;
         /**
          * TrajectorySummary
          * @description Pointwise means and fixed 95% quantiles across generated numeric draws.
@@ -1759,7 +1288,7 @@ export interface components {
          */
         ValidationReportArtifact: Domain.ValidationReportArtifact;
         /** @description Deterministic support-window expression that returns one scalar per window. Use Python-like syntax over source_columns with arithmetic, comparisons, if/else, and helper functions such as any(), sum(), mean(), std(), first(), last(), count_true(), count_non_null(), lower(), contains(), and contains_any(). Use None for missing values. */
-        WindowExpression: string;
+        WindowExpression: Domain.WindowExpression;
     };
     responses: never;
     parameters: never;
@@ -1769,51 +1298,14 @@ export interface components {
 }
 export type $defs = Record<string, never>;
 export interface operations {
-    execute_scientific_action_api_episodes__workspace_id__actions_post: {
+    get_study_api_studies__workspace_id__get: {
         parameters: {
             query?: {
                 branch?: string;
-                expected_head?: components["schemas"]["GitOid"] | null;
             };
             header?: never;
             path: {
                 workspace_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody: {
-            content: {
-                "application/json": components["schemas"]["EditModelRequest"] | components["schemas"]["PrepareDataRequest"] | components["schemas"]["FitRequest"] | components["schemas"]["SimulateRequest"];
-            };
-        };
-        responses: {
-            /** @description Successful Response */
-            202: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ActionReceipt"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    poll_scientific_action_api_episodes__workspace_id__actions__attempt_id__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: string;
-                attempt_id: string;
             };
             cookie?: never;
         };
@@ -1825,7 +1317,7 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["ActionPoll"];
+                    "application/json": components["schemas"]["StudyStatus"];
                 };
             };
             /** @description Validation Error */
@@ -1839,7 +1331,7 @@ export interface operations {
             };
         };
     };
-    get_model_snapshot_api_episodes__workspace_id__model_get: {
+    get_model_snapshot_api_studies__workspace_id__model_get: {
         parameters: {
             query?: {
                 branch?: string;
@@ -1860,69 +1352,6 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ModelSnapshot"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_revisions_api_episodes__workspace_id__revisions_get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: string;
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["RevisionCatalog"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    read_model_revision_api_episodes__workspace_id__revisions_model__revision__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: string;
-                revision: components["schemas"]["GitOid"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["ModelSpec-Output"];
                 };
             };
             /** @description Validation Error */
@@ -1972,7 +1401,9 @@ export interface operations {
     };
     data_diff: {
         parameters: {
-            query?: never;
+            query?: {
+                branch?: string;
+            };
             header?: never;
             path: {
                 workspace_id: string;
@@ -1984,6 +1415,38 @@ export interface operations {
                 "application/json": components["schemas"]["DataDiffRequest"];
             };
         };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ActionReceipt"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_data_diff_api_studies__workspace_id__data_diff__commit_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+                commit_id: components["schemas"]["GitOid"];
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
         responses: {
             /** @description Successful Response */
             200: {
@@ -2005,39 +1468,7 @@ export interface operations {
             };
         };
     };
-    read_data_profile_api_episodes__workspace_id__revisions_data_profile__panel_revision__get: {
-        parameters: {
-            query?: never;
-            header?: never;
-            path: {
-                workspace_id: string;
-                panel_revision: components["schemas"]["GitOid"];
-            };
-            cookie?: never;
-        };
-        requestBody?: never;
-        responses: {
-            /** @description Successful Response */
-            200: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["DataProfileArtifact"];
-                };
-            };
-            /** @description Validation Error */
-            422: {
-                headers: {
-                    [name: string]: unknown;
-                };
-                content: {
-                    "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
-    get_model_definition_api_episodes__workspace_id__model_definition_get: {
+    get_model_definition_api_studies__workspace_id__model_definition_get: {
         parameters: {
             query?: {
                 branch?: string;
@@ -2071,7 +1502,7 @@ export interface operations {
             };
         };
     };
-    get_model_inference_report_api_episodes__workspace_id__model_inference_report_get: {
+    get_model_inference_report_api_studies__workspace_id__model_inference_report_get: {
         parameters: {
             query?: {
                 branch?: string;
@@ -2105,7 +1536,7 @@ export interface operations {
             };
         };
     };
-    get_observation_history_api_episodes__workspace_id__model_visuals_observations__indicator_id__get: {
+    get_observation_history_api_studies__workspace_id__model_visuals_observations__indicator_id__get: {
         parameters: {
             query?: {
                 branch?: string;
@@ -2140,7 +1571,7 @@ export interface operations {
             };
         };
     };
-    get_predictive_history_api_episodes__workspace_id__model_visuals_predictive__indicator_id__get: {
+    get_predictive_history_api_studies__workspace_id__model_visuals_predictive__indicator_id__get: {
         parameters: {
             query?: {
                 branch?: string;
@@ -2175,7 +1606,7 @@ export interface operations {
             };
         };
     };
-    get_simulation_paths_api_episodes__workspace_id__model_visuals_simulation_get: {
+    get_simulation_paths_api_studies__workspace_id__model_visuals_simulation_get: {
         parameters: {
             query?: {
                 start?: number;
@@ -2211,7 +1642,7 @@ export interface operations {
             };
         };
     };
-    get_parameter_draws_api_episodes__workspace_id__model_visuals_parameters_get: {
+    get_parameter_draws_api_studies__workspace_id__model_visuals_parameters_get: {
         parameters: {
             query?: {
                 branch?: string;
@@ -2245,7 +1676,7 @@ export interface operations {
             };
         };
     };
-    get_mechanism_curves_api_episodes__workspace_id__model_visuals_mechanism_post: {
+    get_mechanism_curves_api_studies__workspace_id__model_visuals_mechanism_post: {
         parameters: {
             query?: {
                 branch?: string;
@@ -2283,7 +1714,7 @@ export interface operations {
             };
         };
     };
-    get_model_constructs_api_episodes__workspace_id__model_constructs_get: {
+    get_model_constructs_api_studies__workspace_id__model_constructs_get: {
         parameters: {
             query?: {
                 branch?: string;
@@ -2317,7 +1748,7 @@ export interface operations {
             };
         };
     };
-    get_model_edges_api_episodes__workspace_id__model_edges_get: {
+    get_model_edges_api_studies__workspace_id__model_edges_get: {
         parameters: {
             query?: {
                 branch?: string;
@@ -2351,7 +1782,7 @@ export interface operations {
             };
         };
     };
-    get_model_indicators_api_episodes__workspace_id__model_indicators_get: {
+    get_model_indicators_api_studies__workspace_id__model_indicators_get: {
         parameters: {
             query?: {
                 branch?: string;
@@ -2385,7 +1816,7 @@ export interface operations {
             };
         };
     };
-    get_model_parameters_api_episodes__workspace_id__model_parameters_get: {
+    get_model_parameters_api_studies__workspace_id__model_parameters_get: {
         parameters: {
             query?: {
                 branch?: string;
@@ -2419,7 +1850,7 @@ export interface operations {
             };
         };
     };
-    get_model_view_api_episodes__workspace_id__model_views__artifact_id__get: {
+    get_model_view_api_studies__workspace_id__model_views__artifact_id__get: {
         parameters: {
             query?: {
                 branch?: string;
@@ -2441,6 +1872,71 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ArtifactViewResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_timeline_api_studies__workspace_id__timeline_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["TimelineResponse"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    get_events_api_studies__workspace_id__events_get: {
+        parameters: {
+            query: {
+                attempt_id: string;
+                after?: string | null;
+            };
+            header?: never;
+            path: {
+                workspace_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["EventsResponse"];
                 };
             };
             /** @description Validation Error */

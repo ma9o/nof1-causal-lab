@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from .identity import DistributionId, ParameterId  # noqa: TC001
+from .identity import DistributionId, ParameterId
 from .parameter import PriorAuthoringTransform
 
 

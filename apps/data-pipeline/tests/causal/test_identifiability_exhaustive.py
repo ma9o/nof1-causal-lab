@@ -27,6 +27,7 @@ from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec, r
 from nof1_causal_lab.models.identification import identify_model
 from nof1_causal_lab.models.model_structure import unsupported_construct_ids
 from nof1_causal_lab.utils.identifiability import (
+    IdentificationResult,
     check_identifiability,
     dag_to_admg,
     find_blocking_confounders,
@@ -42,14 +43,14 @@ pytestmark = pytest.mark.contract
 # =============================================================================
 
 
-def _get_estimand(result: dict[str, Any], treatment: str) -> str:
+def _get_estimand(result: IdentificationResult, treatment: str) -> str:
     details = result.get("identifiable_treatments", {}).get(treatment, {})
     if isinstance(details, dict):
         return details.get("estimand", "")
     return ""
 
 
-def _get_blockers(result: dict[str, Any], treatment: str) -> list[str]:
+def _get_blockers(result: IdentificationResult, treatment: str) -> list[str]:
     details = result.get("non_identifiable_treatments", {}).get(treatment, {})
     if isinstance(details, dict):
         return details.get("confounders", [])
@@ -57,7 +58,7 @@ def _get_blockers(result: dict[str, Any], treatment: str) -> list[str]:
 
 
 def _run_checks(
-    result: dict[str, Any],
+    result: IdentificationResult,
     checks: list[tuple[Any, ...]],
 ) -> None:
     """Dispatch a list of check tuples against a check_identifiability result.
@@ -1681,8 +1682,9 @@ def test_marginalization(case):
         edges=replace_constructs(
             model.edges,
             tuple(
-                construct.model_copy(
-                    update={
+                type(construct).model_validate(
+                    {
+                        **construct.model_dump(),
                         "role": "endogenous" if construct.name in children else "exogenous",
                         "temporal_status": "time_invariant",
                         "indicators": construct.indicators

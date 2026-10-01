@@ -1,0 +1,366 @@
+{
+  "question": null,
+  "edges": [
+    {
+      "id": "edge:b8b7159987c6478acb21",
+      "mechanisms": [
+        {
+          "id": "mechanism:bc672a865f41a9bc3cdf83f0ce1c7be236a36ab0970b6ec90f1a4bf6145a6f03",
+          "kind": "drift",
+          "expression": {
+            "kind": "binary",
+            "operator": "multiply",
+            "left": {
+              "kind": "coefficient",
+              "role": "weight",
+              "value": "parameter:793342232eccef18d6cb75b3f46ed79bbe8201729bb1fdde6711a0176db3a7c3",
+              "construct_ids": []
+            },
+            "right": {
+              "kind": "state",
+              "construct_id": "construct:2c4c953b4e2c566aa897"
+            }
+          }
+        }
+      ],
+      "cause": {
+        "id": "construct:2c4c953b4e2c566aa897",
+        "name": "baseline",
+        "description": "baseline",
+        "indicators": [
+          {
+            "id": "indicator:ad225657fd3c2b492013",
+            "name": "baseline_obs",
+            "measurement_dtype": "continuous",
+            "aggregation": "mean",
+            "observation_window": null,
+            "fill_null": null,
+            "fill_null_limit": null,
+            "ordinal_levels": null,
+            "categorical_levels": null,
+            "likelihood": {
+              "law": {
+                "distribution": "Normal",
+                "arguments": {
+                  "loc": {
+                    "kind": "binary",
+                    "operator": "add",
+                    "left": {
+                      "kind": "coefficient",
+                      "role": "observation_intercept",
+                      "value": 0.0,
+                      "construct_ids": []
+                    },
+                    "right": {
+                      "kind": "binary",
+                      "operator": "multiply",
+                      "left": {
+                        "kind": "coefficient",
+                        "role": "loading",
+                        "value": 1.0,
+                        "construct_ids": []
+                      },
+                      "right": {
+                        "kind": "state",
+                        "construct_id": "construct:2c4c953b4e2c566aa897"
+                      }
+                    }
+                  },
+                  "scale": {
+                    "kind": "coefficient",
+                    "role": "observation_scale",
+                    "value": 0.0,
+                    "construct_ids": []
+                  }
+                }
+              },
+              "standardized": true,
+              "reasoning": "Test Gaussian emission",
+              "sources": []
+            },
+            "construct_polarity": "positive"
+          }
+        ],
+        "dynamics": [],
+        "coefficients": [
+          {
+            "kind": "coefficient",
+            "role": "initial_mean",
+            "value": "parameter:11c05b7b700f6c46def41cedb0acff3d282493873f7cd77a5ed5a21372166e75",
+            "construct_ids": []
+          },
+          {
+            "kind": "coefficient",
+            "role": "initial_scale",
+            "value": "parameter:98c25813c56bd9c14b8cd7dea5a454353a4d284f29e73f0e561c7b06a761d74d",
+            "construct_ids": []
+          }
+        ],
+        "innovation_family": "gaussian",
+        "distribution": null,
+        "role": "exogenous",
+        "temporal_status": "time_invariant"
+      },
+      "effect": {
+        "id": "construct:bbc87212909e45b9e6c3",
+        "name": "mood",
+        "description": "mood",
+        "indicators": [
+          {
+            "id": "indicator:0c9fc43814d6d3d15926",
+            "name": "mood_obs",
+            "measurement_dtype": "continuous",
+            "aggregation": "mean",
+            "observation_window": null,
+            "fill_null": null,
+            "fill_null_limit": null,
+            "ordinal_levels": null,
+            "categorical_levels": null,
+            "likelihood": {
+              "law": {
+                "distribution": "Normal",
+                "arguments": {
+                  "loc": {
+                    "kind": "binary",
+                    "operator": "add",
+                    "left": {
+                      "kind": "coefficient",
+                      "role": "observation_intercept",
+                      "value": 0.0,
+                      "construct_ids": []
+                    },
+                    "right": {
+                      "kind": "binary",
+                      "operator": "multiply",
+                      "left": {
+                        "kind": "coefficient",
+                        "role": "loading",
+                        "value": 1.0,
+                        "construct_ids": []
+                      },
+                      "right": {
+                        "kind": "state",
+                        "construct_id": "construct:bbc87212909e45b9e6c3"
+                      }
+                    }
+                  },
+                  "scale": {
+                    "kind": "coefficient",
+                    "role": "observation_scale",
+                    "value": 0.0,
+                    "construct_ids": []
+                  }
+                }
+              },
+              "standardized": true,
+              "reasoning": "Test Gaussian emission",
+              "sources": []
+            },
+            "construct_polarity": "positive"
+          }
+        ],
+        "dynamics": [
+          {
+            "id": "mechanism:58c4f801f718d6530227bb2e928fa769362491675436597eff5538ff57c2c365",
+            "kind": "potential",
+            "expression": {
+              "kind": "binary",
+              "operator": "add",
+              "left": {
+                "kind": "binary",
+                "operator": "divide",
+                "left": {
+                  "kind": "binary",
+                  "operator": "multiply",
+                  "left": {
+                    "kind": "coefficient",
+                    "role": "decay",
+                    "value": "parameter:3dd6b7c9eb6876093f9fe0c1c1ce2864fd4a8c53e6dac3d6a1e5538016e1fdff",
+                    "construct_ids": []
+                  },
+                  "right": {
+                    "kind": "binary",
+                    "operator": "power",
+                    "left": {
+                      "kind": "binary",
+                      "operator": "subtract",
+                      "left": {
+                        "kind": "state",
+                        "construct_id": "construct:bbc87212909e45b9e6c3"
+                      },
+                      "right": {
+                        "kind": "coefficient",
+                        "role": "center",
+                        "value": 0.0,
+                        "construct_ids": []
+                      }
+                    },
+                    "right": {
+                      "kind": "literal",
+                      "value": 2.0
+                    }
+                  }
+                },
+                "right": {
+                  "kind": "literal",
+                  "value": 2.0
+                }
+              },
+              "right": {
+                "kind": "binary",
+                "operator": "divide",
+                "left": {
+                  "kind": "binary",
+                  "operator": "multiply",
+                  "left": {
+                    "kind": "coefficient",
+                    "role": "quartic",
+                    "value": 0.0,
+                    "construct_ids": []
+                  },
+                  "right": {
+                    "kind": "binary",
+                    "operator": "power",
+                    "left": {
+                      "kind": "binary",
+                      "operator": "subtract",
+                      "left": {
+                        "kind": "state",
+                        "construct_id": "construct:bbc87212909e45b9e6c3"
+                      },
+                      "right": {
+                        "kind": "coefficient",
+                        "role": "center",
+                        "value": 0.0,
+                        "construct_ids": []
+                      }
+                    },
+                    "right": {
+                      "kind": "literal",
+                      "value": 4.0
+                    }
+                  }
+                },
+                "right": {
+                  "kind": "literal",
+                  "value": 4.0
+                }
+              }
+            }
+          }
+        ],
+        "coefficients": [
+          {
+            "kind": "coefficient",
+            "role": "diffusion_scale",
+            "value": "parameter:ea7fd5ac08160569f35431da4d1741f5ac0606585c802a602de991f3e3a51263",
+            "construct_ids": []
+          },
+          {
+            "kind": "coefficient",
+            "role": "initial_mean",
+            "value": 0.0,
+            "construct_ids": []
+          },
+          {
+            "kind": "coefficient",
+            "role": "initial_scale",
+            "value": 1.0,
+            "construct_ids": []
+          }
+        ],
+        "innovation_family": "gaussian",
+        "distribution": null,
+        "role": "endogenous",
+        "temporal_status": "time_varying"
+      },
+      "description": "baseline causes mood",
+      "sources": []
+    }
+  ],
+  "parameters": [
+    {
+      "id": "parameter:3dd6b7c9eb6876093f9fe0c1c1ce2864fd4a8c53e6dac3d6a1e5538016e1fdff",
+      "name": "rho_mood",
+      "description": "stiffness of rho_mood",
+      "distribution_transform": "dt_persistence_to_ct_decay",
+      "distribution": "distribution:2eff23efd9f2c90b12d3fab727df449314c576dbed7ec15919f20bf81841a9b9",
+      "reference_interval_days": null
+    },
+    {
+      "id": "parameter:793342232eccef18d6cb75b3f46ed79bbe8201729bb1fdde6711a0176db3a7c3",
+      "name": "beta_baseline_mood",
+      "description": "weight of beta_baseline_mood",
+      "distribution_transform": "dt_effect_to_ct_rate",
+      "distribution": "distribution:f43dad54c327f3db8d6b2c577f2695502f2e8e7c86fae7c9cd8df54cee353779",
+      "reference_interval_days": null
+    },
+    {
+      "id": "parameter:11c05b7b700f6c46def41cedb0acff3d282493873f7cd77a5ed5a21372166e75",
+      "name": "t0_mean_baseline",
+      "description": "initial state.mean for t0_mean_baseline",
+      "distribution_transform": "identity",
+      "distribution": "distribution:a85b59dbd4f6bbcaea460cf24eebe977a382a12343dc451cb05fca1e216fede9",
+      "reference_interval_days": null
+    },
+    {
+      "id": "parameter:98c25813c56bd9c14b8cd7dea5a454353a4d284f29e73f0e561c7b06a761d74d",
+      "name": "t0_sd_baseline",
+      "description": "initial state.scale for t0_sd_baseline",
+      "distribution_transform": "identity",
+      "distribution": "distribution:97e29346caf688fb04b818aab17dd85840a17c6309dfedd8ce40c3d7a1541c44",
+      "reference_interval_days": null
+    },
+    {
+      "id": "parameter:ea7fd5ac08160569f35431da4d1741f5ac0606585c802a602de991f3e3a51263",
+      "name": "sigma_mood",
+      "description": "innovation.scale for sigma_mood",
+      "distribution_transform": "identity",
+      "distribution": "distribution:b4dc0c968ac82b7a968d154b7fd9c17cfc407e1d6f7b44a4a1d3eddd2d99bce7",
+      "reference_interval_days": null
+    }
+  ],
+  "distributions": {
+    "distribution:a85b59dbd4f6bbcaea460cf24eebe977a382a12343dc451cb05fca1e216fede9": {
+      "distribution": "Normal",
+      "params": {
+        "loc": 0.0,
+        "scale": 2.0,
+        "validate_args": false
+      }
+    },
+    "distribution:97e29346caf688fb04b818aab17dd85840a17c6309dfedd8ce40c3d7a1541c44": {
+      "distribution": "HalfNormal",
+      "params": {
+        "scale": 2.0,
+        "validate_args": false
+      }
+    },
+    "distribution:2eff23efd9f2c90b12d3fab727df449314c576dbed7ec15919f20bf81841a9b9": {
+      "distribution": "Beta",
+      "params": {
+        "concentration1": 2.0,
+        "concentration0": 2.0,
+        "validate_args": false
+      }
+    },
+    "distribution:f43dad54c327f3db8d6b2c577f2695502f2e8e7c86fae7c9cd8df54cee353779": {
+      "distribution": "Normal",
+      "params": {
+        "loc": 0.0,
+        "scale": 0.5,
+        "validate_args": false
+      }
+    },
+    "distribution:b4dc0c968ac82b7a968d154b7fd9c17cfc407e1d6f7b44a4a1d3eddd2d99bce7": {
+      "distribution": "HalfNormal",
+      "params": {
+        "scale": 1.0,
+        "validate_args": false
+      }
+    }
+  },
+  "time_points": [],
+  "measurement_clock": "1d",
+  "default_outcome": null
+}

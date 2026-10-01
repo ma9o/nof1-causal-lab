@@ -4,6 +4,8 @@ Checks reference intervals, construct-specific priors, structural support,
 and parameter identity.
 """
 
+from pathlib import Path
+
 import math
 from datetime import UTC, datetime
 from typing import Any
@@ -22,13 +24,8 @@ from nof1_causal_lab.models.ssm.compile.inputs import (
     compile_priors as compile_ssm_priors,
 )
 from nof1_causal_lab.prior_distributions import prior_reference_value
-from tests.helpers import (
-    complete_test_model,
-    graph_constructs,
-    make_model,
-    model_with_prior_payloads,
-    named_prior_payloads,
-)
+from tests.helpers import graph_constructs, make_model
+from tests.model_fixtures import compile_fit_fixture
 
 pytestmark = pytest.mark.contract
 
@@ -38,16 +35,8 @@ def _compile_structure(payload: dict[str, Any]) -> ModelSpec:
     return ModelSpec.model_validate(payload)
 
 
-def _compile_priors_for_test(
-    priors: dict[str, dict[str, Any]],
-    scientific_model: ModelSpec,
-):
-    prior_registry, index_maps, _diagnostics = compile_ssm_priors(
-        model_with_prior_payloads(
-            ModelSpec.model_validate(scientific_model),
-            named_prior_payloads(ModelSpec.model_validate(scientific_model), priors),
-        ),
-    )
+def _compile_priors_for_test(scientific_model: ModelSpec):
+    prior_registry, index_maps, _diagnostics = compile_ssm_priors(scientific_model)
     return prior_registry, index_maps
 
 
@@ -171,8 +160,7 @@ def two_construct_structure() -> ModelSpec:
 
 @pytest.fixture
 def two_construct_model(two_construct_structure) -> ModelSpec:
-    """Explicit scientific choices and defaults before the pure compiler."""
-    return complete_test_model(two_construct_structure)
+    return ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'e2e_discretization/two_construct_model_model.json').read_text())
 
 
 @pytest.fixture
@@ -301,7 +289,9 @@ class TestE2ESpecToDiscretization:
             edges=replace_constructs(
                 model.edges,
                 tuple(
-                    c.model_copy(update={"name": "renamed"}) if c.name == "mood" else c
+                    type(c).model_validate({**c.model_dump(), "name": "renamed"})
+                    if c.name == "mood"
+                    else c
                     for c in model.constructs
                 ),
             )
@@ -313,19 +303,7 @@ class TestE2ESpecToDiscretization:
 
     def test_time_invariant_states_drop_static_target_dynamics_and_diffusion_support(self):
 
-        model = make_model(["baseline", "mood"], [("baseline", "mood")])
-        model = model.revised(
-            edges=replace_constructs(
-                model.edges,
-                (
-                    model.constructs[0].model_copy(
-                        update={"role": "exogenous", "temporal_status": "time_invariant"}
-                    ),
-                    model.constructs[1],
-                ),
-            )
-        )
-        model = complete_test_model(model)
+        model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'e2e_discretization/teste2espectodiscretization_test_time_invariant_states_drop_static_target_dynamics_and_diffusion_support_complete_test_model.json').read_text())
         spec = model
         assert not model.constructs[0].dynamics
         static_index = numeric.state_names(spec).index("baseline")
@@ -358,15 +336,14 @@ class TestE2ESpecToDiscretization:
         from nof1_causal_lab.models.model_checks import check_execution
         from nof1_causal_lab.models.ssm.runtime import build_ssm_model
         from nof1_causal_lab.utils.data import pivot_to_wide
-        from tests.helpers import make_prior_model
 
         typed_scientific_model = ModelSpec.model_validate(two_construct_model)
         check_execution(
-            make_prior_model(typed_scientific_model, weekly_study_priors),
+            ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'e2e_discretization/teste2espectodiscretization_test_compiled_artifact_roundtrips_grounded_structure_make_prior_model.json').read_text()),
         )
 
         assert numeric.state_names(
-            make_prior_model(typed_scientific_model, weekly_study_priors)
+            ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'e2e_discretization/teste2espectodiscretization_test_compiled_artifact_roundtrips_grounded_structure_make_prior_model_2.json').read_text())
         ) == ["stress", "mood"]
         assert numeric.observation_names(typed_scientific_model) == [
             "stress_self_report",
@@ -384,7 +361,7 @@ class TestE2ESpecToDiscretization:
                 "flat_index": binding.flat_index,
             }
             for binding in parameter_bindings(
-                make_prior_model(typed_scientific_model, weekly_study_priors)
+                ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'e2e_discretization/teste2espectodiscretization_test_compiled_artifact_roundtrips_grounded_structure_make_prior_model_3.json').read_text())
             )[0]
         ]
         bindings = {item["parameter"]: item for item in binding_rows}
@@ -426,7 +403,9 @@ class TestE2ESpecToDiscretization:
             pivot_to_wide(data_for_model, time_origin=datetime(2024, 1, 1, tzinfo=UTC)).rename(
                 {i.id: i.name for i in typed_scientific_model.indicators}
             ),
-            model_spec=make_prior_model(typed_scientific_model, weekly_study_priors),
+            inputs=compile_fit_fixture(
+                ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'e2e_discretization/teste2espectodiscretization_test_compiled_artifact_roundtrips_grounded_structure_make_prior_model_4.json').read_text())
+            ),
         )
         spec = model.spec
         assert numeric.state_names(spec) == ["stress", "mood"]
@@ -438,31 +417,16 @@ class TestE2ESpecToDiscretization:
         runtime = model.get_prior_runtime_bundle()
         assert runtime.priors["vf_0_p0"].batch_shape == ()
         assert runtime.priors["vf_1_p0"].batch_shape == ()
-        assert (
-            model.parameter_bindings
-            == parameter_bindings(make_prior_model(typed_scientific_model, weekly_study_priors))[0]
+        assert model.parameter_bindings == tuple(
+            parameter_bindings(ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'e2e_discretization/teste2espectodiscretization_test_compiled_artifact_roundtrips_grounded_structure_make_prior_model_5.json').read_text()))[0]
         )
 
     def test_residual_sd_priors_are_construct_specific(
         self, two_construct_structure, two_construct_model
     ):
         """Construct-specific sigma priors compile to per-latent diffusion scales."""
-        priors = {
-            "rho_mood": {"distribution": "Beta", "params": {"alpha": 3.0, "beta": 2.0}},
-            "rho_stress": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 2.0}},
-            "beta_stress_mood": {"distribution": "Normal", "params": {"mu": 0.3, "sigma": 0.15}},
-            "sigma_mood": {"distribution": "HalfNormal", "params": {"sigma": 0.1}},
-            "sigma_stress": {"distribution": "HalfNormal", "params": {"sigma": 0.9}},
-            "lambda_stress_cortisol_stress": {
-                "distribution": "Normal",
-                "params": {"mu": 0.8, "sigma": 0.2},
-            },
-        }
 
-        ssm_priors, _idx = _compile_priors_for_test(
-            priors,
-            two_construct_model,
-        )
+        ssm_priors, _idx = _compile_priors_for_test(ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / "e2e_discretization/construct_specific_residual_scales.json").read_text()))
 
         np.testing.assert_allclose(ssm_priors["diffusion_diag_free"].scale, [0.9, 0.1])
 
@@ -478,10 +442,7 @@ class TestE2ESpecToDiscretization:
         rho_stress has no reference_interval_days → falls back to dt=1
         beta_stress_mood has reference_interval_days=7 → dt=7
         """
-        ssm_priors, _idx = _compile_priors_for_test(
-            weekly_study_priors,
-            two_construct_model,
-        )
+        ssm_priors, _idx = _compile_priors_for_test(ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / "e2e_discretization/weekly_reference_intervals.json").read_text()))
 
         # --- rho_mood: Beta(3,2) → E=0.6, reference_interval_days=7 ---
         # dynamics decay for mood = -ln(0.6) / 7 ≈ 0.073
@@ -524,37 +485,13 @@ class TestE2ESpecToDiscretization:
         scientific_model = two_construct_model
 
         # Weekly study priors
-        priors_weekly = {
-            "rho_mood": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 2.0}},
-            "rho_stress": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 2.0}},
-            "beta_stress_mood": {
-                "distribution": "Normal",
-                "params": {"mu": 0.3, "sigma": 0.15},
-                "reference_interval_days": 7.0,
-            },
-        }
         # Daily study priors (same beta value, different interval)
-        priors_daily = {
-            "rho_mood": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 2.0}},
-            "rho_stress": {"distribution": "Beta", "params": {"alpha": 2.0, "beta": 2.0}},
-            "beta_stress_mood": {
-                "distribution": "Normal",
-                "params": {"mu": 0.3, "sigma": 0.15},
-                "reference_interval_days": 1.0,
-            },
-        }
 
         source_model = scientific_model
 
-        ssm_priors_w, _idx = _compile_priors_for_test(
-            priors_weekly,
-            scientific_model,
-        )
+        ssm_priors_w, _idx = _compile_priors_for_test(ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / "e2e_discretization/weekly_effect_rate.json").read_text()))
 
-        ssm_priors_d, _idx = _compile_priors_for_test(
-            priors_daily,
-            scientific_model,
-        )
+        ssm_priors_d, _idx = _compile_priors_for_test(ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / "e2e_discretization/daily_effect_rate.json").read_text()))
 
         # Weekly: mixed intervals (beta=7d, rho=1d) → first-order: 0.3 / 7 ≈ 0.043
         mu_w_val = _linear_edge_weight(source_model, ssm_priors_w, source=0, target=1)
@@ -581,33 +518,13 @@ class TestPriorCompilationMetadata:
 
     def test_compile_keeps_elementwise_priors_when_intervals_match(self, two_construct_structure):
         """Compilation keeps factorized DT→CT priors even when dt values match."""
-        scientific_model = complete_test_model(two_construct_structure)
+        scientific_model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'e2e_discretization/testpriorcompilationmetadata_test_compile_keeps_elementwise_priors_when_intervals_match_complete_test_model.json').read_text())
 
         # All parameters at dt=7 (weekly)
-        priors = {
-            "rho_mood": {
-                "distribution": "Beta",
-                "params": {"alpha": 3.0, "beta": 2.0},
-                "reference_interval_days": 7.0,
-            },
-            "rho_stress": {
-                "distribution": "Beta",
-                "params": {"alpha": 2.0, "beta": 2.0},
-                "reference_interval_days": 7.0,
-            },
-            "beta_stress_mood": {
-                "distribution": "Normal",
-                "params": {"mu": 0.3, "sigma": 0.15},
-                "reference_interval_days": 7.0,
-            },
-        }
 
         source_model = scientific_model
 
-        ssm_priors, _idx = _compile_priors_for_test(
-            priors,
-            scientific_model,
-        )
+        ssm_priors, _idx = _compile_priors_for_test(ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / "e2e_discretization/equal_intervals_elementwise_priors.json").read_text()))
 
         dynamics_decay = _decay_reference_values(source_model, ssm_priors)
         linear_edge_weight = _linear_edge_weight(source_model, ssm_priors, source=0, target=1)

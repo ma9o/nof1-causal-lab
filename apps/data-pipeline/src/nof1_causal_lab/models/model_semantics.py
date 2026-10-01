@@ -4,8 +4,6 @@ from __future__ import annotations
 
 from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
 
-_ADDITIVE_LOCATION_POINT_OPERATORS = frozenset({"first", "last"})
-_ADDITIVE_LOCATION_INTERVAL_OPERATORS = frozenset({"mean"})
 _NONSTANDARDIZABLE_SCALAR_FAMILIES = frozenset(
     {
         DistributionFamily.POISSON,
@@ -22,40 +20,6 @@ _THRESHOLD_FAMILIES = frozenset(
         DistributionFamily.CATEGORICAL,
     }
 )
-
-
-def indicator_has_additive_location_support(
-    support_kind: str | None,
-    summary_operator: str | None,
-) -> bool:
-    """Whether an indicator semantics target supports additive location shifts."""
-    if support_kind == "point":
-        return summary_operator in _ADDITIVE_LOCATION_POINT_OPERATORS
-    if support_kind == "interval":
-        return summary_operator in _ADDITIVE_LOCATION_INTERVAL_OPERATORS
-    return False
-
-
-def should_auto_standardize_indicator(  # noqa: V103 - explicit authoring policy for callers; never applied by edit_model
-    distribution: DistributionFamily,
-    link: LinkFunction,
-    support_kind: str | None,
-    summary_operator: str | None,
-) -> bool:
-    """Return whether deterministic standardization (centering + unit-scaling) is admissible.
-
-    Only unbounded additive-location channels qualify: affine transforms of the
-    data are absorbed exactly by the Gaussian/Student-t location-scale family, so
-    standardizing is semantics-free there and keeps the reference indicator's
-    link-scale spread at 1 — coherent with the standardized-latent convention the
-    dynamics priors are authored under. Bounded, count, and threshold families
-    would have their support broken by any affine data transform.
-    """
-    return (
-        distribution in _LOCATION_FAMILIES
-        and link == LinkFunction.IDENTITY
-        and indicator_has_additive_location_support(support_kind, summary_operator)
-    )
 
 
 def indicator_requires_observation_intercept(

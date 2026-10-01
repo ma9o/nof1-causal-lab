@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from nof1_causal_lab.machine.store import ArtifactStore
+from nof1_causal_lab.study.store import ArtifactStore
 
 
 @pytest.fixture

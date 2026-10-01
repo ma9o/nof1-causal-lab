@@ -1,5 +1,7 @@
 """Exact measurement semantics across authoring, compilation, and observation execution."""
 
+from pathlib import Path
+
 from types import SimpleNamespace
 
 import jax
@@ -7,7 +9,6 @@ import jax.numpy as jnp
 import numpy as np
 import numpyro.distributions as dist
 import pytest
-from evaluation.fixtures.prior_planning import complete_model
 from pydantic import ValidationError
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
@@ -20,8 +21,6 @@ from nof1_causal_lab.artifacts.likelihood import (
     ObservationLawSpec,
 )
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.machine.equations import observation_equations
-from nof1_causal_lab.models.likelihoods import observation_law
 from nof1_causal_lab.models.model_parameters import iter_coefficient_uses
 from nof1_causal_lab.models.ssm import SSMModel
 from nof1_causal_lab.models.ssm import numerics as numeric
@@ -40,29 +39,14 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.runner
     _initialize_chain_state,
 )
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
-from tests.helpers import complete_test_model, make_model
+from nof1_causal_lab.study.equations import observation_equations
+from tests.helpers import make_model
+from tests.model_fixtures import compile_fit_fixture
 
 
 @pytest.fixture
 def exact_model():
-    model = make_model(["setting", "response"], [("setting", "response")])
-    owner = model.constructs[0]
-    indicator = owner.indicators[0].model_copy(
-        update={
-            "aggregation": "last",
-            "likelihood": LikelihoodSpec(
-                law=observation_law(owner.id, DistributionFamily.DELTA, LinkFunction.IDENTITY),
-                reasoning="The recorded setting is exact at its observation anchor.",
-            ),
-        }
-    )
-    return complete_test_model(
-        model.revised(
-            edges=replace_constructs(
-                model.edges, (owner.model_copy(update={"indicators": (indicator,)}),)
-            )
-        )
-    )
+    return ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'delta_observations/exact_model_model.json').read_text())
 
 
 @pytest.mark.contract
@@ -105,21 +89,15 @@ def test_delta_constructor_requires_only_its_exact_value():
 @pytest.mark.contract
 def test_authored_affine_delta_keeps_its_calibration_coefficients(exact_model):
     owner = exact_model.constructs[0]
-    predictor = observation_law(
-        owner.id, DistributionFamily.GAUSSIAN, LinkFunction.IDENTITY
-    ).arguments["loc"]
+    predictor = ObservationLawSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'delta_observations/authored_affine_delta_keeps_its_calibration_coefficients_observation_law.json').read_text()).arguments["loc"]
     likelihood = LikelihoodSpec(
         law=ObservationLawSpec(distribution="Delta", arguments={"v": predictor}),
         reasoning="Exact measurement with an unknown calibration offset.",
     )
-    indicator = owner.indicators[0].model_copy(update={"likelihood": likelihood})
-    model = complete_model(
-        exact_model.revised(
-            edges=replace_constructs(
-                exact_model.edges, (owner.model_copy(update={"indicators": (indicator,)}),)
-            )
-        )
+    indicator = type(owner.indicators[0]).model_validate(
+        {**owner.indicators[0].model_dump(), "likelihood": likelihood}
     )
+    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'delta_observations/authored_affine_delta_keeps_its_calibration_coefficients_complete_model.json').read_text())
     completed = model.indicator(indicator.id).likelihood
     assert completed is not None
     assert isinstance(completed.terms.intercept.value, str)
@@ -128,41 +106,48 @@ def test_authored_affine_delta_keeps_its_calibration_coefficients(exact_model):
 
 
 @pytest.mark.contract
-@pytest.mark.parametrize(
-    ("dtype", "default_family"),
-    [
-        ("continuous", "gaussian"),
-        ("binary", "bernoulli"),
-        ("count", "poisson"),
-        ("ordinal", "ordered_logistic"),
-        ("categorical", "categorical"),
-    ],
-)
-def test_exact_measurement_is_available_but_never_selected_by_default(dtype, default_family):
+@pytest.mark.parametrize(('dtype', 'default_family', 'observation_law_payload'), [
+    pytest.param('continuous', 'gaussian', 'delta_observations/exact_measurement_is_available_but_never_selected_by_default_observation_law_continuous-gaussian.json', id='continuous-gaussian'),
+    pytest.param('binary', 'bernoulli', 'delta_observations/exact_measurement_is_available_but_never_selected_by_default_observation_law_binary-bernoulli.json', id='binary-bernoulli'),
+    pytest.param('count', 'poisson', 'delta_observations/exact_measurement_is_available_but_never_selected_by_default_observation_law_count-poisson.json', id='count-poisson'),
+    pytest.param('ordinal', 'ordered_logistic', 'delta_observations/exact_measurement_is_available_but_never_selected_by_default_observation_law_ordinal-ordered_logistic.json', id='ordinal-ordered_logistic'),
+    pytest.param('categorical', 'categorical', 'delta_observations/exact_measurement_is_available_but_never_selected_by_default_observation_law_categorical-categorical.json', id='categorical-categorical'),
+])
+def test_exact_measurement_is_available_but_never_selected_by_default(dtype, default_family, observation_law_payload):
     model = make_model(["setting", "response"], [("setting", "response")])
     owner = model.constructs[0]
     updates = {"measurement_dtype": dtype, "aggregation": "last"}
     if dtype in {"ordinal", "categorical"}:
         updates[f"{dtype}_levels"] = ("low", "high")
-    indicator = owner.indicators[0].model_copy(update=updates)
+    indicator = type(owner.indicators[0]).model_validate(
+        {**owner.indicators[0].model_dump(), **updates}
+    )
     model = model.revised(
         edges=replace_constructs(
-            model.edges, (owner.model_copy(update={"indicators": (indicator,)}),)
+            model.edges,
+            (type(owner).model_validate({**owner.model_dump(), "indicators": (indicator,)}),),
         )
     )
     from nof1_causal_lab.distributions import VALID_LIKELIHOODS_FOR_DTYPE
 
     assert VALID_LIKELIHOODS_FOR_DTYPE[indicator.measurement_dtype][0] == default_family
     exact = LikelihoodSpec(
-        law=observation_law(owner.id, DistributionFamily.DELTA, LinkFunction.IDENTITY),
+        law=ObservationLawSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / observation_law_payload).read_text()),
         reasoning="Explicit exact measurement",
     )
     model.revised(
         edges=replace_constructs(
             model.edges,
             (
-                owner.model_copy(
-                    update={"indicators": (indicator.model_copy(update={"likelihood": exact}),)}
+                type(owner).model_validate(
+                    {
+                        **owner.model_dump(),
+                        "indicators": (
+                            type(indicator).model_validate(
+                                {**indicator.model_dump(), "likelihood": exact}
+                            ),
+                        ),
+                    }
                 ),
             ),
         )
@@ -242,26 +227,28 @@ def test_unsupported_delta_constraints_fail_before_parameter_initialization(
     owner = exact_model.constructs[0]
     indicator = owner.indicators[0]
     if unsupported == "interval":
-        indicator = indicator.model_copy(update={"aggregation": "mean"})
+        indicator = type(indicator).model_validate(
+            {**indicator.model_dump(), "aggregation": "mean"}
+        )
     else:
-        indicator = indicator.model_copy(
-            update={
+        indicator = type(indicator).model_validate(
+            {
+                **indicator.model_dump(),
                 "likelihood": LikelihoodSpec(
                     law=ObservationLawSpec(
                         distribution="Delta",
                         arguments={
-                            "v": observation_law(
-                                owner.id, DistributionFamily.GAUSSIAN, LinkFunction.IDENTITY
-                            ).arguments["loc"]
+                            "v": ObservationLawSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'delta_observations/unsupported_delta_constraints_fail_before_parameter_initialization_observation_law.json').read_text()).arguments["loc"]
                         },
                     ),
                     reasoning="An affine equality needs a different constraint parameterization.",
-                )
+                ),
             }
         )
     exact_model = exact_model.revised(
         edges=replace_constructs(
-            exact_model.edges, (owner.model_copy(update={"indicators": (indicator,)}),)
+            exact_model.edges,
+            (type(owner).model_validate({**owner.model_dump(), "indicators": (indicator,)}),),
         )
     )
 
@@ -303,12 +290,21 @@ def test_multiple_exact_indicators_must_agree_at_shared_times(exact_model):
 
     owner = exact_model.constructs[0]
     original = owner.indicators[0]
-    duplicate = original.model_copy(
-        update={"id": scientific_id("indicator", "second_recording"), "name": "second_recording"}
+    duplicate = type(original).model_validate(
+        {
+            **original.model_dump(),
+            "id": scientific_id("indicator", "second_recording"),
+            "name": "second_recording",
+        }
     )
     model = exact_model.revised(
         edges=replace_constructs(
-            exact_model.edges, (owner.model_copy(update={"indicators": (original, duplicate)}),)
+            exact_model.edges,
+            (
+                type(owner).model_validate(
+                    {**owner.model_dump(), "indicators": (original, duplicate)}
+                ),
+            ),
         )
     )
     columns = {identity: column for column, identity in enumerate(model.manifest_indicator_order)}
@@ -347,7 +343,7 @@ def test_fixed_coordinates_are_excluded_from_sampler_freeze_diagnostics():
 @pytest.fixture
 def point_problem(exact_model):
     return problem_module.build_particle_problem(
-        SSMModel(exact_model),
+        SSMModel(compile_fit_fixture(exact_model)),
         jnp.array([[1.0, jnp.nan], [jnp.nan, jnp.nan], [2.0, jnp.nan]]),
         jnp.array([0.0, 0.4, 1.0]),
         scheme="euler_maruyama",

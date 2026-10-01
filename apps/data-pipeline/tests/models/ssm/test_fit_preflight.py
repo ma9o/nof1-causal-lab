@@ -1,5 +1,8 @@
 """Tests for the fit-time observation/prior preflight checks."""
 
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from pathlib import Path
+
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -9,62 +12,25 @@ from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
 from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
 from nof1_causal_lab.models.ssm.inference import fit
 from nof1_causal_lab.models.ssm.model import SSMModel
-from nof1_causal_lab.models.ssm.parameterization import (
-    build_prior_runtime_bundle,
-    build_site_registry,
-)
 from nof1_causal_lab.models.ssm.preflight import (
     ObservationPreflightError,
     validate_observations_for_fit,
 )
 from nof1_causal_lab.models.ssm.priors import (
     PriorDistributionFamily,
-    resolve_site_priors,
 )
 from nof1_causal_lab.models.ssm.structure import SparseVectorBlockSpec
 from nof1_causal_lab.prior_distributions import distribution_from_params
 from tests.dynamics_fixtures import decay_term
-from tests.model_fixtures import model_fixture
+from tests.model_fixtures import compile_fit_fixture
 
 pytestmark = pytest.mark.contract
 
 RNG = np.random.default_rng(7)
 
 
-def _manifest_means_block(free_support, template):
-    return SparseVectorBlockSpec(
-        n=len(template),
-        free_support=np.asarray(free_support, dtype=bool),
-        template=jnp.asarray(template, dtype=jnp.float32),
-        free_site_name="manifest_means_free",
-        det_site_name="manifest_means",
-        support=SupportClass.REAL,
-        site_kind=SiteKind.MANIFEST_MEANS,
-        assembly_group="manifest",
-        fixed_spec_field="manifest_means",
-        priors_field="manifest_means",
-    )
 
 
-def _model(
-    *,
-    free_means,
-    means_template=(0.0, 0.0),
-    dists=(DistributionFamily.GAUSSIAN, DistributionFamily.GAUSSIAN),
-    links=(LinkFunction.IDENTITY, LinkFunction.IDENTITY),
-    standardized=None,
-):
-    spec = model_fixture(
-        n_latent=1,
-        n_manifest=2,
-        dynamics_spec=DynamicsSpec(n_latent=1, components=(decay_term(target=0),)),
-        manifest_means_block=_manifest_means_block(free_means, means_template),
-        manifest_dists=list(dists),
-        manifest_links=list(links),
-        manifest_standardized=list(standardized) if standardized is not None else None,
-        manifest_names=["raw_channel", "small_channel"],
-    )
-    return SSMModel(spec)
 
 
 def _observations(mean_a, mean_b, n=200):
@@ -72,53 +38,43 @@ def _observations(mean_a, mean_b, n=200):
 
 
 def test_raises_on_unreachable_free_manifest_mean():
-    model = _model(free_means=(True, True))
+    model = SSMModel(compile_fit_fixture(ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'fit_preflight/raises_on_unreachable_free_manifest_mean__model.json').read_text())))
     with pytest.raises(ObservationPreflightError, match="raw_channel"):
         validate_observations_for_fit(model, _observations(87.0, 0.1))
 
 
 def test_passes_when_free_mean_is_within_prior_reach():
-    model = _model(free_means=(True, True))
+    model = SSMModel(compile_fit_fixture(ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'fit_preflight/passes_when_free_mean_is_within_prior_reach__model.json').read_text())))
     validate_observations_for_fit(model, _observations(0.5, -0.3))
 
 
-def test_compiled_runtime_prior_is_authoritative_over_model_registry():
-    default_model = _model(free_means=(True, True))
-    authored_priors = {
-        "manifest_means_free": distribution_from_params(
-            PriorDistributionFamily.NORMAL,
-            {"mu": [87.0, 0.0], "sigma": [10.0, 2.0]},
-        )
-    }
-    model = SSMModel(
-        default_model.spec,
-        resolve_site_priors(build_site_registry(default_model.spec)),
-        prior_runtime_bundle=build_prior_runtime_bundle(default_model.spec, authored_priors),
-    )
+def test_preflight_uses_compiled_authored_location_laws():
 
+    spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'fit_preflight/preflight_uses_compiled_authored_location_laws_with_parameter_distributions.json').read_text())
+    model = SSMModel(compile_fit_fixture(spec))
     validate_observations_for_fit(model, _observations(87.0, 0.1))
 
 
 def test_fixed_manifest_means_are_not_judged():
-    model = _model(free_means=(False, False), means_template=(87.0, 0.0))
+    model = SSMModel(compile_fit_fixture(ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'fit_preflight/fixed_manifest_means_are_not_judged__model.json').read_text())))
     validate_observations_for_fit(model, _observations(87.0, 0.1))
 
 
 def test_passes_when_standardized_flag_matches_standardized_data():
-    model = _model(free_means=(True, True), standardized=(True, False))
+    model = SSMModel(compile_fit_fixture(ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'fit_preflight/passes_when_standardized_flag_matches_standardized_data__model.json').read_text())))
     obs = _observations(87.0, 0.1)
     obs[:, 0] = (obs[:, 0] - obs[:, 0].mean()) / obs[:, 0].std(ddof=1)
     validate_observations_for_fit(model, obs)
 
 
 def test_raises_when_standardized_flag_without_centered_data():
-    model = _model(free_means=(True, True), standardized=(True, False))
+    model = SSMModel(compile_fit_fixture(ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'fit_preflight/raises_when_standardized_flag_without_centered_data__model.json').read_text())))
     with pytest.raises(ObservationPreflightError, match="marked standardized"):
         validate_observations_for_fit(model, _observations(87.0, 0.1))
 
 
 def test_raises_when_standardized_flag_with_centered_but_unscaled_data():
-    model = _model(free_means=(True, True), standardized=(True, False))
+    model = SSMModel(compile_fit_fixture(ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'fit_preflight/raises_when_standardized_flag_with_centered_but_unscaled_data__model.json').read_text())))
     obs = _observations(0.0, 0.1)
     obs[:, 0] = 15.0 * (obs[:, 0] - obs[:, 0].mean())
     with pytest.raises(ObservationPreflightError, match="observed column sd"):
@@ -126,25 +82,21 @@ def test_raises_when_standardized_flag_with_centered_but_unscaled_data():
 
 
 def test_non_identity_links_are_not_judged():
-    model = _model(
-        free_means=(True, True),
-        dists=(DistributionFamily.NEGATIVE_BINOMIAL, DistributionFamily.GAUSSIAN),
-        links=(LinkFunction.LOG, LinkFunction.IDENTITY),
-    )
+    model = SSMModel(compile_fit_fixture(ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'fit_preflight/non_identity_links_are_not_judged__model.json').read_text())))
     obs = _observations(0.0, 0.1)
     obs[:, 0] = RNG.poisson(80.0, size=obs.shape[0]).astype(np.float64)
     validate_observations_for_fit(model, obs)
 
 
 def test_nan_only_channels_are_skipped():
-    model = _model(free_means=(True, True))
+    model = SSMModel(compile_fit_fixture(ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'fit_preflight/nan_only_channels_are_skipped__model.json').read_text())))
     obs = _observations(0.2, 0.1)
     obs[:, 0] = np.nan
     validate_observations_for_fit(model, obs)
 
 
 def test_fit_runs_preflight_before_dispatch():
-    model = _model(free_means=(True, True))
+    model = SSMModel(compile_fit_fixture(ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'fit_preflight/fit_runs_preflight_before_dispatch__model.json').read_text())))
     obs = _observations(87.0, 0.1)
     with pytest.raises(ObservationPreflightError, match="raw_channel"):
         fit(model, jnp.asarray(obs), jnp.arange(obs.shape[0], dtype=jnp.float32))

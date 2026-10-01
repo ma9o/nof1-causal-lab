@@ -123,20 +123,9 @@ type ArtifactId = Literal[
     "validation_report",
 ]
 
-# Operations name work; several operations can enrich the same model artifact.
+# Actions name work; several actions can enrich the same model artifact.
 type ScientificActionId = Literal["edit_model", "prepare_data", "fit", "simulate"]
-
-
-type OperationId = Literal[
-    "raw_data",
-    "latent_structure",
-    "measurement_structure",
-    "measurements",
-    "simulated_measurements",
-    "statistical_model_spec",
-    "posterior",
-    "simulate",
-]
+type ActionId = ScientificActionId | Literal["data_diff"]
 
 ARTIFACT_IDS: tuple[ArtifactId, ...] = get_args(ArtifactId.__value__)
 SCIENTIFIC_ACTION_IDS: tuple[ScientificActionId, ...] = get_args(ScientificActionId.__value__)

@@ -13,7 +13,7 @@ from nof1_causal_lab.models.ssm.inference.warmup import map as map_warmup
 from nof1_causal_lab.models.ssm.inference.warmup.parameter_warmup import (
     _laplace_preconditioner_chol_from_map_result,
 )
-from tests.model_fixtures import make_lgss_data
+from tests.model_fixtures import compile_fit_fixture, make_lgss_data
 
 pytestmark = [pytest.mark.inference(concern="warmup"), pytest.mark.inference(concern="recovery")]
 
@@ -22,7 +22,7 @@ pytestmark = [pytest.mark.inference(concern="warmup"), pytest.mark.inference(con
 def test_map_initialization_recovers_mode_and_builds_preconditioner(monkeypatch):
     # Retain enough observations to distinguish process and observation noise.
     data = make_lgss_data(T=250, decay_diag=-0.3, diff_sd=0.2, obs_sd=0.25)
-    model = SSMModel(data["spec"])
+    model = SSMModel(compile_fit_fixture(data["spec"]))
 
     def sample_at_mode(_key, z_mode, _chol_cov, *, num_samples):
         assert num_samples == 1

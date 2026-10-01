@@ -16,7 +16,7 @@ def _seed_workspace(root):
         "store/model/v1/meta.json": {"artifact_id": "model", "revision": 1},
         "store/model/v1/question.json": {"text": "does X cause Y?"},
         "store/raw_data/v1/meta.json": {"artifact_id": "raw_data", "revision": 1},
-        "episode/journal/000001.json": {"seq": 1},
+        "study/journal/000001.json": {"seq": 1},
         "cache/model-spec-jax-cache-metadata.json": {"schema_version": 1},
         "scratch/events/00000000000000000001-event.json": {"status": "running"},
         "sources/unpacked-private.csv": {"value": "personal"},
@@ -56,7 +56,7 @@ def test_publish_excludes_and_is_idempotent(monkeypatch, tmp_path, memory_dest):
     assert counts == {"uploaded": 0, "skipped": 3, "excluded": 5}
 
     # A new journal entry (live tail) uploads without touching existing keys.
-    (ws_root / "episode/journal/000002.json").write_text(json.dumps({"seq": 2}))
+    (ws_root / "study/journal/000002.json").write_text(json.dumps({"seq": 2}))
     counts = publish.publish_workspace("WS-PUB", ["raw_data", "input"])
     assert counts == {"uploaded": 1, "skipped": 3, "excluded": 5}
 

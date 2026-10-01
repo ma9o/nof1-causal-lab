@@ -25,6 +25,7 @@
       "description": "The scientific result published by a successful action, including immutable revision references and the resulting model, data, or simulation findings.",
       "discriminator": {
         "mapping": {
+          "data_diff": "#/$defs/DataComparisonResult",
           "edit_model": "#/$defs/ModelEditResult",
           "fit": "#/$defs/ModelFitResult",
           "prepare_data": "#/$defs/DataPreparationResult",
@@ -44,11 +45,28 @@
         },
         {
           "$ref": "#/$defs/ModelSimulationResult"
+        },
+        {
+          "$ref": "#/$defs/DataComparisonResult"
         }
       ],
       "x-python-module": "nof1_causal_lab.actions.results",
       "x-layer": "transport",
       "x-concern": "api_tools"
+    },
+    "ActionId": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ScientificActionId"
+        },
+        {
+          "const": "data_diff",
+          "type": "string"
+        }
+      ],
+      "x-python-module": "nof1_causal_lab.artifacts.identity",
+      "x-layer": "identity",
+      "x-concern": "identity"
     },
     "ActionMessage": {
       "additionalProperties": false,
@@ -82,53 +100,8 @@
       ],
       "title": "ActionMessage",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.actions.results",
-      "x-layer": "transport",
-      "x-concern": "api_tools"
-    },
-    "ActionMessageEvent": {
-      "additionalProperties": false,
-      "description": "A label emitted by one dispatched action, with replay ordering outside the message.",
-      "properties": {
-        "cursor": {
-          "default": "",
-          "title": "Cursor",
-          "type": "string"
-        },
-        "event": {
-          "const": "nof1-causal-lab.action.message",
-          "default": "nof1-causal-lab.action.message",
-          "title": "Event",
-          "type": "string"
-        },
-        "attempt_id": {
-          "format": "uuid",
-          "title": "Attempt Id",
-          "type": "string"
-        },
-        "action": {
-          "$ref": "#/$defs/ScientificActionId"
-        },
-        "index": {
-          "title": "Index",
-          "type": "integer"
-        },
-        "message": {
-          "$ref": "#/$defs/ActionMessage"
-        }
-      },
-      "required": [
-        "action",
-        "attempt_id",
-        "cursor",
-        "event",
-        "index",
-        "message"
-      ],
-      "title": "ActionMessageEvent",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.flows.runtime_events",
-      "x-layer": "machine",
+      "x-python-module": "nof1_causal_lab.study.records",
+      "x-layer": "study",
       "x-concern": "execution_history"
     },
     "ActionPoll": {
@@ -188,72 +161,6 @@
       "x-layer": "transport",
       "x-concern": "api_tools"
     },
-    "ActionSpec": {
-      "properties": {
-        "action_id": {
-          "$ref": "#/$defs/ScientificActionId"
-        },
-        "description": {
-          "title": "Description",
-          "type": "string"
-        },
-        "consumes": {
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/ArtifactId"
-          },
-          "title": "Consumes",
-          "type": "array"
-        },
-        "optional_consumes": {
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/ArtifactId"
-          },
-          "title": "Optional Consumes",
-          "type": "array"
-        },
-        "produces": {
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/ArtifactId"
-          },
-          "title": "Produces",
-          "type": "array"
-        },
-        "produces_optional": {
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/ArtifactId"
-          },
-          "title": "Produces Optional",
-          "type": "array"
-        },
-        "derives": {
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/ArtifactId"
-          },
-          "title": "Derives",
-          "type": "array"
-        }
-      },
-      "required": [
-        "action_id",
-        "consumes",
-        "derives",
-        "description",
-        "optional_consumes",
-        "produces",
-        "produces_optional"
-      ],
-      "title": "ActionSpec",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.hierarchy",
-      "x-layer": "machine",
-      "x-concern": "execution_history",
-      "description": "An action declares a scientific operation and its input and output responsibilities."
-    },
     "AggregationFunction": {
       "enum": [
         "mean",
@@ -305,7 +212,7 @@
           "$ref": "#/$defs/ArtifactRecord"
         },
         "payload": {
-          "$ref": "#/$defs/UncheckedJsonObject"
+          "$ref": "#/$defs/JsonObject"
         },
         "binary_files": {
           "items": {
@@ -325,37 +232,9 @@
       ],
       "title": "ArtifactEnvelope",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.episode_api",
+      "x-python-module": "nof1_causal_lab.study_api",
       "x-layer": "transport",
       "x-concern": "api_tools"
-    },
-    "ArtifactFileSpec": {
-      "description": "An artifact file specification declares its JSON payloads, tables, and executable binaries.",
-      "properties": {
-        "json": {
-          "additionalProperties": {
-            "type": "string"
-          },
-          "title": "Json",
-          "type": "object"
-        },
-        "parquet": {
-          "additionalProperties": {
-            "type": "string"
-          },
-          "title": "Parquet",
-          "type": "object"
-        }
-      },
-      "title": "ArtifactFileSpec",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.artifact_files",
-      "x-layer": "machine",
-      "x-concern": "execution_history",
-      "required": [
-        "json",
-        "parquet"
-      ]
     },
     "ArtifactFreshness": {
       "additionalProperties": false,
@@ -408,8 +287,8 @@
       ],
       "title": "ArtifactFreshness",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.execution",
-      "x-layer": "machine",
+      "x-python-module": "nof1_causal_lab.study.state",
+      "x-layer": "study",
       "x-concern": "execution_history",
       "description": "An artifact's presence and freshness are derived from the selected journal revision."
     },
@@ -426,7 +305,7 @@
       "x-python-module": "nof1_causal_lab.artifacts.identity",
       "x-layer": "identity",
       "x-concern": "identity",
-      "description": "An artifact identity selects one node in the machine's artifact graph."
+      "description": "An artifact identity selects one node in the study's artifact graph."
     },
     "ArtifactRecord": {
       "additionalProperties": false,
@@ -490,8 +369,8 @@
       ],
       "title": "ArtifactRecord",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.artifacts",
-      "x-layer": "machine",
+      "x-python-module": "nof1_causal_lab.study.state",
+      "x-layer": "study",
       "x-concern": "execution_history"
     },
     "ArtifactViewResponse": {
@@ -509,9 +388,6 @@
           "$ref": "#/$defs/ValidationReportArtifact"
         },
         {
-          "$ref": "#/$defs/PriorPredictiveResult"
-        },
-        {
           "$ref": "#/$defs/ModelDiagnostics"
         },
         {
@@ -520,9 +396,39 @@
       ],
       "description": "One available artifact projection returned by the model view endpoint.",
       "title": "ArtifactViewResponse",
-      "x-python-module": "nof1_causal_lab.machine.view_models",
+      "x-python-module": "nof1_causal_lab.study.view_models",
       "x-layer": "read_models",
       "x-concern": "read_models"
+    },
+    "AttemptTraceIndex": {
+      "additionalProperties": false,
+      "description": "Promoted traces identified by their committed execution sequence.",
+      "properties": {
+        "workspace_id": {
+          "title": "Workspace Id",
+          "type": "string"
+        },
+        "commit_id": {
+          "$ref": "#/$defs/GitOid"
+        },
+        "trace_ids": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Trace Ids",
+          "type": "array"
+        }
+      },
+      "required": [
+        "commit_id",
+        "trace_ids",
+        "workspace_id"
+      ],
+      "title": "AttemptTraceIndex",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.study_api",
+      "x-layer": "transport",
+      "x-concern": "api_tools"
     },
     "BinaryExpression": {
       "additionalProperties": false,
@@ -605,7 +511,7 @@
     },
     "CapabilitiesResponse": {
       "additionalProperties": false,
-      "description": "This response tells clients whether the episode facade supports scientific actions.",
+      "description": "This response tells clients whether the study facade supports scientific actions.",
       "properties": {
         "actions_enabled": {
           "title": "Actions Enabled",
@@ -617,7 +523,7 @@
       ],
       "title": "CapabilitiesResponse",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.episode_api",
+      "x-python-module": "nof1_causal_lab.study_api",
       "x-layer": "transport",
       "x-concern": "api_tools"
     },
@@ -1128,78 +1034,33 @@
       "x-layer": "authored",
       "x-concern": "scientific_model"
     },
-    "ContextSpec": {
+    "DataComparisonResult": {
+      "additionalProperties": false,
+      "description": "A recorded comparison of saved observations; the branch and model are unchanged.",
       "properties": {
-        "context_id": {
-          "title": "Context Id",
+        "action": {
+          "const": "data_diff",
+          "default": "data_diff",
+          "title": "Action",
           "type": "string"
         },
-        "layer": {
-          "enum": [
-            "navigator",
-            "registry",
-            "machine",
-            "delegated",
-            "tool"
-          ],
-          "title": "Layer",
-          "type": "string"
+        "commit_id": {
+          "$ref": "#/$defs/GitOid"
         },
-        "label": {
-          "title": "Label",
-          "type": "string"
-        },
-        "parent_id": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Parent Id"
-        },
-        "owns": {
-          "default": [],
-          "items": {
-            "$ref": "#/$defs/ArtifactId"
-          },
-          "title": "Owns",
-          "type": "array"
-        },
-        "allowed_tools": {
-          "default": [],
-          "items": {
-            "type": "string"
-          },
-          "title": "Allowed Tools",
-          "type": "array"
-        },
-        "runtime_state": {
-          "default": [],
-          "items": {
-            "type": "string"
-          },
-          "title": "Runtime State",
-          "type": "array"
+        "report": {
+          "$ref": "#/$defs/DataDiffReport"
         }
       },
       "required": [
-        "allowed_tools",
-        "context_id",
-        "label",
-        "layer",
-        "owns",
-        "runtime_state"
+        "action",
+        "commit_id",
+        "report"
       ],
-      "title": "ContextSpec",
+      "title": "DataComparisonResult",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.hierarchy",
-      "x-layer": "machine",
-      "x-concern": "execution_history",
-      "description": "An interaction context declares the tools and machine actions available to an agent."
+      "x-python-module": "nof1_causal_lab.actions.results",
+      "x-layer": "transport",
+      "x-concern": "api_tools"
     },
     "DataDiffReport": {
       "additionalProperties": false,
@@ -1242,6 +1103,12 @@
       "additionalProperties": false,
       "description": "Compare two immutable data selections, each containing one or more histories.",
       "properties": {
+        "action": {
+          "const": "data_diff",
+          "default": "data_diff",
+          "title": "Action",
+          "type": "string"
+        },
         "left": {
           "$ref": "#/$defs/DataSelection"
         },
@@ -1250,6 +1117,7 @@
         }
       },
       "required": [
+        "action",
         "left",
         "right"
       ],
@@ -1955,39 +1823,9 @@
       ],
       "title": "DensityPoint",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.view_models",
+      "x-python-module": "nof1_causal_lab.study.view_models",
       "x-layer": "read_models",
       "x-concern": "read_models"
-    },
-    "Derivation": {
-      "properties": {
-        "produces": {
-          "$ref": "#/$defs/ArtifactId"
-        },
-        "from": {
-          "items": {
-            "$ref": "#/$defs/ArtifactId"
-          },
-          "title": "From",
-          "type": "array"
-        },
-        "optional": {
-          "default": false,
-          "title": "Optional",
-          "type": "boolean"
-        }
-      },
-      "required": [
-        "from",
-        "optional",
-        "produces"
-      ],
-      "title": "Derivation",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.graph",
-      "x-layer": "machine",
-      "x-concern": "execution_history",
-      "description": "A derivation declares an artifact maintained atomically with its input versions."
     },
     "DistributionId": {
       "description": "A native law whose membership is defined by the model's scientific quantities.",
@@ -2230,118 +2068,12 @@
       ],
       "title": "EmpiricalPoint",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.visual_models",
-      "x-layer": "machine",
+      "x-python-module": "nof1_causal_lab.study.visual_models",
+      "x-layer": "study",
       "x-concern": "read_models"
     },
-    "EpisodeState": {
-      "additionalProperties": false,
-      "description": "Episode state projects the artifact trees selected by one Git commit.\n\n``current`` maps artifact id \u2192 the revision info that is *current* for the\nepisode. Absent key = the artifact does not exist (either never produced,\nor produced-when-nonempty semantics withheld it).",
-      "properties": {
-        "current": {
-          "additionalProperties": {
-            "$ref": "#/$defs/ArtifactRecord"
-          },
-          "propertyNames": {
-            "$ref": "#/$defs/ArtifactId"
-          },
-          "title": "Current",
-          "type": "object"
-        },
-        "checks": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/ModelCheckReport"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        }
-      },
-      "title": "EpisodeState",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.artifacts",
-      "x-layer": "machine",
-      "x-concern": "execution_history",
-      "required": [
-        "current"
-      ]
-    },
-    "EpisodeStatus": {
-      "additionalProperties": false,
-      "description": "Episode status reports committed artifacts, their freshness, actions, and any running one.",
-      "properties": {
-        "workspace_id": {
-          "title": "Workspace Id",
-          "type": "string"
-        },
-        "branch": {
-          "default": "main",
-          "title": "Branch",
-          "type": "string"
-        },
-        "commit_id": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/GitOid"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "seq": {
-          "title": "Seq",
-          "type": "integer"
-        },
-        "state": {
-          "$ref": "#/$defs/EpisodeState"
-        },
-        "artifacts": {
-          "items": {
-            "$ref": "#/$defs/ArtifactFreshness"
-          },
-          "title": "Artifacts",
-          "type": "array"
-        },
-        "actions": {
-          "items": {
-            "$ref": "#/$defs/ScientificActionId"
-          },
-          "title": "Actions",
-          "type": "array"
-        },
-        "running": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/RunningAction"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        }
-      },
-      "required": [
-        "actions",
-        "artifacts",
-        "branch",
-        "running",
-        "seq",
-        "state",
-        "workspace_id"
-      ],
-      "title": "EpisodeStatus",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.status",
-      "x-layer": "machine",
-      "x-concern": "execution_history"
-    },
     "EventsResponse": {
-      "description": "An events response pages runtime telemetry without reconstructing model state.",
+      "description": "An events response pages one running attempt's live progress.",
       "properties": {
         "workspace_id": {
           "title": "Workspace Id",
@@ -2349,7 +2081,7 @@
         },
         "events": {
           "items": {
-            "$ref": "#/$defs/RuntimeEvent"
+            "$ref": "#/$defs/ProgressEvent"
           },
           "title": "Events",
           "type": "array"
@@ -2361,7 +2093,7 @@
       ],
       "title": "EventsResponse",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.episode_api",
+      "x-python-module": "nof1_causal_lab.study_api",
       "x-layer": "transport",
       "x-concern": "api_tools"
     },
@@ -2414,8 +2146,13 @@
     },
     "ExtractionPlanEvent": {
       "additionalProperties": false,
-      "description": "Static extraction fan-out plan.",
+      "description": "The extraction fan-out plan.",
       "properties": {
+        "attempt_id": {
+          "format": "uuid",
+          "title": "Attempt Id",
+          "type": "string"
+        },
         "cursor": {
           "default": "",
           "title": "Cursor",
@@ -2423,6 +2160,7 @@
         },
         "event": {
           "const": "nof1-causal-lab.extraction.plan",
+          "default": "nof1-causal-lab.extraction.plan",
           "title": "Event",
           "type": "string"
         },
@@ -2443,36 +2181,29 @@
           ],
           "default": null,
           "title": "Max Concurrent Workers"
-        },
-        "max_rpm": {
-          "anyOf": [
-            {
-              "exclusiveMinimum": 0,
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Max Rpm"
         }
       },
       "required": [
+        "attempt_id",
         "cursor",
         "event",
         "total_workers"
       ],
       "title": "ExtractionPlanEvent",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.flows.runtime_events",
-      "x-layer": "machine",
+      "x-python-module": "nof1_causal_lab.actions.progress",
+      "x-layer": "study",
       "x-concern": "execution_history"
     },
     "ExtractionSnapshotEvent": {
       "additionalProperties": false,
-      "description": "Aggregate extraction progress snapshot.",
+      "description": "Aggregate extraction worker counts.",
       "properties": {
+        "attempt_id": {
+          "format": "uuid",
+          "title": "Attempt Id",
+          "type": "string"
+        },
         "cursor": {
           "default": "",
           "title": "Cursor",
@@ -2480,6 +2211,7 @@
         },
         "event": {
           "const": "nof1-causal-lab.extraction.snapshot",
+          "default": "nof1-causal-lab.extraction.snapshot",
           "title": "Event",
           "type": "string"
         },
@@ -2507,33 +2239,33 @@
           "minimum": 0,
           "title": "Failed Workers",
           "type": "integer"
-        },
-        "llm_requests_last_60s": {
-          "minimum": 0,
-          "title": "Llm Requests Last 60S",
-          "type": "integer"
         }
       },
       "required": [
+        "attempt_id",
         "completed_workers",
         "cursor",
         "event",
         "failed_workers",
-        "llm_requests_last_60s",
         "pending_workers",
         "running_workers",
         "total_workers"
       ],
       "title": "ExtractionSnapshotEvent",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.flows.runtime_events",
-      "x-layer": "machine",
+      "x-python-module": "nof1_causal_lab.actions.progress",
+      "x-layer": "study",
       "x-concern": "execution_history"
     },
     "ExtractionWorkerEvent": {
       "additionalProperties": false,
-      "description": "One extraction worker state transition.",
+      "description": "One extraction worker's state; a worker reports its LLM calls when it finishes.",
       "properties": {
+        "attempt_id": {
+          "format": "uuid",
+          "title": "Attempt Id",
+          "type": "string"
+        },
         "cursor": {
           "default": "",
           "title": "Cursor",
@@ -2541,6 +2273,7 @@
         },
         "event": {
           "const": "nof1-causal-lab.extraction.worker",
+          "default": "nof1-causal-lab.extraction.worker",
           "title": "Event",
           "type": "string"
         },
@@ -2604,6 +2337,7 @@
         }
       },
       "required": [
+        "attempt_id",
         "cursor",
         "event",
         "n_windows",
@@ -2612,8 +2346,8 @@
       ],
       "title": "ExtractionWorkerEvent",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.flows.runtime_events",
-      "x-layer": "machine",
+      "x-python-module": "nof1_causal_lab.actions.progress",
+      "x-layer": "study",
       "x-concern": "execution_history"
     },
     "FactSource": {
@@ -2639,7 +2373,7 @@
       ],
       "title": "FactSource",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.snapshot_models",
+      "x-python-module": "nof1_causal_lab.study.snapshot_models",
       "x-layer": "read_models",
       "x-concern": "read_models"
     },
@@ -2759,7 +2493,7 @@
       ],
       "title": "FitSummary",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.snapshot_models",
+      "x-python-module": "nof1_causal_lab.study.snapshot_models",
       "x-layer": "read_models",
       "x-concern": "read_models"
     },
@@ -3442,7 +3176,7 @@
     },
     "InferenceReport": {
       "additionalProperties": false,
-      "description": "Display findings recorded by an inference transition, separate from ModelSpec.",
+      "description": "Display findings recorded by a fit, separate from ModelSpec.",
       "properties": {
         "time_origin": {
           "anyOf": [
@@ -3552,8 +3286,8 @@
         "raised"
       ],
       "type": "string",
-      "x-python-module": "nof1_causal_lab.machine.store",
-      "x-layer": "machine",
+      "x-python-module": "nof1_causal_lab.study.records",
+      "x-layer": "study",
       "x-concern": "execution_history",
       "description": "A journal status distinguishes applied revisions from rejected or failed attempts."
     },
@@ -3771,33 +3505,6 @@
           },
           "title": "Histogram",
           "type": "array"
-        },
-        "prior_counts": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "number"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Prior Counts"
-        },
-        "prior_outside_fraction": {
-          "anyOf": [
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Prior Outside Fraction"
         }
       },
       "required": [
@@ -3807,7 +3514,7 @@
       ],
       "title": "LikelihoodDiagnostics",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.view_models",
+      "x-python-module": "nof1_causal_lab.study.view_models",
       "x-layer": "read_models",
       "x-concern": "read_models"
     },
@@ -3912,143 +3619,6 @@
       "x-layer": "authored",
       "x-concern": "scientific_model"
     },
-    "MachineDescription": {
-      "description": "The machine description exposes the artifact graph, storage contracts, and action hierarchy.",
-      "properties": {
-        "artifact_ids": {
-          "items": {
-            "$ref": "#/$defs/ArtifactId"
-          },
-          "title": "Artifact Ids",
-          "type": "array"
-        },
-        "topological_artifact_order": {
-          "items": {
-            "$ref": "#/$defs/ArtifactId"
-          },
-          "title": "Topological Artifact Order",
-          "type": "array"
-        },
-        "topological_transition_order": {
-          "items": {
-            "$ref": "#/$defs/OperationId"
-          },
-          "title": "Topological Transition Order",
-          "type": "array"
-        },
-        "contexts": {
-          "items": {
-            "$ref": "#/$defs/ContextSpec"
-          },
-          "title": "Contexts",
-          "type": "array"
-        },
-        "actions": {
-          "items": {
-            "$ref": "#/$defs/ActionSpec"
-          },
-          "title": "Actions",
-          "type": "array"
-        },
-        "roots": {
-          "items": {
-            "$ref": "#/$defs/Root"
-          },
-          "title": "Roots",
-          "type": "array"
-        },
-        "transitions": {
-          "items": {
-            "$ref": "#/$defs/MachineTransition"
-          },
-          "title": "Transitions",
-          "type": "array"
-        },
-        "derivations": {
-          "items": {
-            "$ref": "#/$defs/Derivation"
-          },
-          "title": "Derivations",
-          "type": "array"
-        },
-        "files": {
-          "additionalProperties": {
-            "$ref": "#/$defs/ArtifactFileSpec"
-          },
-          "propertyNames": {
-            "$ref": "#/$defs/ArtifactId"
-          },
-          "title": "Files",
-          "type": "object"
-        }
-      },
-      "required": [
-        "actions",
-        "artifact_ids",
-        "contexts",
-        "derivations",
-        "files",
-        "roots",
-        "topological_artifact_order",
-        "topological_transition_order",
-        "transitions"
-      ],
-      "title": "MachineDescription",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.episode_api",
-      "x-layer": "transport",
-      "x-concern": "api_tools"
-    },
-    "MachineTransition": {
-      "description": "A transition declares the artifacts it consumes and produces and how it can run.",
-      "properties": {
-        "transition_id": {
-          "$ref": "#/$defs/OperationId"
-        },
-        "consumes": {
-          "items": {
-            "$ref": "#/$defs/ArtifactId"
-          },
-          "title": "Consumes",
-          "type": "array"
-        },
-        "produces": {
-          "items": {
-            "$ref": "#/$defs/ArtifactId"
-          },
-          "title": "Produces",
-          "type": "array"
-        },
-        "produces_optional": {
-          "items": {
-            "$ref": "#/$defs/ArtifactId"
-          },
-          "title": "Produces Optional",
-          "type": "array"
-        },
-        "creation_class": {
-          "enum": [
-            "deterministic",
-            "batch_llm",
-            "judgment"
-          ],
-          "title": "Creation Class",
-          "type": "string"
-        }
-      },
-      "required": [
-        "consumes",
-        "creation_class",
-        "produces",
-        "produces_optional",
-        "transition_id"
-      ],
-      "title": "MachineTransition",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.episode_api",
-      "x-layer": "transport",
-      "x-concern": "api_tools"
-    },
     "MeasurementDtype": {
       "enum": [
         "continuous",
@@ -4096,7 +3666,7 @@
       ],
       "title": "MeasurementsData",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.view_models",
+      "x-python-module": "nof1_causal_lab.study.view_models",
       "x-layer": "read_models",
       "x-concern": "read_models"
     },
@@ -4202,8 +3772,8 @@
       ],
       "title": "MechanismCurves",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.visual_models",
-      "x-layer": "machine",
+      "x-python-module": "nof1_causal_lab.study.visual_models",
+      "x-layer": "study",
       "x-concern": "read_models"
     },
     "MechanismId": {
@@ -4311,8 +3881,8 @@
       ],
       "title": "MechanismViewRequest",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.visual_models",
-      "x-layer": "machine",
+      "x-python-module": "nof1_causal_lab.study.visual_models",
+      "x-layer": "study",
       "x-concern": "read_models"
     },
     "ModelCheckReport": {
@@ -4422,7 +3992,7 @@
       },
       "title": "ModelData",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.snapshot_models",
+      "x-python-module": "nof1_causal_lab.study.snapshot_models",
       "x-layer": "read_models",
       "x-concern": "read_models"
     },
@@ -4516,7 +4086,7 @@
       },
       "title": "ModelDiagnostics",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.view_models",
+      "x-python-module": "nof1_causal_lab.study.view_models",
       "x-layer": "read_models",
       "x-concern": "read_models",
       "required": [
@@ -4723,17 +4293,6 @@
           ],
           "default": null
         },
-        "prior_predictive": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/Sourced_PriorPredictiveResult_"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
         "diagnostics": {
           "anyOf": [
             {
@@ -4792,7 +4351,7 @@
       },
       "title": "ModelFindings",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.snapshot_models",
+      "x-python-module": "nof1_causal_lab.study.snapshot_models",
       "x-layer": "read_models",
       "x-concern": "read_models",
       "required": [
@@ -4934,7 +4493,7 @@
       },
       "title": "ModelGraphView",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.snapshot_models",
+      "x-python-module": "nof1_causal_lab.study.snapshot_models",
       "x-layer": "read_models",
       "x-concern": "read_models",
       "required": [
@@ -5117,7 +4676,7 @@
       ],
       "title": "ModelSnapshot",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.snapshot_models",
+      "x-python-module": "nof1_causal_lab.study.snapshot_models",
       "x-layer": "read_models",
       "x-concern": "read_models"
     },
@@ -5208,44 +4767,6 @@
         "parameters",
         "time_points"
       ]
-    },
-    "ModelSpecAdmissionEvent": {
-      "additionalProperties": false,
-      "description": "Recorded construct-admission event from an earlier study history.",
-      "properties": {
-        "cursor": {
-          "default": "",
-          "title": "Cursor",
-          "type": "string"
-        },
-        "event": {
-          "enum": [
-            "nof1-causal-lab.model-spec.admission.plan",
-            "nof1-causal-lab.model-spec.admission.resumed",
-            "nof1-causal-lab.model-spec.admission.construct_started",
-            "nof1-causal-lab.model-spec.admission.construct_checking",
-            "nof1-causal-lab.model-spec.admission.construct_report",
-            "nof1-causal-lab.model-spec.admission.barrier_report",
-            "nof1-causal-lab.model-spec.admission.done",
-            "nof1-causal-lab.model-spec.admission.failed"
-          ],
-          "title": "Event",
-          "type": "string"
-        },
-        "payload": {
-          "$ref": "#/$defs/JsonObject"
-        }
-      },
-      "required": [
-        "cursor",
-        "event",
-        "payload"
-      ],
-      "title": "ModelSpecAdmissionEvent",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.flows.runtime_events",
-      "x-layer": "machine",
-      "x-concern": "execution_history"
     },
     "NonIdentifiableTreatmentStatus": {
       "additionalProperties": false,
@@ -5421,8 +4942,8 @@
       ],
       "title": "ObservationHistory",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.visual_models",
-      "x-layer": "machine",
+      "x-python-module": "nof1_causal_lab.study.visual_models",
+      "x-layer": "study",
       "x-concern": "read_models"
     },
     "ObservationLawSpec": {
@@ -5702,23 +5223,6 @@
       "x-python-module": "nof1_causal_lab.artifacts.observations",
       "x-layer": "authored",
       "x-concern": "scientific_model"
-    },
-    "OperationId": {
-      "enum": [
-        "raw_data",
-        "latent_structure",
-        "measurement_structure",
-        "measurements",
-        "simulated_measurements",
-        "statistical_model_spec",
-        "posterior",
-        "simulate"
-      ],
-      "type": "string",
-      "x-python-module": "nof1_causal_lab.artifacts.identity",
-      "x-layer": "identity",
-      "x-concern": "identity",
-      "description": "An operation identity selects an action independently of its output artifacts."
     },
     "PPCOverlay": {
       "description": "A predictive overlay sets one indicator's observed values against simulated ones.\n\nIt carries the predictive median and a few individual replicated series, the\nspaghetti plot of a visual predictive check.",
@@ -6019,8 +5523,8 @@
       ],
       "title": "ParameterDrawColumn",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.visual_models",
-      "x-layer": "machine",
+      "x-python-module": "nof1_causal_lab.study.visual_models",
+      "x-layer": "study",
       "x-concern": "read_models"
     },
     "ParameterDraws": {
@@ -6052,8 +5556,8 @@
       ],
       "title": "ParameterDraws",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.visual_models",
-      "x-layer": "machine",
+      "x-python-module": "nof1_causal_lab.study.visual_models",
+      "x-layer": "study",
       "x-concern": "read_models"
     },
     "ParameterElementId": {
@@ -6208,8 +5712,8 @@
       ],
       "title": "PathSeries",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.visual_models",
-      "x-layer": "machine",
+      "x-python-module": "nof1_causal_lab.study.visual_models",
+      "x-layer": "study",
       "x-concern": "read_models"
     },
     "PosteriorEstimate": {
@@ -6568,8 +6072,8 @@
       ],
       "title": "PredictiveHistory",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.visual_models",
-      "x-layer": "machine",
+      "x-python-module": "nof1_causal_lab.study.visual_models",
+      "x-layer": "study",
       "x-concern": "read_models"
     },
     "PredictiveLawProvenance": {
@@ -6701,112 +6205,44 @@
       "x-layer": "authored",
       "x-concern": "scientific_model"
     },
-    "PriorPredictiveDiagnostic": {
-      "additionalProperties": false,
-      "description": "A measured prior-predictive check and its evaluation criteria.",
-      "properties": {
-        "check": {
-          "title": "Check",
-          "type": "string"
+    "ProgressEvent": {
+      "discriminator": {
+        "mapping": {
+          "nof1-causal-lab.extraction.plan": "#/$defs/ExtractionPlanEvent",
+          "nof1-causal-lab.extraction.snapshot": "#/$defs/ExtractionSnapshotEvent",
+          "nof1-causal-lab.extraction.worker": "#/$defs/ExtractionWorkerEvent",
+          "nof1-causal-lab.step": "#/$defs/StepEvent"
         },
-        "construct_id": {
-          "$ref": "#/$defs/ConstructId"
-        },
-        "target": {
-          "title": "Target",
-          "type": "string"
-        },
-        "value": {
-          "title": "Value",
-          "type": "string"
-        },
-        "band": {
-          "title": "Band",
-          "type": "string"
-        },
-        "passed": {
-          "title": "Passed",
-          "type": "boolean"
-        },
-        "note": {
-          "title": "Note",
-          "type": "string"
-        },
-        "reason": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Reason"
-        },
-        "diagnosis": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Diagnosis",
-          "type": "array"
-        },
-        "mode": {
-          "title": "Mode",
-          "type": "string"
-        }
+        "propertyName": "event"
       },
-      "required": [
-        "band",
-        "check",
-        "construct_id",
-        "diagnosis",
-        "mode",
-        "note",
-        "passed",
-        "target",
-        "value"
+      "oneOf": [
+        {
+          "$ref": "#/$defs/StepEvent"
+        },
+        {
+          "$ref": "#/$defs/ExtractionPlanEvent"
+        },
+        {
+          "$ref": "#/$defs/ExtractionWorkerEvent"
+        },
+        {
+          "$ref": "#/$defs/ExtractionSnapshotEvent"
+        }
       ],
-      "title": "PriorPredictiveDiagnostic",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.artifacts.prior_predictive",
-      "x-layer": "findings",
-      "x-concern": "scientific_model"
+      "x-python-module": "nof1_causal_lab.actions.progress",
+      "x-layer": "study",
+      "x-concern": "execution_history",
+      "description": "A progress event records one running attempt's step status or extraction telemetry."
     },
-    "PriorPredictiveResult": {
-      "additionalProperties": false,
-      "description": "Simulated observations and checks recorded by a model-authoring operation.",
-      "properties": {
-        "samples": {
-          "additionalProperties": {
-            "items": {
-              "type": "number"
-            },
-            "type": "array"
-          },
-          "propertyNames": {
-            "$ref": "#/$defs/IndicatorId"
-          },
-          "title": "Samples",
-          "type": "object"
-        },
-        "diagnostics": {
-          "items": {
-            "$ref": "#/$defs/PriorPredictiveDiagnostic"
-          },
-          "title": "Diagnostics",
-          "type": "array"
-        }
-      },
-      "required": [
-        "diagnostics",
-        "samples"
+    "ProgressStep": {
+      "enum": [
+        "ingestion",
+        "extraction"
       ],
-      "title": "PriorPredictiveResult",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.artifacts.prior_predictive",
-      "x-layer": "findings",
-      "x-concern": "scientific_model"
+      "type": "string",
+      "x-python-module": "nof1_causal_lab.actions.progress",
+      "x-layer": "study",
+      "x-concern": "execution_history"
     },
     "RawDataColumnDescription": {
       "additionalProperties": false,
@@ -6832,7 +6268,7 @@
       ],
       "title": "RawDataColumnDescription",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.view_models",
+      "x-python-module": "nof1_causal_lab.study.view_models",
       "x-layer": "read_models",
       "x-concern": "read_models"
     },
@@ -6885,7 +6321,7 @@
       ],
       "title": "RawDataData",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.view_models",
+      "x-python-module": "nof1_causal_lab.study.view_models",
       "x-layer": "read_models",
       "x-concern": "read_models"
     },
@@ -6908,9 +6344,43 @@
       ],
       "title": "RawDataDateRange",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.view_models",
+      "x-python-module": "nof1_causal_lab.study.view_models",
       "x-layer": "read_models",
       "x-concern": "read_models"
+    },
+    "RecordDependency": {
+      "additionalProperties": false,
+      "description": "A journal record used an output of an earlier record.",
+      "properties": {
+        "seq": {
+          "title": "Seq",
+          "type": "integer"
+        },
+        "source_seq": {
+          "title": "Source Seq",
+          "type": "integer"
+        },
+        "argument": {
+          "title": "Argument",
+          "type": "string"
+        },
+        "check": {
+          "description": "Only the action's checks read the output; its request did not name it.",
+          "title": "Check",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "argument",
+        "check",
+        "seq",
+        "source_seq"
+      ],
+      "title": "RecordDependency",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.study.records",
+      "x-layer": "study",
+      "x-concern": "execution_history"
     },
     "RecordedPath": {
       "additionalProperties": false,
@@ -6940,8 +6410,8 @@
       ],
       "title": "RecordedPath",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.visual_models",
-      "x-layer": "machine",
+      "x-python-module": "nof1_causal_lab.study.visual_models",
+      "x-layer": "study",
       "x-concern": "read_models"
     },
     "ResponseCurve": {
@@ -6984,38 +6454,9 @@
       ],
       "title": "ResponseCurve",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.visual_models",
-      "x-layer": "machine",
+      "x-python-module": "nof1_causal_lab.study.visual_models",
+      "x-layer": "study",
       "x-concern": "read_models"
-    },
-    "ResumeRef": {
-      "additionalProperties": false,
-      "description": "Recorded checkpoint reference in historical authoring attempts.",
-      "properties": {
-        "kind": {
-          "const": "model_spec",
-          "title": "Kind",
-          "type": "string"
-        },
-        "run_id": {
-          "title": "Run Id",
-          "type": "string"
-        },
-        "checkpoint_id": {
-          "title": "Checkpoint Id",
-          "type": "string"
-        }
-      },
-      "required": [
-        "checkpoint_id",
-        "kind",
-        "run_id"
-      ],
-      "title": "ResumeRef",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.store",
-      "x-layer": "machine",
-      "x-concern": "execution_history"
     },
     "RetractedArtifact": {
       "additionalProperties": false,
@@ -7035,8 +6476,8 @@
       ],
       "title": "RetractedArtifact",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.execution",
-      "x-layer": "machine",
+      "x-python-module": "nof1_causal_lab.study.state",
+      "x-layer": "study",
       "x-concern": "execution_history"
     },
     "RevisionCatalog": {
@@ -7088,25 +6529,9 @@
       "x-layer": "authored",
       "x-concern": "scientific_model"
     },
-    "Root": {
-      "properties": {
-        "artifact_id": {
-          "$ref": "#/$defs/ArtifactId"
-        }
-      },
-      "required": [
-        "artifact_id"
-      ],
-      "title": "Root",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.graph",
-      "x-layer": "machine",
-      "x-concern": "execution_history",
-      "description": "A root declares an independently writable artifact and any contextual input pins."
-    },
     "RunningAction": {
       "additionalProperties": false,
-      "description": "The attempt an episode is executing, with the labels it has emitted so far.",
+      "description": "The attempt a study is executing, with the labels it has emitted so far.",
       "properties": {
         "attempt_id": {
           "format": "uuid",
@@ -7114,7 +6539,7 @@
           "type": "string"
         },
         "action": {
-          "$ref": "#/$defs/ScientificActionId"
+          "$ref": "#/$defs/ActionId"
         },
         "branch": {
           "title": "Branch",
@@ -7139,75 +6564,6 @@
       "x-python-module": "nof1_causal_lab.actions.results",
       "x-layer": "transport",
       "x-concern": "api_tools"
-    },
-    "RuntimeEvent": {
-      "discriminator": {
-        "mapping": {
-          "nof1-causal-lab.action.message": "#/$defs/ActionMessageEvent",
-          "nof1-causal-lab.extraction.plan": "#/$defs/ExtractionPlanEvent",
-          "nof1-causal-lab.extraction.snapshot": "#/$defs/ExtractionSnapshotEvent",
-          "nof1-causal-lab.extraction.worker": "#/$defs/ExtractionWorkerEvent",
-          "nof1-causal-lab.model-spec.admission.barrier_report": "#/$defs/ModelSpecAdmissionEvent",
-          "nof1-causal-lab.model-spec.admission.construct_checking": "#/$defs/ModelSpecAdmissionEvent",
-          "nof1-causal-lab.model-spec.admission.construct_report": "#/$defs/ModelSpecAdmissionEvent",
-          "nof1-causal-lab.model-spec.admission.construct_started": "#/$defs/ModelSpecAdmissionEvent",
-          "nof1-causal-lab.model-spec.admission.done": "#/$defs/ModelSpecAdmissionEvent",
-          "nof1-causal-lab.model-spec.admission.failed": "#/$defs/ModelSpecAdmissionEvent",
-          "nof1-causal-lab.model-spec.admission.plan": "#/$defs/ModelSpecAdmissionEvent",
-          "nof1-causal-lab.model-spec.admission.resumed": "#/$defs/ModelSpecAdmissionEvent",
-          "nof1-causal-lab.transition.completed": "#/$defs/TransitionRuntimeEvent",
-          "nof1-causal-lab.transition.failed": "#/$defs/TransitionRuntimeEvent",
-          "nof1-causal-lab.transition.running": "#/$defs/TransitionRuntimeEvent"
-        },
-        "propertyName": "event"
-      },
-      "oneOf": [
-        {
-          "$ref": "#/$defs/ActionMessageEvent"
-        },
-        {
-          "$ref": "#/$defs/TransitionRuntimeEvent"
-        },
-        {
-          "$ref": "#/$defs/ExtractionPlanEvent"
-        },
-        {
-          "$ref": "#/$defs/ExtractionWorkerEvent"
-        },
-        {
-          "$ref": "#/$defs/ExtractionSnapshotEvent"
-        },
-        {
-          "$ref": "#/$defs/ModelSpecAdmissionEvent"
-        }
-      ],
-      "x-python-module": "nof1_causal_lab.flows.runtime_events",
-      "x-layer": "machine",
-      "x-concern": "execution_history",
-      "description": "A runtime event records transition progress, agent activity, or extraction telemetry."
-    },
-    "RuntimeEventError": {
-      "additionalProperties": false,
-      "description": "Serialized transition failure.",
-      "properties": {
-        "type": {
-          "title": "Type",
-          "type": "string"
-        },
-        "message": {
-          "title": "Message",
-          "type": "string"
-        }
-      },
-      "required": [
-        "message",
-        "type"
-      ],
-      "title": "RuntimeEventError",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.flows.runtime_events",
-      "x-layer": "machine",
-      "x-concern": "execution_history"
     },
     "ScientificActionId": {
       "enum": [
@@ -7336,8 +6692,8 @@
       ],
       "title": "SimulationPaths",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.visual_models",
-      "x-layer": "machine",
+      "x-python-module": "nof1_causal_lab.study.visual_models",
+      "x-layer": "study",
       "x-concern": "read_models"
     },
     "SimulationPredictiveReport": {
@@ -7674,17 +7030,9 @@
         },
         "state": {
           "$ref": "#/$defs/SnapshotState"
-        },
-        "artifacts": {
-          "items": {
-            "$ref": "#/$defs/ArtifactFreshness"
-          },
-          "title": "Artifacts",
-          "type": "array"
         }
       },
       "required": [
-        "artifacts",
         "branch",
         "can_simulate",
         "commit_id",
@@ -7694,7 +7042,7 @@
       ],
       "title": "SnapshotContext",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.snapshot_models",
+      "x-python-module": "nof1_causal_lab.study.snapshot_models",
       "x-layer": "read_models",
       "x-concern": "read_models"
     },
@@ -7715,7 +7063,7 @@
       },
       "title": "SnapshotState",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.snapshot_models",
+      "x-python-module": "nof1_causal_lab.study.snapshot_models",
       "x-layer": "read_models",
       "x-concern": "read_models",
       "required": [
@@ -7730,7 +7078,7 @@
       ],
       "title": "SourceValidity",
       "type": "string",
-      "x-python-module": "nof1_causal_lab.machine.snapshot_models",
+      "x-python-module": "nof1_causal_lab.study.snapshot_models",
       "x-layer": "read_models",
       "x-concern": "read_models"
     },
@@ -7750,7 +7098,7 @@
       ],
       "title": "Sourced[DataProfileArtifact]",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.snapshot_models",
+      "x-python-module": "nof1_causal_lab.study.snapshot_models",
       "x-layer": "read_models",
       "x-concern": "read_models",
       "description": "A sourced value pairs one model finding with its supporting artifact revision."
@@ -7771,7 +7119,7 @@
       ],
       "title": "Sourced[FitSummary]",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.snapshot_models",
+      "x-python-module": "nof1_causal_lab.study.snapshot_models",
       "x-layer": "read_models",
       "x-concern": "read_models",
       "description": "A sourced value pairs one model finding with its supporting artifact revision."
@@ -7792,7 +7140,7 @@
       ],
       "title": "Sourced[IdentificationReport]",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.snapshot_models",
+      "x-python-module": "nof1_causal_lab.study.snapshot_models",
       "x-layer": "read_models",
       "x-concern": "read_models",
       "description": "A sourced value pairs one model finding with its supporting artifact revision."
@@ -7813,7 +7161,7 @@
       ],
       "title": "Sourced[MeasurementsData]",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.snapshot_models",
+      "x-python-module": "nof1_causal_lab.study.snapshot_models",
       "x-layer": "read_models",
       "x-concern": "read_models",
       "description": "A sourced value pairs one model finding with its supporting artifact revision."
@@ -7834,7 +7182,7 @@
       ],
       "title": "Sourced[ModelPredictiveReport]",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.snapshot_models",
+      "x-python-module": "nof1_causal_lab.study.snapshot_models",
       "x-layer": "read_models",
       "x-concern": "read_models",
       "description": "A sourced value pairs one model finding with its supporting artifact revision."
@@ -7855,7 +7203,7 @@
       ],
       "title": "Sourced[ModelSpec]",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.snapshot_models",
+      "x-python-module": "nof1_causal_lab.study.snapshot_models",
       "x-layer": "read_models",
       "x-concern": "read_models",
       "description": "A sourced value pairs one model finding with its supporting artifact revision."
@@ -7876,28 +7224,7 @@
       ],
       "title": "Sourced[PreparedDataMetadata]",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.snapshot_models",
-      "x-layer": "read_models",
-      "x-concern": "read_models",
-      "description": "A sourced value pairs one model finding with its supporting artifact revision."
-    },
-    "Sourced_PriorPredictiveResult_": {
-      "additionalProperties": false,
-      "properties": {
-        "value": {
-          "$ref": "#/$defs/PriorPredictiveResult"
-        },
-        "source": {
-          "$ref": "#/$defs/FactSource"
-        }
-      },
-      "required": [
-        "source",
-        "value"
-      ],
-      "title": "Sourced[PriorPredictiveResult]",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.snapshot_models",
+      "x-python-module": "nof1_causal_lab.study.snapshot_models",
       "x-layer": "read_models",
       "x-concern": "read_models",
       "description": "A sourced value pairs one model finding with its supporting artifact revision."
@@ -7918,7 +7245,7 @@
       ],
       "title": "Sourced[RawDataData]",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.snapshot_models",
+      "x-python-module": "nof1_causal_lab.study.snapshot_models",
       "x-layer": "read_models",
       "x-concern": "read_models",
       "description": "A sourced value pairs one model finding with its supporting artifact revision."
@@ -7939,7 +7266,7 @@
       ],
       "title": "Sourced[SimulationReport]",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.snapshot_models",
+      "x-python-module": "nof1_causal_lab.study.snapshot_models",
       "x-layer": "read_models",
       "x-concern": "read_models",
       "description": "A sourced value pairs one model finding with its supporting artifact revision."
@@ -7960,7 +7287,7 @@
       ],
       "title": "Sourced[SpecificationReport]",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.snapshot_models",
+      "x-python-module": "nof1_causal_lab.study.snapshot_models",
       "x-layer": "read_models",
       "x-concern": "read_models",
       "description": "A sourced value pairs one model finding with its supporting artifact revision."
@@ -7981,7 +7308,7 @@
       ],
       "title": "Sourced[ValidationReportArtifact]",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.snapshot_models",
+      "x-python-module": "nof1_causal_lab.study.snapshot_models",
       "x-layer": "read_models",
       "x-concern": "read_models",
       "description": "A sourced value pairs one model finding with its supporting artifact revision."
@@ -8006,7 +7333,7 @@
       ],
       "title": "Sourced[tuple[StructuralItemDisposition, ...]]",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.snapshot_models",
+      "x-python-module": "nof1_causal_lab.study.snapshot_models",
       "x-layer": "read_models",
       "x-concern": "read_models",
       "description": "A sourced value pairs one model finding with its supporting artifact revision."
@@ -8088,7 +7415,7 @@
       ],
       "title": "StateEquation",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.view_models",
+      "x-python-module": "nof1_causal_lab.study.view_models",
       "x-layer": "read_models",
       "x-concern": "read_models"
     },
@@ -8115,6 +7442,91 @@
       "x-python-module": "nof1_causal_lab.artifacts.expressions",
       "x-layer": "authored",
       "x-concern": "scientific_model"
+    },
+    "StepError": {
+      "additionalProperties": false,
+      "description": "The error type and message of a failed step.",
+      "properties": {
+        "type": {
+          "title": "Type",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        }
+      },
+      "required": [
+        "message",
+        "type"
+      ],
+      "title": "StepError",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.actions.progress",
+      "x-layer": "study",
+      "x-concern": "execution_history"
+    },
+    "StepEvent": {
+      "additionalProperties": false,
+      "description": "A data-preparation step changed status.",
+      "properties": {
+        "attempt_id": {
+          "format": "uuid",
+          "title": "Attempt Id",
+          "type": "string"
+        },
+        "cursor": {
+          "default": "",
+          "title": "Cursor",
+          "type": "string"
+        },
+        "event": {
+          "const": "nof1-causal-lab.step",
+          "default": "nof1-causal-lab.step",
+          "title": "Event",
+          "type": "string"
+        },
+        "step": {
+          "$ref": "#/$defs/ProgressStep"
+        },
+        "status": {
+          "$ref": "#/$defs/StepStatus"
+        },
+        "error": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/StepError"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "attempt_id",
+        "cursor",
+        "event",
+        "status",
+        "step"
+      ],
+      "title": "StepEvent",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.actions.progress",
+      "x-layer": "study",
+      "x-concern": "execution_history"
+    },
+    "StepStatus": {
+      "enum": [
+        "running",
+        "completed",
+        "failed"
+      ],
+      "type": "string",
+      "x-python-module": "nof1_causal_lab.actions.progress",
+      "x-layer": "study",
+      "x-concern": "execution_history"
     },
     "StructuralDisposition": {
       "description": "A structural disposition classifies how compilation uses or excludes an authored model\nentity.",
@@ -8210,21 +7622,10 @@
           "type": "string"
         },
         "action": {
-          "$ref": "#/$defs/ScientificActionId"
+          "$ref": "#/$defs/ActionId"
         },
         "inputs": {
           "$ref": "#/$defs/JsonObject"
-        },
-        "operation_id": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/OperationId"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
         },
         "status": {
           "$ref": "#/$defs/JournalStatus"
@@ -8266,7 +7667,7 @@
           "title": "Error Message"
         },
         "diagnostics": {
-          "$ref": "#/$defs/UncheckedJsonObject"
+          "$ref": "#/$defs/JsonObject"
         },
         "checks": {
           "anyOf": [
@@ -8308,16 +7709,6 @@
           "title": "Trace Ids",
           "type": "array"
         },
-        "resume": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/ResumeRef"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
         "commit_id": {
           "$ref": "#/$defs/GitOid"
         },
@@ -8338,7 +7729,6 @@
         "messages",
         "parent_ids",
         "produced",
-        "resume",
         "retracted",
         "seq",
         "status",
@@ -8347,8 +7737,114 @@
       ],
       "title": "StudyRevision",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.machine.history_models",
-      "x-layer": "machine",
+      "x-python-module": "nof1_causal_lab.study.records",
+      "x-layer": "study",
+      "x-concern": "execution_history"
+    },
+    "StudyState": {
+      "additionalProperties": false,
+      "description": "Study state projects the artifact trees selected by one Git commit.\n\n``current`` maps artifact id \u2192 the revision info that is *current* for the\nstudy. Absent key = the artifact does not exist (either never produced,\nor produced-when-nonempty semantics withheld it).",
+      "properties": {
+        "current": {
+          "additionalProperties": {
+            "$ref": "#/$defs/ArtifactRecord"
+          },
+          "propertyNames": {
+            "$ref": "#/$defs/ArtifactId"
+          },
+          "title": "Current",
+          "type": "object"
+        },
+        "checks": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ModelCheckReport"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "title": "StudyState",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.study.state",
+      "x-layer": "study",
+      "x-concern": "execution_history",
+      "required": [
+        "current"
+      ]
+    },
+    "StudyStatus": {
+      "additionalProperties": false,
+      "description": "Study status reports committed artifacts, their freshness, actions, and any running one.",
+      "properties": {
+        "workspace_id": {
+          "title": "Workspace Id",
+          "type": "string"
+        },
+        "branch": {
+          "default": "main",
+          "title": "Branch",
+          "type": "string"
+        },
+        "commit_id": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/GitOid"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "seq": {
+          "title": "Seq",
+          "type": "integer"
+        },
+        "state": {
+          "$ref": "#/$defs/StudyState"
+        },
+        "artifacts": {
+          "items": {
+            "$ref": "#/$defs/ArtifactFreshness"
+          },
+          "title": "Artifacts",
+          "type": "array"
+        },
+        "actions": {
+          "items": {
+            "$ref": "#/$defs/ScientificActionId"
+          },
+          "title": "Actions",
+          "type": "array"
+        },
+        "running": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/RunningAction"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "actions",
+        "artifacts",
+        "branch",
+        "running",
+        "seq",
+        "state",
+        "workspace_id"
+      ],
+      "title": "StudyStatus",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.actions.status",
+      "x-layer": "transport",
       "x-concern": "execution_history"
     },
     "TemporalStatus": {
@@ -8365,17 +7861,17 @@
     },
     "TimelineResponse": {
       "additionalProperties": false,
-      "description": "Typed transition journal returned by the episode read plane.",
+      "description": "Typed attempt journal returned by the study read plane.",
       "properties": {
         "workspace_id": {
           "title": "Workspace Id",
           "type": "string"
         },
-        "transitions": {
+        "attempts": {
           "items": {
             "$ref": "#/$defs/StudyRevision"
           },
-          "title": "Transitions",
+          "title": "Attempts",
           "type": "array"
         },
         "branches": {
@@ -8384,16 +7880,46 @@
           },
           "title": "Branches",
           "type": "object"
+        },
+        "dependencies": {
+          "items": {
+            "$ref": "#/$defs/RecordDependency"
+          },
+          "title": "Dependencies",
+          "type": "array"
         }
       },
       "required": [
+        "attempts",
         "branches",
-        "transitions",
+        "dependencies",
         "workspace_id"
       ],
       "title": "TimelineResponse",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.episode_api",
+      "x-python-module": "nof1_causal_lab.study_api",
+      "x-layer": "transport",
+      "x-concern": "api_tools"
+    },
+    "TraceFunctionCall": {
+      "description": "The invoked tool function and its JSON argument string, retained in a trace.",
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "arguments": {
+          "title": "Arguments",
+          "type": "string"
+        }
+      },
+      "required": [
+        "arguments",
+        "name"
+      ],
+      "title": "TraceFunctionCall",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.utils.llm",
       "x-layer": "transport",
       "x-concern": "api_tools"
     },
@@ -8424,7 +7950,7 @@
           "anyOf": [
             {
               "items": {
-                "$ref": "#/$defs/UncheckedJsonObject"
+                "$ref": "#/$defs/TraceToolCall"
               },
               "type": "array"
             },
@@ -8483,6 +8009,33 @@
         "tool_is_error"
       ],
       "title": "TraceMessage",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.utils.llm",
+      "x-layer": "transport",
+      "x-concern": "api_tools"
+    },
+    "TraceToolCall": {
+      "description": "A function invocation with the call identity used to match its result.",
+      "properties": {
+        "id": {
+          "title": "Id",
+          "type": "string"
+        },
+        "type": {
+          "const": "function",
+          "title": "Type",
+          "type": "string"
+        },
+        "function": {
+          "$ref": "#/$defs/TraceFunctionCall"
+        }
+      },
+      "required": [
+        "function",
+        "id",
+        "type"
+      ],
+      "title": "TraceToolCall",
       "type": "object",
       "x-python-module": "nof1_causal_lab.utils.llm",
       "x-layer": "transport",
@@ -8597,89 +8150,6 @@
       "x-layer": "findings",
       "x-concern": "scientific_model"
     },
-    "TransitionRuntimeEvent": {
-      "additionalProperties": false,
-      "description": "One transition lifecycle event, identified by its event name.",
-      "properties": {
-        "cursor": {
-          "default": "",
-          "title": "Cursor",
-          "type": "string"
-        },
-        "event": {
-          "enum": [
-            "nof1-causal-lab.transition.running",
-            "nof1-causal-lab.transition.completed",
-            "nof1-causal-lab.transition.failed"
-          ],
-          "title": "Event",
-          "type": "string"
-        },
-        "transition_id": {
-          "title": "Transition Id",
-          "type": "string"
-        },
-        "error": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/RuntimeEventError"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        }
-      },
-      "required": [
-        "cursor",
-        "event",
-        "transition_id"
-      ],
-      "title": "TransitionRuntimeEvent",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.flows.runtime_events",
-      "x-layer": "machine",
-      "x-concern": "execution_history"
-    },
-    "TransitionTraceIndex": {
-      "additionalProperties": false,
-      "description": "Promoted traces identified by their committed execution sequence.",
-      "properties": {
-        "workspace_id": {
-          "title": "Workspace Id",
-          "type": "string"
-        },
-        "commit_id": {
-          "$ref": "#/$defs/GitOid"
-        },
-        "trace_ids": {
-          "items": {
-            "type": "string"
-          },
-          "title": "Trace Ids",
-          "type": "array"
-        }
-      },
-      "required": [
-        "commit_id",
-        "trace_ids",
-        "workspace_id"
-      ],
-      "title": "TransitionTraceIndex",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.episode_api",
-      "x-layer": "transport",
-      "x-concern": "api_tools"
-    },
-    "UncheckedJsonObject": {
-      "additionalProperties": true,
-      "description": "An unchecked JSON object carries data across a boundary before domain validation.",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.json_types",
-      "x-layer": "transport",
-      "x-concern": "api_tools"
-    },
     "UploadResponse": {
       "additionalProperties": false,
       "description": "An upload response identifies the stored location of an accepted data upload.",
@@ -8694,7 +8164,7 @@
       ],
       "title": "UploadResponse",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.episode_api",
+      "x-python-module": "nof1_causal_lab.study_api",
       "x-layer": "transport",
       "x-concern": "api_tools"
     },
@@ -8824,7 +8294,7 @@
       ],
       "title": "WorkspaceEntry",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.episode_api",
+      "x-python-module": "nof1_causal_lab.study_api",
       "x-layer": "transport",
       "x-concern": "api_tools"
     },
@@ -8845,7 +8315,7 @@
       ],
       "title": "WorkspaceList",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.episode_api",
+      "x-python-module": "nof1_causal_lab.study_api",
       "x-layer": "transport",
       "x-concern": "api_tools"
     }

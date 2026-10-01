@@ -42,7 +42,7 @@ checks to `predictive`, and initialization solvers to `warmup`. A test that chec
 both exact density and observation draws owns both `sampling` and `predictive`.
 Keep routing tests in `contract` when the numerical execution is stubbed, and
 validation tests when they reject inputs before execution. Attribute real Temporal
-child workflows to `workflow`, even without a complete episode journey.
+child workflows to `workflow`, even without a complete study journey.
 
 Use function or class markers in mixed files;
 a module's `pytestmark` applies only when every test shares the concern. A test can
@@ -128,87 +128,36 @@ lint, type, documentation, and duplicate checks when they apply to the change.
 New studies initialize their local bare repository on first use. On a fresh checkout, restore the tracked `DEMO` history bundle before using its backend:
 
 ```bash
-git clone --mirror data/DEMO/episode/history.bundle data/DEMO/episode/history.git
-git --git-dir=data/DEMO/episode/history.git config nof1.format 7
+git clone --mirror data/DEMO/study/history.bundle data/DEMO/study/history.git
+git --git-dir=data/DEMO/study/history.git config nof1.format 8
 ```
 
 #### Migrating a local study
 
-Format-3 studies still store extraction instructions on their models. To convert one into a new format-4 copy:
+The current runtime requires format 8. To convert a format-7 study into a new copy:
 
-1. Stop work on the study and close its episode workflow.
-2. Run the converter with the original uploaded filenames. The destination must be new and outside the source, and the source is left untouched.
+1. Stop work on the study and close its workflow. A format-7 study's workflow is still named `episode-STUDY`:
 
    ```bash
-   uv run --directory apps/data-pipeline python -m scripts.migrations.migrate_data_preparation \
-     ../../data/STUDY /tmp/migrated/STUDY --files diary.csv
+   temporal workflow signal --workflow-id episode-STUDY --name close
    ```
 
-   The converter moves scoring instructions into panel metadata and adds numerical data profiles, without fitting or generating trajectories. It doesn't invent scoring rules or codebooks: variables without retained definitions stay explicit profile findings. `--preparations-json` can supply reviewed panel-revision-to-preparation specs.
+2. Run the [format-8 converter](../../apps/data-pipeline/scripts/migrations/migrate_format_8.py). The destination must be new and outside the source, and the source is left untouched.
+
+   ```bash
+   uv run --directory apps/data-pipeline python -m scripts.migrations.migrate_format_8 \
+     ../../data/STUDY /tmp/format8/STUDY
+   ```
+
+   It drops operation IDs, resume references and stored progress events from attempt records, renames each commit's `logs/transition.json` to `logs/attempt.json`, names each artifact's producer by its action, and moves the repository from `episode/` to `study/`. Saved artifacts, numerical files and results are otherwise unchanged. Changed Git objects get new identities, and references to them follow.
 3. Review the migrated snapshots, then select the new workspace while offline.
-4. Restart the workers with the new code and start a fresh episode workflow from the migrated Git state; don't replay the previous workflow. Regenerate any fixture bundle from the migrated repository.
+4. Restart the workers with the new code and start a fresh `study-STUDY` workflow from the migrated Git state; don't replay the previous workflow. Regenerate any fixture bundle from the migrated repository.
 
-Older numbered-artifact and format-2 histories have no validated route to the current runtime.
-
-For a format-4 study that still declares `recording` or nested `fill_null`, follow the same stop, review and restart steps with the [null-filling converter](../../apps/data-pipeline/scripts/migrations/migrate_fill_null.py):
-
-```bash
-uv run --directory apps/data-pipeline python -m scripts.migrations.migrate_fill_null \
-  ../../data/STUDY /tmp/migrated/STUDY
-```
-
-The converter rewrites observation definitions, model-input fingerprints and revision references in a new copy, preserving saved numerical tables and results. It translates retired fields to the shared [`ObservationSpec`](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/observations.py) with flat `fill_null`; subsequent preparation uses [Polars null-filling semantics](https://docs.pola.rs/api/python/stable/reference/expressions/api/polars.Expr.fill_null.html), including explicitly null values.
-
-For a format-4 study whose fitted models list one point mass per retained posterior draw, follow the same steps with the [posterior-law converter](../../apps/data-pipeline/scripts/migrations/migrate_empirical_laws.py):
-
-```bash
-uv run --directory apps/data-pipeline python -m scripts.migrations.migrate_empirical_laws \
-  ../../data/STUDY /tmp/migrated/STUDY
-```
-
-It stores each retained posterior as one batched point mass over its saved draws and moves the equal weights into the array store, rewriting model-input fingerprints and revision references in a new copy. Draws, tables and results are reused unchanged.
-
-For a format-4 study whose stored predictive overlays still carry quantile bands, use the [predictive-overlay converter](../../apps/data-pipeline/scripts/migrations/migrate_predictive_overlays.py) the same way:
-
-```bash
-uv run --directory apps/data-pipeline python -m scripts.migrations.migrate_predictive_overlays \
-  ../../data/STUDY /tmp/migrated/STUDY
-```
-
-It drops the band arrays and keeps evenly spaced sample series, as many as new checks record. Observed values, medians and all other check results are preserved. Run this converter before the format-5 conversion below.
-
-After any necessary format-4 conversions above, create format 5 with the [simulation/preparation converter](../../apps/data-pipeline/scripts/migrations/migrate_simulation_preparation.py) into another new copy:
-
-```bash
-uv run --directory apps/data-pipeline python -m scripts.migrations.migrate_simulation_preparation \
-  ../../data/STUDY /tmp/format5/STUDY
-```
-
-It records panel and historical fit origins, backfills simulation summaries from saved draws, and rewrites all changed Git references. It preserves historical numerical coordinates under the [time semantics](../assumptions.md#time). Imported panels without a files recipe are rejected before copying; their preparation requires a reviewed scientific decision. No model calls, fitting or simulation run during migration. Review the new copy and start a fresh workflow as above.
-
-Convert a stopped format-5 study to format 6 with the [edge-timing converter](../../apps/data-pipeline/scripts/migrations/migrate_edge_timing.py):
-
-```bash
-uv run --directory apps/data-pipeline python -m scripts.migrations.migrate_edge_timing \
-  ../../data/STUDY /tmp/edge-timing/STUDY
-```
-
-It removes `lagged`, recomputes identification from the constructs’ temporal status, and rewrites references in a new copy. Equations and numerical arrays are preserved. Review the copy and restart the workflow as above. The [temporal assumptions](../assumptions.md#model-class) describe the revised interpretation.
-
-The current runtime requires format 7. Convert a stopped format-6 study with the [fixed-values converter](../../apps/data-pipeline/scripts/migrations/migrate_fixed_values.py):
-
-```bash
-uv run --directory apps/data-pipeline python -m scripts.migrations.migrate_fixed_values \
-  ../../data/STUDY /tmp/fixed-values/STUDY
-```
-
-It inlines fixed parameters as literal coefficients, removes those parameters and the remaining parameter `value` fields, and rewrites references in a new copy. It stops on a fixed parameter shared by several slots. Observation values and numerical files are preserved.
-
-STEPWISE's imported panels have no files recipe and remain archived, not converted or rebuilt. A later files-path rebuild requires a separate budgeted end-to-end run.
+Earlier formats have no route to the current runtime.
 
 #### Squashing a local study's action history
 
-Stop work on the study and close its episode workflow, as in the [migration procedure](#migrating-a-local-study). The [history squash script](../../apps/data-pipeline/scripts/migrations/squash_study_history.py) compacts saved effects through an applied commit `R` into a new directory outside the source. Keep the directory's basename, which is the logical workspace ID:
+Stop work on the study and close its `study-STUDY` workflow, as in the [migration procedure](#migrating-a-local-study). The [history squash script](../../apps/data-pipeline/scripts/migrations/squash_study_history.py) compacts saved effects through an applied commit `R` into a new directory outside the source. Keep the directory's basename, which is the logical workspace ID:
 
 ```bash
 uv run --directory apps/data-pipeline python -m scripts.migrations.squash_study_history \
@@ -221,7 +170,7 @@ Replace `R` with the applied commit OID. The dry run lists retained and dropped 
 
 At `R` and later commits, artifacts (including absence), checks and fresh reader findings are preserved. Stale findings can disappear, and earlier snapshots can change. This is the smallest closure of the mandatory writers, not a globally minimal history: reused reports and redundant retractions can retain extra actions. There is no optimizer, numerical execution or post-squash equality gate.
 
-Only current-format, single-branch histories are supported. The script refuses legacy `statistical_model_spec`/`report_only` records, simulation-replicate panels anywhere in the preserved catalog, other branches (including successful attempts off the branch), and retained scientific inputs without a recorded producer. Review the new copy, select it offline, then start a fresh workflow and regenerate any fixture bundle using the migration procedure above. The source is unchanged.
+Only current-format, single-branch histories are supported. The script refuses legacy model-authoring records (those with `prior_predictive` diagnostics) and `report_only` records, simulation-replicate panels anywhere in the preserved catalog, other branches (including successful attempts off the branch), and retained scientific inputs without a recorded producer. Review the new copy, select it offline, then start a fresh workflow and regenerate any fixture bundle using the migration procedure above. The source is unchanged.
 
 ### Local stack
 
@@ -233,8 +182,8 @@ Starts the stack under [process-compose](https://github.com/F1bonacc1/process-co
 supervision (`brew install f1bonacc1/tap/process-compose`; config:
 [`process-compose.yaml`](../../process-compose.yaml)): the Temporal dev
 server on port `7233` (ephemeral state, binary auto-downloaded on first
-use), the episode worker (task queue `nof1-episodes`), the tool server
-with the episode facade on port `8100`, and the web app on port `3000`.
+use), the study worker (task queue `nof1-studies`), the tool server
+with the study facade on port `8100`, and the web app on port `3000`.
 Startup order is health-gated (`depends_on` + readiness probes) and
 crashed processes restart automatically. The script **stays in the
 foreground** — wait until `curl -s http://localhost:8100/api/capabilities`
@@ -260,7 +209,7 @@ processes; check that Temporal is still running afterward.
 
 For local-study GPU fits, set `inference.compute_backend: modal` in
 [`config.yaml`](../../apps/data-pipeline/config.yaml) and restart the worker.
-The [Modal compute adapter](../../apps/data-pipeline/src/nof1_causal_lab/flows/modal_fit.py)
+The [Modal compute adapter](../../apps/data-pipeline/src/nof1_causal_lab/actions/modal_fit.py)
 uses the installed Modal credentials, creates an ephemeral
 `nof1-causal-lab-pipeline` app with the current source, and reuses
 `nof1-cached-fit-cache:/jax`. The study remains local; the
@@ -270,9 +219,9 @@ The Temporal dev server
 persists its event history to `.local/agentic-integration-stack/temporal.db`
 (the `--db-filename` on its command), so restarting the `temporal`
 process — to serve the UI, pick up a change, or recover from a crash —
-**resumes** in-flight episode workflows exactly where they left off
+**resumes** in-flight study workflows exactly where they left off
 rather than orphaning them. To start genuinely fresh, delete that
-`temporal.db` before boot and wipe that workspace's `store/`, `episode/`,
+`temporal.db` before boot and wipe that workspace's `store/`, `study/`,
 `scratch/`, and `cache/` directories. The Web UI is served at
 `http://localhost:8233`.
 
@@ -283,9 +232,9 @@ data/
 ├── <WORKSPACE_ID>/        # User-facing workspace
 │   ├── input/             # Raw uploaded files for prepare_data
 │   ├── store/             # Content-addressed arrays and external table blobs
-│   ├── episode/           # Local Git history with logs and traces in each commit
+│   ├── study/             # Local Git history with logs and traces in each commit
 │   ├── cache/             # Evictable compilation and artifact-read reuse
-│   └── scratch/           # UI telemetry and run-scoped execution state
+│   └── scratch/           # Live progress events and run-scoped execution state
 └── DEMO/                  # Tracked mock fixture workspace (evals + manual sampling)
 ```
 
@@ -304,11 +253,11 @@ The command validates the selected Git snapshot, copies the durable workspace in
 `data/DEMO`, and rebuilds stable JSON and trace copies under `data/DEMO/fixture/`
 for Storybook and tests. It replaces `data/DEMO` as a unit rather than merging,
 and excludes `cache/` and `scratch/`. It exports all Git refs and objects to
-`episode/history.bundle` so the tracked fixture retains branches, attempts and
+`study/history.bundle` so the tracked fixture retains branches, attempts and
 artifact trees while its local bare repository remains gitignored. The files in
 `store/` retain the external numerical payloads.
 
-The tracked `data/DEMO/episode/history.bundle` and `data/DEMO/store/` are the fixture's authoritative inputs. Files under `data/DEMO/fixture/` are generated projections for Storybook and tests. Regenerate or check them with:
+The tracked `data/DEMO/study/history.bundle` and `data/DEMO/store/` are the fixture's authoritative inputs. Files under `data/DEMO/fixture/` are generated projections for Storybook and tests. Regenerate or check them with:
 
 ```bash
 bun run fixture:build
@@ -346,28 +295,30 @@ curl -s -X POST http://localhost:3000/api/runs \
   -d "{\"workspaceId\":\"$WORKSPACE_ID\",\"query\":\"$QUESTION\"}"
 ```
 
-`GET /api/capabilities` reports `actions_enabled`, which is false on a read-only facade. Creating the run submits `edit_model` with the question and returns HTTP `202` with the workspace and `attempt_id`. Poll that attempt until `done` is true. Submit further actions as the [`nof1-episode-api` skill](../../.agents/skills/nof1-episode-api/SKILL.md) describes; the [action charts](../../README.md#documentation) show what each one does.
+`GET /api/capabilities` reports `actions_enabled`, which is false on a read-only facade. Creating the run submits `edit_model` with the question and returns HTTP `202` with the workspace and `attempt_id`. Poll that attempt until `done` is true. Submit further actions as the [`nof1-study-api` skill](../../.agents/skills/nof1-study-api/SKILL.md) describes; the [action charts](../../README.md#documentation) show what each one does.
 
-### 2. Observe the episode
+### 2. Observe the study
 
-The episode facade (tool server, port `8100`) is the source of truth:
+The study facade (tool server, port `8100`) is the source of truth:
 
 ```bash
 # Current state: artifact existence, freshness, revisions, the four action names,
-# and `running`, the attempt the episode's Temporal workflow is executing
-curl -s http://localhost:8100/api/episodes/$WORKSPACE_ID | jq '.artifacts'
+# and `running`, the attempt the study's Temporal workflow is executing
+curl -s http://localhost:8100/api/studies/$WORKSPACE_ID | jq '.artifacts'
 
-# The transition journal: every action attempt (applied / rejected / raised)
-curl -s http://localhost:8100/api/episodes/$WORKSPACE_ID/timeline \
-  | jq '.transitions[] | {seq, status, action, error_type}'
+# The attempt journal: every action attempt (applied / rejected / raised)
+curl -s http://localhost:8100/api/studies/$WORKSPACE_ID/timeline \
+  | jq '.attempts[] | {seq, status, action, error_type}'
 
-# Transition telemetry (extraction worker fan-out and action labels)
-curl -s "http://localhost:8100/api/episodes/$WORKSPACE_ID/events" | jq '.events[-3:]'
+# Live progress of the running attempt (data-preparation steps and extraction fan-out)
+ATTEMPT_ID=$(curl -s http://localhost:8100/api/studies/$WORKSPACE_ID | jq -r '.running.attempt_id')
+curl -s "http://localhost:8100/api/studies/$WORKSPACE_ID/events?attempt_id=$ATTEMPT_ID" \
+  | jq '.events[-3:]'
 ```
 
 ### 3. Verify via browser automation
 
-- `http://localhost:3000/v2/{WORKSPACE_ID}` is the model workbench, the default destination from the workspace list. `http://localhost:3000/v1/{WORKSPACE_ID}` keeps the older stage-by-stage interface, whose interactivity is not a compatibility requirement.
+- `http://localhost:3000/v2/{WORKSPACE_ID}` is the model workbench, the default destination from the workspace list.
 - After each backend action, check that the workbench shows the question, graph, entity details, data, findings, history and action log. The workbench is read-only: the agent submits every change through the backend API.
 - Storybook's **V2 / Model / Workbench / Complete** story covers the workbench with mocked responses. Extend it rather than adding separate stories. Its pinned responses are included in the [fixture build and check](#promoting-a-workspace-to-the-demo-fixture).
 
@@ -375,11 +326,11 @@ If the UI behaves unexpectedly, check Next.js devtools MCP errors before debuggi
 
 ## Resuming after a failed action
 
-A failed action is a `raised` transition in the journal. The scientific branch is unchanged, and the typed error and diagnostics are on the record:
+A failed action is a `raised` attempt in the journal. The scientific branch is unchanged, and the typed error and diagnostics are on the record:
 
 ```bash
-curl -s http://localhost:8100/api/episodes/$WORKSPACE_ID/timeline \
-  | jq '.transitions[] | select(.status=="raised") | {seq, action, error_type, error_message, resume}'
+curl -s http://localhost:8100/api/studies/$WORKSPACE_ID/timeline \
+  | jq '.attempts[] | select(.status=="raised") | {seq, action, error_type, error_message}'
 ```
 
 Correct the cause and resubmit the action to `/actions`, selecting fresh revisions if its inputs changed. There is no automatic-resume endpoint.

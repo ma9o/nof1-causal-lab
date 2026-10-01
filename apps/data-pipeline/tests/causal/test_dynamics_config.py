@@ -1,5 +1,7 @@
 """Scientific serialization and expression bindings retain the execution semantics."""
 
+from pathlib import Path
+
 import numpy as np
 import pytest
 
@@ -8,7 +10,6 @@ from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.dynamics.serialization import dynamics_spec_to_dict
 from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec, compile_dynamics
 from tests.dynamics_fixtures import decay_term, hill_term, potential_term
-from tests.model_fixtures import model_fixture
 
 pytestmark = pytest.mark.contract
 
@@ -35,17 +36,7 @@ def test_description_retains_expression_constants_and_potential_semantics():
 
 
 def test_scientific_model_roundtrip_preserves_derived_dynamics():
-    model = model_fixture(
-        n_latent=2,
-        dynamics_spec=DynamicsSpec(
-            2,
-            (
-                potential_term(0),
-                decay_term(1),
-                hill_term(0, 1),
-            ),
-        ),
-    )
+    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'dynamics_config/scientific_model_roundtrip_preserves_derived_dynamics_model_fixture.json').read_text())
     restored = ModelSpec.model_validate_json(model.model_dump_json())
     assert dynamics_spec_to_dict(numeric.dynamics_components(model)) == dynamics_spec_to_dict(
         numeric.dynamics_components(restored)

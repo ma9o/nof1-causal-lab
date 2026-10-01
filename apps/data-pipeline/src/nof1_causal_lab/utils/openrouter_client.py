@@ -17,17 +17,24 @@ from functools import wraps
 from time import monotonic, perf_counter
 from typing import TYPE_CHECKING, Any, Literal, NotRequired, Protocol, TypedDict, cast
 
-from openai import AsyncOpenAI
-from openai.types.completion_usage import CompletionTokensDetails  # noqa: TC002
-from pydantic import BaseModel, ConfigDict, Field, create_model
+from openai import NOT_GIVEN, AsyncOpenAI, omit
+from openai.types.chat import (
+    ChatCompletionAssistantMessageParam,
+    ChatCompletionFunctionToolParam,
+    ChatCompletionMessageFunctionToolCallParam,
+    ChatCompletionMessageParam,
+)
+from openai.types.completion_usage import CompletionTokensDetails
+from pydantic import BaseModel, ConfigDict, Field, TypeAdapter, create_model
 
-from nof1_causal_lab.json_types import JsonObject, JsonValue, UncheckedJsonObject  # noqa: TC001
+from nof1_causal_lab.json_types import JsonObject, JsonValue
 from nof1_causal_lab.utils.config import get_secret
 
 if TYPE_CHECKING:
-    from collections.abc import Awaitable, Callable
+    from collections.abc import Awaitable, Callable, Sequence
 
-    from openai.types.chat import ChatCompletionMessageFunctionToolCallParam
+    from pydantic.json_schema import JsonSchemaValue
+
 
 logger = logging.getLogger(__name__)
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
@@ -130,7 +137,7 @@ class Tool:
 
     name: str
     description: str
-    parameters: UncheckedJsonObject
+    parameters: JsonSchemaValue
     execute: Callable[..., Awaitable[str]]
     stop_on_success: bool = False
     success_output: str | None = None
@@ -231,7 +238,7 @@ def _parse_arg_descriptions(docstring: str | None) -> dict[str, str]:
     return descriptions
 
 
-def _parameter_schema(handler: Callable[..., Awaitable[str]], name: str) -> UncheckedJsonObject:
+def _parameter_schema(handler: Callable[..., Awaitable[str]], name: str) -> JsonSchemaValue:
     """Build a JSON schema from a tool handler signature."""
 
     signature = inspect.signature(handler)
@@ -287,21 +294,34 @@ def tool[**P](factory: ToolFactory[P]) -> Callable[P, Tool]:
     return wrapper
 
 
-def normalize_message(message: UncheckedJsonObject) -> UncheckedJsonObject:
-    """Normalize a message to the OpenAI chat/tool shape used at runtime."""
+class _ReasoningFields(BaseModel):
+    reasoning: str | None = None
+    reasoning_details: JsonValue = None
 
-    normalized = {
-        "role": message["role"],
-        "content": message.get("content", ""),
-    }
-    for key in ("tool_calls", "tool_call_id", "name", "reasoning", "reasoning_details"):
-        value = message.get(key)
-        if value is not None:
-            normalized[key] = value
+
+class ReasoningAssistantMessage(ChatCompletionAssistantMessageParam):
+    reasoning: NotRequired[str]
+    reasoning_details: NotRequired[JsonValue]
+
+
+_MESSAGE_ADAPTER = TypeAdapter(ChatCompletionMessageParam)
+
+
+def normalize_message(message: object) -> ChatCompletionMessageParam:
+    """Decode a stored chat message, including OpenRouter's reasoning extension."""
+    normalized = _MESSAGE_ADAPTER.validate_python(message)
+    if normalized["role"] == "assistant":
+        reasoning = _ReasoningFields.model_validate(message)
+        extended: ReasoningAssistantMessage = {**normalized}
+        if reasoning.reasoning is not None:
+            extended["reasoning"] = reasoning.reasoning
+        if reasoning.reasoning_details is not None:
+            extended["reasoning_details"] = reasoning.reasoning_details
+        return extended
     return normalized
 
 
-def _tool_schema(tool_obj: Tool) -> UncheckedJsonObject:
+def _tool_schema(tool_obj: Tool) -> ChatCompletionFunctionToolParam:
     return {
         "type": "function",
         "function": {
@@ -433,13 +453,22 @@ def _log_response_details(
         )
 
 
+class ModelCallResult(TypedDict):
+    message: AssistantMessage
+    completion: str
+    usage: dict[str, int | None] | None
+    model: str
+    time: float
+    stop_reason: str | None
+
+
 async def call_model(
     model_name: str,
-    messages: list[UncheckedJsonObject],
+    messages: Sequence[object],
     tools: list[Tool] | None = None,
     config: GenerateConfig | None = None,
     log_label: str | None = None,
-) -> UncheckedJsonObject:
+) -> ModelCallResult:
     """Call OpenRouter and normalize the first choice into a plain dict."""
 
     request = config or GenerateConfig()
@@ -447,15 +476,7 @@ async def call_model(
 
     await acquire_limiter("llm")
 
-    kwargs: UncheckedJsonObject = {
-        "model": normalized_model_name,
-        "messages": [normalize_message(message) for message in messages],
-    }
-    if request.max_tokens is not None:
-        kwargs["max_tokens"] = request.max_tokens
-    if request.timeout is not None:
-        kwargs["timeout"] = request.timeout
-    extra_body: UncheckedJsonObject = {
+    extra_body: JsonObject = {
         "provider": {
             "sort": "throughput",
         }
@@ -464,9 +485,6 @@ async def call_model(
         extra_body["reasoning"] = {
             "effort": request.reasoning_effort,
         }
-    kwargs["extra_body"] = extra_body
-    if tools:
-        kwargs["tools"] = [_tool_schema(tool_obj) for tool_obj in tools]
 
     if log_label:
         logger.info(
@@ -480,7 +498,14 @@ async def call_model(
         )
 
     started_at = perf_counter()
-    request_coro = _get_openrouter_client().chat.completions.create(**kwargs)
+    request_coro = _get_openrouter_client().chat.completions.create(
+        model=normalized_model_name,
+        messages=[normalize_message(message) for message in messages],
+        max_tokens=request.max_tokens if request.max_tokens is not None else omit,
+        timeout=request.timeout if request.timeout is not None else NOT_GIVEN,
+        extra_body=extra_body,
+        tools=[_tool_schema(tool_obj) for tool_obj in tools] if tools else omit,
+    )
     try:
         if request.timeout is not None:
             response = await asyncio.wait_for(request_coro, timeout=request.timeout)

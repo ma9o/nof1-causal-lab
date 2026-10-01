@@ -70,8 +70,8 @@ class _IndexedBrownianPath(dfx.AbstractBrownianPath[Array | dfx.BrownianIncremen
 
     # Diffrax declares these through Equinox AbstractVar. Ty currently models
     # AbstractVar as a class variable even though Diffrax requires instance fields.
-    t0: Array  # ty: ignore[invalid-attribute-override]
-    t1: Array  # ty: ignore[invalid-attribute-override]
+    t0: Array  # ty: ignore[invalid-attribute-override] - Diffrax requires instance fields; ty treats Equinox AbstractVar as a class variable.
+    t1: Array  # ty: ignore[invalid-attribute-override] - Diffrax requires instance fields; ty treats Equinox AbstractVar as a class variable.
     shape: tuple[int, ...] = eqx.field(static=True)
     key: Array
     step_size: Array

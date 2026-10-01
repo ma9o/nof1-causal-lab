@@ -209,25 +209,61 @@ def parse(payload: UncheckedJsonObject) -> RuntimeMap:
     assert [violation.target for violation in violations] == ["alias:JsonObject"]
 
 
-def test_unchecked_json_usage_is_aggregated_into_a_per_file_budget() -> None:
-    checker = _load_checker()
-    violations = checker.scan_text(
+@pytest.mark.parametrize("path", ["src/new_boundary.py", "scripts/new_reader.py"])
+def test_unchecked_json_is_local_to_validation(path: str) -> None:
+    violations = _load_checker().scan_text(
+        """
+from nof1_causal_lab.json_types import UncheckedJsonObject as RawJson
+
+def parse(payload: RawJson) -> ModelSpec:
+    return ModelSpec.model_validate(payload)
+
+def read(text: str) -> ModelSpec:
+    payload: RawJson = json.loads(text)
+    return TypeAdapter(ModelSpec).validate_python(payload)
+""",
+        path=path,
+        rules=frozenset({"CUSTOM005"}),
+    )
+    assert violations == []
+
+
+def test_unchecked_json_cannot_escape_or_skip_validation() -> None:
+    violations = _load_checker().scan_text(
         """
 from nof1_causal_lab.json_types import UncheckedJsonObject as RawJson
 
 type DomainPayload = RawJson
 
-def parse(payload: RawJson) -> list[RawJson]:
-    return [payload]
+class State:
+    payload: RawJson
+
+def passthrough(payload: RawJson) -> RawJson:
+    return payload
+
+def fake_parser(payload: RawJson) -> ModelSpec:
+    ModelSpec.model_validate(payload)
+    save(payload)
+    return result
+
+def leaking_parser(payload: RawJson) -> ModelSpec:
+    return ModelSpec.model_validate(save(payload))
+
+def non_input_argument(payload: RawJson) -> ModelSpec:
+    return ModelSpec.model_validate({}, context=payload)
 """,
         path="src/example.py",
         rules=frozenset({"CUSTOM005"}),
     )
-
-    assert len(violations) == 1
-    assert violations[0].code == "CUSTOM005"
-    assert violations[0].target == "unchecked-json-usage"
-    assert violations[0].annotation == "UncheckedJsonObject[3]"
+    assert [item.target for item in violations] == [
+        "alias:DomainPayload",
+        "variable:payload",
+        "parameter:payload",
+        "return",
+        "parameter:payload",
+        "parameter:payload",
+        "parameter:payload",
+    ]
 
 
 def test_reject_only_optional_parameter_is_checked() -> None:
@@ -301,20 +337,138 @@ def replace_before_rejection(plan: ModelSpec | None) -> None:
     assert violations == []
 
 
-def test_baseline_must_match_exact_violation_identity() -> None:
+@pytest.mark.parametrize(
+    "operation",
+    [
+        "value.model_construct()",
+        "value.model_copy(update={})",
+        "value.model_copy(**changes)",
+        "object.__setattr__(value, 'question', 'changed')",
+        "Evidence(spec=value)",
+        "IncompleteModel('missing')",
+        "UnsupportedFit(('unsupported',))",
+        "cast('Evidence', value)",
+        "cast('IncompleteModel', value)",
+        "cast('UnsupportedFit', value)",
+        "cast('list[int]', value)",
+        "cast('dict[str, str]', value)",
+        "cast('set[int]', value)",
+        "cast('MutableSequence[int]', value)",
+    ],
+)
+def test_core_bypasses_match_calls_without_receiver_types(operation: str) -> None:
     checker = _load_checker()
     violations = checker.scan_text(
-        "def compile_plan(plan: ModelSpec | dict) -> None: ...",
-        path="src/example.py",
+        f"""from typing import cast
+from collections.abc import MutableSequence
+from nof1_causal_lab.models.ssm.compile.inputs import CompiledFitInputs as Evidence
+
+def consumer(value):
+    return {operation}
+""",
+        path="tests/consumer.py",
+        rules=frozenset({"CORE001"}),
     )
-    identity = violations[0].identity
+    assert len(violations) == 1
+    assert violations[0].code == "CORE001"
+    assert "owner" in violations[0].message
 
-    assert checker.compare_with_baseline(violations, {identity}) == ([], [])
 
-    new, stale = checker.compare_with_baseline(violations, set())
-    assert [violation.identity for violation in new] == [identity]
-    assert stale == []
+def test_core_bypasses_allow_self_revision_and_unmodified_copies() -> None:
+    checker = _load_checker()
+    source = """class Request:
+    def revise(self, value, changes):
+        self.model_copy(update={})
+        self.model_copy(**changes)
+        object.__setattr__(self, 'question', 'changed')
+        value.model_copy()
+        cast('Mapping[str, int]', value)
+"""
+    assert (
+        checker.scan_text(
+            source,
+            path="src/nof1_causal_lab/artifacts/model_spec.py",
+            rules=frozenset({"CORE001"}),
+        )
+        == []
+    )
 
-    new, stale = checker.compare_with_baseline([], {identity})
-    assert new == []
-    assert stale == [identity]
+
+def test_core_owner_file_only_exempts_evidence_construction() -> None:
+    checker = _load_checker()
+    violations = checker.scan_text(
+        """CompiledFitInputs()
+IncompleteModel('missing')
+UnsupportedFit(('unsupported',))
+value.model_copy(update={})
+value.model_construct()
+cast('CompiledFitInputs', value)
+""",
+        path="src/nof1_causal_lab/models/ssm/compile/inputs.py",
+        rules=frozenset({"CORE001"}),
+    )
+    assert [v.target for v in violations] == ["model_copy", "model_construct", "cast"]
+
+
+def test_core_collections_cover_fields_and_public_properties_only() -> None:
+    checker = _load_checker()
+    violations = checker.scan_text(
+        """from typing import Dict as MutableDict
+class ModelSpec:
+    entries: tuple[MutableDict[str, int], ...]
+    readonly: Mapping[str, int]
+    _builder: dict[str, int]
+    @cached_property
+    def derived(self) -> dict[str, int]: ...
+    @property
+    def safe(self) -> tuple[int, ...]: ...
+    def _build(self) -> list[int]: ...
+    def edit(self) -> None:
+        local: list[int] = []
+class Request:
+    entries: dict[str, int]
+""",
+        path="src/nof1_causal_lab/artifacts/model_spec.py",
+        rules=frozenset({"CORE002"}),
+    )
+    assert [(v.code, v.target) for v in violations] == [
+        ("CORE002", "field:entries"),
+        ("CORE002", "return"),
+    ]
+
+
+@pytest.mark.parametrize(
+    "operation",
+    [
+        "raise ValueError('invalid')",
+        "assert model.indicators",
+        "model.require_priors()",
+        "validate_execution(model)",
+        "validate_parameter_anchors(model)",
+        "Result.model_validate(payload)",
+        "Result.model_validate_json(payload)",
+        "Result.model_validate_strings(payload)",
+    ],
+)
+def test_pure_projection_scope_rejects_revalidation(operation: str) -> None:
+    checker = _load_checker()
+    source = f"def newly_added_projection(model: ModelSpec, payload):\n    {operation}\n"
+    assert [
+        v.code
+        for v in checker.scan_text(
+            source, path="src/nof1_causal_lab/study/equations.py", rules=frozenset({"VIEW001"})
+        )
+    ] == ["VIEW001"]
+    assert checker.scan_text(source, path="src/boundary.py", rules=frozenset({"VIEW001"})) == []
+
+
+def test_projection_allows_exhaustiveness() -> None:
+    checker = _load_checker()
+    assert (
+        checker.scan_text(
+            "def project(value):\n    assert_never(value)\n",
+            path="src/nof1_causal_lab/study/equations.py",
+            rules=frozenset({"VIEW001"}),
+        )
+        == []
+    )

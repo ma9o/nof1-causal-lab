@@ -6,7 +6,6 @@ from datetime import UTC, datetime, timedelta
 import numpy as np
 import polars as pl
 import pytest
-from fastapi.testclient import TestClient
 from pydantic import ValidationError
 
 from nof1_causal_lab.actions.data_diff import (
@@ -23,9 +22,9 @@ from nof1_causal_lab.artifacts.simulation import (
     SimulationReport,
     SimulationSpec,
 )
-from nof1_causal_lab.machine.history import StudyRepository
-from nof1_causal_lab.machine.store import ArtifactStore, TransitionRecord
-from nof1_causal_lab.read_facade import create_read_facade_app
+from nof1_causal_lab.study.history import StudyRepository
+from nof1_causal_lab.study.records import AttemptRecord
+from nof1_causal_lab.study.store import ArtifactStore
 from tests.git_fixtures import git_oid
 
 
@@ -88,6 +87,7 @@ def test_single_histories_report_values_missingness_and_schedule_changes():
     assert variable.changes[0].right.value == 4
     assert variable.predictive_checks is None
     assert variable.reference_side is None
+    assert variable.predictive_unavailable_reason is None
     assert variable.comparison_issues == ("Observation schedules or measurement windows differ",)
     missing = next(item for item in variable.statistics if item.statistic == "missing_count")
     assert (missing.left, missing.right) == ((1,), (0,))
@@ -127,23 +127,44 @@ def test_measurement_mismatches_and_uncovered_times_do_not_produce_predictive_ch
     replicas = [_dataset([1, 2, 3], number=number, times=[0, 1, 2.5]) for number in (2, 3)]
     mismatch = data_diff(observed, replicas).variables[0]
     assert mismatch.predictive_checks is None
-    assert mismatch.predictive_unavailable_reason is not None
-    assert "anchors" in mismatch.predictive_unavailable_reason
-    interval = observed.variables[0].model_copy(update={"aggregation": "mean"})
+    assert mismatch.predictive_unavailable_reason is None
+    assert mismatch.comparison_issues == ("Observation schedules or measurement windows differ",)
+    missing = data_diff(observed, [_dataset([1, None, 3], number=n) for n in (2, 3)]).variables[0]
+    assert missing.predictive_checks is None
+    assert (
+        missing.predictive_unavailable_reason
+        == "Replicas contain missing values at observed anchors"
+    )
+    assert missing.comparison_issues == ()
+    interval = type(observed.variables[0]).model_validate(
+        {**observed.variables[0].model_dump(), "aggregation": "mean"}
+    )
     replicas = [_dataset([1, 2, 3], number=number, variable=interval) for number in (2, 3)]
     mismatch = data_diff(observed, replicas).variables[0]
-    assert mismatch.predictive_unavailable_reason == "Measurement definitions differ"
+    assert mismatch.predictive_unavailable_reason is None
+    assert (
+        "Measurement definitions differ; statistics describe each side separately"
+        in mismatch.comparison_issues
+    )
     assert mismatch.left[0].variable is not None
     assert mismatch.right[0].variable is not None
     assert mismatch.left[0].variable.aggregation == "last"
     assert mismatch.right[0].variable.aggregation == "mean"
     renamed = replace(
-        observed, variables=(observed.variables[0].model_copy(update={"name": "Renamed"}),)
+        observed,
+        variables=(
+            type(observed.variables[0]).model_validate(
+                {**observed.variables[0].model_dump(), "name": "Renamed"}
+            ),
+        ),
     )
     assert not data_diff(observed, renamed).variables[0].comparison_issues
     # A first-in-window observation is anchored at support_start, not support_end.
     first = _dataset(
-        [1, 2, 3], variable=observed.variables[0].model_copy(update={"aggregation": "first"})
+        [1, 2, 3],
+        variable=type(observed.variables[0]).model_validate(
+            {**observed.variables[0].model_dump(), "aggregation": "first"}
+        ),
     )
     first = replace(
         first,
@@ -156,9 +177,9 @@ def test_measurement_mismatches_and_uncovered_times_do_not_produce_predictive_ch
     mismatch = data_diff(observed, floating).variables[0]
     assert mismatch.predictive_checks is None
     assert mismatch.right[0].time_origin is None
-    assert (
-        mismatch.predictive_unavailable_reason
-        == "Calendar-free histories cannot be aligned to calendar-bound histories"
+    assert mismatch.predictive_unavailable_reason is None
+    assert mismatch.comparison_issues == (
+        "Calendar-free histories cannot be aligned to calendar-bound histories",
     )
 
 
@@ -199,9 +220,7 @@ def test_invalid_histories_and_duplicate_sources_are_rejected_before_comparison(
 
 
 @pytest.mark.inference(concern="predictive")
-def test_read_only_api_compares_saved_draws_without_generation_or_model_access(
-    tmp_path, monkeypatch
-):
+def test_reads_saved_draws_without_generation_or_model_access(tmp_path, monkeypatch):
     from nof1_causal_lab.artifacts.data_preparation import (
         PreparedDataMetadata,
         SimulationReplicateRef,
@@ -209,7 +228,6 @@ def test_read_only_api_compares_saved_draws_without_generation_or_model_access(
     from nof1_causal_lab.utils import data as data_module
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path))
-    monkeypatch.setenv("EPISODE_FACADE_READ_ONLY", "1")
     store, history = ArtifactStore("DIFF"), StudyRepository("DIFF")
     observed = _dataset([1, 2, 3])
     values = np.asarray([[[0], [1], [2]], [[1], [2], [3]], [[2], [3], [4]]], dtype=float)
@@ -248,15 +266,13 @@ def test_read_only_api_compares_saved_draws_without_generation_or_model_access(
         ),
     )
     commit = history.append(
-        TransitionRecord(
+        AttemptRecord(
             seq=1,
             ts="2026-09-28T00:00:00Z",
             action="simulate",
-            operation_id="simulate",
             inputs={},
             status="applied",
             trace_ids=[],
-            resume=None,
             diagnostics={"report": report.model_dump(mode="json")},
         )
     )
@@ -267,7 +283,7 @@ def test_read_only_api_compares_saved_draws_without_generation_or_model_access(
     )
     panel = store.write_artifact(
         "panel",
-        produced_by="run:simulated_measurements",
+        produced_by="prepare_data",
         derived_from={},
         json_files={
             "metadata.json": PreparedDataMetadata(
@@ -283,10 +299,7 @@ def test_read_only_api_compares_saved_draws_without_generation_or_model_access(
         right=DataRef(kind="panel", revision=panel.revision),
     )
     refs_before = sorted(store.repo.references)
-    client = TestClient(create_read_facade_app())
-    response = client.post("/api/episodes/DIFF/data-diff", json=request.model_dump(mode="json"))
-    assert response.status_code == 200, response.text
-    result = response.json()
+    result = read_data_diff("DIFF", request).model_dump(mode="json")
     assert len(result["left"]) == 3
     assert result["variables"][0]["left"][0]["time_origin"] == "2026-01-01T00:00:00Z"
     assert result["variables"][0]["predictive_checks"]["n_subsample"] == 3
@@ -294,20 +307,25 @@ def test_read_only_api_compares_saved_draws_without_generation_or_model_access(
     assert sorted(store.repo.references) == refs_before
     assert store.list_revisions("model") == []
     assert isinstance(request.left, DataRef)
-    one = request.model_copy(update={"left": request.left.model_copy(update={"replicate": 1})})
+    one = type(request).model_validate(
+        {
+            **request.model_dump(),
+            "left": type(request.left).model_validate(
+                {**request.left.model_dump(), "replicate": 1}
+            ),
+        }
+    )
     assert read_data_diff("DIFF", one).variables[0].changes == ()
-    bad = request.model_copy(
-        update={"left": DataRef(kind="simulation", revision=commit, replicate=3)}
+    bad = type(request).model_validate(
+        {**request.model_dump(), "left": DataRef(kind="simulation", revision=commit, replicate=3)}
     )
-    assert (
-        client.post("/api/episodes/DIFF/data-diff", json=bad.model_dump(mode="json")).status_code
-        == 422
+    with pytest.raises(ValueError, match="replicate"):
+        read_data_diff("DIFF", bad)
+    bad = type(request).model_validate(
+        {**request.model_dump(), "right": DataRef(kind="panel", revision=git_oid(98))}
     )
-    bad = request.model_copy(update={"right": DataRef(kind="panel", revision=git_oid(98))})
-    assert (
-        client.post("/api/episodes/DIFF/data-diff", json=bad.model_dump(mode="json")).status_code
-        == 404
-    )
+    with pytest.raises((KeyError, FileNotFoundError)):
+        read_data_diff("DIFF", bad)
 
     # Saved histories keep absolute model days. Materialization alone resets the
     # origin of a calendar-free replicate; calendar-bound histories keep dates.
@@ -317,13 +335,15 @@ def test_read_only_api_compares_saved_draws_without_generation_or_model_access(
         commits = []
         for start in (5, 6):
             times = np.arange(start, start + 3.0)
-            saved = report.model_copy(
-                update={
+            saved = type(report).model_validate(
+                {
+                    **report.model_dump(),
                     "time_origin": origin,
                     "design": SimulationSpec(start=start, end=start + 2),
                     "times": tuple(times),
-                    "observation_layout": report.observation_layout.model_copy(
-                        update={
+                    "observation_layout": type(report.observation_layout).model_validate(
+                        {
+                            **report.observation_layout.model_dump(),
                             "support_start_times": store.write_array(times[:, None]),
                             "support_end_times": store.write_array(times[:, None]),
                         }
@@ -332,14 +352,12 @@ def test_read_only_api_compares_saved_draws_without_generation_or_model_access(
             )
             commits.append(
                 history.append(
-                    TransitionRecord(
+                    AttemptRecord(
                         seq=2 + index * 2 + start - 5,
                         ts="2026-09-28T00:00:00Z",
                         action="simulate",
-                        operation_id="simulate",
                         status="applied",
                         trace_ids=[],
-                        resume=None,
                         diagnostics={"report": saved.model_dump(mode="json")},
                     )
                 )

@@ -1,5 +1,8 @@
 """Numerical acceptance of Dynestyx model interpretation with local inference."""
 
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from pathlib import Path
+
 from dataclasses import replace
 
 import jax
@@ -15,33 +18,11 @@ from nof1_causal_lab.models.ssm.inference import fit
 from nof1_causal_lab.models.ssm.inference.problem import build_particle_problem
 from nof1_causal_lab.models.ssm.model import SSMModel
 from tests.dynamics_fixtures import potential_term
-from tests.model_fixtures import default_lambda_block, model_fixture
+from tests.model_fixtures import compile_fit_fixture, default_lambda_block
 
 pytestmark = pytest.mark.inference(concern="sampling")
 
 
-def nonlinear_model():
-    loading = replace(default_lambda_block(2, 1), template=jnp.ones((2, 1)))
-    spec = model_fixture(
-        n_latent=1,
-        n_manifest=2,
-        lambda_block=loading,
-        dynamics_spec=DynamicsSpec(
-            1,
-            (
-                potential_term(
-                    target=0,
-                    center=None,
-                    stiffness=0.4,
-                    quartic=0.2,
-                ),
-            ),
-        ),
-        manifest_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.POISSON],
-        manifest_links=[LinkFunction.IDENTITY, LinkFunction.LOG],
-        manifest_standardized=[True, False],
-    )
-    return SSMModel(spec)
 
 
 def test_nonlinear_mixed_missing_irregular_particle_fit_and_exact_diagnostics(monkeypatch):
@@ -51,7 +32,7 @@ def test_nonlinear_mixed_missing_irregular_particle_fit_and_exact_diagnostics(mo
         raise AssertionError("supplied trajectories must skip IEKS initialization")
 
     monkeypatch.setattr(latent_init, "compute_ieks_latent_paths", _unexpected_ieks)
-    model = nonlinear_model()
+    model = SSMModel(compile_fit_fixture(ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'ecosystem_consumer/nonlinear_mixed_missing_irregular_particle_fit_and_exact_diagnostics_nonlinear_model.json').read_text())))
     times = jnp.array([0.0, 0.05, 0.17, 0.4, 0.9])
     observations = jnp.array(
         [[0.2, 1.0], [jnp.nan, 2.0], [0.3, jnp.nan], [jnp.nan, jnp.nan], [-0.2, 0.0]]

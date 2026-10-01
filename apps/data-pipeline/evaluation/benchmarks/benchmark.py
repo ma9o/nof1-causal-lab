@@ -258,7 +258,7 @@ def main() -> None:
 
     _configure_jax_cache()
     from evaluation.fixtures.synthetic_nonlinear import (
-        build_synthetic_nonlinear_model,
+        load_synthetic_nonlinear_model,
         simulate_synthetic_nonlinear_data,
     )
 
@@ -267,7 +267,7 @@ def main() -> None:
         seed=args.data_seed,
         diffusion_scale=args.diffusion_scale,
     )
-    model = build_synthetic_nonlinear_model(
+    model = load_synthetic_nonlinear_model(
         data,
         include_interval_support=False,
         diffusion_scale=args.diffusion_scale,

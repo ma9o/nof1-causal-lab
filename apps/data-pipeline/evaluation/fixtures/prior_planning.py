@@ -42,7 +42,8 @@ def default_parameter_prior(
 
 def complete_parameter_priors(model: ModelSpec) -> ModelSpec:
     """Apply the explicit default policy using the native sites of this scientific model."""
-    from nof1_causal_lab.models.model_distributions import with_parameter_distributions
+    from notebooks.model_authoring import with_parameter_distributions
+
     from nof1_causal_lab.models.ssm.compile.prior_indexing import build_semantic_prior_bindings
     from nof1_causal_lab.models.ssm.parameterization import build_site_registry
 

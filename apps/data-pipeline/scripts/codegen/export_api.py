@@ -11,7 +11,6 @@ import inspect
 import json
 import re
 import sys
-from dataclasses import asdict
 from pathlib import Path
 from typing import TYPE_CHECKING, Any
 
@@ -20,6 +19,7 @@ from nof1_causal_lab.actions.results import ActionPoll, ActionReceipt
 
 # Import all artifact contracts — this pulls in every nested domain model
 from nof1_causal_lab.actions.revisions import ModelDiffReport, RevisionCatalog
+from nof1_causal_lab.actions.status import StudyStatus
 from nof1_causal_lab.artifacts.catalog import ARTIFACT_CONTRACTS
 from nof1_causal_lab.artifacts.effects import EffectSummary
 from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS
@@ -29,25 +29,9 @@ from nof1_causal_lab.artifacts.scenarios import (
     EffectTrajectoryPoint,
 )
 from nof1_causal_lab.distributions import OBSERVATION_FAMILY_SPECS
-from nof1_causal_lab.episode_api import (
-    ArtifactEnvelope,
-    CapabilitiesResponse,
-    EventsResponse,
-    MachineDescription,
-    TimelineResponse,
-    TransitionTraceIndex,
-    UploadResponse,
-    WorkspaceEntry,
-    WorkspaceList,
-    machine_description,
-)
-from nof1_causal_lab.flows.context_tools import CONTEXT_TOOLS
-from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
-from nof1_causal_lab.machine.artifact_files import ARTIFACT_FILE_SPECS
-from nof1_causal_lab.machine.snapshot_models import ModelSnapshot
-from nof1_causal_lab.machine.status import EpisodeStatus
-from nof1_causal_lab.machine.view_models import ArtifactViewResponse
-from nof1_causal_lab.machine.visual_models import (
+from nof1_causal_lab.study.snapshot_models import ModelSnapshot
+from nof1_causal_lab.study.view_models import ArtifactViewResponse
+from nof1_causal_lab.study.visual_models import (
     MechanismCurves,
     MechanismViewRequest,
     ObservationHistory,
@@ -55,15 +39,26 @@ from nof1_causal_lab.machine.visual_models import (
     PredictiveHistory,
     SimulationPaths,
 )
+from nof1_causal_lab.study_api import (
+    ArtifactEnvelope,
+    AttemptTraceIndex,
+    CapabilitiesResponse,
+    EventsResponse,
+    TimelineResponse,
+    UploadResponse,
+    WorkspaceEntry,
+    WorkspaceList,
+)
 from nof1_causal_lab.utils.llm import LLMTrace
 from scripts.codegen.type_system_catalog import annotate_definitions
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
+    from pydantic.json_schema import JsonSchemaValue
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 OUTPUT_DIR = REPO_ROOT / "packages" / "api-types" / "schemas"
-SKILL_PATH = REPO_ROOT / ".agents" / "skills" / "nof1-episode-api" / "SKILL.md"
+SKILL_PATH = REPO_ROOT / ".agents" / "skills" / "nof1-study-api" / "SKILL.md"
 
 EXPORTED_API_MODELS: tuple[type[BaseModel], ...] = (
     CapabilitiesResponse,
@@ -71,9 +66,8 @@ EXPORTED_API_MODELS: tuple[type[BaseModel], ...] = (
     WorkspaceList,
     UploadResponse,
     ArtifactEnvelope,
-    MachineDescription,
     TimelineResponse,
-    TransitionTraceIndex,
+    AttemptTraceIndex,
     EventsResponse,
     RevisionCatalog,
     ModelDiffReport,
@@ -88,7 +82,7 @@ EXPORTED_API_MODELS: tuple[type[BaseModel], ...] = (
     ParameterDraws,
     PredictiveHistory,
     SimulationPaths,
-    EpisodeStatus,
+    StudyStatus,
     ActionReceipt,
     ActionPoll,
 )
@@ -99,18 +93,8 @@ EXPORTED_TOOL_MODELS: tuple[type[BaseModel], ...] = (
     CausalEffectResult,
 )
 
-INTERACTIVE_CONTEXTS = frozenset(
-    {
-        "scientific",
-        "latent-structure",
-        "measurement-structure",
-        "statistical-model-spec",
-        "analysis",
-    }
-)
 
-
-def _make_defaults_required(schema: UncheckedJsonObject) -> UncheckedJsonObject:
+def _make_defaults_required(schema: JsonSchemaValue) -> JsonSchemaValue:
     """Make all properties with defaults required in serialization schema.
 
     Pydantic marks fields with defaults as optional in JSON Schema, but in
@@ -164,7 +148,7 @@ def _make_defaults_required(schema: UncheckedJsonObject) -> UncheckedJsonObject:
     return schema
 
 
-def _is_nullable(prop_schema: UncheckedJsonObject) -> bool:
+def _is_nullable(prop_schema: JsonSchemaValue) -> bool:
     """Check if a property schema allows null (e.g., anyOf with null type)."""
     # Direct null type
     if prop_schema.get("type") == "null":
@@ -179,9 +163,7 @@ def _is_nullable(prop_schema: UncheckedJsonObject) -> bool:
     return any(item.get("type") == "null" for item in any_of)
 
 
-def _collect_model_schema(
-    model_cls: type[BaseModel], all_defs: UncheckedJsonObject
-) -> dict[str, str]:
+def _collect_model_schema(model_cls: type[BaseModel], all_defs: JsonSchemaValue) -> dict[str, str]:
     schema = model_cls.model_json_schema(mode="serialization")
     defs = schema.pop("$defs", {})
     all_defs.update(defs)
@@ -190,9 +172,9 @@ def _collect_model_schema(
     return {"$ref": f"#/$defs/{model_name}"}
 
 
-def export_schemas() -> UncheckedJsonObject:
+def export_schemas() -> JsonSchemaValue:
     """Build a combined JSON Schema with exported Python models in $defs."""
-    all_defs: UncheckedJsonObject = {}
+    all_defs: JsonSchemaValue = {}
     artifact_refs: dict[str, dict[str, str]] = {}
 
     for artifact_id, model_cls in ARTIFACT_CONTRACTS.items():
@@ -215,35 +197,7 @@ def export_schemas() -> UncheckedJsonObject:
     return _make_defaults_required(combined)
 
 
-def export_tool_schemas() -> UncheckedJsonObject:
-    """Build a JSON document describing all context tools for TypeScript codegen.
-
-    Output structure::
-
-        {
-          "latent-structure": [
-            {"name": "validate_latent_structure", "description": "...", "parameters": {...}},
-          ],
-          ...
-          "_interactive": ["latent-structure", "measurement-structure", ...]
-        }
-    """
-    result: UncheckedJsonObject = {}
-    for context_id, tools in CONTEXT_TOOLS.items():
-        result[context_id] = [
-            {
-                "name": tc.name,
-                "description": tc.description,
-                "parameters": tc.parameters_json_schema(),
-                "result": tc.result_json_schema(),
-            }
-            for tc in tools
-        ]
-    result["_interactive"] = sorted(INTERACTIVE_CONTEXTS)
-    return result
-
-
-def export_metadata() -> UncheckedJsonObject:
+def export_metadata() -> JsonSchemaValue:
     """Export distribution catalog metadata for TypeScript type-safe rendering maps."""
     site_kind_values = {sk.value for sk in SiteKind if sk.name.startswith("OBS_")}
     catalog_hypers = {h for spec in OBSERVATION_FAMILY_SPECS for h in spec.hyperparameters}
@@ -253,11 +207,7 @@ def export_metadata() -> UncheckedJsonObject:
             f"ObservationFamilyCatalogEntry.hyperparameters out of sync with SiteKind: {diff}"
         )
     return {
-        "machine": MachineDescription.model_validate(machine_description()).model_dump(
-            mode="json", by_alias=True
-        ),
         "artifactIds": list(ARTIFACT_IDS),
-        "artifactFiles": {aid: asdict(spec) for aid, spec in ARTIFACT_FILE_SPECS.items()},
         "observationHyperparametersByDistribution": {
             spec.family.value: list(spec.hyperparameters)
             for spec in OBSERVATION_FAMILY_SPECS
@@ -271,8 +221,8 @@ _MAX_EXAMPLE_DEPTH = 8
 
 
 def _example_from_schema(
-    schema: UncheckedJsonObject,
-    components: UncheckedJsonObject,
+    schema: JsonSchemaValue,
+    components: JsonSchemaValue,
     *,
     depth: int = 0,
     seen: frozenset[str] = frozenset(),
@@ -309,7 +259,7 @@ def _example_from_schema(
 
     schema_type = schema.get("type")
     if schema_type == "object" or "properties" in schema:
-        props: UncheckedJsonObject = schema.get("properties", {})
+        props: JsonSchemaValue = schema.get("properties", {})
         required = set(schema.get("required", []))
         # Include required fields plus any discriminator/fixed-value field (a
         # `const`, e.g. move `kind`) even when a default makes it non-required,
@@ -333,7 +283,7 @@ def _example_from_schema(
     return "string"
 
 
-def _path_with_placeholders(path: str, parameters: list[UncheckedJsonObject]) -> str:
+def _path_with_placeholders(path: str, parameters: list[JsonSchemaValue]) -> str:
     """Substitute path params with uppercase placeholders for the curl example."""
     result = path
     for param in parameters:
@@ -346,8 +296,8 @@ def _path_with_placeholders(path: str, parameters: list[UncheckedJsonObject]) ->
 def _curl_block(
     method: str,
     path: str,
-    operation: UncheckedJsonObject,
-    components: UncheckedJsonObject,
+    operation: JsonSchemaValue,
+    components: JsonSchemaValue,
 ) -> str:
     parameters = operation.get("parameters", [])
     url = f"{_BASE_URL}{_path_with_placeholders(path, parameters)}"
@@ -367,7 +317,7 @@ def _curl_block(
     return "```bash\n" + "\n".join(lines) + "\n```"
 
 
-def _parameters_block(operation: UncheckedJsonObject) -> str | None:
+def _parameters_block(operation: JsonSchemaValue) -> str | None:
     parameters = operation.get("parameters", [])
     if not parameters:
         return None
@@ -390,16 +340,16 @@ def _skill_frontmatter() -> str:
     cross-parser compatibility.
     """
     description = (
-        "Drive or inspect the nof1-causal-lab episode state machine over HTTP with "
+        "Drive or inspect a nof1-causal-lab study over HTTP with "
         "curl: edit models, prepare data, fit and simulate; inspect revisions, "
-        "read episode state/timeline/artifacts, and invoke "
-        "scientific tools with dispatch and polling against the tool server. Use when navigating the episode "
-        "machine as an external agent instead of the web viewer."
+        "read study state/timeline/artifacts, and invoke "
+        "scientific tools with dispatch and polling against the tool server. Use when working on a study "
+        "as an external agent instead of the web viewer."
     )
-    return f'---\nname: nof1-episode-api\ndescription: "{description}"\n---'
+    return f'---\nname: nof1-study-api\ndescription: "{description}"\n---'
 
 
-def render_skill(openapi: UncheckedJsonObject) -> str:
+def render_skill(openapi: JsonSchemaValue) -> str:
     info = openapi.get("info", {})
     components = openapi.get("components", {}).get("schemas", {})
     title = info.get("title", "Agent API")
@@ -444,7 +394,6 @@ def main(*, check: bool = False) -> bool:
     openapi = app.openapi()
     outputs = {
         OUTPUT_DIR / "contracts.json": json.dumps(export_schemas(), indent=2) + "\n",
-        OUTPUT_DIR / "tools.json": json.dumps(export_tool_schemas(), indent=2) + "\n",
         OUTPUT_DIR / "metadata.json": json.dumps(export_metadata(), indent=2) + "\n",
         OUTPUT_DIR / "openapi.json": json.dumps(openapi, indent=2) + "\n",
         SKILL_PATH: render_skill(openapi),

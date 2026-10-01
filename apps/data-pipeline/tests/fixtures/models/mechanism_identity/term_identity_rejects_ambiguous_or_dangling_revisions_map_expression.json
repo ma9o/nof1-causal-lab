@@ -1,0 +1,86 @@
+{
+  "kind": "binary",
+  "operator": "divide",
+  "left": {
+    "kind": "binary",
+    "operator": "multiply",
+    "left": {
+      "kind": "coefficient",
+      "role": "emax",
+      "value": "parameter:29a302e694e784fa96010dfac683fc39540b5695b5b71f0cab3e5e3b3580fa3d",
+      "construct_ids": []
+    },
+    "right": {
+      "kind": "binary",
+      "operator": "power",
+      "left": {
+        "kind": "binary",
+        "operator": "maximum",
+        "left": {
+          "kind": "state",
+          "construct_id": "construct:c2061f241aafa2387cc9"
+        },
+        "right": {
+          "kind": "literal",
+          "value": 0.0
+        }
+      },
+      "right": {
+        "kind": "coefficient",
+        "role": "exponent",
+        "value": "parameter:8fd1f69e02187200029648aedb9a299098424350a589d97360be061b92cfeeed",
+        "construct_ids": []
+      }
+    }
+  },
+  "right": {
+    "kind": "binary",
+    "operator": "add",
+    "left": {
+      "kind": "binary",
+      "operator": "add",
+      "left": {
+        "kind": "binary",
+        "operator": "power",
+        "left": {
+          "kind": "coefficient",
+          "role": "ec50",
+          "value": "parameter:c52ac0f3696532c856ae268cdc37e60e73fd24ba1c2410c8adbd41937402e42a",
+          "construct_ids": []
+        },
+        "right": {
+          "kind": "coefficient",
+          "role": "exponent",
+          "value": "parameter:8fd1f69e02187200029648aedb9a299098424350a589d97360be061b92cfeeed",
+          "construct_ids": []
+        }
+      },
+      "right": {
+        "kind": "binary",
+        "operator": "power",
+        "left": {
+          "kind": "binary",
+          "operator": "maximum",
+          "left": {
+            "kind": "state",
+            "construct_id": "construct:c2061f241aafa2387cc9"
+          },
+          "right": {
+            "kind": "literal",
+            "value": 0.0
+          }
+        },
+        "right": {
+          "kind": "coefficient",
+          "role": "exponent",
+          "value": "parameter:8fd1f69e02187200029648aedb9a299098424350a589d97360be061b92cfeeed",
+          "construct_ids": []
+        }
+      }
+    },
+    "right": {
+      "kind": "literal",
+      "value": 1e-12
+    }
+  }
+}

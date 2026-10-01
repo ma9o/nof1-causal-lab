@@ -183,7 +183,7 @@ def _run_benchmark(
     import jax
     import jax.random as random
     from evaluation.fixtures.synthetic_nonlinear import (
-        build_synthetic_nonlinear_model,
+        load_synthetic_nonlinear_model,
         simulate_synthetic_nonlinear_data,
     )
 
@@ -199,7 +199,7 @@ def _run_benchmark(
     total_steps = warmup_steps + sample_steps
     print("JAX devices:", jax.devices(), "| config:", cfg.tag, flush=True)
     data = simulate_synthetic_nonlinear_data(T=cfg.t_steps, seed=71, diffusion_scale=1.0)
-    model = build_synthetic_nonlinear_model(
+    model = load_synthetic_nonlinear_model(
         data, include_interval_support=False, diffusion_scale=1.0
     )
     bundle = build_particle_problem(
@@ -337,55 +337,6 @@ def run_config(
         }
 
 
-def _result_ms(
-    results: list[BenchmarkRecord],
-    method: MethodSpec,
-    n_particles: int,
-    t_steps: int,
-) -> float | None:
-    for result in results:
-        if (
-            result.get("smoother") == method.smoother
-            and result.get("leaf") == method.leaf
-            and result.get("block_coords") == method.block_coords
-            and result.get("N") == n_particles
-            and result.get("T") == t_steps
-        ):
-            return result.get("steady_ms_per_step")
-    return None
-
-
-def _scaling(results: list[BenchmarkRecord], method: MethodSpec) -> None:
-    lines = []
-    if len(N_GRID) > 1:  # ty: ignore[redundant-condition-strict] - Benchmark grids are edited between runs.
-        n_low = min(N_GRID)
-        n_high = max(N_GRID)
-        t_ref = max(T_GRID)
-        low_ms = _result_ms(results, method, n_low, t_ref)
-        high_ms = _result_ms(results, method, n_high, t_ref)
-        if low_ms is not None and high_ms is not None:
-            lines.append(
-                f"    N {n_low}->{n_high} @T{t_ref}:  x{high_ms / low_ms:.1f}"
-                "   (~quadratic => N^2-bound, ~1 => launch-bound)"
-            )
-    if len(T_GRID) > 1:  # ty: ignore[redundant-condition-strict] - Benchmark grids are edited between runs.
-        t_low = min(T_GRID)
-        t_high = max(T_GRID)
-        n_ref = max(N_GRID)
-        low_ms = _result_ms(results, method, n_ref, t_low)
-        high_ms = _result_ms(results, method, n_ref, t_high)
-        if low_ms is not None and high_ms is not None:
-            lines.append(
-                f"    T {t_low}->{t_high} @N{n_ref}: x{high_ms / low_ms:.1f}"
-                "   (~linear => T-linear, ~1 => span-bound)"
-            )
-    if not lines:
-        return
-    print(f"\n  scaling for {method.smoother}({method.leaf}, bc={method.block_coords}):")
-    for line in lines:
-        print(line)
-
-
 @app.local_entrypoint()
 def main(
     headline_only: bool = False,
@@ -450,8 +401,6 @@ def main(
                 f"{r['block_coords']:>5}"
                 f"{r['dim']:>5}{r['compile_s']:>11}{r['steady_ms_per_step']:>11}"
             )
-    for method in METHODS:
-        _scaling(results, method)
     headline_path = f"{gpu_tag}/{HEADLINE_CONFIG.profile_name}"
     if trace or compile_analysis:
         artifacts = []

@@ -1,0 +1,41 @@
+{
+  "distribution": "StudentT",
+  "arguments": {
+    "df": {
+      "kind": "coefficient",
+      "role": "degrees_of_freedom",
+      "value": null,
+      "construct_ids": []
+    },
+    "loc": {
+      "kind": "binary",
+      "operator": "add",
+      "left": {
+        "kind": "coefficient",
+        "role": "observation_intercept",
+        "value": null,
+        "construct_ids": []
+      },
+      "right": {
+        "kind": "binary",
+        "operator": "multiply",
+        "left": {
+          "kind": "coefficient",
+          "role": "loading",
+          "value": null,
+          "construct_ids": []
+        },
+        "right": {
+          "kind": "state",
+          "construct_id": "construct:efca9bd7f243a46c0d06"
+        }
+      }
+    },
+    "scale": {
+      "kind": "coefficient",
+      "role": "observation_scale",
+      "value": null,
+      "construct_ids": []
+    }
+  }
+}

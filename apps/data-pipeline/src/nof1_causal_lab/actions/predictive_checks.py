@@ -8,83 +8,27 @@ import numpy as np
 
 from nof1_causal_lab.artifacts.identity import scientific_id
 from nof1_causal_lab.artifacts.model_checks import ModelPredictiveReport
-from nof1_causal_lab.artifacts.predictive_provenance import PredictiveLawProvenance
 from nof1_causal_lab.artifacts.simulation import SimulationSpec
-from nof1_causal_lab.machine.execution import is_stale
 from nof1_causal_lab.models.ssm import numerics as numeric
+from nof1_causal_lab.study.lineage import fitted_law_report, law_provenance, read_data_metadata
+from nof1_causal_lab.study.state import is_stale
 
 if TYPE_CHECKING:
-    from collections.abc import Iterable
-
     from nof1_causal_lab.artifacts.checks import SpecificationReport
-    from nof1_causal_lab.artifacts.identity import GitOid
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.artifacts.posterior import InferenceReport
-    from nof1_causal_lab.machine.artifacts import ArtifactRecord, EpisodeState
-    from nof1_causal_lab.machine.store import ArtifactStore, TransitionRecord
+    from nof1_causal_lab.study.state import StudyState
+    from nof1_causal_lab.study.store import ArtifactStore
 
 # Includes the exact generation engine, all reducer policies, and the fixed budget.
 # Changing any of them invalidates reuse of a previous snapshot's measurements.
-PREDICTIVE_POLICY_VERSION = "exact-model-checks-v5"
+PREDICTIVE_POLICY_VERSION = "exact-model-checks-v6"
 PREDICTIVE_DRAWS = 200
 PREDICTIVE_SEED = 0
 
 
-def fitted_law_report(records: Iterable[TransitionRecord], revision: GitOid) -> InferenceReport:
-    """Read the committed fit that owns inherited laws and their model coordinates."""
-    from nof1_causal_lab.artifacts.posterior import InferenceReport
-    from nof1_causal_lab.machine.inference import inference_record
-
-    fitted = inference_record(records, revision)
-    if fitted is None:
-        raise ValueError("Fitted model laws require their committed inference report")
-    return InferenceReport.model_validate(fitted.diagnostics["report"])
-
-
-def law_provenance(
-    store: ArtifactStore, record: ArtifactRecord, model: ModelSpec, panel_revision: GitOid | None
-) -> PredictiveLawProvenance:
-    """Follow authored ancestry; a native law family alone never establishes fitting."""
-    laws = model.model_dump(mode="json")["distributions"]
-    current = record
-    while True:
-        if current.produced_by == "run:posterior":
-            fitted = store.read_json_file("model", current.revision, "model.json")["distributions"]
-            inherited = {key for key, value in laws.items() if fitted.get(key) == value}
-            if inherited:
-                fitted_panel = current.derived_from["panel"]
-                mixed = inherited != set(laws)
-                return PredictiveLawProvenance(
-                    kind="mixed" if mixed else "fitted",
-                    fitted_panel_revision=fitted_panel,
-                    fitted_model_revision=current.revision,
-                    interpretation="mixed"
-                    if mixed
-                    else (
-                        "in_sample_posterior_predictive"
-                        if fitted_panel == panel_revision
-                        # A different panel revision does not prove held-out observations.
-                        else "posterior_predictive"
-                    ),
-                )
-        parent = current.derived_from.get("model")
-        if parent is None:
-            break
-        current = store.read_meta("model", parent)
-    # Imported joint laws can contain externally conditioned draws. Their family
-    # does not establish a training panel, so their interpretation stays unknown.
-    from nof1_causal_lab.numpyro_json import distribution_shape
-
-    joint = any(any(distribution_shape(law)) for law in model.distributions.values())
-    return PredictiveLawProvenance(
-        kind="unknown" if joint else "authored",
-        interpretation="unknown" if joint else "prior_predictive",
-    )
-
-
 def check_model_predictive(
     store: ArtifactStore,
-    state: EpisodeState,
+    state: StudyState,
     model: ModelSpec,
     specification: SpecificationReport,
     *,
@@ -94,7 +38,7 @@ def check_model_predictive(
     record = state.current["model"]
     panel = state.get("panel")
     panel_revision = panel.revision if panel is not None else None
-    from nof1_causal_lab.actions.data_checks import data_binding_issues, read_data_metadata
+    from nof1_causal_lab.actions.data_checks import data_binding_issues
 
     compatible = (
         panel is not None
@@ -128,22 +72,26 @@ def check_model_predictive(
     )
     execution = next(f for f in specification.findings if f.check == "model_execution")
     if execution.status != "passed":
-        return report.model_copy(
-            update={
+        return type(report).model_validate(
+            {
+                **report.model_dump(),
                 "reason": "MODEL_INCOMPLETE"
                 if execution.status == "not_evaluated"
                 else "MODEL_NOT_EXECUTABLE",
             }
         ), False
     if not compatible:
-        return report.model_copy(update={"reason": "NO_COMPATIBLE_PANEL"}), False
+        return type(report).model_validate(
+            {**report.model_dump(), "reason": "NO_COMPATIBLE_PANEL"}
+        ), False
 
     from nof1_causal_lab.artifacts.likelihood import DistributionFamily
     from nof1_causal_lab.models.ssm.predictive.parameters import validate_simulation_laws
 
     if any(family != DistributionFamily.GAUSSIAN for family in numeric.diffusion_families(model)):
-        return report.model_copy(
-            update={
+        return type(report).model_validate(
+            {
+                **report.model_dump(),
                 "reason": "SIMULATION_UNSUPPORTED",
                 "detail": "Exact forward simulation requires Gaussian process diffusion.",
             }
@@ -153,8 +101,9 @@ def check_model_predictive(
     try:
         validate_simulation_laws(model)
     except ValueError as exc:
-        return report.model_copy(
-            update={
+        return type(report).model_validate(
+            {
+                **report.model_dump(),
                 "reason": "SIMULATION_UNSUPPORTED",
                 "detail": str(exc),
             }
@@ -172,7 +121,7 @@ def check_model_predictive(
     try:
         time_origin = read_data_metadata(store, panel_revision).time_origin
         if law.fitted_model_revision is not None:
-            from nof1_causal_lab.machine.history import StudyRepository
+            from nof1_causal_lab.study.history import StudyRepository
 
             fit_origin = fitted_law_report(
                 StudyRepository(store.workspace_id).attempts(), law.fitted_model_revision
@@ -194,15 +143,18 @@ def check_model_predictive(
         if len(times) and law.fitted_model_revision is not None and times[0] < model.time_points[0]:
             raise ValueError("The current panel begins before the fit's first retained state")
     except ValueError as exc:
-        return report.model_copy(
-            update={
+        return type(report).model_validate(
+            {
+                **report.model_dump(),
                 "reason": "NO_COMPATIBLE_PANEL",
                 "detail": str(exc),
             }
         ), False
     times = np.asarray(times)
     if len(times) < 2 or not np.isfinite(times).all() or not np.all(np.diff(times) > 0):
-        return report.model_copy(update={"reason": "INSUFFICIENT_OBSERVATION_TIMES"}), False
+        return type(report).model_validate(
+            {**report.model_dump(), "reason": "INSUFFICIENT_OBSERVATION_TIMES"}
+        ), False
     design = SimulationSpec(start=float(times[0]), end=float(times[-1]))
     from nof1_causal_lab.artifacts.checks import PredictiveCheckFinding
     from nof1_causal_lab.models.predictive_simulation import PredictiveObservationMeanOverflow
@@ -224,19 +176,26 @@ def check_model_predictive(
     except PredictiveObservationMeanOverflow as exc:
         # This typed scientific failure is raised before an unsafe emission draw.
         # Other generator exceptions still fail the action.
-        return report.model_copy(
-            update={
+        return type(report).model_validate(
+            {
+                **report.model_dump(),
                 "status": "failed",
                 "design": design,
                 "findings": (
-                    PredictiveCheckFinding(
-                        check="C1a finiteness",
-                        target=", ".join(exc.bad_manifest_names),
-                        value=f"{len(exc.failing_draw_indices)}/{exc.n_draws} draws overflow",
-                        band="0 non-finite emission means",
-                        passed=False,
-                        note=str(exc),
-                        reason="NONFINITE_EMISSION_MEAN",
+                    *(
+                        PredictiveCheckFinding(
+                            check="C1a finiteness",
+                            construct_id=construct.id,
+                            target=indicator.id,
+                            value=f"{len(exc.failing_draw_indices)}/{exc.n_draws} draws overflow",
+                            band="0 non-finite emission means",
+                            passed=False,
+                            note=str(exc),
+                            reason="NONFINITE_EMISSION_MEAN",
+                        )
+                        for construct in model.constructs
+                        for indicator in construct.indicators
+                        if indicator.name in exc.bad_manifest_names
                     ),
                     PredictiveCheckFinding(
                         check="predictive_measurements",
@@ -253,8 +212,9 @@ def check_model_predictive(
     findings, checks = measure_simulation_batch(
         model, batch, groups=("dynamics", "measurement", "data_comparison")
     )
-    return report.model_copy(
-        update={
+    return type(report).model_validate(
+        {
+            **report.model_dump(),
             "status": "failed"
             if any(f.passed is False for f in findings)
             or (

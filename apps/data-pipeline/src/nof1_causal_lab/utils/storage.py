@@ -19,7 +19,7 @@ import json
 import os
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import datetime  # noqa: TC003 - Pydantic resolves the remote metadata at runtime.
+from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypedDict

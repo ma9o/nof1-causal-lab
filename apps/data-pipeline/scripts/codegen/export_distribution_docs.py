@@ -286,8 +286,8 @@ def _export_parameters(*, check: bool) -> bool:
 
     roles_body = "\n".join(
         [
-            "Component authoring derives these prompt roles "
-            "from the coefficient slots of a concrete model proposal. Fixed slots need no prior; "
+            "A parameter's role comes from the coefficient slots that reference it. "
+            "A fixed coefficient is a literal in its slot and needs no parameter; "
             "roles and constraints are not stored again on the parameter definition:",
             "",
             _render_parameter_roles_markdown_table(),
@@ -332,11 +332,10 @@ def _export_likelihoods(*, check: bool) -> bool:
 
     dtype_body = "\n".join(
         [
-            "Each indicator's `measurement_dtype` "
-            "selects the default conditional law. The family and link names below describe its numerical lowering. "
-            "Where the dtype admits only one valid combination, the likelihood is locked "
-            "by component authoring. "
-            "Where alternatives exist, the LLM chooses via a decision card.",
+            "The model author writes each indicator's law and coefficients through `edit_model`. "
+            "Its `measurement_dtype` limits the families that law may use, and an indicator "
+            "with any other family is rejected. The first column is the usual choice; "
+            "the family and link names describe the law's numerical lowering.",
             "",
             _render_dtype_likelihood_markdown_table(),
         ]

@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, NotRequired, TypedDict
 
 import networkx as nx
 from y0.algorithm.identify import identify_outcomes
@@ -40,7 +40,35 @@ if TYPE_CHECKING:
 
     from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec
     from nof1_causal_lab.artifacts.identity import ConstructId
-    from nof1_causal_lab.json_types import UncheckedJsonObject
+
+
+class IdentifiedQuery(TypedDict):
+    method: Literal["do_calculus", "instrumental_variable"]
+    estimand: str
+    marginalized_confounders: list[str]
+    instruments: NotRequired[list[str]]
+
+
+class UnidentifiedQuery(TypedDict):
+    confounders: list[str]
+    notes: NotRequired[str]
+
+
+class IdentificationGraphInfo(TypedDict):
+    observed_constructs: list[str]
+    total_constructs: int
+    unobserved_confounders: list[str]
+    n_directed_edges: int
+    iv_allowed: NotRequired[bool]
+
+
+class IdentificationResult(TypedDict):
+    """y0 query output; names are resolved to canonical IDs by the report producer."""
+
+    identifiable_treatments: dict[str, IdentifiedQuery]
+    non_identifiable_treatments: dict[str, UnidentifiedQuery]
+    graph_info: IdentificationGraphInfo
+
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +80,7 @@ def check_identifiability(
     default_outcome: ConstructId | None,
     observed_constructs: set[str],
     iv_allowed: bool = False,
-) -> UncheckedJsonObject:
+) -> IdentificationResult:
     """Check which treatment effects are identifiable using y0's ID algorithm.
 
     Applies ID to the selected treatment/outcome query in a 2-timestep graph.
@@ -98,8 +126,8 @@ def check_identifiability(
     outcome_is_time_varying = _is_time_varying(constructs, outcome)
 
     # Check each treatment
-    identifiable_treatments: dict[str, UncheckedJsonObject] = {}
-    non_identifiable_treatments: dict[str, UncheckedJsonObject] = {}
+    identifiable_treatments: dict[str, IdentifiedQuery] = {}
+    non_identifiable_treatments: dict[str, UnidentifiedQuery] = {}
 
     # If outcome itself is unobserved, no effects are identifiable
     if outcome not in observed_constructs:
@@ -141,7 +169,7 @@ def check_identifiability(
                 outcomes={outcome_var},
             )
 
-            if estimand is not None:
+            if estimand is not None:  # ty: ignore[redundant-condition-strict]  # pyright: ignore[reportUnnecessaryComparison] - y0 returns None for unidentifiable queries; static analysis narrows its exception path incorrectly.
                 # Map estimand back to original names for readability
                 estimand_str = _canonicalize_estimand_string(str(estimand))
                 identifiable_treatments[treatment] = {

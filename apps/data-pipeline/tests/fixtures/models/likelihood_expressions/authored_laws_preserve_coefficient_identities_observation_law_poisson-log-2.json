@@ -1,0 +1,35 @@
+{
+  "distribution": "Poisson",
+  "arguments": {
+    "rate": {
+      "kind": "call",
+      "function": "exp",
+      "arguments": [
+        {
+          "kind": "binary",
+          "operator": "add",
+          "left": {
+            "kind": "coefficient",
+            "role": "observation_intercept",
+            "value": null,
+            "construct_ids": []
+          },
+          "right": {
+            "kind": "binary",
+            "operator": "multiply",
+            "left": {
+              "kind": "coefficient",
+              "role": "loading",
+              "value": null,
+              "construct_ids": []
+            },
+            "right": {
+              "kind": "state",
+              "construct_id": "construct:x"
+            }
+          }
+        }
+      ]
+    }
+  }
+}

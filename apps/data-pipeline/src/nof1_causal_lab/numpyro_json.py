@@ -10,7 +10,7 @@ import inspect
 import re
 from collections.abc import Callable
 from functools import cached_property
-from typing import Annotated, Any, cast, overload
+from typing import TYPE_CHECKING, Annotated, Any, cast, overload
 
 import jax
 import numpy as np
@@ -20,6 +20,9 @@ from pydantic import GetPydanticSchema, ValidationInfo
 from pydantic_core import core_schema
 
 from nof1_causal_lab.json_types import JsonValue
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
 
 _NATIVE_MODULES = {
     "distribution": (dist, dist.Distribution),
@@ -83,7 +86,7 @@ def distribution_shape(value: dist.Distribution) -> tuple[tuple[int, ...], tuple
         isinstance(value, _StoredDistribution)
         and value.constructor["distribution"] == "MixtureSameFamily"
     ):
-        params = cast("dict[str, Any]", value.constructor["params"])
+        params = cast("Mapping[str, Any]", value.constructor["params"])
         component = params["component_distribution"]
         atoms = component["params"].get("v")
         if (
@@ -184,8 +187,8 @@ def _validate_stored_tree(value: JsonValue) -> None:
                 or np.dtype(str(value["dtype"])).hasobject
             ):
                 raise ValueError("Invalid numerical array reference")
-            shape = cast("list[int]", value["shape"])
-            index = cast("list[int]", value["index"])
+            shape = cast("Sequence[int]", value["shape"])
+            index = cast("Sequence[int]", value["index"])
             if len(index) > len(shape) or any(i >= n for i, n in zip(index, shape, strict=False)):
                 raise ValueError("Numerical array reference index is outside its declared shape")
         for tag, (module, base) in _NATIVE_MODULES.items():
@@ -306,7 +309,7 @@ def _decode(value: JsonValue, array_loader: ArrayLoader | None = None) -> Any:
         array = array_loader(str(value["array_ref"]))
         if list(array.shape) != value["shape"] or str(array.dtype) != value["dtype"]:
             raise ValueError("Stored numerical array does not match its declared shape and dtype")
-        return array[tuple(cast("list[int]", value["index"]))]
+        return array[tuple(cast("Sequence[int]", value["index"]))]
     for tag, (module, base) in _NATIVE_MODULES.items():
         if tag in value:
             cls = getattr(module, str(value[tag]), None)

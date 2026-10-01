@@ -5,7 +5,7 @@ from datetime import datetime
 import polars as pl
 import pytest
 
-from nof1_causal_lab.flows.transitions.validation.flow import validate_extraction
+from nof1_causal_lab.actions.validation.flow import validate_extraction
 from nof1_causal_lab.utils.aggregations import compute_indicators
 from nof1_causal_lab.utils.data import annotate_observation_rows
 from nof1_causal_lab.workers.schemas import validate_worker_output

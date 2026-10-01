@@ -1,0 +1,53 @@
+{
+  "distribution": "Gamma",
+  "arguments": {
+    "concentration": {
+      "kind": "coefficient",
+      "role": "shape",
+      "value": null,
+      "construct_ids": []
+    },
+    "rate": {
+      "kind": "binary",
+      "operator": "divide",
+      "left": {
+        "kind": "coefficient",
+        "role": "shape",
+        "value": null,
+        "construct_ids": []
+      },
+      "right": {
+        "kind": "binary",
+        "operator": "divide",
+        "left": {
+          "kind": "literal",
+          "value": 1.0
+        },
+        "right": {
+          "kind": "binary",
+          "operator": "add",
+          "left": {
+            "kind": "coefficient",
+            "role": "observation_intercept",
+            "value": null,
+            "construct_ids": []
+          },
+          "right": {
+            "kind": "binary",
+            "operator": "multiply",
+            "left": {
+              "kind": "coefficient",
+              "role": "loading",
+              "value": null,
+              "construct_ids": []
+            },
+            "right": {
+              "kind": "state",
+              "construct_id": "construct:x"
+            }
+          }
+        }
+      }
+    }
+  }
+}

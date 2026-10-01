@@ -12,8 +12,9 @@ from __future__ import annotations
 import functools
 import logging
 import time
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict
 
 import jax
 import jax.numpy as jnp
@@ -22,7 +23,6 @@ import jax.scipy.linalg as jla
 import numpy as np
 import scipy.optimize as spo
 
-from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
 from nof1_causal_lab.models.ssm.execution.contracts import (
     LIKELIHOOD_SOLVER_KIND_DENSE_SUPPORT,
@@ -30,8 +30,10 @@ from nof1_causal_lab.models.ssm.execution.contracts import (
     LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS,
 )
 from nof1_causal_lab.models.ssm.inference.backend_factory import get_laplace_backend
+from nof1_causal_lab.models.ssm.inference.parameter_transform import ParameterTransform
 from nof1_causal_lab.models.ssm.inference.types import InferenceDiagnostics, WarmupProposal
 from nof1_causal_lab.models.ssm.inference.utils import (
+    SiteInfo,
     _build_eval_fns,
     extract_constrained_samples,
     prepare_model_parameters,
@@ -39,6 +41,53 @@ from nof1_causal_lab.models.ssm.inference.utils import (
 
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.model import SSMModel
+
+
+class InnerEvaluationDiagnostics(TypedDict):
+    solver_kind: int
+    n_iterations: int
+    n_accepted_steps: int
+    init_log_joint: float
+    final_log_joint: float
+    final_rel_change: float
+    final_damping: float
+    final_step_alpha: float
+    final_step_norm: float
+    laplace_logdet: float
+    min_chol_diag: float
+
+
+class OuterEvaluationDiagnostics(TypedDict):
+    log_posterior: float
+    log_likelihood: float
+    log_prior: float
+    inner: InnerEvaluationDiagnostics
+
+
+class OuterEvaluationAux(TypedDict):
+    log_posterior: jax.Array
+    log_likelihood: jax.Array
+    log_prior: jax.Array
+    inner: dict[str, jax.Array]
+    latent_mode: NotRequired[jax.Array]
+
+
+class MapRuntime(TypedDict):
+    log_lik_fn: Callable[..., jax.Array]
+    log_prior_unc_fn: Callable[..., jax.Array]
+    log_posterior_fn: Callable[..., jax.Array]
+    neg_log_posterior_fn: Callable[..., jax.Array]
+    neg_log_posterior_with_aux_fn: Callable[..., tuple[jax.Array, OuterEvaluationAux]]
+
+
+class MapBundle(MapRuntime):
+    dim: int
+    flat_example: jax.Array
+    site_info: SiteInfo
+    unravel_fn: Callable[[jax.Array], dict[str, jax.Array]]
+    parameters: ParameterTransform
+    public_sites: set[str]
+
 
 logger = logging.getLogger(__name__)
 
@@ -126,7 +175,7 @@ def _solver_label(kind: int) -> str:
     return _SOLVER_KIND_LABELS.get(kind, f"solver_{kind}")
 
 
-def _hostify_inner_eval_diagnostics(aux: UncheckedJsonObject) -> UncheckedJsonObject:
+def _hostify_inner_eval_diagnostics(aux: dict[str, jax.Array]) -> InnerEvaluationDiagnostics:
     host = jax.device_get(aux)
     return {
         "solver_kind": _scalar_int(host["solver_kind"]),
@@ -143,7 +192,7 @@ def _hostify_inner_eval_diagnostics(aux: UncheckedJsonObject) -> UncheckedJsonOb
     }
 
 
-def _hostify_outer_eval_diagnostics(aux: UncheckedJsonObject) -> UncheckedJsonObject:
+def _hostify_outer_eval_diagnostics(aux: OuterEvaluationAux) -> OuterEvaluationDiagnostics:
     host = jax.device_get(aux)
     return {
         "log_posterior": _scalar_float(host["log_posterior"]),
@@ -153,7 +202,7 @@ def _hostify_outer_eval_diagnostics(aux: UncheckedJsonObject) -> UncheckedJsonOb
     }
 
 
-def _inner_log_joint_gain(inner: UncheckedJsonObject) -> float | None:
+def _inner_log_joint_gain(inner: InnerEvaluationDiagnostics) -> float | None:
     init_log_joint = inner["init_log_joint"]
     final_log_joint = inner["final_log_joint"]
     if not np.isfinite(init_log_joint) or not np.isfinite(final_log_joint):
@@ -171,7 +220,7 @@ def _log_outer_eval(
     delta_objective: float | None,
     grad_norm: float,
     step_norm: float | None,
-    outer_diag: UncheckedJsonObject,
+    outer_diag: OuterEvaluationDiagnostics,
 ) -> None:
     logger.info(
         "MAP outer %s: elapsed=%.1fs evals=%d objective=%.6f best=%.6f "
@@ -223,7 +272,7 @@ class LaplaceModeOptimizationResult:
     optimizer: str
     init_log_posterior_best: float
     optimizer_hess_inv: spo.LbfgsInvHessProduct
-    final_eval_diagnostics: UncheckedJsonObject
+    final_eval_diagnostics: OuterEvaluationDiagnostics
     final_grad_norm: float | None = None
 
 
@@ -239,7 +288,7 @@ def _build_map_laplace_bundle(
     trace_key: jnp.ndarray,
     likelihood_backend,
     reparam,
-) -> UncheckedJsonObject:
+) -> MapBundle:
     """Build the traced/JITed artifacts for optimizer-backed MAP."""
     parameters, site_info, public_sites = prepare_model_parameters(
         model, observations, times, trace_key, reparam
@@ -254,7 +303,7 @@ def _build_map_laplace_bundle(
         _map_shape_dtype_signature(times),
     )
 
-    def _build_runtime_bundle() -> UncheckedJsonObject:
+    def _build_runtime_bundle() -> MapRuntime:
         log_lik_fn, log_prior_unc_fn, log_lik_with_aux_fn = _build_eval_fns(
             model,
             observations,
@@ -301,7 +350,7 @@ def _build_map_laplace_bundle(
             runtime_observations: jnp.ndarray,
             runtime_times: jnp.ndarray,
             latent_mode_init=None,
-        ) -> tuple[jnp.ndarray, UncheckedJsonObject]:
+        ) -> tuple[jnp.ndarray, OuterEvaluationAux]:
             log_lik, inner_eval_aux = log_lik_with_aux_fn(
                 z,
                 runtime_observations,
@@ -312,7 +361,7 @@ def _build_map_laplace_bundle(
             log_posterior = log_prior + log_lik
             neg_log_posterior = -log_posterior
             safe_value = jnp.where(jnp.isfinite(neg_log_posterior), neg_log_posterior, safe_ceiling)
-            outer_aux = {
+            outer_aux: OuterEvaluationAux = {
                 "log_posterior": log_posterior,
                 "log_likelihood": log_lik,
                 "log_prior": log_prior,
@@ -352,7 +401,7 @@ def _build_map_laplace_bundle(
 
 def _draw_laplace_init_candidates(
     rng_key: jnp.ndarray,
-    site_info: UncheckedJsonObject,
+    site_info: SiteInfo,
     *,
     dim: int,
     n_candidates: int,
@@ -395,7 +444,7 @@ def _optimize_laplace_parameter_mode(
     init_key: jnp.ndarray,
     dim: int,
     flat_example: jnp.ndarray,
-    site_info: UncheckedJsonObject,
+    site_info: SiteInfo,
     runtime_log_posterior_fn,
     runtime_neg_log_posterior_with_aux_fn,
     observations: jnp.ndarray,
@@ -465,9 +514,9 @@ def _optimize_laplace_parameter_mode(
             init_log_posterior_best,
         )
 
-    cached_evaluation: tuple[np.ndarray, tuple[float, np.ndarray, UncheckedJsonObject]] | None = (
-        None
-    )
+    cached_evaluation: (
+        tuple[np.ndarray, tuple[float, np.ndarray, OuterEvaluationDiagnostics]] | None
+    ) = None
     eval_count = 0
     optimize_started_at = time.monotonic()
     latent_mode_init: np.ndarray | None = None
@@ -483,7 +532,7 @@ def _optimize_laplace_parameter_mode(
             latent_mode_init = np.asarray(jax.device_get(seed_aux["latent_mode"])).copy()
             logger.info("MAP seeded latent warm start before jitted value-and-grad compile")
 
-    def _value_and_grad(z_np: np.ndarray) -> tuple[float, np.ndarray, UncheckedJsonObject]:
+    def _value_and_grad(z_np: np.ndarray) -> tuple[float, np.ndarray, OuterEvaluationDiagnostics]:
         nonlocal cached_evaluation, eval_count, latent_mode_init
         z_host = np.asarray(z_np, dtype=np.float64)
         if cached_evaluation is not None and np.array_equal(z_host, cached_evaluation[0]):

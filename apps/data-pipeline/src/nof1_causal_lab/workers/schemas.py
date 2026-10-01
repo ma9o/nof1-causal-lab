@@ -5,14 +5,23 @@ from typing import assert_never
 
 import polars as pl
 from pydantic import BaseModel, Field, ValidationError
+from typing_extensions import TypedDict
 
 from nof1_causal_lab.artifacts.identity import IndicatorId
-from nof1_causal_lab.json_types import UncheckedJsonObject
 from nof1_causal_lab.measurement_types import MeasurementDtype
 from nof1_causal_lab.utils.causal_design import (
     get_measurement_indicator_info as _get_measurement_indicator_info,
 )
 from nof1_causal_lab.utils.observation_semantics import normalize_level_label
+from nof1_causal_lab.workers.context import MeasurementContext
+
+
+class ExtractionRow(TypedDict):
+    """Pre-annotation dataframe row emitted by both extraction engines."""
+
+    indicator_id: str
+    value: str | None
+    timestamp: str
 
 
 class WindowExtraction(BaseModel):
@@ -89,7 +98,7 @@ def _check_dtype_match(value: object, expected_dtype: MeasurementDtype) -> bool:
             return isinstance(value, (int, float)) and value >= 0 and value == int(value)
         case "ordinal":
             return not isinstance(value, bool) and (
-                isinstance(value, int) or (isinstance(value, float) and value == int(value))
+                isinstance(value, int) or (isinstance(value, float) and value.is_integer())
             )
         case "categorical":
             return isinstance(value, str)
@@ -99,7 +108,7 @@ def _check_dtype_match(value: object, expected_dtype: MeasurementDtype) -> bool:
 
 def validate_worker_output(
     data: object,
-    measurement_structure: UncheckedJsonObject,
+    measurement_structure: MeasurementContext,
     expected_window_starts: list[str] | None = None,
 ) -> tuple[WorkerOutput | None, list[str]]:
     """Validate worker output dict, collecting ALL errors instead of failing on first.

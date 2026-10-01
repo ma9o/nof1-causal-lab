@@ -64,7 +64,9 @@ def n_observations(model: ModelSpec) -> int:
 def _likelihoods(model: ModelSpec):
     for indicator in observed_indicators(model):
         if indicator.likelihood is None:
-            raise IncompleteModelError(f"Retained indicator {indicator.id!r} requires a likelihood")
+            raise IncompleteModelError(
+                f"Retained indicator {indicator.name!r} requires a likelihood"
+            )
         yield indicator.likelihood
 
 
@@ -284,7 +286,7 @@ def diffusion_families(model: ModelSpec) -> list[DistributionFamily]:
         if construct.temporal_status == "time_invariant":
             result.append(DistributionFamily.GAUSSIAN)
         elif construct.coefficient("diffusion_scale") is None:
-            raise IncompleteModelError(f"Construct {identity!r} requires a diffusion scale")
+            raise IncompleteModelError(f"Construct {construct.name!r} requires a diffusion scale")
         else:
             result.append(construct.innovation_family)
     return result
@@ -450,36 +452,40 @@ def validate_execution(model: ModelSpec) -> None:
         construct = model.get_construct(identity)
         if any(construct.coefficient(role) is None for role in ("initial_mean", "initial_scale")):
             raise IncompleteModelError(
-                f"Construct {identity!r} requires initial-state coefficients"
+                f"Construct {construct.name!r} requires initial-state coefficients"
             )
         if (
             construct.temporal_status == "time_varying"
             and construct.coefficient("diffusion_scale") is None
         ):
             raise IncompleteModelError(
-                f"Construct {identity!r} requires an innovation distribution"
+                f"Construct {construct.name!r} requires an innovation distribution"
             )
         if construct.innovation_family == DistributionFamily.STUDENT_T:
             require_hyperparameter(
                 construct.coefficient("process_degrees_of_freedom"),
-                f"{identity}.process_degrees_of_freedom",
+                f"{construct.name}.process_degrees_of_freedom",
             )
     supported = supported_distribution_families()
     for indicator in observed_indicators(model):
         likelihood = indicator.likelihood
         if likelihood is None:
-            raise IncompleteModelError(f"Retained indicator {indicator.id!r} requires a likelihood")
+            raise IncompleteModelError(
+                f"Retained indicator {indicator.name!r} requires a likelihood"
+            )
         if likelihood.law.family not in supported:
-            raise ValueError(f"Indicator {indicator.id!r} has no native emission function")
+            raise NumericalSupportError(
+                [f"Indicator {indicator.name!r} has no native emission function"]
+            )
         terms = likelihood.terms
         missing = [operand.role for operand in terms.operands if operand.value is None]
         if missing:
             raise IncompleteModelError(
-                f"Indicator {indicator.id!r} requires explicit measurement coefficients: {missing}"
+                f"Indicator {indicator.name!r} requires explicit measurement coefficients: {missing}"
             )
         for operand in terms.auxiliary:
             if operand.role != "observation_scale":
-                require_hyperparameter(operand.value, f"{indicator.id}.likelihood.{operand.role}")
+                require_hyperparameter(operand.value, f"{indicator.name}.likelihood.{operand.role}")
     observation_level_counts(model)
     parameter_blocks(model)
     dynamics_components(model)

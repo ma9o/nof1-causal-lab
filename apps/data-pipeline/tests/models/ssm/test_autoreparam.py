@@ -4,6 +4,13 @@ Check project strategy selection, trace structure, and exact location-scale
 reconstruction with deterministic standardized variates.
 """
 
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from pathlib import Path
+
+from pathlib import Path
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.models.ssm.model import SSMModel
+
 import functools
 
 import jax
@@ -29,18 +36,7 @@ from nof1_causal_lab.models.ssm.priors import PriorDistributionFamily
 from nof1_causal_lab.models.ssm.transition_kinds import LATENT_TRANSITION_EULER_MARUYAMA
 from nof1_causal_lab.prior_distributions import distribution_from_params
 from tests.dynamics_fixtures import decay_term, hill_term
-from tests.model_fixtures import (
-    MinimalReparam,
-    default_diffusion_block,
-    default_lambda_block,
-    default_manifest_chol_block,
-    default_manifest_means_block,
-    default_static_state_sd_block,
-    default_t0_chol_block,
-    default_t0_means_block,
-    full_dense_matrix_dynamics_spec,
-    model_fixture,
-)
+from tests.model_fixtures import MinimalReparam, compile_fit_fixture, default_diffusion_block, default_lambda_block, default_manifest_chol_block, default_manifest_means_block, default_static_state_sd_block, default_t0_chol_block, default_t0_means_block, full_dense_matrix_dynamics_spec
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -405,26 +401,10 @@ class TestLocScalePreservation:
 class TestAutoReparamSSM:
     """Test AutoReparam with the actual SSM model."""
 
-    def _make_simple_ssm(self):
-        from nof1_causal_lab.models.ssm.model import SSMModel
-
-        spec = model_fixture(
-            n_latent=2,
-            n_manifest=2,
-            dynamics_spec=full_dense_matrix_dynamics_spec(2),
-            diffusion_block=default_diffusion_block(2),
-            lambda_block=default_lambda_block(2, 2),
-            manifest_means_block=default_manifest_means_block(2),
-            manifest_chol_block=default_manifest_chol_block(2),
-            t0_means_block=default_t0_means_block(2),
-            t0_chol_block=default_t0_chol_block(2),
-            static_state_sd_block=default_static_state_sd_block(),
-        )
-        return SSMModel(spec=spec)
 
     def test_ssm_site_classification(self):
         """Verify which SSM sites get reparameterized and which don't."""
-        model = self._make_simple_ssm()
+        model = SSMModel(compile_fit_fixture(ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models/autoreparam/simple_ssm.json").read_text())))
         strategy = AutoReparam(centered=0.0)
 
         model_fn = functools.partial(model.model, likelihood_backend=_DummyLikelihoodBackend())
@@ -460,7 +440,7 @@ class TestAutoReparamSSM:
 
     def test_extract_constrained_samples_filters_auxiliary_sites(self):
         """Report original parameters, excluding reparam auxiliaries and assembled matrices."""
-        from nof1_causal_lab.flows.transitions.inference.subjects import (
+        from nof1_causal_lab.actions.inference.subjects import (
             reference_posterior_findings,
         )
         from nof1_causal_lab.models.ssm.inference.types import (
@@ -473,7 +453,7 @@ class TestAutoReparamSSM:
         )
         from nof1_causal_lab.models.ssm.parameterization import build_site_registry
 
-        model = self._make_simple_ssm()
+        model = SSMModel(compile_fit_fixture(ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models/autoreparam/simple_ssm.json").read_text())))
         observations = jnp.zeros((5, 2))
         times = jnp.linspace(0, 1, 5)
         parameters, _, public_sites = prepare_model_parameters(
@@ -490,7 +470,9 @@ class TestAutoReparamSSM:
         assert set(samples) == {site.name for site in build_site_registry(model.spec)}
         posterior = ParticleMCMCPosterior(draws=JointPosteriorDraws(parameters=samples))
         marginals, pairs = reference_posterior_findings(
-            model.spec, posterior.get_posterior_marginals(), posterior.get_posterior_pairs()
+            compile_fit_fixture(model.spec),
+            posterior.get_posterior_marginals(),
+            posterior.get_posterior_pairs(),
         )
         assert marginals
         assert pairs
@@ -501,31 +483,11 @@ class TestAutoReparamSSM:
         """Nested TransformReparam + LocScaleReparam restores the public Hill site."""
         from nof1_causal_lab.models.ssm.model import SSMModel
 
-        spec = model_fixture(
-            n_latent=2,
-            n_manifest=2,
-            dynamics_spec=DynamicsSpec(
-                n_latent=2,
-                components=(
-                    *(decay_term(target=i) for i in range(2)),
-                    hill_term(source=0, target=1),
-                ),
-            ),
-            diffusion_block=default_diffusion_block(2),
-            lambda_block=default_lambda_block(2, 2),
-            manifest_means_block=default_manifest_means_block(2),
-            manifest_chol_block=default_manifest_chol_block(2),
-            t0_means_block=default_t0_means_block(2),
-            t0_chol_block=default_t0_chol_block(2),
-            static_state_sd_block=default_static_state_sd_block(),
-        )
-        priors = {
-            "vf_2_p0": distribution_from_params(
-                PriorDistributionFamily.LOG_NORMAL,
-                {"mu": -0.2, "sigma": 0.3},
-            )
-        }
-        model = SSMModel(spec, priors)
+
+        from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
+
+        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'autoreparam/testautoreparamssm_test_particle_runtime_reconstructs_log_normal_hill_sites_with_parameter_distributions.json').read_text())
+        model = SSMModel(compile_fit_fixture(spec))
         observations = jnp.zeros((3, 2))
         times = jnp.arange(3, dtype=jnp.float32)
 

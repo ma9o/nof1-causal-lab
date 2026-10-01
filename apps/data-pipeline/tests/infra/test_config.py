@@ -5,9 +5,9 @@ import textwrap
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
+from nof1_causal_lab.actions.temporal.backend_config import llm_backend_config
+from nof1_causal_lab.actions.temporal.messages import LLMSubroutineInput
 from nof1_causal_lab.llm_specs import CodexLLMSpec, EmbeddedLLMSpec, LLMProfileSpec, PiLLMSpec
-from nof1_causal_lab.machine.temporal.backend_config import llm_backend_config
-from nof1_causal_lab.machine.temporal.messages import LLMSubroutineInput
 from nof1_causal_lab.sampler_config import validate_sampler_config
 from nof1_causal_lab.utils.config import (
     ClaudeCodeDefaults,

@@ -1,5 +1,8 @@
 """Graph comparisons isolate topology from other scientific definition changes."""
 
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from pathlib import Path
+
 import jax.numpy as jnp
 import numpyro.distributions as dist
 import pytest
@@ -10,17 +13,16 @@ from nof1_causal_lab.actions.revisions import (
     compare_parameters,
 )
 from nof1_causal_lab.artifacts.construct import replace_constructs
-from nof1_causal_lab.artifacts.expressions import linear_effect
-from nof1_causal_lab.models.model_parameters import referenced_parameter_ids
+from nof1_causal_lab.artifacts.expressions import coefficient, state
 from nof1_causal_lab.models.model_structure import model_graph_entities
 from nof1_causal_lab.models.ssm.joint_layout import JointLawLayout
-from tests.helpers import complete_test_model, make_model
+from tests.helpers import make_model
 
 pytestmark = pytest.mark.contract
 
 
 def test_complete_definition_diff_includes_laws_and_question_without_list_order_noise():
-    model = complete_test_model(make_model(["X", "Y", "Z"], [("X", "Y"), ("X", "Z")]))
+    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'model_comparison/complete_definition_diff_includes_laws_and_question_without_list_order_noise_complete_test_model.json').read_text())
     parameter = model.parameters[0]
     revised = model.revised(
         question="A revised scientific question",
@@ -40,19 +42,23 @@ def test_complete_definition_diff_includes_laws_and_question_without_list_order_
 
 
 def test_parameter_decisions_and_law_changes_leave_topology_unchanged():
-    model = complete_test_model(make_model(["X", "Y", "Z"], [("X", "Y"), ("X", "Z")]))
+    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'model_comparison/parameter_decisions_and_law_changes_leave_topology_unchanged_complete_test_model.json').read_text())
     edge = model.edges[0]
-    parameter = model.parameter(next(iter(referenced_parameter_ids(edge))))
+    parameter = model.parameters_for(edge.id)[0]
     pinned = model.revised(
         edges=tuple(
-            item.model_copy(
-                update={
+            type(item).model_validate(
+                {
+                    **item.model_dump(),
                     "mechanisms": tuple(
-                        mechanism.model_copy(
-                            update={"expression": linear_effect(edge.cause.id, 0.0)}
+                        type(mechanism).model_validate(
+                            {
+                                **mechanism.model_dump(),
+                                "expression": coefficient(0.0, "weight") * state(edge.cause.id),
+                            }
                         )
                         for mechanism in item.mechanisms
-                    )
+                    ),
                 }
             )
             if item.id == edge.id
@@ -81,7 +87,7 @@ def test_parameter_decisions_and_law_changes_leave_topology_unchanged():
 
 
 def test_fitted_state_laws_and_time_points_leave_topology_unchanged():
-    model = complete_test_model(make_model(["X", "Y"], [("X", "Y")]))
+    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'model_comparison/fitted_state_laws_and_time_points_leave_topology_unchanged_complete_test_model.json').read_text())
     layout = JointLawLayout.from_bindings(
         (), parameters=(), constructs=model.state_order, time_points=(0.0, 1.0)
     )
@@ -89,7 +95,10 @@ def test_fitted_state_laws_and_time_points_leave_topology_unchanged():
     fitted = model.revised(
         edges=replace_constructs(
             model.edges,
-            tuple(item.model_copy(update={"distribution": identity}) for item in model.constructs),
+            tuple(
+                type(item).model_validate({**item.model_dump(), "distribution": identity})
+                for item in model.constructs
+            ),
         ),
         distributions={
             **model.distributions,
@@ -107,17 +116,22 @@ def test_graph_additions_and_removals_ignore_entity_attribute_changes():
     before = make_model(["X", "Y"], [("X", "Y")])
     after = make_model(["X", "Y", "Z"], [("X", "Y"), ("Z", "Y")])
     x = after.constructs[0]
-    renamed = x.model_copy(
-        update={
+    renamed = type(x).model_validate(
+        {
+            **x.model_dump(),
             "name": "Renamed X",
             "description": "Updated measurement",
-            "indicators": (x.indicators[0].model_copy(update={"name": "Renamed observation"}),),
+            "indicators": (
+                type(x.indicators[0]).model_validate(
+                    {**x.indicators[0].model_dump(), "name": "Renamed observation"}
+                ),
+            ),
         }
     )
     after = after.revised(
         default_outcome=after.constructs[1].id,
         edges=tuple(
-            edge.model_copy(update={"description": "Updated justification"})
+            type(edge).model_validate({**edge.model_dump(), "description": "Updated justification"})
             for edge in replace_constructs(after.edges, (renamed,))
         ),
     )
@@ -149,12 +163,20 @@ def test_endpoint_and_time_slice_changes_revise_graph_topology():
     model = make_model(["X", "Y"], [("X", "Y")]).revised(measurement_clock=None)
     edge = model.edges[0]
     reversed_edge = model.revised(
-        edges=(edge.model_copy(update={"cause": edge.effect, "effect": edge.cause}),)
+        edges=(
+            type(edge).model_validate(
+                {**edge.model_dump(), "cause": edge.effect, "effect": edge.cause}
+            ),
+        )
     )
     static_cause = model.revised(
         edges=replace_constructs(
             model.edges,
-            (edge.cause.model_copy(update={"temporal_status": "time_invariant"}),),
+            (
+                type(edge.cause).model_validate(
+                    {**edge.cause.model_dump(), "temporal_status": "time_invariant"}
+                ),
+            ),
         )
     )
     for revised in (reversed_edge, static_cause):
@@ -178,8 +200,12 @@ def test_execution_exclusions_use_the_same_graph_comparison_in_both_directions()
         edges=replace_constructs(
             model.edges,
             (
-                constructs["U"].model_copy(update={"role": "exogenous", "indicators": ()}),
-                constructs["V"].model_copy(update={"indicators": ()}),
+                type(constructs["U"]).model_validate(
+                    {**constructs["U"].model_dump(), "role": "exogenous", "indicators": ()}
+                ),
+                type(constructs["V"]).model_validate(
+                    {**constructs["V"].model_dump(), "indicators": ()}
+                ),
             ),
         ),
     )

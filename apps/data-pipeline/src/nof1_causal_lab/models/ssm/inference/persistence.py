@@ -25,12 +25,13 @@ if TYPE_CHECKING:
     from jax.typing import ArrayLike
 
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledFitInputs
     from nof1_causal_lab.models.ssm.inference.types import ParticleMCMCPosterior
     from nof1_causal_lab.numpyro_json import ArrayLoader
 
 
 def condition_model(
-    model_spec: ModelSpec,
+    inputs: CompiledFitInputs,
     result: ParticleMCMCPosterior,
     *,
     times: ArrayLike,
@@ -43,7 +44,8 @@ def condition_model(
     posterior containers, execution coordinates, or independent fitted marginals
     are attached to the scientific model.
     """
-    bindings, _ = parameter_bindings(model_spec)
+    model_spec = inputs.spec
+    bindings = inputs.bindings
     samples = result.get_samples()
     paths = result.draws.latent_paths
     state_ids = numeric.state_ids(model_spec)
@@ -72,11 +74,12 @@ def condition_model(
     edges = replace_constructs(
         model_spec.edges,
         tuple(
-            construct.model_copy(
-                update={
+            type(construct).model_validate(
+                {
+                    **construct.model_dump(),
                     "distribution": identity
                     if construct.id in state_ids
-                    else construct.distribution
+                    else construct.distribution,
                 }
             )
             for construct in model_spec.constructs
@@ -85,8 +88,9 @@ def condition_model(
     parameters = tuple(
         parameter
         if parameter.id not in conditioned_parameters
-        else parameter.model_copy(
-            update={
+        else type(parameter).model_validate(
+            {
+                **parameter.model_dump(),
                 "distribution": identity,
                 "distribution_transform": PriorAuthoringTransform.IDENTITY,
                 "reference_interval_days": None,

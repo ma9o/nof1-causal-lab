@@ -4,12 +4,14 @@ from __future__ import annotations
 
 import logging
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, TypedDict
+from typing import Any, Literal, TypedDict
 
 import jax.numpy as jnp
+from numpy.typing import NDArray
 
 from nof1_causal_lab.artifacts.parameter import ParameterCoordinate
 from nof1_causal_lab.artifacts.posterior import PosteriorDrawsInfo
+from nof1_causal_lab.json_types import JsonObject
 from nof1_causal_lab.models.ssm.inference.diagnostics_viz import (
     build_energy_diagnostics as _build_energy_diagnostics,
 )
@@ -23,13 +25,8 @@ from nof1_causal_lab.models.ssm.inference.diagnostics_viz import (
     compute_posterior_marginals,
     compute_posterior_pairs,
 )
+from nof1_causal_lab.models.ssm.inference.mcmc_state import TrajectoryMCMCResult
 from nof1_causal_lab.models.ssm.inference.shared import _filter_public_samples
-
-if TYPE_CHECKING:
-    from numpy.typing import NDArray
-
-    from nof1_causal_lab.json_types import JsonObject
-    from nof1_causal_lab.models.ssm.inference.mcmc_state import TrajectoryMCMCResult
 
 logger = logging.getLogger(__name__)
 
@@ -286,9 +283,8 @@ class ParticleMCMCPosterior:
         result["num_chains"] = int(mcmc.num_chains)
         result["num_samples"] = int(mcmc.num_samples)
 
-        if chain_samples is not None:
-            result["trace_data"] = list(_build_trace_data(chain_samples, max_points=200))
-            result["rank_histograms"] = list(_build_rank_histograms(chain_samples, n_bins=20))
+        result["trace_data"] = list(_build_trace_data(chain_samples, max_points=200))
+        result["rank_histograms"] = list(_build_rank_histograms(chain_samples, n_bins=20))
 
         return result
 

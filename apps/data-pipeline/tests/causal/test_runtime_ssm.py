@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from pathlib import Path
+
 import jax.numpy as jnp
 import numpy as np
 import numpyro.distributions as ndist
@@ -20,11 +23,7 @@ from nof1_causal_lab.models.ssm.dynamics import (
     infer_linearisation,
 )
 from tests.dynamics_fixtures import decay_term, hill_term, intercept_term, linear_term
-from tests.model_fixtures import (
-    default_manifest_means_block,
-    default_static_state_sd_block,
-    model_fixture,
-)
+from tests.model_fixtures import compile_fit_fixture, default_manifest_means_block, default_static_state_sd_block
 
 
 @pytest.mark.contract
@@ -85,7 +84,6 @@ class TestSSMModelDynamicsDispatch:
         )
 
         class DynamicsAwareBackend:
-            checkpoint_loglik = False
 
             def compute_log_likelihood(
                 self,
@@ -106,58 +104,8 @@ class TestSSMModelDynamicsDispatch:
                 )
                 return jnp.zeros_like(time_intervals)
 
-        spec = model_fixture(
-            n_latent=2,
-            n_manifest=2,
-            dynamics_spec=DynamicsSpec(
-                n_latent=2,
-                components=(decay_term(target=0, decay=0.3), decay_term(target=1, decay=0.5)),
-            ),
-            diffusion_block=DiffusionBlockSpec(
-                n_latent=2,
-                diffusion_chol_support=np.zeros((2, 2), dtype=bool),
-                diffusion_chol_template=jnp.eye(2) * 0.1,
-            ),
-            lambda_block=SparseMatrixBlockSpec(
-                n_rows=2,
-                n_cols=2,
-                free_support=np.zeros((2, 2), dtype=bool),
-                template=jnp.eye(2),
-                free_site_name="lambda_free",
-                det_site_name="lambda",
-                support=SupportClass.REAL,
-                site_kind=SiteKind.LOADING,
-                assembly_group="lambda",
-                fixed_spec_field="lambda_mat",
-                priors_field="lambda_free",
-            ),
-            manifest_means_block=default_manifest_means_block(2),
-            manifest_chol_block=ManifestCholBlockSpec(
-                n_manifest=2,
-                diag_support=np.zeros(2, dtype=bool),
-                template=jnp.eye(2) * 0.2,
-            ),
-            t0_means_block=SparseVectorBlockSpec(
-                n=2,
-                free_support=np.zeros(2, dtype=bool),
-                template=jnp.zeros(2),
-                free_site_name="t0_means_free",
-                det_site_name="t0_means",
-                support=SupportClass.REAL,
-                site_kind=SiteKind.T0_MEANS,
-                assembly_group="t0",
-                fixed_spec_field="t0_means",
-                priors_field="t0_means",
-            ),
-            t0_chol_block=T0CholBlockSpec(
-                n_latent=2,
-                diag_support=np.zeros(2, dtype=bool),
-                correlation_support=np.zeros((2, 2), dtype=bool),
-                template=jnp.eye(2) * 0.3,
-            ),
-            static_state_sd_block=default_static_state_sd_block(),
-        )
-        model = SSMModel(spec)
+        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'runtime_ssm/testssmmodeldynamicsdispatch_test_nonlinear_dynamics_uses_vector_field_backend_method_model_fixture.json').read_text())
+        model = SSMModel(compile_fit_fixture(spec))
         tr = handlers.trace(handlers.seed(model.model, rng_seed=0)).get_trace(
             observations=jnp.zeros((4, 2)),
             times=jnp.arange(4, dtype=jnp.float32),

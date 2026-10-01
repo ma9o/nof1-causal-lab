@@ -3,12 +3,13 @@
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field
 
+from nof1_causal_lab.actions.data_diff import DataDiffReport
 from nof1_causal_lab.artifacts.checks import SpecificationReport
 from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata
 from nof1_causal_lab.artifacts.identification import IdentificationReport
-from nof1_causal_lab.artifacts.identity import GitOid, GitRef, ScientificActionId
+from nof1_causal_lab.artifacts.identity import ActionId, GitOid, GitRef
 from nof1_causal_lab.artifacts.model_checks import ModelPredictiveReport
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.posterior import InferenceReport
@@ -17,17 +18,8 @@ from nof1_causal_lab.artifacts.validation_report import (
     DataProfileArtifact,
     ValidationReportArtifact,
 )
-from nof1_causal_lab.machine.view_models import MeasurementsData
-
-
-class ActionMessage(BaseModel):
-    """One label emitted by an action; scientific measurements belong in its body."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    timestamp: AwareDatetime
-    level: Literal["debug", "info", "warn", "error"]
-    label: str = Field(pattern=r"^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$")
+from nof1_causal_lab.study.records import ActionMessage
+from nof1_causal_lab.study.view_models import MeasurementsData
 
 
 class ActionReceipt(BaseModel):
@@ -90,8 +82,22 @@ class ModelSimulationResult(BaseModel):
     report: SimulationReport
 
 
+class DataComparisonResult(BaseModel):
+    """A recorded comparison of saved observations; the branch and model are unchanged."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    action: Literal["data_diff"] = "data_diff"
+    commit_id: GitOid
+    report: DataDiffReport
+
+
 type ActionBody = Annotated[
-    ModelEditResult | DataPreparationResult | ModelFitResult | ModelSimulationResult,
+    ModelEditResult
+    | DataPreparationResult
+    | ModelFitResult
+    | ModelSimulationResult
+    | DataComparisonResult,
     Field(
         discriminator="action",
         description=(
@@ -113,12 +119,12 @@ class ActionPoll(BaseModel):
 
 
 class RunningAction(BaseModel):
-    """The attempt an episode is executing, with the labels it has emitted so far."""
+    """The attempt a study is executing, with the labels it has emitted so far."""
 
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     attempt_id: UUID
-    action: ScientificActionId
+    action: ActionId
     branch: str
     messages: tuple[ActionMessage, ...]
 

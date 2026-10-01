@@ -33,7 +33,7 @@ def identify_model(model: ModelSpec) -> IdentificationReport:
         treatments={
             **{
                 by_name[name]: IdentifiedTreatmentStatus(
-                    method=finding["method"],
+                    method="do_calculus",
                     estimand=finding["estimand"],
                     marginalized_confounders=[
                         by_name[item] for item in finding.get("marginalized_confounders", [])

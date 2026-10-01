@@ -1,9 +1,13 @@
 """Stable scientific subjects through authoring, compilation, and retained results."""
 
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.likelihood import ObservationLawSpec
+from pathlib import Path
+
 import numpyro.distributions as dist
 import pytest
-from evaluation.fixtures.prior_planning import complete_model
 
+from nof1_causal_lab.actions.inference.subjects import reference_posterior_findings
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.expressions import (
     hill as expr_hill,
@@ -16,59 +20,21 @@ from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LikelihoodS
 from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
-from nof1_causal_lab.flows.transitions.inference.subjects import reference_posterior_findings
-from nof1_causal_lab.models.likelihoods import observation_law
 from nof1_causal_lab.models.model_checks import check_execution
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
-from tests.helpers import complete_test_model, make_model
-from tests.slot_fixtures import fixture_parameter_id
+from tests.helpers import make_model
+from tests.model_fixtures import compile_fit_fixture
 
 
-def _model(*, rename=False, reverse=False, ordinal=False, edges=()):
-    model = make_model(["A", "B"], edges or [("A", "B")])
-    values = list(model.constructs)
-    for n, construct in enumerate(values):
-        indicator = construct.indicators[0]
-        if ordinal:
-            indicator = indicator.model_copy(
-                update={
-                    "measurement_dtype": "ordinal",
-                    "aggregation": "last",
-                    "ordinal_levels": ("low", "mid", "high") if n == 0 else ("absent", "present"),
-                    "likelihood": LikelihoodSpec(
-                        law=observation_law(
-                            construct.id,
-                            DistributionFamily.ORDERED_LOGISTIC,
-                            LinkFunction.CUMULATIVE_LOGIT,
-                        ),
-                        reasoning="Ordered test measurement",
-                    ),
-                }
-            )
-        if rename:
-            indicator = indicator.model_copy(update={"name": f"renamed measurement {n}"})
-        values[n] = construct.model_copy(
-            update={
-                "name": f"renamed construct {n}" if rename else construct.name,
-                "indicators": (indicator,),
-            }
-        )
-    return model.revised(
-        edges=replace_constructs(tuple(reversed(model.edges)) if reverse else model.edges, values)
-    )
 
 
-def _compile(model):
-    completed = complete_test_model(model)
-    check_execution(completed)
-    return completed
 
 
 @pytest.mark.contract
 def test_rename_preserves_parameter_and_element_identity():
-    old_model = _compile(_model())
-    new_model = _compile(_model(rename=True))
+    old_model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'scientific_parameter_identity/rename_preserves_parameter_and_element_identity__compile.json').read_text())
+    new_model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'scientific_parameter_identity/rename_preserves_parameter_and_element_identity__compile_2.json').read_text())
     assert {b.parameter_id: set(b.elements) for b in parameter_bindings(old_model)[0]} == {
         b.parameter_id: set(b.elements) for b in parameter_bindings(new_model)[0]
     }
@@ -77,9 +43,8 @@ def test_rename_preserves_parameter_and_element_identity():
 
 @pytest.mark.contract
 def test_scalar_identity_survives_reordered_execution_axes():
-    feedback = [("A", "B"), ("B", "A")]
-    model = _compile(_model(edges=feedback))
-    reordered = _compile(_model(edges=feedback, reverse=True))
+    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'scientific_parameter_identity/scalar_identity_survives_reordered_execution_axes__compile.json').read_text())
+    reordered = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'scientific_parameter_identity/scalar_identity_survives_reordered_execution_axes__compile_2.json').read_text())
     assert model.state_order == tuple(reversed(reordered.state_order))
     decay = next(
         p
@@ -94,7 +59,7 @@ def test_scalar_identity_survives_reordered_execution_axes():
 
 @pytest.mark.contract
 def test_model_rejects_forged_owner_before_compilation():
-    model = _compile(_model())
+    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'scientific_parameter_identity/model_rejects_forged_owner_before_compilation__compile.json').read_text())
     payload = model.model_dump(mode="json")
     payload["parameters"][0]["owners"] = [{"kind": "construct", "id": "construct:forged"}]
     with pytest.raises(ValueError, match=r"Extra inputs|owner"):
@@ -103,7 +68,7 @@ def test_model_rejects_forged_owner_before_compilation():
 
 @pytest.mark.contract
 def test_posterior_writer_uses_declared_subject_and_rejects_unknown_coordinate():
-    model = _compile(_model())
+    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'scientific_parameter_identity/posterior_writer_uses_declared_subject_and_rejects_unknown_coordinate__compile.json').read_text())
     binding = parameter_bindings(model)[0][0]
     element, coordinate = next(iter(binding.coordinates.items()))
     row = {
@@ -118,17 +83,17 @@ def test_posterior_writer_uses_declared_subject_and_rejects_unknown_coordinate()
         "x_values": [],
         "density": [],
     }
-    marginals, _ = reference_posterior_findings(model, [row], [])
+    marginals, _ = reference_posterior_findings(compile_fit_fixture(model), [row], [])
     assert marginals[0]["subject"] == {"parameter_id": binding.parameter_id, "element_id": element}
     assert "coordinate" not in marginals[0]
     row["coordinate"] = {"site_name": "unknown", "indices": []}
     with pytest.raises(ValueError, match="unbound runtime coordinate"):
-        reference_posterior_findings(model, [row], [])
+        reference_posterior_findings(compile_fit_fixture(model), [row], [])
 
 
 @pytest.mark.contract
 def test_ordinal_components_have_label_identity_and_padding_is_explicit():
-    model = _compile(_model(ordinal=True))
+    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'scientific_parameter_identity/ordinal_components_have_label_identity_and_padding_is_explicit__compile.json').read_text())
     gaps = {
         p.id
         for p in model.parameters
@@ -142,17 +107,24 @@ def test_ordinal_components_have_label_identity_and_padding_is_explicit():
 
 @pytest.mark.contract
 def test_shared_likelihood_parameter_owns_only_active_channels():
-    model = _compile(_model())
+    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'scientific_parameter_identity/shared_likelihood_parameter_owns_only_active_channels__compile.json').read_text())
     first, second = model.constructs
     student = LikelihoodSpec(
-        law=observation_law(first.id, DistributionFamily.STUDENT_T, LinkFunction.IDENTITY),
+        law=ObservationLawSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'scientific_parameter_identity/shared_likelihood_parameter_owns_only_active_channels_observation_law.json').read_text()),
         reasoning="Test tails",
         standardized=True,
     )
-    first = first.model_copy(
-        update={"indicators": (first.indicators[0].model_copy(update={"likelihood": student}),)}
+    first = type(first).model_validate(
+        {
+            **first.model_dump(),
+            "indicators": (
+                type(first.indicators[0]).model_validate(
+                    {**first.indicators[0].model_dump(), "likelihood": student}
+                ),
+            ),
+        }
     )
-    model = complete_model(model.revised(edges=replace_constructs(model.edges, (first, second))))
+    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'scientific_parameter_identity/shared_likelihood_parameter_owns_only_active_channels_complete_model.json').read_text())
     shared = next(
         p for p in model.parameters if model.parameter_context(p.id).quantity == SiteKind.OBS_DF
     )
@@ -160,27 +132,24 @@ def test_shared_likelihood_parameter_owns_only_active_channels():
         first.id,
         first.indicators[0].id,
     }
-    second = second.model_copy(
-        update={
+    second = type(second).model_validate(
+        {
+            **second.model_dump(),
             "indicators": (
-                second.indicators[0].model_copy(
-                    update={
+                type(second.indicators[0]).model_validate(
+                    {
+                        **second.indicators[0].model_dump(),
                         "likelihood": LikelihoodSpec(
-                            law=observation_law(
-                                second.id, DistributionFamily.STUDENT_T, LinkFunction.IDENTITY
-                            ),
+                            law=ObservationLawSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'scientific_parameter_identity/shared_likelihood_parameter_owns_only_active_channels_observation_law_2.json').read_text()),
                             reasoning="Test tails",
                             standardized=True,
-                        )
+                        ),
                     }
                 ),
-            )
+            ),
         }
     )
-    expanded = model.revised(
-        edges=replace_constructs(model.edges, (model.get_construct(first.id), second))
-    )
-    expanded = complete_model(expanded)
+    expanded = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'scientific_parameter_identity/shared_likelihood_parameter_owns_only_active_channels_complete_model_2.json').read_text())
     newer = next(
         p
         for p in expanded.parameters
@@ -199,36 +168,25 @@ def test_shared_likelihood_parameter_owns_only_active_channels():
 
 @pytest.mark.contract
 def test_student_innovation_tail_is_explicit_and_shared_through_completion():
-    from nof1_causal_lab.models.model_parameters import referenced_parameter_ids
 
-    model = _compile(_model())
-    model = complete_model(
-        model.revised(
-            edges=replace_constructs(
-                model.edges,
-                tuple(
-                    construct.model_copy(update={"innovation_family": "student_t"})
-                    for construct in model.constructs
-                ),
-            )
-        )
-    )
+    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'scientific_parameter_identity/student_innovation_tail_is_explicit_and_shared_through_completion_complete_model.json').read_text())
     parameter = next(p for p in model.parameters if p.name == "proc_df")
     for construct in model.constructs:
-        assert parameter.id in referenced_parameter_ids(*construct.coefficients)
+        assert parameter in model.parameters_for(construct.id)
     model.check_execution()
     first, second = model.constructs
     candidate = model.revised(
         edges=replace_constructs(
             model.edges,
             (
-                first.model_copy(
-                    update={
+                type(first).model_validate(
+                    {
+                        **first.model_dump(),
                         "coefficients": tuple(
                             operand
                             for operand in first.coefficients
                             if operand.role != "process_degrees_of_freedom"
-                        )
+                        ),
                     }
                 ),
                 second,
@@ -237,29 +195,33 @@ def test_student_innovation_tail_is_explicit_and_shared_through_completion():
     )
     with pytest.raises(ValueError, match="degrees_of_freedom requires a prior parameter"):
         candidate.check_execution()
-    completed = complete_model(candidate)
+    completed = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'scientific_parameter_identity/student_innovation_tail_is_explicit_and_shared_through_completion_complete_model_2.json').read_text())
     assert completed.parameter(parameter.id) == parameter
     assert completed.get_construct(first.id).coefficients == first.coefficients
 
 
 @pytest.mark.contract
-@pytest.mark.parametrize("retained_role", [None, "initial_mean", "initial_scale"])
-def test_initial_state_defaults_are_authored_before_compilation(retained_role):
-    model = _compile(_model())
-    from notebooks.parameter_planning import complete_component_slots
+@pytest.mark.parametrize(('retained_role', '_compile_payload', 'complete_model_payload'), [
+    pytest.param(None, 'scientific_parameter_identity/initial_state_defaults_are_authored_before_compilation__compile_none.json', 'scientific_parameter_identity/initial_state_defaults_are_authored_before_compilation_complete_model_none.json', id='None'),
+    pytest.param('initial_mean', 'scientific_parameter_identity/initial_state_defaults_are_authored_before_compilation__compile_initial_mean.json', 'scientific_parameter_identity/initial_state_defaults_are_authored_before_compilation_complete_model_initial_mean.json', id='initial_mean'),
+    pytest.param('initial_scale', 'scientific_parameter_identity/initial_state_defaults_are_authored_before_compilation__compile_initial_scale.json', 'scientific_parameter_identity/initial_state_defaults_are_authored_before_compilation_complete_model_initial_scale.json', id='initial_scale'),
+])
+def test_initial_state_defaults_are_authored_before_compilation(retained_role, _compile_payload, complete_model_payload):
+    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / _compile_payload).read_text())
 
     free = model.revised(
         edges=replace_constructs(
             model.edges,
             tuple(
-                c.model_copy(
-                    update={
+                type(c).model_validate(
+                    {
+                        **c.model_dump(),
                         "coefficients": tuple(
                             operand
                             for operand in c.coefficients
                             if not operand.role.startswith("initial_")
                             or operand.role == retained_role
-                        )
+                        ),
                     }
                 )
                 for c in model.constructs
@@ -268,7 +230,7 @@ def test_initial_state_defaults_are_authored_before_compilation(retained_role):
     )
     with pytest.raises(ValueError, match="initial-state coefficients"):
         free.check_execution()
-    completed = complete_model(complete_component_slots(free, free_initial=True))
+    completed = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / complete_model_payload).read_text())
     before = completed.model_dump(mode="json")
     completed.check_execution()
     initial = [
@@ -288,10 +250,11 @@ def test_initial_state_defaults_are_authored_before_compilation(retained_role):
 
 @pytest.mark.inference(concern="sampling")
 def test_parameter_labels_do_not_change_mechanisms_bindings_or_prior_laws():
-    model = _compile(_model())
+    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'scientific_parameter_identity/parameter_labels_do_not_change_mechanisms_bindings_or_prior_laws__compile.json').read_text())
     renamed = model.revised(
         parameters=tuple(
-            p.model_copy(update={"name": f"display {n}"}) for n, p in enumerate(model.parameters)
+            type(p).model_validate({**p.model_dump(), "name": f"display {n}"})
+            for n, p in enumerate(model.parameters)
         )
     )
     check_execution(renamed)
@@ -303,39 +266,14 @@ def test_parameter_labels_do_not_change_mechanisms_bindings_or_prior_laws():
 
 @pytest.mark.inference(concern="sampling")
 def test_additive_hill_and_linear_terms_survive_parameter_renaming():
-    model = _compile(_model(edges=(("A", "B"),)))
-    edge = model.edges[0]
-    owners = (
-        EdgeRef(id=edge.id),
-        ConstructRef(id=edge.cause.id),
-        ConstructRef(id=edge.effect.id),
-        MechanismRef(id="mechanism:test-hill"),
-    )
-    peak = ParameterSpec(
-        id=fixture_parameter_id(SiteKind.HILL_EMAX, owners),
-        name="Peak effect",
-        description="Test nonlinear contribution",
-    )
-    hill = DynamicsMechanismSpec(
-        id="mechanism:test-hill",
-        expression=expr_hill(
-            expr_state(edge.cause.id),
-            emax=peak.id,
-            ec50=1.0,
-            n=2.0,
-        ),
-    )
-    additive = model.revised(
-        edges=(edge.model_copy(update={"mechanisms": (*edge.mechanisms, hill)}),),
-        parameters=(*model.parameters, peak),
-    )
-    from nof1_causal_lab.models.model_distributions import with_parameter_distributions
+    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'scientific_parameter_identity/additive_hill_and_linear_terms_survive_parameter_renaming__compile.json').read_text())
 
-    additive = with_parameter_distributions(additive, {peak.id: dist.HalfNormal(1.0)})
+    additive = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'scientific_parameter_identity/additive_hill_and_linear_terms_survive_parameter_renaming_with_parameter_distributions.json').read_text())
     check_execution(additive)
     renamed = additive.revised(
         parameters=tuple(
-            p.model_copy(update={"name": f"opaque {n}"}) for n, p in enumerate(additive.parameters)
+            type(p).model_validate({**p.model_dump(), "name": f"opaque {n}"})
+            for n, p in enumerate(additive.parameters)
         )
     )
     check_execution(renamed)

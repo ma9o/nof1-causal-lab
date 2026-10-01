@@ -4,9 +4,9 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal, TypedDict
 
-if TYPE_CHECKING:
-    from nof1_causal_lab.json_types import JsonObject
+from nof1_causal_lab.json_types import JsonObject
 
+if TYPE_CHECKING:
     from .spec import DynamicsSpec
 
 

@@ -5,6 +5,8 @@ Covers: semantic prior binding and fit-input preparation.
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, cast
 
@@ -16,7 +18,6 @@ import pytest
 
 from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
 from nof1_causal_lab.artifacts.parameter import PriorAuthoringTransform, SiteKind
-from nof1_causal_lab.models.model_distributions import with_parameter_distributions
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.compile.inputs import compile_priors
 from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
@@ -30,28 +31,12 @@ from nof1_causal_lab.models.ssm.structure import (
     DiffusionBlockSpec,
     T0CholBlockSpec,
 )
-from tests.helpers import (
-    complete_test_model,
-    make_model,
-    make_prior_model,
-    native_axis_metadata,
-)
-from tests.model_fixtures import (
-    default_diffusion_block,
-    default_lambda_block,
-    default_manifest_chol_block,
-    default_manifest_means_block,
-    default_static_state_sd_block,
-    default_t0_chol_block,
-    default_t0_means_block,
-    full_dense_matrix_dynamics_spec,
-    full_diagonal_support,
-    model_fixture,
-)
+from tests.dynamics_fixtures import decay_term
+from tests.helpers import make_model, native_axis_metadata
+from tests.model_fixtures import compile_fit_fixture, default_diffusion_block, default_lambda_block, default_manifest_chol_block, default_manifest_means_block, default_static_state_sd_block, default_t0_chol_block, default_t0_means_block, full_dense_matrix_dynamics_spec, full_diagonal_support
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.models.ssm.model import SSMModel
     from nof1_causal_lab.sampler_config import SamplerConfigOverride
 
 # =============================================================================
@@ -59,76 +44,18 @@ if TYPE_CHECKING:
 # =============================================================================
 
 
-def _make_spec(
-    *,
-    n_latent: int = 1,
-    n_manifest: int = 1,
-    dynamics_spec=None,
-    diffusion_block=None,
-    lambda_block=None,
-    manifest_means_block=None,
-    manifest_chol_block=None,
-    t0_means_block=None,
-    t0_chol_block=None,
-    static_state_sd_block=None,
-    **kwargs,
-) -> ModelSpec:
-    """Build an ModelSpec from explicit block specs for tests."""
-    if dynamics_spec is None:
-        dynamics_spec = full_dense_matrix_dynamics_spec(n_latent)
-    return model_fixture(
-        n_latent=n_latent,
-        n_manifest=n_manifest,
-        dynamics_spec=dynamics_spec,
-        diffusion_block=diffusion_block or default_diffusion_block(n_latent),
-        lambda_block=lambda_block or default_lambda_block(n_manifest, n_latent),
-        manifest_means_block=manifest_means_block or default_manifest_means_block(n_manifest),
-        manifest_chol_block=manifest_chol_block or default_manifest_chol_block(n_manifest),
-        t0_means_block=t0_means_block or default_t0_means_block(n_latent),
-        t0_chol_block=t0_chol_block or default_t0_chol_block(n_latent),
-        static_state_sd_block=static_state_sd_block or default_static_state_sd_block(),
-        **native_axis_metadata(n_latent, n_manifest, kwargs),
-    )
 
 
 @pytest.mark.contract
 class TestBuilderPriorConversion:
     def test_ar_prior_rejects_negative_support(self):
-        model = complete_test_model(make_model(["mood"]))
-        _spec = model
         with pytest.raises(ValueError, match=r"support within \[0, 1\]"):
             compile_priors(
-                make_prior_model(
-                    model,
-                    {
-                        "rho_mood": {
-                            "distribution": "Uniform",
-                            "params": {"lower": -1.0, "upper": 1.0},
-                        }
-                    },
-                )
+                ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'runtime/testbuilderpriorconversion_test_ar_prior_rejects_negative_support_make_prior_model.json').read_text())
             )
 
     def test_initial_state_correlation_priors_are_bounded_to_correlation_scale(self):
-        model = _make_spec(n_latent=2, n_manifest=2, dynamics_spec=DynamicsSpec(2, ()))
-        correlation = next(
-            p
-            for p in model.parameters
-            if model.parameter_context(p.id).quantity == SiteKind.T0_VAR_LOWER
-        )
-        model = model.revised(
-            parameters=tuple(
-                p.model_copy(
-                    update={
-                        "distribution_transform": PriorAuthoringTransform.INITIAL_STATE_CORRELATION,
-                    }
-                )
-                if p.id == correlation.id
-                else p
-                for p in model.parameters
-            )
-        )
-        model = with_parameter_distributions(model, {correlation.id: dist.Normal(0.2, 0.8)})
+        model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'runtime/testbuilderpriorconversion_test_initial_state_correlation_priors_are_bounded_to_correlation_scale_with_parameter_distributions.json').read_text())
         law = compile_priors(model)[0]["t0_var_lower_free"]
         np.testing.assert_allclose(law.base_dist.loc, [0.2])
         np.testing.assert_allclose(law.base_dist.scale, [0.8])
@@ -136,24 +63,13 @@ class TestBuilderPriorConversion:
         np.testing.assert_allclose(law.high, [1.0])
 
     def test_initial_state_mean_and_sd_priors_bind_to_t0_sites(self):
-        model = _make_spec(n_latent=2, n_manifest=2, dynamics_spec=DynamicsSpec(2, ()))
+        model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'runtime/testbuilderpriorconversion_test_initial_state_mean_and_sd_priors_bind_to_t0_sites__make_spec.json').read_text())
         means = [
             p
             for p in model.parameters
             if model.parameter_context(p.id).quantity == SiteKind.T0_MEANS
         ]
-        scales = [
-            p
-            for p in model.parameters
-            if model.parameter_context(p.id).quantity == SiteKind.T0_VAR_DIAG
-        ]
-        laws = {
-            means[0].id: dist.Normal(0.2, 0.3),
-            means[1].id: dist.Normal(0.4, 0.5),
-            scales[0].id: dist.HalfNormal(0.7),
-            scales[1].id: dist.HalfNormal(0.9),
-        }
-        model = with_parameter_distributions(model, laws)
+        model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'runtime/testbuilderpriorconversion_test_initial_state_mean_and_sd_priors_bind_to_t0_sites_with_parameter_distributions.json').read_text())
         priors, bindings, _ = compile_priors(model)
         np.testing.assert_allclose(priors["t0_means_free"].loc, [0.2, 0.4])
         np.testing.assert_allclose(priors["t0_var_diag_free"].scale, [0.7, 0.9])
@@ -162,17 +78,7 @@ class TestBuilderPriorConversion:
     def test_initial_state_correlation_prior_indices_are_dense_after_mask_filtering(self):
         mask = np.zeros((3, 3), dtype=bool)
         mask[2, 1] = True
-        model = _make_spec(
-            n_latent=3,
-            n_manifest=3,
-            dynamics_spec=DynamicsSpec(3, ()),
-            t0_chol_block=T0CholBlockSpec(
-                n_latent=3,
-                diag_support=np.ones(3, dtype=bool),
-                correlation_support=mask,
-                template=jnp.eye(3),
-            ),
-        )
+        model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'runtime/testbuilderpriorconversion_test_initial_state_correlation_prior_indices_are_dense_after_mask_filtering__make_spec.json').read_text())
         _, bindings, _ = compile_priors(model)
         correlation = next(
             p
@@ -183,7 +89,7 @@ class TestBuilderPriorConversion:
         assert numeric.initial_covariance_block(model).correlation_positions == [(2, 1)]
 
     def test_component_dynamics_parameters_bind_to_their_own_terms(self):
-        model = complete_test_model(make_model(["stress", "mood"], [("stress", "mood")]))
+        model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'runtime/testbuilderpriorconversion_test_component_dynamics_parameters_bind_to_their_own_terms_complete_test_model.json').read_text())
         _, bindings, _ = compile_priors(model)
         for parameter in model.parameters:
             if any(
@@ -192,7 +98,7 @@ class TestBuilderPriorConversion:
                 assert bindings.by_parameter[parameter.id].component_index is not None
 
     def test_cross_lag_prior_requires_the_declared_measurement_clock(self):
-        model = complete_test_model(make_model(["stress", "mood"], [("stress", "mood")])).revised(
+        model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'runtime/testbuilderpriorconversion_test_cross_lag_prior_requires_the_declared_measurement_clock_complete_test_model.json').read_text()).revised(
             measurement_clock=None
         )
         with pytest.raises(ValueError, match="measurement clock"):
@@ -204,24 +110,17 @@ class TestObservationSupportValidation:
     def test_gamma_emission_rejects_zero_observations(self):
         """Gamma likelihoods must fail early when observed data include zeros."""
         X = pl.DataFrame({"time": [0, 1, 2], "screen_gap": [0.0, 1.0, 2.0]})
-        spec = _make_spec(
-            n_latent=1,
-            n_manifest=1,
-            latent_names=["screen_gap"],
-            manifest_names=["screen_gap"],
-            manifest_dists=[DistributionFamily.GAMMA],
-            manifest_links=[LinkFunction.LOG],
-        )
+        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'runtime/testobservationsupportvalidation_test_gamma_emission_rejects_zero_observations__make_spec.json').read_text())
 
         with pytest.raises(ValueError, match="Observation support check failed"):
-            build_ssm_model(X, model_spec=spec)
+            build_ssm_model(X, inputs=compile_fit_fixture(spec))
 
 
 @pytest.mark.contract
 class TestPrepareFitInputs:
     def test_sparse_wide_nulls_become_nan_without_fill_forward(self):
         """Sparse wide cells should stay missing and never broadcast across ticks."""
-        spec = _make_spec(n_latent=2, n_manifest=2, manifest_names=["x", "y"])
+        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'runtime/testpreparefitinputs_test_sparse_wide_nulls_become_nan_without_fill_forward__make_spec.json').read_text())
         wide = pl.DataFrame(
             {
                 "time": [0.0, 1.0],
@@ -241,12 +140,7 @@ class TestPrepareFitInputs:
 
     def test_manifest_standardization_applies_only_to_standardized_channels(self):
         """prepare_fit_inputs should deterministically standardize only marked manifests."""
-        spec = _make_spec(
-            n_latent=2,
-            n_manifest=2,
-            manifest_names=["x", "y"],
-            manifest_standardized=[True, False],
-        )
+        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'runtime/testpreparefitinputs_test_manifest_standardization_applies_only_to_standardized_channels__make_spec.json').read_text())
         wide = pl.DataFrame(
             {
                 "time": [0.0, 1.0, 2.0],
@@ -266,12 +160,7 @@ class TestPrepareFitInputs:
 
     def test_manifest_standardization_of_constant_column_centers_without_scaling(self):
         """A zero-variance standardized column becomes exactly zero (divisor 1)."""
-        spec = _make_spec(
-            n_latent=1,
-            n_manifest=1,
-            manifest_names=["x"],
-            manifest_standardized=[True],
-        )
+        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'runtime/testpreparefitinputs_test_manifest_standardization_of_constant_column_centers_without_scaling__make_spec.json').read_text())
         wide = pl.DataFrame({"time": [0.0, 1.0], "x": [4.2, 4.2]})
 
         observations, _times, _names, _wide = prepare_fit_inputs(spec, wide)
@@ -326,25 +215,15 @@ class TestPrepareModelRuntime:
             }
         )
 
-        class StubModel:
-            def __init__(self):
-                self.observation_support = None
-                self.spec = _make_spec(
-                    n_latent=1,
-                    n_manifest=1,
-                    manifest_names=["stress_score"],
-                )
-                self.parameter_layout = object()
-
-            def set_observation_support(self, observation_support):
-                self.observation_support = observation_support
+        inputs = compile_fit_fixture(
+            ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'runtime/testpreparemodelruntime_test_preserves_long_observation_metadata_and_augments_support_boundaries__make_spec.json').read_text())
+        )
 
         with caplog.at_level("INFO"):
             runtime = prepare_model_runtime(
                 data_for_model,
                 time_origin=datetime(2024, 1, 1, tzinfo=UTC),
-                model_spec=(cast("SSMModel", StubModel())).spec,
-                model=cast("SSMModel", StubModel()),
+                inputs=inputs,
                 sampler_config=cast(
                     "SamplerConfigOverride",
                     {"method": "marginal_particle_gibbs"},
@@ -405,24 +284,14 @@ class TestPrepareModelRuntime:
             }
         )
 
-        class StubModel:
-            def __init__(self):
-                self.observation_support = None
-                self.spec = _make_spec(
-                    n_latent=1,
-                    n_manifest=1,
-                    manifest_names=["stress_score"],
-                )
-                self.parameter_layout = object()
-
-            def set_observation_support(self, observation_support):
-                self.observation_support = observation_support
+        inputs = compile_fit_fixture(
+            ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'runtime/testpreparemodelruntime_test_compiles_overlapping_interval_windows_into_concurrent_slots__make_spec.json').read_text())
+        )
 
         runtime = prepare_model_runtime(
             data_for_model,
             time_origin=datetime(2024, 1, 1, tzinfo=UTC),
-            model_spec=(cast("SSMModel", StubModel())).spec,
-            model=cast("SSMModel", StubModel()),
+            inputs=inputs,
             sampler_config=cast(
                 "SamplerConfigOverride",
                 {"method": "marginal_particle_gibbs"},
@@ -458,22 +327,14 @@ class TestPrepareModelRuntime:
         )
         model = build_ssm_model(
             pl.DataFrame({"time": [0.0], "stress_score": [1.0]}),
-            model_spec=_make_spec(
-                n_latent=1,
-                n_manifest=1,
-                diffusion_block=DiffusionBlockSpec(
-                    n_latent=1,
-                    diffusion_chol_support=np.diag(full_diagonal_support(1)),
-                    diffusion_chol_template=jnp.eye(1, dtype=jnp.float32),
-                ),
-                manifest_names=["stress_score"],
+            inputs=compile_fit_fixture(
+                ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'runtime/testpreparemodelruntime_test_prior_predictive_reuses_prepared_support_schedule__make_spec.json').read_text())
             ),
         )
         runtime = prepare_model_runtime(
             data_for_model,
             time_origin=datetime(2024, 1, 1, tzinfo=UTC),
-            model_spec=(model).spec,
-            model=model,
+            inputs=model.inputs,
             sampler_config=cast(
                 "SamplerConfigOverride",
                 {"method": "marginal_particle_gibbs"},
@@ -498,3 +359,55 @@ class TestPrepareModelRuntime:
         assert jnp.isfinite(samples.trajectory.observations[:, 1, 0]).all()
         assert (~samples.trajectory.observations_mask[:, 0, 0]).all()
         assert samples.trajectory.observations_mask[:, 1, 0].all()
+
+
+@pytest.mark.contract
+def test_compiled_inputs_own_runtime_derivations(monkeypatch):
+    from nof1_causal_lab.models.ssm.compile import prior_compilation
+    from nof1_causal_lab.models.ssm.model import SSMModel
+
+    inputs = compile_fit_fixture(ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'runtime/compiled_inputs_own_runtime_derivations__make_spec.json').read_text()))
+
+    def unexpected_compile(*_args, **_kwargs):
+        raise AssertionError("runtime recompiled its evidence")
+
+    monkeypatch.setattr(prior_compilation, "compile_priors", unexpected_compile)
+    monkeypatch.setattr(prior_compilation, "bind_parameters", unexpected_compile)
+    model = SSMModel(inputs)
+    assert model.spec is inputs.spec
+    assert model.parameter_bindings is inputs.bindings
+    assert model.parameter_layout is inputs.parameter_layout
+    assert model.get_prior_runtime_bundle() is inputs.prior_runtime_bundle
+
+
+@pytest.mark.contract
+def test_compile_distinguishes_incomplete_unsupported_and_bugs(monkeypatch):
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.models.ssm.compile import inputs as compiler
+
+    incomplete = compiler.compile_ssm_inputs_from_model(ModelSpec())
+    assert isinstance(incomplete, compiler.IncompleteModel)
+    spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'runtime/compile_distinguishes_incomplete_unsupported_and_bugs__make_spec.json').read_text())
+    unsupported = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'runtime/compile_distinguishes_incomplete_unsupported_and_bugs_with_parameter_distributions.json').read_text())
+    assert isinstance(compiler.compile_ssm_inputs_from_model(unsupported), compiler.UnsupportedFit)
+
+    def broken_compiler(_model):
+        raise ValueError("internal compiler bug")
+
+    monkeypatch.setattr(compiler, "compile_priors", broken_compiler)
+    with pytest.raises(ValueError, match="internal compiler bug"):
+        compiler.compile_ssm_inputs_from_model(spec)
+
+
+@pytest.mark.contract
+def test_fit_resolves_incomplete_model_before_panel_preparation(monkeypatch):
+    from nof1_causal_lab.actions.inference import fit as fitting
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+
+    def unexpected_panel(*_args, **_kwargs):
+        raise AssertionError("panel prepared before fit capability was resolved")
+
+    monkeypatch.setattr(fitting, "prepare_model_runtime", unexpected_panel)
+    result = fitting.fit_model(ModelSpec(), pl.DataFrame(), time_origin=None)
+    assert not result["fitted"]
+    assert result["error"]

@@ -2,31 +2,31 @@
 
 import json
 from datetime import UTC, datetime
+from uuid import uuid4
 
 import polars as pl
 import pytest
 
 from nof1_causal_lab.actions.contracts import PrepareDataRequest
 from nof1_causal_lab.actions.data_checks import evaluate_data_checks
-from nof1_causal_lab.actions.execution import plan_execution
 from nof1_causal_lab.actions.messages import completion_messages
+from nof1_causal_lab.actions.temporal.measurement_activities import (
+    finalize_measurements_activity,
+    plan_measurements_activity,
+)
+from nof1_causal_lab.actions.temporal.messages import (
+    ExtractionChunkResult,
+    MeasurementsFinalizeInput,
+    MeasurementsWorkflowInput,
+)
 from nof1_causal_lab.artifacts.data_preparation import (
     DataPreparationSpec,
     DataVariableSpec,
     FilePreparationSpec,
 )
 from nof1_causal_lab.artifacts.validation_report import DataProfileArtifact
-from nof1_causal_lab.machine.artifacts import EpisodeState
-from nof1_causal_lab.machine.store import ArtifactStore
-from nof1_causal_lab.machine.temporal.measurement_activities import (
-    finalize_measurements_activity,
-    plan_measurements_activity,
-)
-from nof1_causal_lab.machine.temporal.messages import (
-    ExtractionChunkResult,
-    MeasurementsFinalizeInput,
-    MeasurementsWorkflowInput,
-)
+from nof1_causal_lab.study.state import StudyState
+from nof1_causal_lab.study.store import ArtifactStore
 from nof1_causal_lab.utils import storage
 from tests.helpers import run_async
 
@@ -34,7 +34,7 @@ pytestmark = pytest.mark.contract
 
 
 def test_preparation_without_model_combines_computed_and_semantic_workers(monkeypatch, tmp_path):
-    from nof1_causal_lab.machine import store as store_module
+    from nof1_causal_lab.study import store as store_module
     from nof1_causal_lab.utils import data
 
     monkeypatch.setattr(data, "_DATA_URI", str(tmp_path))
@@ -72,13 +72,11 @@ def test_preparation_without_model_combines_computed_and_semantic_workers(monkey
     request = PrepareDataRequest(
         input=FilePreparationSpec(source={"files": ["diary.csv"]}, definition=preparation)
     )
-    execution = plan_execution(request)
-    assert execution.input_revisions == {}
-    assert execution.operation.operation_id == "measurements"
+    assert isinstance(request.input, FilePreparationSpec)
     raw = store.write_artifact(
         "raw_data",
         derived_from={},
-        produced_by="run:raw_data",
+        produced_by="prepare_data",
         parquet_files={
             "raw.parquet": pl.DataFrame(
                 {
@@ -89,14 +87,15 @@ def test_preparation_without_model_combines_computed_and_semantic_workers(monkey
             )
         },
     )
-    state = EpisodeState().with_artifacts([raw])
+    state = StudyState().with_artifacts([raw])
     plan = run_async(
         plan_measurements_activity(
             MeasurementsWorkflowInput(
                 workspace_id="data-only",
                 seq=1,
-                state=state,
-                preparation=execution.operation.preparation,
+                attempt_id=uuid4(),
+                raw_data_revision=raw.revision,
+                preparation=request.input,
             )
         )
     )
@@ -138,7 +137,6 @@ def test_preparation_without_model_combines_computed_and_semantic_workers(monkey
         finalize_measurements_activity(
             MeasurementsFinalizeInput(
                 workspace_id="data-only",
-                state=state,
                 run_id=plan.run_id,
                 plan_ref=plan.plan_ref,
                 pins=plan.pins,
@@ -187,7 +185,7 @@ def test_preparation_without_model_combines_computed_and_semantic_workers(monkey
 def test_declared_categorical_codebook_validates_and_encodes_normalized_labels(
     value, expected_code
 ):
-    from nof1_causal_lab.flows.transitions.extraction.materialization import materialize_panel
+    from nof1_causal_lab.actions.extraction.materialization import materialize_panel
     from nof1_causal_lab.utils.data import annotate_observation_rows
     from nof1_causal_lab.workers.schemas import validate_worker_output
 

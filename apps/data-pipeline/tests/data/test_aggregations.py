@@ -4,16 +4,21 @@ Covers: _build_agg_expr, _build_map_groups_fn, _encode_non_continuous, compute_i
 """
 
 from datetime import datetime
+from typing import TYPE_CHECKING
 
 import polars as pl
 import pytest
 
+from nof1_causal_lab.artifacts.identity import IndicatorId
 from nof1_causal_lab.utils.aggregations import (
     _build_agg_expr,
     _build_map_groups_fn,
     _encode_non_continuous,
     compute_indicators,
 )
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.workers.context import MeasurementIndicator
 
 pytestmark = pytest.mark.contract
 
@@ -247,9 +252,10 @@ class TestComputeIndicators:
     def test_single_mean(self):
         """Mean of heart_rate across 3 daily ticks."""
         df = _make_raw_df()
-        indicators = [
+        indicators: list[MeasurementIndicator] = [
             {
-                "id": "indicator:c21b43949b3712e734c8",
+                "measurement_dtype": "continuous",
+                "id": IndicatorId("indicator:c21b43949b3712e734c8"),
                 "name": "avg_hr",
                 "source_columns": ["heart_rate"],
                 "aggregation": "mean",
@@ -265,9 +271,10 @@ class TestComputeIndicators:
     def test_sum_aggregation(self):
         """Sum of steps across daily ticks."""
         df = _make_raw_df()
-        indicators = [
+        indicators: list[MeasurementIndicator] = [
             {
-                "id": "indicator:a0ce08437c19d06aafd1",
+                "measurement_dtype": "continuous",
+                "id": IndicatorId("indicator:a0ce08437c19d06aafd1"),
                 "name": "total_steps",
                 "source_columns": ["steps"],
                 "aggregation": "sum",
@@ -281,15 +288,17 @@ class TestComputeIndicators:
     def test_multiple_indicators(self):
         """Two computed indicators in one call."""
         df = _make_raw_df()
-        indicators = [
+        indicators: list[MeasurementIndicator] = [
             {
-                "id": "indicator:c21b43949b3712e734c8",
+                "measurement_dtype": "continuous",
+                "id": IndicatorId("indicator:c21b43949b3712e734c8"),
                 "name": "avg_hr",
                 "source_columns": ["heart_rate"],
                 "aggregation": "mean",
             },
             {
-                "id": "indicator:a0ce08437c19d06aafd1",
+                "measurement_dtype": "continuous",
+                "id": IndicatorId("indicator:a0ce08437c19d06aafd1"),
                 "name": "total_steps",
                 "source_columns": ["steps"],
                 "aggregation": "sum",
@@ -306,9 +315,10 @@ class TestComputeIndicators:
     def test_output_schema(self):
         """Output columns are exactly {indicator, value, timestamp} as Utf8."""
         df = _make_raw_df()
-        indicators = [
+        indicators: list[MeasurementIndicator] = [
             {
-                "id": "indicator:c21b43949b3712e734c8",
+                "measurement_dtype": "continuous",
+                "id": IndicatorId("indicator:c21b43949b3712e734c8"),
                 "name": "avg_hr",
                 "source_columns": ["heart_rate"],
                 "aggregation": "mean",
@@ -339,9 +349,10 @@ class TestComputeIndicators:
                 "hr": [70.0, 75.0, 80.0],  # increasing → positive slope
             }
         )
-        indicators = [
+        indicators: list[MeasurementIndicator] = [
             {
-                "id": "indicator:cacaf060b8afc7a952d9",
+                "measurement_dtype": "continuous",
+                "id": IndicatorId("indicator:cacaf060b8afc7a952d9"),
                 "name": "hr_trend",
                 "source_columns": ["hr"],
                 "aggregation": "trend",
@@ -354,9 +365,10 @@ class TestComputeIndicators:
     def test_missing_source_column(self):
         """Missing source column is skipped with warning, not crash."""
         df = _make_raw_df()
-        indicators = [
+        indicators: list[MeasurementIndicator] = [
             {
-                "id": "indicator:938f71ec0999bbbe342c",
+                "measurement_dtype": "continuous",
+                "id": IndicatorId("indicator:938f71ec0999bbbe342c"),
                 "name": "missing",
                 "source_columns": ["nonexistent_col"],
                 "aggregation": "mean",
@@ -377,9 +389,10 @@ class TestComputeIndicators:
                 "hr": [72.0, None, 68.0],
             }
         )
-        indicators = [
+        indicators: list[MeasurementIndicator] = [
             {
-                "id": "indicator:c21b43949b3712e734c8",
+                "measurement_dtype": "continuous",
+                "id": IndicatorId("indicator:c21b43949b3712e734c8"),
                 "name": "avg_hr",
                 "source_columns": ["hr"],
                 "aggregation": "mean",
@@ -402,9 +415,9 @@ class TestComputeIndicators:
                 "care_setting": [None, "home", "clinic"],
             }
         )
-        indicators = [
+        indicators: list[MeasurementIndicator] = [
             {
-                "id": "indicator:c0486b3cc6b5559e95d0",
+                "id": IndicatorId("indicator:c0486b3cc6b5559e95d0"),
                 "name": "first_setting",
                 "source_columns": ["care_setting"],
                 "measurement_dtype": "categorical",
@@ -427,9 +440,9 @@ class TestComputeIndicators:
                 "care_setting": ["home", "clinic"],
             }
         )
-        indicators = [
+        indicators: list[MeasurementIndicator] = [
             {
-                "id": "indicator:c664114dcb2ded460d6e",
+                "id": IndicatorId("indicator:c664114dcb2ded460d6e"),
                 "name": "last_setting",
                 "source_columns": ["care_setting"],
                 "measurement_dtype": "categorical",
@@ -452,9 +465,9 @@ class TestComputeIndicators:
                 "mood_label": ["bad", "good"],
             }
         )
-        indicators = [
+        indicators: list[MeasurementIndicator] = [
             {
-                "id": "indicator:5dc4b94693df7e0aef53",
+                "id": IndicatorId("indicator:5dc4b94693df7e0aef53"),
                 "name": "closing_mood",
                 "source_columns": ["mood_label"],
                 "measurement_dtype": "ordinal",
@@ -479,9 +492,9 @@ class TestComputeIndicators:
                 "message_text": ["alpha", None, "beta"],
             }
         )
-        indicators = [
+        indicators: list[MeasurementIndicator] = [
             {
-                "id": "indicator:6a123c22171bbe49ee54",
+                "id": IndicatorId("indicator:6a123c22171bbe49ee54"),
                 "name": "text_events",
                 "source_columns": ["message_text"],
                 "measurement_dtype": "count",
@@ -506,9 +519,9 @@ class TestComputeIndicators:
                 "diastolic_bp": [80.0, 90.0, 70.0],
             }
         )
-        indicators = [
+        indicators: list[MeasurementIndicator] = [
             {
-                "id": "indicator:46df40a36557ed795b7b",
+                "id": IndicatorId("indicator:46df40a36557ed795b7b"),
                 "name": "map",
                 "source_columns": ["systolic_bp", "diastolic_bp"],
                 "measurement_dtype": "continuous",
@@ -538,9 +551,9 @@ class TestComputeIndicators:
                 "admin_status": ["missed", "taken", None, "taken", None],
             }
         )
-        indicators = [
+        indicators: list[MeasurementIndicator] = [
             {
-                "id": "indicator:097d80d6767b143a71b4",
+                "id": IndicatorId("indicator:097d80d6767b143a71b4"),
                 "name": "missed_doses",
                 "source_columns": ["event_type", "admin_status"],
                 "measurement_dtype": "count",
@@ -570,16 +583,16 @@ class TestComputeIndicators:
                 "score": [5.0, None, 7.0],
             }
         )
-        indicators = [
+        indicators: list[MeasurementIndicator] = [
             {
-                "id": "indicator:e8bcfd4304d709a5cce3",
+                "id": IndicatorId("indicator:e8bcfd4304d709a5cce3"),
                 "name": "event_count",
                 "source_columns": ["event_id"],
                 "measurement_dtype": "count",
                 "aggregation": "count",
             },
             {
-                "id": "indicator:422841bed8b563beeec0",
+                "id": IndicatorId("indicator:422841bed8b563beeec0"),
                 "name": "score_mean",
                 "source_columns": ["score"],
                 "measurement_dtype": "continuous",
@@ -611,9 +624,9 @@ class TestComputeIndicators:
                 "title": ["stress spike", "ordinary update", "another ordinary update"],
             }
         )
-        indicators = [
+        indicators: list[MeasurementIndicator] = [
             {
-                "id": "indicator:42b9030df461ee342451",
+                "id": IndicatorId("indicator:42b9030df461ee342451"),
                 "name": "stress_mentions",
                 "source_columns": ["title"],
                 "measurement_dtype": "count",
@@ -647,9 +660,9 @@ class TestComputeIndicators:
                 "spo2_pct": [95.0, 94.0, 91.0, 95.0, None, None],
             }
         )
-        indicators = [
+        indicators: list[MeasurementIndicator] = [
             {
-                "id": "indicator:86e4453f8f098e1007ef",
+                "id": IndicatorId("indicator:86e4453f8f098e1007ef"),
                 "name": "low_spo2",
                 "source_columns": ["spo2_pct"],
                 "measurement_dtype": "binary",
@@ -668,7 +681,7 @@ class TestComputeIndicators:
                 df,
                 [
                     {
-                        "id": "indicator:reading",
+                        "id": IndicatorId("indicator:reading"),
                         "name": "reading",
                         "source_columns": ["reading"],
                         "measurement_dtype": "continuous",
@@ -696,9 +709,9 @@ class TestComputeIndicators:
                 ],
             }
         )
-        indicators = [
+        indicators: list[MeasurementIndicator] = [
             {
-                "id": "indicator:cce51902cd8da81b8457",
+                "id": IndicatorId("indicator:cce51902cd8da81b8457"),
                 "name": "social_media_hits",
                 "source_columns": ["title_url"],
                 "measurement_dtype": "count",
@@ -739,9 +752,9 @@ class TestComputeIndicators:
                 ],
             }
         )
-        indicators = [
+        indicators: list[MeasurementIndicator] = [
             {
-                "id": "indicator:1d23877d34bd268f1d4d",
+                "id": IndicatorId("indicator:1d23877d34bd268f1d4d"),
                 "name": "stress_content_count",
                 "source_columns": ["timestamp", "title", "title_url"],
                 "measurement_dtype": "count",
@@ -762,9 +775,10 @@ class TestComputeIndicators:
     def test_timestamp_format_matches_bucket_by_clock(self):
         """Computed timestamps match the ISO format from bucket_by_clock."""
         df = _make_raw_df()
-        indicators = [
+        indicators: list[MeasurementIndicator] = [
             {
-                "id": "indicator:c21b43949b3712e734c8",
+                "measurement_dtype": "continuous",
+                "id": IndicatorId("indicator:c21b43949b3712e734c8"),
                 "name": "avg_hr",
                 "source_columns": ["heart_rate"],
                 "aggregation": "mean",
@@ -786,9 +800,10 @@ class TestComputeIndicators:
                 "heart_rate": [72.0, 84.0, 90.0],
             }
         )
-        indicators = [
+        indicators: list[MeasurementIndicator] = [
             {
-                "id": "indicator:c21b43949b3712e734c8",
+                "measurement_dtype": "continuous",
+                "id": IndicatorId("indicator:c21b43949b3712e734c8"),
                 "name": "avg_hr",
                 "source_columns": ["heart_rate"],
                 "aggregation": "mean",
@@ -803,9 +818,10 @@ class TestComputeIndicators:
     def test_hourly_clock(self):
         """Hourly model_clock produces every support tick in the observed span."""
         df = _make_raw_df()
-        indicators = [
+        indicators: list[MeasurementIndicator] = [
             {
-                "id": "indicator:c21b43949b3712e734c8",
+                "measurement_dtype": "continuous",
+                "id": IndicatorId("indicator:c21b43949b3712e734c8"),
                 "name": "avg_hr",
                 "source_columns": ["heart_rate"],
                 "aggregation": "mean",
@@ -820,9 +836,10 @@ class TestComputeIndicators:
     def test_indicator_specific_observation_window_overrides_model_clock(self):
         """Computed indicators bucket by their own support window, not the global clock."""
         df = _make_raw_df()
-        indicators = [
+        indicators: list[MeasurementIndicator] = [
             {
-                "id": "indicator:f56b7b4807d8c6627ccb",
+                "measurement_dtype": "continuous",
+                "id": IndicatorId("indicator:f56b7b4807d8c6627ccb"),
                 "name": "weekly_steps",
                 "source_columns": ["steps"],
                 "aggregation": "sum",
@@ -906,6 +923,8 @@ def test_fill_null_uses_polars_after_window_aggregation(fields, aggregation, exp
     assert result["value"].cast(pl.Float64).to_list() == expected
     # Conversions precede filling, which also covers explicit null readings.
     if fields == {"fill_null": "forward"} and aggregation == "last":
-        converted = indicator.model_copy(update={"computed_rule": "last(reading) / 2"})
+        converted = type(indicator).model_validate(
+            {**indicator.model_dump(), "computed_rule": "last(reading) / 2"}
+        )
         result = compute_indicators(raw, [converted.model_dump(mode="json")], "1d", "timestamp")
         assert result["value"].cast(pl.Float64).to_list() == [None, 2.0, 2.0, 2.0, 2.0, 2.0, 4.0]

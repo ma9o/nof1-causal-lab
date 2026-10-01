@@ -10,8 +10,8 @@ from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, model_validator
 from nof1_causal_lab.scalar_functions import hill_response, restoring_drift
 
 from .identity import (
-    ConstructId,  # noqa: TC001
-    ParameterId,  # noqa: TC001
+    ConstructId,
+    ParameterId,
 )
 from .parameter import SiteKind, SupportClass
 
@@ -245,10 +245,6 @@ def restoring_force(
     )
 
 
-def linear_effect(source: ConstructId, weight: float | ParameterId) -> Expression:  # noqa: V103 - public scientific expression constructor
-    return coefficient(weight, "weight") * state(source)
-
-
 def restoring_potential(
     target: ConstructId,
     *,
@@ -306,22 +302,6 @@ def expression_coefficients(value: Expression) -> tuple[CoefficientExpression, .
             node for node in walk_expression(value) if isinstance(node, CoefficientExpression)
         )
     )
-
-
-def map_expression(value: Expression, transform: Callable[[Expression], Expression]) -> Expression:
-    """Revise references or constants without interpreting the relationship's function."""
-    if isinstance(value, BinaryExpression):
-        value = BinaryExpression(
-            operator=value.operator,
-            left=map_expression(value.left, transform),
-            right=map_expression(value.right, transform),
-        )
-    elif isinstance(value, CallExpression):
-        value = CallExpression(
-            function=value.function,
-            arguments=tuple(map_expression(argument, transform) for argument in value.arguments),
-        )
-    return transform(value)
 
 
 def fold_expression[T](

@@ -6,7 +6,7 @@ from typing import Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from .identity import GitOid  # noqa: TC001
+from .identity import GitOid
 
 
 class PredictiveLawProvenance(BaseModel):

@@ -5,9 +5,8 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec
+from nof1_causal_lab.artifacts.construct import CausalEdgeSpec
 from nof1_causal_lab.artifacts.expressions import (
-    CoefficientExpression,
     expression_coefficients,
     expression_states,
 )
@@ -17,8 +16,6 @@ from nof1_causal_lab.artifacts.identity import (
     IndicatorRef,
     MechanismRef,
 )
-from nof1_causal_lab.artifacts.indicator import IndicatorSpec
-from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind
 
 if TYPE_CHECKING:
@@ -144,42 +141,6 @@ def execution_coefficient_uses(model: ModelSpec) -> Iterator[CoefficientUse]:
     for use in iter_coefficient_uses(model):
         if all(owner.kind == "mechanism" or owner.id in active[owner.kind] for owner in use.owners):
             yield use
-
-
-type CoefficientOwner = (
-    ConstructSpec | CausalEdgeSpec | IndicatorSpec | DynamicsMechanismSpec | CoefficientExpression
-)
-
-
-def _owned_coefficients(component: CoefficientOwner) -> Iterator[CoefficientExpression]:
-    if isinstance(component, CoefficientExpression):
-        yield component
-    elif isinstance(component, DynamicsMechanismSpec):
-        yield from expression_coefficients(component.expression)
-    elif isinstance(component, IndicatorSpec):
-        if component.likelihood is not None:
-            for argument in component.likelihood.law.arguments.values():
-                yield from expression_coefficients(argument)
-    else:
-        mechanisms = (
-            component.dynamics if isinstance(component, ConstructSpec) else component.mechanisms
-        )
-        for mechanism in mechanisms:
-            yield from expression_coefficients(mechanism.expression)
-        if isinstance(component, ConstructSpec):
-            yield from component.coefficients
-            for indicator in component.indicators:
-                yield from _owned_coefficients(indicator)
-
-
-def referenced_parameter_ids(*components: CoefficientOwner) -> frozenset[ParameterId]:
-    """Follow coefficient references through owned components, without an execution plan."""
-    return frozenset(
-        operand.value
-        for component in components
-        for operand in _owned_coefficients(component)
-        if isinstance(operand.value, str)
-    )
 
 
 def coefficient_value(coefficient: float | ParameterId) -> float | None:

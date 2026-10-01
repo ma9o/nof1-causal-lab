@@ -3,6 +3,7 @@
 Covers variance functions and build_observation_kernel.
 """
 
+
 import jax
 import jax.numpy as jnp
 import pytest
@@ -10,7 +11,6 @@ import pytest
 from nof1_causal_lab.artifacts.identity import ConstructId
 from nof1_causal_lab.artifacts.likelihood import LinkFunction
 from nof1_causal_lab.distributions import DistributionFamily
-from nof1_causal_lab.models.likelihoods import observation_law
 from nof1_causal_lab.models.ssm.execution.observation_model import (
     build_observation_kernel,
     compile_observation_model,
@@ -18,12 +18,6 @@ from nof1_causal_lab.models.ssm.execution.observation_model import (
 
 
 class TestBuildObservationKernel:
-    @pytest.mark.contract
-    def test_likelihood_constructor_rejects_invalid_family_link_pair(self):
-        with pytest.raises(ValueError, match="invalid for gaussian"):
-            observation_law(
-                ConstructId("construct:x"), DistributionFamily.GAUSSIAN, LinkFunction.LOG
-            )
 
     @pytest.mark.inference(concern="sampling")
     @pytest.mark.inference(concern="predictive")

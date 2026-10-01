@@ -1,5 +1,8 @@
 """Scientific entities gain detail through stable component references."""
 
+from nof1_causal_lab.artifacts.likelihood import ObservationLawSpec
+from pathlib import Path
+
 import numpyro.distributions as dist
 import pytest
 from pydantic import ValidationError
@@ -7,12 +10,11 @@ from pydantic import ValidationError
 from nof1_causal_lab.artifacts.construct import (
     replace_constructs,
 )
-from nof1_causal_lab.artifacts.expressions import hill, linear_effect, state
+from nof1_causal_lab.artifacts.expressions import coefficient, hill, state
 from nof1_causal_lab.artifacts.identity import ConstructId, IndicatorId, scientific_id
 from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
 from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.models.likelihoods import observation_law
 from tests.helpers import graph_constructs
 
 pytestmark = pytest.mark.contract
@@ -61,7 +63,8 @@ def _model():
                     "mechanisms": [
                         DynamicsMechanismSpec(
                             id="mechanism:linear",
-                            expression=linear_effect(ConstructId("construct:x"), weight["id"]),
+                            expression=coefficient(weight["id"], "weight")
+                            * state(ConstructId("construct:x")),
                         ).model_dump(mode="json"),
                         DynamicsMechanismSpec(
                             id="mechanism:hill",
@@ -84,16 +87,11 @@ def test_entities_gain_detail_with_one_owner_and_native_prior():
     before = _model()
     payload = before.model_dump(mode="python")
     graph_constructs(payload)[1]["indicators"][0]["likelihood"] = {
-        "law": observation_law(
-            ConstructId("construct:y"), DistributionFamily.GAUSSIAN, LinkFunction.IDENTITY
-        ).model_dump(mode="json"),
+        "law": ObservationLawSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'additive_model/entities_gain_detail_with_one_owner_and_native_prior_observation_law.json').read_text()).model_dump(mode="json"),
         "reasoning": "Continuous measurement",
     }
-    from nof1_causal_lab.models.model_distributions import with_parameter_distributions
 
-    after = with_parameter_distributions(
-        ModelSpec.model_validate(payload), {before.parameters[0].id: dist.Normal(0.0, 0.1)}
-    )
+    after = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'additive_model/entities_gain_detail_with_one_owner_and_native_prior_with_parameter_distributions.json').read_text())
     assert after.indicator_owner(IndicatorId("indicator:y")) is after.get_construct(
         ConstructId("construct:y")
     )
@@ -155,9 +153,7 @@ def test_inconsistent_enrichment_is_rejected(change):
         graph_constructs(payload)[0]["indicators"] = graph_constructs(payload)[1]["indicators"]
     else:
         graph_constructs(payload)[1]["indicators"][0]["likelihood"] = {
-            "law": observation_law(
-                ConstructId("construct:y"), DistributionFamily.BERNOULLI, LinkFunction.LOGIT
-            ),
+            "law": ObservationLawSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'additive_model/inconsistent_enrichment_is_rejected_observation_law.json').read_text()),
             "reasoning": "Wrong type",
         }
     with pytest.raises(ValidationError):
@@ -179,7 +175,12 @@ def test_shared_endpoints_round_trip_once_and_resolve_forward_references():
     assert ModelSpec.model_validate_json(model.model_dump_json()) == model
     changed = model.revised(
         edges=replace_constructs(
-            model.edges, [model.edges[0].effect.model_copy(update={"name": "Renamed Y"})]
+            model.edges,
+            [
+                type(model.edges[0].effect).model_validate(
+                    {**model.edges[0].effect.model_dump(), "name": "Renamed Y"}
+                )
+            ],
         )
     )
     assert changed.edges[0].effect is changed.edges[1].effect

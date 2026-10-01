@@ -23,8 +23,7 @@ data/*/
 !data/DEMO/
 data/DEMO/scratch/
 data/DEMO/cache/
-**/episode/history.git/
-**/episode/history.before-objects.git/
+**/study/history.git/
 data/processed/**
 .prefect-cache/
 

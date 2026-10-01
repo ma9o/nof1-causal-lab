@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from typing import Literal, TypedDict
 
-import jax  # noqa: TC002 - Pydantic resolves these array annotations at runtime.
+import jax
 from pydantic import ConfigDict, TypeAdapter, with_config
 
 

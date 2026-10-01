@@ -1,5 +1,8 @@
 """Native model execution across inference, warmup, simulation, and prediction."""
 
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from pathlib import Path
+
 from dataclasses import replace
 from importlib import import_module
 from types import SimpleNamespace
@@ -27,51 +30,9 @@ def runtime(monkeypatch):
     from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
     from nof1_causal_lab.models.ssm.execution.parameters import assemble_model_matrices
     from nof1_causal_lab.models.ssm.structure import DiffusionBlockSpec
-    from tests.model_fixtures import (
-        default_lambda_block,
-        default_manifest_chol_block,
-        default_t0_chol_block,
-        default_t0_means_block,
-        model_fixture,
-    )
+    from tests.model_fixtures import default_lambda_block, default_manifest_chol_block, default_t0_chol_block, default_t0_means_block
 
-    spec = model_fixture(
-        n_latent=1,
-        n_manifest=2,
-        dynamics_spec=DynamicsSpec(
-            1,
-            (
-                potential_term(
-                    target=0,
-                    center=None,
-                    stiffness=0.4,
-                    quartic=0.2,
-                ),
-            ),
-        ),
-        manifest_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.POISSON],
-        manifest_links=[LinkFunction.IDENTITY, LinkFunction.LOG],
-        manifest_standardized=[True, False],
-        diffusion_block=DiffusionBlockSpec(
-            1, np.zeros((1, 1), dtype=bool), jnp.sqrt(jnp.array([[0.3]]))
-        ),
-        lambda_block=replace(default_lambda_block(2, 1), template=jnp.ones((2, 1))),
-        manifest_chol_block=replace(
-            default_manifest_chol_block(2),
-            diag_support=np.zeros(2, dtype=bool),
-            template=jnp.eye(2),
-        ),
-        t0_means_block=replace(
-            default_t0_means_block(1),
-            free_support=np.zeros(1, dtype=bool),
-            template=jnp.array([0.7]),
-        ),
-        t0_chol_block=replace(
-            default_t0_chol_block(1),
-            diag_support=np.zeros(1, dtype=bool),
-            template=jnp.sqrt(jnp.array([[0.8]])),
-        ),
-    )
+    spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'dynamical_model/runtime_model_fixture.json').read_text())
     model = SimpleNamespace(
         spec=spec,
         observation_support=None,

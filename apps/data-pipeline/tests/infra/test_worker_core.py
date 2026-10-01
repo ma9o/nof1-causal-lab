@@ -1,8 +1,14 @@
 """Tests for worker indicator formatting and extraction prompts."""
 
+from typing import TYPE_CHECKING
+
 import pytest
 
+from nof1_causal_lab.artifacts.identity import IndicatorId
 from nof1_causal_lab.workers.messages import WorkerMessages, _format_indicators
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.workers.context import MeasurementContext
 
 pytestmark = pytest.mark.contract
 
@@ -13,7 +19,7 @@ def _measurement_structure():
         "model_clock": "1d",
         "indicators": [
             {
-                "id": "indicator:6bde869aba53fb51e0f4",
+                "id": IndicatorId("indicator:6bde869aba53fb51e0f4"),
                 "construct_id": "construct:6b04dc42c531e7091eb8",
                 "name": "pss_score",
                 "measurement_dtype": "continuous",
@@ -21,7 +27,7 @@ def _measurement_structure():
                 "aggregation": "mean",
             },
             {
-                "id": "indicator:9866c549bd1c25f0a5d7",
+                "id": IndicatorId("indicator:9866c549bd1c25f0a5d7"),
                 "construct_id": "construct:cdc0b2958a9512b2abad",
                 "name": "sleep_hours",
                 "measurement_dtype": "continuous",
@@ -53,11 +59,11 @@ class TestFormatIndicators:
         assert result == ""
 
     def test_missing_optional_fields(self):
-        spec = {
+        spec: MeasurementContext = {
             "model_clock": "1d",
             "indicators": [
                 {
-                    "id": "indicator:x",
+                    "id": IndicatorId("indicator:x"),
                     "name": "x",
                     "measurement_dtype": "continuous",
                     "aggregation": "mean",
@@ -68,11 +74,11 @@ class TestFormatIndicators:
         assert "indicator:x" in result
 
     def test_indicator_specific_window_overrides_model_clock(self):
-        spec = {
+        spec: MeasurementContext = {
             "model_clock": "1d",
             "indicators": [
                 {
-                    "id": "indicator:monthly_pss_score",
+                    "id": IndicatorId("indicator:monthly_pss_score"),
                     "name": "monthly_pss_score",
                     "measurement_dtype": "continuous",
                     "how_to_measure": "Average perceived stress over the last month",

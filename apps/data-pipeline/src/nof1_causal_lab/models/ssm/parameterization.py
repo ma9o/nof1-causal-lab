@@ -27,18 +27,20 @@ from nof1_causal_lab.models.ssm.structure.sites import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+
     import numpyro.distributions as dist
 
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.models.ssm.execution.contracts import LikelihoodExtraParams
 
 
-@dataclass
+@dataclass(frozen=True)
 class PriorRuntimeBundle:
     """Reusable runtime components derived from compiled prior semantics."""
 
-    registry: list[SiteDescriptor]
-    priors: dict[str, dist.Distribution]
+    registry: tuple[SiteDescriptor, ...]
+    priors: Mapping[str, dist.Distribution]
 
 
 # ---------------------------------------------------------------------------
@@ -183,7 +185,7 @@ def likelihood_sites(spec: ModelSpec) -> list[SiteDescriptor]:
 
 def select_site_samples(
     samples: dict[str, jnp.ndarray],
-    registry: list[SiteDescriptor],
+    registry: Sequence[SiteDescriptor],
     *,
     assembly_group: str | None = None,
 ) -> dict[str, jnp.ndarray]:
@@ -228,7 +230,7 @@ def assemble_deterministics_from_registry(
 def assemble_extra_params_from_registry(
     spec: ModelSpec,
     samples: dict[str, jnp.ndarray],
-    registry: list[SiteDescriptor],
+    registry: Sequence[SiteDescriptor],
 ) -> LikelihoodExtraParams:
     """Assemble likelihood extra parameters using registry metadata as authority."""
     from nof1_causal_lab.models.ssm.likelihood_extra_params import assemble_sampled_extra_params
@@ -254,8 +256,8 @@ def _stable_site_key(rng_key: jnp.ndarray, site_name: str) -> jnp.ndarray:
 
 def sample_prior_parameters(
     rng_key: jnp.ndarray,
-    registry: list[SiteDescriptor],
-    priors: dict[str, dist.Distribution],
+    registry: Sequence[SiteDescriptor],
+    priors: Mapping[str, dist.Distribution],
     n_samples: int = 200,
 ) -> dict[str, jnp.ndarray]:
     """Draw authored parameters directly from their NumPyro distributions.
@@ -277,8 +279,10 @@ def sample_prior_parameters(
 
 def build_prior_runtime_bundle(
     spec: ModelSpec,
-    priors: dict[str, dist.Distribution] | None = None,
+    priors: Mapping[str, dist.Distribution] | None = None,
 ) -> PriorRuntimeBundle:
     """Resolve the scientific site declarations to native NumPyro laws."""
     registry = build_site_registry(spec)
-    return PriorRuntimeBundle(registry=registry, priors=resolve_site_priors(registry, priors))
+    return PriorRuntimeBundle(
+        registry=tuple(registry), priors=resolve_site_priors(registry, priors)
+    )

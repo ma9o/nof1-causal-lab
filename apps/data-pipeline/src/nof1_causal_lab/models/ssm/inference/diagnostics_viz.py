@@ -9,16 +9,17 @@ Extracted from inference.py to separate visualization concerns from inference lo
 from __future__ import annotations
 
 import logging
-from collections.abc import Iterator  # noqa: TC003
 from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 import numpy as np
 
 from nof1_causal_lab.artifacts.parameter import ParameterCoordinate
-from nof1_causal_lab.json_types import JsonObject  # noqa: TC001
 
 if TYPE_CHECKING:
+    from collections.abc import Iterator
+
+    from nof1_causal_lab.json_types import JsonObject
     from nof1_causal_lab.models.ssm.inference.mcmc_state import TrajectoryMCMCResult
 
 logger = logging.getLogger(__name__)

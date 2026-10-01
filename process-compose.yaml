@@ -16,7 +16,7 @@ processes:
   temporal:
     working_dir: apps/data-pipeline
     # --db-filename persists event history so restarting this process (e.g. to
-    # serve the UI or after a crash) resumes in-flight episodes instead of
+    # serve the UI or after a crash) resumes in-flight studies instead of
     # orphaning them. The path is relative to working_dir (apps/data-pipeline),
     # so ../../ lands it in the repo-root .local/ next to the logs (gitignored).
     command: uv run python scripts/dev/temporal_dev_server.py --port 7233 --db-filename ../../.local/agentic-integration-stack/temporal.db
@@ -34,7 +34,7 @@ processes:
 
   worker:
     working_dir: apps/data-pipeline
-    command: uv run python -m nof1_causal_lab.machine.temporal.worker
+    command: uv run python -m nof1_causal_lab.actions.temporal.worker
     environment:
       - TEMPORAL_ADDRESS=localhost:7233
     depends_on:

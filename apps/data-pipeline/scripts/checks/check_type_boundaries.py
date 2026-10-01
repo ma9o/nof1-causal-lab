@@ -1,6 +1,6 @@
 """Reject type annotations that erase domain types behind ``dict`` or ``Any``.
 
-The checker owns five project-specific rules that Ruff and ty cannot express:
+The checker owns project-specific rules that Ruff and ty cannot express:
 
 ``CUSTOM001``
     ``Any`` must not be a member of a union. Such a union is equivalent to
@@ -22,40 +22,53 @@ The checker owns five project-specific rules that Ruff and ty cannot express:
     invisibly. ``JsonObject`` is reserved for recursively JSON-safe values.
 
 ``CUSTOM005``
-    Direct ``UncheckedJsonObject`` annotation usage is counted once per file.
-    The exact count is baseline-locked so new uses fail, while replacing direct
-    uses with validated or domain-specific types lets the budget shrink.
+    ``UncheckedJsonObject`` is confined to parser parameters and local inputs.
+    Every read of such an input must feed model/TypeAdapter validation in that
+    function. It cannot be stored on objects, aliased, or returned unchecked.
 
-Existing baseline-locked violations are tracked by exact semantic identity in
-``scripts/checks/type_boundary_baseline.json``. New violations and stale baseline entries
-both fail the check, so the baseline can only shrink.
+``CORE001``
+    Construction bypasses and mutable casts are checked by call name. Only
+    self-revision and compiler-owned evidence construction are permitted.
+
+``CORE002``
+    The explicitly listed scientific owners expose read-only collections,
+    including derived properties.
+
+``VIEW001``
+    Declared pure projections cannot raise, assert, or revalidate the core.
+    Exhaustive ``assert_never`` arms are permitted.
+
 """
 
 from __future__ import annotations
 
 import argparse
 import ast
-import json
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import cast, override
+from typing import override
 
 _ANY_UNION = "CUSTOM001"
 _DOMAIN_DICT_UNION = "CUSTOM002"
 _REJECT_ONLY_OPTIONAL_PARAMETER = "CUSTOM003"
 _ANONYMOUS_ANY_DICT = "CUSTOM004"
-_UNCHECKED_JSON_BUDGET = "CUSTOM005"
+_UNCHECKED_JSON_ESCAPE = "CUSTOM005"
+_CORE_BYPASS = "CORE001"
+_MUTABLE_CORE = "CORE002"
+_PARTIAL_VIEW = "VIEW001"
 _ALL_RULES = frozenset(
     {
         _ANY_UNION,
         _DOMAIN_DICT_UNION,
         _REJECT_ONLY_OPTIONAL_PARAMETER,
         _ANONYMOUS_ANY_DICT,
-        _UNCHECKED_JSON_BUDGET,
+        _UNCHECKED_JSON_ESCAPE,
+        _CORE_BYPASS,
+        _MUTABLE_CORE,
+        _PARTIAL_VIEW,
     }
 )
-_BASELINE_KEY = "violations"
 _DOMAIN_TYPE_SUFFIXES = (
     "Artifact",
     "Contract",
@@ -69,7 +82,6 @@ _DOMAIN_TYPE_SUFFIXES = (
     "Structure",
 )
 _MODEL_BASE_NAMES = frozenset({"BaseModel", "NamedTuple", "Protocol", "TypedDict"})
-type _Identity = tuple[str, str, str, str, str]
 
 
 @dataclass(frozen=True)
@@ -95,11 +107,6 @@ class Violation:
     target: str
     annotation: str
     message: str
-
-    @property
-    def identity(self) -> _Identity:
-        """Stable baseline identity, deliberately independent of line number."""
-        return (self.code, self.path, self.scope, self.target, self.annotation)
 
     def diagnostic(self) -> str:
         """Render in the concise format understood by editors and CI."""
@@ -416,7 +423,7 @@ def _discover_any_aliases(
     """Find module-level aliases that resolve to Any, directly or through a union."""
     definitions: list[tuple[str, ast.expr]] = []
     for node in tree.body:
-        if isinstance(node, ast.TypeAlias) and isinstance(node.name, ast.Name):
+        if isinstance(node, ast.TypeAlias):
             definitions.append((node.name.id, node.value))
         elif (
             isinstance(node, ast.AnnAssign)
@@ -479,6 +486,34 @@ def _discover_domain_type_names(trees: list[ast.Module]) -> frozenset[str]:
     return frozenset(domain_names)
 
 
+def _only_read_by_validator(function: ast.FunctionDef | ast.AsyncFunctionDef, name: str) -> bool:
+    """Recognize consumption by validation, independent of file or function names."""
+    nodes = [part for statement in function.body for part in _executed_nodes(statement)]
+    reads = {
+        id(part)
+        for part in nodes
+        if isinstance(part, ast.Name) and part.id == name and isinstance(part.ctx, ast.Load)
+    }
+    validated = {
+        id(part)
+        for call in nodes
+        if isinstance(call, ast.Call)
+        and isinstance(call.func, ast.Attribute)
+        and call.func.attr
+        in {"model_validate", "model_validate_json", "validate_python", "validate_json"}
+        for part in (
+            *call.args[:1],
+            *(
+                keyword.value
+                for keyword in call.keywords
+                if keyword.arg in {"obj", "object", "json_data", "data"}
+            ),
+        )
+        if isinstance(part, ast.Name) and part.id == name
+    }
+    return bool(reads) and reads <= validated
+
+
 class _AnnotationVisitor(ast.NodeVisitor):
     def __init__(
         self,
@@ -497,7 +532,7 @@ class _AnnotationVisitor(ast.NodeVisitor):
         self.rules = rules
         self.scope: list[str] = []
         self.violations: list[Violation] = []
-        self.unchecked_json_nodes: list[ast.expr] = []
+        self.functions: list[ast.FunctionDef | ast.AsyncFunctionDef] = []
 
     @override
     def visit(self, node: ast.AST):
@@ -521,10 +556,27 @@ class _AnnotationVisitor(ast.NodeVisitor):
         target: str,
         check_domain_dict: bool = True,
     ) -> None:
-        if _UNCHECKED_JSON_BUDGET in self.rules:
-            self.unchecked_json_nodes.extend(
-                _unchecked_json_nodes(annotation, self.unchecked_json_names)
-            )
+        if _UNCHECKED_JSON_ESCAPE in self.rules:
+            for raw in _unchecked_json_nodes(annotation, self.unchecked_json_names):
+                name = target.split(":", 1)[-1]
+                if (
+                    target.startswith(("parameter:", "variable:"))
+                    and self.functions
+                    and _only_read_by_validator(self.functions[-1], name)
+                ):
+                    continue
+                self.violations.append(
+                    Violation(
+                        path=self.path,
+                        line=raw.lineno,
+                        column=raw.col_offset + 1,
+                        code=_UNCHECKED_JSON_ESCAPE,
+                        scope=self._scope_name(),
+                        target=target,
+                        annotation=ast.unparse(raw),
+                        message="Unchecked JSON belongs only to parser inputs consumed by validation; use a validated type here",
+                    )
+                )
         check_anonymous_dict = not target.startswith("alias:") or target == "alias:JsonObject"
         if _ANONYMOUS_ANY_DICT in self.rules and check_anonymous_dict:
             for anonymous_dict in _anonymous_any_dict_nodes(
@@ -595,6 +647,7 @@ class _AnnotationVisitor(ast.NodeVisitor):
 
     def _check_function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         self.scope.append(node.name)
+        self.functions.append(node)
         args = node.args
         parameters = (*args.posonlyargs, *args.args, *args.kwonlyargs)
         for arg in parameters:
@@ -643,6 +696,7 @@ class _AnnotationVisitor(ast.NodeVisitor):
 
         for statement in node.body:
             self.visit(statement)
+        self.functions.pop()
         self.scope.pop()
 
     @override
@@ -697,6 +751,227 @@ class _AnnotationVisitor(ast.NodeVisitor):
         )
 
 
+# Explicit scientific owners; transport DTOs and other Pydantic models are not core.
+_CORE_OWNERS = {
+    "ModelSpec": "artifacts/model_spec.py",
+    "ConstructSpec": "artifacts/construct.py",
+    "CausalEdgeSpec": "artifacts/construct.py",
+    "IndicatorSpec": "artifacts/indicator.py",
+    "ObservationSpec": "artifacts/observations.py",
+    "LikelihoodSpec": "artifacts/likelihood.py",
+    "ObservationLawSpec": "artifacts/likelihood.py",
+    "ParameterSpec": "artifacts/parameter_spec.py",
+    "DynamicsMechanismSpec": "artifacts/mechanism.py",
+    "LiteralExpression": "artifacts/expressions.py",
+    "StateExpression": "artifacts/expressions.py",
+    "CoefficientExpression": "artifacts/expressions.py",
+    "BinaryExpression": "artifacts/expressions.py",
+    "CallExpression": "artifacts/expressions.py",
+    "CompiledFitInputs": "models/ssm/compile/inputs.py",
+    "IncompleteModel": "models/ssm/compile/inputs.py",
+    "UnsupportedFit": "models/ssm/compile/inputs.py",
+}
+_PROJECTION_SCOPES = frozenset({"src/nof1_causal_lab/study/equations.py"})
+_CORE_REVALIDATION = frozenset(
+    {
+        "require_priors",
+        "require_measurements",
+        "require_execution_structure",
+        "check_execution",
+        "validate_execution",
+        "validate_execution_structure",
+        "validate_parameter_anchors",
+    }
+)
+_EVIDENCE_TYPES = frozenset({"CompiledFitInputs", "IncompleteModel", "UnsupportedFit"})
+_MUTABLE_NAMES = frozenset(
+    {
+        "list",
+        "dict",
+        "set",
+        "List",
+        "Dict",
+        "Set",
+        "MutableMapping",
+        "MutableSequence",
+        "MutableSet",
+    }
+)
+
+
+def _annotation_expr(node: ast.expr) -> ast.expr:
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        return ast.parse(node.value, mode="eval").body
+    return node
+
+
+class _CoreVisitor(ast.NodeVisitor):
+    """Syntactic call-name and core collection checks, without receiver inference."""
+
+    def __init__(self, tree: ast.Module, path: str, rules: frozenset[str]) -> None:
+        self.path = path
+        self.rules = rules
+        self.scope: list[str] = []
+        self.class_name: str | None = None
+        self.in_function = False
+        self.names: dict[str, str] = {}
+        self.violations: list[Violation] = []
+        for node in ast.walk(tree):
+            if isinstance(node, (ast.Import, ast.ImportFrom)):
+                for name in node.names:
+                    self.names[name.asname or name.name] = name.name
+
+    def _name(self, node: ast.expr) -> str:
+        if isinstance(node, ast.Name):
+            return self.names.get(node.id, node.id)
+        if isinstance(node, ast.Attribute):
+            return node.attr
+        return ""
+
+    def _owned_here(self, name: str) -> bool:
+        return self.path == "src/nof1_causal_lab/" + _CORE_OWNERS[name]
+
+    def _mutable(self, node: ast.expr) -> bool:
+        return any(
+            self._name(part) in _MUTABLE_NAMES
+            for part in ast.walk(_annotation_expr(node))
+            if isinstance(part, ast.expr)
+        )
+
+    def _add(self, node: ast.expr | ast.stmt, code: str, target: str, message: str) -> None:
+        if code in self.rules:
+            self.violations.append(
+                Violation(
+                    path=self.path,
+                    line=node.lineno,
+                    column=node.col_offset + 1,
+                    code=code,
+                    scope=".".join(self.scope) or "<module>",
+                    target=target,
+                    annotation=ast.unparse(node),
+                    message=message,
+                )
+            )
+
+    @override
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        previous = self.class_name
+        self.class_name = node.name
+        self.scope.append(node.name)
+        self.generic_visit(node)
+        self.scope.pop()
+        self.class_name = previous
+
+    def _function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
+        previous_function = self.in_function
+        self.scope.append(node.name)
+        if (
+            self.class_name in _CORE_OWNERS
+            and not node.name.startswith("_")
+            and node.returns is not None
+            and any(
+                self._name(decorator) in {"property", "cached_property"}
+                for decorator in node.decorator_list
+            )
+            and self._mutable(node.returns)
+        ):
+            self._add(
+                node.returns,
+                _MUTABLE_CORE,
+                "return",
+                "Expose a read-only tuple, frozenset or Mapping from the core owner; keep mutable builders private",
+            )
+        self.in_function = True
+        self.generic_visit(node)
+        self.scope.pop()
+        self.in_function = previous_function
+
+    @override
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self._function(node)
+
+    @override
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self._function(node)
+
+    @override
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        if (
+            isinstance(node.target, ast.Name)
+            and self.class_name in _CORE_OWNERS
+            and not self.in_function
+            and not node.target.id.startswith("_")
+            and self._mutable(node.annotation)
+        ):
+            self._add(
+                node.annotation,
+                _MUTABLE_CORE,
+                "field:" + node.target.id,
+                "Core fields expose tuple, frozenset or Mapping; own the data at construction",
+            )
+        self.generic_visit(node)
+
+    def _view_check(self, node: ast.expr | ast.stmt, target: str) -> None:
+        if self.path in _PROJECTION_SCOPES:
+            self._add(
+                node,
+                _PARTIAL_VIEW,
+                target,
+                "Projections are total; fix the core type/constructor, or resolve external input at the boundary before projecting",
+            )
+
+    @override
+    def visit_Raise(self, node: ast.Raise) -> None:
+        self._view_check(node, "raise")
+        self.generic_visit(node)
+
+    @override
+    def visit_Assert(self, node: ast.Assert) -> None:
+        self._view_check(node, "assert")
+        self.generic_visit(node)
+
+    @override
+    def visit_Call(self, node: ast.Call) -> None:
+        name = self._name(node.func)
+        if name in _CORE_REVALIDATION or name.startswith("model_validate"):
+            self._view_check(node, name)
+        bypass = (
+            name == "model_construct"
+            or (
+                name == "model_copy"
+                and any(keyword.arg in {"update", None} for keyword in node.keywords)
+                and not (
+                    isinstance(node.func, ast.Attribute)
+                    and isinstance(node.func.value, ast.Name)
+                    and node.func.value.id == "self"
+                )
+            )
+            or (name in _EVIDENCE_TYPES and not self._owned_here(name))
+        )
+        if (
+            name == "__setattr__"
+            and isinstance(node.func, ast.Attribute)
+            and self._name(node.func.value) == "object"
+            and node.args
+        ):
+            bypass = not (isinstance(node.args[0], ast.Name) and node.args[0].id == "self")
+        if name == "cast" and len(node.args) == 2:
+            target = _annotation_expr(node.args[0])
+            bypass = self._mutable(target) or any(
+                self._name(part) in _EVIDENCE_TYPES
+                for part in ast.walk(target)
+                if isinstance(part, ast.expr)
+            )
+        if bypass:
+            self._add(
+                node,
+                _CORE_BYPASS,
+                name,
+                "Use validated construction/revision or the compiler owner, and preserve read-only interfaces",
+            )
+        self.generic_visit(node)
+
+
 def scan_text(
     source: str,
     *,
@@ -719,27 +994,9 @@ def scan_text(
         _ALL_RULES if rules is None else rules,
     )
     visitor.visit(tree)
-    if visitor.unchecked_json_nodes:
-        first = visitor.unchecked_json_nodes[0]
-        count = len(visitor.unchecked_json_nodes)
-        annotation = f"UncheckedJsonObject[{count}]"
-        visitor.violations.append(
-            Violation(
-                path=path,
-                line=first.lineno,
-                column=first.col_offset + 1,
-                code=_UNCHECKED_JSON_BUDGET,
-                scope="<module>",
-                target="unchecked-json-usage",
-                annotation=annotation,
-                message=(
-                    f"`UncheckedJsonObject` is used {count} time(s); this per-file "
-                    "budget may only shrink by validating the boundary or introducing "
-                    "a domain-specific named alias"
-                ),
-            )
-        )
-    return visitor.violations
+    core_visitor = _CoreVisitor(tree, path, _ALL_RULES if rules is None else rules)
+    core_visitor.visit(tree)
+    return visitor.violations + core_visitor.violations
 
 
 def scan_paths(
@@ -790,47 +1047,6 @@ def scan_paths(
     )
 
 
-def load_baseline(path: Path) -> set[_Identity]:
-    """Load and validate the exact known-violation baseline."""
-    payload = json.loads(path.read_text(encoding="utf-8"))
-    records = payload[_BASELINE_KEY]
-    if not isinstance(records, list):
-        raise ValueError(f"{path}: `{_BASELINE_KEY}` must be a list")
-
-    baseline: set[_Identity] = set()
-    for index, record in enumerate(records):
-        if (
-            not isinstance(record, list)
-            or len(record) != 5
-            or not all(isinstance(item, str) for item in record)
-        ):
-            raise ValueError(f"{path}: invalid baseline record at index {index}")
-        identity = cast("_Identity", tuple(record))
-        if identity in baseline:
-            raise ValueError(f"{path}: duplicate baseline record at index {index}")
-        baseline.add(identity)
-    return baseline
-
-
-def compare_with_baseline(
-    violations: list[Violation],
-    baseline: set[_Identity],
-) -> tuple[list[Violation], list[_Identity]]:
-    """Return new violations and stale baseline entries."""
-    by_identity = {violation.identity: violation for violation in violations}
-    new = [violation for identity, violation in by_identity.items() if identity not in baseline]
-    stale = sorted(baseline - set(by_identity))
-    return sorted(new, key=lambda item: item.identity), stale
-
-
-def _baseline_payload(violations: list[Violation]) -> str:
-    records = sorted({violation.identity for violation in violations})
-    return json.dumps(
-        {_BASELINE_KEY: [list(record) for record in records]},
-        indent=2,
-    )
-
-
 def main(argv: list[str] | None = None) -> int:
     repo_root = Path(__file__).resolve().parents[2]
     parser = argparse.ArgumentParser(description=__doc__)
@@ -847,54 +1063,20 @@ def main(argv: list[str] | None = None) -> int:
         help="Python files or directories to scan (default: production Python trees)",
     )
     parser.add_argument(
-        "--baseline",
-        type=Path,
-        default=Path(__file__).with_name("type_boundary_baseline.json"),
-    )
-    parser.add_argument(
         "--select",
         action="append",
         choices=sorted(_ALL_RULES),
         help="Run only this rule (repeatable; default: all rules)",
-    )
-    parser.add_argument(
-        "--print-baseline",
-        action="store_true",
-        help="Print the exact baseline for the scanned source and exit",
     )
     args = parser.parse_args(argv)
 
     paths = [path if path.is_absolute() else Path.cwd() / path for path in args.paths]
     selected_rules = frozenset(args.select or _ALL_RULES)
     violations = scan_paths(paths, repo_root=repo_root, rules=selected_rules)
-    if args.print_baseline:
-        print(_baseline_payload(violations))
-        return 0
-
-    try:
-        baseline = {
-            identity for identity in load_baseline(args.baseline) if identity[0] in selected_rules
-        }
-    except (OSError, ValueError, KeyError, json.JSONDecodeError) as exc:
-        print(f"type-boundary check failed: {exc}", file=sys.stderr)
-        return 2
-
-    new, stale = compare_with_baseline(violations, baseline)
-    for violation in new:
+    for violation in violations:
         print(violation.diagnostic(), file=sys.stderr)
-    for identity in stale:
-        code, path, scope, target, annotation = identity
-        print(
-            f"{path}: {code} stale baseline entry for "
-            f"{scope} {target}: `{annotation}`; remove the baseline record",
-            file=sys.stderr,
-        )
-    if new or stale:
-        print(
-            f"type-boundary check failed: {len(new)} new violation(s), "
-            f"{len(stale)} stale baseline entry/entries",
-            file=sys.stderr,
-        )
+    if violations:
+        print(f"type-boundary check failed: {len(violations)} violation(s)", file=sys.stderr)
         return 1
     return 0
 

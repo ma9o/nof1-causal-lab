@@ -2,10 +2,10 @@
 
 Exposes pipeline tool schemas and execution over HTTP so the Next.js
 refinement route can proxy LLM tool calls to the same Python validation
-logic the stages use, plus the episode facade (actions via the Temporal
-workflow, reads via the append-only transition log).
+logic the stages use, plus the study facade (actions via the Temporal
+workflow, reads via the append-only attempt log).
 
-Run alongside the Temporal dev server and episode worker::
+Run alongside the Temporal dev server and study worker::
 
     cd apps/data-pipeline
     uv run uvicorn nof1_causal_lab.tool_server:app --port 8100
@@ -14,47 +14,42 @@ Run alongside the Temporal dev server and episode worker::
 from __future__ import annotations
 
 import inspect
-import json
 import logging
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
 from datetime import UTC, datetime
-from functools import cached_property, lru_cache
-from typing import TYPE_CHECKING, Any, cast
+from functools import cached_property, lru_cache, partial
+from typing import TYPE_CHECKING, NotRequired, TypedDict, cast
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, ValidationError
+from pydantic.json_schema import JsonSchemaValue
 
 from nof1_causal_lab.artifacts.identification import IdentificationReport
-from nof1_causal_lab.artifacts.identity import GitOid, GitRef
-from nof1_causal_lab.episode_api import (
-    capabilities_router,
-    machine_router,
-    uploads_router,
-    workspaces_router,
-)
-from nof1_causal_lab.episode_api import router as episode_router
-from nof1_causal_lab.flows.context_tools import CONTEXT_TOOLS
-from nof1_causal_lab.flows.transitions.latent_structure.grounding import latent_structure_grounding
-from nof1_causal_lab.flows.transitions.measurement_structure.grounding import (
-    measurement_structure_grounding,
-)
-from nof1_causal_lab.flows.transitions.model_spec.tool_registry import (
-    execute_public_search_literature as _execute_search_literature,
-)
-from nof1_causal_lab.json_types import UncheckedJsonObject
-from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename
-from nof1_causal_lab.models.causal_proofs import (
-    CertifiedCausalAnalysis,
-    certify_identified_estimand,
-)
-from nof1_causal_lab.models.ssm import SSMModel
+from nof1_causal_lab.artifacts.identity import GitOid
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.posterior import InferenceReport
+from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorPredictiveChecks
+from nof1_causal_lab.json_types import JsonObject, JsonValue
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.dynamics import (
     dynamics_from_samples,
 )
-from nof1_causal_lab.models.ssm.runtime import prepare_model_runtime
+from nof1_causal_lab.models.ssm.runtime import project_observation_data
+from nof1_causal_lab.study.artifact_files import json_filename, parquet_filename
+from nof1_causal_lab.study_api import (
+    capabilities_router,
+    uploads_router,
+    workspaces_router,
+)
+from nof1_causal_lab.study_api import router as study_router
+from nof1_causal_lab.tool_contracts import (
+    CONTEXT_TOOLS,
+    GetModelInfoInput,
+    SearchLiteratureInput,
+    execute_search_literature,
+)
 from nof1_causal_lab.utils.data import data_root
 from nof1_causal_lab.utils.model_structure import (
     get_constructs,
@@ -65,31 +60,62 @@ from nof1_causal_lab.utils.model_structure import (
 
 logger = logging.getLogger(__name__)
 
-type ToolImplementation = Callable[
-    [UncheckedJsonObject, UncheckedJsonObject],
-    UncheckedJsonObject | Awaitable[UncheckedJsonObject],
-]
+
+class ToolContext(TypedDict, total=False):
+    _workspace_id: str
+    model: ModelSpec
+    identification_report: IdentificationReport
+    inference_report: InferenceReport
+    predictive_checks: PosteriorPredictiveChecks | None
+    _simulation: _LoadedSimulation
+    _observation_timestamps: list[datetime]
+    _outcome_name: str
+    _identifiable_treatments: list[str]
+
+
+class ToolResult(TypedDict):
+    result: JsonValue
+    context_output: NotRequired[JsonObject | None]
+
+
+class ToolSchema(TypedDict):
+    name: str
+    description: str
+    parameters: JsonSchemaValue
+    result: JsonSchemaValue | None
+
+
+type ToolImplementation = Callable[[ToolContext, JsonObject], ToolResult | Awaitable[ToolResult]]
+
+
+def _parse_tool_call[Input: BaseModel](
+    schema: type[Input],
+    implementation: Callable[[ToolContext, Input], ToolResult | Awaitable[ToolResult]],
+    context: ToolContext,
+    arguments: JsonObject,
+) -> ToolResult | Awaitable[ToolResult]:
+    return implementation(context, schema.model_validate(arguments))
+
 
 if TYPE_CHECKING:
+    from typing import Any
+
     import polars as pl
 
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.flows.contracts_base import ToolDefinition
-    from nof1_causal_lab.machine.store import TransitionRecord
+    from nof1_causal_lab.actions.tool_definition import ToolDefinition
     from nof1_causal_lab.models.ssm.dynamics.draws import DynamicsDraws
     from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
-    from nof1_causal_lab.models.ssm.runtime import PreparedModelRuntime
+    from nof1_causal_lab.study.records import AttemptRecord
 
 _API_DESCRIPTION = """\
 The scientific interface has four actions: `edit_model`, `prepare_data`, `fit`,
-and `simulate`. Requests commit through the serialized episode machine; reads
-come from its versioned artifacts and append-only transition log.
+and `simulate`. Requests commit through the serialized study workflow; reads
+come from its versioned artifacts and append-only attempt log.
 
 ## Scientific loop
 
-1. Read `GET /api/machine` for action responsibilities, then
-   `GET /api/episodes/{workspace_id}/model` for current model/data versions and findings.
-2. Submit to `POST /api/episodes/{workspace_id}/actions`:
+1. Read `GET /api/studies/{workspace_id}/model` for current model/data versions and findings.
+2. Submit to `POST /api/studies/{workspace_id}/actions`:
    - `edit_model`: `{"action":"edit_model","expected_revision":null,"model":{"question":"Does workload affect sleep?"}}`.
      Model structure, measurements, mechanisms, constants, and laws can be edited together.
      Valid incomplete models are saved with applicable specification findings.
@@ -125,15 +151,17 @@ come from its versioned artifacts and append-only transition log.
      Compare the saved observations separately with `data_diff`; simulation does not
      accept comparison data or change its generation rules for predictive checks.
 3. Dispatch returns HTTP 202 with only `{"attempt_id":"<UUID>"}` after durable acceptance.
-   Poll `GET /api/episodes/{workspace_id}/actions/{attempt_id}` for `{done, body, messages}`.
+   Poll `GET /api/studies/{workspace_id}/actions/{attempt_id}` for `{done, body, messages}`.
    While running, `done` is false and `body` is null. At completion, `body` contains the
    scientific result, or is null on failure. Messages accumulate as
    `{timestamp, level, label}` with UTC timestamps, `debug|info|warn|error` levels,
    and stable `SCREAMING_SNAKE_CASE` labels. Warnings can accompany a saved result;
    failed actions leave the scientific branch unchanged. Do not redispatch while polling.
-   `GET /api/episodes/{workspace_id}/timeline` retains `applied`, `rejected`, or `raised`
+   While `prepare_data` runs, `GET /api/studies/{workspace_id}/events?attempt_id=...` pages
+   its live step and extraction progress; pass the last `cursor` as `after`.
+   `GET /api/studies/{workspace_id}/timeline` retains `applied`, `rejected`, or `raised`
    attempts and their messages. Numerical arrays have immutable store references.
-   `GET /api/episodes/{workspace_id}/model` includes separately sourced specification,
+   `GET /api/studies/{workspace_id}/model` includes separately sourced specification,
    identification, data-compatibility, fitting, and simulation findings.
 
 The same requests are available as tools through `GET /api/tools/scientific` and
@@ -143,7 +171,7 @@ HTTP and tool calls share execution contracts. V2 is a read-only inspector.
 
 ## Revisions and execution
 
-Requests name stored input revisions. Fits check the selected model/data pair; model edits reject base revision conflicts. Read `/revisions` to select history. `GET /model-diff?before=...&after=...` compares model trees or Git checkpoints; `POST /data-diff` compares saved data selections in `left` and `right`. Both are read-only inspection operations and create no action attempt.
+Requests name stored input revisions. Fits check the selected model/data pair; model edits reject base revision conflicts. Read `/revisions` to select history. `GET /model-diff?before=...&after=...` compares model trees or Git checkpoints; `POST /data-diff` compares saved data selections in `left` and `right`. Model diffs create no attempt. Data diffs return an attempt_id to poll and save a read-only timeline leaf off the call-time branch head, without moving it; GET /data-diff/{commit_id} reads the saved comparison.
 An edit does not require prior simulation or an authoring admission. Causal numerical
 claims still require matching identification and production inference evidence.
 Model edits automatically run affected checks, including one exact whole-model
@@ -166,7 +194,7 @@ The `analysis` context is read-only model introspection.
 
 Upload files at `POST /api/upload` (`multipart/form-data` with `workspaceId` and
 `file`) before `prepare_data` with its file preparation input. Read artifact payloads at
-`GET /api/episodes/{workspace_id}/artifacts/{artifact_id}`; binary files are served
+`GET /api/studies/{workspace_id}/artifacts/{artifact_id}`; binary files are served
 from `.../files/{filename}`. Long jobs may outlive an HTTP client timeout; inspect
 the timeline before submitting another request.
 
@@ -176,7 +204,7 @@ the timeline before submitting another request.
 """
 
 app = FastAPI(
-    title="nof1-causal-lab episode API",
+    title="nof1-causal-lab study API",
     description=_API_DESCRIPTION,
     docs_url="/api/tools/docs",
 )
@@ -188,11 +216,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-app.include_router(episode_router)
+app.include_router(study_router)
 app.include_router(capabilities_router)
 app.include_router(workspaces_router)
 app.include_router(uploads_router)
-app.include_router(machine_router)
 
 
 def _extract_observation_timestamps(observation_data: pl.DataFrame | None) -> list[datetime]:
@@ -228,8 +255,9 @@ class _LoadedSimulation:
     """Process-local numerical inputs for one immutable fitted posterior."""
 
     model: ModelSpec
-    inference: TransitionRecord
-    runtime: PreparedModelRuntime
+    inference: AttemptRecord
+    observation_data: pl.DataFrame
+    report: InferenceReport
 
     @cached_property
     def draws(self) -> JointPosteriorDraws:
@@ -253,15 +281,15 @@ def _load_simulation(
     Only immutable inputs enter this cache. Current identification and freshness
     are checked separately on every request. Eviction simply reloads the fit.
     """
-    from nof1_causal_lab.machine.history import StudyRepository
-    from nof1_causal_lab.machine.inference import inference_record
-    from nof1_causal_lab.machine.store import ArtifactStore, read_model
+    from nof1_causal_lab.study.history import StudyRepository
+    from nof1_causal_lab.study.lineage import inference_record
+    from nof1_causal_lab.study.store import ArtifactStore, read_model
 
     store = ArtifactStore(workspace_id)
     model_info = store.read_meta("model", model_revision)
     record = inference_record(StudyRepository(workspace_id).attempts(), model_revision)
     if record is None:
-        raise HTTPException(404, "This model revision has no committed inference transition")
+        raise HTTPException(404, "This model revision has no committed fit")
     panel_pin = model_info.derived_from["panel"]
     data_for_model = store.read_parquet_file("panel", panel_pin, parquet_filename("panel", "panel"))
     model = read_model(store, model_revision)
@@ -269,23 +297,23 @@ def _load_simulation(
     model.check_execution()
     from nof1_causal_lab.artifacts.posterior import InferenceReport
 
-    runtime = prepare_model_runtime(
+    report = InferenceReport.model_validate(record.diagnostics["report"])
+    _, observation_data = project_observation_data(
         data_for_model=data_for_model,
         model_spec=model,
-        model=SSMModel(model),
-        time_origin=InferenceReport.model_validate(record.diagnostics["report"]).time_origin,
+        time_origin=report.time_origin,
     )
-    return _LoadedSimulation(model, record, runtime)
+    return _LoadedSimulation(model, record, observation_data, report)
 
 
-def _build_analysis_context(workspace_id: str) -> UncheckedJsonObject:
+def _build_analysis_context(workspace_id: str) -> ToolContext:
     """Reuse pinned numerical inputs while checking current input revisions."""
-    from nof1_causal_lab.machine.execution import freshness_report
-    from nof1_causal_lab.machine.snapshots import ModelReader
-    from nof1_causal_lab.machine.store import ArtifactStore, read_current_state
+    from nof1_causal_lab.study.snapshots import ModelReader
+    from nof1_causal_lab.study.state import freshness_report
+    from nof1_causal_lab.study.store import ArtifactStore, read_current_state
 
     state = read_current_state(workspace_id)
-    from nof1_causal_lab.machine.inference import inference_is_current
+    from nof1_causal_lab.study.lineage import inference_is_current
 
     model_info = state.get("model")
     if model_info is None:
@@ -310,9 +338,6 @@ def _build_analysis_context(workspace_id: str) -> UncheckedJsonObject:
     store = ArtifactStore(workspace_id)
     loaded = _load_simulation(data_root(), workspace_id, model_info.revision)
     model = loaded.model
-    model_revision = GitRef(
-        workspace_id=workspace_id, revision=model_info.revision, path="model.json"
-    )
     identification_report_info = state.get("identification_report")
     if identification_report_info is None:
         raise HTTPException(404, f"No identification_report for workspace {workspace_id}")
@@ -330,23 +355,6 @@ def _build_analysis_context(workspace_id: str) -> UncheckedJsonObject:
     treatment_names = [
         model.get_construct(cid).name for cid in identification_report.estimable_treatments
     ]
-    estimands = tuple(
-        certify_identified_estimand(
-            model,
-            identification_report,
-            model_revision=model_revision,
-            treatment=treatment,
-            outcome=outcome_name,
-        )
-        for treatment in treatment_names
-    )
-    causal_analysis = CertifiedCausalAnalysis(
-        model=model,
-        model_revision=model_revision,
-        identification=identification_report,
-        estimands=estimands,
-        inference=loaded.inference,
-    )
 
     simulation = ModelReader(workspace_id).simulation()
     checks = (
@@ -357,14 +365,12 @@ def _build_analysis_context(workspace_id: str) -> UncheckedJsonObject:
 
     return {
         "_workspace_id": workspace_id,
-        "model": model.model_dump(mode="json"),
-        "identification_report": identification_report.model_dump(mode="json"),
-        "inference_report": loaded.inference.diagnostics["report"],
-        "predictive_checks": checks.model_dump(mode="json") if checks is not None else {},
-        "_causal_analysis": causal_analysis,
-        "_prepared_runtime": loaded.runtime,
+        "model": model,
+        "identification_report": identification_report,
+        "inference_report": loaded.report,
+        "predictive_checks": checks,
         "_simulation": loaded,
-        "_observation_timestamps": _extract_observation_timestamps(loaded.runtime.observation_data),
+        "_observation_timestamps": _extract_observation_timestamps(loaded.observation_data),
         "_outcome_name": outcome_name,
         "_identifiable_treatments": treatment_names,
     }
@@ -375,82 +381,34 @@ def _build_analysis_context(workspace_id: str) -> UncheckedJsonObject:
 # ---------------------------------------------------------------------------
 
 
-def _run_compute(
-    args: UncheckedJsonObject,
-    param_name: str,
-    compute_fn: Any,
-) -> UncheckedJsonObject:
-    """Parse JSON arg, run compute function, return result + context_output."""
-    raw = args.get(param_name, "")
-    try:
-        data = json.loads(raw)
-    except json.JSONDecodeError as e:
-        return {"result": f"JSON parse error: {e}", "context_output": None}
+def _build_model_info_payload(ctx: ToolContext, args: GetModelInfoInput) -> JsonObject:
 
-    context_output, feedback = compute_fn(data)
-    return {"result": feedback, "context_output": context_output}
-
-
-def _execute_validate_latent_structure(
-    _ctx: UncheckedJsonObject, args: UncheckedJsonObject
-) -> UncheckedJsonObject:
-    return _run_compute(args, "model_json", latent_structure_grounding)
-
-
-def _execute_validate_measurement_structure(
-    _ctx: UncheckedJsonObject, args: UncheckedJsonObject
-) -> UncheckedJsonObject:
-    return _run_compute(args, "model_json", measurement_structure_grounding)
-
-
-def _execute_validate_extractions(
-    ctx: UncheckedJsonObject, args: UncheckedJsonObject
-) -> UncheckedJsonObject:
-    from nof1_causal_lab.utils.llm import _validate_json_and_format
-    from nof1_causal_lab.workers.schemas import validate_worker_output
-
-    schema = ctx.get("_extraction_schema", {})
-    result = _validate_json_and_format(
-        args["output_json"],
-        lambda data: validate_worker_output(data, schema),
-    )
-    return {"result": result}
-
-
-def _build_model_info_payload(
-    ctx: UncheckedJsonObject, args: UncheckedJsonObject
-) -> UncheckedJsonObject:
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
-
-    sections = list(args.get("sections") or ["overview", "variables", "capabilities"])
-    focused = {str(name) for name in (args.get("names") or [])}
-    model = ModelSpec.model_validate(ctx["model"])
+    sections = args.sections or ["overview", "variables", "capabilities"]
+    focused = set(args.names)
+    model = ctx["model"]
     posterior = ctx["inference_report"]
-    runtime = ctx["_prepared_runtime"]
     retained_state_names = set(get_state_names(model))
     constructs = [
-        construct
-        for construct in get_constructs(model)
-        if construct.get("name") in retained_state_names
+        construct for construct in get_constructs(model) if construct.name in retained_state_names
     ]
     indicators = get_manifest_indicators(model)
 
     if focused:
-        constructs = [item for item in constructs if item.get("name") in focused]
+        constructs = [item for item in constructs if item.name in focused]
         indicators = [
             item
             for item in indicators
             if item.get("name") in focused or item.get("construct_name") in focused
         ]
 
-    payload: UncheckedJsonObject = {}
+    payload: JsonObject = {}
     if "overview" in sections:
         payload["overview"] = {
             "outcome": ctx.get("_outcome_name"),
-            "treatments": ctx["_identifiable_treatments"],
-            "n_latent": numeric.n_states(runtime.spec),
-            "n_manifest": len(numeric.observation_names(runtime.spec)),
-            "inference_method": (posterior.get("inference_metadata") or {}).get("method"),
+            "treatments": [*ctx["_identifiable_treatments"]],
+            "n_latent": numeric.n_states(model),
+            "n_manifest": len(numeric.observation_names(model)),
+            "inference_method": posterior.inference_metadata.method,
             "observed_time_range": {
                 "start": ctx["_observation_timestamps"][0].isoformat()
                 if ctx["_observation_timestamps"]
@@ -464,11 +422,11 @@ def _build_model_info_payload(
         payload["variables"] = {
             "constructs": [
                 {
-                    "id": item["id"],
-                    "name": item.get("name"),
-                    "description": item.get("description"),
-                    "role": item.get("role"),
-                    "temporal_status": item.get("temporal_status"),
+                    "id": item.id,
+                    "name": item.name,
+                    "description": item.description,
+                    "role": item.role,
+                    "temporal_status": item.temporal_status,
                 }
                 for item in constructs
             ],
@@ -489,84 +447,54 @@ def _build_model_info_payload(
     if "measurement" in sections:
         payload["measurement"] = {
             "model_clock": get_model_clock(model),
-            "manifest_names": numeric.observation_names(runtime.spec),
+            "manifest_names": [*numeric.observation_names(model)],
         }
     if "identifiability" in sections:
         payload["identifiability"] = {
-            "identifiable_treatments": ctx["_identifiable_treatments"],
+            "identifiable_treatments": [*ctx["_identifiable_treatments"]],
             "non_identifiable_treatments": {
-                identity: finding
-                for identity, finding in ctx["identification_report"]["treatments"].items()
-                if finding["status"] == "not_identified"
+                identity: finding.model_dump(mode="json")
+                for identity, finding in ctx["identification_report"].non_identifiable.items()
             },
         }
     if "diagnostics" in sections:
         payload["diagnostics"] = {
-            "ppc_warning_count": len(
-                ctx.get("predictive_checks", {}).get("per_variable_warnings", [])
-            ),
+            "ppc_warning_count": len(checks.per_variable_warnings)
+            if (checks := ctx.get("predictive_checks")) is not None
+            else 0,
         }
     if "capabilities" in sections:
         from nof1_causal_lab.actions.contracts import SimulateRequest
 
         payload["capabilities"] = {
             "simulate": {
-                "intervention_targets": numeric.state_ids(runtime.spec),
+                "intervention_targets": [*numeric.state_ids(model)],
                 "request": SimulateRequest.model_json_schema(),
             },
         }
     return payload
 
 
-def _execute_get_model_info(
-    ctx: UncheckedJsonObject, args: UncheckedJsonObject
-) -> UncheckedJsonObject:
+def _execute_get_model_info(ctx: ToolContext, args: GetModelInfoInput) -> ToolResult:
     return {"result": _build_model_info_payload(ctx, args)}
 
 
 # Registry: (context_id, tool_name) -> implementation function
 _TOOL_IMPLS: dict[tuple[str, str], ToolImplementation] = {
-    ("latent-structure", "validate_latent_structure"): _execute_validate_latent_structure,
-    (
-        "measurement-structure",
-        "validate_measurement_structure",
-    ): _execute_validate_measurement_structure,
-    ("measurement", "validate_extractions"): _execute_validate_extractions,
-    ("statistical-model-spec", "search_literature"): _execute_search_literature,
-    ("analysis", "get_model_info"): _execute_get_model_info,
-}
-
-# Upstream dependencies: which context results need to be loaded for execution.
-_CONTEXT_DEPS: dict[str, list[str]] = {
-    "latent-structure": [],
-    "measurement-structure": ["model"],
-    "measurement": [],
-    "statistical-model-spec": ["model"],
-    "analysis": [],
+    ("literature", "search_literature"): partial(
+        _parse_tool_call, SearchLiteratureInput, execute_search_literature
+    ),
+    ("analysis", "get_model_info"): partial(
+        _parse_tool_call, GetModelInfoInput, _execute_get_model_info
+    ),
 }
 
 
-def _load_context_result(workspace_id: str, artifact_id: str) -> UncheckedJsonObject:
-    from nof1_causal_lab.machine.store import ArtifactStore, read_current_state
-
-    state = read_current_state(workspace_id)
-    store = ArtifactStore(workspace_id)
-    if artifact_id == "model":
-        info = state.get("model")
-        if info is None:
-            raise HTTPException(404, f"No model for workspace {workspace_id}")
-        return store.read_json_file("model", info.revision, json_filename("model", "model"))
-    raise KeyError(f"No canonical tool context loader for {artifact_id}")
-
-
-def _build_context(workspace_id: str, context_id: str) -> UncheckedJsonObject:
-    """Load upstream results needed for tool execution context."""
+def _build_context(workspace_id: str, context_id: str) -> ToolContext:
+    """Load the study state a tool reads; literature search reads none."""
     if context_id == "analysis":
         return _build_analysis_context(workspace_id)
-    ctx: UncheckedJsonObject = {"_workspace_id": workspace_id}
-    for artifact_id in _CONTEXT_DEPS.get(context_id, []):
-        ctx[artifact_id] = _load_context_result(workspace_id, artifact_id)
-    return ctx
+    return {"_workspace_id": workspace_id}
 
 
 def _get_tool_contract(context_id: str, tool_name: str) -> ToolDefinition | None:
@@ -583,17 +511,17 @@ class ToolCallRequest(BaseModel):
     branch: str = "main"
     expected_head: GitOid | None = None
     workspace_id: str
-    input: UncheckedJsonObject
+    input: JsonObject
 
 
 @app.get("/api/tools/{context_id}")
-def get_tool_schemas(context_id: str) -> list[UncheckedJsonObject]:
+def get_tool_schemas(context_id: str) -> list[ToolSchema]:
     """List a context's validation/query tools — the same tools the in-service LLM loops use.
 
     Each entry is `{name, description, parameters, result}` where `parameters`
     and `result` are JSON Schemas. Fetch this first to learn a tool's argument
     shape, then call `POST /api/tools/{context_id}/{tool_name}`. Examples:
-    analysis `simulate` / `get_model_info`, statistical-model-spec `search_literature`.
+    analysis `simulate` / `get_model_info`, literature `search_literature`.
     """
     contracts = CONTEXT_TOOLS.get(context_id)
     if contracts is None:
@@ -610,9 +538,7 @@ def get_tool_schemas(context_id: str) -> list[UncheckedJsonObject]:
 
 
 @app.post("/api/tools/{context_id}/{tool_name}")
-async def execute_tool(
-    context_id: str, tool_name: str, request: ToolCallRequest
-) -> UncheckedJsonObject:
+async def execute_tool(context_id: str, tool_name: str, request: ToolCallRequest) -> ToolResult:
     """Execute a context tool against the workspace's current artifact-store versions.
 
     Body is `{"workspace_id": "...", "input": {...}}` where `input` matches the
@@ -629,7 +555,7 @@ async def execute_tool(
     if context_id == "scientific":
         if tool_name == "poll_action":
             from nof1_causal_lab.actions.results import PollActionRequest
-            from nof1_causal_lab.episode_api import read_action_poll
+            from nof1_causal_lab.study_api import read_action_poll
 
             try:
                 query = PollActionRequest.model_validate(request.input)
@@ -641,7 +567,7 @@ async def execute_tool(
         from pydantic import TypeAdapter
 
         from nof1_causal_lab.actions.contracts import ScientificActionRequest
-        from nof1_causal_lab.episode_api import execute_scientific_action
+        from nof1_causal_lab.study_api import execute_scientific_action
 
         try:
             action = TypeAdapter(ScientificActionRequest).validate_python(
@@ -661,20 +587,11 @@ async def execute_tool(
         )
 
     try:
-        validated_input = contract.input_schema.model_validate(request.input).model_dump(
-            mode="json"
-        )
+        ctx = _build_context(request.workspace_id, context_id)
+        pending_payload = impl(ctx, request.input)
+        payload = await pending_payload if inspect.isawaitable(pending_payload) else pending_payload
     except ValidationError as exc:
         raise HTTPException(422, detail=exc.errors(include_context=False)) from exc
-
-    try:
-        ctx = _build_context(request.workspace_id, context_id)
-        pending_payload = impl(ctx, validated_input)
-        payload = (
-            cast("UncheckedJsonObject", await pending_payload)
-            if inspect.isawaitable(pending_payload)
-            else pending_payload
-        )
     except HTTPException:
         raise
     except Exception as exc:

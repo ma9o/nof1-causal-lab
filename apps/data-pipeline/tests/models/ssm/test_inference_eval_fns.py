@@ -1,5 +1,8 @@
 """Focused behavioral matrix for shared inference evaluators."""
 
+from pathlib import Path
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+
 import functools
 from types import SimpleNamespace
 from typing import Any
@@ -22,7 +25,7 @@ from nof1_causal_lab.models.ssm.constants import MIN_DT
 from nof1_causal_lab.models.ssm.inference.parameter_transform import ParameterTransform
 from nof1_causal_lab.models.ssm.inference.utils import _build_eval_fns, prepare_model_parameters
 from nof1_causal_lab.models.ssm.structure import SparseVectorBlockSpec
-from tests.model_fixtures import dense_matrix_dynamics_spec, diagonal_diffusion_block, model_fixture
+from tests.model_fixtures import compile_fit_fixture, dense_matrix_dynamics_spec, diagonal_diffusion_block
 
 
 class _RecordingBackend:
@@ -214,34 +217,8 @@ class TestPureJaxLikelihoodEvaluator:
 
     @staticmethod
     def _build_poisson_case():
-        spec = model_fixture(
-            n_latent=1,
-            n_manifest=1,
-            dynamics_spec=dense_matrix_dynamics_spec(
-                n_latent=1,
-                decay_support=np.ones(1, dtype=bool),
-                edge_support=np.zeros((1, 1), dtype=bool),
-                coupling_template=jnp.zeros((1, 1), dtype=jnp.float32),
-                intercept_support=np.zeros(1, dtype=bool),
-                cint_template=jnp.zeros(1, dtype=jnp.float32),
-            ),
-            diffusion_block=diagonal_diffusion_block(1),
-            manifest_means_block=SparseVectorBlockSpec(
-                n=1,
-                free_support=np.zeros(1, dtype=bool),
-                template=jnp.array([jnp.log(4.0)], dtype=jnp.float32),
-                free_site_name="manifest_means_free",
-                det_site_name="manifest_means",
-                support=SupportClass.REAL,
-                site_kind=SiteKind.MANIFEST_MEANS,
-                assembly_group="manifest",
-                fixed_spec_field="manifest_means",
-                priors_field="manifest_means",
-            ),
-            manifest_dists=[DistributionFamily.POISSON],
-            manifest_links=[LinkFunction.LOG],
-        )
-        model = SSMModel(spec)
+        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models/inference_eval_fns/poisson_parameter_evaluator.json").read_text())
+        model = SSMModel(compile_fit_fixture(spec))
         observations = jnp.array([[4.0], [3.0], [5.0], [6.0]], dtype=jnp.float32)
         times = jnp.arange(observations.shape[0], dtype=jnp.float32) * 0.5
         return model, observations, times

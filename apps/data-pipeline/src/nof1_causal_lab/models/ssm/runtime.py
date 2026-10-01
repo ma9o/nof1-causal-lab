@@ -22,9 +22,6 @@ from nof1_causal_lab.models.ssm.observation_support import (
     validate_discrete_manifest_metadata,
     validate_observation_support,
 )
-from nof1_causal_lab.models.ssm.parameterization import (
-    build_prior_runtime_bundle,
-)
 from nof1_causal_lab.models.ssm.preflight import ObservationPreflightError
 from nof1_causal_lab.utils.data import pivot_to_wide
 
@@ -32,6 +29,7 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledFitInputs
     from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
     from nof1_causal_lab.sampler_config import (
         SamplerConfig,
@@ -103,18 +101,13 @@ def get_default_sampler_config() -> SamplerConfig:
     return get_config().inference.to_sampler_config()
 
 
-def build_ssm_model(wide_data: pl.DataFrame, *, model_spec: ModelSpec) -> SSMModel:
-    """Derive execution inputs directly from the scientific ModelSpec."""
-    from nof1_causal_lab.models.ssm.compile.inputs import compile_ssm_inputs_from_model
-
+def build_ssm_model(wide_data: pl.DataFrame, *, inputs: CompiledFitInputs) -> SSMModel:
+    """Check the later panel boundary against compiled fit inputs."""
     if wide_data.is_empty():
         raise ValueError("Cannot build SSM model from empty data")
-    validate_discrete_manifest_metadata(model_spec, wide_data)
-    validate_observation_support(model_spec, wide_data)
-    priors, _, _, _ = compile_ssm_inputs_from_model(model_spec)
-    return SSMModel(
-        model_spec, priors, prior_runtime_bundle=build_prior_runtime_bundle(model_spec, priors)
-    )
+    validate_discrete_manifest_metadata(inputs.spec, wide_data)
+    validate_observation_support(inputs.spec, wide_data)
+    return SSMModel(inputs)
 
 
 def prepare_fit_inputs(
@@ -138,16 +131,14 @@ def prepare_fit_inputs(
 def prepare_wide_model_runtime(
     wide_data: pl.DataFrame,
     *,
-    model_spec: ModelSpec,
+    inputs: CompiledFitInputs,
     sampler_config: SamplerConfigInput | None = None,
-    model: SSMModel | None = None,
     observation_data: pl.DataFrame | None = None,
     time_origin: datetime | None,
 ) -> PreparedModelRuntime:
-    """Build or reuse an ``SSMModel`` and extract fit-ready arrays."""
+    """Prepare panel-dependent runtime state for one compiled model."""
     resolved_sampler_config = sampler_config or get_default_sampler_config()
-    if model is None:
-        model = build_ssm_model(wide_data, model_spec=model_spec)
+    model = build_ssm_model(wide_data, inputs=inputs)
 
     spec = model.spec
     manifest_names = numeric.observation_names(spec)
@@ -201,20 +192,18 @@ def prepare_wide_model_runtime(
 def prepare_model_runtime(
     data_for_model: pl.DataFrame,
     *,
-    model_spec: ModelSpec,
+    inputs: CompiledFitInputs,
     time_origin: datetime | None,
     sampler_config: SamplerConfigInput | None = None,
-    model: SSMModel | None = None,
 ) -> PreparedModelRuntime:
     """Canonical entry point for preparing stage data for model work."""
     wide_data, runtime_rows = project_observation_data(
-        data_for_model, model_spec=model_spec, time_origin=time_origin
+        data_for_model, model_spec=inputs.spec, time_origin=time_origin
     )
     return prepare_wide_model_runtime(
         wide_data,
-        model_spec=model_spec,
+        inputs=inputs,
         sampler_config=sampler_config,
-        model=model,
         observation_data=runtime_rows,
         time_origin=time_origin,
     )

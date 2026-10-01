@@ -6,8 +6,8 @@ Generated API artifacts and generated documentation have separate ownership and 
 
 `bun run codegen` exports the Python contracts and API together, then generates the TypeScript types and model read client:
 
-- **Contracts**: [`artifacts/catalog.py`](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/catalog.py) and the models owned by `artifacts/` are the source of truth. [`export_api.py`](../../apps/data-pipeline/scripts/codegen/export_api.py) writes the JSON schemas; `generate.ts` then feeds them through [`json-schema-to-typescript`](https://github.com/bcherny/json-schema-to-typescript) to write the TypeScript models, tool definitions, and metadata.
-- **Agent API**: The same exporter writes the OpenAPI schema and the generated `nof1-episode-api` skill from the FastAPI application.
+- **Contracts**: [`artifacts/catalog.py`](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/catalog.py) and the models owned by `artifacts/` are the source of truth. [`export_api.py`](../../apps/data-pipeline/scripts/codegen/export_api.py) writes the JSON schemas; `generate.ts` then feeds them through [`json-schema-to-typescript`](https://github.com/bcherny/json-schema-to-typescript) to write the TypeScript models and metadata.
+- **Agent API**: The same exporter writes the OpenAPI schema and the generated `nof1-study-api` skill from the FastAPI application.
 - **Model client**: [`generate-client.ts`](../../packages/api-types/scripts/generate-client.ts) uses [openapi-typescript](https://openapi-ts.dev/node) to generate request paths, parameters, and response types. Response declarations reference the existing domain types; [openapi-fetch](https://openapi-ts.dev/openapi-fetch/) supplies the runtime client.
 
 Native NumPyro distributions use the shared [JSON codec](../../apps/data-pipeline/src/nof1_causal_lab/numpyro_json.py) on scientific parameters and compiled sites. Export derives constructor signatures from native distribution arguments and constraints. There is no separate prior-parameter class hierarchy.
@@ -17,9 +17,9 @@ bun run codegen       # regenerate API artifacts
 bun run codegen:check # verify API artifact drift
 ```
 
-Generated API files are committed. Run `codegen` after editing an artifact, read model, machine record, tool contract, or facade response.
+Generated API files are committed. Run `codegen` after editing an artifact, read model, study record, tool contract, or facade response.
 
-The combined `contracts.json` includes all registered JSON artifact payloads, facade responses, machine records, and tool results. `panel` is a Parquet artifact whose file layout is declared in the generated metadata. OpenAPI remains the HTTP operation description; it is not a second source of domain types.
+The combined `contracts.json` includes all registered JSON artifact payloads, facade responses, study records, and tool results. `panel` is a Parquet artifact whose file layout is declared in the generated metadata. OpenAPI remains the HTTP operation description; it is not a second source of domain types.
 
 ## Documentation Artifacts
 
@@ -53,8 +53,8 @@ TypeScript exports use the same names.
 | Completed operation output | `...Result` | `CausalEffectResult`, `PriorPredictiveResult` |
 | Recorded observation or event | `...Record` or `...Event` | `ObservationRecord`, `RuntimeEvent` |
 | Persistent scalar identity | `...Id` | `ConstructId`, `IndicatorId`, `ParameterId` |
-| Structured reference | `...Ref` | `ConstructRef`, `ArtifactRef`, `ParameterRef` |
-| Exact model version | `...Revision` | `ModelRevision` |
+| Structured reference | `...Ref` | `ConstructRef`, `GitRef`, `ParameterRef` |
+| Exact study version | `...Revision` | `StudyRevision` |
 | API request and its input values | `...Request` or `...Input` | `SimulateRequest`, `SimulationSpec` |
 
 The scientific definition types are `ModelSpec`, `ConstructSpec`, `CausalEdgeSpec`,
@@ -90,9 +90,9 @@ exists. Resolve membership against the selected model. Named JSON Schema
 definitions preserve the corresponding TypeScript ID types.
 
 Entity identity survives renames and revisions. Exact provenance remains separate:
-`ModelRevision` records a workspace and model artifact version; `ArtifactRef`
-records an artifact and version; `TransitionRef` records a journal sequence in the
-enclosing workspace. A journal sequence is not a model artifact version.
+`GitRef` records a workspace, a Git object ID and a path within that object;
+`StudyRevision` records one commit of the study history with its action log. A
+commit is not a model artifact version.
 Snapshots carry `context.workspace_id` and the selected journal sequence, and pin
 each sourced value to its supporting version.
 
@@ -104,24 +104,22 @@ Follow the [type naming conventions](#type-naming-conventions). `ModelSpec` is t
 directly persisted scientific definition; `ConstructSpec`, `IndicatorSpec`, and
 `ParameterSpec` retain their canonical ownership inside it. `ToolDefinition`
 describes a callable tool, while `ArtifactPayload` supplies the shared validation
-base. Server-composed views and machine records share this export. Frontend code
+base. Server-composed views and study records share this export. Frontend code
 owns presentation state only.
 
 - **New/changed field**: edit the owning Python model.
 - **New artifact contract**: add the payload class in `artifacts/`, register it in `ARTIFACT_CONTRACTS`, add re-export in `index.ts`.
-- **New/changed tool**: update the owning transition’s `ToolDefinition` and its registration in `flows/context_tools.py`.
+- **New/changed tool**: update its `ToolDefinition` and its registration in [`tool_contracts.py`](../../apps/data-pipeline/src/nof1_causal_lab/tool_contracts.py).
 
 ## File ownership
 
 | File | Source |
 |------|--------|
 | `src/generated/models.ts` | Generated — do not edit |
-| `src/generated/tools.ts` | Generated — do not edit |
 | `src/generated/model-api.ts` | Generated model read operations referencing canonical domain declarations |
 | `src/client.ts` | Runtime client factory using the generated operation signatures |
-| `src/generated/metadata.ts` | Generated artifact IDs, file layout, machine description, and distribution metadata |
+| `src/generated/metadata.ts` | Generated artifact IDs, file layout, and distribution metadata |
 | `src/index.ts` | Hand-written re-exports |
-| `src/run.ts`, `src/transitions.ts` | Hand-written |
 
 ## Client Version
 

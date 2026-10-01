@@ -43,7 +43,7 @@ dependencies = [
 
 [project.scripts]
 nof1-publish = "nof1_causal_lab.publish:main"
-nof1-sweep = "nof1_causal_lab.machine.sweep:sweep_cli"
+nof1-sweep = "nof1_causal_lab.study.sweep:sweep_cli"
 
 [build-system]
 requires = ["uv_build>=0.12.21,<0.13.0"]
@@ -88,8 +88,6 @@ target-version = "py312"
 line-length = 100
 src = ["src", "tests", "evaluation"]
 fix = true
-# notebooks/data holds study fixtures and their data generators, not source code
-extend-exclude = ["notebooks/data"]
 
 [tool.ruff.lint]
 external = ["V"]
@@ -144,6 +142,31 @@ ignore = [
     "E731",  # one-line math lambdas (e.g. φ = a·b) read clearly in gallery cells
 ]
 
+[tool.ruff.lint.flake8-type-checking]
+runtime-evaluated-base-classes = [
+    "pydantic.BaseModel",
+    "pydantic.RootModel",
+    "typing.TypedDict",
+    "typing_extensions.TypedDict",
+    "nof1_causal_lab.artifacts.base.ArtifactPayload",
+    "nof1_causal_lab.artifacts.observations.ObservationSpec",
+    "nof1_causal_lab.study.view_models.ViewValue",
+]
+runtime-evaluated-decorators = [
+    "pydantic.dataclasses.dataclass",
+    "pydantic.with_config",
+    "pydantic.validate_call",
+    "temporalio.activity.defn",
+    "temporalio.workflow.run",
+    "temporalio.workflow.update",
+    "temporalio.workflow.query",
+    "temporalio.workflow.signal",
+    "fastapi.FastAPI.get",
+    "fastapi.FastAPI.post",
+    "fastapi.APIRouter.get",
+    "fastapi.APIRouter.post",
+]
+
 [tool.ruff.lint.flake8-pytest-style]
 parametrize-names-type = "tuple"
 
@@ -163,8 +186,6 @@ skip-magic-trailing-comma = false
 # scripts, notebooks, and tests as independent ownership seams; none of them can
 # keep a definition in src alive.
 paths = ["src"]
-# notebooks/data holds study fixtures and their data generators, not source code
-exclude = ["*notebooks/data*"]
 min_confidence = 60
 sort_by_size = true
 ignore_decorators = [
@@ -214,8 +235,6 @@ python-version = "3.12"
 
 [tool.ty.src]
 include = ["src", "notebooks", "evaluation", "scripts", "tests"]
-# notebooks/data contains study fixtures and their standalone generators.
-exclude = ["notebooks/data"]
 
 [tool.ty.rules]
 redundant-condition = "error"

@@ -7,7 +7,7 @@
  *   cd packages/api-types && bun run scripts/generate.ts
  *
  * Source of truth: apps/data-pipeline/src/nof1_causal_lab/artifacts/catalog.py
- * plus facade API models exported from apps/data-pipeline/src/nof1_causal_lab/episode_api.py
+ * plus facade API models exported from apps/data-pipeline/src/nof1_causal_lab/study_api.py
  */
 
 /**
@@ -219,7 +219,12 @@ export type JsonArray = JsonValue[];
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "ActionBody".
  */
-export type ActionBody = ModelEditResult | DataPreparationResult | ModelFitResult | ModelSimulationResult;
+export type ActionBody =
+  | ModelEditResult
+  | DataPreparationResult
+  | ModelFitResult
+  | ModelSimulationResult
+  | DataComparisonResult;
 /**
  * A predictive check reason explains why a battery could not be evaluated for the selected model and observations.
  *
@@ -250,6 +255,11 @@ export type PredictiveSummary = TrajectorySummary | CategoryProbabilitySummary;
  */
 export type FitReliability = "not_fitted" | "converged" | "unconverged" | "unknown";
 /**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ActionId".
+ */
+export type ActionId = ScientificActionId | "data_diff";
+/**
  * A scientific action identity selects model editing, data preparation, fitting, or simulation.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
@@ -257,7 +267,7 @@ export type FitReliability = "not_fitted" | "converged" | "unconverged" | "unkno
  */
 export type ScientificActionId = "edit_model" | "prepare_data" | "fit" | "simulate";
 /**
- * An artifact identity selects one node in the machine's artifact graph.
+ * An artifact identity selects one node in the study's artifact graph.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "ArtifactId".
@@ -280,7 +290,6 @@ export type ArtifactViewResponse =
   | ModelSpec
   | MeasurementsData
   | ValidationReportArtifact
-  | PriorPredictiveResult
   | ModelDiagnostics
   | InferenceReport;
 /**
@@ -314,18 +323,22 @@ export type StructuralDisposition =
  */
 export type DataSelection = DataRef | [DataRef, ...DataRef[]];
 /**
- * A runtime event records transition progress, agent activity, or extraction telemetry.
+ * A progress event records one running attempt's step status or extraction telemetry.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "RuntimeEvent".
+ * via the `definition` "ProgressEvent".
  */
-export type RuntimeEvent =
-  | ActionMessageEvent
-  | TransitionRuntimeEvent
-  | ExtractionPlanEvent
-  | ExtractionWorkerEvent
-  | ExtractionSnapshotEvent
-  | ModelSpecAdmissionEvent;
+export type ProgressEvent = StepEvent | ExtractionPlanEvent | ExtractionWorkerEvent | ExtractionSnapshotEvent;
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ProgressStep".
+ */
+export type ProgressStep = "ingestion" | "extraction";
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "StepStatus".
+ */
+export type StepStatus = "running" | "completed" | "failed";
 /**
  * Source validity records whether a fact still matches its pinned inputs.
  *
@@ -340,21 +353,6 @@ export type SourceValidity = "fresh" | "stale";
  * via the `definition` "JournalStatus".
  */
 export type JournalStatus = "applied" | "rejected" | "raised";
-/**
- * An operation identity selects an action independently of its output artifacts.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "OperationId".
- */
-export type OperationId =
-  | "raw_data"
-  | "latent_structure"
-  | "measurement_structure"
-  | "measurements"
-  | "simulated_measurements"
-  | "statistical_model_spec"
-  | "posterior"
-  | "simulate";
 
 /**
  * Combined JSON Schema for exported artifact contracts and facade API models. Generated from Python Pydantic models.
@@ -1235,7 +1233,7 @@ export interface ModelFitResult {
   identification: IdentificationReport;
 }
 /**
- * Display findings recorded by an inference transition, separate from ModelSpec.
+ * Display findings recorded by a fit, separate from ModelSpec.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "InferenceReport".
@@ -1491,345 +1489,15 @@ export interface EffectTrajectoryPoint {
   upper_95: number;
 }
 /**
- * One label emitted by an action; scientific measurements belong in its body.
+ * A recorded comparison of saved observations; the branch and model are unchanged.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ActionMessage".
+ * via the `definition` "DataComparisonResult".
  */
-export interface ActionMessage {
-  timestamp: string;
-  level: "debug" | "info" | "warn" | "error";
-  label: string;
-}
-/**
- * A label emitted by one dispatched action, with replay ordering outside the message.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ActionMessageEvent".
- */
-export interface ActionMessageEvent {
-  cursor: string;
-  event: "nof1-causal-lab.action.message";
-  attempt_id: string;
-  action: ScientificActionId;
-  index: number;
-  message: ActionMessage;
-}
-/**
- * Read an attempt: messages accumulate; a successful commit supplies the body.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ActionPoll".
- */
-export interface ActionPoll {
-  done: boolean;
-  body?: ActionBody | null;
-  messages: ActionMessage[];
-}
-/**
- * A durable dispatch acknowledgment, without a scientific result body.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ActionReceipt".
- */
-export interface ActionReceipt {
-  attempt_id: string;
-}
-/**
- * An action declares a scientific operation and its input and output responsibilities.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ActionSpec".
- */
-export interface ActionSpec {
-  action_id: ScientificActionId;
-  description: string;
-  consumes: ArtifactId[];
-  optional_consumes: ArtifactId[];
-  produces: ArtifactId[];
-  produces_optional: ArtifactId[];
-  derives: ArtifactId[];
-}
-/**
- * An artifact envelope delivers a stored payload with its revision and file
- * list.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ArtifactEnvelope".
- */
-export interface ArtifactEnvelope {
-  workspace_id: string;
-  artifact_id: ArtifactId;
-  revision: GitOid;
-  meta: ArtifactRecord;
-  payload: UncheckedJsonObject;
-  binary_files: string[];
-}
-/**
- * Artifact revision metadata records how a stored artifact was produced and which inputs it
- * used.
- *
- * ``derived_from`` pins the exact input versions the payload was computed
- * from. For initial model revisions it is empty. ``created_at`` is
- * stamped by the activity that produced the revision — never inside workflow
- * code, where wall-clock time is non-deterministic.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ArtifactRecord".
- */
-export interface ArtifactRecord {
-  artifact_id: ArtifactId;
-  revision: GitOid;
-  derived_from: {
-    [k: string]: GitOid;
-  };
-  model_inputs: {
-    [k: string]: string;
-  };
-  consumed_model_inputs: {
-    [k: string]: string;
-  };
-  produced_by?: string | null;
-  created_at: string;
-}
-/**
- * An unchecked JSON object carries data across a boundary before domain validation.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "UncheckedJsonObject".
- */
-export interface UncheckedJsonObject {
-  [k: string]: any;
-}
-/**
- * An artifact file specification declares its JSON payloads, tables, and executable binaries.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ArtifactFileSpec".
- */
-export interface ArtifactFileSpec {
-  json: {
-    [k: string]: string;
-  };
-  parquet: {
-    [k: string]: string;
-  };
-}
-/**
- * An artifact's presence and freshness are derived from the selected journal revision.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ArtifactFreshness".
- */
-export interface ArtifactFreshness {
-  artifact_id: ArtifactId;
-  exists: boolean;
-  stale: boolean;
-  revision?: GitOid | null;
-  retracted: boolean;
-  produced_by?: string | null;
-}
-/**
- * Profile and representative rows from one uploaded table revision.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "RawDataData".
- */
-export interface RawDataData {
-  n_records: number;
-  n_columns: number;
-  date_range: RawDataDateRange;
-  sample: {
-    [k: string]: string | null;
-  }[];
-  column_descriptions: RawDataColumnDescription[];
-}
-/**
- * Observed date bounds of the uploaded table, when it contains a date column.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "RawDataDateRange".
- */
-export interface RawDataDateRange {
-  start: string;
-  end: string;
-}
-/**
- * A stored column's physical type and authored interpretation.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "RawDataColumnDescription".
- */
-export interface RawDataColumnDescription {
-  name: string;
-  dtype: string;
-  description: string;
-}
-/**
- * Simulated observations and checks recorded by a model-authoring operation.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "PriorPredictiveResult".
- */
-export interface PriorPredictiveResult {
-  samples: {
-    [k: string]: number[];
-  };
-  diagnostics: PriorPredictiveDiagnostic[];
-}
-/**
- * A measured prior-predictive check and its evaluation criteria.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "PriorPredictiveDiagnostic".
- */
-export interface PriorPredictiveDiagnostic {
-  check: string;
-  construct_id: ConstructId;
-  target: string;
-  value: string;
-  band: string;
-  passed: boolean;
-  note: string;
-  reason?: string | null;
-  diagnosis: string[];
-  mode: string;
-}
-/**
- * Server-derived equations and comparisons with pinned observations.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ModelDiagnostics".
- */
-export interface ModelDiagnostics {
-  confounder_equations: StateEquation[];
-  state_equations: StateEquation[];
-  observation_equations: {
-    [k: string]: string;
-  };
-  likelihood_diagnostics: {
-    [k: string]: LikelihoodDiagnostics;
-  };
-  prior_densities: {
-    [k: string]: DensityPoint[];
-  };
-}
-/**
- * A continuous-time state equation rendered from declared scientific mechanisms.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "StateEquation".
- */
-export interface StateEquation {
-  construct_id: ConstructId;
-  label: string;
-  latex: string;
-}
-/**
- * Observed values and validation profile for one likelihood's pinned panel.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "LikelihoodDiagnostics".
- */
-export interface LikelihoodDiagnostics {
-  indicator_id: IndicatorId;
-  profile: IndicatorEmpiricalProfile | null;
-  histogram: HistogramBin[];
-  prior_counts?: number[] | null;
-  prior_outside_fraction?: number | null;
-}
-/**
- * A plotting coordinate evaluated from the native prior's log density.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "DensityPoint".
- */
-export interface DensityPoint {
-  x: number;
-  y: number;
-}
-/**
- * This response tells clients whether the episode facade supports scientific actions.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "CapabilitiesResponse".
- */
-export interface CapabilitiesResponse {
-  actions_enabled: boolean;
-}
-/**
- * Endpoint references and description for one side of a causal edge comparison.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ComparisonConnection".
- */
-export interface ComparisonConnection {
-  cause: ConstructRef;
-  effect: ConstructRef;
-  description: string;
-}
-/**
- * A construct's presence and time-slice topology in two model revisions.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ConstructComparison".
- */
-export interface ConstructComparison {
-  construct_id: ConstructId;
-  before: ConstructSpec | null;
-  after: ConstructSpec | null;
-  change: "added" | "removed" | "revised" | "unchanged";
-  before_disposition: StructuralItemDisposition | null;
-  after_disposition: StructuralItemDisposition | null;
-}
-/**
- * An item disposition explains the compilation decision for one identified authored
- * entity.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "StructuralItemDisposition".
- */
-export interface StructuralItemDisposition {
-  target: ConstructRef | EdgeRef | IndicatorRef;
-  disposition: StructuralDisposition;
-  reason: string;
-}
-/**
- * An edge reference identifies a causal relationship independently of edits to its
- * definition.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "EdgeRef".
- */
-export interface EdgeRef {
-  kind: "edge";
-  id: EdgeId;
-}
-/**
- * An indicator reference identifies a measurement definition independently of its name or
- * revision.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "IndicatorRef".
- */
-export interface IndicatorRef {
-  kind: "indicator";
-  id: IndicatorId;
-}
-/**
- * An interaction context declares the tools and machine actions available to an agent.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ContextSpec".
- */
-export interface ContextSpec {
-  context_id: string;
-  layer: "navigator" | "registry" | "machine" | "delegated" | "tool";
-  label: string;
-  parent_id?: string | null;
-  owns: ArtifactId[];
-  allowed_tools: string[];
-  runtime_state: string[];
+export interface DataComparisonResult {
+  action: "data_diff";
+  commit_id: GitOid;
+  report: DataDiffReport;
 }
 /**
  * Comparisons of existing data, preserving each history's immutable source reference.
@@ -1923,25 +1591,268 @@ export interface DataStatisticComparison {
   right_histogram: HistogramBin[];
 }
 /**
+ * One label emitted by an action; scientific measurements belong in its body.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ActionMessage".
+ */
+export interface ActionMessage {
+  timestamp: string;
+  level: "debug" | "info" | "warn" | "error";
+  label: string;
+}
+/**
+ * Read an attempt: messages accumulate; a successful commit supplies the body.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ActionPoll".
+ */
+export interface ActionPoll {
+  done: boolean;
+  body?: ActionBody | null;
+  messages: ActionMessage[];
+}
+/**
+ * A durable dispatch acknowledgment, without a scientific result body.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ActionReceipt".
+ */
+export interface ActionReceipt {
+  attempt_id: string;
+}
+/**
+ * An artifact envelope delivers a stored payload with its revision and file
+ * list.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ArtifactEnvelope".
+ */
+export interface ArtifactEnvelope {
+  workspace_id: string;
+  artifact_id: ArtifactId;
+  revision: GitOid;
+  meta: ArtifactRecord;
+  payload: JsonObject;
+  binary_files: string[];
+}
+/**
+ * Artifact revision metadata records how a stored artifact was produced and which inputs it
+ * used.
+ *
+ * ``derived_from`` pins the exact input versions the payload was computed
+ * from. For initial model revisions it is empty. ``created_at`` is
+ * stamped by the activity that produced the revision — never inside workflow
+ * code, where wall-clock time is non-deterministic.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ArtifactRecord".
+ */
+export interface ArtifactRecord {
+  artifact_id: ArtifactId;
+  revision: GitOid;
+  derived_from: {
+    [k: string]: GitOid;
+  };
+  model_inputs: {
+    [k: string]: string;
+  };
+  consumed_model_inputs: {
+    [k: string]: string;
+  };
+  produced_by?: string | null;
+  created_at: string;
+}
+/**
+ * An artifact's presence and freshness are derived from the selected journal revision.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ArtifactFreshness".
+ */
+export interface ArtifactFreshness {
+  artifact_id: ArtifactId;
+  exists: boolean;
+  stale: boolean;
+  revision?: GitOid | null;
+  retracted: boolean;
+  produced_by?: string | null;
+}
+/**
+ * Profile and representative rows from one uploaded table revision.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "RawDataData".
+ */
+export interface RawDataData {
+  n_records: number;
+  n_columns: number;
+  date_range: RawDataDateRange;
+  sample: {
+    [k: string]: string | null;
+  }[];
+  column_descriptions: RawDataColumnDescription[];
+}
+/**
+ * Observed date bounds of the uploaded table, when it contains a date column.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "RawDataDateRange".
+ */
+export interface RawDataDateRange {
+  start: string;
+  end: string;
+}
+/**
+ * A stored column's physical type and authored interpretation.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "RawDataColumnDescription".
+ */
+export interface RawDataColumnDescription {
+  name: string;
+  dtype: string;
+  description: string;
+}
+/**
+ * Server-derived equations and comparisons with pinned observations.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ModelDiagnostics".
+ */
+export interface ModelDiagnostics {
+  confounder_equations: StateEquation[];
+  state_equations: StateEquation[];
+  observation_equations: {
+    [k: string]: string;
+  };
+  likelihood_diagnostics: {
+    [k: string]: LikelihoodDiagnostics;
+  };
+  prior_densities: {
+    [k: string]: DensityPoint[];
+  };
+}
+/**
+ * A continuous-time state equation rendered from declared scientific mechanisms.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "StateEquation".
+ */
+export interface StateEquation {
+  construct_id: ConstructId;
+  label: string;
+  latex: string;
+}
+/**
+ * Observed values and validation profile for one likelihood's pinned panel.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "LikelihoodDiagnostics".
+ */
+export interface LikelihoodDiagnostics {
+  indicator_id: IndicatorId;
+  profile: IndicatorEmpiricalProfile | null;
+  histogram: HistogramBin[];
+}
+/**
+ * A plotting coordinate evaluated from the native prior's log density.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "DensityPoint".
+ */
+export interface DensityPoint {
+  x: number;
+  y: number;
+}
+/**
+ * Promoted traces identified by their committed execution sequence.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "AttemptTraceIndex".
+ */
+export interface AttemptTraceIndex {
+  workspace_id: string;
+  commit_id: GitOid;
+  trace_ids: string[];
+}
+/**
+ * This response tells clients whether the study facade supports scientific actions.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "CapabilitiesResponse".
+ */
+export interface CapabilitiesResponse {
+  actions_enabled: boolean;
+}
+/**
+ * Endpoint references and description for one side of a causal edge comparison.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ComparisonConnection".
+ */
+export interface ComparisonConnection {
+  cause: ConstructRef;
+  effect: ConstructRef;
+  description: string;
+}
+/**
+ * A construct's presence and time-slice topology in two model revisions.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ConstructComparison".
+ */
+export interface ConstructComparison {
+  construct_id: ConstructId;
+  before: ConstructSpec | null;
+  after: ConstructSpec | null;
+  change: "added" | "removed" | "revised" | "unchanged";
+  before_disposition: StructuralItemDisposition | null;
+  after_disposition: StructuralItemDisposition | null;
+}
+/**
+ * An item disposition explains the compilation decision for one identified authored
+ * entity.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "StructuralItemDisposition".
+ */
+export interface StructuralItemDisposition {
+  target: ConstructRef | EdgeRef | IndicatorRef;
+  disposition: StructuralDisposition;
+  reason: string;
+}
+/**
+ * An edge reference identifies a causal relationship independently of edits to its
+ * definition.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "EdgeRef".
+ */
+export interface EdgeRef {
+  kind: "edge";
+  id: EdgeId;
+}
+/**
+ * An indicator reference identifies a measurement definition independently of its name or
+ * revision.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "IndicatorRef".
+ */
+export interface IndicatorRef {
+  kind: "indicator";
+  id: IndicatorId;
+}
+/**
  * Compare two immutable data selections, each containing one or more histories.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "DataDiffRequest".
  */
 export interface DataDiffRequest {
+  action: "data_diff";
   left: DataSelection;
   right: DataSelection;
-}
-/**
- * A derivation declares an artifact maintained atomically with its input versions.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "Derivation".
- */
-export interface Derivation {
-  produces: ArtifactId;
-  from: ArtifactId[];
-  optional: boolean;
 }
 /**
  * An explicit causal edge's presence and endpoints in two model revisions.
@@ -1967,118 +1878,60 @@ export interface EmpiricalPoint {
   count: number;
 }
 /**
- * Episode state projects the artifact trees selected by one Git commit.
- *
- * ``current`` maps artifact id → the revision info that is *current* for the
- * episode. Absent key = the artifact does not exist (either never produced,
- * or produced-when-nonempty semantics withheld it).
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "EpisodeState".
- */
-export interface EpisodeState {
-  current: {
-    [k: string]: ArtifactRecord;
-  };
-  checks?: ModelCheckReport | null;
-}
-/**
- * Checks selected by their consumed inputs, retained with the study snapshot.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ModelCheckReport".
- */
-export interface ModelCheckReport {
-  input_keys: {
-    [k: string]: string;
-  };
-  specification: SpecificationReport;
-  predictive?: ModelPredictiveReport | null;
-  reused: (CheckGroup | "predictive")[];
-}
-/**
- * Episode status reports committed artifacts, their freshness, actions, and any running one.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "EpisodeStatus".
- */
-export interface EpisodeStatus {
-  workspace_id: string;
-  branch: string;
-  commit_id?: GitOid | null;
-  seq: number;
-  state: EpisodeState;
-  artifacts: ArtifactFreshness[];
-  actions: ScientificActionId[];
-  running: RunningAction | null;
-}
-/**
- * The attempt an episode is executing, with the labels it has emitted so far.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "RunningAction".
- */
-export interface RunningAction {
-  attempt_id: string;
-  action: ScientificActionId;
-  branch: string;
-  messages: ActionMessage[];
-}
-/**
- * An events response pages runtime telemetry without reconstructing model state.
+ * An events response pages one running attempt's live progress.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "EventsResponse".
  */
 export interface EventsResponse {
   workspace_id: string;
-  events: RuntimeEvent[];
+  events: ProgressEvent[];
 }
 /**
- * One transition lifecycle event, identified by its event name.
+ * A data-preparation step changed status.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "TransitionRuntimeEvent".
+ * via the `definition` "StepEvent".
  */
-export interface TransitionRuntimeEvent {
+export interface StepEvent {
+  attempt_id: string;
   cursor: string;
-  event:
-    | "nof1-causal-lab.transition.running"
-    | "nof1-causal-lab.transition.completed"
-    | "nof1-causal-lab.transition.failed";
-  transition_id: string;
-  error?: RuntimeEventError | null;
+  event: "nof1-causal-lab.step";
+  step: ProgressStep;
+  status: StepStatus;
+  error?: StepError | null;
 }
 /**
- * Serialized transition failure.
+ * The error type and message of a failed step.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "RuntimeEventError".
+ * via the `definition` "StepError".
  */
-export interface RuntimeEventError {
+export interface StepError {
   type: string;
   message: string;
 }
 /**
- * Static extraction fan-out plan.
+ * The extraction fan-out plan.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "ExtractionPlanEvent".
  */
 export interface ExtractionPlanEvent {
+  attempt_id: string;
   cursor: string;
   event: "nof1-causal-lab.extraction.plan";
   total_workers: number;
   max_concurrent_workers?: number | null;
-  max_rpm?: number | null;
 }
 /**
- * One extraction worker state transition.
+ * One extraction worker's state; a worker reports its LLM calls when it finishes.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "ExtractionWorkerEvent".
  */
 export interface ExtractionWorkerEvent {
+  attempt_id: string;
   cursor: string;
   event: "nof1-causal-lab.extraction.worker";
   worker_id: number;
@@ -2089,12 +1942,13 @@ export interface ExtractionWorkerEvent {
   error?: string | null;
 }
 /**
- * Aggregate extraction progress snapshot.
+ * Aggregate extraction worker counts.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "ExtractionSnapshotEvent".
  */
 export interface ExtractionSnapshotEvent {
+  attempt_id: string;
   cursor: string;
   event: "nof1-causal-lab.extraction.snapshot";
   total_workers: number;
@@ -2102,26 +1956,6 @@ export interface ExtractionSnapshotEvent {
   running_workers: number;
   completed_workers: number;
   failed_workers: number;
-  llm_requests_last_60s: number;
-}
-/**
- * Recorded construct-admission event from an earlier study history.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ModelSpecAdmissionEvent".
- */
-export interface ModelSpecAdmissionEvent {
-  cursor: string;
-  event:
-    | "nof1-causal-lab.model-spec.admission.plan"
-    | "nof1-causal-lab.model-spec.admission.resumed"
-    | "nof1-causal-lab.model-spec.admission.construct_started"
-    | "nof1-causal-lab.model-spec.admission.construct_checking"
-    | "nof1-causal-lab.model-spec.admission.construct_report"
-    | "nof1-causal-lab.model-spec.admission.barrier_report"
-    | "nof1-causal-lab.model-spec.admission.done"
-    | "nof1-causal-lab.model-spec.admission.failed";
-  payload: JsonObject;
 }
 /**
  * A fact source locates supporting content within an artifact revision and records its freshness.
@@ -2219,11 +2053,32 @@ export interface TraceMessage {
   role: string;
   content: string;
   reasoning?: string | null;
-  tool_calls?: UncheckedJsonObject[] | null;
+  tool_calls?: TraceToolCall[] | null;
   tool_call_id?: string | null;
   tool_name?: string | null;
   tool_result?: string | null;
   tool_is_error: boolean;
+}
+/**
+ * A function invocation with the call identity used to match its result.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "TraceToolCall".
+ */
+export interface TraceToolCall {
+  id: string;
+  type: "function";
+  function: TraceFunctionCall;
+}
+/**
+ * The invoked tool function and its JSON argument string, retained in a trace.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "TraceFunctionCall".
+ */
+export interface TraceFunctionCall {
+  name: string;
+  arguments: string;
 }
 /**
  * Trace usage records the input, output, and reasoning tokens consumed by a conversation.
@@ -2235,47 +2090,6 @@ export interface TraceUsage {
   input_tokens: number;
   output_tokens: number;
   reasoning_tokens?: number | null;
-}
-/**
- * The machine description exposes the artifact graph, storage contracts, and action hierarchy.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "MachineDescription".
- */
-export interface MachineDescription {
-  artifact_ids: ArtifactId[];
-  topological_artifact_order: ArtifactId[];
-  topological_transition_order: OperationId[];
-  contexts: ContextSpec[];
-  actions: ActionSpec[];
-  roots: Root[];
-  transitions: MachineTransition[];
-  derivations: Derivation[];
-  files: {
-    [k: string]: ArtifactFileSpec;
-  };
-}
-/**
- * A root declares an independently writable artifact and any contextual input pins.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "Root".
- */
-export interface Root {
-  artifact_id: ArtifactId;
-}
-/**
- * A transition declares the artifacts it consumes and produces and how it can run.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "MachineTransition".
- */
-export interface MachineTransition {
-  transition_id: OperationId;
-  consumes: ArtifactId[];
-  produces: ArtifactId[];
-  produces_optional: ArtifactId[];
-  creation_class: "deterministic" | "batch_llm" | "judgment";
 }
 /**
  * Exact conditional drift contributions, not marginal or total causal effects.
@@ -2337,6 +2151,20 @@ export interface MechanismViewRequest {
   start: number;
   count: number;
   points: number;
+}
+/**
+ * Checks selected by their consumed inputs, retained with the study snapshot.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ModelCheckReport".
+ */
+export interface ModelCheckReport {
+  input_keys: {
+    [k: string]: string;
+  };
+  specification: SpecificationReport;
+  predictive?: ModelPredictiveReport | null;
+  reused: (CheckGroup | "predictive")[];
 }
 /**
  * Observed evidence paired with its source versions.
@@ -2457,7 +2285,6 @@ export interface ModelFindings {
   dispositions?: SourcedTupleStructuralItemDisposition | null;
   graph: ModelGraphView;
   validation_report?: SourcedValidationReportArtifact | null;
-  prior_predictive?: SourcedPriorPredictiveResult | null;
   diagnostics?: ModelDiagnostics | null;
   fit?: SourcedFitSummary | null;
   specification?: SourcedSpecificationReport | null;
@@ -2506,16 +2333,6 @@ export interface ModelGraphView {
  */
 export interface SourcedValidationReportArtifact {
   value: ValidationReportArtifact;
-  source: FactSource;
-}
-/**
- * A sourced value pairs one model finding with its supporting artifact revision.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "Sourced_PriorPredictiveResult_".
- */
-export interface SourcedPriorPredictiveResult {
-  value: PriorPredictiveResult;
   source: FactSource;
 }
 /**
@@ -2593,7 +2410,6 @@ export interface SnapshotContext {
   branch: string;
   can_simulate: boolean;
   state: SnapshotState;
-  artifacts: ArtifactFreshness[];
 }
 /**
  * A snapshot state lists the artifact revisions current at the selected commit.
@@ -2676,15 +2492,19 @@ export interface PredictiveHistory {
   overlay: PPCOverlay;
 }
 /**
- * Recorded checkpoint reference in historical authoring attempts.
+ * A journal record used an output of an earlier record.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ResumeRef".
+ * via the `definition` "RecordDependency".
  */
-export interface ResumeRef {
-  kind: "model_spec";
-  run_id: string;
-  checkpoint_id: string;
+export interface RecordDependency {
+  seq: number;
+  source_seq: number;
+  argument: string;
+  /**
+   * Only the action's checks read the output; its request did not name it.
+   */
+  check: boolean;
 }
 /**
  * A current artifact removed by an action, with the finding that caused it.
@@ -2706,6 +2526,18 @@ export interface RevisionCatalog {
   models: ArtifactRecord[];
   raw_data: ArtifactRecord[];
   panels: ArtifactRecord[];
+}
+/**
+ * The attempt a study is executing, with the labels it has emitted so far.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "RunningAction".
+ */
+export interface RunningAction {
+  attempt_id: string;
+  action: ActionId;
+  branch: string;
+  messages: ActionMessage[];
 }
 /**
  * Contiguous pages of original draws, with every recorded time point intact.
@@ -2738,46 +2570,66 @@ export interface StudyRevision {
   attempt_id?: string | null;
   branch: string;
   ts: string;
-  action: ScientificActionId;
+  action: ActionId;
   inputs: JsonObject;
-  operation_id?: OperationId | null;
   status: JournalStatus;
   reason?: string | null;
   error_type?: string | null;
   error_message?: string | null;
-  diagnostics: UncheckedJsonObject;
+  diagnostics: JsonObject;
   checks?: ModelCheckReport | null;
   messages: ActionMessage[];
   produced: ArtifactRecord[];
   retracted: RetractedArtifact[];
   trace_ids: string[];
-  resume: ResumeRef | null;
   commit_id: GitOid;
   parent_ids: GitOid[];
 }
 /**
- * Typed transition journal returned by the episode read plane.
+ * Study state projects the artifact trees selected by one Git commit.
+ *
+ * ``current`` maps artifact id → the revision info that is *current* for the
+ * study. Absent key = the artifact does not exist (either never produced,
+ * or produced-when-nonempty semantics withheld it).
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "StudyState".
+ */
+export interface StudyState {
+  current: {
+    [k: string]: ArtifactRecord;
+  };
+  checks?: ModelCheckReport | null;
+}
+/**
+ * Study status reports committed artifacts, their freshness, actions, and any running one.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "StudyStatus".
+ */
+export interface StudyStatus {
+  workspace_id: string;
+  branch: string;
+  commit_id?: GitOid | null;
+  seq: number;
+  state: StudyState;
+  artifacts: ArtifactFreshness[];
+  actions: ScientificActionId[];
+  running: RunningAction | null;
+}
+/**
+ * Typed attempt journal returned by the study read plane.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "TimelineResponse".
  */
 export interface TimelineResponse {
   workspace_id: string;
-  transitions: StudyRevision[];
+  attempts: StudyRevision[];
   branches: {
     [k: string]: GitOid;
   };
-}
-/**
- * Promoted traces identified by their committed execution sequence.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "TransitionTraceIndex".
- */
-export interface TransitionTraceIndex {
-  workspace_id: string;
-  commit_id: GitOid;
-  trace_ids: string[];
+  dependencies: RecordDependency[];
 }
 /**
  * An upload response identifies the stored location of an accepted data upload.

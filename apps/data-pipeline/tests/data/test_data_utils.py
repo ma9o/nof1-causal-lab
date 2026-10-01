@@ -1,9 +1,15 @@
 """Tests for utils/data.py dataframe utility functions."""
 
 from datetime import UTC, datetime, timedelta
+from typing import TYPE_CHECKING
 
 import polars as pl
 import pytest
+
+from nof1_causal_lab.artifacts.identity import IndicatorId
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.workers.context import MeasurementContext
 
 pytestmark = pytest.mark.contract
 
@@ -23,11 +29,11 @@ class TestAnnotateObservationRows:
                 "timestamp": ["2024-01-01T00:00:00Z"],
             }
         )
-        measurement_structure = {
+        measurement_structure: MeasurementContext = {
             "model_clock": "1d",
             "indicators": [
                 {
-                    "id": "indicator:3696aef3ff6f446744e5",
+                    "id": IndicatorId("indicator:3696aef3ff6f446744e5"),
                     "name": "stress_score",
                     "measurement_dtype": "continuous",
                     "aggregation": "mean",
@@ -55,11 +61,11 @@ class TestAnnotateObservationRows:
                 "timestamp": ["2024-01-01T00:00:00Z"],
             }
         )
-        measurement_structure = {
+        measurement_structure: MeasurementContext = {
             "model_clock": "1d",
             "indicators": [
                 {
-                    "id": "indicator:8172ff8b9182b2e869c5",
+                    "id": IndicatorId("indicator:8172ff8b9182b2e869c5"),
                     "name": "monthly_stress_score",
                     "measurement_dtype": "continuous",
                     "aggregation": "mean",
@@ -86,11 +92,11 @@ class TestAnnotateObservationRows:
                 "timestamp": ["2024-01-01T00:00:00Z"],
             }
         )
-        measurement_structure = {
+        measurement_structure: MeasurementContext = {
             "model_clock": "1d",
             "indicators": [
                 {
-                    "id": "indicator:5dc4b94693df7e0aef53",
+                    "id": IndicatorId("indicator:5dc4b94693df7e0aef53"),
                     "name": "closing_mood",
                     "measurement_dtype": "continuous",
                     "aggregation": "last",

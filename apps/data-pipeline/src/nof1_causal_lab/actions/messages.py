@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING, Literal
 
 from pydantic import TypeAdapter
 
-from nof1_causal_lab.actions.results import ActionMessage
 from nof1_causal_lab.artifacts.identification import IdentificationReport
 from nof1_causal_lab.artifacts.posterior import InferenceReport
 from nof1_causal_lab.artifacts.simulation import SimulationReport
@@ -15,21 +14,22 @@ from nof1_causal_lab.artifacts.validation_report import (
     ValidationReportArtifact,
 )
 from nof1_causal_lab.json_types import JsonObject
-from nof1_causal_lab.machine.store import ArtifactStore
 from nof1_causal_lab.models.ssm.inference.convergence import convergence_failures
+from nof1_causal_lab.study.records import ActionMessage
+from nof1_causal_lab.study.store import ArtifactStore
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
     from datetime import datetime
 
-    from nof1_causal_lab.artifacts.identity import ScientificActionId
+    from nof1_causal_lab.artifacts.identity import ActionId
     from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
-    from nof1_causal_lab.machine.artifacts import ArtifactRecord
+    from nof1_causal_lab.study.state import ArtifactRecord
 
 
 def completion_messages(
     workspace_id: str,
-    action: ScientificActionId,
+    action: ActionId,
     produced: list[ArtifactRecord],
     diagnostics: Mapping[str, object],
     timestamp: datetime,

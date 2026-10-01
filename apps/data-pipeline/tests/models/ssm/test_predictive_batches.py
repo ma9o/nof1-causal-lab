@@ -1,5 +1,8 @@
 """Predictive batch boundaries and exact discrete diagnostic statistics."""
 
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from pathlib import Path
+
 from dataclasses import replace
 
 import jax
@@ -12,7 +15,6 @@ from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
 from nof1_causal_lab.models.ssm.likelihood_extra_params import assemble_sampled_extra_params
 from nof1_causal_lab.models.ssm.predictive.statistics import observation_signal_and_variance
 from nof1_causal_lab.models.ssm.predictive.types import PredictiveDraws, PredictiveTrajectory
-from tests.model_fixtures import model_fixture
 
 
 def _trajectory():
@@ -63,13 +65,7 @@ def test_predictive_batch_preserves_pairing_and_rejects_misaligned_parameters():
 
 @pytest.mark.inference(concern="predictive")
 def test_discrete_diagnostics_share_cutpoints_anchors_and_padded_probabilities():
-    spec = model_fixture(
-        n_latent=2,
-        n_manifest=2,
-        dynamics_spec=DynamicsSpec(2),
-        manifest_dists=["ordered_logistic", "categorical"],
-        manifest_level_counts=[4, 2],
-    )
+    spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'predictive_batches/discrete_diagnostics_share_cutpoints_anchors_and_padded_probabilities_model_fixture.json').read_text())
     raw = {
         "obs_ordered_base": jnp.array([[0.0, 0.0], [1.0, 0.0]]),
         "obs_ordered_gaps": jnp.ones((2, 2, 2)),
@@ -115,9 +111,7 @@ def test_scalar_diagnostics_use_projected_means_at_supported_times():
         ),
     )
     signal, variance = observation_signal_and_variance(
-        model_fixture(
-            n_latent=2, dynamics_spec=DynamicsSpec(2), manifest_dists=["poisson", "gaussian"]
-        ),
+        ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'predictive_batches/scalar_diagnostics_use_projected_means_at_supported_times_model_fixture.json').read_text()),
         batch,
         0,
         np.array([1, 2]),
@@ -137,9 +131,7 @@ def test_undefined_student_moments_produce_an_explicit_diagnostic():
         trajectory=paths,
     )
     signal, variance = observation_signal_and_variance(
-        model_fixture(
-            n_latent=2, dynamics_spec=DynamicsSpec(2), manifest_dists=["student_t", "gaussian"]
-        ),
+        ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'predictive_batches/undefined_student_moments_produce_an_explicit_diagnostic_model_fixture.json').read_text()),
         batch,
         0,
         np.arange(3),
@@ -151,25 +143,20 @@ def test_undefined_student_moments_produce_an_explicit_diagnostic():
 
 
 @pytest.mark.inference(concern="predictive")
-@pytest.mark.parametrize(
-    ("families", "interval", "expected_variance"),
-    [
-        (["gaussian"], False, 1e-12 + 1e-8),
-        (["gaussian", "poisson"], False, 1e-10),
-        (["gaussian", "poisson"], True, 1e-12 + 1e-8),
-        (["student_t"], False, 1e-10 * 5.0 / 3.0),
-        (["student_t"], True, 1e-12 * 5.0 / 3.0),
-    ],
-)
+@pytest.mark.parametrize(('families', 'interval', 'expected_variance', 'model_fixture_payload'), [
+    pytest.param(['gaussian'], False, 1.0001e-08, 'predictive_batches/diagnostic_noise_matches_point_and_interval_execution_model_fixture_families0-false-1_0001e-08.json', id='families0-False-1.0001e-08'),
+    pytest.param(['gaussian', 'poisson'], False, 1e-10, 'predictive_batches/diagnostic_noise_matches_point_and_interval_execution_model_fixture_families1-false-1e-10.json', id='families1-False-1e-10'),
+    pytest.param(['gaussian', 'poisson'], True, 1.0001e-08, 'predictive_batches/diagnostic_noise_matches_point_and_interval_execution_model_fixture_families2-true-1_0001e-08.json', id='families2-True-1.0001e-08'),
+    pytest.param(['student_t'], False, 1.6666666666666669e-10, 'predictive_batches/diagnostic_noise_matches_point_and_interval_execution_model_fixture_families3-false-1_6666666666666669e-10.json', id='families3-False-1.6666666666666669e-10'),
+    pytest.param(['student_t'], True, 1.6666666666666666e-12, 'predictive_batches/diagnostic_noise_matches_point_and_interval_execution_model_fixture_families4-true-1_6666666666666666e-12.json', id='families4-True-1.6666666666666666e-12'),
+])
 def test_diagnostic_noise_matches_point_and_interval_execution(
     families, interval, expected_variance
-):
+, model_fixture_payload):
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
     channels = len(families)
-    spec = model_fixture(
-        n_latent=channels, dynamics_spec=DynamicsSpec(channels), manifest_dists=families
-    )
+    spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / model_fixture_payload).read_text())
     values = jnp.zeros((2, 3, channels))
     prediction = PredictiveDraws(
         parameters={

@@ -1,0 +1,495 @@
+{
+  "question": null,
+  "edges": [
+    {
+      "id": "edge:22b7edc253c399fa0973",
+      "mechanisms": [],
+      "cause": {
+        "id": "construct:98907cc586bfcf98c836",
+        "name": "latent_0",
+        "description": "Test state",
+        "indicators": [
+          {
+            "id": "indicator:a6c99a629d09c47f8b69",
+            "name": "manifest_0",
+            "measurement_dtype": "continuous",
+            "aggregation": "last",
+            "observation_window": null,
+            "fill_null": null,
+            "fill_null_limit": null,
+            "ordinal_levels": null,
+            "categorical_levels": null,
+            "likelihood": {
+              "law": {
+                "distribution": "Normal",
+                "arguments": {
+                  "loc": {
+                    "kind": "binary",
+                    "operator": "add",
+                    "left": {
+                      "kind": "coefficient",
+                      "role": "observation_intercept",
+                      "value": 0.0,
+                      "construct_ids": []
+                    },
+                    "right": {
+                      "kind": "binary",
+                      "operator": "multiply",
+                      "left": {
+                        "kind": "coefficient",
+                        "role": "loading",
+                        "value": 1.0,
+                        "construct_ids": []
+                      },
+                      "right": {
+                        "kind": "state",
+                        "construct_id": "construct:98907cc586bfcf98c836"
+                      }
+                    }
+                  },
+                  "scale": {
+                    "kind": "coefficient",
+                    "role": "observation_scale",
+                    "value": 0.4000000059604645,
+                    "construct_ids": []
+                  }
+                }
+              },
+              "standardized": false,
+              "reasoning": "Test likelihood",
+              "sources": []
+            },
+            "construct_polarity": "positive"
+          }
+        ],
+        "dynamics": [
+          {
+            "id": "mechanism:096e3522d5b5a78dfd59",
+            "kind": "drift",
+            "expression": {
+              "kind": "binary",
+              "operator": "subtract",
+              "left": {
+                "kind": "binary",
+                "operator": "multiply",
+                "left": {
+                  "kind": "binary",
+                  "operator": "multiply",
+                  "left": {
+                    "kind": "literal",
+                    "value": -1.0
+                  },
+                  "right": {
+                    "kind": "coefficient",
+                    "role": "decay",
+                    "value": "parameter:e7e20d74af8aa47e58ffca403670f3912bcddafed670860906dee61462d2c669",
+                    "construct_ids": []
+                  }
+                },
+                "right": {
+                  "kind": "binary",
+                  "operator": "subtract",
+                  "left": {
+                    "kind": "state",
+                    "construct_id": "construct:98907cc586bfcf98c836"
+                  },
+                  "right": {
+                    "kind": "coefficient",
+                    "role": "center",
+                    "value": 0.0,
+                    "construct_ids": []
+                  }
+                }
+              },
+              "right": {
+                "kind": "binary",
+                "operator": "multiply",
+                "left": {
+                  "kind": "coefficient",
+                  "role": "quartic",
+                  "value": 0.0,
+                  "construct_ids": []
+                },
+                "right": {
+                  "kind": "binary",
+                  "operator": "power",
+                  "left": {
+                    "kind": "binary",
+                    "operator": "subtract",
+                    "left": {
+                      "kind": "state",
+                      "construct_id": "construct:98907cc586bfcf98c836"
+                    },
+                    "right": {
+                      "kind": "coefficient",
+                      "role": "center",
+                      "value": 0.0,
+                      "construct_ids": []
+                    }
+                  },
+                  "right": {
+                    "kind": "literal",
+                    "value": 3.0
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "coefficients": [
+          {
+            "kind": "coefficient",
+            "role": "diffusion_scale",
+            "value": 0.30000001192092896,
+            "construct_ids": []
+          },
+          {
+            "kind": "coefficient",
+            "role": "initial_mean",
+            "value": 0.5,
+            "construct_ids": []
+          },
+          {
+            "kind": "coefficient",
+            "role": "initial_scale",
+            "value": 0.699999988079071,
+            "construct_ids": []
+          }
+        ],
+        "innovation_family": "gaussian",
+        "distribution": null,
+        "role": "endogenous",
+        "temporal_status": "time_varying"
+      },
+      "effect": {
+        "id": "construct:numerical_test_outcome",
+        "name": "numerical_test_outcome",
+        "description": "Unmeasured downstream response joining the numerical test states.",
+        "indicators": [],
+        "dynamics": [],
+        "coefficients": [],
+        "innovation_family": "gaussian",
+        "distribution": null,
+        "role": "endogenous",
+        "temporal_status": "time_varying"
+      },
+      "description": "Fixture causal assumption",
+      "sources": []
+    },
+    {
+      "id": "edge:be3583ef76b3b69c10eb",
+      "mechanisms": [],
+      "cause": {
+        "id": "construct:ecc61dc544b34662cb8a",
+        "name": "latent_1",
+        "description": "Test state",
+        "indicators": [
+          {
+            "id": "indicator:c0bf518a25306a72d19b",
+            "name": "manifest_1",
+            "measurement_dtype": "continuous",
+            "aggregation": "last",
+            "observation_window": null,
+            "fill_null": null,
+            "fill_null_limit": null,
+            "ordinal_levels": null,
+            "categorical_levels": null,
+            "likelihood": {
+              "law": {
+                "distribution": "Normal",
+                "arguments": {
+                  "loc": {
+                    "kind": "binary",
+                    "operator": "add",
+                    "left": {
+                      "kind": "binary",
+                      "operator": "add",
+                      "left": {
+                        "kind": "coefficient",
+                        "role": "observation_intercept",
+                        "value": 0.0,
+                        "construct_ids": []
+                      },
+                      "right": {
+                        "kind": "binary",
+                        "operator": "multiply",
+                        "left": {
+                          "kind": "coefficient",
+                          "role": "loading",
+                          "value": 1.0,
+                          "construct_ids": []
+                        },
+                        "right": {
+                          "kind": "state",
+                          "construct_id": "construct:ecc61dc544b34662cb8a"
+                        }
+                      }
+                    },
+                    "right": {
+                      "kind": "binary",
+                      "operator": "multiply",
+                      "left": {
+                        "kind": "coefficient",
+                        "role": "loading",
+                        "value": 0.20000000298023224,
+                        "construct_ids": []
+                      },
+                      "right": {
+                        "kind": "state",
+                        "construct_id": "construct:98907cc586bfcf98c836"
+                      }
+                    }
+                  },
+                  "scale": {
+                    "kind": "coefficient",
+                    "role": "observation_scale",
+                    "value": 0.6000000238418579,
+                    "construct_ids": []
+                  }
+                }
+              },
+              "standardized": false,
+              "reasoning": "Test likelihood",
+              "sources": []
+            },
+            "construct_polarity": "positive"
+          }
+        ],
+        "dynamics": [
+          {
+            "id": "mechanism:f1829b2899db22fa3da5",
+            "kind": "drift",
+            "expression": {
+              "kind": "binary",
+              "operator": "subtract",
+              "left": {
+                "kind": "binary",
+                "operator": "multiply",
+                "left": {
+                  "kind": "binary",
+                  "operator": "multiply",
+                  "left": {
+                    "kind": "literal",
+                    "value": -1.0
+                  },
+                  "right": {
+                    "kind": "coefficient",
+                    "role": "decay",
+                    "value": "parameter:e30e44b1dd1f2361bef849dae029b449283497dec4992a8a9343a39b4ebf618b",
+                    "construct_ids": []
+                  }
+                },
+                "right": {
+                  "kind": "binary",
+                  "operator": "subtract",
+                  "left": {
+                    "kind": "state",
+                    "construct_id": "construct:ecc61dc544b34662cb8a"
+                  },
+                  "right": {
+                    "kind": "coefficient",
+                    "role": "center",
+                    "value": 0.0,
+                    "construct_ids": []
+                  }
+                }
+              },
+              "right": {
+                "kind": "binary",
+                "operator": "multiply",
+                "left": {
+                  "kind": "coefficient",
+                  "role": "quartic",
+                  "value": 0.0,
+                  "construct_ids": []
+                },
+                "right": {
+                  "kind": "binary",
+                  "operator": "power",
+                  "left": {
+                    "kind": "binary",
+                    "operator": "subtract",
+                    "left": {
+                      "kind": "state",
+                      "construct_id": "construct:ecc61dc544b34662cb8a"
+                    },
+                    "right": {
+                      "kind": "coefficient",
+                      "role": "center",
+                      "value": 0.0,
+                      "construct_ids": []
+                    }
+                  },
+                  "right": {
+                    "kind": "literal",
+                    "value": 3.0
+                  }
+                }
+              }
+            }
+          }
+        ],
+        "coefficients": [
+          {
+            "kind": "coefficient",
+            "role": "diffusion_scale",
+            "value": 0.5,
+            "construct_ids": []
+          },
+          {
+            "kind": "coefficient",
+            "role": "initial_mean",
+            "value": -0.5,
+            "construct_ids": []
+          },
+          {
+            "kind": "coefficient",
+            "role": "initial_scale",
+            "value": 0.800000011920929,
+            "construct_ids": []
+          },
+          {
+            "kind": "coefficient",
+            "role": "diffusion_loading",
+            "value": 0.10000000149011612,
+            "construct_ids": [
+              "construct:98907cc586bfcf98c836"
+            ]
+          }
+        ],
+        "innovation_family": "gaussian",
+        "distribution": null,
+        "role": "endogenous",
+        "temporal_status": "time_varying"
+      },
+      "effect": {
+        "kind": "construct",
+        "id": "construct:numerical_test_outcome"
+      },
+      "description": "Fixture causal assumption",
+      "sources": []
+    },
+    {
+      "id": "edge:91e3752a341b157801d9",
+      "mechanisms": [
+        {
+          "id": "mechanism:5a24c4e68d6edb442dbd",
+          "kind": "drift",
+          "expression": {
+            "kind": "binary",
+            "operator": "multiply",
+            "left": {
+              "kind": "coefficient",
+              "role": "weight",
+              "value": "parameter:c76bb9e3edb68fd1d3b6463f23791159c60c7519966b05015148c7da6012c610",
+              "construct_ids": []
+            },
+            "right": {
+              "kind": "state",
+              "construct_id": "construct:ecc61dc544b34662cb8a"
+            }
+          }
+        }
+      ],
+      "cause": {
+        "kind": "construct",
+        "id": "construct:ecc61dc544b34662cb8a"
+      },
+      "effect": {
+        "kind": "construct",
+        "id": "construct:98907cc586bfcf98c836"
+      },
+      "description": "Fixture causal assumption",
+      "sources": []
+    },
+    {
+      "id": "edge:fcf13fa40222a0910f6c",
+      "mechanisms": [],
+      "cause": {
+        "id": "construct:dc8ac4979aae5507b92f",
+        "name": "innovation_1_0",
+        "description": "Explicit latent common cause",
+        "indicators": [],
+        "dynamics": [],
+        "coefficients": [],
+        "innovation_family": "gaussian",
+        "distribution": null,
+        "role": "exogenous",
+        "temporal_status": "time_varying"
+      },
+      "effect": {
+        "kind": "construct",
+        "id": "construct:ecc61dc544b34662cb8a"
+      },
+      "description": "Fixture causal assumption",
+      "sources": []
+    },
+    {
+      "id": "edge:371e4d7e86c335b026fc",
+      "mechanisms": [],
+      "cause": {
+        "kind": "construct",
+        "id": "construct:dc8ac4979aae5507b92f"
+      },
+      "effect": {
+        "kind": "construct",
+        "id": "construct:98907cc586bfcf98c836"
+      },
+      "description": "Fixture causal assumption",
+      "sources": []
+    }
+  ],
+  "parameters": [
+    {
+      "id": "parameter:e7e20d74af8aa47e58ffca403670f3912bcddafed670860906dee61462d2c669",
+      "name": "parameter:e7e20d74af8aa47e58ffca403670f3912bcddafed670860906dee61462d2c669",
+      "description": "Fixture quantity",
+      "distribution_transform": "identity",
+      "distribution": "distribution:4aca7dfa6f1b5e5e96daf4e0f6ee2ffa83e03759c22c1af544d80a9dcd5e1a52",
+      "reference_interval_days": null
+    },
+    {
+      "id": "parameter:e30e44b1dd1f2361bef849dae029b449283497dec4992a8a9343a39b4ebf618b",
+      "name": "parameter:e30e44b1dd1f2361bef849dae029b449283497dec4992a8a9343a39b4ebf618b",
+      "description": "Fixture quantity",
+      "distribution_transform": "identity",
+      "distribution": "distribution:e94855ec65861f6df736899e1f47fd915099afaed5874cbbf802eac7196beb15",
+      "reference_interval_days": null
+    },
+    {
+      "id": "parameter:c76bb9e3edb68fd1d3b6463f23791159c60c7519966b05015148c7da6012c610",
+      "name": "parameter:c76bb9e3edb68fd1d3b6463f23791159c60c7519966b05015148c7da6012c610",
+      "description": "Fixture quantity",
+      "distribution_transform": "identity",
+      "distribution": "distribution:fc30f8d9e436df98abfcc64d83c101de44b950a3373693bd5bfc3c41b018ed53",
+      "reference_interval_days": null
+    }
+  ],
+  "distributions": {
+    "distribution:4aca7dfa6f1b5e5e96daf4e0f6ee2ffa83e03759c22c1af544d80a9dcd5e1a52": {
+      "distribution": "HalfNormal",
+      "params": {
+        "scale": 1.0,
+        "validate_args": false
+      }
+    },
+    "distribution:e94855ec65861f6df736899e1f47fd915099afaed5874cbbf802eac7196beb15": {
+      "distribution": "HalfNormal",
+      "params": {
+        "scale": 1.0,
+        "validate_args": false
+      }
+    },
+    "distribution:fc30f8d9e436df98abfcc64d83c101de44b950a3373693bd5bfc3c41b018ed53": {
+      "distribution": "Normal",
+      "params": {
+        "loc": 0.0,
+        "scale": 0.5,
+        "validate_args": false
+      }
+    }
+  },
+  "time_points": [],
+  "measurement_clock": "1d",
+  "default_outcome": null
+}

@@ -16,14 +16,14 @@ from __future__ import annotations
 import logging
 import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Literal, TypedDict
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 
-from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.models.ssm.inference.warmup.scipy_pathfinder import (
+    InitializationDiagnostics,
     ScipyPathfinderResult,
     run_scipy_pathfinder_approximation,
     sample_scipy_pathfinder_init_positions,
@@ -31,6 +31,7 @@ from nof1_causal_lab.models.ssm.inference.warmup.scipy_pathfinder import (
 )
 
 if TYPE_CHECKING:
+    from nof1_causal_lab.json_types import JsonObject
     from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleTarget
     from nof1_causal_lab.models.ssm.inference.types import WarmupProposal
     from nof1_causal_lab.models.ssm.inference.warmup.scipy_pathfinder import PathfinderDiagnostics
@@ -41,15 +42,30 @@ logger = logging.getLogger(__name__)
 DEFAULT_PRIOR_RELEASED_SITE_NAMES: tuple[str, ...] = ("obs_df",)
 
 
+class RandomInitializationDiagnostics(TypedDict):
+    init_method: str
+
+
+class PreconditionerDiagnostics(TypedDict, total=False):
+    auto_preconditioner: bool
+    auto_preconditioner_method: str
+    auto_preconditioner_device: str
+    auto_preconditioner_n_pathfinder_starts: int
+    auto_preconditioner_n_pathfinder_starts_finite: int
+    auto_preconditioner_best_pathfinder_elbo: float
+    auto_preconditioner_pathfinder_elbo_spread: float
+    auto_preconditioner_maxiter: int
+
+
 @dataclass(frozen=True)
 class ParameterWarmupResult:
     """Resolved parameter initialisation and preconditioning artifacts."""
 
     init_positions: jnp.ndarray | None
-    init_diagnostics: UncheckedJsonObject
+    init_diagnostics: InitializationDiagnostics | RandomInitializationDiagnostics
     preconditioner_chol: jnp.ndarray | None
-    preconditioner_diagnostics: UncheckedJsonObject
-    warmup_diagnostics: UncheckedJsonObject
+    preconditioner_diagnostics: PreconditionerDiagnostics
+    warmup_diagnostics: JsonObject
     pathfinder_state: ScipyPathfinderResult | None
     pathfinder_diagnostics: PathfinderDiagnostics | None
 
@@ -86,7 +102,7 @@ def _validate_initial_positions_override(
 
 def _pathfinder_preconditioner_diagnostics(
     pathfinder_diagnostics: PathfinderDiagnostics,
-) -> UncheckedJsonObject:
+) -> PreconditionerDiagnostics:
     return {
         "auto_preconditioner": True,
         "auto_preconditioner_method": "pathfinder",
@@ -171,7 +187,8 @@ def prepare_parameter_warmup(
     pathfinder_state: ScipyPathfinderResult | None = None
     pathfinder_diagnostics: PathfinderDiagnostics | None = None
     init_positions: jnp.ndarray | None = None
-    init_diagnostics: UncheckedJsonObject
+    init_diagnostics: InitializationDiagnostics | RandomInitializationDiagnostics
+    preconditioner_diagnostics: PreconditionerDiagnostics
     preconditioner_chol = parameter_preconditioner_chol
 
     pathfinder_consumers: list[str] = []
@@ -300,10 +317,10 @@ def prepare_parameter_warmup(
         _phase_elapsed(preconditioner_t0),
     )
 
-    warmup_diagnostics = {
+    warmup_diagnostics: JsonObject = {
         "pathfinder_ran": bool(pathfinder_consumers),
         "pathfinder_run_count": 1 if pathfinder_consumers else 0,
-        "pathfinder_consumers": pathfinder_consumers,
+        "pathfinder_consumers": [*pathfinder_consumers],
         "init_source": init_source,
         "preconditioner_source": preconditioner_source,
         "auto_preconditioner_method": auto_preconditioner_method,
@@ -323,9 +340,9 @@ def prepare_parameter_warmup(
                     "pathfinder_runtime_seconds"
                 ),
                 "pathfinder_total_seconds": pathfinder_diagnostics.get("pathfinder_total_seconds"),
-                "pathfinder_jax_compile_batch_sizes": pathfinder_diagnostics.get(
-                    "pathfinder_jax_compile_batch_sizes"
-                ),
+                "pathfinder_jax_compile_batch_sizes": [
+                    *pathfinder_diagnostics["pathfinder_jax_compile_batch_sizes"]
+                ],
             }
         )
     logger.info(

@@ -12,16 +12,16 @@ from nof1_causal_lab.actions.simulation_summaries import (
 )
 from nof1_causal_lab.artifacts.effects import EffectSummary
 from nof1_causal_lab.artifacts.simulation import SimulationReport
-from nof1_causal_lab.machine.mechanism_views import mechanism_curves
-from nof1_causal_lab.machine.visual_models import MechanismViewRequest
-from nof1_causal_lab.machine.visuals import (
+from nof1_causal_lab.study.mechanism_views import mechanism_curves
+from nof1_causal_lab.study.visual_models import MechanismViewRequest
+from nof1_causal_lab.study.visuals import (
     observation_history,
     parameter_draws,
     recorded_simulation_paths,
 )
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.machine.snapshots import ModelReader
+    from nof1_causal_lab.study.snapshots import ModelReader
 
 
 def workbench_visuals(reader: ModelReader, template):
@@ -64,7 +64,9 @@ def workbench_visuals(reader: ModelReader, template):
         "reference_latent_paths": "reference",
         "observations": "observations",
         "reference_observations": "reference_observations",
-        "observation_layout": report.observation_layout.model_copy(update={"mask": "mask"}),
+        "observation_layout": type(report.observation_layout).model_validate(
+            {**report.observation_layout.model_dump(), "mask": "mask"}
+        ),
         "predictive": summarize_simulation(
             model,
             state_ids=report.state_ids,
@@ -82,8 +84,9 @@ def workbench_visuals(reader: ModelReader, template):
         delta = action[:, :, index] - reference[:, :, index]
         final = delta[:, -1]
         trajectory = paired_effect_trajectory(time, delta)
-        updates["causal_result"] = report.causal_result.model_copy(
-            update={
+        updates["causal_result"] = type(report.causal_result).model_validate(
+            {
+                **report.causal_result.model_dump(),
                 "summary": EffectSummary(
                     mean=float(final.mean()),
                     median=float(np.median(final)),
@@ -97,7 +100,7 @@ def workbench_visuals(reader: ModelReader, template):
                 "manifest_effects": None,
             }
         )
-    report = report.model_copy(update=updates)
+    report = type(report).model_validate({**report.model_dump(), **updates})
     paths = recorded_simulation_paths(report, arrays.__getitem__, start=0, count=report.draws)
     observations = {}
     for variable in reader.data_metadata.value.variables:

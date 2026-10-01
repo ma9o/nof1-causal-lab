@@ -458,7 +458,8 @@ class TestModelContainment:
         observed, latent = model.constructs
         result = model.revised(
             edges=replace_constructs(
-                model.edges, (observed, latent.model_copy(update={"indicators": ()}))
+                model.edges,
+                (observed, type(latent).model_validate({**latent.model_dump(), "indicators": ()})),
             )
         )
         assert result.get_construct(latent.id).indicators == ()

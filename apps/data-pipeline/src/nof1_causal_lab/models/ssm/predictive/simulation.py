@@ -183,6 +183,11 @@ def measure_simulation_batch(
     measurement_design = batch.measurement_design
     indicator_ids = tuple(numeric.observation_ids(model))
     state_ids = tuple(numeric.state_ids(model))
+    targets = {
+        **{construct.name: construct.id for construct in model.constructs},
+        **{indicator.id: indicator.id for indicator in model.indicators},
+        **{f"{edge.cause.name}->{edge.effect.name}": edge.id for edge in model.edges},
+    }
     findings = []
     components = numeric.dynamics_expressions(model) if "dynamics" in groups else ()
     for state_index, identity in enumerate(
@@ -216,7 +221,7 @@ def measure_simulation_batch(
             measurement="measurement" in groups,
             edge_contrasts=edge_contrasts,
         )
-        findings.extend(result.finding(identity) for result in measured)
+        findings.extend(result.finding(identity, targets[result.target]) for result in measured)
     nonfinite = bool(
         np.any(
             np.asarray(prediction.trajectory.observations_mask)

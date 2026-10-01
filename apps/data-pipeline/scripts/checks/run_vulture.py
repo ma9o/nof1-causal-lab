@@ -379,7 +379,7 @@ def _run_vulture(
     """
     # setattr (not direct assignment) so vulture doesn't read this monkeypatch as a
     # defined-but-unused module attribute and flag our own override as dead code.
-    setattr(vulture_core, "_assigns_special_variable__all__", lambda _node: False)  # noqa: B010
+    setattr(vulture_core, "_assigns_special_variable__all__", lambda _node: False)  # noqa: B010 - direct assignment makes Vulture flag its own monkeypatch as an unused module attribute
     saved_argv, saved_cwd = sys.argv, Path.cwd()
     sys.argv = ["vulture", *argv]
     os.chdir(REPO_ROOT)

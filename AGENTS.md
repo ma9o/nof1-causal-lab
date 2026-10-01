@@ -12,9 +12,13 @@
 
 - Never add backwards compatibility code or defensive fallbacks.
 
+- There is no baselining in this repo. Never record existing lint, type or test failures in a baseline, a bulk suppression or a "known failures" list. A new check ships with all its findings fixed, and a failing check gets fixed, not recorded. The only exception is an inline suppression of a genuine false positive, with its reason on the same line.
+
 - Before integration testing, starting services, health checks, or manual pipeline runs, read and follow [docs/guides/agentic_integration_testing.md](docs/guides/agentic_integration_testing.md).
 
 - Prefer `ast-grep` for code navigation.
+
+- Run `bun run --cwd apps/data-pipeline check:core` for fast source-only feedback: projections are total; if one seems to need a check, fix the core type.
 
 - Follow the [type naming conventions](docs/guides/codegen.md#type-naming-conventions): use `...Spec` for declarative model definitions, `...Expression` for formulas, and role-specific names for runtime objects, reports, results, and references.
 
@@ -41,7 +45,9 @@
 
 - Never put domain logic or statistical computations in frontend code.
 
-- v2 (`/v2/{workspaceId}`) is the only maintained interface. v1 (`/v1/{workspaceId}`) is unmaintained: keep it only as a reference for things v2 might surface, and don't worry about breaking it.
+- A flagged web condition means either the check is useless or a type hides absence; fix whichever is wrong.
+
+- v2 (`/v2/{workspaceId}`) is the only interface. v1 lives at the annotated `v1-reference` tag as a reference for things v2 might surface; run it from a separate checkout of that tag with its own fixtures.
 
 - Reuse the dev server on port 3000 if running; restart it when needed.
 - Check errors with the next-devtools MCP.

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import (
+    Mapping,
+)
 from functools import cached_property
 from typing import TYPE_CHECKING, cast, override
 
@@ -16,7 +19,7 @@ from pydantic import (
 )
 
 from nof1_causal_lab.compilation_errors import IncompleteModelError
-from nof1_causal_lab.numpyro_json import NumPyroDistribution  # noqa: TC001
+from nof1_causal_lab.numpyro_json import NumPyroDistribution
 
 from .construct import (
     CausalEdgeSpec,
@@ -30,7 +33,7 @@ from .construct import (
 )
 from .duration import parse_duration_to_hours
 from .expressions import expression_states
-from .identity import (  # noqa: TC001
+from .identity import (
     ConstructId,
     DistributionId,
     EdgeId,
@@ -38,8 +41,7 @@ from .identity import (  # noqa: TC001
     MechanismId,
     ParameterId,
 )
-from .indicator import IndicatorSpec  # noqa: TC001
-from .parameter_spec import ParameterSpec  # noqa: TC001
+from .parameter_spec import ParameterSpec
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
@@ -47,6 +49,7 @@ if TYPE_CHECKING:
     from nof1_causal_lab.models.model_structure import DependencyKey
 
     from .execution import StructuralItemDisposition
+    from .indicator import IndicatorSpec
     from .likelihood import LikelihoodSpec
     from .mechanism import DynamicsMechanismSpec
 
@@ -59,7 +62,7 @@ class ModelSpec(BaseModel):
     question: str | None = Field(default=None, min_length=1)
     edges: tuple[CausalEdgeSpec, ...] = ()
     parameters: tuple[ParameterSpec, ...] = ()
-    distributions: dict[DistributionId, NumPyroDistribution] = Field(
+    distributions: Mapping[DistributionId, NumPyroDistribution] = Field(
         default_factory=dict,
         description=(
             "All explicit probability laws. Members are the parameters and constructs referring to each ID. "
@@ -175,7 +178,7 @@ class ModelSpec(BaseModel):
         )
 
     @cached_property
-    def reference_indicator_ids(self) -> dict[ConstructId, IndicatorId]:
+    def reference_indicator_ids(self) -> Mapping[ConstructId, IndicatorId]:
         from nof1_causal_lab.utils.causal_design import choose_reference_indicator
 
         references = {}
@@ -191,7 +194,7 @@ class ModelSpec(BaseModel):
         return marginalized_construct_ids(self)
 
     @cached_property
-    def induced_dependencies(self) -> dict[DependencyKey, tuple[ConstructId, ...]]:
+    def induced_dependencies(self) -> Mapping[DependencyKey, tuple[ConstructId, ...]]:
         from nof1_causal_lab.models.model_structure import induced_dependencies
 
         return induced_dependencies(self)
@@ -265,7 +268,7 @@ class ModelSpec(BaseModel):
             for mechanism in edge.mechanisms:
                 yield edge, mechanism
 
-    def parameters_for(  # noqa: V105 - public canonical ownership accessor
+    def parameters_for(
         self, identity: ConstructId | EdgeId | IndicatorId | MechanismId
     ) -> tuple[ParameterSpec, ...]:
         return tuple(
@@ -297,7 +300,7 @@ class ModelSpec(BaseModel):
             for entity in (*self.parameters, *self.constructs)
             if entity.distribution is not None
         }
-        if references != self.distributions.keys():
+        if references != set(self.distributions):
             raise ValueError("Distributions must be referenced and every reference must exist")
         if any(b <= a for a, b in zip(self.time_points, self.time_points[1:], strict=False)):
             raise ValueError("Trajectory time points must be strictly increasing")

@@ -7,25 +7,24 @@ import numpy as np
 import pytest
 
 from nof1_causal_lab.actions import fit as fit_action
+from nof1_causal_lab.actions import modal_fit
+from nof1_causal_lab.actions.contracts import FitRequest
+from nof1_causal_lab.actions.runners import run_action_locally
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.posterior import FitSettingsSpec, InferenceReport
-from nof1_causal_lab.flows import modal_fit
-from nof1_causal_lab.machine.execution import FitOperation
-from nof1_causal_lab.machine.runners import execute_transition_locally
-from nof1_causal_lab.machine.store import ArtifactStore, read_model
 from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
 from nof1_causal_lab.models.ssm.joint_layout import JointLawLayout
 from nof1_causal_lab.numpyro_json import empirical_atoms, empirical_distribution
+from nof1_causal_lab.study.store import ArtifactStore, read_model
 from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils.config import get_config
 from tests.helpers import run_async
-from tests.integration.transition_runner_fixtures import (
+from tests.integration.runner_fixtures import (
     panel_frame,
     panel_metadata,
     seed_model,
     seed_panel,
-    state_from,
 )
 
 if TYPE_CHECKING:
@@ -62,7 +61,6 @@ def test_local_fit_transfers_pins_and_retains_outputs_only_after_valid_response(
     def numerical_fit(**kwargs):
         # Only the numerical call is stubbed: transfer, validation, array loading,
         # runner persistence and artifact provenance use their real code.
-        assert kwargs["workspace_id"] is None
         assert kwargs["data_for_model"].equals(panel_frame())
         assert kwargs["sampler_config"]["num_samples"] == 50
         assert kwargs["sampler_config"]["seed"] == 7
@@ -79,8 +77,9 @@ def test_local_fit_transfers_pins_and_retains_outputs_only_after_valid_response(
         )
         conditioned = model.revised(
             parameters=tuple(
-                p.model_copy(
-                    update={
+                type(p).model_validate(
+                    {
+                        **p.model_dump(),
                         "distribution": layout.distribution_id,
                         "distribution_transform": "identity",
                         "reference_interval_days": None,
@@ -91,7 +90,9 @@ def test_local_fit_transfers_pins_and_retains_outputs_only_after_valid_response(
             edges=replace_constructs(
                 model.edges,
                 tuple(
-                    c.model_copy(update={"distribution": layout.distribution_id})
+                    type(c).model_validate(
+                        {**c.model_dump(), "distribution": layout.distribution_id}
+                    )
                     if c.id in model.state_order
                     else c
                     for c in model.constructs
@@ -133,8 +134,11 @@ def test_local_fit_transfers_pins_and_retains_outputs_only_after_valid_response(
         return write_array(self, values)
 
     monkeypatch.setattr(ArtifactStore, "write_array", tracked_write)
-    operation = FitOperation(settings=FitSettingsSpec(num_samples=50, seed=7))
-    state = state_from(model_info, panel_info)
+    request = FitRequest(
+        model_revision=model_info.revision,
+        panel_revision=panel_info.revision,
+        settings=FitSettingsSpec(num_samples=50, seed=7),
+    )
     if failure is not None:
         message = {
             "remote": "Modal unavailable",
@@ -142,12 +146,12 @@ def test_local_fit_transfers_pins_and_retains_outputs_only_after_valid_response(
             "missing_array": "unresolved numerical array",
         }[failure]
         with pytest.raises((ValueError, RuntimeError), match=message):
-            run_async(execute_transition_locally("MODALTEST", operation, pins, state))
+            run_async(run_action_locally("MODALTEST", request, pins))
         assert not writes
         assert store.list_revisions("model") == [model_info.revision]
         assert len(calls) == 1
         return
-    effects = run_async(execute_transition_locally("MODALTEST", operation, pins, state))
+    effects = run_async(run_action_locally("MODALTEST", request, pins))
     assert effects.produced[0].derived_from == pins
     assert effects.diagnostics["input_pins"] == pins
     assert effects.diagnostics["engine_evidence"] == {"initialization": "test", "exact": True}
@@ -167,7 +171,6 @@ def test_local_fit_transfers_pins_and_retains_outputs_only_after_valid_response(
         sampler_config=calls[0].sampler_config,
         array_writer=store.write_array,
         array_loader=store.read_array,
-        workspace_id="MODALTEST",
         compute_loo_diagnostics=False,
     )
     assert calls[1].arrays

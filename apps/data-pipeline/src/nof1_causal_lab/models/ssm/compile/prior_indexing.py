@@ -39,7 +39,9 @@ def _native_dynamics_bindings(model: ModelSpec) -> dict[ParameterId, SemanticBin
     for index, (_, component) in enumerate(iter_mechanism_components(model, state_ids)):
         for identity, site in component.parameter_sites(f"vf_{index}"):
             if identity in result:
-                raise ValueError("One parameter cannot own multiple independent runtime sites")
+                raise PriorIndexingError(
+                    ["One parameter cannot own multiple independent runtime sites"]
+                )
             parameter = model.parameter(identity)
             result[identity] = SemanticBinding(
                 parameter_name=parameter.name,

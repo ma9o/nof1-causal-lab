@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from hashlib import sha256
 from itertools import combinations
 from typing import TYPE_CHECKING, Literal
 
@@ -93,14 +92,6 @@ def induced_dependencies(model: ModelSpec) -> dict[DependencyKey, tuple[Construc
             ),
         )
     }
-
-
-def dependency_id(key: DependencyKey, sources: tuple[ConstructId, ...]) -> str:
-    """Preserve the semantic identity of a projected dependence across axis reorderings."""
-    first, second, kind = key
-    identity = "\0".join((kind, *sorted((first, second)), *sorted(sources)))
-    digest = sha256(f"dependency\0{identity}".encode()).hexdigest()[:20]
-    return f"dependency:{digest}"
 
 
 def retained_construct_ids(model: ModelSpec) -> frozenset[ConstructId]:

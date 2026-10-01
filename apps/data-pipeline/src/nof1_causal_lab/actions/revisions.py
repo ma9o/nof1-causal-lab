@@ -3,13 +3,13 @@
 from __future__ import annotations
 
 import json
-from typing import Literal
+from typing import TYPE_CHECKING, Literal
 
 from pydantic import BaseModel, ConfigDict
 
-from nof1_causal_lab.artifacts.checks import SpecificationReport  # noqa: TC001
+from nof1_causal_lab.artifacts.checks import SpecificationReport
 from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec
-from nof1_causal_lab.artifacts.execution import StructuralItemDisposition  # noqa: TC001
+from nof1_causal_lab.artifacts.execution import StructuralItemDisposition
 from nof1_causal_lab.artifacts.identity import (
     ConstructId,
     ConstructRef,
@@ -18,12 +18,14 @@ from nof1_causal_lab.artifacts.identity import (
     GitRef,
     ParameterId,
 )
-from nof1_causal_lab.artifacts.model_spec import ModelSpec  # noqa: TC001
-from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec  # noqa: TC001
-from nof1_causal_lab.artifacts.posterior import InferenceReport  # noqa: TC001
-from nof1_causal_lab.artifacts.simulation import SimulationReport  # noqa: TC001
-from nof1_causal_lab.json_types import JsonValue  # noqa: TC001
-from nof1_causal_lab.machine.artifacts import ArtifactRecord  # noqa: TC001
+from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
+from nof1_causal_lab.artifacts.posterior import InferenceReport
+from nof1_causal_lab.artifacts.simulation import SimulationReport
+from nof1_causal_lab.json_types import JsonValue
+from nof1_causal_lab.study.state import ArtifactRecord
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 
 class RevisionCatalog(BaseModel):
@@ -249,8 +251,8 @@ def _model_revision(
     """Select an exact model tree or the model and recorded evidence at a Git commit."""
     import pygit2
 
-    from nof1_causal_lab.machine.snapshots import ModelReader, SnapshotRevisionNotFound
-    from nof1_causal_lab.machine.store import ArtifactStore, read_model
+    from nof1_causal_lab.study.snapshots import ModelReader, SnapshotRevisionNotFound
+    from nof1_causal_lab.study.store import ArtifactStore, read_model
 
     store = ArtifactStore(workspace_id)
     try:
@@ -268,7 +270,7 @@ def _model_revision(
             None,
             None,
         )
-    if not isinstance(obj, pygit2.Commit):
+    if obj.type != pygit2.GIT_OBJECT_COMMIT:
         raise SnapshotRevisionNotFound("Select a model artifact tree or a study commit")
     reader = ModelReader(workspace_id, at=revision)
     if reader.model is None:

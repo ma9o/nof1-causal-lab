@@ -64,7 +64,7 @@ def _without_detail(value: JsonObject) -> JsonObject:
 
 
 class InferenceReport(BaseModel):
-    """Display findings recorded by an inference transition, separate from ModelSpec."""
+    """Display findings recorded by a fit, separate from ModelSpec."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
     time_origin: AwareDatetime | None = Field(

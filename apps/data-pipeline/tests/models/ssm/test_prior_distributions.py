@@ -1,5 +1,7 @@
 """Small analytic checks for native prior laws and their JSON boundary."""
 
+from pathlib import Path
+
 import math
 
 import jax
@@ -11,7 +13,6 @@ from numpyro.distributions import constraints, transforms
 from pydantic import TypeAdapter
 
 from nof1_causal_lab.distributions import PriorDistributionFamily
-from nof1_causal_lab.models.model_distributions import with_parameter_distributions
 from nof1_causal_lab.numpyro_json import NumPyroDistribution
 from nof1_causal_lab.prior_distributions import (
     batch_prior_distributions,
@@ -20,6 +21,7 @@ from nof1_causal_lab.prior_distributions import (
     persistence_to_decay,
     prior_reference_value,
 )
+from tests.model_fixtures import compile_fit_fixture
 
 _ADAPTER = TypeAdapter(NumPyroDistribution)
 
@@ -203,14 +205,8 @@ def test_scientific_roundtrip_preserves_distinct_native_coordinate_laws():
     from nof1_causal_lab.models.ssm.compile.prior_compilation import compile_priors
     from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
     from tests.dynamics_fixtures import decay_term
-    from tests.model_fixtures import model_fixture
 
-    model = model_fixture(n_latent=2, dynamics_spec=DynamicsSpec(2, (decay_term(0), decay_term(1))))
-    means = [
-        p for p in model.parameters if model.parameter_context(p.id).quantity == SiteKind.T0_MEANS
-    ]
-    laws = {means[0].id: dist.Normal(-1.0, 0.5), means[1].id: dist.StudentT(4.0, 0.3, 0.7)}
-    model = with_parameter_distributions(model, laws)
+    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'prior_distributions/scientific_roundtrip_preserves_distinct_native_coordinate_laws_with_parameter_distributions.json').read_text())
     restored = ModelSpec.model_validate_json(model.model_dump_json())
     assert restored == model
     before = compile_priors(model)[0]["t0_means_free"]
@@ -229,23 +225,17 @@ def test_compiler_and_dynestyx_parameter_trace_use_the_exact_persistence_law():
     from nof1_causal_lab.artifacts.parameter import SiteKind
     from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
     from nof1_causal_lab.models.ssm.model import SSMModel
-    from tests.helpers import complete_test_model, make_model
+    from tests.helpers import make_model
 
-    definition = complete_test_model(make_model(["mood"]))
+    definition = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'prior_distributions/compiler_and_dynestyx_parameter_trace_use_the_exact_persistence_law_complete_test_model.json').read_text())
     decay = next(
         p
         for p in definition.parameters
         if definition.parameter_context(p.id).quantity == SiteKind.DYNAMICS_DECAY
     )
-    definition = definition.revised(
-        parameters=tuple(
-            p.model_copy(update={"reference_interval_days": 7.0}) if p.id == decay.id else p
-            for p in definition.parameters
-        )
-    )
-    definition = with_parameter_distributions(definition, {decay.id: dist.Beta(2.0, 3.0)})
+    definition = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'prior_distributions/compiler_and_dynestyx_parameter_trace_use_the_exact_persistence_law_with_parameter_distributions.json').read_text())
     restored = ModelSpec.model_validate_json(definition.model_dump_json())
-    model = SSMModel(restored)
+    model = SSMModel(compile_fit_fixture(restored))
     binding = next(b for b in parameter_bindings(restored)[0] if b.parameter_id == decay.id)
     value = jnp.array(0.2)
     with handlers.substitute(data={binding.site_name: value}):

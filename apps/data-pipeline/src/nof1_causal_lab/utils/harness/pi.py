@@ -14,7 +14,6 @@ from pathlib import Path
 from time import perf_counter
 from typing import TYPE_CHECKING, Any
 
-from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.utils.agent_session import AgentResult, TurnResult
 from nof1_causal_lab.utils.harness.pi_tool_bridge import serve_pi_tools_http
 from nof1_causal_lab.utils.harness.stream_json import (
@@ -22,12 +21,14 @@ from nof1_causal_lab.utils.harness.stream_json import (
     apply_pi_event,
     finalize_pi_trace,
     format_pi_event_for_log,
+    parse_stream_event,
 )
 from nof1_causal_lab.utils.harness.streaming import drain_newline_delimited_stream
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
+    from nof1_causal_lab.json_types import JsonObject
     from nof1_causal_lab.utils.openrouter_client import Tool
 
 logger = logging.getLogger(__name__)
@@ -144,15 +145,13 @@ class PiHarnessSession:
         bin: str = "pi",
         timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
         log_label: str | None = None,
-        initial_events: list[UncheckedJsonObject] | None = None,
+        initial_events: list[JsonObject] | None = None,
         initial_session_jsonl: str | None = None,
         session_id: str | None = None,
     ) -> None:
         self._tools = list(tools)
         self._tool_stop_map = {
-            tool.name: tool.success_output if tool.stop_on_success else None
-            for tool in tools
-            if tool.stop_on_success
+            tool.name: tool.success_output for tool in tools if tool.stop_on_success
         }
         self._scratch_dir = scratch_dir
         self._system_prompt = system_prompt
@@ -187,7 +186,7 @@ class PiHarnessSession:
         return files[0].read_text()
 
     @property
-    def raw_events(self) -> list[UncheckedJsonObject]:
+    def raw_events(self) -> list[JsonObject]:
         return list(self._state.raw_events)
 
     async def turn(self, user_message: str) -> TurnResult:
@@ -258,12 +257,13 @@ class PiHarnessSession:
             raise RuntimeError(f"Pi emitted non-JSON on stdout: {line[:200]!r}") from exc
         if not isinstance(event, dict):
             raise RuntimeError(f"Pi emitted non-object JSON on stdout: {line[:200]!r}")
+        event = parse_stream_event(event)
         log_line = format_pi_event_for_log(event)
         if log_line is not None:
             logger.info("[%s] %s", self._log_label, log_line)
         apply_pi_event(self._state, event)
 
-    def _build_turn_result(self, events: list[UncheckedJsonObject]) -> TurnResult:
+    def _build_turn_result(self, events: list[JsonObject]) -> TurnResult:
         tool_calls_fired: list[str] = []
         terminal: tuple[str, str] | None = None
         for event in events:
@@ -325,7 +325,7 @@ async def open_pi_harness_session(
     bin: str = "pi",
     timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
     log_label: str | None = None,
-    initial_events: list[UncheckedJsonObject] | None = None,
+    initial_events: list[JsonObject] | None = None,
     initial_session_jsonl: str | None = None,
     session_id: str | None = None,
 ) -> AsyncIterator[PiHarnessSession]:

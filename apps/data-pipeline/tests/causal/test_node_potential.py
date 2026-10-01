@@ -1,5 +1,8 @@
 """Native node potentials preserve nonlinear drift, metadata, and causal interventions."""
 
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from pathlib import Path
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -16,7 +19,6 @@ from nof1_causal_lab.models.ssm.dynamics import (
 from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec, compile_dynamics
 from nof1_causal_lab.models.ssm.execution.dynamical_model import continuous_state_evolution
 from tests.dynamics_fixtures import linear_term, potential_term
-from tests.model_fixtures import model_fixture
 
 
 @pytest.mark.inference(concern="simulation")
@@ -105,16 +107,15 @@ def test_invalid_potential_coefficients_are_rejected(kwargs):
 
 @pytest.mark.contract
 def test_directed_edges_cannot_be_reinterpreted_as_potentials():
-    model = model_fixture(
-        n_latent=2,
-        dynamics_spec=DynamicsSpec(2, (potential_term(0), potential_term(1), linear_term(0, 1))),
-    )
+    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'node_potential/directed_edges_cannot_be_reinterpreted_as_potentials_model_fixture.json').read_text())
     edge = model.execution_edges[0]
-    changed = edge.model_copy(
-        update={
+    changed = type(edge).model_validate(
+        {
+            **edge.model_dump(),
             "mechanisms": tuple(
-                term.model_copy(update={"kind": "potential"}) for term in edge.mechanisms
-            )
+                type(term).model_validate({**term.model_dump(), "kind": "potential"})
+                for term in edge.mechanisms
+            ),
         }
     )
     with pytest.raises(ValueError, match="Potentials belong to nodes"):

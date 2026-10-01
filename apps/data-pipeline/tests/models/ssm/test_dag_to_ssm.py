@@ -4,6 +4,8 @@ Parameter traces use the prior-only backend; likelihood numerics are exercised
 by the inference tests.
 """
 
+from pathlib import Path
+
 from typing import Any
 
 import jax.numpy as jnp
@@ -28,57 +30,13 @@ from nof1_causal_lab.models.ssm.parameterization import (
 from nof1_causal_lab.models.ssm.priors import resolve_site_priors
 from nof1_causal_lab.models.ssm.structure import SparseMatrixBlockSpec
 from nof1_causal_lab.prior_distributions import distribution_from_params
-from tests.helpers import complete_test_model
-from tests.model_fixtures import (
-    dense_matrix_dynamics_spec,
-    full_vector_support,
-    model_fixture,
-    zero_loading_support,
-)
+from tests.model_fixtures import compile_fit_fixture, dense_matrix_dynamics_spec, full_vector_support, zero_loading_support
 
 # ═══════════════════════════════════════════════════════════════════════
 # Fixtures
 # ═══════════════════════════════════════════════════════════════════════
 
 
-def _make_3latent_spec(
-    edge_support: np.ndarray | None = None,
-    lambda_block: SparseMatrixBlockSpec | None = None,
-) -> ModelSpec:
-    """3 latent, 4 manifest spec with optional masks."""
-    n_l, n_m = 3, 4
-    if edge_support is None:
-        edge_support = np.ones((n_l, n_l), dtype=bool)
-        np.fill_diagonal(edge_support, False)
-    if lambda_block is None:
-        lambda_block = SparseMatrixBlockSpec(
-            n_rows=n_m,
-            n_cols=n_l,
-            free_support=zero_loading_support(n_m, n_l),
-            template=jnp.eye(n_m, n_l),
-            free_site_name="lambda_free",
-            det_site_name="lambda",
-            support=SupportClass.REAL,
-            site_kind=SiteKind.LOADING,
-            assembly_group="lambda",
-            fixed_spec_field="lambda_mat",
-            priors_field="lambda_free",
-        )
-    return model_fixture(
-        n_latent=n_l,
-        n_manifest=n_m,
-        dynamics_spec=dense_matrix_dynamics_spec(
-            n_latent=n_l,
-            decay_support=np.ones(n_l, dtype=bool),
-            edge_support=edge_support,
-            coupling_template=jnp.zeros((n_l, n_l)),
-            intercept_support=np.zeros(n_l, dtype=bool),
-            cint_template=jnp.zeros(n_l),
-        ),
-        lambda_block=lambda_block,
-        latent_names=["X", "Y", "Z"],
-        manifest_names=["x1", "x2", "y1", "z1"],
-    )
 
 
 def _model_payload() -> dict[str, Any]:
@@ -176,8 +134,8 @@ class TestDynamicsMask:
         offdiag_support[1, 0] = True  # X→Y
         offdiag_support[2, 1] = True  # Y→Z
 
-        spec = _make_3latent_spec(edge_support=offdiag_support)
-        model = SSMModel(spec)
+        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'dag_to_ssm/testdynamicsmask_test_dynamics_support_zeros_non_edges__make_3latent_spec.json').read_text())
+        model = SSMModel(compile_fit_fixture(spec))
 
         rng = random.PRNGKey(42)
         trace = handlers.trace(handlers.seed(model.model, rng)).get_trace(
@@ -198,8 +156,8 @@ class TestDynamicsMask:
 
     def test_no_mask_fully_free(self):
         """Default dynamics mask expands to a fully free dynamics structure."""
-        spec = _make_3latent_spec()
-        model = SSMModel(spec)
+        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'dag_to_ssm/testdynamicsmask_test_no_mask_fully_free__make_3latent_spec.json').read_text())
+        model = SSMModel(compile_fit_fixture(spec))
 
         rng = random.PRNGKey(0)
         trace = handlers.trace(handlers.seed(model.model, rng)).get_trace(
@@ -216,19 +174,8 @@ class TestDynamicsMask:
 
     def test_dynamics_support_single_latent(self):
         """Single latent: no off-diagonal, mask should be identity."""
-        spec = model_fixture(
-            n_latent=1,
-            n_manifest=1,
-            dynamics_spec=dense_matrix_dynamics_spec(
-                n_latent=1,
-                decay_support=np.ones(1, dtype=bool),
-                edge_support=np.zeros((1, 1), dtype=bool),
-                coupling_template=jnp.zeros((1, 1)),
-                intercept_support=np.zeros(1, dtype=bool),
-                cint_template=jnp.zeros(1),
-            ),
-        )
-        model = SSMModel(spec)
+        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'dag_to_ssm/testdynamicsmask_test_dynamics_support_single_latent_model_fixture.json').read_text())
+        model = SSMModel(compile_fit_fixture(spec))
 
         rng = random.PRNGKey(0)
         trace = handlers.trace(handlers.seed(model.model, rng)).get_trace(
@@ -256,30 +203,12 @@ class TestLambdaMask:
     def test_lambda_template_plus_mask(self):
         """Template+mask mode: fixed reference + free additional loadings."""
         # X has 2 indicators (x1 ref, x2 free), Y has 1, Z has 1
-        lambda_mat = jnp.zeros((4, 3))
-        lambda_mat = lambda_mat.at[0, 0].set(1.0)  # x1→X (ref)
-        lambda_mat = lambda_mat.at[2, 1].set(1.0)  # y1→Y (ref)
-        lambda_mat = lambda_mat.at[3, 2].set(1.0)  # z1→Z (ref)
 
         lambda_support = np.zeros((4, 3), dtype=bool)
         lambda_support[1, 0] = True  # x2→X (free)
 
-        spec = _make_3latent_spec(
-            lambda_block=SparseMatrixBlockSpec(
-                n_rows=4,
-                n_cols=3,
-                free_support=lambda_support,
-                template=lambda_mat,
-                free_site_name="lambda_free",
-                det_site_name="lambda",
-                support=SupportClass.REAL,
-                site_kind=SiteKind.LOADING,
-                assembly_group="lambda",
-                fixed_spec_field="lambda_mat",
-                priors_field="lambda_free",
-            )
-        )
-        model = SSMModel(spec)
+        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'dag_to_ssm/testlambdamask_test_lambda_template_plus_mask__make_3latent_spec.json').read_text())
+        model = SSMModel(compile_fit_fixture(spec))
 
         rng = random.PRNGKey(0)
         trace = handlers.trace(handlers.seed(model.model, rng)).get_trace(
@@ -304,22 +233,8 @@ class TestLambdaMask:
         lambda_mat = jnp.array(
             [[1.0, 0.0, 0.0], [0.75, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
         )
-        spec = _make_3latent_spec(
-            lambda_block=SparseMatrixBlockSpec(
-                n_rows=4,
-                n_cols=3,
-                free_support=zero_loading_support(4, 3),
-                template=lambda_mat,
-                free_site_name="lambda_free",
-                det_site_name="lambda",
-                support=SupportClass.REAL,
-                site_kind=SiteKind.LOADING,
-                assembly_group="lambda",
-                fixed_spec_field="lambda_mat",
-                priors_field="lambda_free",
-            )
-        )
-        model = SSMModel(spec)
+        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'dag_to_ssm/testlambdamask_test_lambda_no_mask_returns_fixed__make_3latent_spec.json').read_text())
+        model = SSMModel(compile_fit_fixture(spec))
 
         rng = random.PRNGKey(0)
         trace = handlers.trace(handlers.seed(model.model, rng)).get_trace(
@@ -427,29 +342,13 @@ class TestPerElementPriors:
         offdiag_support = np.zeros((2, 2), dtype=bool)
         offdiag_support[1, 0] = True  # X→Y
 
-        spec = model_fixture(
-            n_latent=2,
-            n_manifest=2,
-            dynamics_spec=dense_matrix_dynamics_spec(
-                n_latent=2,
-                decay_support=np.ones(2, dtype=bool),
-                edge_support=offdiag_support,
-                coupling_template=jnp.zeros((2, 2)),
-                intercept_support=np.zeros(2, dtype=bool),
-                cint_template=jnp.zeros(2),
-            ),
-            latent_names=["X", "Y"],
-            manifest_names=["x1", "y1"],
-        )
 
         # Per-element prior: single off-diagonal has mu=2.0
-        priors = {
-            "vf_2_p0": distribution_from_params(
-                PriorDistributionFamily.NORMAL,
-                {"mu": 2.0, "sigma": 0.1},
-            )
-        }
-        model = SSMModel(spec, priors)
+
+        from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
+
+        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'dag_to_ssm/testperelementpriors_test_per_element_prior_in_model_with_parameter_distributions.json').read_text())
+        model = SSMModel(compile_fit_fixture(spec))
 
         rng = random.PRNGKey(0)
         trace = handlers.trace(handlers.seed(model.model, rng)).get_trace(
@@ -534,83 +433,35 @@ class TestRuntimeStructuralSupport:
             }
         )
 
-        model = build_ssm_model(X, model_spec=_make_3latent_spec())
+        model = build_ssm_model(X, inputs=compile_fit_fixture(ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'dag_to_ssm/testruntimestructuralsupport_test_model_build_accepts_only_already_compiled_ssm_spec__make_3latent_spec.json').read_text())))
         assert numeric.n_states(model.spec) == 3
 
-    @pytest.mark.parametrize("source_count", [1, 2])
+    @pytest.mark.parametrize(('source_count', 'complete_test_model_payload'), [
+        pytest.param(1, 'dag_to_ssm/testruntimestructuralsupport_test_translate_spec_compiles_static_baseline_factor_from_induced_dependency_complete_test_model_1.json', id='1'),
+        pytest.param(2, 'dag_to_ssm/testruntimestructuralsupport_test_translate_spec_compiles_static_baseline_factor_from_induced_dependency_complete_test_model_2.json', id='2'),
+    ])
     def test_translate_spec_compiles_static_baseline_factor_from_induced_dependency(
         self, source_count
-    ):
+    , complete_test_model_payload):
 
-        model = complete_test_model(
-            ModelSpec.model_validate(
-                {
-                    "default_outcome": "construct:cdc0b2958a9512b2abad",
-                    "edges": [
-                        {
-                            "cause": {
-                                "id": "construct:766f6091724c163a3404",
-                                "name": "u_shared",
-                                "description": "Shared static confounder",
-                                "role": "exogenous",
-                                "temporal_status": "time_invariant",
-                            },
-                            "effect": {
-                                "id": "construct:6b04dc42c531e7091eb8",
-                                "name": "stress",
-                                "description": "Stress",
-                                "role": "endogenous",
-                                "temporal_status": "time_varying",
-                                "indicators": [
-                                    {
-                                        "id": "indicator:3696aef3ff6f446744e5",
-                                        "name": "stress_score",
-                                        "construct_polarity": "positive",
-                                        "measurement_dtype": "continuous",
-                                        "aggregation": "mean",
-                                    }
-                                ],
-                            },
-                            "id": "edge:0e72c3c33116c415bd39",
-                            "description": "Shared baseline causes stress",
-                        },
-                        {
-                            "cause": {"kind": "construct", "id": "construct:766f6091724c163a3404"},
-                            "effect": {
-                                "id": "construct:cdc0b2958a9512b2abad",
-                                "name": "sleep",
-                                "description": "Sleep",
-                                "role": "endogenous",
-                                "temporal_status": "time_varying",
-                                "indicators": [
-                                    {
-                                        "id": "indicator:7f807162156d3eb1b611",
-                                        "name": "sleep_score",
-                                        "construct_polarity": "positive",
-                                        "measurement_dtype": "continuous",
-                                        "aggregation": "mean",
-                                    }
-                                ],
-                            },
-                            "id": "edge:a1528b0e1cd05dd511ef",
-                            "description": "Shared baseline causes sleep",
-                        },
-                    ],
-                    "measurement_clock": "1d",
-                }
-            )
-        )
+        model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / complete_test_model_payload).read_text())
         if source_count == 2:
             source = model.get_construct("construct:766f6091724c163a3404")
-            second = source.model_copy(
-                update={"id": "construct:second-common-cause", "name": "second_common_cause"}
+            second = type(source).model_validate(
+                {
+                    **source.model_dump(),
+                    "id": "construct:second-common-cause",
+                    "name": "second_common_cause",
+                }
             )
             model = model.revised(
                 edges=replace_constructs(
                     (
                         *model.edges,
                         *(
-                            edge.model_copy(update={"id": f"{edge.id}-second", "cause": second})
+                            type(edge).model_validate(
+                                {**edge.model_dump(), "id": f"{edge.id}-second", "cause": second}
+                            )
                             for edge in model.edges
                         ),
                     ),
@@ -636,15 +487,13 @@ class TestRuntimeStructuralSupport:
 
     def test_translate_spec_marks_standardizable_gaussian_mean_indicators(self):
 
-        plan = _make_model()
-        model = complete_test_model(plan)
+        model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'dag_to_ssm/testruntimestructuralsupport_test_translate_spec_marks_standardizable_gaussian_mean_indicators_complete_test_model.json').read_text())
         spec = model
         assert numeric.observation_standardized(spec) == [True, True, True, True]
 
     def test_translate_spec_fixes_manifest_noise_for_single_indicator_constructs(self):
 
-        plan = _make_model()
-        model = complete_test_model(plan)
+        model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'dag_to_ssm/testruntimestructuralsupport_test_translate_spec_fixes_manifest_noise_for_single_indicator_constructs_complete_test_model.json').read_text())
         spec = model
         assert isinstance(numeric.observation_noise_block(spec).template, jnp.ndarray)
         np.testing.assert_array_equal(
@@ -656,24 +505,9 @@ class TestRuntimeStructuralSupport:
         self,
     ):
         from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
-        from tests.slot_fixtures import fixture_parameter_id
 
-        plan = _make_model()
-        model = complete_test_model(plan)
-        owners = tuple(ConstructRef(id=model.constructs[i].id) for i in (0, 2))
-        parameter = ParameterSpec(
-            id=fixture_parameter_id(SiteKind.T0_VAR_LOWER, owners),
-            name="cor0",
-            description="Unsupported pairwise initial correlation",
-            distribution_transform=PriorAuthoringTransform.INITIAL_STATE_CORRELATION,
-        )
-        from tests.slot_fixtures import attach_test_coefficients
 
-        model = attach_test_coefficients(
-            model,
-            [(SiteKind.T0_VAR_LOWER, owners, parameter.id)],
-            parameters=(parameter,),
-        )
+        model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'dag_to_ssm/testruntimestructuralsupport_test_translate_spec_rejects_initial_state_correlation_parameters_with_scientific_model_attach_test_coefficients.json').read_text())
         with pytest.raises(
             ValueError, match=r"explicit latent confounder|two distinct state owners"
         ):
@@ -681,18 +515,15 @@ class TestRuntimeStructuralSupport:
 
     def test_translate_spec_rejects_self_initial_state_correlation_with_scientific_model(self):
         from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
-        from tests.slot_fixtures import fixture_parameter_id
 
-        plan = _make_model()
-        model = complete_test_model(plan)
+        model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'dag_to_ssm/testruntimestructuralsupport_test_translate_spec_rejects_self_initial_state_correlation_with_scientific_model_complete_test_model.json').read_text())
         owners = tuple(ConstructRef(id=model.constructs[i].id) for i in (0,))
         parameter = ParameterSpec(
-            id=fixture_parameter_id(SiteKind.T0_VAR_LOWER, owners),
+            id='parameter:77f3ac548e5c828bd95649d677ae53ce71c8dd33c2b1526961592ea56d79f013',
             name="cor0",
             description="Unsupported pairwise initial correlation",
             distribution_transform=PriorAuthoringTransform.INITIAL_STATE_CORRELATION,
         )
-        from tests.slot_fixtures import attach_test_coefficients
 
         with pytest.raises(ValueError, match="Joint coefficients require one other construct"):
             attach_test_coefficients(
@@ -705,8 +536,7 @@ class TestRuntimeStructuralSupport:
         from nof1_causal_lab.models.model_checks import check_execution
         from nof1_causal_lab.models.ssm.runtime import build_ssm_model
 
-        plan = _make_model()
-        science = complete_test_model(plan)
+        science = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'dag_to_ssm/testruntimestructuralsupport_test_model_build_end_to_end_complete_test_model.json').read_text())
         wide = pl.DataFrame(
             {
                 "time": list(range(10)),
@@ -717,7 +547,7 @@ class TestRuntimeStructuralSupport:
             }
         )
         check_execution(science)
-        runtime = build_ssm_model(wide, model_spec=science)
+        runtime = build_ssm_model(wide, inputs=compile_fit_fixture(science))
         spec = runtime.spec
         assert (
             sum(
@@ -749,18 +579,7 @@ class TestSiteRegistryMasks:
         offdiag_support[1, 0] = True
         offdiag_support[2, 1] = True
 
-        spec = model_fixture(
-            n_latent=3,
-            n_manifest=3,
-            dynamics_spec=dense_matrix_dynamics_spec(
-                n_latent=3,
-                decay_support=np.ones(3, dtype=bool),
-                edge_support=offdiag_support,
-                coupling_template=jnp.zeros((3, 3)),
-                intercept_support=full_vector_support(3),
-                cint_template=jnp.zeros(3),
-            ),
-        )
+        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'dag_to_ssm/testsiteregistrymasks_test_site_registry_with_dynamics_support_model_fixture.json').read_text())
 
         registry = {site.name: site for site in build_site_registry(spec)}
 
@@ -786,34 +605,8 @@ class TestSiteRegistryMasks:
         """Site registry should size masked loading entries correctly."""
         from nof1_causal_lab.models.ssm.parameterization import build_site_registry
 
-        lambda_mat = jnp.array([[1.0, 0.0], [0.0, 1.0], [0.0, 0.0]])
-        lambda_support = np.array([[False, False], [False, False], [True, False]])
 
-        spec = model_fixture(
-            n_latent=2,
-            n_manifest=3,
-            dynamics_spec=dense_matrix_dynamics_spec(
-                n_latent=2,
-                decay_support=np.ones(2, dtype=bool),
-                edge_support=np.ones((2, 2), dtype=bool),
-                coupling_template=jnp.zeros((2, 2)),
-                intercept_support=np.zeros(2, dtype=bool),
-                cint_template=jnp.zeros(2),
-            ),
-            lambda_block=SparseMatrixBlockSpec(
-                n_rows=3,
-                n_cols=2,
-                free_support=lambda_support,
-                template=lambda_mat,
-                free_site_name="lambda_free",
-                det_site_name="lambda",
-                support=SupportClass.REAL,
-                site_kind=SiteKind.LOADING,
-                assembly_group="lambda",
-                fixed_spec_field="lambda_mat",
-                priors_field="lambda_free",
-            ),
-        )
+        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'dag_to_ssm/testsiteregistrymasks_test_site_registry_with_lambda_support_model_fixture.json').read_text())
 
         registry = {site.name: site for site in build_site_registry(spec)}
         assert registry["lambda_free"].shape == (1,)
@@ -837,8 +630,7 @@ class TestGradualBuildComponents:
 
         from nof1_causal_lab.artifacts.expressions import expression_coefficients
 
-        model = _make_model()
-        model = complete_test_model(model, self_limiting=(model.state_order[1],))
+        model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'dag_to_ssm/testgradualbuildcomponents_test_quartic_freed_only_for_self_limiting_construct_complete_test_model.json').read_text())
         quartics = {
             component.target: next(
                 operand.value
@@ -856,8 +648,7 @@ class TestGradualBuildComponents:
     def test_hill_edge_emitted_for_saturating_edge(self):
         from nof1_causal_lab.artifacts.expressions import hill_applications
 
-        model = _make_model()
-        model = complete_test_model(model, hill_edges=(model.edges[0].id,))
+        model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'dag_to_ssm/testgradualbuildcomponents_test_hill_edge_emitted_for_saturating_edge_complete_test_model.json').read_text())
         edge_components = [item for item in numeric.dynamics_expressions(model) if item.edge_owned]
         hill = [item for item in edge_components if any(hill_applications(item.expression))]
         linear = [item for item in edge_components if not any(hill_applications(item.expression))]
@@ -868,12 +659,9 @@ class TestGradualBuildComponents:
     @pytest.mark.inference(concern="sampling")
     def test_freed_quartic_and_hill_sites_sample_finite(self):
 
-        plan = _make_model()
-        science = complete_test_model(
-            plan, self_limiting=(plan.state_order[1],), hill_edges=(plan.edges[0].id,)
-        )
+        science = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'dag_to_ssm/testgradualbuildcomponents_test_freed_quartic_and_hill_sites_sample_finite_complete_test_model.json').read_text())
         spec = science
-        model = SSMModel(spec)
+        model = SSMModel(compile_fit_fixture(spec))
         trace = handlers.trace(handlers.seed(model.model, random.PRNGKey(0))).get_trace(
             observations=jnp.zeros((2, 4)),
             times=jnp.arange(2, dtype=jnp.float32),

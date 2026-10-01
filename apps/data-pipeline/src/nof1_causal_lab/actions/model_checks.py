@@ -7,34 +7,35 @@ from typing import TYPE_CHECKING, Literal
 from nof1_causal_lab.actions.checks import check_specification
 from nof1_causal_lab.artifacts.identity import scientific_id
 from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
-from nof1_causal_lab.machine.artifact_files import json_filename, parquet_filename
-from nof1_causal_lab.machine.execution import RetractedArtifact, TransitionEffects, apply_transition
-from nof1_causal_lab.machine.store import ArtifactStore, read_model
+from nof1_causal_lab.study.artifact_files import json_filename, parquet_filename
+from nof1_causal_lab.study.state import RetractedArtifact, apply_effects
+from nof1_causal_lab.study.store import ArtifactStore, read_model
 
 if TYPE_CHECKING:
     import polars as pl
 
+    from nof1_causal_lab.actions.effects import ActionEffects
     from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid
     from nof1_causal_lab.artifacts.model_checks import CheckGroup
-    from nof1_causal_lab.machine.artifacts import ArtifactRecord, EpisodeState
+    from nof1_causal_lab.study.state import ArtifactRecord, StudyState
 
 # Bump when a check's interpretation or implementation changes.
-CHECK_POLICY_VERSION = "model-checks-v3"
+CHECK_POLICY_VERSION = "model-checks-v4"
 
 
 def evaluate_model_checks(
     workspace_id: str,
-    state: EpisodeState,
-    effects: TransitionEffects,
+    state: StudyState,
+    effects: ActionEffects,
     *,
     action: Literal["edit_model", "fit"],
-) -> TransitionEffects:
+) -> ActionEffects:
     """Finish one edit or fit before its model and findings commit together.
 
     This is a fixed sequence, not an artifact scheduler. Reuse is scoped to the
     selected snapshot and keyed independently for each family of scientific checks.
     """
-    selected = apply_transition(state, effects.produced, effects.retracted)
+    selected = apply_effects(state, effects.produced, effects.retracted)
     if not selected.has("model"):
         return effects
     store = ArtifactStore(workspace_id)
@@ -104,8 +105,9 @@ def evaluate_model_checks(
         )
         if was_reused:
             reused.append("predictive")
-    return effects.model_copy(
-        update={
+    return type(effects).model_validate(
+        {
+            **effects.model_dump(),
             "produced": produced,
             "retracted": retracted,
             "checks": ModelCheckReport(
@@ -142,9 +144,12 @@ def _write_validation(
     store: ArtifactStore,
     pins: dict[ArtifactId, GitOid],
 ) -> ArtifactRecord:
-    from nof1_causal_lab.artifacts.validation_report import ValidationReportArtifact
-    from nof1_causal_lab.flows.transitions.validation.flow import (
+    from nof1_causal_lab.actions.validation.flow import (
         validate_extraction,
+    )
+    from nof1_causal_lab.artifacts.validation_report import (
+        ValidationIssue,
+        ValidationReportArtifact,
     )
 
     model = read_model(store, pins["model"])
@@ -163,18 +168,9 @@ def _write_validation(
             "refusing to fabricate an is_valid=False report with empty indicators."
         )
 
-    from nof1_causal_lab.actions.data_checks import data_binding_issues, read_data_metadata
-
-    for issue in data_binding_issues(model, read_data_metadata(store, pins["panel"])):
-        audit_result["dataset_issues"].append(
-            {
-                "indicator_id": None,
-                "issue_type": "measurement_definitions",
-                "severity": "error",
-                "message": issue,
-            }
-        )
     from nof1_causal_lab.actions.checks import check_model_data
+    from nof1_causal_lab.actions.data_checks import data_binding_issues
+    from nof1_causal_lab.study.lineage import read_data_metadata
 
     preflight = check_model_data(
         model, panel, time_origin=read_data_metadata(store, pins["panel"]).time_origin
@@ -185,10 +181,21 @@ def _write_validation(
             "dataset_issues": audit_result["dataset_issues"],
             "preflight": preflight,
         }
-    ).model_dump(mode="json")
+    )
+    for issue in data_binding_issues(model, read_data_metadata(store, pins["panel"])):
+        payload.dataset_issues.append(
+            ValidationIssue(
+                indicator_id=None,
+                issue_type="measurement_definitions",
+                severity="error",
+                message=issue,
+            )
+        )
     return store.write_artifact(
         "validation_report",
         derived_from=pins,
         produced_by="check:validation_report",
-        json_files={json_filename("validation_report", "validation_report"): payload},
+        json_files={
+            json_filename("validation_report", "validation_report"): payload.model_dump(mode="json")
+        },
     )

@@ -1,0 +1,35 @@
+{
+  "distribution": "Normal",
+  "arguments": {
+    "loc": {
+      "kind": "binary",
+      "operator": "add",
+      "left": {
+        "kind": "coefficient",
+        "role": "observation_intercept",
+        "value": null,
+        "construct_ids": []
+      },
+      "right": {
+        "kind": "binary",
+        "operator": "multiply",
+        "left": {
+          "kind": "coefficient",
+          "role": "loading",
+          "value": null,
+          "construct_ids": []
+        },
+        "right": {
+          "kind": "state",
+          "construct_id": "construct:311c9047b5ede16a8f26"
+        }
+      }
+    },
+    "scale": {
+      "kind": "coefficient",
+      "role": "observation_scale",
+      "value": null,
+      "construct_ids": []
+    }
+  }
+}

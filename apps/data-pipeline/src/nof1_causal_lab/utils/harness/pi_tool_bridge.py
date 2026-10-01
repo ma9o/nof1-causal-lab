@@ -11,12 +11,12 @@ from typing import TYPE_CHECKING
 
 import uvicorn
 
-from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.utils.harness.networking import find_free_port, run_uvicorn_server
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
+    from nof1_causal_lab.json_types import JsonObject
     from nof1_causal_lab.utils.openrouter_client import Tool
 
 logger = logging.getLogger(__name__)
@@ -36,7 +36,7 @@ async def _request_body(receive) -> bytes:
     return b"".join(chunks)
 
 
-async def _send_json(send, status: int, payload: UncheckedJsonObject) -> None:
+async def _send_json(send, status: int, payload: JsonObject) -> None:
     body = json.dumps(payload).encode()
     await send(
         {

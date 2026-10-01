@@ -1,5 +1,7 @@
 """Proof-carrying boundaries for numeric causal analysis."""
 
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+
 import subprocess
 from pathlib import Path
 from textwrap import dedent
@@ -22,19 +24,15 @@ from nof1_causal_lab.models.ssm.inference.types import (
     ParticleMCMCPosterior,
 )
 from tests.git_fixtures import git_oid
+from tests.model_fixtures import compile_fit_fixture
 
 pytestmark = pytest.mark.contract
 
 
-def _design():
-    from tests.helpers import complete_test_model, make_model
-
-    model = complete_test_model(make_model(["treatment", "outcome"], [("treatment", "outcome")]))
-    return model.revised(default_outcome=model.constructs[1].id)
 
 
 def _identification():
-    model = _design()
+    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'causal_proofs/identification__design.json').read_text())
     return IdentificationReport(
         outcome=model.constructs[1].id,
         treatments={
@@ -45,19 +43,10 @@ def _identification():
     )
 
 
-def _conditioned():
-    from nof1_causal_lab.models.ssm.inference.persistence import condition_model
-    from tests.model_fixtures import parameter_draws
-
-    model = _design()
-    result = ParticleMCMCPosterior(
-        JointPosteriorDraws(parameter_draws(model, 3), jnp.arange(12.0).reshape(3, 2, 2))
-    )
-    return condition_model(model, result, times=jnp.arange(2))
 
 
 def test_identification_proof_is_estimand_specific() -> None:
-    design = _design()
+    design = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'causal_proofs/identification_proof_is_estimand_specific__design.json').read_text())
     design_ref = GitRef(workspace_id="workspace", revision=git_oid(1), path="model.json")
 
     proof = certify_identified_estimand(
@@ -84,9 +73,12 @@ def test_identification_contract_rejects_linear_iv_evidence_for_nonlinear_models
         IdentificationReport.model_validate(payload)
 
 
-@pytest.mark.parametrize("explicit_finding", [False, True])
-def test_identification_proof_rejects_unidentified_treatment(explicit_finding) -> None:
-    model = _design()
+@pytest.mark.parametrize(('explicit_finding', '_design_payload'), [
+    pytest.param(False, 'causal_proofs/identification_proof_rejects_unidentified_treatment__design_false.json', id='False'),
+    pytest.param(True, 'causal_proofs/identification_proof_rejects_unidentified_treatment__design_true.json', id='True'),
+])
+def test_identification_proof_rejects_unidentified_treatment(explicit_finding, _design_payload) -> None:
+    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / _design_payload).read_text())
     report = IdentificationReport(
         outcome=model.constructs[1].id,
         treatments={model.constructs[0].id: NonIdentifiableTreatmentStatus(notes="Unidentified")}
@@ -108,11 +100,11 @@ def test_conditioning_rejects_warmup_statically(tmp_path):
     probe.write_text(
         dedent("""\
             from jax import Array
-            from nof1_causal_lab.artifacts.model_spec import ModelSpec
+            from nof1_causal_lab.models.ssm.compile.inputs import CompiledFitInputs
             from nof1_causal_lab.models.ssm.inference.persistence import condition_model
             from nof1_causal_lab.models.ssm.inference.types import ParticleMCMCPosterior, WarmupProposal
 
-            def condition(model: ModelSpec, posterior: ParticleMCMCPosterior, warmup: WarmupProposal, times: Array):
+            def condition(model: CompiledFitInputs, posterior: ParticleMCMCPosterior, warmup: WarmupProposal, times: Array):
                 condition_model(model, posterior, times=times)
                 condition_model(model, warmup, times=times)
             """)
@@ -142,30 +134,33 @@ def test_causal_reporting_requires_retained_uncertainty_and_converged_exact_engi
     from nof1_causal_lab.models.causal_proofs import certify_conditioned_model
     from tests.inference_fixtures import inference_log
 
-    model = _conditioned()
+    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'causal_proofs/causal_reporting_requires_retained_uncertainty_and_converged_exact_engine_evidence__conditioned.json').read_text())
     revision = GitRef(workspace_id="workspace", revision=git_oid(2), path="model.json")
     record = inference_log(model)
     certify_conditioned_model(model, revision, record)
-    with pytest.raises(ValueError, match="committed inference"):
+    with pytest.raises(ValueError, match="committed fit"):
         certify_conditioned_model(
-            model, revision.model_copy(update={"revision": git_oid(3)}), record
+            model,
+            type(revision).model_validate({**revision.model_dump(), "revision": git_oid(3)}),
+            record,
         )
     with pytest.raises(ValueError, match="differs from"):
-        certify_conditioned_model(_design(), revision, record)
+        certify_conditioned_model(ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'causal_proofs/causal_reporting_requires_retained_uncertainty_and_converged_exact_engine_evidence__design.json').read_text()), revision, record)
     with pytest.raises(ValueError, match="production particle-MCMC"):
         certify_conditioned_model(
             model,
             revision,
-            record.model_copy(
-                update={
+            type(record).model_validate(
+                {
+                    **record.model_dump(),
                     "diagnostics": {
                         **record.diagnostics,
                         "engine_evidence": {"engine": "map", "latent_transition": "euler_maruyama"},
-                    }
+                    },
                 }
             ),
         )
-    prior = _design()
+    prior = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'causal_proofs/causal_reporting_requires_retained_uncertainty_and_converged_exact_engine_evidence__design_2.json').read_text())
     with pytest.raises(ValueError, match="no retained joint uncertainty"):
         certify_conditioned_model(prior, revision, inference_log(prior))
     report = record.diagnostics["report"]
@@ -187,7 +182,7 @@ def test_causal_reporting_requires_retained_uncertainty_and_converged_exact_engi
 def test_causal_analysis_joins_matching_proofs():
     from tests.inference_fixtures import inference_log
 
-    design = _conditioned()
+    design = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'causal_proofs/causal_analysis_joins_matching_proofs__conditioned.json').read_text())
     design_ref = GitRef(workspace_id="workspace", revision=git_oid(2), path="model.json")
     analysis = CertifiedCausalAnalysis(
         model=design,

@@ -21,17 +21,17 @@ from typing import TYPE_CHECKING
 import pygit2
 from pydantic import TypeAdapter
 
-from nof1_causal_lab.actions.predictive_checks import fitted_law_report, law_provenance
 from nof1_causal_lab.artifacts.data_preparation import DataSourceRef, SimulationReplicateRef
 from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.simulation import SimulationReport
-from nof1_causal_lab.machine.history import StudyRepository
-from nof1_causal_lab.machine.store import ArtifactStore
+from nof1_causal_lab.study.history import StudyRepository
+from nof1_causal_lab.study.lineage import fitted_law_report, law_provenance
+from nof1_causal_lab.study.store import ArtifactStore
 from nof1_causal_lab.utils.arrays import read_array
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.machine.history_models import StudyRevision
+    from nof1_causal_lab.study.records import StudyRevision
 
 _PRIMARY = {"model", "panel", "data_profile", "raw_data"}
 _PINS = TypeAdapter(dict[ArtifactId, GitOid])
@@ -49,7 +49,7 @@ class HistorySquashPlan:
 def plan_squash(source: Path, *, at: str) -> HistorySquashPlan:
     """Validate the supported scope and close last writers over scientific inputs."""
     source = source.resolve()
-    path = source / "episode/history.git"
+    path = source / "study/history.git"
     if not path.is_dir():
         raise ValueError(f"No study repository at {path}")
     history = StudyRepository(source.name, repository_path=path)
@@ -74,7 +74,7 @@ def plan_squash(source: Path, *, at: str) -> HistorySquashPlan:
         if record.branch != branch or record.parent_ids != [current]:
             raise ValueError(f"Attempt {record.seq} is outside the single sequential branch")
         if (
-            record.operation_id == "statistical_model_spec"
+            "prior_predictive" in record.diagnostics
             or record.diagnostics.get("retention") == "report_only"
         ):
             raise ValueError(f"Legacy action at attempt {record.seq} is unsupported")
@@ -168,7 +168,7 @@ def plan_squash(source: Path, *, at: str) -> HistorySquashPlan:
             last_writers["checks"] = record.commit_id
     kept = {root, boundary, *last_writers.values()}
     kept.update(r.commit_id for r in records if r.seq > boundary_record.seq)
-    latest_simulation = next((r for r in reversed(prefix) if r.operation_id == "simulate"), None)
+    latest_simulation = next((r for r in reversed(prefix) if r.action == "simulate"), None)
     model = history.state(boundary).get("model")
     if latest_simulation is not None and model is not None:
         report = SimulationReport.model_validate(latest_simulation.diagnostics["report"])
@@ -187,14 +187,14 @@ def plan_squash(source: Path, *, at: str) -> HistorySquashPlan:
     return HistorySquashPlan(source, branch, root, tuple(records), frozenset(kept))
 
 
-def _copy_squashed(plan: HistorySquashPlan, destination: Path) -> dict[str, str | None]:
+def copy_squashed(plan: HistorySquashPlan, destination: Path) -> dict[str, str | None]:
     destination = destination.resolve()
     if destination.exists() or destination.is_relative_to(plan.source):
         raise ValueError("Choose a new destination outside the source workspace")
     if destination.name != plan.source.name:
         raise ValueError("Keep the study directory name (its logical workspace ID) unchanged")
     shutil.copytree(plan.source, destination, ignore=shutil.ignore_patterns("cache", "scratch"))
-    repo = pygit2.Repository(str(destination / "episode/history.git"))
+    repo = pygit2.Repository(str(destination / "study/history.git"))
     for ref in list(repo.references):
         if not ref.startswith("refs/artifacts/"):
             repo.references.delete(ref)
@@ -251,11 +251,6 @@ def _copy_squashed(plan: HistorySquashPlan, destination: Path) -> dict[str, str 
     return mapping
 
 
-def squash_study(source: Path, destination: Path, *, at: str) -> dict[str, str | None]:
-    """Apply the deterministic retention rule to a new copy; leave the source untouched."""
-    return _copy_squashed(plan_squash(source, at=at), destination)
-
-
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("source", type=Path)
@@ -272,7 +267,7 @@ def main() -> None:
             f"{disposition:4} {record.seq:4} {record.action:12} {record.status:8} {record.commit_id}"
         )
     if not args.dry_run:
-        _copy_squashed(plan, args.destination)
+        copy_squashed(plan, args.destination)
         print(f"Squashed into {args.destination}; source unchanged; see squash-mapping.json")
 
 

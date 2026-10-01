@@ -1,5 +1,8 @@
 """Independent additive terms survive revision without tying their free coefficients."""
 
+from nof1_causal_lab.artifacts.expressions import BinaryExpression
+from pathlib import Path
+
 import numpy as np
 import numpyro.distributions as dist
 import pytest
@@ -14,66 +17,14 @@ from nof1_causal_lab.artifacts.identity import ConstructRef, EdgeRef, MechanismR
 from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
-from nof1_causal_lab.models.model_distributions import with_parameter_distributions
 from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
 from nof1_causal_lab.models.ssm.compile.prior_compilation import compile_priors
-from tests.helpers import complete_test_model, make_model
-from tests.slot_fixtures import fixture_parameter_id
+from tests.helpers import make_model
 
 
 @pytest.fixture(scope="module")
 def two_hills():
-    model = complete_test_model(make_model(["A", "B"], [("A", "B")]))
-    edge = model.edges[0]
-    parameters = [
-        p
-        for p in model.parameters
-        if not any(o.id == edge.id for o in model.parameter_context(p.id).owners)
-    ]
-    terms = []
-    laws = {}
-    for identity, scale in (("mechanism:fast-response", 0.3), ("mechanism:slow-response", 1.5)):
-        owners = (
-            ConstructRef(id=edge.cause.id),
-            ConstructRef(id=edge.effect.id),
-            EdgeRef(id=edge.id),
-            MechanismRef(id=identity),
-        )
-        coefficients = {}
-        for slot, quantity in (
-            ("emax", SiteKind.HILL_EMAX),
-            ("ec50", SiteKind.HILL_EC50),
-            ("n", SiteKind.HILL_N),
-        ):
-            parameter = ParameterSpec(
-                id=fixture_parameter_id(quantity, owners),
-                name=f"{identity} {slot}",
-                description="Independent saturating response",
-            )
-            laws[parameter.id] = dist.HalfNormal(scale)
-            parameters.append(parameter)
-            coefficients[slot] = parameter.id
-        terms.append(
-            DynamicsMechanismSpec(
-                id=identity,
-                expression=expr_hill(
-                    expr_state(edge.cause.id),
-                    emax=coefficients["emax"],
-                    ec50=coefficients["ec50"],
-                    n=coefficients["n"],
-                ),
-            )
-        )
-    candidate = model.revised(
-        edges=(edge.model_copy(update={"mechanisms": tuple(terms)}),),
-        parameters=tuple(parameters),
-        distributions={
-            k: v
-            for k, v in model.distributions.items()
-            if k in {p.distribution for p in parameters}
-        },
-    )
-    return with_parameter_distributions(candidate, laws)
+    return ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'mechanism_identity/two_hills_model.json').read_text())
 
 
 @pytest.mark.inference(concern="sampling")
@@ -84,9 +35,14 @@ def test_independent_hill_coefficients_survive_reorder_rename_and_submission(two
     before = parameter_bindings(model)[0]
     before_priors = compile_priors(model)[0]
     revised = model.revised(
-        edges=(edge.model_copy(update={"mechanisms": tuple(reversed(edge.mechanisms))}),),
+        edges=(
+            type(edge).model_validate(
+                {**edge.model_dump(), "mechanisms": tuple(reversed(edge.mechanisms))}
+            ),
+        ),
         parameters=tuple(
-            p.model_copy(update={"name": f"new label {i}"}) for i, p in enumerate(model.parameters)
+            type(p).model_validate({**p.model_dump(), "name": f"new label {i}"})
+            for i, p in enumerate(model.parameters)
         ),
     )
     revised.check_execution()
@@ -113,7 +69,9 @@ def test_independent_hill_coefficients_survive_reorder_rename_and_submission(two
     removed_ids = {p.id for p in model.parameters_for(edge.mechanisms[1].id)}
     remaining = tuple(p for p in model.parameters if p.id not in removed_ids)
     edited = model.revised(
-        edges=(edge.model_copy(update={"mechanisms": (edge.mechanisms[0],)}),),
+        edges=(
+            type(edge).model_validate({**edge.model_dump(), "mechanisms": (edge.mechanisms[0],)}),
+        ),
         parameters=remaining,
         distributions={
             key: law
@@ -132,36 +90,27 @@ def test_term_identity_rejects_ambiguous_or_dangling_revisions(two_hills, change
     edge = model.edges[0]
     first, second = edge.mechanisms
     if change == "duplicate":
-        terms = (first, second.model_copy(update={"id": first.id}))
+        terms = (first, type(second).model_validate({**second.model_dump(), "id": first.id}))
     elif change == "wrong_coefficient":
+
         from nof1_causal_lab.artifacts.expressions import (
             CoefficientExpression,
             expression_coefficients,
-            map_expression,
         )
 
-        emax = next(
-            operand
-            for operand in expression_coefficients(first.expression)
-            if operand.role == "emax"
-        )
         terms = (
             first,
-            second.model_copy(
-                update={
-                    "expression": map_expression(
-                        second.expression,
-                        lambda node: (
-                            emax
-                            if isinstance(node, CoefficientExpression) and node.role == "emax"
-                            else node
-                        ),
-                    )
+            type(second).model_validate(
+                {
+                    **second.model_dump(),
+                    "expression": BinaryExpression.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'mechanism_identity/term_identity_rejects_ambiguous_or_dangling_revisions_map_expression.json').read_text()),
                 }
             ),
         )
     else:
         terms = (first,)
     with pytest.raises(ValueError, match=r"Duplicate mechanism|not referenced by component slots"):
-        model.revised(edges=(edge.model_copy(update={"mechanisms": terms}),))
+        model.revised(
+            edges=(type(edge).model_validate({**edge.model_dump(), "mechanisms": terms}),)
+        )
     assert model.mechanism(second.id) is second

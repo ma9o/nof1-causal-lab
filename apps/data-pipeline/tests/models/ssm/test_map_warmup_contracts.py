@@ -15,7 +15,7 @@ from nof1_causal_lab.models.ssm.inference.warmup import map as map_warmup
 
 pytestmark = pytest.mark.inference(concern="warmup")
 
-_INNER_DIAGNOSTICS = {
+_INNER_DIAGNOSTICS: map_warmup.InnerEvaluationDiagnostics = {
     "solver_kind": 1,
     "n_iterations": 2,
     "n_accepted_steps": 2,

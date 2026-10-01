@@ -21,21 +21,24 @@ from nof1_causal_lab.actions.revisions import (
     compare_model_graph,
     compare_parameters,
 )
-from nof1_causal_lab.artifacts.expressions import linear_effect
+from nof1_causal_lab.artifacts.expressions import (
+    coefficient,
+)
+from nof1_causal_lab.artifacts.expressions import state as expr_state
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.machine.execution import is_stale
-from nof1_causal_lab.machine.git_objects import object_tree
-from nof1_causal_lab.machine.history import StudyRepository
-from nof1_causal_lab.machine.inference import inference_is_current
-from nof1_causal_lab.machine.snapshots import ModelReader
-from nof1_causal_lab.machine.store import ArtifactStore, trace_log_path
 from nof1_causal_lab.models.model_inputs import input_fingerprints
-from nof1_causal_lab.models.model_parameters import referenced_parameter_ids
+from nof1_causal_lab.study.git_objects import object_tree
+from nof1_causal_lab.study.history import StudyRepository
+from nof1_causal_lab.study.lineage import inference_is_current
+from nof1_causal_lab.study.snapshots import ModelReader
+from nof1_causal_lab.study.state import is_stale
+from nof1_causal_lab.study.store import ArtifactStore, trace_log_path
 from nof1_causal_lab.utils import data as data_module
 
 if TYPE_CHECKING:
+
     from nof1_causal_lab.artifacts.identity import ArtifactId
-    from nof1_causal_lab.machine.artifacts import EpisodeState
+    from nof1_causal_lab.study.state import StudyState
 
 ROOT = Path(__file__).resolve().parents[4]
 DEMO_ROOT = ROOT / "data" / "DEMO"
@@ -55,32 +58,30 @@ TRACES = {
 }
 
 
-def read_fixture_files(repository: StudyRepository, state: EpisodeState) -> dict[str, bytes]:
+def read_fixture_files(repository: StudyRepository, state: StudyState) -> dict[str, bytes]:
     """Project retained payloads and logs from the selected Git ancestry."""
     records = repository.records(repository.head())
     store = ArtifactStore(repository.workspace_id)
     files = {}
     for aid, filename in ARTIFACTS.items():
         files[f"artifacts/{aid}.json"] = repository.read_file(state.current[aid].revision, filename)
-    for aid, prefix in TRACES.items():
-        record = next(record for record in reversed(records) if record.operation_id == aid)
-        trace = next(trace for trace in sorted(record.trace_ids) if trace.startswith(prefix))
-        files[f"traces/{aid}.json"] = repository.read_file(
+    for name, prefix in TRACES.items():
+        trace, record = next(
+            (trace, record)
+            for record in reversed(records)
+            for trace in sorted(record.trace_ids)
+            if trace.startswith(prefix)
+        )
+        files[f"traces/{name}.json"] = repository.read_file(
             record.commit_id, f"logs/{trace_log_path(trace)}"
         )
-    for operation, filename in [
-        ("statistical_model_spec", "model_authoring.json"),
-        ("posterior", "inference.json"),
-    ]:
-        record = next(record for record in reversed(records) if record.operation_id == operation)
-        files[filename] = (json.dumps(record.diagnostics, indent=2) + "\n").encode()
-        if operation == "posterior":
-            # Archived summaries may survive after their original arrays are lost.
-            tree = object_tree(repository.repo, record.commit_id)
-            if "logs/predictive_checks.json" in tree:
-                files["predictive_checks.json"] = repository.read_file(
-                    record.commit_id, "logs/predictive_checks.json"
-                )
+    record = next(record for record in reversed(records) if record.action == "fit")
+    files["inference.json"] = (json.dumps(record.diagnostics, indent=2) + "\n").encode()
+    # Archived summaries may survive after their original arrays are lost.
+    if "logs/predictive_checks.json" in object_tree(repository.repo, record.commit_id):
+        files["predictive_checks.json"] = repository.read_file(
+            record.commit_id, "logs/predictive_checks.json"
+        )
     # Check external payload closure as well as the native Git objects.
     for aid, info in state.current.items():
         for filename in store.filenames(aid, info.revision):
@@ -119,10 +120,10 @@ def project(source: Path, destination: Path | None = None):
             [
                 "git",
                 "--git-dir",
-                str(destination / "episode" / "history.git"),
+                str(destination / "study" / "history.git"),
                 "bundle",
                 "create",
-                str(destination / "episode" / "history.bundle"),
+                str(destination / "study" / "history.bundle"),
                 "--all",
             ],
             check=True,
@@ -138,17 +139,22 @@ def workbench_comparisons(snapshot, history):
         for item in free.parameters
         if item.name == "beta_perceived_stress_burden_internalizing_symptom_burden"
     )
-    edge = next(edge for edge in free.edges if parameter.id in referenced_parameter_ids(edge))
+    edge = next(item for item in free.edges if item.id == "edge:9df1507c29b9de944a33")
     pinned = free.revised(
         edges=tuple(
-            item.model_copy(
-                update={
+            type(item).model_validate(
+                {
+                    **item.model_dump(),
                     "mechanisms": tuple(
-                        mechanism.model_copy(
-                            update={"expression": linear_effect(edge.cause.id, 0.0)}
+                        type(mechanism).model_validate(
+                            {
+                                **mechanism.model_dump(),
+                                "expression": coefficient(0.0, "weight")
+                                * expr_state(edge.cause.id),
+                            }
                         )
                         for mechanism in item.mechanisms
-                    )
+                    ),
                 }
             )
             if item.id == edge.id
@@ -199,15 +205,15 @@ def build_outputs():
         patch.object(data_module, "_DATA_URI", directory),
     ):
         workspace = Path(directory) / "DEMO"
-        history = workspace / "episode/history.git"
+        history = workspace / "study/history.git"
         history.parent.mkdir(parents=True)
         subprocess.run(
-            ["git", "clone", "--mirror", str(DEMO_ROOT / "episode/history.bundle"), str(history)],
+            ["git", "clone", "--mirror", str(DEMO_ROOT / "study/history.bundle"), str(history)],
             check=True,
             capture_output=True,
         )
         subprocess.run(
-            ["git", "--git-dir", str(history), "config", "nof1.format", "7"],
+            ["git", "--git-dir", str(history), "config", "nof1.format", "8"],
             check=True,
             capture_output=True,
         )

@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, Annotated, Literal
 from pydantic import BaseModel, ConfigDict, Field
 
 from .base import ArtifactPayload
-from .identity import ConstructId  # noqa: TC001
+from .identity import ConstructId
 
 if TYPE_CHECKING:
     from .model_spec import ModelSpec

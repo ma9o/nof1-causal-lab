@@ -1,0 +1,477 @@
+"""Message types crossing the workflow/activity/facade boundaries.
+
+Kept free of heavy imports (only pydantic + the pure study modules) so
+the workflow sandbox can import this module without dragging in storage,
+polars, or jax.
+"""
+
+from __future__ import annotations
+
+from typing import Annotated, Literal
+from uuid import UUID, uuid4
+
+from pydantic import BaseModel, ConfigDict, Field
+
+from nof1_causal_lab.actions.contracts import (
+    EditModelRequest,
+    FitRequest,
+    PrepareDataRequest,
+    ScientificActionRequest,
+    SimulateRequest,
+)
+from nof1_causal_lab.actions.data_diff import DataDiffRequest
+from nof1_causal_lab.actions.effects import ActionEffects
+from nof1_causal_lab.actions.progress import ProgressEvent
+from nof1_causal_lab.artifacts.data_preparation import (
+    FilePreparationSpec,
+    FileSourceRef,
+)
+from nof1_causal_lab.artifacts.identity import (
+    ActionId,
+    ArtifactId,
+    GitOid,
+    ScientificActionId,
+)
+from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
+from nof1_causal_lab.json_types import JsonObject
+from nof1_causal_lab.llm_specs import (
+    EmbeddedLLMSpec,
+    HarnessLLMSpec,
+    LLMProfileSpec,
+)
+from nof1_causal_lab.study.records import ActionMessage, JournalStatus
+from nof1_causal_lab.study.state import (
+    ArtifactRecord,
+    RetractedArtifact,
+    StudyState,
+)
+
+LLMSubroutineContextKind = Literal[
+    "measurement_extraction",
+    "raw_data_ingestion",
+]
+
+
+class StudyInit(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    workspace_id: str
+    # Attempt numbering resumes after the journal; each action captures its own branch head.
+    initial_seq: int = 0
+
+
+class ReadBranchInput(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    workspace_id: str
+    branch: str = "main"
+
+
+class ActionRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    branch: str = "main"
+    expected_head: GitOid | None = None
+    request: ScientificActionRequest | DataDiffRequest
+    attempt_id: UUID = Field(default_factory=uuid4)
+
+
+class ActionInput(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    workspace_id: str
+    request: Annotated[
+        FitRequest | SimulateRequest | PrepareDataRequest, Field(discriminator="action")
+    ]
+    state: StudyState
+
+
+class MeasurementsWorkflowInput(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    workspace_id: str
+    seq: int
+    attempt_id: UUID
+    raw_data_revision: GitOid
+    preparation: FilePreparationSpec
+
+
+class ProgressEventInput(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    workspace_id: str
+    event: ProgressEvent
+
+
+class LLMToolSpec(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    name: str
+    description: str
+    parameters: JsonObject
+    kind: Literal["read_only", "checkpoint", "terminal"] = "terminal"
+    executor: Literal[
+        "measurement_validation",
+        "raw_data_list_files",
+        "raw_data_read_file_sample",
+        "raw_data_execute_python",
+        "raw_data_submit_table",
+    ] = "measurement_validation"
+    success_output: str | None = "VALID"
+
+
+class LLMSubroutineInput(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    workspace_id: str
+    run_id: str
+    subroutine_id: str
+    context_kind: LLMSubroutineContextKind
+    context_ref: str
+    llm: LLMProfileSpec
+    max_tool_turns: int
+
+
+class LLMSubroutineStartInput(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    workspace_id: str
+    run_id: str
+    subroutine_id: str
+    context_kind: LLMSubroutineContextKind
+    context_ref: str
+
+
+class LLMSubroutineStart(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    conversation_ref: str
+    conversation_ref_base: str
+    user_message_count: int
+    tools: list[LLMToolSpec] = Field(default_factory=list)
+    call_ref_base: str
+    assistant_ref_base: str
+    tool_execution_ref_base: str
+    harness_state_ref: str
+    harness_tool_ref_base: str
+    result_ref_base: str
+
+
+class AppendLLMUserMessageInput(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    workspace_id: str
+    run_id: str
+    subroutine_id: str
+    context_kind: LLMSubroutineContextKind
+    context_ref: str
+    conversation_ref: str
+    user_message_index: int
+
+
+class AppendLLMUserMessageResult(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    conversation_ref: str
+
+
+class AppendLLMRepairMessageInput(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    workspace_id: str
+    run_id: str
+    subroutine_id: str
+    conversation_ref: str
+    next_conversation_ref: str
+    error_text: str
+    tools: list[LLMToolSpec] = Field(default_factory=list)
+
+
+class AppendLLMRepairMessageResult(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    conversation_ref: str
+
+
+class LLMToolExecutionInput(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    workspace_id: str
+    run_id: str
+    subroutine_id: str
+    context_kind: LLMSubroutineContextKind
+    context_ref: str
+    conversation_ref: str
+    assistant_ref: str
+    execution_ref: str
+    result_ref: str
+    tools: list[LLMToolSpec] = Field(default_factory=list)
+    max_tool_output: int | None = None
+
+
+class LLMToolExecutionResult(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    conversation_ref: str
+    terminal_success: bool
+    result_ref: str | None = None
+    feedback_preview: str
+    tool_calls_fired: list[str] = Field(default_factory=list)
+
+
+class HarnessTurnInput(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    workflow_id: str
+    workflow_run_id: str
+    workspace_id: str
+    run_id: str
+    subroutine_id: str
+    context_kind: LLMSubroutineContextKind
+    context_ref: str
+    harness_state_ref: str
+    harness_tool_ref_base: str
+    result_ref: str
+    llm: HarnessLLMSpec
+    tools: list[LLMToolSpec] = Field(default_factory=list)
+    user_message_index: int
+    log_label: str
+
+
+class HarnessToolRequest(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    request_id: str
+    workspace_id: str
+    run_id: str
+    subroutine_id: str
+    context_kind: LLMSubroutineContextKind
+    context_ref: str
+    result_ref: str
+    tool: LLMToolSpec
+    tool_name: str
+    arguments: JsonObject
+    request_ref: str
+    response_ref: str
+
+
+class HarnessToolExecutionResult(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    request_id: str
+    tool_name: str
+    output: str
+    result_ref: str | None = None
+    success: bool = False
+
+
+class HarnessTurnResult(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    harness_state_ref: str
+    trace_ref: str
+    completion_preview: str
+    result_ref: str | None = None
+    terminal_tool_name: str | None = None
+    tool_calls_fired: list[str] = Field(default_factory=list)
+
+
+class LLMSubroutineResult(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    result_ref: str
+    conversation_ref: str
+    trace_ref: str
+    n_llm_calls: int = 0
+    n_harness_turns: int = 0
+
+
+class LLMSubroutineTraceInput(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    workspace_id: str
+    run_id: str
+    subroutine_id: str
+    conversation_ref: str
+    call_ref_base: str
+    harness_trace_refs: list[str] = Field(default_factory=list)
+
+
+class LLMSubroutineTraceResult(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    trace_ref: str
+
+
+class IngestionWorkflowInput(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    workspace_id: str
+    seq: int
+    attempt_id: UUID
+    source: FileSourceRef
+
+
+class IngestionPlan(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    workspace_id: str
+    run_id: str
+    context_ref: str
+    llm: LLMProfileSpec
+    max_tool_turns: int
+    cached_result_ref: str | None = None
+
+
+class IngestionFinalizeInput(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    workspace_id: str
+    context_ref: str
+    result_ref: str
+
+
+class MeasurementChunkRef(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    worker_id: int
+    n_windows: int
+    spec_ref: str
+    cached_result_ref: str | None = None
+
+
+class MeasurementsPlan(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    workspace_id: str
+    run_id: str
+    plan_ref: str
+    pins: dict[ArtifactId, GitOid]
+    chunks: list[MeasurementChunkRef] = Field(default_factory=list)
+    max_concurrent_workers: int
+    max_rpm: int
+    max_tool_turns: int
+    llm: EmbeddedLLMSpec
+
+
+class ExtractionChunkWorkflowInput(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    workspace_id: str
+    run_id: str
+    worker_id: int
+    n_windows: int
+    spec_ref: str
+    attempt: int
+    llm: EmbeddedLLMSpec
+    max_tool_turns: int
+    cached_result_ref: str | None = None
+
+
+class OpenRouterCallInput(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    conversation_ref: str
+    next_conversation_ref: str
+    call_ref: str
+    assistant_ref: str
+    llm: EmbeddedLLMSpec
+    tools: list[LLMToolSpec] = Field(default_factory=list)
+    log_label: str
+
+
+class ToolCallSummary(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    index: int
+    id: str
+    name: str
+
+
+class OpenRouterCallResult(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    conversation_ref: str
+    assistant_ref: str
+    model: str
+    stop_reason: str | None = None
+    time: float
+    usage: dict[str, int | None] | None = None
+    completion_preview: str
+    tool_calls: list[ToolCallSummary] = Field(default_factory=list)
+
+
+class ExtractionChunkFinalizeInput(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    workspace_id: str
+    run_id: str
+    worker_id: int
+    attempt: int
+    n_windows: int
+    result_ref: str
+    conversation_ref: str
+    n_llm_calls: int
+    spec_ref: str
+    reused: bool = False
+
+
+class ExtractionChunkResult(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    worker_id: int
+    status: Literal["completed", "failed"]
+    n_extractions: int
+    n_windows: int
+    n_llm_calls: int = 0
+    result_ref: str | None = None
+    error: str | None = None
+    reused: bool = False
+
+
+class MeasurementsFinalizeInput(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    workspace_id: str
+    run_id: str
+    plan_ref: str
+    pins: dict[ArtifactId, GitOid]
+    chunk_results: list[ExtractionChunkResult] = Field(default_factory=list)
+
+
+class EditModelInput(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    workspace_id: str
+    request: EditModelRequest
+    state: StudyState
+
+
+class EvaluateChecksInput[ActionT: ScientificActionId](BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    workspace_id: str
+    action: ActionT
+    state: StudyState
+    effects: ActionEffects
+
+
+class JournalInput(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    workspace_id: str
+    branch: str = "main"
+    expected_head: GitOid | None = None
+    seq: int
+    action: ActionId
+    inputs: JsonObject
+    status: JournalStatus
+    reason: str | None = None
+    error_type: str | None = None
+    error_message: str | None = None
+    diagnostics: JsonObject = Field(default_factory=dict)
+    checks: ModelCheckReport | None = None
+    produced: list[ArtifactRecord] = Field(default_factory=list)
+    retracted: list[RetractedArtifact] = Field(default_factory=list)
+    attempt_id: UUID | None = None
+    messages: tuple[ActionMessage, ...] = ()

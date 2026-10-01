@@ -1,5 +1,8 @@
 """Synthetic observations compose with the normal panel, provenance and fitting contracts."""
 
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from pathlib import Path
+
 from datetime import datetime, timedelta
 
 import numpy as np
@@ -7,9 +10,9 @@ import polars as pl
 import pytest
 from pydantic import ValidationError
 
-from nof1_causal_lab.actions.contracts import FitRequest, PrepareDataRequest
-from nof1_causal_lab.actions.execution import plan_execution
+from nof1_causal_lab.actions.contracts import PrepareDataRequest
 from nof1_causal_lab.actions.prepare_data import prepare_simulation_panel
+from nof1_causal_lab.actions.runners import run_action
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.data_preparation import SimulationReplicateRef
 from nof1_causal_lab.artifacts.identity import GitRef
@@ -17,17 +20,15 @@ from nof1_causal_lab.artifacts.simulation import (
     SimulationReport,
     SimulationSpec,
 )
-from nof1_causal_lab.machine.artifacts import EpisodeState
-from nof1_causal_lab.machine.graph import transition_spec
-from nof1_causal_lab.machine.history import StudyRepository
-from nof1_causal_lab.machine.runners import execute_transition
-from nof1_causal_lab.machine.selection import resolve_input_pins
-from nof1_causal_lab.machine.store import ArtifactStore, TransitionRecord
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.runtime import project_observation_data
+from nof1_causal_lab.study.history import StudyRepository
+from nof1_causal_lab.study.records import AttemptRecord
+from nof1_causal_lab.study.state import StudyState
+from nof1_causal_lab.study.store import ArtifactStore
 from tests.data_fixtures import predictive_summary, simulation_layout
 from tests.git_fixtures import git_oid
-from tests.helpers import complete_test_model, make_model, run_async
+from tests.helpers import make_model, run_async
 
 pytestmark = pytest.mark.contract
 
@@ -38,12 +39,15 @@ def _model(**indicator_changes):
         edges=replace_constructs(
             model.edges,
             tuple(
-                construct.model_copy(
-                    update={
+                type(construct).model_validate(
+                    {
+                        **construct.model_dump(),
                         "indicators": tuple(
-                            indicator.model_copy(update=indicator_changes)
+                            type(indicator).model_validate(
+                                {**indicator.model_dump(), **indicator_changes}
+                            )
                             for indicator in construct.indicators
-                        )
+                        ),
                     }
                 )
                 for construct in model.constructs
@@ -57,16 +61,16 @@ def test_recorded_replicate_becomes_a_compatible_panel(tmp_path, monkeypatch):
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path))
     store, history = ArtifactStore("TEST"), StudyRepository("TEST")
-    model = complete_test_model(_model(aggregation="last"))
+    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'prepare_simulation_data/recorded_replicate_becomes_a_compatible_panel_complete_test_model.json').read_text())
     model_info = store.write_artifact(
         "model",
         derived_from={},
-        produced_by="write:model",
+        produced_by="edit_model",
         json_files={"model.json": model.model_dump(mode="json")},
     )
-    state = EpisodeState().with_artifacts([model_info])
+    state = StudyState().with_artifacts([model_info])
     model_commit = history.append(
-        TransitionRecord(
+        AttemptRecord(
             seq=1,
             ts="2026-09-25T12:00:00Z",
             action="edit_model",
@@ -74,7 +78,6 @@ def test_recorded_replicate_becomes_a_compatible_panel(tmp_path, monkeypatch):
             status="applied",
             produced=[model_info],
             trace_ids=[],
-            resume=None,
         )
     )
     times = (0.0, 0.5, 2.0)
@@ -96,47 +99,49 @@ def test_recorded_replicate_becomes_a_compatible_panel(tmp_path, monkeypatch):
             model, tuple(t + 5 for t in times), np.ones_like(draws, dtype=bool), store.write_array
         ),
     )
-    simulation_record = TransitionRecord(
+    simulation_record = AttemptRecord(
         seq=2,
         ts="2026-09-25T12:01:00Z",
         action="simulate",
-        operation_id="simulate",
         inputs={},
         status="applied",
         diagnostics={"report": report.model_dump(mode="json")},
         trace_ids=[],
-        resume=None,
     )
     source_commit = history.append(simulation_record)
     # A later simulation must not replace the explicitly selected source.
     history.append(
-        simulation_record.model_copy(
-            update={
+        type(simulation_record).model_validate(
+            {
+                **simulation_record.model_dump(),
                 "seq": 3,
                 "diagnostics": {
-                    "report": report.model_copy(
-                        update={"observations": store.write_array(np.zeros_like(draws))}
-                    ).model_dump(mode="json")
+                    "report": type(report)
+                    .model_validate(
+                        {
+                            **report.model_dump(),
+                            "observations": store.write_array(np.zeros_like(draws)),
+                        }
+                    )
+                    .model_dump(mode="json")
                 },
             }
         )
     )
     source = SimulationReplicateRef(revision=source_commit, replicate=1)
     request = PrepareDataRequest(input=source)
-    command = plan_execution(request)
-    assert command.operation.operation_id == "simulated_measurements"
     with pytest.raises(ValueError, match="applied simulation commit"):
         run_async(
-            execute_transition(
+            run_action(
                 "TEST",
-                command.operation.model_copy(
-                    update={"source": source.model_copy(update={"revision": model_commit})}
+                PrepareDataRequest(
+                    input=SimulationReplicateRef(revision=model_commit, replicate=1)
                 ),
                 state,
             )
         )
-    effects = run_async(execute_transition("TEST", command.operation, state))
-    # The operation stages the panel; the enclosing action owns scientific checks.
+    effects = run_async(run_action("TEST", request, state))
+    # The runner stages the panel; the enclosing action owns scientific checks.
     assert {info.artifact_id for info in effects.produced} == {"panel"}
     panel_info = next(info for info in effects.produced if info.artifact_id == "panel")
     assert panel_info.derived_from == {}
@@ -151,22 +156,12 @@ def test_recorded_replicate_becomes_a_compatible_panel(tmp_path, monkeypatch):
     assert panel["anchor_time"].min() == datetime(1970, 1, 1)
     assert set(panel["support_kind"]) == {"point"}
 
-    # Fitting uses the usual panel selection; only observation rows enter it.
-    fit = plan_execution(
-        FitRequest(model_revision=model_info.revision, panel_revision=panel_info.revision)
-    )
-    assert resolve_input_pins(
-        store,
-        state.with_artifacts(effects.produced),
-        transition_spec("posterior"),
-        fit.input_revisions,
-    ) == {"model": model_info.revision, "panel": panel_info.revision}
     history.append(
-        simulation_record.model_copy(
-            update={
+        type(simulation_record).model_validate(
+            {
+                **simulation_record.model_dump(),
                 "seq": 4,
                 "action": "prepare_data",
-                "operation_id": command.operation.operation_id,
                 "inputs": request.model_dump(mode="json", exclude={"action"}),
                 "produced": effects.produced,
                 "diagnostics": effects.diagnostics,

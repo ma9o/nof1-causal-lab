@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.identification import IdentificationReport
     from nof1_causal_lab.artifacts.identity import GitRef
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.machine.store import TransitionRecord
+    from nof1_causal_lab.study.records import AttemptRecord
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,7 +31,7 @@ class CertifiedCausalAnalysis:
     model_revision: GitRef
     identification: IdentificationReport
     estimands: tuple[IdentifiedEstimand, ...]
-    inference: TransitionRecord
+    inference: AttemptRecord
 
     def __post_init__(self) -> None:
         if not self.estimands:
@@ -110,21 +110,21 @@ def certify_identified_estimand(
     )
 
 
-def certify_conditioned_model(model: ModelSpec, revision: GitRef, record: TransitionRecord) -> None:
+def certify_conditioned_model(model: ModelSpec, revision: GitRef, record: AttemptRecord) -> None:
     """Join the current scientific value to committed, converged exact-engine evidence."""
     from nof1_causal_lab.artifacts.posterior import InferenceReport
-    from nof1_causal_lab.machine.inference import inference_record
     from nof1_causal_lab.models.model_inputs import input_fingerprints
     from nof1_causal_lab.models.ssm.inference.convergence import convergence_failures
+    from nof1_causal_lab.study.lineage import inference_record
 
     if inference_record([record], revision.revision) is None:
-        raise ValueError(
-            "Causal reporting requires the committed inference transition for this model revision"
-        )
+        raise ValueError("Causal reporting requires the committed fit for this model revision")
     produced = next(info for info in record.produced if info.artifact_id == "model")
     if produced.model_inputs["belief"] != input_fingerprints(model)["belief"]:
         raise ValueError("The model value differs from the revision certified by the inference log")
-    evidence = record.diagnostics["engine_evidence"]
+    from pydantic import TypeAdapter
+
+    evidence = TypeAdapter(dict[str, str]).validate_python(record.diagnostics["engine_evidence"])
     if evidence["engine"] != "marginal_particle_gibbs":
         raise ValueError("Inference did not use the production particle-MCMC target")
     if evidence["latent_transition"] != "euler_maruyama":

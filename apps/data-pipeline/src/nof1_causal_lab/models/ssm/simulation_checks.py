@@ -8,9 +8,6 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from nof1_causal_lab.artifacts.construct import (
-    ConstructSpec,  # noqa: TC001
-)
 from nof1_causal_lab.artifacts.expressions import (
     LiteralExpression,
     expression_states,
@@ -47,6 +44,9 @@ if TYPE_CHECKING:
 
     import jax.numpy as jnp
 
+    from nof1_causal_lab.artifacts.construct import (
+        ConstructSpec,
+    )
     from nof1_causal_lab.artifacts.expressions import CoefficientExpression
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.models.ssm.dynamics.expression import ExpressionComponentSpec
@@ -460,15 +460,16 @@ def measure_construct_measurement(
             continue
         level_count = numeric.observation_level_counts(spec)[m]
         phase_results = (
-            list(
-                check_coverage(
-                    var,
+            [
+                replace(result, target=var)
+                for result in check_coverage(
+                    indicator.name,
                     pp_y,
                     observed,
                     distribution=lik.law.family.value,
                     level_count=level_count,
                 )
-            )
+            ]
             if observed.size
             else [
                 CheckResult.unevaluated(
@@ -484,7 +485,11 @@ def measure_construct_measurement(
             signal, conditional_variance = observation_signal_and_variance(
                 spec, pred, m, oi, observation_support=design.observation_support
             )
-            phase_results.append(check_transmission(var, signal, conditional_variance))
+            phase_results.append(
+                replace(
+                    check_transmission(indicator.name, signal, conditional_variance), target=var
+                )
+            )
         else:
             phase_results.append(
                 CheckResult.unevaluated(

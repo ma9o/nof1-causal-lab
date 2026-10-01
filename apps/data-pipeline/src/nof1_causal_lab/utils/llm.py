@@ -2,15 +2,13 @@
 
 from __future__ import annotations
 
-import json
-from typing import TYPE_CHECKING, Any, Protocol
+from typing import TYPE_CHECKING, Literal, Protocol
 
 from pydantic import BaseModel, Field
-
-from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
+from typing_extensions import TypedDict
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Sequence
 
 MAX_TOOL_REPAIR_ERROR_CHARS = 1200
 
@@ -22,6 +20,21 @@ class NamedTool(Protocol):
     def name(self) -> str: ...
 
 
+class TraceFunctionCall(TypedDict):
+    """The invoked tool function and its JSON argument string, retained in a trace."""
+
+    name: str
+    arguments: str
+
+
+class TraceToolCall(TypedDict):
+    """A function invocation with the call identity used to match its result."""
+
+    id: str
+    type: Literal["function"]
+    function: TraceFunctionCall
+
+
 class TraceMessage(BaseModel):
     """A trace message records one conversational step, including any reasoning or tool
     interaction.
@@ -30,7 +43,7 @@ class TraceMessage(BaseModel):
     role: str
     content: str
     reasoning: str | None = None
-    tool_calls: list[UncheckedJsonObject] | None = None
+    tool_calls: list[TraceToolCall] | None = None
     tool_call_id: str | None = None
     tool_name: str | None = None
     tool_result: str | None = None
@@ -69,27 +82,6 @@ def _merge_trace(existing: LLMTrace, new_trace: LLMTrace) -> LLMTrace:
             or None,
         ),
     )
-
-
-def _validate_json_and_format(
-    json_str: str,
-    validate_fn: Callable[[UncheckedJsonObject], tuple[Any, list[str]]],
-    capture: UncheckedJsonObject | None = None,
-    capture_key: str | None = None,
-    capture_result: bool = False,
-) -> str:
-    """Parse JSON, run a validator, and format its feedback."""
-    try:
-        data = json.loads(json_str)
-    except json.JSONDecodeError as error:
-        return f"JSON parse error: {error}"
-
-    result, errors = validate_fn(data)
-    if not errors:
-        if capture is not None and capture_key:
-            capture[capture_key] = result if capture_result else data
-        return "VALID"
-    return "VALIDATION ERRORS:\n" + "\n".join(f"- {error}" for error in errors)
 
 
 def _truncate_tool_error(error_text: str, limit: int = MAX_TOOL_REPAIR_ERROR_CHARS) -> str:

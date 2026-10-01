@@ -1,0 +1,56 @@
+{
+  "law": {
+    "distribution": "Gamma",
+    "arguments": {
+      "concentration": {
+        "kind": "coefficient",
+        "role": "shape",
+        "value": null,
+        "construct_ids": []
+      },
+      "rate": {
+        "kind": "binary",
+        "operator": "divide",
+        "left": {
+          "kind": "coefficient",
+          "role": "shape",
+          "value": null,
+          "construct_ids": []
+        },
+        "right": {
+          "kind": "call",
+          "function": "exp",
+          "arguments": [
+            {
+              "kind": "binary",
+              "operator": "add",
+              "left": {
+                "kind": "coefficient",
+                "role": "observation_intercept",
+                "value": "parameter:df1912786a1008385da3992614e8d95a5a0a0e48fa3a10d933169148f9e158a3",
+                "construct_ids": []
+              },
+              "right": {
+                "kind": "binary",
+                "operator": "multiply",
+                "left": {
+                  "kind": "coefficient",
+                  "role": "loading",
+                  "value": -1.0,
+                  "construct_ids": []
+                },
+                "right": {
+                  "kind": "state",
+                  "construct_id": "construct:x"
+                }
+              }
+            }
+          ]
+        }
+      }
+    }
+  },
+  "standardized": false,
+  "reasoning": "Authored scientific decision",
+  "sources": []
+}

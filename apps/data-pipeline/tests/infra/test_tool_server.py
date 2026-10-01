@@ -1,11 +1,15 @@
 from __future__ import annotations
 
-from types import SimpleNamespace
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from pathlib import Path
+
 from typing import Any
 
 import jax.numpy as jnp
 import pytest
 from fastapi.testclient import TestClient
+from pydantic import TypeAdapter
+from pydantic.json_schema import JsonSchemaValue
 
 import nof1_causal_lab.tool_server as tool_server
 from nof1_causal_lab.artifacts.construct import replace_constructs
@@ -13,14 +17,18 @@ from nof1_causal_lab.artifacts.identification import (
     IdentificationReport,
     IdentifiedTreatmentStatus,
 )
+from nof1_causal_lab.artifacts.posterior import InferenceMetadata, InferenceReport
+from nof1_causal_lab.json_types import JsonObject
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior
 from nof1_causal_lab.models.ssm.inference.persistence import condition_model
 from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
+from nof1_causal_lab.tool_contracts import GetModelInfoInput
 from tests.git_fixtures import artifact_revision
 from tests.helpers import fixture_entity_id
 from tests.inference_fixtures import inference_log
 from tests.model_fixtures import (
+    compile_fit_fixture,
     parameter_draws,
 )
 
@@ -45,17 +53,16 @@ def test_execute_tool_rejects_invalid_input_before_invoking_tool(monkeypatch):
 
     def fake_impl(_ctx, _args):
         nonlocal called
-        called = True
         return {"result": "should not run"}
 
     monkeypatch.setitem(
         tool_server._TOOL_IMPLS,
-        ("latent-structure", "validate_latent_structure"),
+        ("literature", "search_literature"),
         fake_impl,
     )
 
     response = client.post(
-        "/api/tools/latent-structure/validate_latent_structure",
+        "/api/tools/literature/search_literature",
         json={"workspace_id": "user-123", "input": {}},
     )
 
@@ -69,13 +76,13 @@ def test_execute_tool_surfaces_unexpected_exception_detail(monkeypatch):
     monkeypatch.setattr(tool_server, "_build_context", lambda *_args, **_kwargs: {})
     monkeypatch.setitem(
         tool_server._TOOL_IMPLS,
-        ("latent-structure", "validate_latent_structure"),
+        ("literature", "search_literature"),
         lambda _ctx, _args: (_ for _ in ()).throw(RuntimeError("boom")),
     )
 
     response = client.post(
-        "/api/tools/latent-structure/validate_latent_structure",
-        json={"workspace_id": "user-123", "input": {"model_json": "{}"}},
+        "/api/tools/literature/search_literature",
+        json={"workspace_id": "user-123", "input": {"query": "sleep"}},
     )
 
     assert response.status_code == 500
@@ -83,30 +90,29 @@ def test_execute_tool_surfaces_unexpected_exception_detail(monkeypatch):
         "detail": {
             "message": "boom",
             "exception_type": "RuntimeError",
-            "context_id": "latent-structure",
-            "tool_name": "validate_latent_structure",
+            "context_id": "literature",
+            "tool_name": "search_literature",
         }
     }
 
 
-def test_build_analysis_context_rehydrates_runtime_from_persisted_spec(monkeypatch, tmp_path):
+def test_build_analysis_context_loads_joint_laws_without_fit_compilation(monkeypatch, tmp_path):
     import polars as pl
 
     from nof1_causal_lab.artifacts.posterior import InferenceReport
-    from nof1_causal_lab.machine.history import StudyRepository
-    from nof1_causal_lab.machine.store import ArtifactStore, TransitionRecord
     from nof1_causal_lab.models.model_checks import check_execution
+    from nof1_causal_lab.study.history import StudyRepository
+    from nof1_causal_lab.study.records import AttemptRecord
+    from nof1_causal_lab.study.store import ArtifactStore
     from nof1_causal_lab.utils import data as data_module
-    from tests.helpers import complete_test_model, make_model
+    from tests.helpers import make_model
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
-    design = complete_test_model(
-        make_model(["screen_time", "sleep_quality"], [("screen_time", "sleep_quality")])
-    )
+    design = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'tool_server/build_analysis_context_loads_joint_laws_without_fit_compilation_complete_test_model.json').read_text())
     design = design.revised(default_outcome=fixture_entity_id("construct", "sleep_quality"))
     check_execution(design)
     conditioned = condition_model(
-        design,
+        compile_fit_fixture(design),
         ParticleMCMCPosterior(
             JointPosteriorDraws(parameter_draws(design, 1), jnp.zeros((1, 1, 2)))
         ),
@@ -126,7 +132,7 @@ def test_build_analysis_context_rehydrates_runtime_from_persisted_spec(monkeypat
     definition = store.write_artifact(
         "model",
         derived_from={},
-        produced_by="run:statistical_model_spec",
+        produced_by="edit_model",
         json_files={"model.json": design.model_dump(mode="json")},
     )
 
@@ -143,7 +149,7 @@ def test_build_analysis_context_rehydrates_runtime_from_persisted_spec(monkeypat
     panel = store.write_artifact(
         "panel",
         derived_from={},
-        produced_by="run:measurements",
+        produced_by="prepare_data",
         parquet_files={"panel.parquet": model_data},
     )
     fitted = store.write_artifact(
@@ -152,7 +158,7 @@ def test_build_analysis_context_rehydrates_runtime_from_persisted_spec(monkeypat
             "model": artifact_revision("user-123", "model", 1),
             "panel": artifact_revision("user-123", "panel", 1),
         },
-        produced_by="run:posterior",
+        produced_by="fit",
         json_files={"model.json": conditioned.model_dump(mode="json")},
     )
     journal = StudyRepository("user-123")
@@ -166,7 +172,7 @@ def test_build_analysis_context_rehydrates_runtime_from_persisted_spec(monkeypat
         (3, "posterior", [fitted]),
     ):
         journal.append(
-            TransitionRecord(
+            AttemptRecord(
                 seq=seq,
                 ts="2026-07-03T00:00:00+00:00",
                 action="fit"
@@ -174,7 +180,6 @@ def test_build_analysis_context_rehydrates_runtime_from_persisted_spec(monkeypat
                 else "prepare_data"
                 if operation in {"raw_data", "measurements"}
                 else "edit_model",
-                operation_id=operation,
                 inputs={},
                 status="applied",
                 produced=produced,
@@ -182,41 +187,31 @@ def test_build_analysis_context_rehydrates_runtime_from_persisted_spec(monkeypat
                 if operation == "posterior"
                 else {},
                 trace_ids=[],
-                resume=None,
             )
         )
 
-    rebuilt_runtime = SimpleNamespace(
-        observation_support="support-runtime",
-        observation_data=None,
-    )
     captured: dict[str, Any] = {}
     loads = 0
 
-    def fake_prepare_model_runtime(
-        *, data_for_model, model, model_spec, time_origin, sampler_config=None
-    ):
+    def fake_project_observation_data(*, data_for_model, model_spec, time_origin):
         nonlocal loads
         loads += 1
-        del sampler_config
         assert model_spec == conditioned
         assert time_origin.isoformat() == report["time_origin"].replace("Z", "+00:00")
         captured["data_for_model"] = data_for_model
-        captured["model"] = model
-        return rebuilt_runtime
+        captured["model"] = model_spec
+        return pl.DataFrame(), pl.DataFrame()
 
-    monkeypatch.setattr(tool_server, "prepare_model_runtime", fake_prepare_model_runtime)
+    monkeypatch.setattr(tool_server, "project_observation_data", fake_project_observation_data)
 
     ctx = tool_server._build_analysis_context("user-123")
 
-    assert isinstance(captured["model"], tool_server.SSMModel)
     # The runtime uses the model revision and panel pinned by the posterior.
-    assert captured["model"].spec == conditioned
-    assert list(numeric.state_names(captured["model"].spec)) == ["screen_time", "sleep_quality"]
+    assert captured["model"] == conditioned
+    assert list(numeric.state_names(captured["model"])) == ["screen_time", "sleep_quality"]
     assert captured["data_for_model"].equals(model_data)
-    assert ctx["_prepared_runtime"] is rebuilt_runtime
-    assert ctx["model"] == conditioned.model_dump(mode="json")
-    assert ctx["inference_report"] == report
+    assert ctx["model"] == conditioned
+    assert ctx["inference_report"].model_dump(mode="json") == report
     assert ctx["_outcome_name"] == "sleep_quality"
     assert ctx["_identifiable_treatments"] == ["screen_time"]
     again = tool_server._build_analysis_context("user-123")
@@ -225,19 +220,17 @@ def test_build_analysis_context_rehydrates_runtime_from_persisted_spec(monkeypat
     new_panel = store.write_artifact(
         "panel",
         derived_from={},
-        produced_by="run:measurements",
+        produced_by="prepare_data",
     )
     journal.append(
-        TransitionRecord(
+        AttemptRecord(
             seq=4,
             ts="2026-07-03T01:00:00+00:00",
             action="prepare_data",
-            operation_id="measurements",
             inputs={},
             status="applied",
             produced=[new_panel],
             trace_ids=[],
-            resume=None,
         )
     )
     with pytest.raises(tool_server.HTTPException, match="conditioned model") as stale:
@@ -260,30 +253,17 @@ def test_get_tool_schemas_exposes_declared_result_schema():
 
 def test_get_model_info_uses_structure_for_variables_and_treatments():
 
-    from tests.helpers import complete_test_model, make_model
+    from tests.helpers import make_model
 
-    model = make_model(["screen_time", "sleep"], [("screen_time", "sleep")])
-    model = model.revised(
-        edges=replace_constructs(
-            model.edges,
-            tuple(
-                c.model_copy(
-                    update={"indicators": (c.indicators[0].model_copy(update={"name": name}),)}
-                )
-                for c, name in zip(
-                    model.constructs, ["daily_event_count", "sleep_issue_searches"], strict=True
-                )
+    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'tool_server/get_model_info_uses_structure_for_variables_and_treatments_complete_test_model.json').read_text())
+    ctx: tool_server.ToolContext = {
+        "model": model,
+        "inference_report": InferenceReport(
+            time_origin=None,
+            inference_metadata=InferenceMetadata(
+                method="marginal_particle_gibbs", n_samples=1, duration_seconds=0
             ),
         ),
-        default_outcome=model.constructs[1].id,
-    )
-    model = complete_test_model(model)
-    spec = model
-    ctx = {
-        "model": model.model_dump(mode="json"),
-        "inference_report": {"inference_metadata": {"method": "marginal_particle_gibbs"}},
-        "_prepared_runtime": SimpleNamespace(spec=spec),
-        "_fitted_artifact": SimpleNamespace(spec=spec),
         "_identifiable_treatments": ["screen_time"],
         "_outcome_name": "sleep",
         "_observation_timestamps": [],
@@ -291,19 +271,28 @@ def test_get_model_info_uses_structure_for_variables_and_treatments():
 
     payload = tool_server._build_model_info_payload(
         ctx,
-        {"sections": ["overview", "variables", "capabilities"]},
+        GetModelInfoInput(sections=["overview", "variables", "capabilities"]),
     )
 
-    assert payload["overview"]["treatments"] == ["screen_time"]
-    assert [item["name"] for item in payload["variables"]["constructs"]] == ["screen_time", "sleep"]
-    assert [item["id"] for item in payload["variables"]["constructs"]] == [
-        construct.id for construct in model.constructs
-    ]
-    assert [item["name"] for item in payload["variables"]["indicators"]] == [
+    overview = payload["overview"]
+    assert isinstance(overview, dict)
+    assert overview["treatments"] == ["screen_time"]
+    variables = payload["variables"]
+    assert isinstance(variables, dict)
+    constructs = TypeAdapter(list[JsonObject]).validate_python(variables["constructs"])
+    indicators = TypeAdapter(list[JsonObject]).validate_python(variables["indicators"])
+    assert [item["name"] for item in constructs] == ["screen_time", "sleep"]
+    assert [item["id"] for item in constructs] == [construct.id for construct in model.constructs]
+    assert [item["name"] for item in indicators] == [
         "daily_event_count",
         "sleep_issue_searches",
     ]
-    simulation = payload["capabilities"]["simulate"]
-    assert set(simulation["intervention_targets"]) == {c.id for c in model.constructs}
-    assert set(simulation["request"]["required"]) == {"model_revision", "end"}
-    assert simulation["request"]["properties"]["interventions"]["default"] == []
+    capabilities = payload["capabilities"]
+    assert isinstance(capabilities, dict)
+    simulation = capabilities["simulate"]
+    assert isinstance(simulation, dict)
+    targets = TypeAdapter(list[str]).validate_python(simulation["intervention_targets"])
+    request_schema = TypeAdapter(JsonSchemaValue).validate_python(simulation["request"])
+    assert set(targets) == {c.id for c in model.constructs}
+    assert set(request_schema["required"]) == {"model_revision", "end"}
+    assert request_schema["properties"]["interventions"]["default"] == []

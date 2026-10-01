@@ -8,10 +8,12 @@ const root = resolve(import.meta.dirname, "..");
 const schema = JSON.parse(readFileSync(resolve(root, "schemas/openapi.json"), "utf8"));
 const models = readFileSync(resolve(root, "src/generated/models.ts"), "utf8");
 const names = new Set([...models.matchAll(/export (?:interface|type) (\w+)/g)].map((m) => m[1]));
-// Keep reads and the four action submissions together; request defaults stay optional.
+// Keep the read paths the web viewer uses; request defaults stay optional.
 schema.paths = Object.fromEntries(
   Object.entries(schema.paths).filter(([path]) =>
-    /^\/api\/episodes\/\{workspace_id\}\/(?:model|model-diff|data-diff|actions|revisions)(?:\/|$)/.test(path),
+    /^\/api\/studies\/\{workspace_id\}(?:\/(?:model|model-diff|data-diff|timeline|events)(?:\/|$)|$)/.test(
+      path,
+    ),
   ),
 );
 
@@ -53,11 +55,13 @@ const ast = await openapiTS(schema, {
   inject: 'import type * as Domain from "./models";',
   transform(_value, metadata) {
     const name = metadata.path?.match(/^#\/components\/schemas\/([^/]+)$/)?.[1];
-    const canonical = name?.replace(/-(?:Input|Output)$/, "");
+    if (name === undefined) {
+      return;
+    }
+    const canonical = name.replace(/-(?:Input|Output)$/, "");
     if (
-      canonical &&
       names.has(canonical) &&
-      (!inputNames.has(name!) || ["JsonObject", "JsonArray", "JsonValue"].includes(canonical))
+      (!inputNames.has(name) || ["JsonObject", "JsonArray", "JsonValue"].includes(canonical))
     ) {
       return ts.factory.createTypeReferenceNode(`Domain.${canonical}`);
     }

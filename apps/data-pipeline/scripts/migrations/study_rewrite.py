@@ -17,37 +17,36 @@ if TYPE_CHECKING:
     from pathlib import Path
 
 
-def remove_edge_timing(value):
-    """Translate archived definitions and nested authoring payloads."""
-    if isinstance(value, dict):
-        return {key: remove_edge_timing(item) for key, item in value.items() if key != "lagged"}
-    if isinstance(value, list):
-        return [remove_edge_timing(item) for item in value]
-    return value
-
-
 def rewrite_study(
     source: Path,
     destination: Path,
     update: Callable[[Any], Any],
     *,
     mapping_name: str,
-    source_format: int = 4,
-    target_format: int = 4,
+    source_format: int,
+    target_format: int,
     update_file: Callable[[str, str, Any], Any] | None = None,
+    rename_entry: Callable[[str], str | None] | None = None,
+    layout: tuple[str, str] = ("study", "study"),
 ) -> dict[str, str]:
     """Copy a stopped study and rewrite its Git graph and stored revision references.
 
-    `update` translates every stored JSON payload. Changed objects get new Git
-    identities, and references to them and to model input fingerprints follow.
+    `update` translates every stored JSON payload and `update_file` translates one by
+    name. `rename_entry` renames a stored file, or drops it by returning None. `layout`
+    names the directory holding the repository before and after the copy. Changed
+    objects get new Git identities, and references to them and to model input
+    fingerprints follow.
     """
+    source_layout, destination_layout = layout
     if destination.exists() or destination.resolve().is_relative_to(source.resolve()):
         raise ValueError("Choose a new destination outside the source workspace")
-    original = pygit2.Repository(str(source / "episode/history.git"))
+    original = pygit2.Repository(str(source / source_layout / "history.git"))
     if original.config.get_int("nof1.format") != source_format:
         raise ValueError(f"Expected a format-{source_format} study")
     shutil.copytree(source, destination, ignore=shutil.ignore_patterns("cache", "scratch"))
-    repo = pygit2.Repository(str(destination / "episode/history.git"))
+    if source_layout != destination_layout:
+        (destination / source_layout).rename(destination / destination_layout)
+    repo = pygit2.Repository(str(destination / destination_layout / "history.git"))
     refs = {name: str(repo.references[name].target) for name in repo.references}
     revisions = set(refs.values())
     models = {oid for name, oid in refs.items() if name.startswith("refs/artifacts/model/")}
@@ -61,14 +60,14 @@ def rewrite_study(
                     )
                 if "artifacts/model" in commit.tree:
                     models.add(str(commit.tree["artifacts/model"].id))
-    # Translation changes model serialization. Rekey stored input fingerprints
+    # Translation can change model serialization. Rekey stored input fingerprints
     # without recomputing the model's numerical laws or saved findings.
     fingerprints: dict[str, str] = {}
     for oid in models:
         tree = repo[pygit2.Oid(hex=oid)].peel(pygit2.Tree)
         metadata = json.loads(tree["meta.json"].peel(pygit2.Blob).data)
         model = ModelSpec.model_validate(
-            remove_edge_timing(update(json.loads(tree["model.json"].peel(pygit2.Blob).data))),
+            update(json.loads(tree["model.json"].peel(pygit2.Blob).data)),
             context={
                 "distribution_array_loader": lambda ref: read_array(
                     str(destination / "store/arrays"), ref
@@ -110,6 +109,11 @@ def rewrite_study(
             builder = repo.TreeBuilder(tree)
             for entry in tree:
                 assert entry.name is not None
+                name = rename_entry(entry.name) if rename_entry is not None else entry.name
+                if name != entry.name:
+                    builder.remove(entry.name)
+                if name is None:
+                    continue
                 child = repo[entry.id]
                 if isinstance(child, pygit2.Tree):
                     replacement = pygit2.Oid(hex=migrate(str(entry.id)))
@@ -129,7 +133,7 @@ def rewrite_study(
                     )
                 else:
                     replacement = entry.id
-                builder.insert(entry.name, replacement, entry.filemode)
+                builder.insert(name, replacement, entry.filemode)
             result = builder.write()
         mapping[oid] = str(result)
         active.remove(oid)

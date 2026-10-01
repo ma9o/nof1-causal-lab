@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from typing import TYPE_CHECKING, Any, cast, override
 
 import dynestyx as dsx
@@ -12,12 +14,7 @@ import numpy as np
 from dynestyx.inference.configs.discretizer import ExactAffineConfig
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
-from nof1_causal_lab.artifacts.expressions import (
-    CoefficientExpression,
-    StateExpression,
-    linear_effect,
-    map_expression,
-)
+from nof1_causal_lab.artifacts.expressions import CoefficientExpression, StateExpression
 from nof1_causal_lab.artifacts.expressions import (
     coefficient as expr_coefficient,
 )
@@ -29,7 +26,6 @@ from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
 from nof1_causal_lab.distributions import DistributionFamily
-from nof1_causal_lab.models.likelihoods import observation_law
 from nof1_causal_lab.models.ssm.autoreparam import Strategy, _minimal_reparam
 from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
 from nof1_causal_lab.models.ssm.execution.observation_families import (
@@ -286,57 +282,7 @@ def make_lgss_data(
     observations = latent + random.normal(obs_key, (T, n_manifest)) @ R_chol.T
     times = jnp.arange(T, dtype=float) * dt
 
-    spec = model_fixture(
-        n_latent=n_latent,
-        n_manifest=n_manifest,
-        dynamics_spec=dense_matrix_dynamics_spec(
-            n_latent=n_latent,
-            decay_support=np.ones(n_latent, dtype=bool),
-            edge_support=np.zeros((n_latent, n_latent), dtype=bool),
-            coupling_template=jnp.zeros((n_latent, n_latent)),
-            intercept_support=np.zeros(n_latent, dtype=bool),
-            cint_template=jnp.zeros(n_latent),
-        ),
-        diffusion_block=DiffusionBlockSpec(
-            n_latent=n_latent,
-            diffusion_chol_support=np.diag(np.ones(n_latent, dtype=bool)),
-            diffusion_chol_template=jnp.eye(n_latent),
-        ),
-        lambda_block=SparseMatrixBlockSpec(
-            n_rows=n_manifest,
-            n_cols=n_latent,
-            free_support=np.zeros((n_manifest, n_latent), dtype=bool),
-            template=jnp.eye(n_manifest, n_latent),
-            free_site_name="lambda_free",
-            det_site_name="lambda",
-            support=SupportClass.REAL,
-            site_kind=SiteKind.LOADING,
-            assembly_group="lambda",
-            fixed_spec_field="lambda_mat",
-            priors_field="lambda_free",
-        ),
-        manifest_means_block=default_manifest_means_block(n_manifest),
-        manifest_chol_block=default_manifest_chol_block(n_manifest),
-        t0_means_block=SparseVectorBlockSpec(
-            n=n_latent,
-            free_support=np.zeros(n_latent, dtype=bool),
-            template=jnp.zeros(n_latent),
-            free_site_name="t0_means_free",
-            det_site_name="t0_means",
-            support=SupportClass.REAL,
-            site_kind=SiteKind.T0_MEANS,
-            assembly_group="t0",
-            fixed_spec_field="t0_means",
-            priors_field="t0_means",
-        ),
-        t0_chol_block=T0CholBlockSpec(
-            n_latent=n_latent,
-            diag_support=np.zeros(n_latent, dtype=bool),
-            correlation_support=np.zeros((n_latent, n_latent), dtype=bool),
-            template=jnp.eye(n_latent),
-        ),
-        static_state_sd_block=default_static_state_sd_block(),
-    )
+    spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[0] / "fixtures/models" / 'model_fixtures/make_lgss_data_model_fixture.json').read_text())
 
     return {
         "observations": observations,
@@ -349,338 +295,6 @@ def make_lgss_data(
     }
 
 
-def model_fixture(
-    *,
-    n_latent: int,
-    dynamics_spec: DynamicsSpec,
-    n_manifest: int | None = None,
-    diffusion_block: DiffusionBlockSpec | None = None,
-    lambda_block: SparseMatrixBlockSpec | None = None,
-    manifest_means_block: SparseVectorBlockSpec | None = None,
-    manifest_chol_block: ManifestCholBlockSpec | None = None,
-    t0_means_block: SparseVectorBlockSpec | None = None,
-    t0_chol_block: T0CholBlockSpec | None = None,
-    static_state_sd_block: SparseVectorBlockSpec | None = None,
-    static_factor_loadings: jnp.ndarray | None = None,
-    **metadata: Any,
-) -> ModelSpec:
-    """Author a scientific test model from expected numerical block values.
-
-    Blocks are fixture inputs only. The returned value contains scientific
-    entities, coefficient references, priors and constants, with no native spec.
-    """
-    from evaluation.fixtures.prior_planning import complete_model
-
-    from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec
-    from nof1_causal_lab.artifacts.identity import ConstructRef, EdgeRef, IndicatorRef, MechanismRef
-    from nof1_causal_lab.artifacts.indicator import IndicatorSpec
-    from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec
-    from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
-    from tests.slot_fixtures import fixture_parameter_id
-
-    n_manifest = n_latent if n_manifest is None else n_manifest
-    axes = native_axis_metadata(n_latent, n_manifest, metadata)
-    names, ids = axes.pop("latent_names"), axes.pop("latent_ids")
-    obs_names, obs_ids = axes.pop("manifest_names"), axes.pop("manifest_ids")
-    authored_families = axes.pop("manifest_dists", [DistributionFamily.GAUSSIAN] * n_manifest)
-    authored_links = axes.pop("manifest_links", None)
-    families, links = resolve_manifest_families_and_links(
-        [DistributionFamily(value) for value in authored_families],
-        manifest_links=[None if value is None else LinkFunction(value) for value in authored_links]
-        if authored_links is not None
-        else None,
-    )
-    counts = axes.pop("manifest_level_counts", None) or [0] * n_manifest
-    standardized = axes.pop("manifest_standardized", None) or [False] * n_manifest
-    axes.pop("manifest_cat_anchor", None)  # Anchors derive from indicator ownership.
-    static = axes.pop("time_invariant_mask", None)
-    static = np.zeros(n_latent, dtype=bool) if static is None else np.asarray(static, dtype=bool)
-    innovations = axes.pop("diffusion_dists", [DistributionFamily.GAUSSIAN] * n_latent)
-    axes.pop("static_factor_ids", None)
-    axes.pop("static_factor_names", None)
-    loadings = lambda_block or default_lambda_block(n_manifest, n_latent)
-    owners = [
-        int(np.argmax(np.abs(np.asarray(loadings.template)[row])))
-        if np.any(np.asarray(loadings.template)[row] != 0)
-        else row % n_latent
-        for row in range(n_manifest)
-    ]
-    indicators = []
-    for i, (name, identity, family, link) in enumerate(
-        zip(obs_names, obs_ids, families, links, strict=True)
-    ):
-        dtype = {
-            "bernoulli": "binary",
-            "poisson": "count",
-            "negative_binomial": "count",
-            "ordered_logistic": "ordinal",
-            "categorical": "categorical",
-        }.get(family.value, "continuous")
-        levels = tuple(str(level) for level in range(counts[i]))
-        indicators.append(
-            IndicatorSpec(
-                id=identity,
-                name=name,
-                construct_polarity="negative"
-                if float(loadings.template[i, owners[i]]) < 0
-                else "positive",
-                measurement_dtype=cast("MeasurementDtype", dtype),
-                aggregation="last",
-                ordinal_levels=levels if dtype == "ordinal" else None,
-                categorical_levels=levels if dtype == "categorical" else None,
-                likelihood=LikelihoodSpec(
-                    law=observation_law(ids[owners[i]], family, link),
-                    standardized=standardized[i],
-                    reasoning="Test likelihood",
-                ),
-            )
-        )
-    constructs = [
-        ConstructSpec(
-            id=identity,
-            name=name,
-            description="Test state",
-            role="endogenous",
-            temporal_status="time_invariant" if static[i] else "time_varying",
-            indicators=tuple(ind for j, ind in enumerate(indicators) if owners[j] == i),
-        )
-        for i, (name, identity) in enumerate(zip(names, ids, strict=True))
-    ]
-    edges = {}
-    parameters = {}
-    coefficient_recipes = []
-    node_terms = {identity: [] for identity in ids}
-    edge_terms = {}
-
-    def edge(cause, effect):
-        pair = (cause, effect)
-        if pair not in edges:
-            identity = fixture_entity_id("edge", f"{cause}:{effect}")
-            edges[pair] = CausalEdgeSpec(
-                id=identity,
-                cause=next(item for item in constructs if item.id == cause),
-                effect=next(item for item in constructs if item.id == effect),
-                description="Fixture causal assumption",
-            )
-            edge_terms[identity] = []
-        return edges[pair]
-
-    outcome = ConstructSpec(
-        id="construct:numerical_test_outcome",
-        name="numerical_test_outcome",
-        description="Unmeasured downstream response joining the numerical test states.",
-        role="endogenous",
-        temporal_status="time_varying",
-    )
-    constructs.append(outcome)
-    node_terms[outcome.id] = []
-    for identity in ids:
-        edge(identity, outcome.id)
-
-    def quantity(kind, refs, *, value=None, name=None):
-        refs = tuple({ref.id: ref for ref in refs}.values())
-        identity = fixture_parameter_id(kind, refs)
-        if value is None:
-            parameters[identity] = ParameterSpec(
-                id=identity,
-                name=name or identity,
-                description="Fixture quantity",
-            )
-        reference = identity if value is None else value
-        coefficient_recipes.append((kind, refs, reference))
-        return reference
-
-    for index, component in enumerate(dynamics_spec.components):
-        if static[component.target]:
-            continue
-        target = ids[component.target]
-        mechanism_id = fixture_entity_id("mechanism", f"fixture-term:{index}")
-        refs = [ConstructRef(id=target), MechanismRef(id=mechanism_id)]
-        owner = None
-        if component.source is not None:
-            source = ids[component.source]
-            owner = edge(source, target)
-            refs.extend((ConstructRef(id=source), EdgeRef(id=owner.id)))
-            for other in sorted(component.sources - {component.source, component.target}):
-                edge(ids[other], target)
-                refs.append(ConstructRef(id=ids[other]))
-        references = {}
-
-        def bind(node, component=component, references=references, refs=refs):
-            if isinstance(node, StateExpression):
-                return expr_state(ids[component.state_ids.index(node.construct_id)])
-            if isinstance(node, CoefficientExpression) and isinstance(node.value, str):
-                key = node.value
-                if key not in references:
-                    references[key] = quantity(node.meaning.quantity, refs)
-                return expr_coefficient(references[key], node.role)
-            return node
-
-        term = DynamicsMechanismSpec(
-            id=mechanism_id,
-            kind=component.kind,
-            expression=map_expression(component.expression, bind),
-        )
-        (node_terms[target] if owner is None else edge_terms[owner.id]).append(term)
-    for identity in ids:
-        if not node_terms[identity] and not static[ids.index(identity)]:
-            node_terms[identity].append(
-                DynamicsMechanismSpec(
-                    id=fixture_entity_id("mechanism", identity + ":zero-drift"),
-                    expression=expr_coefficient(0, "intercept"),
-                )
-            )
-    constructs = [
-        item.model_copy(update={"dynamics": tuple(node_terms[item.id])}) for item in constructs
-    ]
-
-    assert not axes, f"Unexpected fixture metadata: {sorted(axes)}"
-
-    def confounder(label, children, *, invariant, weights=None):
-        identity = fixture_entity_id("construct", label)
-        constructs.append(
-            ConstructSpec(
-                id=identity,
-                name=label,
-                description="Explicit latent common cause",
-                role="exogenous",
-                temporal_status="time_invariant" if invariant else "time_varying",
-            )
-        )
-        for index, child in enumerate(children):
-            owner = edge(identity, child)
-            if weights is not None:
-                edge_terms[owner.id].append(
-                    DynamicsMechanismSpec(
-                        id=fixture_entity_id("mechanism", owner.id),
-                        expression=linear_effect(owner.cause.id, weights[index]),
-                    )
-                )
-        return identity
-
-    diffusion = diffusion_block or default_diffusion_block(n_latent)
-    initial_mean = t0_means_block or default_t0_means_block(n_latent)
-    initial = t0_chol_block or default_t0_chol_block(n_latent)
-    for row in range(n_latent):
-        refs = [ConstructRef(id=ids[row])]
-        quantity(
-            SiteKind.DIFFUSION_DIAG,
-            refs,
-            value=0.0
-            if static[row]
-            else None
-            if diffusion.diffusion_chol_support[row, row]
-            else float(diffusion.diffusion_chol_template[row, row]),
-        )
-        quantity(
-            SiteKind.T0_MEANS,
-            refs,
-            value=None if initial_mean.free_support[row] else float(initial_mean.template[row]),
-        )
-        covariance = np.asarray(initial.template) @ np.asarray(initial.template).T
-        standard_deviation = np.sqrt(np.diag(covariance))
-        quantity(
-            SiteKind.T0_VAR_DIAG,
-            refs,
-            value=None if initial.diag_support[row] else float(standard_deviation[row]),
-        )
-        for col in range(row):
-            pair = [ConstructRef(id=ids[row]), ConstructRef(id=ids[col])]
-            if (
-                (
-                    diffusion.diffusion_chol_support[row, col]
-                    or float(diffusion.diffusion_chol_template[row, col]) != 0
-                )
-                and not static[row]
-                and not static[col]
-            ):
-                confounder(f"innovation_{row}_{col}", (ids[row], ids[col]), invariant=False)
-                quantity(
-                    SiteKind.DIFFUSION_LOWER,
-                    pair,
-                    value=None
-                    if diffusion.diffusion_chol_support[row, col]
-                    else float(diffusion.diffusion_chol_template[row, col]),
-                )
-            if initial.correlation_support[row, col] or covariance[row, col] != 0:
-                confounder(f"initial_{row}_{col}", (ids[row], ids[col]), invariant=True)
-                quantity(
-                    SiteKind.T0_VAR_LOWER,
-                    pair,
-                    value=None
-                    if initial.correlation_support[row, col]
-                    else float(
-                        covariance[row, col] / (standard_deviation[row] * standard_deviation[col])
-                    ),
-                )
-    for row in range(n_manifest):
-        for col in range(n_latent):
-            if (
-                loadings.free_support[row, col]
-                or float(loadings.template[row, col]) != 0
-                or col == owners[row]
-            ):
-                quantity(
-                    SiteKind.LOADING,
-                    [IndicatorRef(id=obs_ids[row]), ConstructRef(id=ids[col])],
-                    value=None
-                    if loadings.free_support[row, col]
-                    else float(loadings.template[row, col]),
-                )
-        means = manifest_means_block or default_manifest_means_block(n_manifest)
-        noise = manifest_chol_block or default_manifest_chol_block(n_manifest)
-        refs = [IndicatorRef(id=obs_ids[row]), ConstructRef(id=ids[owners[row]])]
-        quantity(
-            SiteKind.MANIFEST_MEANS,
-            refs,
-            value=None if means.free_support[row] else float(means.template[row]),
-        )
-        if families[row].uses_manifest_noise:
-            quantity(
-                SiteKind.MANIFEST_VAR_DIAG,
-                refs,
-                value=None if noise.diag_support[row] else float(noise.template[row, row]),
-            )
-    scales = static_state_sd_block or default_static_state_sd_block()
-    for index in range(scales.n):
-        weights = np.asarray(static_factor_loadings)[:, index]
-        children = [ids[i] for i in np.flatnonzero(weights)]
-        identity = confounder(
-            f"baseline_{index}", children, invariant=True, weights=weights[weights != 0].tolist()
-        )
-        quantity(
-            SiteKind.STATIC_STATE_SD,
-            [ConstructRef(id=identity)],
-            value=None if scales.free_support[index] else float(scales.template[index]),
-        )
-    model = ModelSpec.model_construct(
-        edges=replace_constructs(
-            tuple(
-                item.model_copy(update={"mechanisms": tuple(edge_terms[item.id])})
-                for item in edges.values()
-            ),
-            constructs,
-        ),
-        parameters=tuple(parameters.values()),
-        measurement_clock="1d",
-    )
-    from tests.slot_fixtures import attach_test_coefficients
-
-    model = attach_test_coefficients(model, coefficient_recipes)
-    model = model.revised(
-        edges=replace_constructs(
-            model.edges,
-            tuple(
-                construct.model_copy(
-                    update={"innovation_family": innovations[ids.index(construct.id)]}
-                )
-                if construct.id in ids
-                else construct
-                for construct in model.constructs
-            ),
-        )
-    )
-    return complete_model(model)
 
 
 def diagonal_diffusion_block(n_latent: int) -> DiffusionBlockSpec:
@@ -735,3 +349,15 @@ def parameter_draws(model: ModelSpec, n_draws: int) -> dict[str, jnp.ndarray]:
         for name, law in priors.items()
         for value in [jnp.asarray(prior_reference_value(law))]
     }
+
+
+def compile_fit_fixture(spec: ModelSpec):
+    """Require real compilation in fixtures instead of forging fit evidence."""
+    from nof1_causal_lab.models.ssm.compile.inputs import (
+        CompiledFitInputs,
+        compile_ssm_inputs_from_model,
+    )
+
+    inputs = compile_ssm_inputs_from_model(spec)
+    assert isinstance(inputs, CompiledFitInputs), inputs
+    return inputs

@@ -1,3 +1,6 @@
+
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from pathlib import Path
 import polars as pl
 import pytest
 
@@ -26,7 +29,7 @@ def _single_row_panel(**overrides: float) -> pl.DataFrame:
 
 
 def test_declared_discrete_levels_allow_one_observed_level():
-    spec = complex_mixed_runtime_spec()
+    spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'observation_support/declared_discrete_levels_allow_one_observed_level_complex_mixed_runtime_spec.json').read_text())
 
     validate_discrete_manifest_metadata(spec, _single_row_panel())
 
@@ -37,7 +40,7 @@ def test_declared_discrete_levels_allow_one_observed_level():
 
 
 def test_declared_discrete_levels_reject_out_of_range_code():
-    spec = complex_mixed_runtime_spec()
+    spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'observation_support/declared_discrete_levels_reject_out_of_range_code_complex_mixed_runtime_spec.json').read_text())
 
     with pytest.raises(ValueError, match=r"outside declared range 0\.\.3"):
         validate_discrete_manifest_metadata(spec, _single_row_panel(symptom_severity=4.0))
@@ -48,7 +51,7 @@ def test_missing_declared_levels_are_rejected_in_the_scientific_definition():
 
     indicator = next(
         item
-        for item in complex_mixed_runtime_spec().indicators
+        for item in ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'observation_support/missing_declared_levels_are_rejected_in_the_scientific_definition_complex_mixed_runtime_spec.json').read_text()).indicators
         if item.measurement_dtype == "ordinal"
     )
     with pytest.raises(ValueError, match="ordinal_levels"):

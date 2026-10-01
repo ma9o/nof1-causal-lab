@@ -176,12 +176,10 @@ def _point_posterior_system(
     obs_kernel,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Return the point-observation IEKS linear system at a latent iterate."""
-    T, D = z_est.shape
-    cd_scan = cd if cd is not None else jnp.zeros((T, D), dtype=z_est.dtype)
     prior_lower, prior_diag, prior_upper, prior_rhs = _build_prior_tridiagonal_system(
         Ad,
         Qd,
-        cd_scan,
+        cd,
         init_mean,
         init_cov,
     )
@@ -266,20 +264,18 @@ def _point_ieks_mode(
     ],
 ]:
     """Run the point-observation IEKS solve to convergence or max-iteration cap."""
-    T = observations.shape[0]
     D = init_mean.shape[0]
-    cd_scan = cd if cd is not None else jnp.zeros((T, D))
     prior_lower, prior_diag, prior_upper, prior_rhs = _build_prior_tridiagonal_system(
         Ad,
         Qd,
-        cd_scan,
+        cd,
         init_mean,
         init_cov,
     )
     prior_terms = build_gaussian_trajectory_prior_terms(
         Ad,
         Qd,
-        cd_scan,
+        cd,
         init_mean,
         init_cov,
     )
@@ -290,7 +286,7 @@ def _point_ieks_mode(
             observations=observations,
             obs_mask=obs_mask,
             Ad=Ad,
-            cd=cd_scan,
+            cd=cd,
             prior_terms=prior_terms,
             H_rows=H_rows,
             d_rows=d_rows,
@@ -299,7 +295,7 @@ def _point_ieks_mode(
         )
 
     if z_init is None:
-        z_est = _predictive_latent_init(Ad, cd_scan, init_mean)
+        z_est = _predictive_latent_init(Ad, cd, init_mean)
     else:
         z_est = jnp.asarray(z_init, dtype=observations.dtype)
 
@@ -454,11 +450,10 @@ def _point_laplace_terms_from_mode(
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Evaluate the point-observation Laplace terms at a fixed latent mode."""
     T, D = z_mode.shape
-    cd_scan = cd if cd is not None else jnp.zeros((T, D), dtype=z_mode.dtype)
     prior_terms = build_gaussian_trajectory_prior_terms(
         Ad,
         Qd,
-        cd_scan,
+        cd,
         init_mean,
         init_cov,
     )
@@ -467,7 +462,7 @@ def _point_laplace_terms_from_mode(
         observations=observations,
         obs_mask=obs_mask,
         Ad=Ad,
-        cd=cd_scan,
+        cd=cd,
         prior_terms=prior_terms,
         H_rows=H_rows,
         d_rows=d_rows,
@@ -480,7 +475,7 @@ def _point_laplace_terms_from_mode(
         obs_mask,
         Ad,
         Qd,
-        cd_scan,
+        cd,
         H_rows,
         d_rows,
         R,

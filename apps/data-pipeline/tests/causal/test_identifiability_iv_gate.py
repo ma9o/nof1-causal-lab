@@ -103,8 +103,9 @@ def test_model_reporting_keeps_nonparametric_findings_without_linear_iv_assumpti
         edges=replace_constructs(
             model.edges,
             tuple(
-                construct.model_copy(
-                    update={
+                type(construct).model_validate(
+                    {
+                        **construct.model_dump(),
                         "temporal_status": TemporalStatus.TIME_INVARIANT,
                         "indicators": () if construct.id == u_id else construct.indicators,
                     }

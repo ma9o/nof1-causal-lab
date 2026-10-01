@@ -4,32 +4,32 @@ import io
 import json
 from datetime import UTC, date, datetime
 from types import SimpleNamespace
+from uuid import uuid4
 
 import polars as pl
 import pyarrow as pa
 import pytest
 
+from nof1_causal_lab.actions.temporal.ingestion_activities import (
+    finalize_ingestion_activity,
+    plan_ingestion_activity,
+)
+from nof1_causal_lab.actions.temporal.measurement_activities import (
+    finalize_extraction_chunk_activity,
+    plan_measurements_activity,
+)
+from nof1_causal_lab.actions.temporal.messages import (
+    ExtractionChunkFinalizeInput,
+    IngestionFinalizeInput,
+    IngestionWorkflowInput,
+    MeasurementsWorkflowInput,
+)
 from nof1_causal_lab.artifacts.data_preparation import (
     DataPreparationSpec,
     DataVariableSpec,
     FilePreparationSpec,
 )
-from nof1_causal_lab.machine.artifacts import EpisodeState
-from nof1_causal_lab.machine.store import ArtifactStore
-from nof1_causal_lab.machine.temporal.measurement_activities import (
-    finalize_extraction_chunk_activity,
-    plan_measurements_activity,
-)
-from nof1_causal_lab.machine.temporal.messages import (
-    ExtractionChunkFinalizeInput,
-    MeasurementsWorkflowInput,
-    SingleLLMTransitionFinalizeInput,
-    SingleLLMTransitionWorkflowInput,
-)
-from nof1_causal_lab.machine.temporal.raw_data_activities import (
-    finalize_raw_data_activity,
-    plan_raw_data_activity,
-)
+from nof1_causal_lab.study.store import ArtifactStore
 from nof1_causal_lab.utils import data, storage
 from nof1_causal_lab.utils.aggregations import compute_indicators
 from tests.helpers import run_async
@@ -81,7 +81,7 @@ def test_extraction_cache_is_shared_and_only_changed_effective_requests_miss(tmp
         artifact = store.write_artifact(
             "raw_data",
             derived_from={},
-            produced_by="run:raw_data",
+            produced_by="prepare_data",
             parquet_files={"raw.parquet": raw},
         )
         return run_async(
@@ -89,7 +89,8 @@ def test_extraction_cache_is_shared_and_only_changed_effective_requests_miss(tmp
                 MeasurementsWorkflowInput(
                     workspace_id=workspace,
                     seq=1,
-                    state=EpisodeState().with_artifacts([artifact]),
+                    attempt_id=uuid4(),
+                    raw_data_revision=artifact.revision,
                     preparation=FilePreparationSpec(
                         source={"files": ["scores.csv"], "start": "2026-01-01", "end": end},
                         definition=DataPreparationSpec(
@@ -153,7 +154,7 @@ def test_extraction_cache_is_shared_and_only_changed_effective_requests_miss(tmp
     )
     assert all(chunk.cached_result_ref is None for chunk in changed.chunks)
 
-    from nof1_causal_lab.machine.temporal import preparation_cache
+    from nof1_causal_lab.actions.temporal import preparation_cache
 
     with monkeypatch.context() as policy:
         policy.setattr(preparation_cache, "EXTRACTION_POLICY_VERSION", "changed-extraction")
@@ -193,12 +194,11 @@ def test_ingestion_reuse_preserves_arrow_metadata_and_source_order(tmp_path, mon
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text("timestamp,score\n2026-01-01,2\n")
         return run_async(
-            plan_raw_data_activity(
-                SingleLLMTransitionWorkflowInput(
+            plan_ingestion_activity(
+                IngestionWorkflowInput(
                     workspace_id=workspace,
                     seq=1,
-                    transition_id="raw_data",
-                    state=EpisodeState(),
+                    attempt_id=uuid4(),
                     source={"files": files},
                 )
             )
@@ -212,12 +212,9 @@ def test_ingestion_reuse_preserves_arrow_metadata_and_source_order(tmp_path, mon
         writer.write_table(table)
     storage.write_text(result_ref, json.dumps({"table_ref": table_ref}))
     run_async(
-        finalize_raw_data_activity(
-            SingleLLMTransitionFinalizeInput(
+        finalize_ingestion_activity(
+            IngestionFinalizeInput(
                 workspace_id="first",
-                transition_id="raw_data",
-                state=EpisodeState(),
-                pins={},
                 context_ref=first.context_ref,
                 result_ref=result_ref,
             )
@@ -226,12 +223,9 @@ def test_ingestion_reuse_preserves_arrow_metadata_and_source_order(tmp_path, mon
     reused = plan("second")
     assert reused.cached_result_ref is not None
     effects = run_async(
-        finalize_raw_data_activity(
-            SingleLLMTransitionFinalizeInput(
+        finalize_ingestion_activity(
+            IngestionFinalizeInput(
                 workspace_id="second",
-                transition_id="raw_data",
-                state=EpisodeState(),
-                pins={},
                 context_ref=reused.context_ref,
                 result_ref=reused.cached_result_ref,
             )
@@ -244,7 +238,7 @@ def test_ingestion_reuse_preserves_arrow_metadata_and_source_order(tmp_path, mon
     assert saved.equals(table, check_metadata=True)
     assert plan("reordered", ("b.csv", "a.csv")).cached_result_ref is None
 
-    from nof1_causal_lab.machine.temporal import preparation_cache
+    from nof1_causal_lab.actions.temporal import preparation_cache
 
     with monkeypatch.context() as policy:
         policy.setattr(preparation_cache, "EXTRACTION_POLICY_VERSION", "changed-extraction")
@@ -266,8 +260,8 @@ def test_ingestion_reuse_preserves_arrow_metadata_and_source_order(tmp_path, mon
 
 def test_span_keeps_complete_windows_and_never_fills_from_excluded_history():
     raw = pl.DataFrame({"timestamp": [datetime(2026, 1, 1), datetime(2026, 1, 3)], "x": [9, 2]})
-    variable = _variable("x").model_copy(
-        update={"extraction_mode": "computed", "fill_null": "forward"}
+    variable = DataVariableSpec.model_validate(
+        {**_variable("x").model_dump(), "extraction_mode": "computed", "fill_null": "forward"}
     )
     bounded = compute_indicators(
         raw,
@@ -279,12 +273,12 @@ def test_span_keeps_complete_windows_and_never_fills_from_excluded_history():
     )
     assert bounded["timestamp"].to_list() == ["2026-01-02T00:00:00", "2026-01-03T00:00:00"]
     assert bounded["value"].to_list() == [None, "2"]
-    from nof1_causal_lab.flows.transitions.extraction.planning import prepare_semantic_chunks
+    from nof1_causal_lab.actions.extraction.planning import prepare_semantic_chunks
 
     texts, windows, _, empty_output = prepare_semantic_chunks(
         raw_df=raw,
         semantic_inds=[_variable("x").model_dump(mode="json")],
-        measurement_structure={"model_clock": "1d"},
+        measurement_structure={"model_clock": "1d", "indicators": []},
         model_clock="1d",
         time_col="timestamp",
         max_events_per_window=300,
@@ -307,11 +301,11 @@ def test_span_keeps_complete_windows_and_never_fills_from_excluded_history():
 def test_multiday_span_and_empty_semantic_windows_materialize_without_requests(
     tmp_path, monkeypatch, aggregation, offset
 ):
-    from nof1_causal_lab.actions.data_checks import read_data_metadata
-    from nof1_causal_lab.machine.temporal.measurement_activities import (
+    from nof1_causal_lab.actions.temporal.measurement_activities import (
         finalize_measurements_activity,
     )
-    from nof1_causal_lab.machine.temporal.messages import MeasurementsFinalizeInput
+    from nof1_causal_lab.actions.temporal.messages import MeasurementsFinalizeInput
+    from nof1_causal_lab.study.lineage import read_data_metadata
 
     monkeypatch.setattr(data, "_DATA_URI", str(tmp_path))
     raw = pl.DataFrame(
@@ -323,9 +317,11 @@ def test_multiday_span_and_empty_semantic_windows_materialize_without_requests(
     )
     store = ArtifactStore("empty")
     artifact = store.write_artifact(
-        "raw_data", derived_from={}, produced_by="run:raw_data", parquet_files={"raw.parquet": raw}
+        "raw_data", derived_from={}, produced_by="prepare_data", parquet_files={"raw.parquet": raw}
     )
-    variable = _variable("x").model_copy(update={"aggregation": aggregation})
+    variable = DataVariableSpec.model_validate(
+        {**_variable("x").model_dump(), "aggregation": aggregation}
+    )
     preparation = FilePreparationSpec(
         source={"files": ["scores.csv"], "start": "2026-01-02", "end": "2026-01-10"},
         definition=DataPreparationSpec(default_window="2d", variables=(variable,)),
@@ -335,7 +331,8 @@ def test_multiday_span_and_empty_semantic_windows_materialize_without_requests(
             MeasurementsWorkflowInput(
                 workspace_id="empty",
                 seq=1,
-                state=EpisodeState().with_artifacts([artifact]),
+                attempt_id=uuid4(),
+                raw_data_revision=artifact.revision,
                 preparation=preparation,
             )
         )
@@ -378,7 +375,6 @@ def test_multiday_span_and_empty_semantic_windows_materialize_without_requests(
         finalize_measurements_activity(
             MeasurementsFinalizeInput(
                 workspace_id="empty",
-                state=EpisodeState(),
                 run_id=plan.run_id,
                 pins=plan.pins,
                 plan_ref=plan.plan_ref,
@@ -397,7 +393,11 @@ def test_multiday_span_and_empty_semantic_windows_materialize_without_requests(
 
     computed = compute_indicators(
         raw,
-        [variable.model_copy(update={"extraction_mode": "computed"}).model_dump(mode="json")],
+        [
+            type(variable)
+            .model_validate({**variable.model_dump(), "extraction_mode": "computed"})
+            .model_dump(mode="json")
+        ],
         "2d",
         "timestamp",
         start=preparation.source.start,

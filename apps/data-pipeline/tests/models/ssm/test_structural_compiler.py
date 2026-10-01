@@ -1,5 +1,8 @@
 """Execution planning reads canonical entities and preserves their source identities."""
 
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from pathlib import Path
+
 import pytest
 
 from nof1_causal_lab.artifacts.construct import (
@@ -10,7 +13,8 @@ from nof1_causal_lab.artifacts.construct import (
 from nof1_causal_lab.models.model_checks import check_execution
 from nof1_causal_lab.models.model_structure import StructuralCompilationError
 from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
-from tests.helpers import complete_test_model, make_model
+from tests.helpers import make_model
+from tests.model_fixtures import compile_fit_fixture
 
 
 @pytest.mark.contract
@@ -21,13 +25,16 @@ def test_planner_rejects_retained_static_target_edge():
         edges=replace_constructs(
             model.edges,
             (
-                x.model_copy(
-                    update={
+                type(x).model_validate(
+                    {
+                        **x.model_dump(),
                         "role": Role.EXOGENOUS,
                         "temporal_status": TemporalStatus.TIME_INVARIANT,
                     }
                 ),
-                baseline.model_copy(update={"temporal_status": TemporalStatus.TIME_INVARIANT}),
+                type(baseline).model_validate(
+                    {**baseline.model_dump(), "temporal_status": TemporalStatus.TIME_INVARIANT}
+                ),
                 y,
             ),
         )
@@ -39,7 +46,9 @@ def test_planner_rejects_retained_static_target_edge():
 @pytest.mark.contract
 def test_model_rejects_duplicate_endpoint_pairs():
     model = make_model(["X", "Y"], [("X", "Y")])
-    duplicate = model.edges[0].model_copy(update={"id": "edge:another"})
+    duplicate = type(model.edges[0]).model_validate(
+        {**model.edges[0].model_dump(), "id": "edge:another"}
+    )
     with pytest.raises(ValueError, match="one causal edge per endpoint pair"):
         model.revised(edges=(*model.edges, duplicate))
 
@@ -48,7 +57,7 @@ def test_model_rejects_duplicate_endpoint_pairs():
 def test_projected_coefficients_require_literals():
     import numpy as np
 
-    from nof1_causal_lab.artifacts.expressions import coefficient, linear_effect
+    from nof1_causal_lab.artifacts.expressions import coefficient, state
     from nof1_causal_lab.artifacts.identity import scientific_id
     from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
     from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
@@ -57,8 +66,9 @@ def test_projected_coefficients_require_literals():
 
     model = make_model(["U", "X", "Y"], [("U", "Y"), ("X", "Y")])
     root = next(item for item in model.constructs if item.name == "U")
-    root = root.model_copy(
-        update={
+    root = type(root).model_validate(
+        {
+            **root.model_dump(),
             "role": Role.EXOGENOUS,
             "temporal_status": TemporalStatus.TIME_INVARIANT,
             "indicators": (),
@@ -74,14 +84,15 @@ def test_projected_coefficients_require_literals():
 
     def _with_loading(weight, parameters):
         edges = tuple(
-            edge.model_copy(
-                update={
+            type(edge).model_validate(
+                {
+                    **edge.model_dump(),
                     "mechanisms": (
                         DynamicsMechanismSpec(
                             id="mechanism:fixed-loading",
-                            expression=linear_effect(root.id, weight),
+                            expression=coefficient(weight, "weight") * state(root.id),
                         ),
-                    )
+                    ),
                 }
             )
             if edge.cause.id == root.id
@@ -109,12 +120,13 @@ def _model_with_exact_measurement():
         [("X", "Y"), ("Driver", "Y"), ("History", "Y"), ("U", "X"), ("U", "Y")],
     )
     x, y, driver, history, u = model.constructs
-    indicator = driver.indicators[0].model_copy(
-        update={
+    indicator = type(driver.indicators[0]).model_validate(
+        {
+            **driver.indicators[0].model_dump(),
             "likelihood": LikelihoodSpec(
                 law=ObservationLawSpec(distribution="Delta", arguments={"v": state(driver.id)}),
                 reasoning="Direct exact driver observation",
-            )
+            ),
         }
     )
     return model.revised(
@@ -123,9 +135,13 @@ def _model_with_exact_measurement():
             (
                 x,
                 y,
-                driver.model_copy(update={"role": Role.EXOGENOUS, "indicators": (indicator,)}),
+                type(driver).model_validate(
+                    {**driver.model_dump(), "role": Role.EXOGENOUS, "indicators": (indicator,)}
+                ),
                 history,
-                u.model_copy(update={"role": Role.EXOGENOUS, "indicators": ()}),
+                type(u).model_validate(
+                    {**u.model_dump(), "role": Role.EXOGENOUS, "indicators": ()}
+                ),
             ),
         )
     )
@@ -166,7 +182,7 @@ def test_source_ids_are_stable_across_authoring_reordering():
 
 @pytest.mark.contract
 def test_execution_checks_preserve_the_scientific_model():
-    model = complete_test_model(make_model(["X", "Y"], [("X", "Y")]))
+    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'structural_compiler/execution_checks_preserve_the_scientific_model_complete_test_model.json').read_text())
     before = model.model_dump(mode="json")
     check_execution(model)
     from nof1_causal_lab.models.ssm import numerics as numeric
@@ -188,7 +204,7 @@ def test_required_unmeasured_mediator_cannot_be_silently_excluded():
             model.edges,
             (
                 x,
-                mediator.model_copy(update={"indicators": ()}),
+                type(mediator).model_validate({**mediator.model_dump(), "indicators": ()}),
                 y,
             ),
         ),
@@ -203,9 +219,7 @@ def test_severed_components_do_not_require_priors_or_bind_numerical_parameters()
     import jax
     import jax.numpy as jnp
 
-    from nof1_causal_lab.models.model_parameters import referenced_parameter_ids
     from nof1_causal_lab.models.ssm import numerics as numeric
-    from nof1_causal_lab.models.ssm.compile.inputs import compile_ssm_inputs_from_model
     from nof1_causal_lab.models.ssm.inference.persistence import condition_model, model_draws
     from nof1_causal_lab.models.ssm.inference.types import (
         JointPosteriorDraws,
@@ -218,20 +232,12 @@ def test_severed_components_do_not_require_priors_or_bind_numerical_parameters()
         [("A", "B"), ("B", "Sink"), ("Y", "Sink"), ("X", "Y")],
     )
     nodes = {item.name: item for item in model.constructs}
-    model = complete_test_model(
-        model.revised(
-            edges=replace_constructs(
-                model.edges, (nodes["Sink"].model_copy(update={"indicators": ()}),)
-            )
-        )
-    )
-    island_parameter = model.parameter(
-        next(iter(referenced_parameter_ids(model.get_construct(nodes["A"].id))))
-    )
+    model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'structural_compiler/severed_components_do_not_require_priors_or_bind_numerical_parameters_complete_test_model.json').read_text())
+    island_parameter = model.parameters_for(nodes["A"].id)[0]
     selected = model.revised(
         default_outcome=nodes["Y"].id,
         parameters=tuple(
-            item.model_copy(update={"distribution": None})
+            type(item).model_validate({**item.model_dump(), "distribution": None})
             if item.id == island_parameter.id
             else item
             for item in model.parameters
@@ -247,7 +253,7 @@ def test_severed_components_do_not_require_priors_or_bind_numerical_parameters()
     assert len(selected.manifest_indicator_order) == 2
     assert island_parameter.id not in {item.id for item in selected.execution_parameters}
     selected.check_execution()
-    _, bindings, _, _ = compile_ssm_inputs_from_model(selected)
+    bindings = compile_fit_fixture(selected).bindings
     assert {item.parameter_id for item in bindings} == {
         item.id for item in selected.execution_parameters
     }
@@ -257,7 +263,7 @@ def test_severed_components_do_not_require_priors_or_bind_numerical_parameters()
     assert set(draws.state_ids) == {nodes["X"].id, nodes["Y"].id}
     # Exercise persistence with synthetic draws; no fitting or trajectory simulation.
     conditioned = condition_model(
-        selected,
+        compile_fit_fixture(selected),
         ParticleMCMCPosterior(
             JointPosteriorDraws(draws.parameters, jnp.zeros((2, 2, 2)), draws.state_ids)
         ),
@@ -283,7 +289,11 @@ def test_projected_latent_dependencies_keep_their_connected_states():
         default_outcome=nodes["Y"].id,
         edges=replace_constructs(
             model.edges,
-            (nodes["U"].model_copy(update={"role": Role.EXOGENOUS, "indicators": ()}),),
+            (
+                type(nodes["U"]).model_validate(
+                    {**nodes["U"].model_dump(), "role": Role.EXOGENOUS, "indicators": ()}
+                ),
+            ),
         ),
     )
     assert nodes["U"].id in selected.marginalized_construct_ids

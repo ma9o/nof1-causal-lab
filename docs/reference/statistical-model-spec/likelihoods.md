@@ -32,7 +32,7 @@ The numerical backend derives its family and response from these expressions, an
 
 ## Dtype-to-Distribution Mapping
 
-Each indicator's `measurement_dtype` selects the default conditional law. The family and link names below describe its numerical lowering. Where the dtype admits only one valid combination, the likelihood is locked by component authoring. Where alternatives exist, the LLM chooses via a decision card.
+The model author writes each indicator's law and coefficients through `edit_model`. Its `measurement_dtype` limits the families that law may use, and an indicator with any other family is rejected. The first column is the usual choice; the family and link names describe the law's numerical lowering.
 
 | `measurement_dtype` | Default distribution | Link | Alternatives |
 |---|---|---|---|

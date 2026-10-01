@@ -30,7 +30,7 @@ def _dest_fs():
 
 def _is_publishable(rel: str) -> bool:
     """Only explicit durable tiers cross the publication boundary."""
-    return rel.startswith(("input/", "store/", "episode/"))
+    return rel.startswith(("input/", "store/", "study/"))
 
 
 def _is_excluded(rel: str, excludes: list[str]) -> bool:

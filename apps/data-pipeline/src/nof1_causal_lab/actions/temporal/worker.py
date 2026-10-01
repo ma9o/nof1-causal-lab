@@ -1,0 +1,157 @@
+"""Study worker entrypoint.
+
+Run with::
+
+    uv run python -m nof1_causal_lab.actions.temporal.worker
+"""
+
+from __future__ import annotations
+
+import asyncio
+import logging
+
+from temporalio.worker import Worker
+from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner, SandboxRestrictions
+
+from nof1_causal_lab.actions.temporal.activities import (
+    ALL_ACTIVITIES,
+    evaluate_data_checks_activity,
+    evaluate_model_checks_activity,
+)
+from nof1_causal_lab.actions.temporal.client import (
+    HARNESS_CLAUDE_TASK_QUEUE,
+    HARNESS_CODEX_TASK_QUEUE,
+    HARNESS_PI_TASK_QUEUE,
+    MODEL_CHECKS_TASK_QUEUE,
+    OPENROUTER_TASK_QUEUE,
+    STUDY_TASK_QUEUE,
+    connect_client,
+)
+from nof1_causal_lab.actions.temporal.ingestion_workflow import IngestionWorkflow
+from nof1_causal_lab.actions.temporal.llm_subroutine_activities import (
+    run_harness_turn_activity,
+)
+from nof1_causal_lab.actions.temporal.llm_subroutine_workflow import LLMSubroutineWorkflow
+from nof1_causal_lab.actions.temporal.measurement_activities import call_openrouter_activity
+from nof1_causal_lab.actions.temporal.measurement_workflow import (
+    ExtractionChunkWorkflow,
+    MeasurementsWorkflow,
+)
+from nof1_causal_lab.actions.temporal.workflow import StudyWorkflow
+
+logger = logging.getLogger(__name__)
+
+
+def study_workflow_runner() -> SandboxedWorkflowRunner:
+    """Sandbox runner with the package passed through.
+
+    The package root configures the JAX persistent cache at import time;
+    re-importing jaxlib inside the sandbox aborts the process. Passing the
+    package through is safe here because workflow determinism is carried
+    by construction (the workflow only calls the pure machine functions).
+    Typed model requests run deterministic NetworkX graph validation during
+    payload decoding; its import-time backend configuration stays outside replay.
+    Native prior constructors also lazily import JAX/NumPyro while decoding;
+    encoding their array dtypes lazily imports NumPy. These numerical modules
+    must retain the worker's initialized instances in both directions.
+    """
+    return SandboxedWorkflowRunner(
+        restrictions=SandboxRestrictions.default.with_passthrough_modules(
+            "nof1_causal_lab", "pydantic", "networkx", "jax", "jaxlib", "numpyro", "numpy"
+        )
+    )
+
+
+def build_worker(client, task_queue: str = STUDY_TASK_QUEUE) -> Worker:
+    return Worker(
+        client,
+        task_queue=task_queue,
+        workflows=[
+            StudyWorkflow,
+            IngestionWorkflow,
+            MeasurementsWorkflow,
+            ExtractionChunkWorkflow,
+            LLMSubroutineWorkflow,
+        ],
+        activities=ALL_ACTIVITIES,
+        workflow_runner=study_workflow_runner(),
+    )
+
+
+def build_openrouter_worker(client, task_queue: str = OPENROUTER_TASK_QUEUE) -> Worker:
+    from nof1_causal_lab.utils.config import get_config
+
+    max_rpm = get_config().extraction_workers.max_rpm
+    return Worker(
+        client,
+        task_queue=task_queue,
+        activities=[call_openrouter_activity],
+        max_task_queue_activities_per_second=(max_rpm / 60) if max_rpm else None,
+    )
+
+
+def build_harness_worker(
+    client,
+    task_queue: str,
+) -> Worker:
+    return Worker(
+        client,
+        task_queue=task_queue,
+        activities=[run_harness_turn_activity],
+    )
+
+
+def build_model_checks_worker(
+    client,
+    task_queue: str = MODEL_CHECKS_TASK_QUEUE,
+) -> Worker:
+    """Serialize automatic exact check batches independently of ingestion workers."""
+    return Worker(
+        client,
+        task_queue=task_queue,
+        activities=[evaluate_model_checks_activity, evaluate_data_checks_activity],
+        max_concurrent_activities=1,
+    )
+
+
+async def run_worker() -> None:
+    client = await connect_client()
+    study_worker = build_worker(client)
+    openrouter_worker = build_openrouter_worker(client)
+    claude_worker = build_harness_worker(
+        client,
+        HARNESS_CLAUDE_TASK_QUEUE,
+    )
+    codex_worker = build_harness_worker(
+        client,
+        HARNESS_CODEX_TASK_QUEUE,
+    )
+    pi_worker = build_harness_worker(
+        client,
+        HARNESS_PI_TASK_QUEUE,
+    )
+    model_checks_worker = build_model_checks_worker(client)
+    logger.info("Study worker started on task queue %s", STUDY_TASK_QUEUE)
+    logger.info("OpenRouter worker started on task queue %s", OPENROUTER_TASK_QUEUE)
+    logger.info("Claude harness worker started on task queue %s", HARNESS_CLAUDE_TASK_QUEUE)
+    logger.info("Codex harness worker started on task queue %s", HARNESS_CODEX_TASK_QUEUE)
+    logger.info("Pi harness worker started on task queue %s", HARNESS_PI_TASK_QUEUE)
+    logger.info(
+        "Model checks worker started on task queue %s",
+        MODEL_CHECKS_TASK_QUEUE,
+    )
+    await asyncio.gather(
+        study_worker.run(),
+        openrouter_worker.run(),
+        claude_worker.run(),
+        codex_worker.run(),
+        pi_worker.run(),
+        model_checks_worker.run(),
+    )
+
+
+if __name__ == "__main__":
+    logging.basicConfig(level=logging.INFO)
+    # The SDK reports update decoding/validation rejections only at DEBUG.
+    logging.getLogger("temporalio.worker._workflow_instance").setLevel(logging.DEBUG)
+    asyncio.run(run_worker())

@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from collections.abc import (
+    Mapping,
+)
 from enum import StrEnum
 from typing import TYPE_CHECKING, Literal
 
@@ -12,8 +15,8 @@ from nof1_causal_lab.distributions import (
     DistributionFamily,
 )
 
-from .evidence import LiteratureSource  # noqa: TC001
-from .expressions import Expression  # noqa: TC001
+from .evidence import LiteratureSource
+from .expressions import Expression
 
 if TYPE_CHECKING:
     from nof1_causal_lab.models.likelihoods import LikelihoodTerms
@@ -69,7 +72,7 @@ class ObservationLawSpec(BaseModel):
         "OrderedLogistic",
         "Categorical",
     ]
-    arguments: dict[str, Expression]
+    arguments: Mapping[str, Expression]
 
     @model_validator(mode="after")
     def validate_constructor(self) -> ObservationLawSpec:

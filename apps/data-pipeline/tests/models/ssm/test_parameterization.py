@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 import jax.numpy as jnp
 import jax.random as random
 import numpy as np
@@ -35,244 +37,55 @@ from nof1_causal_lab.models.ssm.structure import (
     T0CholBlockSpec,
 )
 from tests.dynamics_fixtures import decay_term
-from tests.helpers import (
-    complete_test_model,
-    make_prior_model,
-    model_with_prior_payloads,
-    named_prior_payloads,
-    native_axis_metadata,
-)
-from tests.model_fixtures import (
-    default_diffusion_block,
-    default_lambda_block,
-    default_manifest_chol_block,
-    default_manifest_means_block,
-    default_static_state_sd_block,
-    default_t0_chol_block,
-    default_t0_means_block,
-    dense_matrix_dynamics_spec,
-    full_cholesky_support,
-    full_dense_matrix_dynamics_spec,
-    full_diagonal_support,
-    full_vector_support,
-    model_fixture,
-)
-from tests.slot_fixtures import fixture_parameter_id
+from tests.helpers import native_axis_metadata
+from tests.model_fixtures import compile_fit_fixture, default_diffusion_block, default_lambda_block, default_manifest_chol_block, default_manifest_means_block, default_static_state_sd_block, default_t0_chol_block, default_t0_means_block, dense_matrix_dynamics_spec, full_cholesky_support, full_dense_matrix_dynamics_spec, full_diagonal_support, full_vector_support
 
 # ---------------------------------------------------------------------------
 # Fixtures
 # ---------------------------------------------------------------------------
 
 
-def _make_spec(
-    *,
-    n_latent: int = 2,
-    n_manifest: int = 2,
-    dynamics_spec=None,
-    diffusion_block=None,
-    lambda_block=None,
-    manifest_means_block=None,
-    manifest_chol_block=None,
-    t0_means_block=None,
-    t0_chol_block=None,
-    static_state_sd_block=None,
-    **kwargs,
-) -> ModelSpec:
-    """Build an ModelSpec from explicit block specs for tests."""
-    if dynamics_spec is None:
-        dynamics_spec = full_dense_matrix_dynamics_spec(n_latent)
-    return model_fixture(
-        n_latent=n_latent,
-        n_manifest=n_manifest,
-        dynamics_spec=dynamics_spec,
-        diffusion_block=diffusion_block or default_diffusion_block(n_latent),
-        lambda_block=lambda_block or default_lambda_block(n_manifest, n_latent),
-        manifest_means_block=manifest_means_block or default_manifest_means_block(n_manifest),
-        manifest_chol_block=manifest_chol_block or default_manifest_chol_block(n_manifest),
-        t0_means_block=t0_means_block or default_t0_means_block(n_latent),
-        t0_chol_block=t0_chol_block or default_t0_chol_block(n_latent),
-        static_state_sd_block=static_state_sd_block or default_static_state_sd_block(),
-        **native_axis_metadata(n_latent, n_manifest, kwargs),
-    )
 
 
-def _linear_dynamics(
-    n_latent: int,
-    *,
-    decay_support: np.ndarray | None = None,
-    edge_support: np.ndarray | None = None,
-    coupling_template=None,
-    intercept_support: np.ndarray | None = None,
-    cint_template=None,
-):
-    if decay_support is None:
-        decay_support = full_diagonal_support(n_latent)
-    if edge_support is None:
-        edge_support = np.zeros((n_latent, n_latent), dtype=bool)
-    if coupling_template is None:
-        coupling_template = jnp.zeros((n_latent, n_latent), dtype=jnp.float32)
-    if intercept_support is None:
-        intercept_support = np.zeros(n_latent, dtype=bool)
-    if cint_template is None:
-        cint_template = jnp.zeros(n_latent, dtype=jnp.float32)
-    return dense_matrix_dynamics_spec(
-        n_latent=n_latent,
-        decay_support=decay_support,
-        edge_support=edge_support,
-        coupling_template=jnp.asarray(coupling_template),
-        intercept_support=intercept_support,
-        cint_template=jnp.asarray(cint_template),
-    )
 
 
-def _fixed_matrix_dynamics(coupling_template):
-    coupling_template = jnp.asarray(coupling_template)
-    n_latent = int(coupling_template.shape[0])
-    return _linear_dynamics(
-        n_latent,
-        decay_support=np.zeros(n_latent, dtype=bool),
-        edge_support=np.zeros((n_latent, n_latent), dtype=bool),
-        coupling_template=coupling_template,
-    )
 
 
-def _diffusion_block(n_latent: int, *, free_support=None, template=None) -> DiffusionBlockSpec:
-    if free_support is None:
-        free_support = np.tri(n_latent, dtype=bool)
-    if template is None:
-        template = jnp.eye(n_latent)
-    return DiffusionBlockSpec(
-        n_latent=n_latent,
-        diffusion_chol_support=free_support,
-        diffusion_chol_template=jnp.asarray(template),
-    )
 
 
-def _lambda_block(n_manifest: int, n_latent: int, *, free_support=None, template=None):
-    if free_support is None:
-        free_support = np.zeros((n_manifest, n_latent), dtype=bool)
-    if template is None:
-        template = jnp.eye(n_manifest, n_latent)
-    return SparseMatrixBlockSpec(
-        n_rows=n_manifest,
-        n_cols=n_latent,
-        free_support=free_support,
-        template=jnp.asarray(template),
-        free_site_name="lambda_free",
-        det_site_name="lambda",
-        support=SupportClass.REAL,
-        site_kind=SiteKind.LOADING,
-        assembly_group="lambda",
-        fixed_spec_field="lambda_mat",
-        priors_field="lambda_free",
-    )
 
 
-def _manifest_chol_block(n_manifest: int, *, diag_support=None, template=None):
-    if diag_support is None:
-        diag_support = full_diagonal_support(n_manifest)
-    if template is None:
-        template = jnp.zeros((n_manifest, n_manifest))
-    return ManifestCholBlockSpec(
-        n_manifest=n_manifest,
-        diag_support=diag_support,
-        template=jnp.asarray(template),
-    )
 
 
-def _t0_means_block(n_latent: int, *, free_support=None, template=None):
-    if free_support is None:
-        free_support = np.ones(n_latent, dtype=bool)
-    if template is None:
-        template = jnp.zeros(n_latent)
-    return SparseVectorBlockSpec(
-        n=n_latent,
-        free_support=free_support,
-        template=jnp.asarray(template),
-        free_site_name="t0_means_free",
-        det_site_name="t0_means",
-        support=SupportClass.REAL,
-        site_kind=SiteKind.T0_MEANS,
-        assembly_group="t0",
-        fixed_spec_field="t0_means",
-        priors_field="t0_means",
-    )
 
 
-def _t0_chol_block(n_latent: int, *, diag_support=None, correlation_support=None, template=None):
-    if diag_support is None:
-        diag_support = full_diagonal_support(n_latent)
-    if correlation_support is None:
-        correlation_support = np.tri(n_latent, k=-1, dtype=bool)
-    if template is None:
-        template = jnp.eye(n_latent)
-    return T0CholBlockSpec(
-        n_latent=n_latent,
-        diag_support=diag_support,
-        correlation_support=correlation_support,
-        template=jnp.asarray(template),
-    )
 
 
-def _static_state_sd_block(mask, template):
-    return SparseVectorBlockSpec(
-        n=int(np.asarray(mask).shape[0]),
-        free_support=np.asarray(mask, dtype=bool),
-        template=jnp.asarray(template),
-        free_site_name="static_state_sd_free",
-        det_site_name="static_state_sds",
-        support=SupportClass.POSITIVE,
-        site_kind=SiteKind.STATIC_STATE_SD,
-        assembly_group="t0",
-        fixed_spec_field="static_state_sds",
-        priors_field="static_state_sd",
-    )
 
 
 @pytest.fixture
 def simple_spec():
-    """Minimal 2-latent, 2-manifest Gaussian SSM."""
-    return _make_spec(n_latent=2, n_manifest=2)
+    return ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/simple_spec_model.json').read_text())
 
 
 @pytest.fixture
 def simple_model(simple_spec):
-    return SSMModel(simple_spec)
+    return SSMModel(compile_fit_fixture(simple_spec))
 
 
 @pytest.fixture
 def dag_spec():
-    """DAG-constrained spec with dynamics mask and lambda mask."""
-    import numpy as np
-
-    edge_support = np.array([[False, False], [True, False]])
-    lambda_support = np.array([[True, False], [False, True]])
-    lambda_template = jnp.array([[1.0, 0.0], [0.0, 1.0]])
-    return _make_spec(
-        n_latent=2,
-        n_manifest=2,
-        dynamics_spec=_linear_dynamics(
-            2,
-            edge_support=edge_support,
-            intercept_support=full_vector_support(2),
-        ),
-        lambda_block=_lambda_block(
-            2,
-            2,
-            free_support=lambda_support,
-            template=lambda_template,
-        ),
-    )
+    return ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/dag_spec_model.json').read_text())
 
 
 @pytest.fixture
 def dag_model(dag_spec):
-    return SSMModel(dag_spec)
+    return SSMModel(compile_fit_fixture(dag_spec))
 
 
 @pytest.fixture
 def scientific_model_and_priors():
-    return complete_test_model(_mood_structure()), {
+    return ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/scientific_model_and_priors_complete_test_model.json').read_text()), {
         "rho_mood": {
             "parameter": "rho_mood",
             "distribution": "Beta",
@@ -290,42 +103,6 @@ def scientific_model_and_priors():
     }
 
 
-def _mood_structure() -> ModelSpec:
-
-    return ModelSpec.model_validate(
-        {
-            "edges": [
-                {
-                    "id": "edge:test-outcome-0",
-                    "cause": {
-                        "id": "construct:bbc87212909e45b9e6c3",
-                        "name": "mood",
-                        "description": "Mood",
-                        "role": "exogenous",
-                        "temporal_status": "time_varying",
-                        "indicators": [
-                            {
-                                "id": "indicator:45f78731e3e0c6f3efe1",
-                                "name": "mood_score",
-                                "measurement_dtype": "continuous",
-                                "aggregation": "mean",
-                                "construct_polarity": "positive",
-                            }
-                        ],
-                    },
-                    "effect": {
-                        "id": "construct:unmeasured_outcome",
-                        "name": "unmeasured_outcome",
-                        "description": "Downstream response outside the measured test states.",
-                        "role": "endogenous",
-                        "temporal_status": "time_varying",
-                    },
-                    "description": "Test state affects an unmeasured downstream response",
-                }
-            ],
-            "measurement_clock": "1d",
-        }
-    )
 
 
 # ---------------------------------------------------------------------------
@@ -368,16 +145,8 @@ class TestSiteRegistry:
     @pytest.mark.inference(concern="sampling")
     def test_registry_shapes_match_trace_partial_manifest_variance_mask(self):
         """Masked manifest variance exposes only free diagonal entries as a site."""
-        spec = _make_spec(
-            n_latent=2,
-            n_manifest=2,
-            manifest_chol_block=_manifest_chol_block(
-                2,
-                diag_support=np.array([False, True]),
-                template=jnp.diag(jnp.array([0.4, 0.0], dtype=jnp.float32)),
-            ),
-        )
-        model = SSMModel(spec)
+        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/testsiteregistry_test_registry_shapes_match_trace_partial_manifest_variance_mask__make_spec.json').read_text())
+        model = SSMModel(compile_fit_fixture(spec))
         registry = build_site_registry(spec)
         backend = _DummyLikelihoodBackend()
         T = 2
@@ -392,28 +161,14 @@ class TestSiteRegistry:
     @pytest.mark.contract
     def test_fixed_dynamics_excludes_dynamics_sites(self):
         """When dynamics is a fixed array, no dynamics sites appear."""
-        spec = _make_spec(
-            n_latent=2,
-            n_manifest=2,
-            dynamics_spec=_fixed_matrix_dynamics(
-                jnp.array([[-0.5, 0.0], [0.0, -0.5]], dtype=jnp.float32)
-            ),
-        )
+        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/testsiteregistry_test_fixed_dynamics_excludes_dynamics_sites__make_spec.json').read_text())
         registry = build_site_registry(spec)
         assert len([site for site in registry if site.site_kind == SiteKind.DYNAMICS_DECAY]) == 2
 
     @pytest.mark.contract
     def test_diag_diffusion_excludes_lower(self):
         """Diagonal diffusion has no lower-triangle sites."""
-        spec = _make_spec(
-            n_latent=2,
-            n_manifest=2,
-            diffusion_block=_diffusion_block(
-                2,
-                free_support=np.diag(full_diagonal_support(2)),
-                template=jnp.eye(2),
-            ),
-        )
+        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/testsiteregistry_test_diag_diffusion_excludes_lower__make_spec.json').read_text())
         registry = build_site_registry(spec)
         names = {s.name for s in registry}
         assert "diffusion_diag_free" in names
@@ -422,15 +177,7 @@ class TestSiteRegistry:
     @pytest.mark.contract
     def test_free_diffusion_includes_lower(self):
         """Free diffusion includes lower-triangle sites."""
-        spec = _make_spec(
-            n_latent=2,
-            n_manifest=2,
-            diffusion_block=_diffusion_block(
-                2,
-                free_support=full_cholesky_support(2),
-                template=jnp.eye(2),
-            ),
-        )
+        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/testsiteregistry_test_free_diffusion_includes_lower__make_spec.json').read_text())
         registry = build_site_registry(spec)
         names = {s.name for s in registry}
         assert "diffusion_diag_free" in names
@@ -441,16 +188,7 @@ class TestSiteRegistry:
         """Initial-state correlation sites should only exist for authored pairs."""
         mask = np.zeros((3, 3), dtype=bool)
         mask[2, 0] = True
-        spec = _make_spec(
-            n_latent=3,
-            n_manifest=3,
-            t0_chol_block=_t0_chol_block(
-                3,
-                diag_support=full_diagonal_support(3),
-                correlation_support=mask,
-                template=jnp.eye(3),
-            ),
-        )
+        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/testsiteregistry_test_sparse_initial_state_correlations_only_include_authored_pairs__make_spec.json').read_text())
         registry = build_site_registry(spec)
         site_map = {site.name: site for site in registry}
         assert site_map["t0_var_lower_free"].shape == (1,)
@@ -474,23 +212,15 @@ class TestSiteRegistry:
     @pytest.mark.contract
     def test_mixed_diffusion_includes_proc_df_site(self):
         """Any student-t latent in diffusion_dists should expose proc_df."""
-        spec = _make_spec(
-            n_latent=2,
-            n_manifest=2,
-            diffusion_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T],
-        )
+        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/testsiteregistry_test_mixed_diffusion_includes_proc_df_site__make_spec.json').read_text())
         registry = build_site_registry(spec)
         assert "proc_df" in {site.name for site in registry}
 
     @pytest.mark.inference(concern="sampling")
     def test_mixed_diffusion_sampling_emits_proc_df(self):
         """The traced model should sample proc_df when diffusion_dists include student_t."""
-        spec = _make_spec(
-            n_latent=2,
-            n_manifest=2,
-            diffusion_dists=[DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T],
-        )
-        model = SSMModel(spec)
+        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/testsiteregistry_test_mixed_diffusion_sampling_emits_proc_df__make_spec.json').read_text())
+        model = SSMModel(compile_fit_fixture(spec))
 
         with handlers.seed(rng_seed=0):
             trace = handlers.trace(lambda: model._sample_likelihood_extra_params(spec)).get_trace()
@@ -500,22 +230,8 @@ class TestSiteRegistry:
     @pytest.mark.inference(concern="sampling")
     def test_static_state_sd_site_is_registered_and_traced(self):
         """Compiled baseline factors should expose a positive static-state SD site."""
-        spec = _make_spec(
-            n_latent=2,
-            n_manifest=2,
-            static_state_sd_block=_static_state_sd_block(
-                np.array([True]),
-                jnp.zeros(1),
-            ),
-            static_factor_loadings=jnp.array([[1.0], [1.0]]),
-            t0_chol_block=_t0_chol_block(
-                2,
-                diag_support=np.zeros(2, dtype=bool),
-                correlation_support=np.zeros((2, 2), dtype=bool),
-                template=jnp.eye(2),
-            ),
-        )
-        model = SSMModel(spec)
+        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/testsiteregistry_test_static_state_sd_site_is_registered_and_traced__make_spec.json').read_text())
+        model = SSMModel(compile_fit_fixture(spec))
 
         registry = build_site_registry(spec)
         site_map = {site.name: site for site in registry}
@@ -534,22 +250,8 @@ class TestSiteRegistry:
 class TestSpecBlockAssembly:
     def test_assemble_t0_cov_adds_low_rank_baseline_factor_covariance(self):
         """Static baseline factors should add `B diag(tau^2) B^T` to the t0 covariance."""
-        spec = _make_spec(
-            n_latent=2,
-            n_manifest=2,
-            static_state_sd_block=_static_state_sd_block(
-                np.array([True]),
-                jnp.zeros(1),
-            ),
-            static_factor_loadings=jnp.array([[1.0], [1.0]]),
-            t0_chol_block=_t0_chol_block(
-                2,
-                diag_support=np.zeros(2, dtype=bool),
-                correlation_support=np.zeros((2, 2), dtype=bool),
-                template=jnp.eye(2),
-            ),
-        )
-        model = SSMModel(spec)
+        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/testspecblockassembly_test_assemble_t0_cov_adds_low_rank_baseline_factor_covariance__make_spec.json').read_text())
+        model = SSMModel(compile_fit_fixture(spec))
         values = {
             site.name: jnp.ones(site.shape)
             for block in numeric.parameter_blocks(spec)
@@ -601,39 +303,7 @@ class TestDeterministicAssembly:
     @pytest.mark.contract
     def test_assemble_deterministics_from_registry_fixed_blocks(self):
         """Fixed spec matrices are broadcast without any sampled sites."""
-        spec = _make_spec(
-            n_latent=2,
-            n_manifest=2,
-            dynamics_spec=_fixed_matrix_dynamics(
-                jnp.array([[-0.4, 0.1], [0.0, -0.2]], dtype=jnp.float32)
-            ),
-            diffusion_block=_diffusion_block(
-                2,
-                free_support=np.zeros((2, 2), dtype=bool),
-                template=jnp.array([[0.3, 0.0], [0.1, 0.5]], dtype=jnp.float32),
-            ),
-            lambda_block=_lambda_block(
-                2,
-                2,
-                template=jnp.array([[1.0, 0.0], [0.2, 1.0]], dtype=jnp.float32),
-            ),
-            manifest_chol_block=_manifest_chol_block(
-                2,
-                diag_support=np.zeros(2, dtype=bool),
-                template=jnp.array([[0.4, 0.0], [0.0, 0.6]], dtype=jnp.float32),
-            ),
-            t0_means_block=_t0_means_block(
-                2,
-                free_support=np.zeros(2, dtype=bool),
-                template=jnp.array([0.5, -0.5], dtype=jnp.float32),
-            ),
-            t0_chol_block=_t0_chol_block(
-                2,
-                diag_support=np.zeros(2, dtype=bool),
-                correlation_support=np.zeros((2, 2), dtype=bool),
-                template=jnp.array([[0.7, 0.0], [0.0, 0.8]], dtype=jnp.float32),
-            ),
-        )
+        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/testdeterministicassembly_test_assemble_deterministics_from_registry_fixed_blocks__make_spec.json').read_text())
         det = assemble_deterministics_from_registry({}, spec, n_draws=3)
         assert jnp.allclose(
             det["diffusion"],
@@ -657,15 +327,7 @@ class TestDeterministicAssembly:
     @pytest.mark.contract
     def test_assemble_deterministics_from_registry_partial_manifest_variance_mask(self):
         """Registry assembly respects mixed fixed/free manifest-noise diagonals."""
-        spec = _make_spec(
-            n_latent=2,
-            n_manifest=2,
-            manifest_chol_block=_manifest_chol_block(
-                2,
-                diag_support=np.array([False, True]),
-                template=jnp.diag(jnp.array([0.4, 0.0], dtype=jnp.float32)),
-            ),
-        )
+        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/testdeterministicassembly_test_assemble_deterministics_from_registry_partial_manifest_variance_mask__make_spec.json').read_text())
         samples = {
             "diffusion_diag_free": jnp.array([[0.4, 0.6]], dtype=jnp.float32),
             "diffusion_lower_free": jnp.array([[0.25]], dtype=jnp.float32),
@@ -684,16 +346,7 @@ class TestDeterministicAssembly:
         """Initial-state off-diagonal samples are interpreted as correlations."""
         mask = np.zeros((2, 2), dtype=bool)
         mask[1, 0] = True
-        spec = _make_spec(
-            n_latent=2,
-            n_manifest=2,
-            t0_chol_block=_t0_chol_block(
-                2,
-                diag_support=full_diagonal_support(2),
-                correlation_support=mask,
-                template=jnp.eye(2),
-            ),
-        )
+        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/testdeterministicassembly_test_assemble_deterministics_from_registry_initial_state_correlations__make_spec.json').read_text())
         samples = {
             "diffusion_diag_free": jnp.array([[0.4, 0.6]], dtype=jnp.float32),
             "diffusion_lower_free": jnp.array([[0.25]], dtype=jnp.float32),
@@ -718,16 +371,7 @@ class TestDeterministicAssembly:
         mask[1, 0] = True
         mask[2, 0] = True
         mask[2, 1] = True
-        spec = _make_spec(
-            n_latent=3,
-            n_manifest=3,
-            t0_chol_block=_t0_chol_block(
-                3,
-                diag_support=full_diagonal_support(3),
-                correlation_support=mask,
-                template=jnp.eye(3),
-            ),
-        )
+        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/testdeterministicassembly_test_assemble_deterministics_repairs_invalid_initial_correlation_matrix__make_spec.json').read_text())
         samples = {
             "diffusion_diag_free": jnp.array([[0.4, 0.6, 0.5]], dtype=jnp.float32),
             "diffusion_lower_free": jnp.array([[0.25, 0.1, -0.15]], dtype=jnp.float32),
@@ -744,7 +388,7 @@ class TestDeterministicAssembly:
         assert bool(jnp.isfinite(det["t0_cov"]).all())
         assert float(min_eig) > -1e-6
 
-        model = SSMModel(spec)
+        model = SSMModel(compile_fit_fixture(spec))
         with handlers.substitute(data={name: value[0] for name, value in samples.items()}):
             trace = handlers.trace(model._sample_parameters).get_trace()
         np.testing.assert_allclose(trace["t0_cov"]["value"], det["t0_cov"][0], atol=1e-6)
@@ -820,19 +464,9 @@ class TestCompiledArtifactIntegration:
     @pytest.mark.contract
     def test_global_ordered_threshold_priors_are_not_authorable(self):
 
-        spec = _make_spec(
-            n_latent=1,
-            n_manifest=1,
-            latent_names=["burden"],
-            dynamics_spec=DynamicsSpec(n_latent=1, components=(decay_term(0),)),
-            manifest_names=["scale"],
-            manifest_dists=[DistributionFamily.ORDERED_LOGISTIC],
-            manifest_links=[LinkFunction.CUMULATIVE_LOGIT],
-            manifest_level_counts=[4],
-        )
-        owners = (ConstructRef(id=spec.constructs[0].id),)
+        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/testcompiledartifactintegration_test_global_ordered_threshold_priors_are_not_authorable__make_spec.json').read_text())
         parameter = ParameterSpec(
-            id=fixture_parameter_id(SiteKind.OBS_ORDERED_BASE, owners),
+            id='parameter:bd5e7c989f1fe5b6752e958831d287e988f8a43f9633886ba7281220ae168533',
             name="obs_ordered_base",
             description="Unbound threshold",
         )
@@ -843,48 +477,8 @@ class TestCompiledArtifactIntegration:
     def test_ordered_threshold_priors_bind_per_manifest_component_and_row(self):
         from nof1_causal_lab.models.ssm.compile.prior_compilation import compile_priors
 
-        spec = _make_spec(
-            n_latent=1,
-            n_manifest=2,
-            latent_names=["burden"],
-            dynamics_spec=DynamicsSpec(n_latent=1, components=(decay_term(0),)),
-            manifest_names=["short_scale", "long_scale"],
-            manifest_dists=[
-                DistributionFamily.ORDERED_LOGISTIC,
-                DistributionFamily.ORDERED_LOGISTIC,
-            ],
-            manifest_links=[
-                LinkFunction.CUMULATIVE_LOGIT,
-                LinkFunction.CUMULATIVE_LOGIT,
-            ],
-            manifest_level_counts=[4, 10],
-        )
-        scientific_model = spec
         priors, bindings, _diagnostics = compile_priors(
-            model_with_prior_payloads(
-                scientific_model,
-                named_prior_payloads(
-                    scientific_model,
-                    {
-                        "obs_ordered_base_short_scale": {
-                            "distribution": "Normal",
-                            "params": {"mu": -1.0, "sigma": 0.5},
-                        },
-                        "obs_ordered_gaps_short_scale": {
-                            "distribution": "HalfNormal",
-                            "params": {"sigma": 2.0},
-                        },
-                        "obs_ordered_base_long_scale": {
-                            "distribution": "Normal",
-                            "params": {"mu": -3.0, "sigma": 1.0},
-                        },
-                        "obs_ordered_gaps_long_scale": {
-                            "distribution": "HalfNormal",
-                            "params": {"sigma": 0.5},
-                        },
-                    },
-                ),
-            )
+            ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/testcompiledartifactintegration_test_ordered_threshold_priors_bind_per_manifest_component_and_row_model_with_prior_payloads.json').read_text())
         )
 
         binding_by_parameter = {
@@ -917,7 +511,7 @@ class TestCompiledArtifactIntegration:
 
         scientific_model, priors = scientific_model_and_priors
         check_execution(
-            make_prior_model(scientific_model, priors),
+            ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/testcompiledartifactintegration_test_execution_checks_accept_complete_model_make_prior_model.json').read_text()),
         )
 
     @pytest.mark.inference(concern="sampling")
@@ -927,9 +521,10 @@ class TestCompiledArtifactIntegration:
         from nof1_causal_lab.models.ssm.runtime import build_ssm_model
 
         scientific_model, priors = scientific_model_and_priors
-        definition = make_prior_model(scientific_model, priors)
+        definition = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameterization/testcompiledartifactintegration_test_runtime_derives_the_authored_priors_make_prior_model.json').read_text())
         model = build_ssm_model(
-            pl.DataFrame({"time": [0.0], "mood_score": [5.0]}), model_spec=definition
+            pl.DataFrame({"time": [0.0], "mood_score": [5.0]}),
+            inputs=compile_fit_fixture(definition),
         )
         assert model.spec is definition
         assert set(model.get_prior_runtime_bundle().priors) == {

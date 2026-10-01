@@ -18,10 +18,7 @@ from nof1_causal_lab.models.ssm.inference.shared import (
     select_default_method as select_default_method,
 )
 from nof1_causal_lab.models.ssm.inference.types import (
-    InferenceMethod,  # noqa: TC001 - public runtime re-export
-)
-from nof1_causal_lab.models.ssm.inference.types import (
-    ParticleMCMCPosterior as ParticleMCMCPosterior,  # noqa: TC001 - public runtime re-export
+    ParticleMCMCPosterior as ParticleMCMCPosterior,
 )
 from nof1_causal_lab.models.ssm.inference.types import (
     WarmupProposal as WarmupProposal,
@@ -33,9 +30,21 @@ from nof1_causal_lab.models.ssm.preflight import (
 if TYPE_CHECKING:
     import jax.numpy as jnp
 
+    from nof1_causal_lab.models.ssm.inference.types import (
+        InferenceMethod,
+    )
     from nof1_causal_lab.models.ssm.model import SSMModel
     from nof1_causal_lab.models.ssm.predictive.types import PredictiveDraws
     from nof1_causal_lab.sampler_config import MarginalParticleGibbsOptions
+
+__all__ = [
+    "ParticleMCMCPosterior",
+    "WarmupProposal",
+    "fit",
+    "prior_predictive",
+    "select_default_method",
+    "validate_observations_for_fit",
+]
 
 # Sentinel for "use AutoReparam with method-appropriate centering".
 _AUTO_REPARAM = object()

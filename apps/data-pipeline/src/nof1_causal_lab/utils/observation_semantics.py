@@ -8,8 +8,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
+from typing import TYPE_CHECKING
 
-from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
+if TYPE_CHECKING:
+    from nof1_causal_lab.workers.context import MeasurementIndicator
 
 SUPPORTED_SUMMARY_OPERATORS: tuple[str, ...] = ("first", "last", "sum", "count", "mean", "std")
 _POINT_START_OPERATORS = frozenset({"first"})
@@ -157,7 +159,7 @@ def derive_indicator_observation_semantics(
 
 
 def get_observation_semantics(
-    indicator: UncheckedJsonObject,
+    indicator: MeasurementIndicator,
 ) -> IndicatorObservationSemantics:
     """Derive canonical observation semantics for an indicator dict."""
     return derive_indicator_observation_semantics(

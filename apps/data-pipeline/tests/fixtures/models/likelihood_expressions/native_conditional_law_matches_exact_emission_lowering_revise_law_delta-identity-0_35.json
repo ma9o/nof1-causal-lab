@@ -1,0 +1,14 @@
+{
+  "law": {
+    "distribution": "Delta",
+    "arguments": {
+      "v": {
+        "kind": "state",
+        "construct_id": "construct:x"
+      }
+    }
+  },
+  "standardized": false,
+  "reasoning": "Native density parity",
+  "sources": []
+}

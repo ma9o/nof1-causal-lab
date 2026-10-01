@@ -1,5 +1,8 @@
 """Small parameter-contract checks without fitting or forward simulation."""
 
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from pathlib import Path
+
 import hashlib
 
 import jax.numpy as jnp
@@ -13,7 +16,7 @@ from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
 from nof1_causal_lab.models.ssm import parameterization
 from nof1_causal_lab.models.ssm.model import SSMModel
 from nof1_causal_lab.models.ssm.structure.sites import make_site
-from tests.model_fixtures import full_dense_matrix_dynamics_spec, model_fixture
+from tests.model_fixtures import compile_fit_fixture, full_dense_matrix_dynamics_spec
 
 
 @pytest.mark.inference(concern="predictive")
@@ -43,8 +46,8 @@ def test_prior_draws_keep_native_values_and_the_existing_random_streams():
 
 @pytest.mark.inference(concern="sampling")
 def test_parameter_trace_preserves_site_order_shapes_and_public_deterministics():
-    spec = model_fixture(n_latent=2, dynamics_spec=full_dense_matrix_dynamics_spec(2))
-    model = SSMModel(spec)
+    spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'parameter_interpreter/parameter_trace_preserves_site_order_shapes_and_public_deterministics_model_fixture.json').read_text())
+    model = SSMModel(compile_fit_fixture(spec))
     values = {
         "diffusion_diag_free": jnp.array([0.4, 0.6]),
         "diffusion_lower_free": jnp.array([0.25]),

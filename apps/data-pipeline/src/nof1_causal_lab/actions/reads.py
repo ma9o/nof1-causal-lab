@@ -8,6 +8,7 @@ from pydantic import TypeAdapter
 
 from nof1_causal_lab.actions.results import (
     ActionBody,
+    DataComparisonResult,
     DataPreparationResult,
     ModelEditResult,
     ModelFitResult,
@@ -19,18 +20,28 @@ from nof1_causal_lab.artifacts.simulation import SimulationReport
 from nof1_causal_lab.artifacts.validation_report import (
     DataProfileArtifact,
 )
-from nof1_causal_lab.machine.artifact_files import json_filename
-from nof1_causal_lab.machine.snapshots import ModelReader
-from nof1_causal_lab.machine.views import measurements_view
+from nof1_causal_lab.study.artifact_files import json_filename
+from nof1_causal_lab.study.snapshots import ModelReader
+from nof1_causal_lab.study.views import measurements_view
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.machine.history_models import StudyRevision
+    from nof1_causal_lab.study.records import StudyRevision
 
 
 def read_action_body(workspace_id: str, record: StudyRevision) -> ActionBody:
     """Read output only after publication; never regenerate scientific evidence."""
     if record.status != "applied":
         raise ValueError("An unsuccessful attempt has no scientific response body")
+    if record.action == "data_diff":
+        from nof1_causal_lab.actions.data_diff import DataDiffReport
+        from nof1_causal_lab.study.history import StudyRepository
+
+        return DataComparisonResult(
+            commit_id=record.commit_id,
+            report=DataDiffReport.model_validate_json(
+                StudyRepository(workspace_id).read_file(record.commit_id, "logs/data-diff.json")
+            ),
+        )
     if record.action == "simulate":
         return ModelSimulationResult(
             commit_id=record.commit_id,
@@ -66,7 +77,7 @@ def read_action_body(workspace_id: str, record: StudyRevision) -> ActionBody:
             specification=record.checks.specification,
             identification=identification.value,
         )
-    from nof1_causal_lab.actions.data_checks import read_data_metadata
+    from nof1_causal_lab.study.lineage import read_data_metadata
 
     artifact = next(item for item in record.produced if item.artifact_id == "panel")
     panel = reader.store.read_parquet_file("panel", artifact.revision, "panel.parquet")

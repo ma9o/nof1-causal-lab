@@ -3,7 +3,6 @@ from datetime import date, datetime
 
 import polars as pl
 
-from nof1_causal_lab.json_types import UncheckedJsonObject
 from nof1_causal_lab.utils.causal_design import (
     get_effective_observation_window,
 )
@@ -12,6 +11,7 @@ from nof1_causal_lab.utils.observation_semantics import (
     get_observation_semantics,
 )
 from nof1_causal_lab.utils.storage import get_base_uri, join
+from nof1_causal_lab.workers.context import MeasurementContext
 
 logger = logging.getLogger(__name__)
 
@@ -42,9 +42,9 @@ _DATA_URI = get_base_uri()
 # and all workspace paths must be built through these functions so choosing a
 # tier is explicit:
 #
-#   ledger  (input/ + episode/ + store/)  durable and committable; must be
+#   ledger  (input/ + study/ + store/)  durable and committable; must be
 #           referentially closed — ledger content never points outside the
-#           ledger (sole sanctioned exception: TransitionRecord.resume, a
+#           ledger (sole sanctioned exception: AttemptRecord.resume, a
 #           typed retention pointer into scratch)
 #   cache/  content-addressed or regenerable sidecars — safe to evict anytime
 #   scratch/  run-scoped Temporal execution state and UI telemetry — collected
@@ -70,9 +70,9 @@ def store_dir(workspace_id: str) -> str:
     return join(_DATA_URI, workspace_id, "store")
 
 
-def episode_dir(workspace_id: str) -> str:
-    """Ledger tier: local Git snapshots and commit-local logs at ``data/{workspace_id}/episode/``."""
-    return join(_DATA_URI, workspace_id, "episode")
+def study_dir(workspace_id: str) -> str:
+    """Ledger tier: local Git snapshots and commit-local logs at ``data/{workspace_id}/study/``."""
+    return join(_DATA_URI, workspace_id, "study")
 
 
 def cache_dir(workspace_id: str) -> str:
@@ -202,7 +202,7 @@ def observation_row_schema() -> dict[str, pl.DataType | type[pl.DataType]]:
 
 def annotate_observation_rows(
     df: pl.DataFrame,
-    measurement_structure: UncheckedJsonObject,
+    measurement_structure: MeasurementContext,
     *,
     time_col: str = "timestamp",
 ) -> pl.DataFrame:
@@ -356,7 +356,7 @@ def pivot_to_wide(df: pl.DataFrame, *, time_origin: datetime | None) -> pl.DataF
         .sort(time_col)
     )
 
-    if wide_data.schema[time_col] in (pl.Datetime, pl.Date):
+    if wide_data.schema[time_col].base_type() in (pl.Datetime, pl.Date):
         from nof1_causal_lab.utils.time_coordinates import serialization_origin
 
         t0 = serialization_origin(time_origin)

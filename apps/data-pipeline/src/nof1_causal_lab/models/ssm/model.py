@@ -31,8 +31,10 @@ if TYPE_CHECKING:
 
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.models.ssm.compile.bindings import CompiledParameterBinding
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledFitInputs
     from nof1_causal_lab.models.ssm.execution.contracts import InitializationLikelihoodBackend
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
+    from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
 
 from nof1_causal_lab.models.ssm.constants import MIN_DT
 from nof1_causal_lab.models.ssm.covariance_utils import (
@@ -45,10 +47,8 @@ from nof1_causal_lab.models.ssm.execution.contracts import (
 from nof1_causal_lab.models.ssm.likelihood_extra_params import (
     assemble_sampled_extra_params,
 )
-from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
 from nof1_causal_lab.models.ssm.parameterization import (
     PriorRuntimeBundle,
-    build_prior_runtime_bundle,
     likelihood_sites,
 )
 
@@ -82,24 +82,19 @@ class SSMModel:
     - Exact particle likelihoods; Gaussian approximations only for sampler initialization
     """
 
-    def __init__(
-        self,
-        spec: ModelSpec,
-        priors: dict[str, dist.Distribution] | None = None,
-        prior_runtime_bundle: PriorRuntimeBundle | None = None,
-    ):
-        """Initialize state-space model.
-
-        Args:
-            spec: Statistical model specification
-            priors: Optional execution laws; otherwise compile the priors owned by ModelSpec.
-        """
-        self.spec = spec
-        self.priors = priors
-        self._parameter_layout = SSMParameterLayout.from_spec(spec)
+    def __init__(self, inputs: CompiledFitInputs):
+        """Construct a runtime from the compiler's single owner of fit inputs."""
+        self._inputs = inputs
         self._artifact_cache: dict[tuple[object, ...], object] = {}
         self.observation_support: ObservationSupportRuntime | None = None
-        self._prior_runtime_bundle = prior_runtime_bundle
+
+    @property
+    def inputs(self) -> CompiledFitInputs:
+        return self._inputs
+
+    @property
+    def spec(self) -> ModelSpec:
+        return self.inputs.spec
 
     def get_cached_artifact[T](
         self,
@@ -137,28 +132,17 @@ class SSMModel:
 
         return self.get_cached_artifact(("vector_field",), _build)
 
-    @cached_property
-    def parameter_bindings(self) -> list[CompiledParameterBinding]:
-        """Scientific coordinates derived from this model's immutable source."""
-        from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
-
-        return parameter_bindings(self.spec)[0]
+    @property
+    def parameter_bindings(self) -> tuple[CompiledParameterBinding, ...]:
+        """Reuse the compiler's scientific coordinates."""
+        return self.inputs.bindings
 
     @property
     def parameter_layout(self) -> SSMParameterLayout:
-        """Return the derived parameter layout for this model."""
-        return self._parameter_layout
+        return self.inputs.parameter_layout
 
     def get_prior_runtime_bundle(self) -> PriorRuntimeBundle:
-        """Return canonical prior runtime state for this model instance."""
-        if self._prior_runtime_bundle is None:
-            from nof1_causal_lab.models.ssm.compile.prior_compilation import compile_priors
-
-            priors = self.priors
-            if priors is None:
-                priors, _, _ = compile_priors(self.spec)
-            self._prior_runtime_bundle = build_prior_runtime_bundle(self.spec, priors)
-        return self._prior_runtime_bundle
+        return self.inputs.prior_runtime_bundle
 
     @cached_property
     def _prior_site_names(self) -> frozenset[str]:

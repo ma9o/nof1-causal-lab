@@ -1,6 +1,6 @@
 """Tests for utils/llm.py pure utility functions.
 
-Covers validation formatting and the OpenRouter client.
+Covers the OpenRouter client.
 """
 
 import asyncio
@@ -10,9 +10,6 @@ from typing import Any, cast
 
 import pytest
 
-from nof1_causal_lab.utils.llm import (
-    _validate_json_and_format,
-)
 from tests.helpers import run_async as _run
 
 pytestmark = pytest.mark.contract
@@ -21,77 +18,6 @@ pytestmark = pytest.mark.contract
 def _require_mapping(value: object) -> dict[str, Any]:
     assert isinstance(value, dict)
     return {str(key): item for key, item in value.items()}
-
-
-# =============================================================================
-# _validate_json_and_format
-# =============================================================================
-
-
-class TestValidateJsonAndFormat:
-    def test_valid_returns_valid_string(self):
-        def validate(data):
-            return data, []
-
-        result = _validate_json_and_format('{"key": "value"}', validate)
-        assert result == "VALID"
-
-    def test_errors_returned_as_string(self):
-        def validate(data):
-            return None, ["Field 'x' is required", "Field 'y' must be positive"]
-
-        result = _validate_json_and_format('{"key": "value"}', validate)
-        assert "VALIDATION ERRORS" in result
-        assert "Field 'x' is required" in result
-        assert "Field 'y' must be positive" in result
-
-    def test_invalid_json_returns_parse_error(self):
-        def validate(data):
-            return data, []
-
-        result = _validate_json_and_format("not json", validate)
-        assert "JSON parse error" in result
-
-    def test_capture_stores_observation_rows(self):
-        def validate(data):
-            return "validated_result", []
-
-        capture = {}
-        _validate_json_and_format(
-            '{"key": "value"}',
-            validate,
-            capture=capture,
-            capture_key="test",
-            capture_result=False,
-        )
-        assert capture["test"] == {"key": "value"}
-
-    def test_capture_stores_result(self):
-        def validate(data):
-            return "validated_result", []
-
-        capture = {}
-        _validate_json_and_format(
-            '{"key": "value"}',
-            validate,
-            capture=capture,
-            capture_key="test",
-            capture_result=True,
-        )
-        assert capture["test"] == "validated_result"
-
-    def test_no_capture_on_errors(self):
-        def validate(data):
-            return None, ["error"]
-
-        capture = {}
-        _validate_json_and_format(
-            '{"key": "value"}',
-            validate,
-            capture=capture,
-            capture_key="test",
-        )
-        assert "test" not in capture
 
 
 class _FakeChatCompletions:

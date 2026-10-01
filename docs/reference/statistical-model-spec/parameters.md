@@ -7,7 +7,7 @@ Defines the parameter roles, prior vocabulary, and default guidance for `Paramet
 
 ## Parameter Roles
 
-Component authoring derives these prompt roles from the coefficient slots of a concrete model proposal. Fixed slots need no prior; roles and constraints are not stored again on the parameter definition:
+A parameter's role comes from the coefficient slots that reference it. A fixed coefficient is a literal in its slot and needs no parameter; roles and constraints are not stored again on the parameter definition:
 
 | Role | Symbol | Count | Constraint | SSM location |
 |---|---|---|---|---|

@@ -18,11 +18,12 @@ from typing import TYPE_CHECKING, cast
 
 from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.models.ssm import numerics as numeric
-from nof1_causal_lab.models.ssm.structure.sites import SitePosition  # noqa: TC001
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
+    from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor, SitePosition
 
 
 @dataclass(frozen=True)
@@ -77,16 +78,16 @@ class SSMParameterLayout:
         return {position: flat_idx for flat_idx, position in enumerate(site.positions)}
 
     def _vector_positions_for_kind(self, site_kind: SiteKind) -> list[int]:
-        return cast("list[int]", self._positions_for_kind(site_kind))
+        return list(cast("Sequence[int]", self._positions_for_kind(site_kind)))
 
     def _vector_index_for_kind(self, site_kind: SiteKind) -> dict[int, int]:
-        return cast("dict[int, int]", self._index_for_kind(site_kind))
+        return dict(cast("Mapping[int, int]", self._index_for_kind(site_kind)))
 
     def _matrix_positions_for_kind(self, site_kind: SiteKind) -> list[tuple[int, int]]:
-        return cast("list[tuple[int, int]]", self._positions_for_kind(site_kind))
+        return list(cast("Sequence[tuple[int, int]]", self._positions_for_kind(site_kind)))
 
     def _matrix_index_for_kind(self, site_kind: SiteKind) -> dict[tuple[int, int], int]:
-        return cast("dict[tuple[int, int], int]", self._index_for_kind(site_kind))
+        return dict(cast("Mapping[tuple[int, int], int]", self._index_for_kind(site_kind)))
 
     # ------------------------------------------------------------------
     # Named positions / index / count accessors (derived from SiteKind)

@@ -5,6 +5,9 @@ and particle sampling with ``inference``. Recovery checks live in
 ``test_parameter_recovery.py``.
 """
 
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from pathlib import Path
+
 from types import SimpleNamespace
 
 import jax
@@ -67,44 +70,9 @@ from nof1_causal_lab.models.ssm.structure import (
     SparseVectorBlockSpec,
     T0CholBlockSpec,
 )
-from tests.model_fixtures import (
-    dense_matrix_dynamics_spec,
-    diagonal_diffusion_block,
-    make_observation_support_runtime,
-    model_fixture,
-)
+from tests.model_fixtures import compile_fit_fixture, dense_matrix_dynamics_spec, diagonal_diffusion_block, make_observation_support_runtime
 
 
-def _dense_matrix_dynamics_spec(
-    n_latent: int,
-    *,
-    decay_support: np.ndarray | None = None,
-    edge_support: np.ndarray | None = None,
-    coupling_template: jnp.ndarray | None = None,
-    intercept_support: np.ndarray | None = None,
-    cint_template: jnp.ndarray | None = None,
-):
-    if decay_support is None:
-        decay_support = np.ones(n_latent, dtype=bool)
-    if edge_support is None:
-        edge_support = np.ones((n_latent, n_latent), dtype=bool)
-        np.fill_diagonal(edge_support, False)
-    return dense_matrix_dynamics_spec(
-        n_latent=n_latent,
-        decay_support=decay_support,
-        edge_support=edge_support,
-        coupling_template=(
-            jnp.zeros((n_latent, n_latent), dtype=jnp.float32)
-            if coupling_template is None
-            else coupling_template
-        ),
-        intercept_support=np.zeros(n_latent, dtype=bool)
-        if intercept_support is None
-        else intercept_support,
-        cint_template=(
-            jnp.zeros(n_latent, dtype=jnp.float32) if cint_template is None else cint_template
-        ),
-    )
 
 
 def _runtime_dynamics(
@@ -126,13 +94,6 @@ def _runtime_dynamics(
     )
 
 
-def _one_dim_block_spec():
-    return model_fixture(
-        n_latent=1,
-        n_manifest=1,
-        dynamics_spec=_dense_matrix_dynamics_spec(1),
-        diffusion_block=diagonal_diffusion_block(1),
-    )
 
 
 @pytest.mark.contract
@@ -873,8 +834,8 @@ class TestInferenceCaching:
 
     @pytest.mark.contract
     def test_model_reuses_backend_instances(self):
-        spec = _one_dim_block_spec()
-        model = SSMModel(spec)
+        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'inference_strategies/testinferencecaching_test_model_reuses_backend_instances__one_dim_block_spec.json').read_text())
+        model = SSMModel(compile_fit_fixture(spec))
 
         backend_a = get_laplace_backend(model, 6)
         backend_b = get_laplace_backend(model, 6)
@@ -888,8 +849,8 @@ class TestInferenceCaching:
 
     @pytest.mark.inference(concern="sampling")
     def test_discover_sites_uses_dummy_backend_for_structural_trace(self):
-        spec = _one_dim_block_spec()
-        model = SSMModel(spec)
+        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'inference_strategies/testinferencecaching_test_discover_sites_uses_dummy_backend_for_structural_trace__one_dim_block_spec.json').read_text())
+        model = SSMModel(compile_fit_fixture(spec))
         observations = jnp.array([[1.0], [2.0]], dtype=jnp.float32)
         times = jnp.array([0.0, 1.0], dtype=jnp.float32)
 
@@ -917,15 +878,15 @@ class TestDefaultMethodRouting:
         """Default routing resolves to marginalized Particle Gibbs for all model types."""
         from nof1_causal_lab.models.ssm.execution.planning import plan_inference_structure
 
-        spec = _one_dim_block_spec()
+        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'inference_strategies/testdefaultmethodrouting_test_default_always_routes_to_marginal_particle_gibbs__one_dim_block_spec.json').read_text())
 
         plan = plan_inference_structure(spec)
         assert plan.resolved_method == "marginal_particle_gibbs"
         assert plan.structural_backend == "laplace"
 
     def test_fit_without_method_dispatches_to_marginal_particle_gibbs(self, monkeypatch):
-        spec = _one_dim_block_spec()
-        model = SSMModel(spec)
+        spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'inference_strategies/testdefaultmethodrouting_test_fit_without_method_dispatches_to_marginal_particle_gibbs__one_dim_block_spec.json').read_text())
+        model = SSMModel(compile_fit_fixture(spec))
         observations = jnp.zeros((2, 1), dtype=jnp.float32)
         times = jnp.array([0.0, 1.0], dtype=jnp.float32)
 
@@ -949,70 +910,6 @@ class TestDefaultMethodRouting:
         assert result.method == "marginal_particle_gibbs"
 
 
-def _make_aux_kalman_mcmc_smoke_spec(
-    *,
-    lambda_block: SparseMatrixBlockSpec | None = None,
-):
-    return model_fixture(
-        n_latent=1,
-        n_manifest=1,
-        dynamics_spec=_dense_matrix_dynamics_spec(
-            1,
-            decay_support=np.array([False]),
-            edge_support=np.zeros((1, 1), dtype=bool),
-            coupling_template=jnp.array([[-0.4]], dtype=jnp.float32),
-        ),
-        diffusion_block=diagonal_diffusion_block(1),
-        lambda_block=lambda_block
-        or SparseMatrixBlockSpec(
-            n_rows=1,
-            n_cols=1,
-            free_support=np.zeros((1, 1), dtype=bool),
-            template=jnp.array([[1.0]], dtype=jnp.float32),
-            free_site_name="lambda_free",
-            det_site_name="lambda",
-            support=SupportClass.REAL,
-            site_kind=SiteKind.LOADING,
-            assembly_group="lambda",
-            fixed_spec_field="lambda_mat",
-            priors_field="lambda_free",
-        ),
-        manifest_means_block=SparseVectorBlockSpec(
-            n=1,
-            free_support=np.array([False]),
-            template=jnp.array([0.0], dtype=jnp.float32),
-            free_site_name="manifest_means_free",
-            det_site_name="manifest_means",
-            support=SupportClass.REAL,
-            site_kind=SiteKind.MANIFEST_MEANS,
-            assembly_group="manifest",
-            fixed_spec_field="manifest_means",
-            priors_field="manifest_means",
-        ),
-        manifest_chol_block=ManifestCholBlockSpec(
-            n_manifest=1,
-            diag_support=np.array([True]),
-            template=jnp.array([[0.0]], dtype=jnp.float32),
-        ),
-        t0_means_block=SparseVectorBlockSpec(
-            n=1,
-            free_support=np.array([False]),
-            template=jnp.array([0.0], dtype=jnp.float32),
-            free_site_name="t0_means_free",
-            det_site_name="t0_means",
-            support=SupportClass.REAL,
-            site_kind=SiteKind.T0_MEANS,
-            assembly_group="t0",
-            fixed_spec_field="t0_means",
-            priors_field="t0_means",
-        ),
-        t0_chol_block=T0CholBlockSpec(
-            n_latent=1,
-            diag_support=np.array([True]),
-            correlation_support=np.zeros((1, 1), dtype=bool),
-            template=jnp.array([[1.0]], dtype=jnp.float32),
-        ),
-    )
 
 
 def _small_kalman_observations_and_times():
@@ -1045,22 +942,8 @@ def _assert_small_particle_mcmc_result(result, *, method: str, num_samples: int)
 def test_particle_fit_preserves_public_draws_and_sign_flip_moves(monkeypatch):
     from nof1_causal_lab.models.ssm.inference.warmup import latent_init
 
-    spec = _make_aux_kalman_mcmc_smoke_spec(
-        lambda_block=SparseMatrixBlockSpec(
-            n_rows=1,
-            n_cols=1,
-            free_support=np.ones((1, 1), dtype=bool),
-            template=jnp.ones((1, 1), dtype=jnp.float32),
-            free_site_name="lambda_free",
-            det_site_name="lambda",
-            support=SupportClass.REAL,
-            site_kind=SiteKind.LOADING,
-            assembly_group="lambda",
-            fixed_spec_field="lambda_mat",
-            priors_field="lambda_free",
-        )
-    )
-    model = SSMModel(spec)
+    spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'inference_strategies/particle_fit_preserves_public_draws_and_sign_flip_moves__make_aux_kalman_mcmc_smoke_spec.json').read_text())
+    model = SSMModel(compile_fit_fixture(spec))
     observations, times = _small_kalman_observations_and_times()
 
     def _unexpected_ieks(*_args, **_kwargs):
@@ -1198,7 +1081,7 @@ def test_map_bundle_reuses_runtime_objectives_across_same_shape_datasets(monkeyp
         fake_build_eval_fns,
     )
 
-    model = SSMModel(_make_aux_kalman_mcmc_smoke_spec())
+    model = SSMModel(compile_fit_fixture(ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'inference_strategies/map_bundle_reuses_runtime_objectives_across_same_shape_datasets__make_aux_kalman_mcmc_smoke_spec.json').read_text())))
     backend = SimpleNamespace()
     bundle_a = _build_map_laplace_bundle(
         model,

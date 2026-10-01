@@ -1,0 +1,90 @@
+"""Small canonical artifacts for fixture-backed runner contract tests."""
+
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from pathlib import Path
+
+from datetime import UTC, datetime, timedelta
+
+import polars as pl
+
+from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.study.state import StudyState
+from tests.helpers import fixture_entity_id, make_model
+
+
+def scientific_model():
+    return ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'runner_fixtures/scientific_model_complete_test_model.json').read_text())
+
+
+def panel_frame(n_days=20):
+    start = datetime(2024, 1, 1)
+    return pl.DataFrame(
+        [
+            {
+                "indicator_id": fixture_entity_id("indicator", indicator),
+                "value": value,
+                "anchor_time": (start + timedelta(days=day + 1)).isoformat(),
+                "support_start": (start + timedelta(days=day)).isoformat(),
+                "support_end": (start + timedelta(days=day + 1)).isoformat(),
+                "support_kind": "interval",
+                "summary_operator": "mean",
+                "anchor_policy": "support_end",
+                "observation_window": "1d",
+            }
+            for day in range(n_days)
+            for indicator, value in (
+                ("stress_score", float(1 + day % 5)),
+                ("sleep_score", float(8 - day % 4)),
+            )
+        ]
+    )
+
+
+
+
+def seed_model(store):
+    return store.write_artifact(
+        "model",
+        derived_from={},
+        produced_by="edit_model",
+        json_files={"model.json": ModelSpec.model_validate_json((Path(__file__).resolve().parents[1] / "fixtures/models" / 'runner_fixtures/seed_model_scientific_model.json').read_text()).model_dump(mode="json")},
+    )
+
+
+def seed_panel(store, *, model_revision):
+    return store.write_artifact(
+        "panel",
+        derived_from={},
+        json_files={"metadata.json": panel_metadata().model_dump(mode="json")},
+        produced_by="prepare_data",
+        parquet_files={"panel.parquet": panel_frame()},
+    )
+
+
+def panel_metadata():
+    from nof1_causal_lab.artifacts.data_preparation import (
+        DataPreparationSpec,
+        DataVariableSpec,
+        FileSourceRef,
+        PreparedDataMetadata,
+    )
+
+    preparation = DataPreparationSpec(
+        default_window="1d",
+        variables=tuple(
+            DataVariableSpec(
+                id=fixture_entity_id("indicator", name),
+                name=name,
+                measurement_dtype="continuous",
+                aggregation="mean",
+                how_to_measure="Read " + name,
+            )
+            for name in ("stress_score", "sleep_score")
+        ),
+    )
+    return PreparedDataMetadata(
+        time_origin=datetime(2024, 1, 1, tzinfo=UTC),
+        source=FileSourceRef(files=("observations.csv",)),
+        variables=preparation.observation_schema(),
+        preparation=preparation,
+    )

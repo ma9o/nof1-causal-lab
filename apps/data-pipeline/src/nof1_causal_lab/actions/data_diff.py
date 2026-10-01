@@ -11,10 +11,10 @@ import polars as pl
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, FiniteFloat, model_validator
 
 from nof1_causal_lab.artifacts.duration import parse_duration_to_hours
-from nof1_causal_lab.artifacts.effects import HistogramBin  # noqa: TC001
-from nof1_causal_lab.artifacts.identity import GitOid, IndicatorId  # noqa: TC001
-from nof1_causal_lab.artifacts.observations import ObservationSpec  # noqa: TC001
-from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorPredictiveChecks  # noqa: TC001
+from nof1_causal_lab.artifacts.effects import HistogramBin
+from nof1_causal_lab.artifacts.identity import GitOid, IndicatorId
+from nof1_causal_lab.artifacts.observations import ObservationSpec
+from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorPredictiveChecks
 from nof1_causal_lab.utils.histograms import histogram_draws
 
 if TYPE_CHECKING:
@@ -47,6 +47,7 @@ class DataDiffRequest(BaseModel):
     """Compare two immutable data selections, each containing one or more histories."""
 
     model_config = ConfigDict(extra="forbid", frozen=True)
+    action: Literal["data_diff"] = "data_diff"
     left: DataSelection
     right: DataSelection
 
@@ -130,11 +131,11 @@ class Dataset:
 
 def read_data_diff(workspace_id: str, request: DataDiffRequest) -> DataDiffReport:
     """Load existing data only; never read a model for generation, fit, or write artifacts."""
-    from nof1_causal_lab.actions.data_checks import read_data_metadata
     from nof1_causal_lab.actions.prepare_data import read_simulation_observations
     from nof1_causal_lab.artifacts.simulation import SimulationReport
-    from nof1_causal_lab.machine.history import StudyRepository
-    from nof1_causal_lab.machine.store import ArtifactStore
+    from nof1_causal_lab.study.history import StudyRepository
+    from nof1_causal_lab.study.lineage import read_data_metadata
+    from nof1_causal_lab.study.store import ArtifactStore
 
     store = ArtifactStore(workspace_id)
     read_array = cache(store.read_array)
@@ -156,7 +157,7 @@ def read_data_diff(workspace_id: str, request: DataDiffRequest) -> DataDiffRepor
                 ),
             )
         record = StudyRepository(workspace_id).record(source.revision)
-        if record.status != "applied" or record.operation_id != "simulate":
+        if record.status != "applied" or record.action != "simulate":
             raise ValueError("Simulation data must select an applied simulation commit")
         report = SimulationReport.model_validate(record.diagnostics["report"])
         if report.model.workspace_id != workspace_id:
@@ -167,7 +168,7 @@ def read_data_diff(workspace_id: str, request: DataDiffRequest) -> DataDiffRepor
             panel = read_simulation_observations(report, replicate, read_array=read_array)
             result.append(
                 Dataset(
-                    source.model_copy(update={"replicate": replicate}),
+                    type(source).model_validate({**source.model_dump(), "replicate": replicate}),
                     report.observation_layout.variables,
                     panel,
                     report.time_origin,
@@ -270,22 +271,25 @@ def _statistics(
 def _predictive_comparison(
     identity: IndicatorId, left: tuple[DataSeries, ...], right: tuple[DataSeries, ...]
 ):
-    if (len(left) == 1) == (len(right) == 1):
+    if len(left) == len(right) == 1:
+        return None, None, None
+    if len(left) > 1 and len(right) > 1:
         return None, None, "Requires one reference history and multiple replicated histories"
     side, reference, replicas = (
         ("left", left[0], right) if len(left) == 1 else ("right", right[0], left)
     )
     variable = reference.variable
+    # Shared input problems belong to comparison_issues, not a second PPC reason.
     if any((item.time_origin is None) != (reference.time_origin is None) for item in replicas):
-        return side, None, "Calendar-free histories cannot be aligned to calendar-bound histories"
+        return side, None, None
     if variable is None or any(item.variable is None for item in replicas):
-        return side, None, "Variable is absent from one or more histories"
+        return side, None, None
     if any(
         _semantics(item.variable) != _semantics(variable)
         for item in replicas
         if item.variable is not None
     ):
-        return side, None, "Measurement definitions differ"
+        return side, None, None
     if variable.measurement_dtype in {"categorical", "ordinal"}:
         return side, None, "Discrete codebooks use per-level proportions, not numeric PPC summaries"
     if not any(point.value is not None for point in reference.points):
@@ -296,17 +300,14 @@ def _predictive_comparison(
         values = []
         for point in reference.points:
             candidate = lookup.get(point.anchor_time)
-            if point.value is not None and (
-                candidate is None
-                or candidate.value is None
-                or (candidate.support_start, candidate.support_end)
-                != (point.support_start, point.support_end)
-            ):
-                return (
-                    side,
-                    None,
-                    "Replicas do not cover the reference's observed anchors and measurement windows",
-                )
+            if point.value is not None:
+                if candidate is None or (candidate.support_start, candidate.support_end) != (
+                    point.support_start,
+                    point.support_end,
+                ):
+                    return side, None, None
+                if candidate.value is None:
+                    return side, None, "Replicas contain missing values at observed anchors"
             values.append(
                 candidate.value if candidate is not None and candidate.value is not None else np.nan
             )

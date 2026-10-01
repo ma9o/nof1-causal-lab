@@ -31,9 +31,9 @@ export type OwnedIndicator = Expect<Equal<ConstructSpec["indicators"][number], I
 export type NoIndependentIndicatorOwner = IndicatorSpec["construct_id"];
 export type SourceValidityIsScalar = Expect<Extends<FactSource["validity"], "fresh" | "stale">>;
 
-type ModelRead = paths["/api/episodes/{workspace_id}/model"]["get"];
-type DefinitionRead = paths["/api/episodes/{workspace_id}/model/definition"]["get"];
-type ConstructsRead = paths["/api/episodes/{workspace_id}/model/constructs"]["get"];
+type ModelRead = paths["/api/studies/{workspace_id}/model"]["get"];
+type DefinitionRead = paths["/api/studies/{workspace_id}/model/definition"]["get"];
+type ConstructsRead = paths["/api/studies/{workspace_id}/model/constructs"]["get"];
 export type GeneratedReadReusesBatch = Expect<
   Equal<ModelRead["responses"][200]["content"]["application/json"], ModelSnapshot>
 >;
@@ -54,6 +54,6 @@ export type InvalidRevisionQuery = Expect<
 type FetchedModel = MethodResponse<
   ReturnType<typeof createModelClient>,
   "get",
-  "/api/episodes/{workspace_id}/model"
+  "/api/studies/{workspace_id}/model"
 >;
 export type FetchedModelRetainsCanonicalTuples = Expect<Equal<FetchedModel, ModelSnapshot>>;

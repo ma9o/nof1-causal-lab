@@ -14,7 +14,6 @@ from nof1_causal_lab.artifacts.expressions import (
     expression_coefficients,
     expression_states,
     hill,
-    linear_effect,
     restoring_coefficients,
     restoring_force,
     restoring_potential,
@@ -66,9 +65,11 @@ def test_existing_functions_and_composition_preserve_drift_and_intervention_inpu
     components = (
         _component(restoring),
         _component(coefficient(0.4, "intercept")),
-        _component(linear_effect(ConstructId("construct:x"), 0.6), source=0),
+        _component(coefficient(0.6, "weight") * state(ConstructId("construct:x")), source=0),
         _component(
-            linear_effect(ConstructId("construct:x"), 0.5) * state(ConstructId("construct:z")),
+            coefficient(0.5, "weight")
+            * state(ConstructId("construct:x"))
+            * state(ConstructId("construct:z")),
             source=0,
         ),
         _component(saturation, source=0),
@@ -113,9 +114,9 @@ def test_existing_functions_and_composition_preserve_drift_and_intervention_inpu
 def test_multiple_same_role_operands_bind_directly_and_repeated_references_sample_once():
     first = scientific_id("parameter", "first")
     second = scientific_id("parameter", "second")
-    value = linear_effect(ConstructId("construct:x"), first) + linear_effect(
-        ConstructId("construct:x"), second
-    ) * coefficient(first, "weight")
+    value = coefficient(first, "weight") * state(ConstructId("construct:x")) + coefficient(
+        second, "weight"
+    ) * state(ConstructId("construct:x")) * coefficient(first, "weight")
     component = _component(value, source=0)
     native = compile_dynamics(DynamicsSpec(n_latent=3, components=(component,)))
     assert expression_states(value) == {"construct:x"}
@@ -167,12 +168,15 @@ def _model(expression):
 
 @pytest.mark.contract
 def test_composition_requires_all_causal_dependencies_and_valid_parameter_references():
-    base = _model(linear_effect(ConstructId("construct:x"), 1))
+    base = _model(coefficient(1, "weight") * state(ConstructId("construct:x")))
     compound = hill(state(ConstructId("construct:x")), emax=1, ec50=1, n=2) * state(
         ConstructId("construct:z")
     )
-    edge = base.edges[0].model_copy(
-        update={"mechanisms": (DynamicsMechanismSpec(id="mechanism:effect", expression=compound),)}
+    edge = type(base.edges[0]).model_validate(
+        {
+            **base.edges[0].model_dump(),
+            "mechanisms": (DynamicsMechanismSpec(id="mechanism:effect", expression=compound),),
+        }
     )
     with pytest.raises(ValueError, match="explicit causal edges"):
         base.revised(edges=(edge, *base.edges[1:]))
@@ -192,27 +196,26 @@ def test_composition_requires_all_causal_dependencies_and_valid_parameter_refere
         "construct:z",
     }
     with pytest.raises(ValueError, match="unknown constructs"):
-        _model(linear_effect(ConstructId("construct:missing"), 1))
+        _model(coefficient(1, "weight") * state(ConstructId("construct:missing")))
     with pytest.raises(ValueError, match="undeclared parameter"):
         _model(
-            linear_effect(
-                ConstructId("construct:x"),
-                scientific_id("parameter", "missing"),
-            )
+            coefficient(scientific_id("parameter", "missing"), "weight")
+            * state(ConstructId("construct:x"))
         )
     with pytest.raises(ValueError, match="owning construct"):
         base.revised(
             edges=replace_constructs(
                 base.edges,
                 (
-                    base.constructs[0].model_copy(
-                        update={
+                    type(base.constructs[0]).model_validate(
+                        {
+                            **base.constructs[0].model_dump(),
                             "dynamics": (
                                 DynamicsMechanismSpec(
                                     id="mechanism:intrinsic",
                                     expression=state(ConstructId("construct:y")),
                                 ),
-                            )
+                            ),
                         }
                     ),
                     *base.constructs[1:],

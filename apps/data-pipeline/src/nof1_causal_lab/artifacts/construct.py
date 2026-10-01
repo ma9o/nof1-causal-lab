@@ -20,7 +20,7 @@ from pydantic import (
 
 from nof1_causal_lab.distributions import DistributionFamily
 
-from .evidence import LiteratureSource  # noqa: TC001
+from .evidence import LiteratureSource
 from .expressions import CONSTRUCT_COEFFICIENT_ROLES, CoefficientExpression, CoefficientRole
 from .identity import (
     ConstructId,
@@ -29,8 +29,8 @@ from .identity import (
     EdgeId,
     ParameterId,
 )
-from .indicator import IndicatorSpec  # noqa: TC001
-from .mechanism import DynamicsMechanismSpec  # noqa: TC001
+from .indicator import IndicatorSpec
+from .mechanism import DynamicsMechanismSpec
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
@@ -94,12 +94,6 @@ class ConstructSpec(BaseModel):
             ),
             None,
         )
-
-    def with_coefficients(self, *operands: CoefficientExpression) -> ConstructSpec:  # noqa: V105 - public immutable construct editing API
-        """Replace the specified uses while preserving other authored coefficients."""
-        values = {(operand.role, operand.construct_ids): operand for operand in self.coefficients}
-        values.update({(operand.role, operand.construct_ids): operand for operand in operands})
-        return self.model_copy(update={"coefficients": tuple(values.values())})
 
     @model_validator(mode="after")
     def validate_coefficients(self) -> ConstructSpec:
@@ -250,8 +244,9 @@ def replace_constructs(
     if unknown := by_id.keys() - identities:
         raise ValueError(f"Cannot replace constructs absent from the graph: {sorted(unknown)}")
     return tuple(
-        edge.model_copy(
-            update={
+        type(edge).model_validate(
+            {
+                **edge.model_dump(),
                 "cause": by_id.get(edge.cause.id, edge.cause),
                 "effect": by_id.get(edge.effect.id, edge.effect),
             }

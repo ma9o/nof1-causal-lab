@@ -82,28 +82,6 @@ def validate_parameter_anchors(model: ModelSpec) -> None:
             )
 
 
-def collect_measurement_compile_errors(
-    model: ModelSpec,
-) -> list[str]:
-    """Collect deterministic measurement checks best handled at compile time."""
-    errors: list[str] = []
-
-    if not model.indicators:
-        errors.append("Measurement structure must include at least one indicator.")
-        return errors
-
-    outcomes = [
-        construct
-        for construct in model.constructs
-        if model.default_outcome is not None and construct.id == model.default_outcome
-    ]
-    for outcome in outcomes:
-        if not outcome.indicators:
-            errors.append(f"Outcome construct '{outcome.name}' must have at least one indicator.")
-
-    return errors
-
-
 def check_execution(
     model: ModelSpec,
 ) -> None:

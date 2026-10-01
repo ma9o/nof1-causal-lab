@@ -1,5 +1,8 @@
 """ModelSpec identity, parameter draws, and native model execution."""
 
+from nof1_causal_lab.artifacts.likelihood import ObservationLawSpec
+from pathlib import Path
+
 import dynestyx as dsx
 import jax
 import jax.numpy as jnp
@@ -20,15 +23,13 @@ from nof1_causal_lab.models.ssm.parameterization import (
     build_site_registry,
 )
 from tests.dynamics_fixtures import decay_term, interaction_term, linear_term
-from tests.helpers import complete_test_model, make_model
+from tests.helpers import make_model
+from tests.model_fixtures import compile_fit_fixture
 
 
 @pytest.fixture(scope="module")
 def model():
-    value = make_model(["A", "B"], [("A", "B")])
-    return complete_test_model(
-        value, self_limiting=[value.constructs[0].id], hill_edges=[value.edges[0].id]
-    )
+    return ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'model_spec_execution/model_model.json').read_text())
 
 
 @pytest.mark.inference(concern="predictive")
@@ -38,14 +39,14 @@ def test_conditioning_revises_the_same_type_and_retains_joint_uncertainty(
 ):
     from functools import cache
 
+
     from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.machine.store import ArtifactStore, read_model
-    from nof1_causal_lab.models.likelihoods import observation_law
     from nof1_causal_lab.models.model_inputs import input_fingerprints
     from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
     from nof1_causal_lab.models.ssm.predictive.parameters import sample_model_laws
     from nof1_causal_lab.numpyro_json import empirical_atoms, empirical_distribution
+    from nof1_causal_lab.study.store import ArtifactStore, read_model
     from nof1_causal_lab.utils import data as data_module
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path))
@@ -53,26 +54,19 @@ def test_conditioning_revises_the_same_type_and_retains_joint_uncertainty(
     if categorical:
         model = make_model(["A", "B"], [("A", "B")])
         construct = model.constructs[1]
-        indicator = construct.indicators[0].model_copy(
-            update={
+        indicator = type(construct.indicators[0]).model_validate(
+            {
+                **construct.indicators[0].model_dump(),
                 "measurement_dtype": "categorical",
                 "categorical_levels": ("low", "medium", "high"),
                 "aggregation": "last",
                 "likelihood": LikelihoodSpec(
-                    law=observation_law(
-                        construct.id, DistributionFamily.CATEGORICAL, LinkFunction.SOFTMAX
-                    ),
+                    law=ObservationLawSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'model_spec_execution/conditioning_revises_the_same_type_and_retains_joint_uncertainty_observation_law.json').read_text()),
                     reasoning="Joint law with category-specific parameter elements",
                 ),
             }
         )
-        model = complete_test_model(
-            model.revised(
-                edges=replace_constructs(
-                    model.edges, (construct.model_copy(update={"indicators": (indicator,)}),)
-                )
-            )
-        )
+        model = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'model_spec_execution/conditioning_revises_the_same_type_and_retains_joint_uncertainty_complete_test_model.json').read_text())
     count = 3
     samples = {
         site.name: 100 * (index + 1)
@@ -92,7 +86,7 @@ def test_conditioning_revises_the_same_type_and_retains_joint_uncertainty(
         JointPosteriorDraws(samples, paths), diagnostics={"likelihood_backend": lambda: None}
     )
     conditioned = condition_model(
-        model,
+        compile_fit_fixture(model),
         result,
         times=jnp.arange(4),
         array_writer=store.write_array,
@@ -111,7 +105,7 @@ def test_conditioning_revises_the_same_type_and_retains_joint_uncertainty(
     info = store.write_artifact(
         "model",
         derived_from={},
-        produced_by="run:posterior",
+        produced_by="fit",
         json_files={"model.json": payload},
     )
     loaded = read_model(store, info.revision)
@@ -155,13 +149,17 @@ def test_conditioning_revises_the_same_type_and_retains_joint_uncertainty(
                 edges=replace_constructs(
                     loaded.edges,
                     (
-                        construct.model_copy(
-                            update={
+                        type(construct).model_validate(
+                            {
+                                **construct.model_dump(),
                                 "indicators": (
-                                    indicator.model_copy(
-                                        update={"categorical_levels": ("medium", "low", "high")}
+                                    type(indicator).model_validate(
+                                        {
+                                            **indicator.model_dump(),
+                                            "categorical_levels": ("medium", "low", "high"),
+                                        }
                                     ),
-                                )
+                                ),
                             }
                         ),
                     ),
@@ -296,7 +294,7 @@ def test_nonlinear_fixture_declares_the_same_drift_and_measurements():
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.models.ssm.execution.parameters import assemble_model_matrices
 
-    source = fixture.build_synthetic_nonlinear_spec()
+    source = fixture.load_synthetic_nonlinear_spec()
     source = ModelSpec.model_validate_json(source.model_dump_json())
     samples = {name: jnp.asarray(value) for name, value in fixture.SCALAR_RECOVERY_TARGETS.items()}
     samples.update(
@@ -341,20 +339,9 @@ def test_fixed_quantities_and_interactions_remain_effective_in_edge_off_checks(m
         _incoming_edge_off_target,
         _resimulate_edge_off,
     )
-    from tests.model_fixtures import model_fixture, parameter_draws
+    from tests.model_fixtures import parameter_draws
 
-    source = model_fixture(
-        n_latent=3,
-        latent_names=["A", "B", "C"],
-        dynamics_spec=DynamicsSpec(
-            3,
-            (
-                *(decay_term(target=i) for i in range(3)),
-                linear_term(0, 2, 0.7),
-                interaction_term(0, 1, 2, 0.8),
-            ),
-        ),
-    )
+    source = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'model_spec_execution/fixed_quantities_and_interactions_remain_effective_in_edge_off_checks_model_fixture.json').read_text())
     source = ModelSpec.model_validate_json(source.model_dump_json())
     terms = numeric.dynamics_expressions(source)
     assert linear_coefficient(terms[3].expression, source.state_order[0]) == 0.7

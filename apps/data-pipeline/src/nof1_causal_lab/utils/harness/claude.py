@@ -29,20 +29,22 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.utils.agent_session import AgentResult, TurnResult
 from nof1_causal_lab.utils.harness.mcp_server import serve_tools_http
 from nof1_causal_lab.utils.harness.stream_json import (
     ClaudeStreamState,
     apply_claude_event,
+    event_object,
     finalize_trace,
     format_claude_event_for_log,
+    parse_stream_event,
 )
 from nof1_causal_lab.utils.harness.streaming import drain_newline_delimited_stream
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
+    from nof1_causal_lab.json_types import JsonObject
     from nof1_causal_lab.utils.openrouter_client import Tool
 
 logger = logging.getLogger(__name__)
@@ -160,15 +162,11 @@ class ClaudeHarnessSession:
         timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
         log_label: str | None = None,
         session_id: str | None = None,
-        initial_events: list[UncheckedJsonObject] | None = None,
+        initial_events: list[JsonObject] | None = None,
         turn_index: int = 0,
     ) -> None:
         self._tools = list(tools)
-        self._tool_stop_map = {
-            t.name: (t.success_output if t.stop_on_success else None)
-            for t in tools
-            if t.stop_on_success
-        }
+        self._tool_stop_map = {t.name: t.success_output for t in tools if t.stop_on_success}
         self._mcp_config_path = mcp_config_path
         self._system_prompt = system_prompt
         self._model = model
@@ -192,7 +190,7 @@ class ClaudeHarnessSession:
         return self._session_id
 
     @property
-    def raw_events(self) -> list[UncheckedJsonObject]:
+    def raw_events(self) -> list[JsonObject]:
         return list(self._state.raw_events)
 
     async def turn(self, user_message: str) -> TurnResult:
@@ -262,24 +260,25 @@ class ClaudeHarnessSession:
             raise RuntimeError(
                 f"[{self._log_label}] claude emitted non-object JSON on stdout: {line[:200]!r}"
             )
+        event = parse_stream_event(event)
         log_line = format_claude_event_for_log(event)
         if log_line is not None:
             logger.info("[%s] %s", self._log_label, log_line)
         apply_claude_event(self._state, event)
 
-    def _build_turn_result(self, turn_events: list[UncheckedJsonObject]) -> TurnResult:
+    def _build_turn_result(self, turn_events: list[JsonObject]) -> TurnResult:
         tool_calls_fired: list[str] = []
         terminal: tuple[str, str] | None = None
         for event in turn_events:
             if event.get("type") == "assistant":
-                message = event.get("message") or {}
+                message = event_object(event.get("message"))
                 content = message.get("content", [])
                 if isinstance(content, list):
                     for block in content:
                         if isinstance(block, dict) and block.get("type") == "tool_use":
                             tool_calls_fired.append(str(block.get("name", "")))
             elif event.get("type") == "user":
-                message = event.get("message") or {}
+                message = event_object(event.get("message"))
                 content = message.get("content")
                 if not isinstance(content, list):
                     continue
@@ -304,7 +303,7 @@ class ClaudeHarnessSession:
         self,
         tool_calls_fired: list[str],
         result_text: str,
-        block: UncheckedJsonObject,
+        block: JsonObject,
     ) -> tuple[str, str] | None:
         """Match a tool-result block against stop_on_success tool metadata."""
         # Claude's MCP tool names arrive as ``mcp__<server>__<name>``. Strip
@@ -373,7 +372,7 @@ async def open_claude_harness_session(
     timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
     log_label: str | None = None,
     session_id: str | None = None,
-    initial_events: list[UncheckedJsonObject] | None = None,
+    initial_events: list[JsonObject] | None = None,
     turn_index: int = 0,
 ) -> AsyncIterator[ClaudeHarnessSession]:
     """Open a Claude-backed agent session scoped to an ``async with`` block.

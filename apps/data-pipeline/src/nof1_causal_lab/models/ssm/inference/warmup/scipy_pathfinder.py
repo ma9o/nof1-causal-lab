@@ -40,16 +40,48 @@ import jax.random as random
 import numpy as np
 import scipy.optimize
 
-from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
-
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-    from nof1_causal_lab.json_types import JsonObject
     from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleTarget
     from nof1_causal_lab.models.ssm.model import SSMModel
 
 logger = logging.getLogger(__name__)
+
+
+class ElboScoringDiagnostics(TypedDict):
+    n_elbo_batch_evaluations: int
+    n_elbo_screen_candidates: int
+    n_elbo_refine_candidates: int
+    best_elbo_candidate_index: int
+
+
+class PathfinderStartDiagnostics(ElboScoringDiagnostics):
+    start_idx: int
+    n_trajectory_points: int
+    n_valid_iterates: int
+    n_elbo_candidates: int
+    n_lbfgs_iterations: int
+    final_log_posterior: float
+    best_elbo_this_start: float | None
+    scipy_success: bool
+    scipy_status: int
+
+
+class PathfinderRunDiagnostics(TypedDict):
+    n_starts: int
+    n_starts_finite: int
+    per_start: list[PathfinderStartDiagnostics]
+    elbo_samples: int
+    elbo_screen_samples: int
+    elbo_refine_candidates: int
+    elbo_candidate_batch_size: int
+    lbfgs_memory: int
+    maxiter: int
+    parallel_workers: int
+    elbo_min: float
+    elbo_max: float
+    elbo_spread: float
 
 
 class PathfinderDiagnostics(TypedDict):
@@ -75,7 +107,16 @@ class PathfinderDiagnostics(TypedDict):
     pathfinder_elbo_screen_samples: int
     pathfinder_elbo_refine_candidates: int
     pathfinder_elbo_candidate_batch_size: int
-    pathfinder_per_start: list[JsonObject]
+    pathfinder_per_start: list[PathfinderStartDiagnostics]
+
+
+class InitializationDiagnostics(PathfinderDiagnostics, total=False):
+    init_method: str
+    pathfinder_sampling_mode: str
+    pathfinder_init_scale: float | None
+    prior_released_site_names: list[str]
+    prior_released_site_indices: list[int]
+    prior_release_scale: float
 
 
 @dataclass(frozen=True)
@@ -83,7 +124,7 @@ class ScipyPathfinderResult:
     mean: np.ndarray  # (p,) — best-ELBO iterate
     chol: np.ndarray  # (p, p) lower-triangular — Cholesky of L-BFGS H^{-1} at that iterate
     best_elbo: float
-    diagnostics: UncheckedJsonObject
+    diagnostics: PathfinderRunDiagnostics
 
 
 @dataclass(frozen=True)
@@ -100,7 +141,7 @@ class _ScipyPathfinderStartResult:
     mean: np.ndarray | None
     chol: np.ndarray | None
     best_elbo: float
-    diagnostics: UncheckedJsonObject
+    diagnostics: PathfinderStartDiagnostics
 
 
 @functools.partial(jax.jit, static_argnames=("runtime_log_posterior_fn",))
@@ -302,7 +343,7 @@ def _score_elbo_candidates(
     elbo_refine_candidates: int,
     dim: int,
     candidate_batch_size: int,
-) -> tuple[float, np.ndarray | None, np.ndarray | None, dict[str, int]]:
+) -> tuple[float, np.ndarray | None, np.ndarray | None, ElboScoringDiagnostics]:
     if not means:
         return (
             -np.inf,
@@ -544,7 +585,7 @@ def _run_pathfinder_start(
         )
     )
 
-    diagnostics = {
+    diagnostics: PathfinderStartDiagnostics = {
         "start_idx": int(start_idx),
         "n_trajectory_points": len(trajectory),
         "n_valid_iterates": int(valid_iterate_count),
@@ -880,7 +921,7 @@ def sample_scipy_pathfinder_init_positions(
     prior_release_scale: float = 0.05,
     release_jitter_key: jnp.ndarray | None = None,
     method_label: str = "sampler",
-) -> tuple[jnp.ndarray, UncheckedJsonObject]:
+) -> tuple[jnp.ndarray, InitializationDiagnostics]:
     """Sample per-chain initial positions from a fitted scipy Pathfinder state."""
     mean_np = np.asarray(jax.device_get(pathfinder_state.mean), dtype=np.float64)
     chol_np = np.asarray(jax.device_get(pathfinder_state.chol), dtype=np.float64)
@@ -922,7 +963,7 @@ def sample_scipy_pathfinder_init_positions(
             prior_values = flat_example[None, :] + float(prior_release_scale) * noise
             positions = jnp.where(mask_j[None, :], prior_values, positions)
 
-    diagnostics = {
+    diagnostics: InitializationDiagnostics = {
         "init_method": "pathfinder",
         "pathfinder_sampling_mode": sampling_mode,
         "pathfinder_init_scale": pathfinder_init_scale,

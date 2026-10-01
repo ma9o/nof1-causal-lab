@@ -8,7 +8,7 @@ failing the primary trace reconstruction.
 """
 
 import json
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -25,6 +25,9 @@ from nof1_causal_lab.utils.harness.stream_json import (
     format_codex_event_for_log,
     format_pi_event_for_log,
 )
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.json_types import JsonObject
 
 pytestmark = pytest.mark.contract
 
@@ -285,7 +288,7 @@ class TestClaudeParser:
 
     def test_log_formatter_keeps_full_message_text(self):
         long_text = "A" * 300 + "\n" + "B" * 300
-        event = {
+        event: JsonObject = {
             "type": "assistant",
             "message": {
                 "role": "assistant",
@@ -300,7 +303,7 @@ class TestClaudeParser:
 
     def test_log_formatter_keeps_full_tool_result_text(self):
         long_text = "result-" * 80
-        event = {
+        event: JsonObject = {
             "type": "user",
             "message": {
                 "role": "user",
@@ -396,7 +399,7 @@ class TestCodexParser:
 
     def test_log_formatter_keeps_full_message_text(self):
         long_text = "A" * 300 + "\n" + "B" * 300
-        event = {
+        event: JsonObject = {
             "type": "agent_message",
             "message": {"role": "assistant", "content": long_text},
         }
@@ -408,7 +411,7 @@ class TestCodexParser:
 
     def test_log_formatter_keeps_full_tool_result_text(self):
         long_text = "payload-" * 80
-        event = {
+        event: JsonObject = {
             "type": "tool_result",
             "name": "submit_model",
             "output": long_text,

@@ -3,13 +3,16 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.utils.observation_semantics import get_observation_semantics
 from nof1_causal_lab.workers.prompts.extraction import SYSTEM, USER
 
+if TYPE_CHECKING:
+    from nof1_causal_lab.workers.context import MeasurementContext
 
-def _format_indicators(measurement_structure: UncheckedJsonObject) -> str:
+
+def _format_indicators(measurement_structure: MeasurementContext) -> str:
     """Format indicators and their observation semantics for a worker prompt."""
     lines = []
     model_clock = measurement_structure.get("model_clock", "")
@@ -40,7 +43,7 @@ class WorkerMessages:
     """Build the prompt messages for one measurement-extraction chunk."""
 
     question: str
-    measurement_structure: UncheckedJsonObject
+    measurement_structure: MeasurementContext
     window_text: str
     n_windows: int
 

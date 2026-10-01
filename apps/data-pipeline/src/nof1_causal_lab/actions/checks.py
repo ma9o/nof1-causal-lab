@@ -65,22 +65,36 @@ def check_model_data(
     model: ModelSpec, panel, *, time_origin: datetime | None
 ) -> SpecificationReport:
     """Evaluate fitting input compatibility without running a sampler or simulator."""
+    from typing import assert_never
+
+    from nof1_causal_lab.models.ssm.compile.inputs import (
+        CompiledFitInputs,
+        IncompleteModel,
+        UnsupportedFit,
+        compile_ssm_inputs_from_model,
+    )
     from nof1_causal_lab.models.ssm.preflight import validate_observations_for_fit
     from nof1_causal_lab.models.ssm.runtime import prepare_model_runtime
 
-    try:
-        model.check_execution()
-    except (IncompleteModelError, ValueError) as exc:
-        return SpecificationReport(
-            findings=(
-                SpecificationFinding(
-                    check="fit_preflight", status="not_evaluated", message=str(exc)
-                ),
+    inputs = compile_ssm_inputs_from_model(model)
+    match inputs:
+        case IncompleteModel() | UnsupportedFit():
+            return SpecificationReport(
+                findings=(
+                    SpecificationFinding(
+                        check="fit_preflight",
+                        status="not_evaluated" if isinstance(inputs, IncompleteModel) else "failed",
+                        message=inputs.message,
+                    ),
+                )
             )
-        )
+        case CompiledFitInputs():
+            pass
+        case _:
+            assert_never(inputs)
     try:
         runtime = prepare_model_runtime(
-            data_for_model=panel, model_spec=model, time_origin=time_origin
+            data_for_model=panel, inputs=inputs, time_origin=time_origin
         )
         validate_observations_for_fit(runtime.model, runtime.observations)
     except ValueError as exc:

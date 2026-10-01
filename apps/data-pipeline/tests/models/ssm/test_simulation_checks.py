@@ -2,6 +2,11 @@
 
 from __future__ import annotations
 
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from pathlib import Path
+
+from dataclasses import replace
+
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -18,11 +23,9 @@ from nof1_causal_lab.models.ssm.simulation_checks import (
 )
 from tests.dynamics_fixtures import hill_term, potential_term
 from tests.helpers import (
-    complete_test_model,
     fixture_entity_id,
-    make_model,
 )
-from tests.model_fixtures import model_fixture
+from tests.model_fixtures import default_t0_means_block
 
 pytestmark = pytest.mark.inference(concern="predictive")
 
@@ -75,13 +78,7 @@ def test_time_invariant_construct_omits_temporal_transmission_check():
             observations_mask=jnp.ones(expected.shape, dtype=bool),
         ),
     )
-    spec = model_fixture(
-        n_latent=1,
-        dynamics_spec=DynamicsSpec(1, ()),
-        latent_names=["static"],
-        manifest_names=["static_indicator"],
-        time_invariant_mask=np.array([True]),
-    )
+    spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / 'simulation_checks/time_invariant_construct_omits_temporal_transmission_check_model_fixture.json').read_text())
     obs_idx = np.arange(times)
     design = DesignInfo(
         manifest_ids=(fixture_entity_id("indicator", "static_indicator"),),
@@ -92,22 +89,7 @@ def test_time_invariant_construct_omits_temporal_transmission_check():
         },
     )
     target = ConstructSimulationTarget(
-        construct=complete_test_model(make_model(["static"]))
-        .constructs[0]
-        .model_copy(
-            update={
-                "indicators": (
-                    complete_test_model(make_model(["static"]))
-                    .indicators[0]
-                    .model_copy(
-                        update={
-                            "id": fixture_entity_id("indicator", "static_indicator"),
-                            "name": "static_indicator",
-                        }
-                    ),
-                )
-            }
-        ),
+        construct=spec.get_construct(numeric.state_ids(spec)[0]),
     )
 
     results, _timings = measure_construct_simulation(spec, pred, design, target)
@@ -119,45 +101,22 @@ def test_time_invariant_construct_omits_temporal_transmission_check():
     )
 
 
-@pytest.mark.parametrize(
-    ("dynamics", "measurement"), [(True, True), (True, False), (False, True), (False, False)]
-)
+@pytest.mark.parametrize(('dynamics', 'measurement', 'model_fixture_payload'), [
+    pytest.param(True, True, 'simulation_checks/fixed_hill_coefficients_participate_in_checks_and_edge_off_model_fixture_true-true.json', id='True-True'),
+    pytest.param(True, False, 'simulation_checks/fixed_hill_coefficients_participate_in_checks_and_edge_off_model_fixture_true-false.json', id='True-False'),
+    pytest.param(False, True, 'simulation_checks/fixed_hill_coefficients_participate_in_checks_and_edge_off_model_fixture_false-true.json', id='False-True'),
+    pytest.param(False, False, 'simulation_checks/fixed_hill_coefficients_participate_in_checks_and_edge_off_model_fixture_false-false.json', id='False-False'),
+])
 def test_fixed_hill_coefficients_participate_in_checks_and_edge_off(
     monkeypatch, dynamics, measurement
-):
+, model_fixture_payload):
     """Fixed coefficients still affect the Hill checks and the exact edge-off contrast."""
     from nof1_causal_lab.artifacts.expressions import LiteralExpression, hill_applications
     from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
     from nof1_causal_lab.models.ssm.predictive import registry_runtime
-    from tests.model_fixtures import model_fixture
 
     draws, ticks = 4, 21
-    hill = hill_term(
-        source=0,
-        target=1,
-        emax=0.8,
-        ec50=1,
-        n=2,
-    )
-    spec = model_fixture(
-        n_latent=2,
-        n_manifest=2,
-        latent_names=["X", "Y"],
-        manifest_names=["x1", "y1"],
-        manifest_links=[LinkFunction.IDENTITY] * 2,
-        dynamics_spec=DynamicsSpec(
-            2,
-            (
-                potential_term(
-                    target=1,
-                    center=0,
-                    stiffness=0.5,
-                    quartic=0,
-                ),
-                hill,
-            ),
-        ),
-    )
+    spec = ModelSpec.model_validate_json((Path(__file__).resolve().parents[2] / "fixtures/models" / model_fixture_payload).read_text())
     latents = np.broadcast_to(np.linspace(0.2, 2, ticks)[None, :, None], (draws, ticks, 2)).copy()
     predictive = PredictiveDraws(
         parameters={"manifest_cov": jnp.broadcast_to(jnp.eye(2) * 0.25, (draws, 2, 2))},

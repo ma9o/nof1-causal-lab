@@ -49,20 +49,22 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
-from nof1_causal_lab.json_types import UncheckedJsonObject  # noqa: TC001
 from nof1_causal_lab.utils.agent_session import AgentResult, TurnResult
 from nof1_causal_lab.utils.harness.mcp_server import serve_tools_http
 from nof1_causal_lab.utils.harness.stream_json import (
     CodexStreamState,
     apply_codex_event,
+    event_object,
     finalize_codex_trace,
     format_codex_event_for_log,
+    parse_stream_event,
 )
 from nof1_causal_lab.utils.harness.streaming import drain_newline_delimited_stream
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
+    from nof1_causal_lab.json_types import JsonObject
     from nof1_causal_lab.utils.openrouter_client import Tool
 
 logger = logging.getLogger(__name__)
@@ -272,15 +274,11 @@ class CodexHarnessSession:
         cwd: str | Path | None = None,
         timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
         log_label: str | None = None,
-        initial_events: list[UncheckedJsonObject] | None = None,
+        initial_events: list[JsonObject] | None = None,
         turn_index: int = 0,
     ) -> None:
         self._tools = list(tools)
-        self._tool_stop_map = {
-            t.name: (t.success_output if t.stop_on_success else None)
-            for t in tools
-            if t.stop_on_success
-        }
+        self._tool_stop_map = {t.name: t.success_output for t in tools if t.stop_on_success}
         self._codex_home = codex_home
         self._model = model
         self._bin = bin
@@ -301,7 +299,7 @@ class CodexHarnessSession:
         return self._state.thread_id
 
     @property
-    def raw_events(self) -> list[UncheckedJsonObject]:
+    def raw_events(self) -> list[JsonObject]:
         return list(self._state.raw_events)
 
     async def turn(self, user_message: str) -> TurnResult:
@@ -395,20 +393,21 @@ class CodexHarnessSession:
             raise RuntimeError(
                 f"[{self._log_label}] codex emitted non-object JSON on stdout: {line[:200]!r}"
             )
+        event = parse_stream_event(event)
         log_line = format_codex_event_for_log(event)
         if log_line is not None:
             logger.info("[%s] %s", self._log_label, log_line)
         apply_codex_event(self._state, event)
 
-    def _build_turn_result(self, turn_events: list[UncheckedJsonObject]) -> TurnResult:
+    def _build_turn_result(self, turn_events: list[JsonObject]) -> TurnResult:
         tool_calls_fired: list[str] = []
         terminal: tuple[str, str] | None = None
 
-        def _unwrap(event: UncheckedJsonObject) -> UncheckedJsonObject:
+        def _unwrap(event: JsonObject) -> JsonObject:
             # Codex 0.121 nests items inside `item.completed`; older/prototype
             # schemas put tool_call/tool_result at the top level.
-            if event.get("type") == "item.completed" and isinstance(event.get("item"), dict):
-                return event["item"]
+            if event.get("type") == "item.completed":
+                return event_object(event.get("item"))
             return event
 
         for raw in turn_events:
@@ -507,7 +506,7 @@ async def open_codex_harness_session(
     cwd: str | Path | None = None,
     timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
     log_label: str | None = None,
-    initial_events: list[UncheckedJsonObject] | None = None,
+    initial_events: list[JsonObject] | None = None,
     turn_index: int = 0,
 ) -> AsyncIterator[CodexHarnessSession]:
     """Open a Codex-backed agent session scoped to an ``async with`` block.
