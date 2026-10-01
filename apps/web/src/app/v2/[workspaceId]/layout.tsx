@@ -1,17 +1,10 @@
 import type { ReactNode } from "react";
-import { WorkspaceVersionFrame } from "@/components/workspace-version-frame";
 
-export default async function ModelLayout({
-  params,
-  children,
-}: {
-  params: Promise<{ workspaceId: string }>;
-  children: ReactNode;
-}) {
-  const { workspaceId } = await params;
+/** On desktop the workbench fills the viewport; its panes scroll independently. */
+export default function ModelLayout({ children }: { children: ReactNode }) {
   return (
-    <WorkspaceVersionFrame workspaceId={workspaceId} version="v2">
-      {children}
-    </WorkspaceVersionFrame>
+    <div className="md:flex md:h-dvh md:flex-col md:overflow-hidden">
+      <div className="md:min-h-0 md:flex-1 [&>div]:md:h-full [&>div]:md:min-h-0">{children}</div>
+    </div>
   );
 }

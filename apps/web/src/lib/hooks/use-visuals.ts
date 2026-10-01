@@ -30,7 +30,7 @@ export function useObservationHistory(model: ModelSnapshot, id: IndicatorId) {
     queryKey: ["observation-history", ...key(model), id],
     queryFn: ({ signal }) =>
       read(
-        client.GET("/api/episodes/{workspace_id}/model/visuals/observations/{indicator_id}", {
+        client.GET("/api/studies/{workspace_id}/model/visuals/observations/{indicator_id}", {
           params: { ...pinned(model), path: { ...pinned(model).path, indicator_id: id } },
           signal,
         }),
@@ -44,7 +44,7 @@ export function usePredictiveHistory(model: ModelSnapshot, id: IndicatorId) {
     queryKey: ["predictive-history", ...key(model), id],
     queryFn: ({ signal }) =>
       read(
-        client.GET("/api/episodes/{workspace_id}/model/visuals/predictive/{indicator_id}", {
+        client.GET("/api/studies/{workspace_id}/model/visuals/predictive/{indicator_id}", {
           params: { ...pinned(model), path: { ...pinned(model).path, indicator_id: id } },
           signal,
         }),
@@ -58,7 +58,7 @@ export function useSimulationPaths(model: ModelSnapshot, start = 0, count = 24) 
     queryKey: ["simulation-paths", ...key(model), start, count],
     queryFn: ({ signal }) =>
       read(
-        client.GET("/api/episodes/{workspace_id}/model/visuals/simulation", {
+        client.GET("/api/studies/{workspace_id}/model/visuals/simulation", {
           params: { ...pinned(model), query: { ...pinned(model).query, start, count } },
           signal,
         }),
@@ -73,7 +73,7 @@ export function useParameterDraws(model: ModelSnapshot) {
     queryKey: ["parameter-draws", ...key(model)],
     queryFn: ({ signal }) =>
       read(
-        client.GET("/api/episodes/{workspace_id}/model/visuals/parameters", {
+        client.GET("/api/studies/{workspace_id}/model/visuals/parameters", {
           params: pinned(model),
           signal,
         }),
@@ -88,7 +88,7 @@ export function useMechanismCurves(model: ModelSnapshot, request: MechanismViewR
     queryKey: ["mechanism-curves", ...key(model), request],
     queryFn: ({ signal }) =>
       read(
-        client.POST("/api/episodes/{workspace_id}/model/visuals/mechanism", {
+        client.POST("/api/studies/{workspace_id}/model/visuals/mechanism", {
           params: pinned(model),
           body: request,
           signal,

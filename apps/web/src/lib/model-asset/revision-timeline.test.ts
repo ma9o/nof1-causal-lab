@@ -1,51 +1,69 @@
+import type { StudyRevision } from "@nof1-causal-lab/api-types";
 import { describe, expect, it } from "vitest";
-import { branchedRevisionRecords } from "@/components/__fixtures__/revision-timeline";
-import { journalTicks } from "./journal";
-import { timelineTickLabel } from "./timeline-presentation";
-import { revisionBranch, revisionTimeline } from "./revision-timeline";
+import { journalTicks, latestSeq } from "./journal";
+import { revisionTimeline } from "./revision-timeline";
+import { timelinePosition, timelineTickLabel } from "./timeline-presentation";
 
-describe("Git study timeline", () => {
-  it("uses backend commit parents and branch membership independently of model input pins", () => {
-    const records = structuredClone(branchedRevisionRecords.slice(0, 4));
-    records[3].branch = "alternative";
-    records[2].produced[0].derived_from = { model: "f".repeat(40) };
-    records[3].parent_ids = [records[1].commit_id];
-    const branches = { main: records[2].commit_id, alternative: records[3].commit_id };
-    const timeline = revisionTimeline(journalTicks(records), branches);
-    expect(timeline.links.map((link) => [link.from.tick.seq, link.to.tick.seq])).toEqual([
-      [1, 2],
-      [2, 3],
-      [2, 4],
+const record = (
+  seq: number,
+  action: StudyRevision["action"],
+  status: StudyRevision["status"] = "applied",
+): StudyRevision => ({
+  seq,
+  branch: "main",
+  ts: "2026-09-30T12:00:00+00:00",
+  action,
+  inputs: {},
+  status,
+  diagnostics: {},
+  messages: [],
+  produced: [],
+  retracted: [],
+  trace_ids: [],
+  commit_id: String(seq).repeat(40),
+  parent_ids: [String(seq - 1).repeat(40)],
+});
+
+describe("argument timeline", () => {
+  it("orders actions by execution, lanes them by what they produce and links served dependencies", () => {
+    const records = [
+      record(1, "edit_model"),
+      record(2, "prepare_data"),
+      record(3, "fit"),
+      record(4, "fit", "raised"),
+      record(5, "simulate"),
+      record(6, "data_diff"),
+    ];
+    const timeline = revisionTimeline(journalTicks(records), [
+      { seq: 3, source_seq: 1, argument: "model", check: false },
+      { seq: 3, source_seq: 2, argument: "panel", check: false },
+      { seq: 4, source_seq: 1, argument: "model", check: false },
+      { seq: 5, source_seq: 3, argument: "model", check: false },
+      { seq: 6, source_seq: 2, argument: "left", check: false },
+      { seq: 6, source_seq: 5, argument: "right", check: false },
+      { seq: 9, source_seq: 2, argument: "panel", check: false },
     ]);
-    const branch = revisionBranch(timeline, branches.alternative);
-    expect(branch.nodes.map((node) => node.tick.seq)).toEqual([1, 2, 4]);
-    expect(branch.nodes.map((node) => node.column)).toEqual([0, 1, 2]);
-    expect(
-      branch.links.every(
-        (link) => branch.nodes.includes(link.from) && branch.nodes.includes(link.to),
-      ),
-    ).toBe(true);
-    expect(revisionTimeline([], {}).nodes).toEqual([]);
-
-    const failures = ["main", "alternative"].map((branch, index) => ({
-      ...records[3],
-      seq: 5 + index,
-      commit_id: String(index).repeat(40),
-      branch,
-      parent_ids: [records[1].commit_id],
-      status: "raised" as const,
-      action: "fit" as const,
-      produced: [],
-      error_type: "ValueError",
-      error_message: 'INTERNAL: CpuCallback error: Traceback: File "/Users/example/engine.py"',
-    }));
-    const withFailures = revisionTimeline(journalTicks([...records, ...failures]), branches);
-    expect(
-      revisionBranch(withFailures, branches.alternative).nodes.map((node) => node.tick.seq),
-    ).toEqual([1, 2, 4, 6]);
-    const failed = withFailures.nodes.at(-1)!;
-    expect(timelineTickLabel(failed.tick)).toBe("fit · 1111111");
-    expect(failed.tick.error).toBe(failures[1].error_message);
-    expect(failed.modelRevision).toBeNull();
+    expect(timeline.nodes.map((node) => [node.tick.seq, node.column, node.lane])).toEqual([
+      [1, 0, 2],
+      [2, 1, 1],
+      [3, 2, 2],
+      [4, 3, 2],
+      [5, 4, 1],
+      [6, 5, 0],
+    ]);
+    // Records outside the journal draw nothing; commit parents never become links.
+    expect(timeline.links.map((link) => [link.from.tick.seq, link.to.tick.seq])).toEqual([
+      [1, 3],
+      [2, 3],
+      [1, 4],
+      [3, 5],
+      [2, 6],
+      [5, 6],
+    ]);
+    const [comparison, simulation] = [timeline.nodes[5], timeline.nodes[4]];
+    expect(timelinePosition(comparison).y).toBeLessThan(timelinePosition(simulation).y);
+    expect(timelinePosition(comparison).x).toBeGreaterThan(timelinePosition(simulation).x);
+    expect(timelineTickLabel(timeline.nodes[3].tick)).toBe("fit · 4444444");
+    expect(latestSeq(records)).toBe(5);
   });
 });

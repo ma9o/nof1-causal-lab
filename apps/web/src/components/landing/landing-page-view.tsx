@@ -55,7 +55,7 @@ export function LandingPageView({
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     setDragOver(false);
-    const dropped = e.dataTransfer.files[0];
+    const dropped = e.dataTransfer.files.item(0);
     if (dropped) onFileSelect(dropped);
   };
 

@@ -33,7 +33,7 @@ const EDGES: Array<[string, string]> = [
 
 const NODE_W = 208;
 const NODE_H = 60;
-const META: Record<string, DemoNode> = Object.fromEntries(NODES.map((n) => [n.id, n]));
+const META: Partial<Record<string, DemoNode>> = Object.fromEntries(NODES.map((n) => [n.id, n]));
 
 /**
  * Smoke-test harness for the shared bespoke DAG core: build a small causal

@@ -1,6 +1,4 @@
 import {
-  type ScientificActionId,
-  type ArtifactId,
   type ConstructId,
   type EdgeId,
   type IndicatorId,
@@ -12,16 +10,6 @@ export type EntitySelection =
   | { kind: "construct"; id: ConstructId }
   | { kind: "edge"; id: EdgeId }
   | { kind: "indicator"; id: IndicatorId };
-
-/** Short action labels for every artifact the machine can install. */
-export const ARTIFACT_LABEL: Record<ArtifactId, string> = {
-  raw_data: "Preprocess",
-  model: "Model",
-  identification_report: "Identification report",
-  panel: "Panel",
-  data_profile: "Data profile",
-  validation_report: "Validation",
-};
 
 export function humanize(value: string): string {
   return value.replaceAll("_", " ");
@@ -43,14 +31,4 @@ export function formatSigned(value: number, digits = 2): string {
 
 export function formatPlain(value: number, digits = 2): string {
   return `${value < 0 ? "−" : ""}${Math.abs(value).toFixed(digits)}`;
-}
-
-export function actionLabel(action: ScientificActionId): string {
-  const labels: Record<ScientificActionId, string> = {
-    edit_model: "Edit model",
-    prepare_data: "Prepare data",
-    fit: "Fit",
-    simulate: "Simulate",
-  };
-  return labels[action];
 }

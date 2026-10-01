@@ -19,18 +19,18 @@ export type SnapshotReader = (
 };
 
 export function useWorkbenchSnapshots(
-  transitions: StudyRevision[],
+  attempts: StudyRevision[],
   branches: Record<string, string>,
   useSnapshot: SnapshotReader,
 ) {
   const [playheadOverride, viewAt] = useState<number | null>(null);
-  const latest = latestSeq(transitions);
-  const branch = transitions.find((record) => record.seq === latest)?.branch ?? "main";
+  const latest = latestSeq(attempts);
+  const branch = attempts.find((record) => record.seq === latest)?.branch ?? "main";
   const playhead = playheadOverride ?? latest;
-  const record = transitions.find((item) => item.seq === playhead);
-  // Unsuccessful attempts record no version: inspect their unchanged parent state.
+  const record = attempts.find((item) => item.seq === playhead);
+  // Read-only leaves and failed attempts inspect their unchanged parent state.
   const commitId = record
-    ? record.status === "applied"
+    ? record.status === "applied" && record.action !== "data_diff"
       ? record.commit_id
       : record.parent_ids[0]
     : branches[branch];
@@ -42,7 +42,7 @@ export function useWorkbenchSnapshots(
 interface WorkbenchOptions {
   workspaceId: string;
   question: string | undefined;
-  transitions: StudyRevision[];
+  attempts: StudyRevision[];
   model: ModelSnapshot;
   currentModel: ModelSnapshot;
   viewAt: (seq: number | null) => void;
@@ -52,7 +52,7 @@ interface WorkbenchOptions {
 export function useWorkbench({
   workspaceId,
   question: initialQuestion,
-  transitions,
+  attempts,
   model,
   currentModel,
   viewAt,
@@ -71,15 +71,15 @@ export function useWorkbench({
     [],
   );
   const entities = useMemo(() => indexModel(model.model?.value), [model]);
-  const ticks = useMemo(() => journalTicks(transitions), [transitions]);
+  const ticks = useMemo(() => journalTicks(attempts), [attempts]);
   const latest = currentModel.context.seq;
   const playhead = model.context.seq;
-  const modelRevision = model.context.state.current.model?.revision;
+  const modelRevision = model.model?.source.ref.revision;
   const activeComparison = comparison?.before === playhead ? comparison : null;
   const compared = useModelDiff(
     workspaceId,
     model.context.commit_id,
-    transitions.find((record) => record.seq === activeComparison?.after)?.commit_id ?? null,
+    attempts.find((record) => record.seq === activeComparison?.after)?.commit_id ?? null,
   );
   const retainPreview = () => {
     if (previewTimer.current) clearTimeout(previewTimer.current);
@@ -118,6 +118,8 @@ export function useWorkbench({
     model,
     entities,
     select,
+    ticks,
+    dataDiff: { data: undefined, error: null },
   };
 
   const toggleComparison = () => {

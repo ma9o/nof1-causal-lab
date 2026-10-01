@@ -3,6 +3,7 @@
 import type {
   ConstructId,
   EdgeId,
+  FitSummary,
   IndicatorSpec,
   ModelDiffReport,
   ModelSnapshot,
@@ -124,8 +125,12 @@ export function useLayeredGraph({
       ),
     [model, entities.edges],
   );
-  const edgePosteriors = fitVisible ? (model.findings.fit?.value.edge_estimates ?? {}) : {};
-  const persistencePosteriors = fitVisible ? (model.findings.fit?.value.decay_estimates ?? {}) : {};
+  const edgePosteriors: Partial<FitSummary["edge_estimates"]> = fitVisible
+    ? (model.findings.fit?.value.edge_estimates ?? {})
+    : {};
+  const persistencePosteriors: Partial<FitSummary["decay_estimates"]> = fitVisible
+    ? (model.findings.fit?.value.decay_estimates ?? {})
+    : {};
 
   const simulationResult = simulationVisible ? simulation : null;
   const days = useMemo(() => simulationResult?.times ?? [], [simulationResult]);

@@ -4,6 +4,7 @@ import type { ScopeContext } from "@/lib/model-asset/scope";
 import { formatPlain, humanize } from "@/lib/model-asset/selection";
 import { hasCausalEffects } from "@/lib/simulation-report";
 import { formatModelDate } from "@/lib/utils/format";
+import { SimulationHistory } from "./scopes/recorded-history";
 import { EffectChart } from "./effect-chart";
 import { Hint, KeyValue, Section, StatusIcon } from "./scope-primitives";
 
@@ -42,6 +43,7 @@ export function SimulationEvidence({ context }: { context: ScopeContext }) {
               ]}
             />
             <EffectChart simulation={report} />
+            <SimulationHistory model={model} id={report.causal_result.outcome} kind="effect" />
 
             {report.causal_result.warnings.map((warning) => (
               <Hint key={warning} issue>
@@ -79,6 +81,13 @@ export function SimulationEvidence({ context }: { context: ScopeContext }) {
           ))
         )}
       </Section>
+      {(["states", "indicators"] as const).flatMap((kind) =>
+        Object.entries(report.predictive[kind]).map(([id, series]) => (
+          <Section key={id} title={humanize(series.label)} source={simulation.source} wide>
+            <SimulationHistory model={model} id={id} kind={kind} summary={series} />
+          </Section>
+        )),
+      )}
       {report.findings.length > 0 && (
         <Section title="Simulation checks" source={simulation.source} wide>
           <PredictiveFindings findings={report.findings} entities={entities} />
@@ -95,9 +104,16 @@ export function PredictiveFindings({
   findings: PredictiveCheckFinding[];
   entities: ModelEntities;
 }) {
-  const names = new Map<string, string>(
-    [...entities.constructs, ...entities.indicators].map((entity) => [entity.id, entity.name]),
-  );
+  const names = new Map<string, string>([
+    ...[...entities.constructs, ...entities.indicators].map((entity): [string, string] => [
+      entity.id,
+      entity.name,
+    ]),
+    ...entities.edges.map((edge): [string, string] => [
+      edge.id,
+      `${entities.constructById.get(edge.cause.id)!.name} → ${entities.constructById.get(edge.effect.id)!.name}`,
+    ]),
+  ]);
   if (findings.length === 0) return null;
   return (
     <table className="w-full table-fixed text-left text-[11px] [overflow-wrap:anywhere]">
@@ -120,10 +136,7 @@ export function PredictiveFindings({
               </div>
               {finding.target !== "model" && (
                 <span className="mt-1 block text-[10px] text-muted-foreground">
-                  {finding.target
-                    .split("->")
-                    .map((target) => humanize(names.get(target) ?? target))
-                    .join(" → ")}
+                  {humanize(names.get(finding.target) ?? finding.target)}
                 </span>
               )}
             </td>

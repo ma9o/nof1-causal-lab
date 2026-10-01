@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { EpisodeRunError, createStudy } from "@/lib/server/episode-runs";
+import { StudyRunError, createStudy } from "@/lib/server/study-runs";
 import { normalizeWorkspaceId } from "@/lib/workspace-id";
 
 export async function POST(request: Request) {
@@ -21,7 +21,7 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ workspaceId: safeWorkspaceId, ...receipt }, { status: 202 });
   } catch (error) {
-    if (error instanceof EpisodeRunError) {
+    if (error instanceof StudyRunError) {
       if (error.status === 409) {
         return NextResponse.json(
           { error: "A run is already active for this workspace." },

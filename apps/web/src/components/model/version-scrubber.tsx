@@ -1,19 +1,22 @@
 "use client";
 
-import { ChevronDown, ChevronUp } from "lucide-react";
-import { useEffect, useId, useRef } from "react";
+import type { RecordDependency } from "@nof1-causal-lab/api-types";
+import { useEffect, useMemo, useRef } from "react";
 import type { JournalTick } from "@/lib/model-asset/journal";
+import { revisionTimeline, TIMELINE_LANES } from "@/lib/model-asset/revision-timeline";
 import {
   ACTION_STYLE,
   type ActionGlyph,
   COLUMN,
   FAILED_COLOR,
-  ROW,
-  TOP,
+  GUTTER,
+  LABEL_TOP,
+  laneY,
   timelineLinkPath,
+  timelinePosition,
+  timelineSize,
   timelineTickLabel,
 } from "@/lib/model-asset/timeline-presentation";
-import { useRevisionTimeline } from "@/lib/model-asset/use-revision-timeline";
 import { cn } from "@/lib/utils";
 
 const MARK = 16;
@@ -52,12 +55,16 @@ function ActionMark({
   );
 }
 
-/** The study's actions in order: every state change is one of the four scientific actions. */
+/**
+ * The study's actions in execution order, one column each, in lanes by what they produce. Links
+ * follow the served dependencies: each action connects to the earlier actions whose outputs its
+ * request named, and dotted links mark outputs only its checks read.
+ */
 export function VersionScrubber({
   ticks,
+  dependencies,
   playhead,
   latest,
-  branches,
   branch,
   comparedSeq,
   onPlayhead,
@@ -66,9 +73,9 @@ export function VersionScrubber({
   onKeepComparison,
 }: {
   ticks: JournalTick[];
+  dependencies: RecordDependency[];
   playhead: number;
   latest: number;
-  branches: Record<string, string>;
   branch: string;
   comparedSeq: number | null;
   onPlayhead: (seq: number) => void;
@@ -76,21 +83,17 @@ export function VersionScrubber({
   onEndPreview: () => void;
   onKeepComparison: (seq: number) => void;
 }) {
-  const lineageId = useId();
   const viewport = useRef<HTMLDivElement>(null);
   const selected = useRef<HTMLDivElement>(null);
-  const {
-    timeline,
-    expanded,
-    setExpanded,
-    visible,
-    width,
-    height,
-    selectedNode,
-    position,
-    hasComparisons,
-  } = useRevisionTimeline(ticks, branches, branch, playhead);
-  const branched = timeline.lanes.length > 1;
+  const timeline = useMemo(() => revisionTimeline(ticks, dependencies), [ticks, dependencies]);
+  const { width, height } = timelineSize(timeline.nodes.length);
+  const selectedNode = timeline.nodes.find((node) => node.tick.seq === playhead);
+  const hasComparisons = timeline.nodes.some(
+    (node) =>
+      node.tick.status === "applied" &&
+      node.tick.action !== "data_diff" &&
+      node.tick.seq !== playhead,
+  );
   // A comparison costs a backend diff: start it only once the pointer rests on a tick.
   const hoverIntent = useRef<ReturnType<typeof setTimeout> | null>(null);
   const cancelHoverIntent = () => {
@@ -111,27 +114,12 @@ export function VersionScrubber({
     else if (node.offsetTop + node.offsetHeight > frame.scrollTop + frame.clientHeight) {
       frame.scrollTop = node.offsetTop + node.offsetHeight - frame.clientHeight;
     }
-  }, [playhead, selectedNode?.lane, selectedNode?.column, expanded]);
+  }, [playhead, selectedNode?.column]);
 
   return (
     <nav aria-label="Action history" className="flex-none border-b bg-card">
       <div className="flex items-center gap-4 px-5 pt-2.5 text-xs">
         <span className="font-semibold">Timeline</span>
-        {branched && (
-          <button
-            type="button"
-            aria-expanded={expanded}
-            aria-controls={lineageId}
-            onClick={() => {
-              onEndPreview();
-              setExpanded((value) => !value);
-            }}
-            className="inline-flex cursor-pointer items-center gap-1 rounded px-1 py-0.5 text-muted-foreground hover:bg-muted hover:text-foreground focus-visible:outline-2 focus-visible:outline-ring"
-          >
-            {expanded ? <ChevronUp className="size-3" /> : <ChevronDown className="size-3" />}
-            {expanded ? "Collapse lineage" : "Expand lineage"}
-          </button>
-        )}
         {playhead !== latest && (
           <button
             type="button"
@@ -153,21 +141,18 @@ export function VersionScrubber({
           keep the comparison open.
         </span>
       )}
-      {visible.nodes.length === 0 ? (
-        <p id={lineageId} className="px-5 py-4 text-xs text-muted-foreground">
-          No actions yet.
-        </p>
+      {timeline.nodes.length === 0 ? (
+        <p className="px-5 py-4 text-xs text-muted-foreground">No actions yet.</p>
       ) : (
-        <div id={lineageId} ref={viewport} className="max-h-72 overflow-auto px-3 pb-1.5">
+        <div ref={viewport} className="overflow-x-auto px-3 pb-1.5">
           <div className="relative" style={{ width, minWidth: "100%", height }}>
-            {(expanded ? timeline.lanes.map((lane) => lane.name) : [branch]).map((name, index) => (
+            {TIMELINE_LANES.map((lane, index) => (
               <span
-                key={name}
-                className="absolute left-2 max-w-14 truncate font-mono text-[10px] text-muted-foreground"
-                style={{ top: TOP + index * ROW - 7 }}
-                title={name}
+                key={lane.name}
+                className="absolute left-2 font-mono text-[10px] text-muted-foreground"
+                style={{ top: laneY(index) - 7 }}
               >
-                {name}
+                {lane.name}
               </span>
             ))}
             <svg
@@ -176,25 +161,42 @@ export function VersionScrubber({
               height={height}
               className="pointer-events-none absolute inset-0 overflow-visible"
             >
-              {visible.links.map((link) => (
-                <path
-                  key={`${link.from.tick.seq}:${link.to.tick.seq}:${link.kind}`}
-                  data-lineage={link.kind}
-                  data-from={link.from.modelRevision}
-                  data-to={link.to.modelRevision ?? `version:${link.to.tick.seq}`}
-                  d={timelineLinkPath(position(link.from), position(link.to))}
-                  fill="none"
+              {TIMELINE_LANES.map((lane, index) => (
+                <line
+                  key={lane.name}
+                  x1={GUTTER - 8}
+                  x2={width - 12}
+                  y1={laneY(index)}
+                  y2={laneY(index)}
                   className="stroke-border"
-                  strokeWidth={2}
-                  strokeDasharray={link.to.tick.status !== "applied" ? "3 4" : undefined}
+                  strokeDasharray="1 5"
                 />
               ))}
+              {timeline.links.map((link) => {
+                const from = timelinePosition(link.from);
+                const to = timelinePosition(link.to);
+                const touches = link.from === selectedNode || link.to === selectedNode;
+                return (
+                  <path
+                    key={`${link.from.tick.seq}:${link.to.tick.seq}`}
+                    data-argument={link.argument}
+                    d={timelineLinkPath(from, to)}
+                    fill="none"
+                    className={touches ? "stroke-muted-foreground" : "stroke-border"}
+                    strokeWidth={touches ? 2 : 1.5}
+                    strokeDasharray={
+                      link.check ? "2 4" : link.to.tick.status !== "applied" ? "3 4" : undefined
+                    }
+                  />
+                );
+              })}
             </svg>
-            {visible.nodes.map((node) => {
-              const point = position(node);
+            {timeline.nodes.map((node) => {
+              const point = timelinePosition(node);
               const current = node === selectedNode;
               const failed = node.tick.status !== "applied";
-              const canCompare = !failed && node.tick.seq !== playhead;
+              const canCompare =
+                !failed && node.tick.action !== "data_diff" && node.tick.seq !== playhead;
               const compared = node.tick.seq === comparedSeq;
               const isLatest = node.tick.seq === latest;
               const style = ACTION_STYLE[node.tick.action];
@@ -205,7 +207,12 @@ export function VersionScrubber({
                   key={node.tick.seq}
                   ref={current ? selected : undefined}
                   className="group absolute"
-                  style={{ left: point.x - COLUMN / 2, top: point.y - MARK / 2, width: COLUMN }}
+                  style={{
+                    left: point.x - COLUMN / 2,
+                    top: point.y - MARK / 2,
+                    width: COLUMN,
+                    height: LABEL_TOP + 30 - (point.y - MARK / 2),
+                  }}
                   onPointerEnter={() => {
                     cancelHoverIntent();
                     if (!canCompare) return onEndPreview();
@@ -235,7 +242,7 @@ export function VersionScrubber({
                       cancelHoverIntent();
                       onPlayhead(node.tick.seq);
                     }}
-                    className="flex w-full cursor-pointer flex-col items-center rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                    className="flex h-full w-full cursor-pointer flex-col items-center rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     data-compared={compared || undefined}
                   >
                     <span
@@ -249,9 +256,11 @@ export function VersionScrubber({
                     >
                       <ActionMark glyph={style.glyph} color={style.color} failed={failed} />
                     </span>
+                    {/* Every label sits in the shared row; a hairline ties it to its mark. */}
+                    <span aria-hidden="true" className="my-0.5 w-px flex-1 bg-border/70" />
                     <span
                       className={cn(
-                        "mt-1.5 block max-w-full truncate px-1 text-[11px] leading-4",
+                        "block max-w-full truncate px-1 text-[11px] leading-4",
                         current
                           ? "font-semibold text-foreground"
                           : failed

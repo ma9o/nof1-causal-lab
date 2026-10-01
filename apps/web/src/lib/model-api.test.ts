@@ -1,6 +1,6 @@
 import { createModelClient } from "@nof1-causal-lab/api-types";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import { GET } from "@/app/api/episodes/[workspaceId]/model/[[...path]]/route";
+import { GET } from "@/app/api/studies/[workspaceId]/model/[[...path]]/route";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -19,14 +19,14 @@ describe("model read transport", () => {
     );
     vi.stubGlobal("fetch", fetch);
     const request = new Request(
-      "http://localhost:3000/api/episodes/DEMO/model?at=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "http://localhost:3000/api/studies/DEMO/model?at=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
     );
     const response = await GET(request);
     expect(await response.text()).toBe(body);
     expect(response.status).toBe(status);
     expect(response.headers.get("Cache-Control")).toBe("no-store");
     expect(fetch).toHaveBeenCalledExactlyOnceWith(
-      "http://python:8100/api/episodes/DEMO/model?at=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+      "http://python:8100/api/studies/DEMO/model?at=bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
       {
         headers: { Accept: "application/json", "Content-Type": "application/json" },
         method: "GET",
@@ -44,12 +44,12 @@ describe("model read transport", () => {
       }),
     );
     const client = createModelClient({ baseUrl: "http://python:8100", fetch });
-    const result = await client.GET("/api/episodes/{workspace_id}/model/constructs", {
+    const result = await client.GET("/api/studies/{workspace_id}/model/constructs", {
       params: { path: { workspace_id: "DEMO" }, query: { at: "a".repeat(40) } },
     });
     expect(result.data).toEqual([]);
     expect(fetch.mock.calls[0][0].url).toBe(
-      "http://python:8100/api/episodes/DEMO/model/constructs?at=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+      "http://python:8100/api/studies/DEMO/model/constructs?at=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     );
   });
 });

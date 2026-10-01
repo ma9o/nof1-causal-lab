@@ -217,7 +217,7 @@ export function InfoTable<TData>({
                 );
               }
               const { row } = item;
-              const nextItem = flatItems[vi.index + 1];
+              const nextItem = flatItems.at(vi.index + 1);
               const hasExpandedBelow = nextItem?.kind === "expanded-row";
               return (
                 <TableRow

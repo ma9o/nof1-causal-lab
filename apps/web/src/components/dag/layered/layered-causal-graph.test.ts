@@ -3,10 +3,9 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { SimulationPaths, SimulationReport } from "@nof1-causal-lab/api-types";
 import { demoSnapshotAt } from "@/components/__fixtures__/demo-artifacts";
-import { demoSimulationTrace } from "@/components/dag/__fixtures__/simulation-fixture";
+import { demoSimulationResult } from "@/components/dag/__fixtures__/simulation-fixture";
 import { indexModel } from "@/lib/model-asset/entities";
 import { graphEntities } from "@/lib/dag/layered-model";
-import { buildSimulationScenarios } from "@/lib/dag/simulation-results";
 import type { DagGraphInput } from "@/lib/utils/dag-graph-layout";
 import { LayeredCausalGraph, type LayeredCausalGraphVariant } from "./layered-causal-graph";
 
@@ -40,7 +39,7 @@ model.findings.graph.dynamic_construct_ids = [dose.id, symptoms.id];
 model.findings.graph.edge_ids = [edge.id];
 
 const report: SimulationReport = {
-  ...buildSimulationScenarios({ trace: demoSimulationTrace })[0].result,
+  ...demoSimulationResult,
   time_origin: null,
   times: [0, 1, 2, 3, 4, 5, 6, 7],
   design: {

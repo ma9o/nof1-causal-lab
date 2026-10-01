@@ -133,8 +133,8 @@ async function taggedStoryIds(origin: string): Promise<string[]> {
       if (!response.ok) {
         throw new Error(`Story index request failed (${response.status}).`);
       }
-      const index = (await response.json()) as StoryIndex;
-      if (typeof index.entries !== "object" || index.entries == null) {
+      const index = (await response.json()) as { entries?: StoryIndex["entries"] | null } | null;
+      if (index == null || typeof index.entries !== "object" || index.entries == null) {
         throw new Error("Storybook returned an invalid story index.");
       }
       const storyIds = Object.values(index.entries)

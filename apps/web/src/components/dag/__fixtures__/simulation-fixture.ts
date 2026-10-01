@@ -1,30 +1,19 @@
 import type { LLMTrace } from "@nof1-causal-lab/api-types";
-import { demoModelSnapshot } from "@/components/__fixtures__/demo-artifacts";
-import { demoModel } from "../../__fixtures__/demo-artifacts";
+import { parseSimulationReport, type SimulationWithEffects } from "@/lib/simulation-report";
+import { traceToUIMessages } from "@/lib/utils/trace-to-ui-messages";
 import simulationTrace from "./simulation-trace.json";
-import { buildEdgePosteriors, buildPersistencePosteriors } from "@/lib/dag/simulation-results";
-import { constructStatuses } from "@/lib/dag/construct-statuses";
-import { constructs, edges, indicators } from "./dag-base-fixtures";
 
-export { constructs, edges, indicators };
-
-export const edgePosteriors = buildEdgePosteriors({
-  latentStructure: demoModel,
-  estimates: demoModelSnapshot.findings.fit!.value.edge_estimates,
-});
-export const persistencePosteriors = buildPersistencePosteriors({
-  latentStructure: demoModel,
-  estimates: demoModelSnapshot.findings.fit!.value.decay_estimates,
-});
-
-const identified = new Set(
-  Object.entries(demoModelSnapshot.findings.identification!.value.treatments)
-    .filter(([, finding]) => finding.status === "identified")
-    .map(([id]) => id),
-);
-export const identifiableTreatments = constructs
-  .filter((item) => identified.has(item.id))
-  .map((item) => item.name);
-export const nodeStatuses = constructStatuses(demoModelSnapshot);
-
-export const demoSimulationTrace: LLMTrace = simulationTrace as LLMTrace;
+/** The newest `simulate` result recorded in the DEMO trace. */
+export const demoSimulationResult: SimulationWithEffects = traceToUIMessages(
+  simulationTrace as LLMTrace,
+)
+  .flatMap((message) => (message.role === "assistant" ? message.parts : []))
+  .flatMap((part) =>
+    part.type === "dynamic-tool" &&
+    part.state === "output-available" &&
+    part.toolName === "simulate"
+      ? [parseSimulationReport(part.output)]
+      : [],
+  )
+  .filter((result): result is SimulationWithEffects => result !== null)
+  .at(-1)!;

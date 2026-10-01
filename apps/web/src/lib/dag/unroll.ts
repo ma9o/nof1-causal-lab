@@ -3,99 +3,15 @@
 /** Suffix marking a node id as the t−1 (previous-timestep) ghost of its base. */
 export const GHOST_SUFFIX = "__p";
 
-/** Opacity for t−1 ghost cards — present-time looks identical, just fainter. */
-export const GHOST_OPACITY = 0.42;
-
 /** The t−1 ghost id for a present-time node. */
 export const ghostId = (base: string): string => `${base}${GHOST_SUFFIX}`;
-
-/** Strip the ghost suffix to recover the present-time construct name. */
-export const baseId = (id: string): string =>
-  id.endsWith(GHOST_SUFFIX) ? id.slice(0, -GHOST_SUFFIX.length) : id;
 
 /** Whether an id refers to a t−1 ghost rather than a present-time node. */
 export const isGhost = (id: string): boolean => id.endsWith(GHOST_SUFFIX);
 
-/** A t−1 → t link: `from` is taken at the previous step (routed from its ghost). */
-export interface TemporalLink {
-  from: string;
-  to: string;
-}
-
-export interface GhostLinks {
-  /** Distinct ghost node ids to add to the t−1 slice. */
-  ghosts: string[];
-  /** Edges routed from each ghost into its present-time target. */
-  edges: { source: string; target: string }[];
-}
-
-export interface CausalLink {
-  cause: string;
-  effect: string;
-}
-
-export interface UnrolledCausalLink extends CausalLink {
-  crossSlice: boolean;
-  source: string;
-  target: string;
-}
-
-export interface UnrolledCausalLinks {
-  /** Distinct t−1 copies required by time-varying causes. */
-  ghosts: string[];
-  /** Causal links with their rendered temporal endpoints. */
-  edges: UnrolledCausalLink[];
-}
-
-/** Route dynamic causes from their previous slice and static causes from their single node. */
-export function unrollCausalLinks(
-  links: CausalLink[],
-  timeVaryingNames: ReadonlySet<string>,
-): UnrolledCausalLinks {
-  const ghosts = new Set<string>();
-  const edges = links.map((link) => {
-    const source = timeVaryingNames.has(link.cause) ? ghostId(link.cause) : link.cause;
-    if (isGhost(source)) ghosts.add(source);
-    return {
-      ...link,
-      crossSlice: isGhost(source),
-      source,
-      target: link.effect,
-    };
-  });
-  return { ghosts: [...ghosts], edges };
-}
-
-/**
- * Turn temporal links into the ghost nodes + ghost→present edges that realize
- * the unrolling. Callers add `ghosts` to their node list (sized + faded) and
- * `edges` alongside the contemporaneous edges.
- */
-export function buildGhostLinks(links: TemporalLink[]): GhostLinks {
-  const ghosts = new Set<string>();
-  const edges = links.map((link) => {
-    const source = ghostId(link.from);
-    ghosts.add(source);
-    return { source, target: link.to };
-  });
-  return { ghosts: [...ghosts], edges };
-}
-
-/** Glyph/spacer node size — matches the analysis interactive DAG's drift glyphs. */
+/** Glyph/spacer node size. */
 export const GLYPH_W = 86;
 export const GLYPH_H = 36;
-
-/**
- * ELK spacing shared with the analysis interactive DAG so the structural and
- * intervention graphs lay out identically given the same node/edge structure.
- */
-export const DAG_LAYOUT_OPTIONS: Record<string, string> = {
-  "elk.layered.spacing.nodeNodeBetweenLayers": "56",
-  "elk.spacing.nodeNode": "30",
-  "elk.spacing.edgeNode": "28",
-  "elk.spacing.edgeEdge": "16",
-  "elk.layered.spacing.edgeNodeBetweenLayers": "28",
-};
 
 /** A causal pair to lay out as `a → [glyph] → b`. */
 export interface GlyphPair {

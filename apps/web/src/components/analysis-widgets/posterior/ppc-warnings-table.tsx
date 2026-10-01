@@ -2,6 +2,7 @@
 
 import type {
   IndicatorSpec,
+  HistogramBin,
   PPCOverlay,
   PPCTestStat,
   PPCWarning,
@@ -19,7 +20,6 @@ import {
   YAxis,
 } from "recharts";
 import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
-import { PPC_P_LOWER, PPC_P_UPPER } from "@/lib/constants/diagnostics";
 import { formatNumber } from "@/lib/utils/format";
 
 // ── Row type (one per variable) ──────────────────────────
@@ -47,7 +47,7 @@ function buildRows(
   warnings: PPCWarning[],
   testStats: PPCTestStat[],
   overlays: PPCOverlay[],
-  indicators: IndicatorSpec[],
+  indicators: Pick<IndicatorSpec, "id" | "name">[],
 ): PPCVariableRow[] {
   const map = new Map<string, PPCVariableRow>();
   for (const w of warnings) {
@@ -59,7 +59,7 @@ function buildRows(
   for (const ov of overlays) {
     getOrCreate(map, ov.indicator_id).overlay = ov;
   }
-  const definitions = new Map<string, IndicatorSpec>(
+  const definitions = new Map<string, Pick<IndicatorSpec, "id" | "name">>(
     indicators.map((indicator) => [indicator.id, indicator]),
   );
   return Array.from(map.values()).map((row) => ({
@@ -75,7 +75,6 @@ function buildRows(
 export function TestStatSparkline({ stat }: { stat?: PPCTestStat }) {
   if (!stat) return <span className="text-xs text-muted-foreground">—</span>;
 
-  const bins = stat.histogram;
   const pValue = stat.p_value;
 
   return (
@@ -83,36 +82,48 @@ export function TestStatSparkline({ stat }: { stat?: PPCTestStat }) {
       <span className="text-xs font-mono">
         p = {pValue == null ? "—" : formatNumber(pValue, 2)}
       </span>
-      <div className="h-14 w-28">
-        <ResponsiveContainer width="100%" height="100%">
-          <BarChart data={bins} margin={{ top: 2, right: 2, left: 0, bottom: 0 }}>
-            <CartesianGrid strokeDasharray="3 3" className="stroke-muted" vertical={false} />
-            <XAxis
-              dataKey="bin_center"
-              type="number"
-              domain={["dataMin", "dataMax"]}
-              tick={false}
-              axisLine={{ stroke: "var(--border)" }}
-              height={2}
-            />
-            <YAxis hide />
-            <Bar dataKey="count" fill="var(--primary)" fillOpacity={0.5} />
-            <ReferenceLine x={stat.observed_value} stroke="var(--foreground)" strokeWidth={1.5} />
-          </BarChart>
-        </ResponsiveContainer>
-      </div>
+      <HistogramPlot histogram={stat.histogram} observed={stat.observed_value} />
+    </div>
+  );
+}
+
+export function HistogramPlot({
+  histogram,
+  observed,
+}: {
+  histogram: HistogramBin[];
+  observed?: number;
+}) {
+  return (
+    <div className="h-14 w-28">
+      <ResponsiveContainer width="100%" height="100%">
+        <BarChart data={histogram} margin={{ top: 2, right: 2, left: 0, bottom: 0 }}>
+          <CartesianGrid strokeDasharray="3 3" className="stroke-muted" vertical={false} />
+          <XAxis
+            dataKey="bin_center"
+            type="number"
+            domain={["dataMin", "dataMax"]}
+            tick={false}
+            axisLine={{ stroke: "var(--border)" }}
+            height={2}
+          />
+          <YAxis hide />
+          <Bar dataKey="count" fill="var(--primary)" fillOpacity={0.5} />
+          {observed !== undefined && (
+            <ReferenceLine x={observed} stroke="var(--foreground)" strokeWidth={1.5} />
+          )}
+        </BarChart>
+      </ResponsiveContainer>
     </div>
   );
 }
 
 // ── Overlay sparkline (observed series over simulated ones) ─
 
-const SAMPLE_LINES = 5;
-
 export function OverlaySparkline({ overlay }: { overlay?: PPCOverlay }) {
   if (!overlay) return <span className="text-xs text-muted-foreground">—</span>;
 
-  const samples = overlay.spaghetti_draws.slice(0, SAMPLE_LINES);
+  const samples = overlay.spaghetti_draws;
   const data = overlay.observed.map((obs, i) => ({
     t: i,
     observed: obs,
@@ -201,7 +212,7 @@ const columns: ColumnDef<PPCVariableRow, unknown>[] = [
     header: () => (
       <HeaderWithTooltip
         label="y vs y_rep"
-        tooltip="Observed data (solid) vs 95% predictive band (shaded) and median (dashed). Data outside the band suggests misfit."
+        tooltip="Observed data (solid), every retained predictive series, and the predictive median (dashed)."
       />
     ),
     cell: ({ row }) => <OverlaySparkline overlay={row.original.overlay} />,
@@ -237,15 +248,6 @@ const columns: ColumnDef<PPCVariableRow, unknown>[] = [
       id: `t_${sn}`,
       header: () => <HeaderWithTooltip label={`T(${sn})`} tooltip={STAT_TOOLTIPS[sn]} />,
       cell: ({ row }) => <TestStatSparkline stat={row.original.testStats[sn]} />,
-      meta: {
-        severity: (_v: unknown, row: PPCVariableRow) => {
-          const stat = row.testStats[sn];
-          if (!stat) return undefined;
-          const p = stat.p_value;
-          if (p == null) return undefined;
-          return p < PPC_P_LOWER || p > PPC_P_UPPER ? "warn" : undefined;
-        },
-      },
     }),
   ),
 ];
@@ -261,7 +263,7 @@ export function PPCWarningsTable({
   warnings: PPCWarning[];
   testStats: PPCTestStat[];
   overlays: PPCOverlay[];
-  indicators: IndicatorSpec[];
+  indicators: Pick<IndicatorSpec, "id" | "name">[];
 }) {
   const rows = buildRows(warnings, testStats, overlays, indicators);
   if (rows.length === 0) return null;

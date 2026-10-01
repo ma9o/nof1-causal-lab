@@ -2,7 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { modelConstructs, referencedParameterIds } from "@/lib/model-accessors";
+import { coefficientUses, modelConstructs } from "@/lib/model-accessors";
 import type { SimulationWithEffects } from "@/lib/simulation-report";
 import { demoModel, demoModelSnapshot, demoPosterior } from "./demo-artifacts";
 import { predictiveChecks } from "./inference-data";
@@ -17,10 +17,10 @@ describe("promoted DEMO fixture", () => {
   it("keeps one scientific catalog with all references resolved", () => {
     const { edges, parameters } = demoModel;
     const constructs = modelConstructs(demoModel);
-    const indicators = constructs.flatMap((c) => c.indicators ?? []);
+    const indicators = constructs.flatMap((c) => c.indicators);
     const mechanisms = [
-      ...constructs.flatMap((c) => c.dynamics ?? []),
-      ...edges.flatMap((e) => e.mechanisms ?? []),
+      ...constructs.flatMap((c) => c.dynamics),
+      ...edges.flatMap((e) => e.mechanisms),
     ];
     const ids = new Set([...constructs, ...edges, ...indicators, ...mechanisms].map((e) => e.id));
     expect(constructs).toHaveLength(17);
@@ -32,7 +32,7 @@ describe("promoted DEMO fixture", () => {
       expect(ids.has(edge.effect.id)).toBe(true);
     }
     const parameterIds = new Set(parameters.map((parameter) => parameter.id));
-    for (const id of referencedParameterIds([constructs, edges]))
+    for (const { parameterId: id } of coefficientUses([constructs, edges]))
       expect(parameterIds.has(id as (typeof parameters)[number]["id"])).toBe(true);
     for (const parameter of parameters) {
       expect("owners" in parameter).toBe(false);
@@ -56,10 +56,10 @@ describe("promoted DEMO fixture", () => {
       coordinates,
     );
     expect(posterior.inference_diagnostics).toEqual(demoPosterior.inference_diagnostics);
-    const observed = demoModelSnapshot.findings.prior_predictive!.value.samples!;
-    expect(predictiveChecks.overlays.map((o) => o.indicator_id).sort()).toEqual(
-      Object.keys(observed).sort(),
+    const indicators = new Set(
+      modelConstructs(demoModel).flatMap((construct) => construct.indicators.map((i) => i.id)),
     );
+    expect(predictiveChecks.overlays.every((o) => indicators.has(o.indicator_id))).toBe(true);
   });
 
   it("materializes comprehensive DAG layers only where their process semantics exist", () => {
@@ -80,7 +80,7 @@ describe("promoted DEMO fixture", () => {
 
     // Retained illustrative traces cover the constructs with authored dynamics.
     const stateIds = modelConstructs(demoModel)
-      .filter((construct) => (construct.dynamics ?? []).length > 0)
+      .filter((construct) => construct.dynamics.length > 0)
       .map((construct) => construct.id)
       .sort();
 

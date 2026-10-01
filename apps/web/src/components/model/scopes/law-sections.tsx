@@ -17,7 +17,7 @@ import { type LawCurve, lawCurves, lawLabel } from "@/lib/model-asset/laws";
 import type { ScopeContext } from "@/lib/model-asset/scope";
 import { humanize } from "@/lib/model-asset/selection";
 import { Hint, KeyValue, Section, StatusIcon } from "../scope-primitives";
-import { SimulationHistory } from "./recorded-history";
+import { EmpiricalPlot, SimulationHistory } from "./recorded-history";
 
 function interval(curve: LawCurve): string {
   const days = curve.parameter.reference_interval_days;
@@ -149,7 +149,7 @@ export function PosteriorPairs({ context }: { context: ScopeContext }) {
   const [xId, setX] = useState<string | null>(null);
   const [yId, setY] = useState<string | null>(null);
   const columns = draws.data?.columns ?? [];
-  const x = columns.find((column) => column.subject.element_id === xId) ?? columns[0];
+  const x = columns.find((column) => column.subject.element_id === xId) ?? columns.at(0);
   const y =
     columns.find((column) => column.subject.element_id === yId) ??
     columns.find((column) => column.subject.element_id !== x?.subject.element_id);
@@ -188,6 +188,7 @@ export function PosteriorPairs({ context }: { context: ScopeContext }) {
                 </label>
               ),
           )}
+          <EmpiricalPlot points={x.empirical} label={x.label} xLabel={humanize(x.label)} />
           {y && (
             <PosteriorPairsChart
               pair={{

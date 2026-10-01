@@ -9,10 +9,11 @@ import Link from "next/link";
 import { useEffect, useMemo, useRef } from "react";
 import { LayeredCausalGraph } from "@/components/dag/layered/layered-causal-graph";
 import { Button } from "@/components/ui/button";
-import type { EpisodeProgressPayload } from "@/lib/api/analysis";
 import { useLLMTraceForAction } from "@/lib/hooks/use-llm-trace";
 import { useModelSnapshot } from "@/lib/hooks/use-model-snapshot";
+import type { StudyJournal } from "@/lib/hooks/use-study-journal";
 import { useSimulationPaths } from "@/lib/hooks/use-visuals";
+import { useDataDiff } from "@/lib/hooks/use-model-diff";
 import {
   useWorkbench,
   useWorkbenchSnapshots,
@@ -26,8 +27,9 @@ export interface CausalModelAssetViewProps {
   workspaceId: string;
   question: string | undefined;
   useSnapshot: SnapshotReader;
-  transitions: StudyRevision[];
-  branches: EpisodeProgressPayload["branches"];
+  attempts: StudyRevision[];
+  branches: StudyJournal["branches"];
+  dependencies: StudyJournal["dependencies"];
   useActionTrace: UseActionTrace;
   running: RunningAction | null;
 }
@@ -37,10 +39,12 @@ export interface CausalModelAssetViewProps {
  * on the right says what that action did and what came of it. The graph, with the details pane
  * below it, shows the state the action left: the graph one part at a glance, the details pane in
  * depth. The agent harness makes every change, so no pane offers writes.
+ * A data_diff leaf records a comparison without changing that state: the graph and details
+ * overlay its saved evidence on the parent version, and the record states what was compared.
  */
 export function CausalModelAssetView(props: CausalModelAssetViewProps) {
   const { selected, current, viewAt, focusSeq } = useWorkbenchSnapshots(
-    props.transitions,
+    props.attempts,
     props.branches,
     props.useSnapshot,
   );
@@ -71,8 +75,9 @@ export function CausalModelAssetView(props: CausalModelAssetViewProps) {
 function ModelRevision({
   workspaceId,
   question: initialQuestion,
-  transitions,
+  attempts,
   branches,
+  dependencies,
   useActionTrace,
   model,
   currentModel,
@@ -103,18 +108,24 @@ function ModelRevision({
     question,
     simulationResult,
     select,
-    context,
+    context: versionContext,
   } = useWorkbench({
     workspaceId,
     question: initialQuestion,
-    transitions,
+    attempts,
     model,
     currentModel,
     viewAt,
   });
   const recordedPaths = useSimulationPaths(model);
+  const tick = ticks.find((item) => item.seq === focusSeq);
+  const dataDiff = useDataDiff(
+    workspaceId,
+    tick?.action === "data_diff" && tick.status === "applied" ? tick.commitId : null,
+  );
+  const context = { ...versionContext, dataDiff };
   // Nodes chart what the viewed version's action produced.
-  const step = ticks.find((tick) => tick.seq === playhead)?.action ?? null;
+  const step = tick?.action ?? null;
   const comparisonPane = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (activeComparison?.pinned) {
@@ -144,9 +155,9 @@ function ModelRevision({
       </header>
       <VersionScrubber
         ticks={ticks}
+        dependencies={dependencies}
         playhead={focusSeq}
         latest={latest}
-        branches={branches}
         branch={model.context.branch}
         comparedSeq={activeComparison?.after ?? null}
         onPlayhead={selectVersion}
@@ -235,6 +246,7 @@ function ModelRevision({
                   entities={context.entities}
                   simulation={step === "simulate" ? simulationResult : null}
                   simulationPaths={step === "simulate" ? recordedPaths.data : null}
+                  dataDiff={dataDiff.data ?? null}
                   step={step}
                   selection={selection}
                   onSelect={select}
@@ -251,27 +263,26 @@ function ModelRevision({
               )}
             </div>
           </section>
-          {selection && (
-            <DetailsPane
-              selection={selection}
-              context={context}
-              loading={loadingRevision}
-              onClose={() => select(null)}
-            />
-          )}
+          <DetailsPane
+            selection={selection}
+            context={context}
+            loading={loadingRevision || dataDiff.isLoading}
+            tick={tick}
+          />
         </div>
         <aside
           aria-label="Action record"
           className="relative flex h-[480px] min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border bg-card md:h-auto"
         >
-          {loadingRevision ? (
+          {loadingRevision || dataDiff.isLoading ? (
             <p role="status" className="p-3 text-xs">
               Loading action record…
             </p>
           ) : (
             <ActionRecord
+              workspaceId={workspaceId}
               context={context}
-              tick={ticks.find((tick) => tick.seq === focusSeq)}
+              tick={tick}
               running={
                 // Work dispatched after a branch head has no node yet; it runs under that head.
                 running &&
@@ -293,11 +304,11 @@ function ModelRevision({
 export function CausalModelAsset({
   workspaceId,
   question,
-  episode,
+  journal,
 }: {
   workspaceId: string;
   question: string | undefined;
-  episode: EpisodeProgressPayload;
+  journal: StudyJournal;
 }) {
   const useSnapshot = useMemo(
     () =>
@@ -309,7 +320,7 @@ export function CausalModelAsset({
   const useActionTrace = useMemo<UseActionTrace>(
     () =>
       function useWorkspaceActionTrace(seq, enabled): ActionTraceState {
-        const record = episode.transitions.find((transition) => transition.seq === seq);
+        const record = journal.attempts.find((attempt) => attempt.seq === seq);
         const traceIds = record?.trace_ids ?? [];
         const query = useLLMTraceForAction(
           workspaceId,
@@ -321,17 +332,18 @@ export function CausalModelAsset({
         if (query.data) return { status: "ready", trace: query.data };
         return { status: "loading" };
       },
-    [workspaceId, episode.transitions],
+    [workspaceId, journal.attempts],
   );
   return (
     <CausalModelAssetView
       workspaceId={workspaceId}
       question={question}
       useSnapshot={useSnapshot}
-      transitions={episode.transitions}
-      branches={episode.branches}
+      attempts={journal.attempts}
+      branches={journal.branches}
+      dependencies={journal.dependencies}
       useActionTrace={useActionTrace}
-      running={episode.running}
+      running={journal.running}
     />
   );
 }

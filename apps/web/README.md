@@ -14,7 +14,7 @@ Server-side routes default to local pipeline services:
 
 - `TOOL_SERVER_URL=http://localhost:8100`
 
-All pipeline interaction goes through the tool server's episode facade (`/api/episodes/...`): runs are moves against the episode state machine, and progress is polled from the episode journal and telemetry event stream.
+All pipeline interaction goes through the tool server's study facade (`/api/studies/...`): the viewer polls the study status and attempt journal, and a running data preparation's live progress from its attempt's event stream.
 
 OpenRouter web access uses these server-side env vars:
 

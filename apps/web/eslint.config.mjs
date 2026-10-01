@@ -13,7 +13,11 @@ const eslintConfig = defineConfig([
     languageOptions: {
       parserOptions: {
         projectService: {
-          allowDefaultProject: [".storybook/*.ts", ".storybook/svg-materializer/*.ts", ".storybook/svg-materializer/*.tsx"],
+          allowDefaultProject: [
+            ".storybook/*.ts",
+            ".storybook/svg-materializer/*.ts",
+            ".storybook/svg-materializer/*.tsx",
+          ],
         },
         tsconfigRootDir: import.meta.dirname,
       },

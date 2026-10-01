@@ -32,6 +32,7 @@ export function HistoryPlot({
   markers = [],
   step = false,
   description,
+  compact = false,
 }: {
   times: number[];
   series: HistoryLine[];
@@ -42,9 +43,10 @@ export function HistoryPlot({
   pointsOnly?: boolean;
   levels?: string[] | null;
   support?: { start: (number | null)[]; end: (number | null)[] };
-  markers?: number[];
+  markers?: { time: number; label: string }[];
   step?: boolean;
   description?: string;
+  compact?: boolean;
 }) {
   const id = useId();
   const [window, setWindow] = useState<[number, number] | null>(null);
@@ -66,9 +68,11 @@ export function HistoryPlot({
   const [low, high] = valueExtent(values);
   const lo = low ?? 0;
   const hi = high ?? 1;
-  const width = 760,
-    height = 290;
-  const plot = { left: 66, right: 744, top: 18, bottom: 246 };
+  const width = compact ? 240 : 760,
+    height = compact ? 64 : 290;
+  const plot = compact
+    ? { left: 2, right: 238, top: 2, bottom: 62 }
+    : { left: 66, right: 744, top: 18, bottom: 246 };
   const sx = scaleLinear()
     .domain(domain[0] === domain[1] ? [domain[0] - 0.5, domain[1] + 0.5] : domain)
     .range([plot.left, plot.right]);
@@ -93,7 +97,13 @@ export function HistoryPlot({
     .curve(step ? curveStepAfter : curveLinear);
 
   const canvas = (suffix: string) => (
-    <svg viewBox={`0 0 ${width} ${height}`} className="w-full" role="img" aria-label={label}>
+    <svg
+      viewBox={`0 0 ${width} ${height}`}
+      className={compact ? "size-full" : "w-full"}
+      preserveAspectRatio={compact ? "none" : "xMidYMid meet"}
+      role="img"
+      aria-label={label}
+    >
       <defs>
         <clipPath id={`${id}-${suffix}`}>
           <rect
@@ -104,60 +114,71 @@ export function HistoryPlot({
           />
         </clipPath>
       </defs>
-      {yTicks.map((tick) => (
-        <g key={tick}>
-          <line x1={plot.left} x2={plot.right} y1={sy(tick)} y2={sy(tick)} stroke="var(--border)" />
+      {!compact &&
+        yTicks.map((tick) => (
+          <g key={tick}>
+            <line
+              x1={plot.left}
+              x2={plot.right}
+              y1={sy(tick)}
+              y2={sy(tick)}
+              stroke="var(--border)"
+            />
+            <text
+              x={plot.left - 7}
+              y={sy(tick)}
+              dominantBaseline="middle"
+              textAnchor="end"
+              fontSize={11}
+              fill="currentColor"
+            >
+              {levels?.[tick] ?? formatSignificant(tick)}
+            </text>
+          </g>
+        ))}
+      {!compact &&
+        sx.ticks(5).map((tick) => (
           <text
-            x={plot.left - 7}
-            y={sy(tick)}
-            dominantBaseline="middle"
-            textAnchor="end"
+            key={tick}
+            x={sx(tick)}
+            y={plot.bottom + 18}
+            textAnchor="middle"
             fontSize={11}
             fill="currentColor"
           >
-            {levels?.[tick] ?? formatSignificant(tick)}
+            {formatSignificant(tick)}
           </text>
-        </g>
-      ))}
-      {sx.ticks(5).map((tick) => (
+        ))}
+      {!compact && (
         <text
-          key={tick}
-          x={sx(tick)}
-          y={plot.bottom + 18}
+          x={(plot.left + plot.right) / 2}
+          y={height - 7}
           textAnchor="middle"
           fontSize={11}
           fill="currentColor"
         >
-          {formatSignificant(tick)}
+          {axisLabel.replaceAll("_", " ")}
         </text>
-      ))}
-      <text
-        x={(plot.left + plot.right) / 2}
-        y={height - 7}
-        textAnchor="middle"
-        fontSize={11}
-        fill="currentColor"
-      >
-        {axisLabel.replaceAll("_", " ")}
-      </text>
-      {yLabel && (
+      )}
+      {!compact && yLabel && (
         <text x={plot.left} y={10} fontSize={10} fill="currentColor">
           {yLabel.replaceAll("_", " ")}
         </text>
       )}
       <g clipPath={`url(#${id}-${suffix})`}>
-        {markers.map((time) => (
-          <line
-            key={time}
-            x1={sx(time)}
-            x2={sx(time)}
-            y1={plot.top}
-            y2={plot.bottom}
-            stroke="var(--foreground)"
-            strokeDasharray="3 3"
-          >
-            <title>Intervention at {title(time)}</title>
-          </line>
+        {markers.map(({ time, label }) => (
+          <g key={`${time}-${label}`} role="img" aria-label={label}>
+            <line
+              x1={sx(time)}
+              x2={sx(time)}
+              y1={plot.top}
+              y2={plot.bottom}
+              stroke="var(--foreground)"
+              strokeDasharray="3 3"
+            >
+              <title>{label}</title>
+            </line>
+          </g>
         ))}
         {series.map((row, rowIndex) => {
           const color = row.color ?? PATH_COLORS[rowIndex % PATH_COLORS.length];
@@ -222,6 +243,7 @@ export function HistoryPlot({
       </g>
     </svg>
   );
+  if (compact) return canvas("compact");
   return (
     <figure className="m-0 space-y-2">
       <div className="flex flex-wrap items-center gap-2 text-[10px]">

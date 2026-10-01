@@ -1,7 +1,7 @@
 "use client";
 
 import { LandingPageView, MAX_FILE_SIZE } from "@/components/landing/landing-page-view";
-import { WorkspacesRail } from "@/components/pipeline/workspaces-rail";
+import { WorkspacesRail } from "@/components/landing/workspaces-rail";
 import { apiFetch } from "@/lib/api/client";
 import { getCapabilities, getCapabilitiesQueryKey } from "@/lib/api/capabilities";
 import { getWorkspaces, getWorkspacesQueryKey } from "@/lib/api/workspaces";

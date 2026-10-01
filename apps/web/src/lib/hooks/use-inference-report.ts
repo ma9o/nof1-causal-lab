@@ -13,7 +13,7 @@ export function useInferenceReport(model: ModelSnapshot) {
     queryKey: ["inference-report", workspaceId, commitId, branch],
     queryFn: async ({ signal }) => {
       const { data, error, response } = await modelClient.GET(
-        "/api/episodes/{workspace_id}/model/inference-report",
+        "/api/studies/{workspace_id}/model/inference-report",
         {
           params: { path: { workspace_id: workspaceId }, query: { at: commitId, branch } },
           signal,

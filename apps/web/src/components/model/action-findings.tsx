@@ -1,9 +1,8 @@
 import type { ScopeContext } from "@/lib/model-asset/scope";
 import type { JournalTick } from "@/lib/model-asset/journal";
-import { humanize } from "@/lib/model-asset/selection";
+import { resolveEntity } from "@/lib/model-asset/entities";
+import { humanize, type EntitySelection } from "@/lib/model-asset/selection";
 import { Hint, OwnerLink, Section, StatusIcon } from "./scope-primitives";
-import { PredictiveFindings } from "./simulation-evidence";
-import { SpecificationFindings } from "./specification-findings";
 
 /** Only this action's new checks and produced findings belong in its record. */
 export function ActionFindings({ context, tick }: { context: ScopeContext; tick: JournalTick }) {
@@ -12,118 +11,143 @@ export function ActionFindings({ context, tick }: { context: ScopeContext; tick:
   const reused = tick.checks?.reused ?? [];
   const identification =
     produced.has("identification_report") && !reused.includes("identification")
-      ? model.findings.identification
+      ? model.findings.identification?.value
       : null;
   const validation =
     produced.has("validation_report") && !reused.includes("compatibility")
-      ? model.findings.validation_report
+      ? model.findings.validation_report?.value
       : null;
-  const data = validation ?? (produced.has("data_profile") ? model.data.profile : null);
+  const data = validation ?? (produced.has("data_profile") ? model.data.profile?.value : null);
   const predictive = !reused.includes("predictive") ? tick.checks?.predictive : null;
-  const targets = new Set([
-    ...(predictive?.findings.map((finding) =>
-      entities.indicators.some((indicator) => indicator.id === finding.target)
-        ? finding.target
-        : finding.construct_id,
-    ) ?? []),
-    ...(predictive?.predictive_checks?.per_variable_warnings.map(
-      (finding) => finding.indicator_id,
-    ) ?? []),
-  ]);
-  const indicators = entities.indicators.filter((indicator) => targets.has(indicator.id));
-  const constructs = entities.constructs.filter((construct) => targets.has(construct.id));
-  const dataIssues =
-    data &&
-    (data.value.dataset_issues.length > 0 ||
-      Object.values(data.value.indicators).some((audit) => audit.issues.length > 0));
+  const findings: Array<{
+    label: string;
+    reason: string;
+    status: "failed" | "warning" | "not_evaluated";
+    owner?: EntitySelection;
+  }> = [];
+  for (const finding of [
+    ...(!reused.includes("specification") ? (tick.checks?.specification.findings ?? []) : []),
+    ...(validation?.preflight.findings ?? []),
+  ]) {
+    if (finding.status !== "passed")
+      findings.push({
+        label: humanize(finding.check),
+        reason: finding.message,
+        status: finding.status,
+      });
+  }
+  for (const issue of [
+    ...(data?.dataset_issues ?? []),
+    ...Object.entries(data?.indicators ?? {}).flatMap(([id, audit]) =>
+      audit.issues.map((issue) => ({ ...issue, indicator_id: id })),
+    ),
+  ]) {
+    if (issue.severity === "info") continue;
+    const indicator = entities.indicators.find((item) => item.id === issue.indicator_id);
+    const variable = model.data.metadata?.value.variables.find(
+      (item) => item.id === issue.indicator_id,
+    );
+    findings.push({
+      label: humanize(indicator?.name ?? variable?.name ?? "Dataset"),
+      reason: issue.message,
+      status: issue.severity === "error" ? "failed" : "warning",
+      owner: indicator ? { kind: "indicator", id: indicator.id } : undefined,
+    });
+  }
+  for (const construct of entities.constructs) {
+    const finding = identification?.treatments[construct.id];
+    if (finding?.status === "not_identified")
+      findings.push({
+        label: humanize(construct.name),
+        reason: [
+          "Not identified.",
+          finding.confounders.length
+            ? `Confounded by ${finding.confounders.map((id) => humanize(entities.constructById.get(id)!.name)).join(", ")}.`
+            : "",
+          finding.notes,
+        ]
+          .filter(Boolean)
+          .join(" "),
+        status: "failed",
+        owner: { kind: "construct", id: construct.id },
+      });
+  }
+  for (const finding of predictive?.findings ?? []) {
+    if (finding.passed !== false) continue;
+    const indicator = entities.indicators.find((item) => item.id === finding.target);
+    const edge = entities.edges.find((item) => item.id === finding.target);
+    const construct = entities.constructs.find((item) => item.id === finding.construct_id);
+    const owner: EntitySelection | undefined = indicator
+      ? { kind: "indicator", id: indicator.id }
+      : edge
+        ? { kind: "edge", id: edge.id }
+        : construct
+          ? { kind: "construct", id: construct.id }
+          : undefined;
+    const entity = owner && resolveEntity(entities, owner);
+    findings.push({
+      label: `${humanize(finding.check)}${entity ? ` · ${entity.label}` : ""}`,
+      reason: finding.note,
+      status: "failed",
+      owner,
+    });
+  }
+  for (const check of predictive?.predictive_checks?.per_variable_warnings ?? []) {
+    if (check.passed) continue;
+    const indicator = entities.indicatorById.get(check.indicator_id)!;
+    findings.push({
+      label: `${humanize(check.check_type)} · ${humanize(indicator.name)}`,
+      reason: check.message,
+      status: "failed",
+      owner: { kind: "indicator", id: indicator.id },
+    });
+  }
+  if (predictive?.status === "not_evaluated")
+    findings.push({
+      label: "Predictive checks",
+      reason: predictive.detail ?? humanize(predictive.reason!).toLowerCase(),
+      status: "not_evaluated",
+    });
+  if (tick.messages.some((message) => message.label === "EXTRACTION_PARTIAL"))
+    findings.push({
+      label: "Extraction incomplete",
+      reason: "Some extraction workers failed. The prepared data is incomplete.",
+      status: "warning",
+    });
   return (
     <>
-      {tick.extractionPartial && (
-        <Section title="Extraction incomplete">
-          <Hint issue>Some extraction workers failed. The prepared data is incomplete.</Hint>
+      {identification && Object.keys(identification.treatments).length > 0 && (
+        <Section title="Identification">
+          <Hint>
+            {
+              Object.values(identification.treatments).filter(
+                (finding) => finding.status === "identified",
+              ).length
+            }{" "}
+            identified;{" "}
+            {
+              Object.values(identification.treatments).filter(
+                (finding) => finding.status === "not_identified",
+              ).length
+            }{" "}
+            not identified.
+          </Hint>
         </Section>
       )}
-      {tick.checks &&
-        tick.checks.specification.findings.length > 0 &&
-        !reused.includes("specification") && (
-          <Section title="Specification">
-            <SpecificationFindings report={tick.checks.specification} />
-          </Section>
-        )}
-      {identification && Object.keys(identification.value.treatments).length > 0 && (
-        <Section title="Identification" source={identification.source}>
-          {entities.constructs
-            .filter((construct) => identification.value.treatments[construct.id])
-            .map((construct) => (
-              <OwnerLink
-                key={construct.id}
-                onClick={() => select({ kind: "construct", id: construct.id })}
-              >
-                {humanize(construct.name)} ·{" "}
-                {humanize(identification.value.treatments[construct.id].status)}
-              </OwnerLink>
-            ))}
-        </Section>
-      )}
-      {dataIssues && (
-        <Section title="Data findings" source={data.source}>
-          {data.value.dataset_issues.map((issue) => (
-            <div key={issue.issue_type + issue.message} className="flex gap-2">
-              {issue.severity !== "info" && (
-                <StatusIcon status={issue.severity === "error" ? "failed" : "warning"} />
-              )}
-              <Hint issue={issue.severity !== "info"}>{issue.message}</Hint>
+      {findings.length > 0 && (
+        <Section title="Problems">
+          {findings.map((finding, index) => (
+            <div key={index} className="flex items-start gap-2">
+              <StatusIcon status={finding.status} />
+              <p className="min-w-0">
+                {finding.owner ? (
+                  <OwnerLink onClick={() => select(finding.owner!)}>{finding.label}</OwnerLink>
+                ) : (
+                  finding.label
+                )}
+                : {finding.reason}
+              </p>
             </div>
-          ))}
-          {Object.entries(data.value.indicators)
-            .filter(([, audit]) => audit.issues.length > 0)
-            .map(([id, audit]) => {
-              const indicator = entities.indicators.find((item) => item.id === id);
-              return indicator ? (
-                <OwnerLink key={id} onClick={() => select({ kind: "indicator", id: indicator.id })}>
-                  {humanize(indicator.name)}
-                </OwnerLink>
-              ) : (
-                <Hint key={id} issue>
-                  {audit.issues.map((issue) => issue.message).join(" ")}
-                </Hint>
-              );
-            })}
-        </Section>
-      )}
-      {validation && validation.value.preflight.findings.length > 0 && (
-        <Section title="Compatibility" source={validation.source}>
-          <SpecificationFindings report={validation.value.preflight} />
-        </Section>
-      )}
-      {predictive && (
-        <Section title="Predictive checks">
-          {predictive.status === "not_evaluated" && (
-            <Hint>{predictive.detail ?? humanize(predictive.reason ?? "Not evaluated")}</Hint>
-          )}
-          <PredictiveFindings
-            entities={entities}
-            findings={predictive.findings.filter(
-              (finding) =>
-                !finding.construct_id &&
-                !entities.indicators.some((indicator) => indicator.id === finding.target),
-            )}
-          />
-          {indicators.map((indicator) => (
-            <OwnerLink
-              key={indicator.id}
-              onClick={() => select({ kind: "indicator", id: indicator.id })}
-            >
-              {humanize(indicator.name)}
-            </OwnerLink>
-          ))}
-          {constructs.map((construct) => (
-            <OwnerLink
-              key={construct.id}
-              onClick={() => select({ kind: "construct", id: construct.id })}
-            >
-              {humanize(construct.name)}
-            </OwnerLink>
           ))}
         </Section>
       )}

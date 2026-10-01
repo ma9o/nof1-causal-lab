@@ -126,9 +126,9 @@ export function readElkLayout(root: ElkNode): DagLayoutResult {
         }))
       : [];
     return {
-      id: e.id ?? "",
-      source: e.sources?.[0] ?? "",
-      target: e.targets?.[0] ?? "",
+      id: e.id,
+      source: e.sources.at(0) ?? "",
+      target: e.targets.at(0) ?? "",
       points,
     };
   });

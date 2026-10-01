@@ -1,6 +1,6 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import type { WorkspaceList } from "@/lib/server/workspaces";
-import { WorkspacesRail } from "@/components/pipeline/workspaces-rail";
+import { WorkspacesRail } from "./workspaces-rail";
 import { LandingPageView } from "./landing-page-view";
 
 const noop = () => {};

@@ -15,7 +15,7 @@ function produced(artifactId: Produced["artifact_id"], revision: string): Produc
 }
 function record(
   seq: number,
-  action: Pick<StudyRevision, "action" | "inputs" | "operation_id">,
+  action: Pick<StudyRevision, "action" | "inputs">,
   status: StudyRevision["status"],
   extra: Partial<StudyRevision> = {},
 ): StudyRevision {
@@ -30,7 +30,6 @@ function record(
     reason: null,
     diagnostics: {},
     messages: [],
-    resume: null,
     error_type: null,
     error_message: null,
     produced: [],
@@ -44,7 +43,6 @@ const JOURNAL: StudyRevision[] = [
     1,
     {
       action: "prepare_data",
-      operation_id: "raw_data",
       inputs: {},
     },
     "applied",
@@ -57,7 +55,6 @@ const JOURNAL: StudyRevision[] = [
     2,
     {
       action: "edit_model",
-      operation_id: null,
       inputs: { expected_revision: null },
     },
     "applied",
@@ -69,7 +66,6 @@ const JOURNAL: StudyRevision[] = [
     3,
     {
       action: "edit_model",
-      operation_id: "measurement_structure",
       inputs: {},
     },
     "applied",
@@ -85,7 +81,6 @@ const JOURNAL: StudyRevision[] = [
     4,
     {
       action: "edit_model",
-      operation_id: "statistical_model_spec",
       inputs: {},
     },
     "raised",
@@ -98,7 +93,6 @@ const JOURNAL: StudyRevision[] = [
     5,
     {
       action: "edit_model",
-      operation_id: "statistical_model_spec",
       inputs: {},
     },
     "rejected",
@@ -110,7 +104,6 @@ const JOURNAL: StudyRevision[] = [
     6,
     {
       action: "edit_model",
-      operation_id: "statistical_model_spec",
       inputs: {},
     },
     "applied",
@@ -125,7 +118,6 @@ const JOURNAL: StudyRevision[] = [
     7,
     {
       action: "edit_model",
-      operation_id: null,
       inputs: {},
     },
     "applied",
@@ -158,7 +150,6 @@ it("retains simulation findings as a committed checkpoint without an artifact ou
     8,
     {
       action: "simulate",
-      operation_id: "simulate",
       inputs: { model_revision: "4".padStart(40, "0") },
     },
     "applied",

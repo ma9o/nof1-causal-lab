@@ -2,8 +2,9 @@
 
 import type { ActionMessage, LLMTrace, RunningAction } from "@nof1-causal-lab/api-types";
 import { LoaderCircle, X } from "lucide-react";
-import { useMemo } from "react";
+import { Fragment, useMemo } from "react";
 import { ChatMessages } from "@/components/ui/custom/chat-messages";
+import { useAttemptProgress } from "@/lib/hooks/use-attempt-progress";
 import type { JournalTick } from "@/lib/model-asset/journal";
 import type { ScopeContext } from "@/lib/model-asset/scope";
 import { humanize } from "@/lib/model-asset/selection";
@@ -12,11 +13,9 @@ import { cn } from "@/lib/utils";
 import { traceToUIMessages } from "@/lib/utils/trace-to-ui-messages";
 import { ActionFindings } from "./action-findings";
 import { Hint, Section } from "./scope-primitives";
-import { DataDetails } from "./scopes/data-details";
+import { DataComparisonOutcome, DataDetails } from "./scopes/data-details";
 import { EditDetails } from "./scopes/edit-details";
-import { FitCalibration } from "./scopes/fit-calibration";
-import { FitDetails } from "./scopes/fit-details";
-import { SimulationEvidence } from "./simulation-evidence";
+import { FitOutcome } from "./scopes/fit-details";
 
 export type ActionTraceState =
   | { status: "loading" }
@@ -44,6 +43,64 @@ function ActionLabels({ messages }: { messages: ActionMessage[] }) {
         </li>
       ))}
     </ul>
+  );
+}
+
+/**
+ * What a running data preparation has reported: each step's latest status and the extraction
+ * workers' counts. No other action reports progress, so their running entries show messages alone.
+ */
+function AttemptProgress({ workspaceId, attemptId }: { workspaceId: string; attemptId: string }) {
+  const progress = useAttemptProgress(workspaceId, attemptId);
+  if (progress.error)
+    return (
+      <p role="alert" className="px-4 text-[10px] text-destructive">
+        {progress.error.message}
+      </p>
+    );
+  const view = progress.data;
+  if (!view) return null;
+  // Nothing retained for this attempt: progress is unknown, not zero.
+  if (view.cursor === null)
+    return <p className="px-4 text-[10px] text-muted-foreground">Progress unavailable.</p>;
+  const steps = (["ingestion", "extraction"] as const).flatMap((step) => view.steps[step] ?? []);
+  const finished = Object.values(view.workers).filter(
+    (worker) => worker.state === "completed" || worker.state === "failed",
+  );
+  return (
+    <dl
+      aria-label="Progress"
+      className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 px-4 py-1 font-mono text-[10px] text-muted-foreground"
+    >
+      {steps.map((step) => (
+        <Fragment key={step.step}>
+          <dt>{step.step}</dt>
+          <dd className={cn("break-all", step.status === "failed" && "text-destructive")}>
+            {step.status}
+            {step.error && ` · ${step.error.type}: ${step.error.message}`}
+          </dd>
+        </Fragment>
+      ))}
+      {view.snapshot && (
+        <>
+          <dt>workers</dt>
+          <dd>
+            {view.snapshot.completed_workers}/{view.snapshot.total_workers} completed ·{" "}
+            {view.snapshot.running_workers} running · {view.snapshot.pending_workers} pending ·{" "}
+            {view.snapshot.failed_workers} failed
+          </dd>
+        </>
+      )}
+      {finished.length > 0 && (
+        <>
+          <dt>LLM calls</dt>
+          <dd>
+            {finished.reduce((calls, worker) => calls + (worker.n_llm_calls ?? 0), 0)} reported by{" "}
+            {finished.length} finished {finished.length === 1 ? "worker" : "workers"}
+          </dd>
+        </>
+      )}
+    </dl>
   );
 }
 
@@ -86,15 +143,19 @@ function ActionTrace({
  * - fit: how it ran, in one line, and its verdict, such as parameter convergence failing for 7 of
  *   7 parameters with a worst R-hat of 2.3.
  * - simulate: the simulator's log and nothing more; everything the simulation produced is state.
- * An action the episode workflow is still executing has no timeline node yet, so it streams in
- * under the head it started from.
+ * - data_diff: which saved observations were compared, the failing checks and their reasons,
+ *   and why a variable could not be compared. The comparison evidence belongs to the state panes.
+ * An action the study workflow is still executing has no timeline node yet, so it streams in
+ * under the head it started from, with the progress it reports.
  */
 export function ActionRecord({
+  workspaceId,
   context,
   tick,
   running,
   useActionTrace,
 }: {
+  workspaceId: string;
   context: ScopeContext;
   tick: JournalTick | undefined;
   running: RunningAction | null;
@@ -117,7 +178,11 @@ export function ActionRecord({
       <div key={tick?.seq} className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 py-2">
         {tick ? (
           <>
-            {tick.status !== "applied" ? (
+            {tick.action === "simulate" ? (
+              <section role="log" aria-label="Simulator log">
+                <ActionLabels messages={tick.messages} />
+              </section>
+            ) : tick.status !== "applied" ? (
               <Section
                 title={`${humanize(tick.action).replace(/^./, (letter) => letter.toUpperCase())} failed`}
               >
@@ -127,17 +192,17 @@ export function ActionRecord({
               <>
                 {tick.action === "edit_model" && <EditDetails context={context} tick={tick} />}
                 {tick.action === "prepare_data" && <DataDetails context={context} tick={tick} />}
-                {tick.action === "fit" && (
-                  <>
-                    <FitDetails context={context} />
-                    <FitCalibration context={context} />
-                  </>
-                )}
-                {tick.action === "simulate" && <SimulationEvidence context={context} />}
+                {tick.action === "fit" && <FitOutcome context={context} />}
+                {tick.action === "data_diff" &&
+                  (context.dataDiff.error ? (
+                    <p role="alert">{context.dataDiff.error.message}</p>
+                  ) : (
+                    <DataComparisonOutcome context={context} />
+                  ))}
                 <ActionFindings context={context} tick={tick} />
               </>
             )}
-            {tick.traceIds.length > 0 && (
+            {tick.action !== "simulate" && tick.traceIds.length > 0 && (
               <details className="px-3 text-xs">
                 <summary className="cursor-pointer text-muted-foreground">
                   Agent conversation
@@ -161,6 +226,9 @@ export function ActionRecord({
               {running.action} · running
             </h3>
             <ActionLabels messages={running.messages} />
+            {running.action === "prepare_data" && (
+              <AttemptProgress workspaceId={workspaceId} attemptId={running.attempt_id} />
+            )}
           </section>
         )}
       </div>

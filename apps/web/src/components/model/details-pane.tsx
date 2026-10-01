@@ -2,61 +2,172 @@ import { DefinitionContext } from "./definition-context";
 import { Button } from "@/components/ui/button";
 import { resolveEntity } from "@/lib/model-asset/entities";
 import type { EntitySelection } from "@/lib/model-asset/selection";
-import { Hint } from "./scope-primitives";
-import { ConstructScope } from "./scopes/construct-scope";
+import { Hint, OwnerLink, Section } from "./scope-primitives";
+import { ConstructScope, IdentificationFinding } from "./scopes/construct-scope";
 import { EdgeScope } from "./scopes/edge-scope";
 import { IndicatorScope } from "./scopes/indicator-scope";
 import type { ScopeContext } from "@/lib/model-asset/scope";
+import type { JournalTick } from "@/lib/model-asset/journal";
+import { humanize } from "@/lib/model-asset/selection";
+import { Katex } from "@/components/analysis-widgets/statistical-model-spec/ssm-equation-display";
+import { DataComparisonEvidence, PreparedObservations } from "./scopes/data-details";
+import { FitDetails } from "./scopes/fit-details";
+import { SimulationEvidence } from "./simulation-evidence";
+import { PPCWarningsTable } from "@/components/analysis-widgets/posterior/ppc-warnings-table";
+
+function ModelScope({ context, tick }: { context: ScopeContext; tick: JournalTick | undefined }) {
+  if (!tick || tick.status !== "applied") return <Hint>No new model-wide state was produced.</Hint>;
+  if (tick.action === "fit") return <FitDetails context={context} />;
+  if (tick.action === "simulate") return <SimulationEvidence context={context} />;
+  if (tick.action === "prepare_data") return <PreparedObservations context={context} />;
+  if (tick.action === "data_diff")
+    return <DataComparisonEvidence context={context} selection={null} />;
+  const predictive =
+    tick.checks && !tick.checks.reused.includes("predictive") ? tick.checks.predictive : null;
+  const identification = context.model.findings.identification;
+  const diagnostics = context.model.findings.diagnostics;
+  const equations = diagnostics
+    ? [
+        ...diagnostics.state_equations.map((equation) => [equation.label, equation.latex]),
+        ...diagnostics.confounder_equations.map((equation) => [equation.label, equation.latex]),
+        ...Object.entries(diagnostics.observation_equations).map(([id, latex]) => [
+          context.entities.indicators.find((item) => item.id === id)!.name,
+          latex,
+        ]),
+      ]
+    : [];
+  return (
+    <>
+      {predictive && (
+        <Section title="Predictive checks" wide>
+          {predictive.predictive_checks ? (
+            <PPCWarningsTable
+              indicators={context.entities.indicators}
+              warnings={predictive.predictive_checks.per_variable_warnings}
+              testStats={predictive.predictive_checks.test_stats}
+              overlays={predictive.predictive_checks.overlays}
+            />
+          ) : (
+            <Hint>{predictive.detail}</Hint>
+          )}
+        </Section>
+      )}
+      {identification && (
+        <Section title="Identification" source={identification.source} wide>
+          {Object.keys(identification.value.treatments).length === 0 && (
+            <Hint>No treatment findings recorded.</Hint>
+          )}
+          {identification.value.outcome && (
+            <Hint>
+              Outcome:{" "}
+              {humanize(context.entities.constructById.get(identification.value.outcome)!.name)}
+            </Hint>
+          )}
+          {context.entities.constructs
+            .filter((construct) => construct.id in identification.value.treatments)
+            .map((construct) => (
+              <details key={construct.id}>
+                <summary className="cursor-pointer">
+                  <OwnerLink
+                    onClick={() => context.select({ kind: "construct", id: construct.id })}
+                  >
+                    {humanize(construct.name)}
+                  </OwnerLink>
+                  {" · "}
+                  {humanize(identification.value.treatments[construct.id].status)}
+                </summary>
+                <IdentificationFinding context={context} id={construct.id} />
+              </details>
+            ))}
+        </Section>
+      )}
+      {equations.length > 0 && (
+        <Section title="Equation system" wide>
+          {equations.map(([label, latex]) => (
+            <div key={label} className="min-w-0 space-y-2 border-b pb-2">
+              <Hint>{humanize(label)}</Hint>
+              <div className="overflow-x-auto pb-2">
+                <Katex latex={latex} />
+              </div>
+            </div>
+          ))}
+        </Section>
+      )}
+      {!identification && equations.length === 0 && (
+        <Hint>No identification report or equations recorded.</Hint>
+      )}
+    </>
+  );
+}
 
 /**
  * The state the selected action left, in depth. With a graph part selected it shows that part.
  * With nothing selected it shows the model-wide state that action produced, and only that:
- * - edit_model: the model as specified, meaning how the question is identified and the equations.
- * - prepare_data: the panel as a whole, meaning each variable's coverage over time and the
+ * - edit_model: the model as specified, meaning how the question is identified, the equations,
+ *   and the evidence of its predictive checks for every indicator under the laws the model holds.
+ * - prepare_data: the panel as a whole, meaning every variable's observations over time and the
  *   dataset-level issues.
- * - fit: the fitted model as a whole, meaning predictive calibration, latent mixing and the joint
- *   posterior.
- * - simulate: the simulation as a whole, meaning its design, the effect or why it is withheld,
- *   and its checks.
+ * - fit: the fitted model as a whole, meaning predictive calibration, latent mixing and the
+ *   joint posterior. Predictive comparisons of saved observations belong to data_diff.
+ * - simulate: the simulation as a whole, meaning its design, the paired draws of every state and
+ *   indicator, the effect's paired draws or why it is withheld, and its checks.
+ * - data_diff: every variable's observations and all replicates, test-statistic distributions,
+ *   each side's statistic histograms, point changes and comparison limitations. Selecting an
+ *   indicator scopes that evidence to it; selecting a construct scopes it to its indicators.
+ * Evidence stays at full resolution: distributions, individual draws and chains, observations
+ * over time. Counts, means, intervals and verdicts may label a chart but never replace it, because
+ * reading a Bayesian model depends on seeing the whole distribution.
  */
 export function DetailsPane({
   selection,
   context,
   loading,
-  onClose,
+  tick,
 }: {
-  selection: EntitySelection;
+  selection: EntitySelection | null;
   context: ScopeContext;
   loading: boolean;
-  onClose: () => void;
+  tick: JournalTick | undefined;
 }) {
-  const entity = resolveEntity(context.entities, selection);
+  const entity = selection ? resolveEntity(context.entities, selection) : null;
   return (
     <section
       aria-label="Model details"
       className="flex h-[460px] min-h-0 min-w-0 flex-none flex-col gap-3 overflow-hidden rounded-2xl border bg-card px-3 py-3 md:max-h-[52%]"
     >
       <div className="flex flex-none items-center gap-2 text-xs">
-        <h2 className="min-w-0 flex-1 font-semibold">{entity?.label ?? "Absent entity"}</h2>
-        <Button
-          type="button"
-          size="icon-sm"
-          variant="ghost"
-          aria-label="Close details"
-          onClick={onClose}
-        >
-          ×
-        </Button>
+        <h2 className="min-w-0 flex-1 font-semibold">
+          {selection ? (entity?.label ?? "Absent entity") : "Model state"}
+        </h2>
+        {selection && (
+          <Button
+            type="button"
+            size="icon-sm"
+            variant="ghost"
+            aria-label="Show model state"
+            onClick={() => context.select(null)}
+          >
+            ×
+          </Button>
+        )}
       </div>
       {entity && <DefinitionContext entity={entity} onSelect={context.select} />}
       <div
-        key={selection.id}
+        key={selection?.id ?? tick?.seq}
         className="flex min-h-0 flex-1 flex-col flex-wrap content-start items-start gap-x-[18px] gap-y-3 overflow-x-auto pb-2 [&>section]:max-h-full [&>section]:w-[280px] [&>section[data-wide]]:w-[400px] [&>section>div:last-child]:overflow-auto"
       >
         {loading ? (
           <p role="status" className="text-xs">
             Loading version…
           </p>
+        ) : context.dataDiff.error ? (
+          <p role="alert" className="text-xs">
+            {context.dataDiff.error.message}
+          </p>
+        ) : context.dataDiff.data ? (
+          <DataComparisonEvidence context={context} selection={selection} />
+        ) : !selection ? (
+          <ModelScope context={context} tick={tick} />
         ) : !entity ? (
           <Hint>This {selection.kind} is absent from this revision.</Hint>
         ) : selection.kind === "construct" ? (

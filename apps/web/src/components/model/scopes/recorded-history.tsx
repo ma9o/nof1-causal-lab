@@ -4,6 +4,7 @@ import type {
   PathSeries,
   SimulationSeriesSummary,
   EmpiricalPoint,
+  DataVariableDiff,
 } from "@nof1-causal-lab/api-types";
 import { useState } from "react";
 import { HistoryPlot, PATH_COLORS, type HistoryLine } from "@/components/charts/history-plot";
@@ -14,6 +15,63 @@ import {
   useSimulationPaths,
 } from "@/lib/hooks/use-visuals";
 import { Hint } from "../scope-primitives";
+import { COMPARISON_COLORS } from "@/lib/dag/palette";
+
+/** Align saved timestamps for plotting; no resampling, imputation or pooled statistics. */
+export function dataComparisonHistory(variable: DataVariableDiff) {
+  const histories = [...variable.left, ...variable.right];
+  const definition = histories.find((history) => history.variable !== null)!.variable!;
+  const anchors = [
+    ...new Set(histories.flatMap((history) => history.points.map((point) => point.anchor_time))),
+  ].sort();
+  const origin = anchors[0];
+  const series: HistoryLine[] = (["left", "right"] as const).flatMap((side) =>
+    variable[side].map((history, index) => {
+      const points = new Map(history.points.map((point) => [point.anchor_time, point.value]));
+      const reference = variable.reference_side === side;
+      return {
+        id: `${side}-${index}`,
+        label: `${reference ? "Observed" : side} · history ${index + 1}`,
+        values: anchors.map((anchor) => points.get(anchor) ?? null),
+        color: reference ? "var(--foreground)" : side === "left" ? "#64748b" : "#0ea5e9",
+        emphasized: reference,
+        dashed: side === "left" && variable.reference_side === null,
+      };
+    }),
+  );
+  // Reference observations sit above all replicas.
+  series.sort((a, b) => Number(a.emphasized) - Number(b.emphasized));
+  for (const change of ["added", "removed", "revised"] as const) {
+    const points = variable.changes.filter((point) => point.change === change);
+    if (points.length === 0) continue;
+    for (const side of ["left", "right"] as const) {
+      const values = new Map(
+        points.map((point) => [point.anchor_time, point[side]?.value ?? null]),
+      );
+      series.push({
+        id: `${change}-${side}`,
+        label: `${change} · ${side}`,
+        values: anchors.map((anchor) => values.get(anchor) ?? null),
+        color: COMPARISON_COLORS[change],
+        emphasized: true,
+        dashed: side === "left",
+      });
+    }
+  }
+  return {
+    label: `${definition.name}: data comparison`,
+    xLabel: "Days from first anchor",
+    times: anchors.map((anchor) => (Date.parse(anchor) - Date.parse(origin)) / 86400000),
+    timeOrigin: histories.every(
+      (history) => history.variable === null || history.time_origin !== null,
+    )
+      ? origin
+      : null,
+    series,
+    pointsOnly: variable.reference_side === null,
+    levels: definition.ordinal_levels ?? definition.categorical_levels,
+  };
+}
 
 export function DrawPager({
   start,
@@ -169,7 +227,10 @@ export function SimulationHistory({
         timeOrigin={paths.data.time_origin}
         pointsOnly={kind === "indicators"}
         levels={series.levels}
-        markers={model.findings.simulation?.value.design.interventions.map((event) => event.time)}
+        markers={model.findings.simulation?.value.design.interventions.map((event) => ({
+          time: event.time,
+          label: `Day ${event.time}: set to ${event.value}`,
+        }))}
         description={description}
       />
       {summary?.action.kind === "numeric" && (

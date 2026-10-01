@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/server/episode-runs", () => ({
-  EpisodeRunError: class EpisodeRunError extends Error {
+vi.mock("@/lib/server/study-runs", () => ({
+  StudyRunError: class StudyRunError extends Error {
     constructor(
       public status: number,
       message: string,
@@ -9,11 +9,10 @@ vi.mock("@/lib/server/episode-runs", () => ({
       super(message);
     }
   },
-  getOperationTraceIndex: vi.fn(),
-  getEpisodeTrace: vi.fn(),
+  getStudyTrace: vi.fn(),
 }));
 
-import { getOperationTraceIndex, getEpisodeTrace } from "@/lib/server/episode-runs";
+import { getStudyTrace } from "@/lib/server/study-runs";
 import { GET } from "./route";
 
 describe("GET /api/traces/[workspaceId]", () => {
@@ -21,13 +20,8 @@ describe("GET /api/traces/[workspaceId]", () => {
     vi.clearAllMocks();
   });
 
-  it("resolves the producing transition and merges its promoted traces", async () => {
-    vi.mocked(getOperationTraceIndex).mockResolvedValue({
-      workspace_id: "DEMO",
-      commit_id: "a".repeat(40),
-      trace_ids: ["construct-a", "construct-b"],
-    });
-    vi.mocked(getEpisodeTrace)
+  it("merges the named traces of one recorded action", async () => {
+    vi.mocked(getStudyTrace)
       .mockResolvedValueOnce({
         messages: [{ role: "assistant", content: "A", tool_is_error: false }],
         model: "model-a",
@@ -42,7 +36,9 @@ describe("GET /api/traces/[workspaceId]", () => {
       });
 
     const response = await GET(
-      new Request("http://localhost/api/traces/DEMO?artifact=statistical_model_spec"),
+      new Request(
+        `http://localhost/api/traces/DEMO?commitId=${"a".repeat(40)}&trace=construct-a&trace=construct-b`,
+      ),
       { params: Promise.resolve({ workspaceId: "DEMO" }) },
     );
 
@@ -56,21 +52,17 @@ describe("GET /api/traces/[workspaceId]", () => {
       total_time_seconds: 5,
       usage: { input_tokens: 7, output_tokens: 9, reasoning_tokens: 7 },
     });
-    expect(getEpisodeTrace).toHaveBeenNthCalledWith(1, "DEMO", "a".repeat(40), "construct-a");
-    expect(getEpisodeTrace).toHaveBeenNthCalledWith(2, "DEMO", "a".repeat(40), "construct-b");
+    expect(getStudyTrace).toHaveBeenNthCalledWith(1, "DEMO", "a".repeat(40), "construct-a");
+    expect(getStudyTrace).toHaveBeenNthCalledWith(2, "DEMO", "a".repeat(40), "construct-b");
   });
 
-  it("returns 404 when the producing transition has no promoted traces", async () => {
-    vi.mocked(getOperationTraceIndex).mockResolvedValue({
-      workspace_id: "DEMO",
-      commit_id: "b".repeat(40),
-      trace_ids: [],
-    });
-
-    const response = await GET(new Request("http://localhost/api/traces/DEMO?artifact=posterior"), {
-      params: Promise.resolve({ workspaceId: "DEMO" }),
-    });
+  it("returns 404 when the action names no traces", async () => {
+    const response = await GET(
+      new Request(`http://localhost/api/traces/DEMO?commitId=${"b".repeat(40)}`),
+      { params: Promise.resolve({ workspaceId: "DEMO" }) },
+    );
 
     expect(response.status).toBe(404);
+    expect(getStudyTrace).not.toHaveBeenCalled();
   });
 });

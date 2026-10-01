@@ -13,18 +13,6 @@ export function modelConstructs(model: ModelSpec | null | undefined): ConstructS
   );
 }
 
-export function modelIndicators(model: ModelSpec | null | undefined) {
-  return modelConstructs(model).flatMap((construct) => construct.indicators);
-}
-
-export function indicatorOwners(constructs: readonly ConstructSpec[]) {
-  return new Map(
-    constructs.flatMap((construct) =>
-      construct.indicators.map((indicator) => [indicator.id, construct] as const),
-    ),
-  );
-}
-
 /** A coefficient operand that names a parameter, with the quantity its authored role declares. */
 export interface CoefficientUse {
   role: CoefficientRole;
@@ -51,9 +39,4 @@ export function coefficientUses(component: unknown): CoefficientUse[] {
   };
   visit(component);
   return [...uses.values()];
-}
-
-/** Follow serialized coefficient references for presentation; labels do not identify parameters. */
-export function referencedParameterIds(component: unknown): Set<string> {
-  return new Set(coefficientUses(component).map((use) => use.parameterId));
 }

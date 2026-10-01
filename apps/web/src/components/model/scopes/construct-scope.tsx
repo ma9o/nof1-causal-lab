@@ -20,7 +20,7 @@ import { PredictiveFindings } from "../simulation-evidence";
 export function ConstructScope({ context, id }: { context: ScopeContext; id: ConstructId }) {
   const scope = constructPresentation(context, id);
   if (!scope) return null;
-  const { model, construct, indicators, disposition, identified, notIdentified, namesFor } = scope;
+  const { model, construct, indicators, disposition } = scope;
   const equations = model.findings.diagnostics;
   const predictive = model.findings.predictive;
   const findings =
@@ -76,39 +76,48 @@ export function ConstructScope({ context, id }: { context: ScopeContext; id: Con
           <Hint issue>{disposition.reason}</Hint>
         </Section>
       )}
-      {(identified || notIdentified) && (
-        <Section title="Identification" source={model.findings.identification?.source}>
-          {identified && (
-            <Callout tone="ok">
-              <div className="flex items-start gap-2">
-                <StatusIcon status="passed" label="Identified" />
-                <span>{humanize(identified.method)}</span>
-              </div>
-              {identified.marginalized_confounders.length > 0 && (
-                <p className="mt-2">
-                  Marginalized confounders: {namesFor(identified.marginalized_confounders)}.
-                </p>
-              )}
-              <p className="mt-2 break-words font-mono">{identified.estimand}</p>
-            </Callout>
-          )}
-          {notIdentified && (
-            <Callout tone="bad">
-              <div className="flex items-start gap-2">
-                <StatusIcon status="failed" label="Not identified" />
-                <span>
-                  {namesFor(notIdentified.confounders)} confound this treatment under the current
-                  design.{notIdentified.notes ? ` ${notIdentified.notes}` : ""}
-                </span>
-              </div>
-            </Callout>
-          )}
+      {model.findings.identification?.value.treatments[id] && (
+        <Section title="Identification" source={model.findings.identification.source}>
+          <IdentificationFinding context={context} id={id} />
         </Section>
       )}
       {findings.length > 0 && (
         <Section title="Predictive checks" source={predictive?.source} wide>
           <PredictiveFindings findings={findings} entities={context.entities} />
         </Section>
+      )}
+    </>
+  );
+}
+
+export function IdentificationFinding({ context, id }: { context: ScopeContext; id: ConstructId }) {
+  const { identified, notIdentified, namesFor } = constructPresentation(context, id)!;
+  return (
+    <>
+      {identified && (
+        <Callout tone="ok">
+          <div className="flex items-start gap-2">
+            <StatusIcon status="passed" label="Identified" />
+            <span>{humanize(identified.method)}</span>
+          </div>
+          {identified.marginalized_confounders.length > 0 && (
+            <p className="mt-2">
+              Marginalized confounders: {namesFor(identified.marginalized_confounders)}.
+            </p>
+          )}
+          <p className="mt-2 break-words font-mono">{identified.estimand}</p>
+        </Callout>
+      )}
+      {notIdentified && (
+        <Callout tone="bad">
+          <div className="flex items-start gap-2">
+            <StatusIcon status="failed" label="Not identified" />
+            <span>
+              {namesFor(notIdentified.confounders)} confound this treatment under the current
+              design.{notIdentified.notes ? ` ${notIdentified.notes}` : ""}
+            </span>
+          </div>
+        </Callout>
       )}
     </>
   );

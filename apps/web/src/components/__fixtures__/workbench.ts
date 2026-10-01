@@ -1,5 +1,6 @@
 import type {
   ArtifactRecord,
+  DataDiffReport,
   ModelDiffReport,
   ModelSnapshot,
   ModelSpec,
@@ -8,12 +9,14 @@ import type {
   PathSeries,
   ObservationHistory,
   MechanismCurves,
+  RecordDependency,
   SpecificationReport,
   StudyRevision,
+  StudyStatus,
+  TimelineResponse,
 } from "@nof1-causal-lab/api-types";
 import { delay, HttpResponse, http } from "msw";
 import { modelConstructs } from "@/lib/model-accessors";
-import type { EpisodeProgressPayload } from "@/lib/api/analysis";
 import { demoModelSnapshot, demoSnapshotAt } from "./demo-artifacts";
 import { demoTraces } from "./demo-traces";
 import comparisonFixture from "./workbench-comparisons.json";
@@ -54,11 +57,11 @@ const modelRef = (revision: string) => ({
 const logRef = (seq: number) => ({
   workspace_id: WORKBENCH_WORKSPACE,
   revision: commitId(seq),
-  path: "logs/transition.json",
+  path: "logs/attempt.json",
 });
 function record(
   seq: number,
-  action: Pick<StudyRevision, "action" | "inputs" | "operation_id">,
+  action: Pick<StudyRevision, "action" | "inputs">,
   produced: ArtifactRecord[] = [],
   diagnostics: StudyRevision["diagnostics"] = {},
 ): StudyRevision {
@@ -78,7 +81,6 @@ function record(
     reason: null,
     error_type: null,
     error_message: null,
-    resume: null,
   };
 }
 function metadata(
@@ -90,8 +92,7 @@ function metadata(
   return {
     artifact_id: "model",
     revision,
-    derived_from:
-      produced_by === "run:posterior" ? { model: parent, panel: panelId } : { model: parent },
+    derived_from: produced_by === "fit" ? { model: parent, panel: panelId } : { model: parent },
     model_inputs,
     consumed_model_inputs: {},
     produced_by,
@@ -106,7 +107,7 @@ function simulation(revision: string): SimulationReport {
   return {
     ...structuredClone(visualFixture.report as unknown as SimulationReport),
     model: modelRef(revision),
-    findings: [outcome.name, indicator.id].map((target) => ({
+    findings: [outcome.id, indicator.id].map((target) => ({
       check: "dispersion",
       target,
       construct_id: outcome.id,
@@ -162,15 +163,6 @@ function branchSnapshot(
   snapshot.context.workspace_id = WORKBENCH_WORKSPACE;
   snapshot.context.seq = seq;
   snapshot.context.state.current.model = info;
-  snapshot.context.artifacts = snapshot.context.artifacts.map((artifact) =>
-    artifact.artifact_id === "model"
-      ? {
-          ...artifact,
-          revision: info.revision,
-          produced_by: info.produced_by,
-        }
-      : artifact,
-  );
   snapshot.model = {
     value: models.get(info.revision)!,
     source: {
@@ -202,9 +194,9 @@ function branchSnapshot(
     : null;
   return snapshot;
 }
-const v5 = metadata(modelId(5), modelId(4), "run:posterior", freeInputs);
-const v6 = metadata(modelId(6), modelId(4), "run:posterior", freeInputs);
-const v7 = metadata(modelId(7), modelId(6), "write:model", pinnedInputs);
+const v5 = metadata(modelId(5), modelId(4), "fit", freeInputs);
+const v6 = metadata(modelId(6), modelId(4), "fit", freeInputs);
+const v7 = metadata(modelId(7), modelId(6), "edit_model", pinnedInputs);
 snapshots.set(8, branchSnapshot(8, v5, true));
 snapshots.set(9, branchSnapshot(9, v5, true, simulations.get(5)));
 snapshots.set(10, branchSnapshot(10, v6, true));
@@ -215,7 +207,6 @@ const journal: StudyRevision[] = [
     1,
     {
       action: "prepare_data",
-      operation_id: "raw_data",
       inputs: {},
     },
     [snapshots.get(1)!.context.state.current.raw_data!],
@@ -224,7 +215,6 @@ const journal: StudyRevision[] = [
     2,
     {
       action: "edit_model",
-      operation_id: null,
       inputs: { expected_revision: null },
     },
     [snapshots.get(2)!.context.state.current.model!],
@@ -234,7 +224,6 @@ const journal: StudyRevision[] = [
       3,
       {
         action: "edit_model",
-        operation_id: "latent_structure",
         inputs: {},
       },
       [snapshots.get(3)!.context.state.current.model!],
@@ -246,7 +235,6 @@ const journal: StudyRevision[] = [
       4,
       {
         action: "edit_model",
-        operation_id: "measurement_structure",
         inputs: {},
       },
       [snapshots.get(4)!.context.state.current.model!],
@@ -258,7 +246,6 @@ const journal: StudyRevision[] = [
       5,
       {
         action: "prepare_data",
-        operation_id: "measurements",
         inputs: {
           input: {
             source: { file: "demo-observations.parquet" },
@@ -275,7 +262,6 @@ const journal: StudyRevision[] = [
   {
     ...record(6, {
       action: "edit_model",
-      operation_id: "statistical_model_spec",
       inputs: {},
     }),
     status: "raised",
@@ -288,7 +274,6 @@ const journal: StudyRevision[] = [
       7,
       {
         action: "edit_model",
-        operation_id: "statistical_model_spec",
         inputs: {},
       },
       [snapshots.get(7)!.context.state.current.model!],
@@ -299,21 +284,18 @@ const journal: StudyRevision[] = [
     8,
     {
       action: "fit",
-      operation_id: "posterior",
       inputs: { model_revision: modelId(4), panel_revision: panelId },
     },
     [v5],
   ),
   record(9, {
     action: "simulate",
-    operation_id: "simulate",
     inputs: simulationInputs(simulations.get(5)!),
   }),
   record(
     10,
     {
       action: "fit",
-      operation_id: "posterior",
       inputs: { model_revision: modelId(4), panel_revision: panelId },
     },
     [v6],
@@ -322,15 +304,20 @@ const journal: StudyRevision[] = [
     11,
     {
       action: "edit_model",
-      operation_id: null,
       inputs: { expected_revision: modelId(6) },
     },
     [v7],
   ),
   record(12, {
     action: "simulate",
-    operation_id: "simulate",
     inputs: simulationInputs(simulations.get(7)!),
+  }),
+  record(13, {
+    action: "data_diff",
+    inputs: {
+      left: { kind: "panel", revision: panelId },
+      right: { kind: "simulation", revision: commitId(9) },
+    },
   }),
 ];
 // This scenario includes a convergence warning and paired saved summaries.
@@ -377,17 +364,37 @@ const commitParents: Record<number, number> = {
   10: 7,
   11: 10,
   12: 11,
+  13: 9,
 };
 for (const entry of journal) {
-  if (entry.seq >= 10) entry.branch = "alternative";
+  if (entry.seq >= 10 && entry.seq <= 12) entry.branch = "alternative";
   entry.parent_ids = [commitId(entry.seq === 6 ? 5 : commitParents[entry.seq])];
 }
 const branches = { main: commitId(9), alternative: commitId(12) };
+// Backend-shaped argument dependencies for the journal above, as the timeline route serves them.
+const dependencies: RecordDependency[] = (
+  [
+    [3, 2, "model"],
+    [4, 3, "model"],
+    [6, 4, "model"],
+    [7, 4, "model"],
+    [7, 5, "data_profile", true],
+    [8, 4, "model"],
+    [8, 5, "panel"],
+    [9, 8, "model"],
+    [10, 4, "model"],
+    [10, 5, "panel"],
+    [11, 10, "model"],
+    [12, 11, "model"],
+    [13, 5, "left"],
+    [13, 9, "right"],
+  ] as const
+).map(([seq, source_seq, argument, check = false]) => ({ seq, source_seq, argument, check }));
 const snapshotByCommit = (id: string | null) =>
   [...snapshots.values()].find((snapshot) => snapshot.context.commit_id === id);
 const snapshotByModelRef = (id: string | null) =>
   snapshotByCommit(id) ??
-  [...snapshots.values()].find((snapshot) => snapshot.context.state.current.model?.revision === id);
+  [...snapshots.values()].find((snapshot) => snapshot.model?.source.ref.revision === id);
 export const workbenchTraces = new Map([
   [3, demoTraces.latent_structure],
   [4, demoTraces.measurement_structure],
@@ -395,12 +402,98 @@ export const workbenchTraces = new Map([
 ]);
 export const workbenchQuestion = freeModel.question ?? undefined;
 /** Exercise the real UI requests with isolated, explicit story responses. */
+const comparisonIndicator = modelConstructs(freeModel)
+  .flatMap((construct) => construct.indicators)
+  .find((indicator) => indicator.name === "gad7_screening_score")!;
+const comparedSeries = (values: number[]) => ({
+  variable: comparisonIndicator,
+  time_origin: "2026-01-01T00:00:00Z",
+  points: values.map((value, index) => ({
+    anchor_time: `2026-01-0${index + 1}T00:00:00Z`,
+    support_start: null,
+    support_end: null,
+    value,
+  })),
+});
+const dataComparison: DataDiffReport = {
+  left: [{ kind: "panel", revision: panelId }],
+  right: [0, 1, 2].map((replicate) => ({ kind: "simulation", revision: commitId(9), replicate })),
+  variables: [
+    {
+      indicator_id: comparisonIndicator.id,
+      left: [comparedSeries([1, 4, 3])],
+      right: [comparedSeries([0, 1, 2]), comparedSeries([1, 2, 3]), comparedSeries([2, 3, 4])],
+      changes: [],
+      comparison_issues: [],
+      reference_side: "left",
+      predictive_unavailable_reason: null,
+      statistics: [
+        {
+          statistic: "mean",
+          left: [2.67],
+          right: [1, 2, 3],
+          left_histogram: [{ bin_center: 2.67, bin_start: 2.5, bin_end: 3, count: 1 }],
+          right_histogram: [1, 2, 3].map((value) => ({
+            bin_center: value,
+            bin_start: value - 0.5,
+            bin_end: value + 0.5,
+            count: 1,
+          })),
+        },
+      ],
+      predictive_checks: {
+        checked: true,
+        n_subsample: 3,
+        per_variable_warnings: [
+          {
+            indicator_id: comparisonIndicator.id,
+            check_type: "calibration",
+            message: "Observed values fall outside the replicated range.",
+            value: 0.67,
+            passed: false,
+          },
+        ],
+        test_stats: [
+          {
+            indicator_id: comparisonIndicator.id,
+            stat_name: "mean",
+            observed_value: 2.67,
+            rep_values: [1, 2, 3],
+            p_value: 0.33,
+            histogram: [1, 2, 3].map((value) => ({
+              bin_center: value,
+              bin_start: value - 0.5,
+              bin_end: value + 0.5,
+              count: 1,
+            })),
+          },
+        ],
+        overlays: [
+          {
+            indicator_id: comparisonIndicator.id,
+            observed: [1, 4, 3],
+            median: [1, 2, 3],
+            spaghetti_draws: [
+              [0, 1, 2],
+              [1, 2, 3],
+              [2, 3, 4],
+            ],
+          },
+        ],
+      },
+    },
+  ],
+};
+
 export function workbenchHandlers() {
-  const latest = snapshots.get(12)!;
-  const progress = (): EpisodeProgressPayload => ({
-    workspaceId: WORKBENCH_WORKSPACE,
+  // Only the journal fields are illustrated; this story reads no artifact freshness.
+  const status = (): StudyStatus => ({
+    workspace_id: WORKBENCH_WORKSPACE,
+    branch: "main",
+    commit_id: branches.main,
     seq: journal.at(-1)!.seq,
-    artifacts: latest.context.artifacts,
+    state: { current: {} },
+    artifacts: [],
     actions: ["edit_model", "prepare_data", "fit", "simulate"],
     // A fit dispatched after the alternative branch's simulation is still executing.
     running: {
@@ -409,13 +502,19 @@ export function workbenchHandlers() {
       branch: "alternative",
       messages: [{ timestamp: "2026-09-16T12:05:00Z", level: "info", label: "FIT_STARTED" }],
     },
-    transitions: journal,
+  });
+  const timeline = (): TimelineResponse => ({
+    workspace_id: WORKBENCH_WORKSPACE,
+    attempts: journal,
     branches,
-    events: [],
+    dependencies,
   });
   return [
+    http.get(`/api/studies/${WORKBENCH_WORKSPACE}/data-diff/:commit`, () =>
+      HttpResponse.json(dataComparison),
+    ),
     http.get(
-      `/api/episodes/${WORKBENCH_WORKSPACE}/model/visuals/observations/:indicator`,
+      `/api/studies/${WORKBENCH_WORKSPACE}/model/visuals/observations/:indicator`,
       ({ params, request }) => {
         const snapshot = snapshotByCommit(
           new URL(request.url).searchParams.get("at") ?? branches.alternative,
@@ -429,13 +528,13 @@ export function workbenchHandlers() {
         );
       },
     ),
-    http.get(`/api/episodes/${WORKBENCH_WORKSPACE}/model/visuals/parameters`, () =>
+    http.get(`/api/studies/${WORKBENCH_WORKSPACE}/model/visuals/parameters`, () =>
       HttpResponse.json(visualFixture.parameters),
     ),
-    http.get(`/api/episodes/${WORKBENCH_WORKSPACE}/model/visuals/predictive/:indicator`, () =>
+    http.get(`/api/studies/${WORKBENCH_WORKSPACE}/model/visuals/predictive/:indicator`, () =>
       HttpResponse.json(null),
     ),
-    http.get(`/api/episodes/${WORKBENCH_WORKSPACE}/model/visuals/simulation`, ({ request }) => {
+    http.get(`/api/studies/${WORKBENCH_WORKSPACE}/model/visuals/simulation`, ({ request }) => {
       const query = new URL(request.url).searchParams;
       const snapshot = snapshotByCommit(query.get("at") ?? branches.alternative);
       if (!snapshot?.findings.simulation) return HttpResponse.json(null);
@@ -464,7 +563,7 @@ export function workbenchHandlers() {
       });
     }),
     http.post(
-      `/api/episodes/${WORKBENCH_WORKSPACE}/model/visuals/mechanism`,
+      `/api/studies/${WORKBENCH_WORKSPACE}/model/visuals/mechanism`,
       async ({ request }) => {
         const input = (await request.json()) as {
           owner_id: string;
@@ -477,9 +576,9 @@ export function workbenchHandlers() {
           axis?: string | null;
           held: Record<string, number>;
         };
-        const curves = (visualFixture.mechanisms as unknown as Record<string, MechanismCurves>)[
-          input.owner_id
-        ];
+        const curves = (
+          visualFixture.mechanisms as unknown as Partial<Record<string, MechanismCurves>>
+        )[input.owner_id];
         return curves &&
           input.lower === -3 &&
           input.upper === 3 &&
@@ -505,7 +604,7 @@ export function workbenchHandlers() {
             );
       },
     ),
-    http.get(`/api/episodes/${WORKBENCH_WORKSPACE}/model/inference-report`, ({ request }) => {
+    http.get(`/api/studies/${WORKBENCH_WORKSPACE}/model/inference-report`, ({ request }) => {
       const snapshot = snapshotByCommit(
         new URL(request.url).searchParams.get("at") ?? branches.alternative,
       );
@@ -515,8 +614,9 @@ export function workbenchHandlers() {
           : null,
       );
     }),
-    http.get(`/api/analysis/${WORKBENCH_WORKSPACE}/progress`, () => HttpResponse.json(progress())),
-    http.get(`/api/episodes/${WORKBENCH_WORKSPACE}/model`, ({ request }) => {
+    http.get(`/api/studies/${WORKBENCH_WORKSPACE}`, () => HttpResponse.json(status())),
+    http.get(`/api/studies/${WORKBENCH_WORKSPACE}/timeline`, () => HttpResponse.json(timeline())),
+    http.get(`/api/studies/${WORKBENCH_WORKSPACE}/model`, ({ request }) => {
       const snapshot = snapshotByCommit(
         new URL(request.url).searchParams.get("at") ?? branches.alternative,
       );
@@ -524,7 +624,7 @@ export function workbenchHandlers() {
         ? HttpResponse.json(snapshot)
         : HttpResponse.json({ error: "Unknown story version" }, { status: 404 });
     }),
-    http.get(`/api/episodes/${WORKBENCH_WORKSPACE}/model-diff`, async ({ request }) => {
+    http.get(`/api/studies/${WORKBENCH_WORKSPACE}/model-diff`, async ({ request }) => {
       const query = new URL(request.url).searchParams;
       await delay(180);
       const before = snapshotByModelRef(query.get("before"));

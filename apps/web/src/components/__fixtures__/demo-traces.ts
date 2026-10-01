@@ -1,4 +1,4 @@
-import type { PipelineSectionId, LLMTrace } from "@nof1-causal-lab/api-types";
+import type { LLMTrace } from "@nof1-causal-lab/api-types";
 import latentStructureTrace from "../../../../../data/DEMO/fixture/traces/latent_structure.json";
 import measurementStructureTrace from "../../../../../data/DEMO/fixture/traces/measurement_structure.json";
 import measurementsTrace from "../../../../../data/DEMO/fixture/traces/measurements.json";
@@ -11,4 +11,4 @@ export const demoTraces = {
   measurement_structure: measurementStructureTrace as LLMTrace,
   measurements: measurementsTrace as LLMTrace,
   statistical_model_spec: statisticalModelSpecTrace as LLMTrace,
-} as const satisfies Partial<Record<PipelineSectionId, LLMTrace>>;
+} as const;

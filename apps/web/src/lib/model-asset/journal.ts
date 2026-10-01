@@ -16,12 +16,12 @@ export interface JournalTick {
   error: string | null;
   traceIds: string[];
   checks: StudyRevision["checks"];
-  extractionPartial: boolean;
+  messages: StudyRevision["messages"];
 }
 
-export function journalTicks(transitions: readonly StudyRevision[]): JournalTick[] {
+export function journalTicks(attempts: readonly StudyRevision[]): JournalTick[] {
   const ticks: JournalTick[] = [];
-  for (const record of transitions) {
+  for (const record of attempts) {
     ticks.push({
       seq: record.seq,
       commitId: record.commit_id,
@@ -35,15 +35,18 @@ export function journalTicks(transitions: readonly StudyRevision[]): JournalTick
       error: record.reason ?? record.error_message ?? record.error_type ?? null,
       traceIds: record.trace_ids,
       checks: record.checks,
-      extractionPartial: record.messages.some((message) => message.label === "EXTRACTION_PARTIAL"),
+      messages: record.messages,
     });
   }
   return ticks;
 }
 
-export function latestSeq(transitions: readonly StudyRevision[]): number {
-  return transitions.reduce(
-    (max, record) => (record.status === "applied" ? Math.max(max, record.seq) : max),
+export function latestSeq(attempts: readonly StudyRevision[]): number {
+  return attempts.reduce(
+    (max, record) =>
+      record.status === "applied" && record.action !== "data_diff"
+        ? Math.max(max, record.seq)
+        : max,
     0,
   );
 }

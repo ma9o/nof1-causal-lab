@@ -6,17 +6,18 @@ import type {
   IndicatorSpec,
   InterventionSpec,
   PosteriorEstimate,
-  ScientificActionId,
-  PathSeries,
+  ActionId,
+  DataDiffReport,
   SimulationPaths,
+  StructuralItemDisposition,
 } from "@nof1-causal-lab/api-types";
 import { scaleLinear } from "d3-scale";
-import { extent } from "d3-array";
-import { line } from "d3-shape";
 import { Pause, Play } from "lucide-react";
 import type { KeyboardEvent, ReactNode } from "react";
 import { LawPlot, lawExtent } from "@/components/charts/law-density";
 import { Button } from "@/components/ui/button";
+import { HistoryPlot } from "@/components/charts/history-plot";
+import { dataComparisonHistory, pathLines } from "@/components/model/scopes/recorded-history";
 import {
   LAYERED_EDGE_SLOT_HEIGHT,
   LAYERED_EDGE_SLOT_WIDTH,
@@ -60,9 +61,10 @@ export type LayeredCausalGraphVariant = "workbench" | "asset";
 
 export interface LayeredCausalGraphProps extends LayeredGraphOptions {
   simulationPaths?: SimulationPaths | null;
+  dataDiff?: DataDiffReport | null;
   onSelect: (selection: EntitySelection | null) => void;
   /** The action whose version is viewed; a data preparation shows each node's prepared data. */
-  step?: ScientificActionId | null;
+  step?: ActionId | null;
   /**
    * `workbench` keeps the layer toggles, simulation timeline and legend around the canvas;
    * `asset` renders the canvas alone, filling its container, with only the zoom control.
@@ -338,104 +340,12 @@ function DataStrip({
   );
 }
 
-/** The same saved draws shown in the inspector, with reference paths dashed. */
-function NodeTrajectory({
-  times,
-  series,
-  marker,
-  assignments,
-  timeOrigin,
-}: {
-  times: number[];
-  series: PathSeries;
-  marker?: number;
-  assignments: InterventionSpec[];
-  timeOrigin: string | null;
-}) {
-  const { action, reference } = series;
-  const values = [...action, ...reference]
-    .flatMap((path) => path.values)
-    .filter((value): value is number => value != null);
-  if (values.length === 0) return null;
-  const top = STRIP.top + 4;
-  const bottom = STRIP.top + STRIP.height - 4;
-  const sx = scaleLinear()
-    .domain([times[0], times[times.length - 1]])
-    .range([STRIP.x, STRIP.x + STRIP.width]);
-  const sy = scaleLinear()
-    .domain(extent(values) as [number, number])
-    .range([bottom, top]);
-  const indices = times.map((_, index) => index);
-  const trace = (values: (number | null)[]) =>
-    line<number>()
-      .defined((index) => values[index] != null)
-      .x((index) => sx(times[index]))
-      .y((index) => sy(values[index]!))(indices) ?? "";
-  return (
-    <g
-      role="img"
-      aria-label={`${humanize(series.label)}: ${action.length} individual simulation draws`}
-    >
-      <title>
-        {`${action.length} recorded draws; open the inspector to select any saved draw. Reference paths are dashed.`}
-      </title>
-      {reference.map((path) => (
-        <path
-          key={path.draw}
-          d={trace(path.values)}
-          fill="none"
-          stroke={DAG_COLORS.slate}
-          strokeWidth={0.7}
-          strokeOpacity={0.3}
-          strokeDasharray="3 2"
-        />
-      ))}
-      {action.map((path) => (
-        <path
-          key={path.draw}
-          d={trace(path.values)}
-          fill="none"
-          stroke={DAG_COLORS.intervention}
-          strokeWidth={0.7}
-          strokeOpacity={0.4}
-        />
-      ))}
-      {assignments.map((event) => (
-        <g key={event.time} role="img" aria-label={assignmentLabel(event, timeOrigin)}>
-          <title>{assignmentLabel(event, timeOrigin)}</title>
-          <line
-            x1={sx(event.time)}
-            x2={sx(event.time)}
-            y1={top - 2}
-            y2={bottom + 2}
-            stroke={DAG_COLORS.intervention}
-            strokeDasharray="2 2"
-            strokeOpacity={0.6}
-          />
-        </g>
-      ))}
-      {marker != null ? (
-        <line
-          x1={sx(marker)}
-          x2={sx(marker)}
-          y1={top - 2}
-          y2={bottom + 2}
-          stroke={DAG_COLORS.ink}
-          strokeOpacity={0.18}
-        />
-      ) : null}
-    </g>
-  );
-}
-
 function ConstructCard({
   construct,
   isOutcome,
   failures,
   status,
-  laws,
-  trajectory,
-  data,
+  children,
   assignments,
   timeOrigin,
   selected,
@@ -446,11 +356,7 @@ function ConstructCard({
   isOutcome: boolean;
   failures: string[];
   status?: ConstructStatus;
-  laws: LawCurve[];
-  /** A simulated history replaces the law strip on the card. */
-  trajectory?: { times: number[]; series: PathSeries; marker?: number };
-  /** Prepared indicator data replaces the law strip on the card. */
-  data?: Array<{ indicator: IndicatorSpec; profile: IndicatorEmpiricalProfile }>;
+  children: ReactNode;
   assignments: InterventionSpec[];
   timeOrigin: string | null;
   selected: boolean;
@@ -502,13 +408,7 @@ function ConstructCard({
             }
           />
         ) : null}
-        {trajectory ? (
-          <NodeTrajectory {...trajectory} assignments={assignments} timeOrigin={timeOrigin} />
-        ) : data ? (
-          <DataStrip rows={data} />
-        ) : laws.length > 0 ? (
-          <LawStrip laws={laws} />
-        ) : null}
+        {children}
         {failures.length > 0 ? (
           <g role="img" aria-label={failures.join("; ")}>
             <title>{failures.join("\n")}</title>
@@ -572,7 +472,7 @@ function EdgeSlot({
   dimmed,
 }: {
   meta: LayeredGraphEdgeMeta;
-  disposition?: import("@nof1-causal-lab/api-types").StructuralItemDisposition["disposition"];
+  disposition?: StructuralItemDisposition["disposition"];
   posterior?: PosteriorEstimate;
   /** The edge mechanism's own laws; the first is drawn in the slot. */
   laws: LawCurve[];
@@ -584,7 +484,7 @@ function EdgeSlot({
     : meta.crossSlice
       ? "State evolution"
       : "Contemporaneous effect";
-  const law = laws[0];
+  const law = laws.at(0);
   if (law) {
     const effect = law.posteriors.length === 1 ? law.posteriors[0] : null;
     const tone = law.stale ? DAG_COLORS.muted : DAG_COLORS.slate;
@@ -709,13 +609,16 @@ function LayerControls({
 /**
  * The state the selected action left, one part at a glance. Each construct and edge shows its
  * current laws or posteriors, its prepared data or its simulated draws, and a single mark when a
- * check on it failed. The details pane holds the depth.
+ * check on it failed. The details pane holds the depth. A data_diff leaf overlays every saved
+ * replicate and the observations on indicator rows, or marks added, removed and revised
+ * observations in comparison colours. Latent-only constructs and edges recede.
  */
 export function LayeredCausalGraph({
   model,
   entities,
   simulation = null,
   simulationPaths = null,
+  dataDiff = null,
   comparison = null,
   selection,
   onSelect,
@@ -822,7 +725,7 @@ export function LayeredCausalGraph({
                     color={visual.color}
                     width={visual.width}
                     dashed={visual.disposition === "projected_edge"}
-                    opacity={visual.opacity}
+                    opacity={dataDiff ? 0.15 : visual.opacity}
                     markerEnd={segmentMeta.markerEnd}
                     highlighted={hoveredEdge === meta.id}
                     onHoverChange={(hovered) => setHoveredEdge(hovered ? meta.id : null)}
@@ -843,7 +746,7 @@ export function LayeredCausalGraph({
                   ? { kind: "edge", id: owner.id }
                   : { kind: "construct", id: edge.cause };
                 const select = () => onSelect(selection?.id === target.id ? null : target);
-                const failures = owner ? entityFailures(model, owner) : [];
+                const failures = owner && !dataDiff ? entityFailures(model, owner) : [];
                 return (
                   <g
                     key={node.id}
@@ -873,7 +776,7 @@ export function LayeredCausalGraph({
                       posterior={visual.posterior}
                       laws={visual.laws}
                       color={visual.color}
-                      dimmed={visual.dimmed}
+                      dimmed={dataDiff !== null || visual.dimmed}
                     />
                     {failures.length > 0 && (
                       <g role="img" aria-label={failures.join("; ")}>
@@ -900,7 +803,12 @@ export function LayeredCausalGraph({
 
               const construct = meta.construct;
               const dimmed =
-                selectedNeighborhood != null && !selectedNeighborhood.has(construct.id);
+                (selectedNeighborhood != null && !selectedNeighborhood.has(construct.id)) ||
+                (dataDiff !== null &&
+                  (meta.kind === "history" ||
+                    !construct.indicators.some((indicator) =>
+                      dataDiff.variables.some((variable) => variable.indicator_id === indicator.id),
+                    )));
               const selected = selectedNode === construct.id;
               const select = () =>
                 onSelect(
@@ -950,25 +858,98 @@ export function LayeredCausalGraph({
                       construct.id ===
                       (simulation?.causal_result?.outcome ?? model.model?.value.default_outcome)
                     }
-                    failures={entityFailures(model, construct)}
+                    failures={dataDiff ? [] : entityFailures(model, construct)}
                     status={nodeStatuses.get(construct.id) ?? undefined}
-                    laws={constructLaws.get(construct.id) ?? []}
-                    trajectory={
-                      series
-                        ? {
-                            times: simulationPaths!.times,
-                            series,
-                            marker: variant === "workbench" ? currentDay : undefined,
-                          }
-                        : undefined
-                    }
-                    data={prepared.length > 0 ? prepared : undefined}
                     assignments={assignments}
                     timeOrigin={simulationResult?.time_origin ?? null}
                     selected={selected}
                     dimmed={dimmed}
                     onSelect={select}
-                  />
+                  >
+                    {dataDiff ? (
+                      <>
+                        {nodeIndicators.slice(0, STRIP_ROWS).map((indicator, index) => {
+                          const variable = dataDiff.variables.find(
+                            (item) => item.indicator_id === indicator.id,
+                          );
+                          const failures =
+                            variable?.predictive_checks?.per_variable_warnings.filter(
+                              (finding) => !finding.passed,
+                            ) ?? [];
+                          const selectIndicator = () =>
+                            onSelect({ kind: "indicator", id: indicator.id });
+                          return (
+                            <g
+                              key={indicator.id}
+                              role="button"
+                              tabIndex={0}
+                              aria-label={`${humanize(indicator.name)} comparison`}
+                              onClick={(event) => {
+                                event.stopPropagation();
+                                selectIndicator();
+                              }}
+                              onKeyDown={(event) => {
+                                event.stopPropagation();
+                                activateOnKeyboard(event, selectIndicator);
+                              }}
+                            >
+                              <StripRow
+                                index={index}
+                                title={
+                                  failures.map((finding) => finding.message).join("; ") ||
+                                  humanize(indicator.name)
+                                }
+                                label={humanize(indicator.name)}
+                                value={failures.length ? "⚠" : ""}
+                                valueTone="var(--warning-foreground)"
+                              >
+                                {variable && (
+                                  <foreignObject
+                                    x={STRIP.x + STRIP_ROW.plot}
+                                    y={rowTop(index)}
+                                    width={STRIP.width - STRIP_ROW.plot}
+                                    height={STRIP_ROW.height - 2}
+                                    pointerEvents="none"
+                                  >
+                                    <HistoryPlot {...dataComparisonHistory(variable)} compact />
+                                  </foreignObject>
+                                )}
+                              </StripRow>
+                            </g>
+                          );
+                        })}
+                        <StripOverflow hidden={nodeIndicators.length - STRIP_ROWS} />
+                      </>
+                    ) : series ? (
+                      <foreignObject
+                        x={STRIP.x}
+                        y={STRIP.top}
+                        width={STRIP.width}
+                        height={STRIP.height}
+                        pointerEvents="none"
+                      >
+                        <HistoryPlot
+                          compact
+                          times={simulationPaths!.times}
+                          series={pathLines(series)}
+                          label={`${humanize(series.label)}: ${series.action.length} individual simulation draws`}
+                          markers={[
+                            ...assignments.map((event) => ({
+                              time: event.time,
+                              label: assignmentLabel(event, simulationResult?.time_origin ?? null),
+                            })),
+                            ...(variant === "workbench"
+                              ? [{ time: currentDay, label: `Viewed day ${currentDay}` }]
+                              : []),
+                          ]}
+                        />
+                      </foreignObject>
+                    ) : prepared.length > 0 ? (
+                      <DataStrip rows={prepared} />
+                    ) : (
+                      <LawStrip laws={constructLaws.get(construct.id) ?? []} />
+                    )}
+                  </ConstructCard>
                   {difference.constructChanges.has(construct.id) && (
                     <rect
                       x={-3}

@@ -115,15 +115,19 @@ export function entityFailures(
       failures.push(`Predictive checks: ${label}`);
   }
   const data = validation_report ?? model.data.profile;
+  const audits: Partial<NonNullable<typeof data>["value"]["indicators"]> =
+    data?.value.indicators ?? {};
   if (
     data?.source.validity === "fresh" &&
-    data.value.indicators[entity.id]?.issues.some((issue) => issue.severity !== "info")
+    audits[entity.id]?.issues.some((issue) => issue.severity !== "info")
   )
     failures.push(`Data quality: ${label}`);
   if ("indicators" in entity) {
+    const treatments: Partial<NonNullable<typeof identification>["value"]["treatments"]> =
+      identification?.value.treatments ?? {};
     if (
       identification?.source.validity === "fresh" &&
-      identification.value.treatments[entity.id]?.status === "not_identified"
+      treatments[entity.id]?.status === "not_identified"
     )
       failures.push(`Identification against ★: ${label}`);
     failures.push(...entity.indicators.flatMap((indicator) => entityFailures(model, indicator)));

@@ -1,4 +1,4 @@
-import type { ArtifactViewId, LLMTrace, UploadResponse } from "@nof1-causal-lab/api-types";
+import type { LLMTrace, UploadResponse } from "@nof1-causal-lab/api-types";
 import { apiFetch } from "./client";
 
 export async function uploadFile(file: File, workspaceId: string): Promise<UploadResponse> {
@@ -11,18 +11,6 @@ export async function uploadFile(file: File, workspaceId: string): Promise<Uploa
   });
   if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
   return res.json();
-}
-
-export async function getArtifactView<T>(
-  workspaceId: string,
-  artifactId: ArtifactViewId,
-): Promise<T> {
-  return apiFetch<T>(`/api/artifacts/${workspaceId}/${artifactId}/view`);
-}
-
-export async function getLLMTrace(workspaceId: string, artifactId: string): Promise<LLMTrace> {
-  const search = new URLSearchParams({ artifact: artifactId }).toString();
-  return apiFetch<LLMTrace>(`/api/traces/${workspaceId}?${search}`);
 }
 
 /** The merged traces of one recorded action; the caller holds its trace IDs from the journal. */

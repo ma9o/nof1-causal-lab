@@ -1,15 +1,11 @@
 import type { LLMTrace } from "@nof1-causal-lab/api-types";
 import { NextResponse } from "next/server";
-import {
-  EpisodeRunError,
-  getOperationTraceIndex,
-  getEpisodeTrace,
-} from "@/lib/server/episode-runs";
+import { StudyRunError, getStudyTrace } from "@/lib/server/study-runs";
 import { normalizeWorkspaceId } from "@/lib/workspace-id";
 
 export const dynamic = "force-dynamic";
 
-/** Concatenate a transition's subroutine traces into one panel-renderable trace. */
+/** Concatenate an action's subroutine traces into one panel-renderable trace. */
 function mergeTraces(traces: LLMTrace[]): LLMTrace {
   const merged: LLMTrace = {
     messages: [],
@@ -47,38 +43,27 @@ export async function GET(
   }
 
   const search = new URL(request.url).searchParams;
-  const artifactId = search.get("artifact")?.trim();
   const commitId = search.get("commitId")?.trim();
-  if (!artifactId && !commitId) {
-    return NextResponse.json({ error: "Missing artifact id or action commit" }, { status: 400 });
+  if (!commitId) {
+    return NextResponse.json({ error: "Missing action commit" }, { status: 400 });
+  }
+  if (!/^[0-9a-f]{40}$/.test(commitId)) {
+    return NextResponse.json({ error: "Invalid action commit" }, { status: 400 });
+  }
+  // The caller names the action's trace IDs from the journal it already holds,
+  // so this read never re-downloads the whole journal.
+  const traceIds = search.getAll("trace").filter((traceId) => traceId.length > 0);
+  if (traceIds.length === 0) {
+    return NextResponse.json({ error: "No traces for this action" }, { status: 404 });
   }
 
   try {
-    if (commitId) {
-      if (!/^[0-9a-f]{40}$/.test(commitId)) {
-        return NextResponse.json({ error: "Invalid action commit" }, { status: 400 });
-      }
-      // The caller names the action's trace IDs from the journal it already holds,
-      // so this read never re-downloads the whole journal.
-      const traceIds = search.getAll("trace").filter((traceId) => traceId.length > 0);
-      if (traceIds.length === 0) {
-        return NextResponse.json({ error: "No traces for this action" }, { status: 404 });
-      }
-      const traces = await Promise.all(
-        traceIds.map((traceId) => getEpisodeTrace(safeWorkspaceId, commitId, traceId)),
-      );
-      return NextResponse.json(mergeTraces(traces));
-    }
-    const index = await getOperationTraceIndex(safeWorkspaceId, artifactId as string);
-    if (index.trace_ids.length === 0) {
-      return NextResponse.json({ error: "No traces for this artifact" }, { status: 404 });
-    }
     const traces = await Promise.all(
-      index.trace_ids.map((traceId) => getEpisodeTrace(safeWorkspaceId, index.commit_id, traceId)),
+      traceIds.map((traceId) => getStudyTrace(safeWorkspaceId, commitId, traceId)),
     );
     return NextResponse.json(mergeTraces(traces));
   } catch (error) {
-    const status = error instanceof EpisodeRunError && error.status === 404 ? 404 : 502;
+    const status = error instanceof StudyRunError && error.status === 404 ? 404 : 502;
     return NextResponse.json(
       { error: error instanceof Error ? error.message : String(error) },
       { status },

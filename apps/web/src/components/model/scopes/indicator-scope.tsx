@@ -1,6 +1,5 @@
 import type { IndicatorId } from "@nof1-causal-lab/api-types";
 import { TestStatSparkline } from "@/components/analysis-widgets/posterior/ppc-warnings-table";
-import { MeasurementSparkline } from "@/components/analysis-widgets/statistical-model-spec/measurement-table";
 import { QuantileStrip } from "@/components/charts/quantile-strip";
 import { indicatorPresentation, dispositionLabel } from "@/lib/model-asset/inspector";
 import { ownLawUses } from "@/lib/model-asset/laws";
@@ -29,7 +28,6 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
   );
   const equation = context.model.findings.diagnostics?.observation_equations[id];
   const empirical = context.model.data.profile?.value.indicators[id]?.profile;
-  const priorPredictive = context.model.findings.diagnostics?.likelihood_diagnostics[id];
   const comparison =
     predictive?.source.validity === "fresh" ? predictive.value.predictive_checks : null;
   const overlay = comparison?.overlays.find((item) => item.indicator_id === id);
@@ -68,20 +66,6 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
         </Section>
       )}
       <LawSections context={context} uses={ownLawUses(indicator)} />
-      {likelihood && priorPredictive && priorPredictive.histogram.length > 0 && (
-        <Section
-          title="Data and prior predictive"
-          source={context.model.findings.prior_predictive?.source}
-        >
-          <MeasurementSparkline
-            row={{ likelihood, label: indicator.name, diagnostics: priorPredictive }}
-          />
-          <Hint>
-            Prepared observations (bars) against prior-predictive draws rescaled to the same count
-            (line).
-          </Hint>
-        </Section>
-      )}
       {preparation && (
         <Section title="Data preparation" source={context.model.data.metadata?.source}>
           <Hint>{preparation.how_to_measure}</Hint>

@@ -1,6 +1,6 @@
 "use client";
 
-import type { UIMessage } from "ai";
+import { isDataUIPart, type UIMessage } from "ai";
 import { Bot, Check, Eye, User, Wrench } from "lucide-react";
 import { memo } from "react";
 import Markdown from "react-markdown";
@@ -190,7 +190,7 @@ function ToolPart({
 
 function SystemMessage({ msg }: { msg: UIMessage }) {
   const text = msg.parts.find((p) => p.type === "text");
-  if (!text || text.type !== "text") return null;
+  if (!text) return null;
 
   return (
     <Accordion>
@@ -243,39 +243,42 @@ function AssistantMessage({
       </div>
       {msg.parts.map((part, i) => {
         const key = `${part.type}-${i}`;
+        if (isDataUIPart(part)) return null;
+        if (isToolMessagePart(part)) {
+          const simulation =
+            part.type === "dynamic-tool" &&
+            part.state === "output-available" &&
+            SIMULATION_TOOLS.has(part.toolName)
+              ? parseSimulationReport(part.output)
+              : null;
+          if (simulation && onSelectSimulation) {
+            const callKey = part.toolCallId;
+            return (
+              <ToolPart
+                key={key}
+                part={part}
+                idx={i}
+                className="mt-2"
+                selected={callKey === selectedSimulationKey}
+                onSelect={() => onSelectSimulation(callKey, simulation)}
+                headline={simulationHeadline(simulation)}
+              />
+            );
+          }
+          return <ToolPart key={key} part={part} idx={i} className="mt-2" />;
+        }
         switch (part.type) {
           case "text":
             return <TextPart key={key} text={part.text} />;
           case "reasoning":
             return <ReasoningPart key={key} text={part.text} idx={i} />;
-          case "dynamic-tool": {
-            const simulation =
-              part.state === "output-available" && SIMULATION_TOOLS.has(part.toolName)
-                ? parseSimulationReport(part.output)
-                : null;
-            if (simulation && onSelectSimulation) {
-              const callKey = part.toolCallId;
-              return (
-                <ToolPart
-                  key={key}
-                  part={part}
-                  idx={i}
-                  className="mt-2"
-                  selected={callKey === selectedSimulationKey}
-                  onSelect={() => onSelectSimulation(callKey, simulation)}
-                  headline={simulationHeadline(simulation)}
-                />
-              );
-            }
-            return <ToolPart key={key} part={part} idx={i} className="mt-2" />;
-          }
-          case "tool-validate_measurement_structure":
-          case "tool-search_literature":
-            return <ToolPart key={key} part={part} idx={i} className="mt-2" />;
+          case "file":
+          case "source-url":
+          case "source-document":
+          case "step-start":
+            return null;
           default:
-            return isToolMessagePart(part) ? (
-              <ToolPart key={key} part={part} idx={i} className="mt-2" />
-            ) : null;
+            throw new Error(`Unhandled message part: ${part satisfies never}`);
         }
       })}
     </div>

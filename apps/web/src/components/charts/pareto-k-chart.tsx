@@ -61,7 +61,7 @@ export function ParetoKChart({ loo }: ParetoKChartProps) {
             />
             <RechartsTooltip
               formatter={(value, _name, item) => {
-                const ts = (item?.payload as { timestep?: number } | undefined)?.timestep;
+                const ts = (item.payload as { timestep?: number } | undefined)?.timestep;
                 return [
                   `${formatNumber(Number(value), 3)}${ts != null ? ` (timestep ${ts})` : ""}`,
                   "Pareto k",

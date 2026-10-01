@@ -23,8 +23,8 @@ type Story = StoryObj<typeof meta>;
 export const Default: Story = {
   args: {
     warnings: ppc.per_variable_warnings,
-    testStats: ppc.test_stats ?? [],
-    overlays: ppc.overlays ?? [],
+    testStats: ppc.test_stats,
+    overlays: ppc.overlays,
   },
 };
 

@@ -18,7 +18,9 @@ export function parseSimulationReport(output: unknown): SimulationWithEffects | 
     }
   }
   if (typeof value !== "object" || value === null) return null;
-  const report = value as Partial<SimulationReport>;
+  const report = value as Omit<Partial<SimulationReport>, "causal_result"> & {
+    causal_result?: Partial<CausalEffectResult> | null;
+  };
   const result = report.causal_result;
   return Array.isArray(report.design?.interventions) &&
     report.design.interventions.length > 0 &&

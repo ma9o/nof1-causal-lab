@@ -6,14 +6,6 @@ export function formatNumber(n: number, decimals = 3): string {
   return n.toFixed(decimals);
 }
 
-export function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString("en-US", {
-    year: "numeric",
-    month: "short",
-    day: "numeric",
-  });
-}
-
 /** Calendar display of a model day using the backend's pinned UTC origin. */
 export function formatModelDate(day: number, origin: string): string {
   return new Date(Date.parse(origin) + day * 86_400_000).toLocaleDateString(undefined, {
@@ -29,15 +21,6 @@ const significantFormatter = new Intl.NumberFormat("en", { maximumSignificantDig
 /** Three significant digits, so small rates and large intercepts both stay legible. */
 export function formatSignificant(n: number): string {
   return significantFormatter.format(n).replace("-", "−");
-}
-
-const compactFormatter = new Intl.NumberFormat("en", {
-  notation: "compact",
-  maximumFractionDigits: 1,
-});
-
-export function formatCompact(n: number): string {
-  return compactFormatter.format(n);
 }
 
 const posteriorMassFormatter = new Intl.NumberFormat("en", {

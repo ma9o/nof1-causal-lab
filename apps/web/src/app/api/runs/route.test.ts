@@ -1,8 +1,8 @@
-import { EpisodeRunError, createStudy } from "@/lib/server/episode-runs";
+import { StudyRunError, createStudy } from "@/lib/server/study-runs";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-vi.mock("@/lib/server/episode-runs", () => ({
-  EpisodeRunError: class EpisodeRunError extends Error {
+vi.mock("@/lib/server/study-runs", () => ({
+  StudyRunError: class StudyRunError extends Error {
     status: number;
 
     constructor(status: number, message: string) {
@@ -72,7 +72,7 @@ describe("POST /api/runs", () => {
 
   it("returns a workspace revision conflict", async () => {
     vi.mocked(createStudy).mockRejectedValue(
-      new EpisodeRunError(409, "auto-run already active for USER123"),
+      new StudyRunError(409, "auto-run already active for USER123"),
     );
 
     const response = await POST(
@@ -90,7 +90,7 @@ describe("POST /api/runs", () => {
   });
 
   it("maps facade errors to their HTTP status", async () => {
-    vi.mocked(createStudy).mockRejectedValue(new EpisodeRunError(403, "facade is read-only"));
+    vi.mocked(createStudy).mockRejectedValue(new StudyRunError(403, "facade is read-only"));
 
     const response = await POST(
       new Request("http://localhost/api/runs", {

@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getFacadeCapabilities } from "@/lib/server/episode-runs";
+import { getFacadeCapabilities } from "@/lib/server/study-runs";
 
 export const dynamic = "force-dynamic";
 

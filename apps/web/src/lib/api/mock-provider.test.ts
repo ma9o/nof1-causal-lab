@@ -1,6 +1,5 @@
-import type { PipelineSectionId } from "@nof1-causal-lab/api-types";
 import { afterEach, describe, expect, it } from "vitest";
-import { getMockFixture, isMockMode, simulatePipelineEvents } from "./mock-provider";
+import { getMockFixture, isMockMode } from "./mock-provider";
 
 function unsetEnv(key: string) {
   Reflect.deleteProperty(process.env, key);
@@ -58,32 +57,5 @@ describe("getMockFixture", () => {
     }
 
     expect(getMockFixture()).toBe(expected);
-  });
-});
-
-describe("simulatePipelineEvents", () => {
-  it("emits paired start and complete callbacks in machine order", () => {
-    const events: Array<{ type: string; id: string }> = [];
-    const transitionOrder: PipelineSectionId[] = ["raw_data", "simulate", "measurements"];
-
-    const cleanup = simulatePipelineEvents(
-      {
-        onTransitionStart: (id) => events.push({ type: "start", id }),
-        onTransitionComplete: (id) => events.push({ type: "complete", id }),
-      },
-      transitionOrder,
-    );
-
-    expect(events).toHaveLength(transitionOrder.length * 2);
-    for (let index = 0; index < events.length; index += 2) {
-      expect(events[index]?.type).toBe("start");
-      expect(events[index + 1]?.type).toBe("complete");
-      expect(events[index]?.id).toBe(events[index + 1]?.id);
-    }
-    expect(events.filter((event) => event.type === "start").map((event) => event.id)).toEqual(
-      transitionOrder,
-    );
-    expect(new Set(events.map((event) => event.id)).size).toBe(transitionOrder.length);
-    cleanup();
   });
 });
