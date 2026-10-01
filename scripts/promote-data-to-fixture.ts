@@ -11,12 +11,12 @@ const WORKSPACE_ID = /^[A-Za-z0-9][A-Za-z0-9_-]*$/;
 
 const DURABLE_ENTRIES = [
   "access.json",
-  "episode",
   "input",
   "query.txt",
   "session.json",
   "sources",
   "store",
+  "study",
 ] as const;
 
 type ProjectedArtifactId = "model" | "identification_report" | "validation_report";

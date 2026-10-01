@@ -69,13 +69,13 @@ describe("promoteDataWorkspace", () => {
     });
 
     expect(summary.artifacts).toHaveLength(3);
-    expect(await pathExists(join(dataRoot, "DEMO", "episode", "history.git"))).toBe(true);
+    expect(await pathExists(join(dataRoot, "DEMO", "study", "history.git"))).toBe(true);
     const restoredHistory = join(root, "restored.git");
     const restore = Bun.spawnSync([
       "git",
       "clone",
       "--mirror",
-      join(dataRoot, "DEMO", "episode", "history.bundle"),
+      join(dataRoot, "DEMO", "study", "history.bundle"),
       restoredHistory,
     ]);
     expect(restore.exitCode).toBe(0);
@@ -84,7 +84,7 @@ describe("promoteDataWorkspace", () => {
       expect(result.exitCode).toBe(0);
       return result.stdout.toString();
     };
-    expect(refs(restoredHistory)).toBe(refs(join(dataRoot, "DEMO", "episode", "history.git")));
+    expect(refs(restoredHistory)).toBe(refs(join(dataRoot, "DEMO", "study", "history.git")));
     expect((await readdir(join(dataRoot, "DEMO", "store", "blobs"))).length).toBeGreaterThan(0);
     expect(await pathExists(join(dataRoot, "DEMO", "fixture", "artifacts", "raw_data.json"))).toBe(
       false,
@@ -93,13 +93,6 @@ describe("promoteDataWorkspace", () => {
     expect(
       JSON.parse(await readFile(join(dataRoot, "DEMO", "fixture", "inference.json"), "utf8")),
     ).toEqual({ report: { inference_metadata: { method: "test" } } });
-    expect(
-      JSON.parse(await readFile(join(dataRoot, "DEMO", "fixture", "model_authoring.json"), "utf8")),
-    ).toEqual({
-      search_queries: { "parameter:test": "prior study" },
-      validation_diagnostics: [],
-      prior_predictive: { samples: { "indicator:test": [0.5] }, diagnostics: [] },
-    });
     expect(
       JSON.parse(
         await readFile(

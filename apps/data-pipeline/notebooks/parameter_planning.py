@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from notebooks.model_authoring import revise_law, with_construct_coefficients
+
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.expressions import (
     BinaryExpression,
@@ -15,7 +17,6 @@ from nof1_causal_lab.artifacts.expressions import (
 from nof1_causal_lab.artifacts.identity import scientific_id
 from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 from nof1_causal_lab.distributions import DistributionFamily
-from nof1_causal_lab.models.likelihoods import revise_law
 from nof1_causal_lab.models.model_semantics import indicator_requires_observation_intercept
 
 if TYPE_CHECKING:
@@ -33,9 +34,9 @@ def complete_component_slots(
     Existing slots and parameter definitions are preserved. Numerical compilation
     never calls this transition or invents missing scientific parameters.
     """
-    from nof1_causal_lab.models.model_distributions import with_parameter_distributions
+    from notebooks.model_authoring import get_marginalized_scales, with_parameter_distributions
+
     from nof1_causal_lab.models.ssm.priors import DEFAULT_PRIORS_BY_FIELD
-    from nof1_causal_lab.utils.model_structure import get_marginalized_scales
 
     definitions = {parameter.id: parameter for parameter in model.parameters}
     laws = {}
@@ -81,11 +82,12 @@ def complete_component_slots(
                 construct.temporal_status == "time_varying"
                 and construct.coefficient("diffusion_scale") is None
             ):
-                construct = construct.with_coefficients(
+                construct = with_construct_coefficients(
+                    construct,
                     coefficient(
                         parameter(construct.id, "innovation.scale", f"sigma_{construct.name}"),
                         "diffusion_scale",
-                    )
+                    ),
                 )
             if (
                 construct.innovation_family == DistributionFamily.STUDENT_T
@@ -98,8 +100,8 @@ def complete_component_slots(
                         "proc_df",
                         prior=DEFAULT_PRIORS_BY_FIELD["proc_df"],
                     )
-                construct = construct.with_coefficients(
-                    coefficient(process_df, "process_degrees_of_freedom")
+                construct = with_construct_coefficients(
+                    construct, coefficient(process_df, "process_degrees_of_freedom")
                 )
             if (
                 construct.coefficient("initial_mean") is None
@@ -121,8 +123,8 @@ def complete_component_slots(
                         if (free_initial and not static) or (static and anchored)
                         else 0
                     )
-                    construct = construct.with_coefficients(
-                        coefficient(initial_mean, "initial_mean")
+                    construct = with_construct_coefficients(
+                        construct, coefficient(initial_mean, "initial_mean")
                     )
                 if construct.coefficient("initial_scale") is None:
                     initial_scale = (
@@ -135,8 +137,8 @@ def complete_component_slots(
                         if free_initial or static
                         else 1
                     )
-                    construct = construct.with_coefficients(
-                        coefficient(initial_scale, "initial_scale")
+                    construct = with_construct_coefficients(
+                        construct, coefficient(initial_scale, "initial_scale")
                     )
         indicators = []
         for indicator in construct.indicators:
@@ -216,7 +218,7 @@ def complete_component_slots(
                     return (
                         LiteralExpression(value=0)
                         if value is None
-                        else node.model_copy(update={"value": value})
+                        else type(node).model_validate({**node.model_dump(), "value": value})
                     )
                 if isinstance(node, BinaryExpression) and node.operator == "multiply":
                     for coeff, source, reverse in (
@@ -229,19 +231,26 @@ def complete_component_slots(
                             and isinstance(source, StateExpression)
                             and source.construct_id in loadings
                         ):
-                            revised = coeff.model_copy(
-                                update={"value": loadings[source.construct_id]}
+                            revised = type(coeff).model_validate(
+                                {**coeff.model_dump(), "value": loadings[source.construct_id]}
                             )
-                            return node.model_copy(update={"right" if reverse else "left": revised})
+                            return type(node).model_validate(
+                                {**node.model_dump(), "right" if reverse else "left": revised}
+                            )
                 return node
 
             indicators.append(
-                indicator.model_copy(
-                    update={"likelihood": revise_law(likelihood, complete_operand)}
+                type(indicator).model_validate(
+                    {
+                        **indicator.model_dump(),
+                        "likelihood": revise_law(likelihood, complete_operand),
+                    }
                 )
             )
         updates["indicators"] = tuple(indicators)
-        constructs[construct.id] = construct.model_copy(update=updates)
+        constructs[construct.id] = type(construct).model_validate(
+            {**construct.model_dump(), **updates}
+        )
 
     axis = {identity: index for index, identity in enumerate(model.state_order)}
     for first, second, kind in model.induced_dependencies:
@@ -259,12 +268,13 @@ def complete_component_slots(
         ):
             continue
         name = f"cor_{constructs[first].name}_{owner.name}"
-        constructs[second] = owner.with_coefficients(
+        constructs[second] = with_construct_coefficients(
+            owner,
             coefficient(
                 parameter(second, f"innovation.loading.{first}", name),
                 "diffusion_loading",
                 construct_ids=(first,),
-            )
+            ),
         )
 
     for scale in get_marginalized_scales(model):
@@ -300,7 +310,8 @@ def complete_component_slots(
         for item in sources:
             if item.coefficient("initial_scale") is None:
                 initial_mean = item.coefficient("initial_mean")
-                constructs[item.id] = item.with_coefficients(
+                constructs[item.id] = with_construct_coefficients(
+                    item,
                     coefficient(
                         0 if initial_mean is None else initial_mean,
                         "initial_mean",

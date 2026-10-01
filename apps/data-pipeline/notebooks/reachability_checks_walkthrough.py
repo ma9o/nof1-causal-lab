@@ -23,9 +23,8 @@ def intro(mo):
     This notebook keeps one toy N-of-1 study fixed and changes one modeling choice at a time.
     Every red verdict is produced by the production functions in
     `nof1_causal_lab.models.ssm.reachability`; the notebook only manufactures small,
-    deterministic prior-predictive arrays and draws the evidence. That makes it a fast
-    companion to `d10_case_study_walkthrough.py`, which runs the same checks on a real blind
-    study: here each failure appears in isolation, with nothing fitted.
+    deterministic prior-predictive arrays and draws the evidence, so each failure appears in
+    isolation, with nothing fitted.
 
     Each failure panel answers three questions in turn:
 
@@ -42,7 +41,7 @@ def imports():
     import networkx as nx
     import numpy as np
 
-    from nof1_causal_lab.flows.transitions.validation.checks import data_availability_issue
+    from nof1_causal_lab.actions.validation.checks import data_availability_issue
     from nof1_causal_lab.models.ssm.reachability import (
         check_confinement,
         check_coverage,

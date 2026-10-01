@@ -34,7 +34,7 @@ def imports():
     import urllib.parse
     import urllib.request
 
-    from nof1_causal_lab.machine.snapshots import ModelReader
+    from nof1_causal_lab.study.snapshots import ModelReader
 
     return ModelReader, json, urllib
 
@@ -92,7 +92,7 @@ def submit_edit(backend, candidate, json, mo, selected_revision, urllib, workspa
     mo.stop(candidate.value is None)
     _url = (
         backend.value.rstrip("/")
-        + "/api/episodes/"
+        + "/api/studies/"
         + urllib.parse.quote(workspace.value, safe="")
         + "/actions"
     )

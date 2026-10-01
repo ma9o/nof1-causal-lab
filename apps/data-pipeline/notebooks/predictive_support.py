@@ -5,9 +5,10 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING
 
+from scripts.fixtures.study import referenced_parameter_ids
+
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.simulation import SimulationSpec
-from nof1_causal_lab.models.model_parameters import referenced_parameter_ids
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.predictive.simulation import generate_simulation_batch
 from nof1_causal_lab.models.ssm.simulation_checks import (
@@ -86,9 +87,10 @@ def evaluate_case_study(
 
 def model_with_prior_payloads(model: ModelSpec, payloads: Mapping[str, JsonObject]) -> ModelSpec:
     """Resolve notebook prior submissions into model-owned laws and parameter references."""
+    from notebooks.model_authoring import with_parameter_distributions
+
     from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
     from nof1_causal_lab.distributions import PriorDistributionFamily
-    from nof1_causal_lab.models.model_distributions import with_parameter_distributions
     from nof1_causal_lab.prior_distributions import distribution_from_params
 
     by_id = {parameter.id: parameter for parameter in model.parameters}

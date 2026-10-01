@@ -5,13 +5,11 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.artifacts.expressions import coefficient as expr_coefficient
 from nof1_causal_lab.artifacts.expressions import (
     hill as expr_hill,
 )
-from nof1_causal_lab.artifacts.expressions import (
-    linear_effect,
-    restoring_potential,
-)
+from nof1_causal_lab.artifacts.expressions import restoring_potential
 from nof1_causal_lab.artifacts.expressions import (
     state as expr_state,
 )
@@ -91,7 +89,9 @@ def declare_dynamics(
                 else 0,
             ),
         )
-        constructs.append(construct.model_copy(update={"dynamics": (mechanism,)}))
+        constructs.append(
+            type(construct).model_validate({**construct.model_dump(), "dynamics": (mechanism,)})
+        )
     edges = []
     for edge in model.edges:
         if edge.id not in edge_ids or edge.mechanisms:
@@ -114,17 +114,18 @@ def declare_dynamics(
             term = default_mechanism_id(edge.id, "linear")
             mechanism = DynamicsMechanismSpec(
                 id=term,
-                expression=linear_effect(
-                    edge.cause.id,
+                expression=expr_coefficient(
                     coefficient(
                         term,
                         "weight",
                         f"beta_{cause.name}_{effect.name}",
                         PriorAuthoringTransform.DT_EFFECT_TO_CT_RATE,
                     ),
-                ),
+                    "weight",
+                )
+                * expr_state(edge.cause.id),
             )
-        edges.append(edge.model_copy(update={"mechanisms": (mechanism,)}))
+        edges.append(type(edge).model_validate({**edge.model_dump(), "mechanisms": (mechanism,)}))
     return model.revised(
         edges=replace_constructs(tuple(edges), tuple(constructs)),
         parameters=tuple(parameters.values()),

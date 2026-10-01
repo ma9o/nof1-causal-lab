@@ -1,7 +1,7 @@
 {
   "input_pins": {
-    "model": "400ab1da7aacafa6ce560d62c1f35919de67e343",
-    "panel": "0e7ca89c9e015321b2fcec3756a6b84063138cd8"
+    "model": "46fdf062d876538d7a06c137fbc974c6b58a1384",
+    "panel": "fa2e33d102c2ba45d099503b0a52a32b74694d7b"
   },
   "report": {
     "inference_diagnostics": {
@@ -18241,10 +18241,10 @@
     "compiled_ssm_version": 1,
     "model": {
       "path": "model.json",
-      "revision": "400ab1da7aacafa6ce560d62c1f35919de67e343",
+      "revision": "46fdf062d876538d7a06c137fbc974c6b58a1384",
       "workspace_id": "DEMO"
     },
-    "panel_revision": "0e7ca89c9e015321b2fcec3756a6b84063138cd8"
+    "panel_revision": "fa2e33d102c2ba45d099503b0a52a32b74694d7b"
   },
   "retention": "report_only"
 }
