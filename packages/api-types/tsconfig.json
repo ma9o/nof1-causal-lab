@@ -1,6 +1,8 @@
 {
   "extends": "@nof1-causal-lab/typescript-config/base.json",
   "compilerOptions": {
+    "noUncheckedIndexedAccess": true,
+    "exactOptionalPropertyTypes": true,
     "declaration": true,
     "declarationMap": true,
     "sourceMap": true

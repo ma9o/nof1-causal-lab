@@ -78,6 +78,8 @@ dev = [
     "ty>=0.0.84",
     "vulture>=2.16",
     "basedpyright>=1.40.1",
+    "grimp>=3.17",
+    "xarray>=2026.9.0",
 ]
 gpu = [
     "jax[cuda12]; sys_platform == 'linux'",
@@ -90,7 +92,7 @@ src = ["src", "tests", "evaluation"]
 fix = true
 
 [tool.ruff.lint]
-external = ["V"]
+external = ["V", "ERR", "ANN"]
 select = [
     "E",      # pycodestyle errors
     "W",      # pycodestyle warnings
@@ -148,9 +150,11 @@ runtime-evaluated-base-classes = [
     "pydantic.RootModel",
     "typing.TypedDict",
     "typing_extensions.TypedDict",
-    "nof1_causal_lab.artifacts.base.ArtifactPayload",
+    "nof1_causal_lab.artifacts.base.Value",
+    "nof1_causal_lab.actions.effects.ActionEffects",
+    "nof1_causal_lab.study.records.ExtractionWorkerResult",
+    "nof1_causal_lab.study.records.AttemptMetadata",
     "nof1_causal_lab.artifacts.observations.ObservationSpec",
-    "nof1_causal_lab.study.view_models.ViewValue",
 ]
 runtime-evaluated-decorators = [
     "pydantic.dataclasses.dataclass",
@@ -245,16 +249,23 @@ possibly-missing-attribute = "error"
 possibly-unresolved-reference = "error"
 unused-type-ignore-comment = "error"
 
+[[tool.ty.overrides]]
+include = ["src/**"]
+
+[tool.ty.overrides.rules]
+unsound-return-statement = "error"
+
 [tool.basedpyright]
 include = ["src"]
 pythonVersion = "3.12"
 venvPath = "."
 venv = ".venv"
-typeCheckingMode = "off"
+typeCheckingMode = "standard"
 reportUnnecessaryComparison = "error"
 reportUnnecessaryIsInstance = "error"
 reportUnnecessaryContains = "error"
 reportMatchNotExhaustive = "error"
+reportTypedDictNotRequiredAccess = "error"
 
 [tool.deptry]
 known_first_party = ["nof1_causal_lab"]

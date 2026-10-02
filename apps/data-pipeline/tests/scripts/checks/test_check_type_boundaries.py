@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+from functools import lru_cache
 from pathlib import Path
 from typing import Any
 
@@ -12,6 +13,7 @@ import pytest
 pytestmark = pytest.mark.contract
 
 
+@lru_cache(maxsize=1)
 def _load_checker() -> Any:
     module_name = "check_type_boundaries_under_test"
     path = Path(__file__).resolve().parents[3] / "scripts" / "checks" / "check_type_boundaries.py"
@@ -361,7 +363,7 @@ def test_core_bypasses_match_calls_without_receiver_types(operation: str) -> Non
     violations = checker.scan_text(
         f"""from typing import cast
 from collections.abc import MutableSequence
-from nof1_causal_lab.models.ssm.compile.inputs import CompiledFitInputs as Evidence
+from nof1_causal_lab.models.ssm.compile.inputs import CompiledFitInputs as Evidence, IncompleteModel, UnsupportedFit
 
 def consumer(value):
     return {operation}
@@ -396,8 +398,10 @@ def test_core_bypasses_allow_self_revision_and_unmodified_copies() -> None:
 
 def test_core_owner_file_only_exempts_evidence_construction() -> None:
     checker = _load_checker()
+    owner = checker.SOURCE_ROOT / "models/ssm/compile/inputs.py"
     violations = checker.scan_text(
-        """CompiledFitInputs()
+        owner.read_text()
+        + """\nCompiledFitInputs()
 IncompleteModel('missing')
 UnsupportedFit(('unsupported',))
 value.model_copy(update={})
@@ -410,11 +414,94 @@ cast('CompiledFitInputs', value)
     assert [v.target for v in violations] == ["model_copy", "model_construct", "cast"]
 
 
+def test_owned_value_inheritance_and_collection_aliases_bind_new_modules() -> None:
+    violations = _load_checker().scan_text(
+        """from nof1_causal_lab.artifacts.base import Value as Frozen
+from collections.abc import Mapping
+type Builder = dict[str, list[int]]
+class Intermediate(Frozen):
+    pass
+class NewContract(Intermediate):
+    items: tuple[Mapping[str, Builder], ...]
+""",
+        path="src/nof1_causal_lab/artifacts/new_contract.py",
+        rules=frozenset({"CORE002", "IMM001"}),
+    )
+    assert [(item.code, item.target) for item in violations] == [("CORE002", "field:items")]
+    assert "role=domain" in violations[0].diagnostic()
+    assert "value owner" in violations[0].diagnostic()
+
+
+def test_owned_values_cannot_override_freezing() -> None:
+    violations = _load_checker().scan_text(
+        """from pydantic import ConfigDict
+from nof1_causal_lab.artifacts.base import Value
+class NewContract(Value):
+    model_config = ConfigDict(frozen=False)
+    value: int
+""",
+        path="src/nof1_causal_lab/artifacts/new_contract.py",
+        rules=frozenset({"IMM001"}),
+    )
+    assert [item.code for item in violations] == ["IMM001"]
+
+
+def test_interpreted_contracts_share_the_value_configuration() -> None:
+    violations = _load_checker().scan_text(
+        """from pydantic import BaseModel, ConfigDict
+class NewContract(BaseModel):
+    model_config = ConfigDict(frozen=True)
+    value: int
+""",
+        path="src/nof1_causal_lab/artifacts/new_contract.py",
+        rules=frozenset({"IMM001"}),
+    )
+    assert [item.code for item in violations] == ["IMM001"]
+
+
+@pytest.mark.parametrize(
+    "caught", ["ValueError", "KeyError", "Exception", "(TypeError, ValueError)"]
+)
+def test_domain_builtin_catches_are_not_scientific_decisions(caught: str) -> None:
+    violations = _load_checker().scan_text(
+        f"try:\n    execute_science()\nexcept {caught}:\n    return_unavailable()\n",
+        path="src/nof1_causal_lab/artifacts/new_contract.py",
+        rules=frozenset({"ERR001"}),
+    )
+    assert [item.code for item in violations] == ["ERR001"]
+
+
+def test_expected_syntax_error_is_local_to_one_parse_operation() -> None:
+    checker = _load_checker()
+    permitted = "import ast\ntry:\n    expression = ast.parse(text)\nexcept SyntaxError:\n    reject_input()\n"
+    assert (
+        checker.scan_text(
+            permitted,
+            path="src/nof1_causal_lab/artifacts/new_contract.py",
+            rules=frozenset({"ERR001"}),
+        )
+        == []
+    )
+    extended = permitted.replace(
+        "    expression = ast.parse(text)",
+        "    expression = ast.parse(text)\n    execute_science()",
+    )
+    assert [
+        item.code
+        for item in checker.scan_text(
+            extended,
+            path="src/nof1_causal_lab/artifacts/new_contract.py",
+            rules=frozenset({"ERR001"}),
+        )
+    ] == ["ERR001"]
+
+
 def test_core_collections_cover_fields_and_public_properties_only() -> None:
     checker = _load_checker()
     violations = checker.scan_text(
         """from typing import Dict as MutableDict
-class ModelSpec:
+from nof1_causal_lab.artifacts.base import Value
+class ModelSpec(Value):
     entries: tuple[MutableDict[str, int], ...]
     readonly: Mapping[str, int]
     _builder: dict[str, int]
@@ -471,4 +558,143 @@ def test_projection_allows_exhaustiveness() -> None:
             rules=frozenset({"VIEW001"}),
         )
         == []
+    )
+
+
+@pytest.mark.parametrize(
+    ("prefix", "call"),
+    [
+        ("import contextlib", "contextlib.suppress"),
+        ("from contextlib import suppress as ignore", "ignore"),
+    ],
+)
+def test_suppress_obeys_the_same_builtin_error_rule(prefix: str, call: str) -> None:
+    source = f"{prefix}\nwith {call}(ValueError, KeyError):\n    classify_science()\n"
+    violations = _load_checker().scan_text(
+        source, path="src/nof1_causal_lab/artifacts/checks.py", rules=frozenset({"ERR001"})
+    )
+    assert [v.code for v in violations] == ["ERR001"]
+
+
+@pytest.mark.parametrize("role", ["models/ssm/compile", "models/ssm/execution", "study"])
+def test_constructor_parsing_stays_with_the_target_owner_or_edge(role: str) -> None:
+    violations = _load_checker().scan_text(
+        """from nof1_causal_lab.artifacts.model_spec import ModelSpec as Authored
+from pydantic import TypeAdapter
+
+def read(payload):
+    value = Authored.model_validate(payload)
+    return TypeAdapter(Authored).validate_python(payload)
+""",
+        path=f"src/nof1_causal_lab/{role}/new_parser.py",
+        rules=frozenset({"PARSE001"}),
+    )
+    assert [item.code for item in violations] == (
+        ["PARSE001", "PARSE001"] if role != "study" else []
+    )
+
+
+@pytest.mark.parametrize("directory", ["models/ssm/compile", "models/ssm/execution"])
+@pytest.mark.parametrize(
+    "result",
+    [
+        "Compiled",
+        "Compiled | Unavailable",
+        "tuple[Compiled, str]",
+        "tuple[Compiled, Unavailable]",
+        "Mapping[str, Compiled]",
+    ],
+)
+def test_published_results_protect_composed_aliases(directory: str, result: str) -> None:
+    violations = _load_checker().scan_text(
+        f"""from dataclasses import dataclass
+
+type Contents = dict[str, int]
+@dataclass(frozen=True)
+class Block:
+    items: Contents
+@dataclass(frozen=True)
+class Compiled:
+    block: Block
+@dataclass(frozen=True)
+class Unavailable:
+    reason: str
+
+def compile_model() -> {result}:
+    return Unavailable("missing")
+""",
+        path=f"src/nof1_causal_lab/{directory}/new_owner.py",
+        rules=frozenset({"IMM001", "CORE002"}),
+    )
+    assert [(item.code, item.target) for item in violations] == [("CORE002", "field:items")]
+
+
+@pytest.mark.parametrize(
+    "directory", ["utils", "actions", "study/views", "models/ssm/compile", "models/ssm/execution"]
+)
+def test_json_decoding_obeys_whole_role_parse_rules(directory: str) -> None:
+    checker = _load_checker()
+    # study/views is explicitly projection-owned; actions and utils use their directory role.
+    path = (
+        "src/nof1_causal_lab/study/views.py"
+        if directory == "study/views"
+        else f"src/nof1_causal_lab/{directory}/new_consumer.py"
+    )
+    violations = checker.scan_text(
+        "import json as wire\ndef consume(text):\n    return wire.loads(text)\n",
+        path=path,
+        rules=frozenset({"PARSE001"}),
+    )
+    assert [violation.code for violation in violations] == ["PARSE001"]
+
+
+@pytest.mark.parametrize(
+    "path",
+    [
+        "src/nof1_causal_lab/study/new_reader.py",
+        "scripts/fixtures/example.py",
+        "evaluation/fixtures/example.py",
+        "notebooks/example.py",
+        "tests/schemas/example.py",
+    ],
+)
+def test_dump_spread_reconstruction_is_rejected_across_checked_python_trees(path: str) -> None:
+    violations = _load_checker().scan_text(
+        "def read(value):\n    return Result.model_validate({**value.model_dump(), 'changed': 1})\n",
+        path=path,
+        rules=frozenset({"CORE001"}),
+    )
+    assert [violation.target for violation in violations] == ["dump-spread"]
+
+
+def test_declared_failure_handler_does_not_authorize_nested_scientific_catches() -> None:
+    source = """from nof1_causal_lab.actions.errors import execution_failure_handler as shell_failure
+@shell_failure
+def execute():
+    try:
+        foreign_execution()
+    except Exception:
+        record_failure()
+    def scientific_decision():
+        try:
+            evaluate()
+        except Exception:
+            publish_scientific_rejection()
+"""
+    checker = _load_checker()
+    violations = checker.scan_text(
+        source, path="src/nof1_causal_lab/actions/new_runner.py", rules=frozenset({"ERR001"})
+    )
+    assert len(violations) == 1
+    assert "scientific_decision" in violations[0].scope
+    # The marker cannot exempt a compiler or domain module.
+    assert (
+        len(
+            checker.scan_text(
+                source,
+                path="src/nof1_causal_lab/models/new_compiler.py",
+                rules=frozenset({"ERR001"}),
+            )
+        )
+        == 2
     )

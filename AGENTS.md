@@ -19,6 +19,8 @@
 - Prefer `ast-grep` for code navigation.
 
 - Run `bun run --cwd apps/data-pipeline check:core` for fast source-only feedback: projections are total; if one seems to need a check, fix the core type.
+  Module roles are owned by `apps/data-pipeline/scripts/checks/architecture_roles.py`; every enabled role rule runs in `check:core`.
+  Fix findings at the owner named by the checker; rule details live in the checker docstrings.
 
 - Follow the [type naming conventions](docs/guides/codegen.md#type-naming-conventions): use `...Spec` for declarative model definitions, `...Expression` for formulas, and role-specific names for runtime objects, reports, results, and references.
 

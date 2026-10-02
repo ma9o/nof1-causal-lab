@@ -28,15 +28,30 @@ The checker owns project-specific rules that Ruff and ty cannot express:
 
 ``CORE001``
     Construction bypasses and mutable casts are checked by call name. Only
-    self-revision and compiler-owned evidence construction are permitted.
+    self-revision and owner construction of compiler/execution evidence are permitted.
+    Dump-spread rebuilds are forbidden throughout every checked Python tree.
 
 ``CORE002``
-    The explicitly listed scientific owners expose read-only collections,
-    including derived properties.
+    Owned Value contracts and published compiler/execution outputs expose read-only
+    collections, including composed fields, container members, aliases and properties.
 
 ``VIEW001``
     Declared pure projections cannot raise, assert, or revalidate the core.
     Exhaustive ``assert_never`` arms are permitted.
+
+``IMM001``
+    Owned contracts inherit the shared frozen Value configuration; compiled
+    alternatives are frozen dataclasses. Private builders are not values.
+
+``PARSE001``
+    Across every production role, serialized value parsing belongs to its
+    transport/storage edge or to the target type's own module.
+
+``ERR001``
+    Built-in error catches, including contextlib.suppress, never classify science.
+    Only a single expected
+    parser/foreign-constructor error around its operation, or a declared shell
+    failure/retry handler, can be translated. Every production role is checked.
 
 """
 
@@ -44,10 +59,23 @@ from __future__ import annotations
 
 import argparse
 import ast
+import builtins
+import importlib.util
+import re
 import sys
 from dataclasses import dataclass
+from functools import lru_cache
 from pathlib import Path
 from typing import override
+
+from scripts.checks.architecture_roles import (
+    PACKAGE,
+    SOURCE_ROOT,
+    fix_owner,
+    projection_checks,
+    role_for_path,
+    role_inventory,
+)
 
 _ANY_UNION = "CUSTOM001"
 _DOMAIN_DICT_UNION = "CUSTOM002"
@@ -57,6 +85,9 @@ _UNCHECKED_JSON_ESCAPE = "CUSTOM005"
 _CORE_BYPASS = "CORE001"
 _MUTABLE_CORE = "CORE002"
 _PARTIAL_VIEW = "VIEW001"
+_FROZEN_VALUE = "IMM001"
+_BUILTIN_CATCH = "ERR001"
+_OWNER_PARSE = "PARSE001"
 _ALL_RULES = frozenset(
     {
         _ANY_UNION,
@@ -67,6 +98,9 @@ _ALL_RULES = frozenset(
         _CORE_BYPASS,
         _MUTABLE_CORE,
         _PARTIAL_VIEW,
+        _FROZEN_VALUE,
+        _BUILTIN_CATCH,
+        _OWNER_PARSE,
     }
 )
 _DOMAIN_TYPE_SUFFIXES = (
@@ -112,7 +146,8 @@ class Violation:
         """Render in the concise format understood by editors and CI."""
         return (
             f"{self.path}:{self.line}:{self.column}: "
-            f"{self.code} {self.message} [{self.scope} {self.target}]"
+            f"{self.code} {self.message} [{self.scope} {self.target}; "
+            f"role={role_for_path(self.path) or 'auxiliary'}; fix at {fix_owner(self.path)}]"
         )
 
 
@@ -751,27 +786,262 @@ class _AnnotationVisitor(ast.NodeVisitor):
         )
 
 
-# Explicit scientific owners; transport DTOs and other Pydantic models are not core.
-_CORE_OWNERS = {
-    "ModelSpec": "artifacts/model_spec.py",
-    "ConstructSpec": "artifacts/construct.py",
-    "CausalEdgeSpec": "artifacts/construct.py",
-    "IndicatorSpec": "artifacts/indicator.py",
-    "ObservationSpec": "artifacts/observations.py",
-    "LikelihoodSpec": "artifacts/likelihood.py",
-    "ObservationLawSpec": "artifacts/likelihood.py",
-    "ParameterSpec": "artifacts/parameter_spec.py",
-    "DynamicsMechanismSpec": "artifacts/mechanism.py",
-    "LiteralExpression": "artifacts/expressions.py",
-    "StateExpression": "artifacts/expressions.py",
-    "CoefficientExpression": "artifacts/expressions.py",
-    "BinaryExpression": "artifacts/expressions.py",
-    "CallExpression": "artifacts/expressions.py",
-    "CompiledFitInputs": "models/ssm/compile/inputs.py",
-    "IncompleteModel": "models/ssm/compile/inputs.py",
-    "UnsupportedFit": "models/ssm/compile/inputs.py",
-}
-_PROJECTION_SCOPES = frozenset({"src/nof1_causal_lab/study/equations.py"})
+class TypeIndex:
+    """Resolve class ownership and collection aliases without importing src."""
+
+    def __init__(self, sources: list[tuple[str, ast.Module]]) -> None:
+        self.classes: dict[str, tuple[str, ast.ClassDef]] = {}
+        self.aliases: dict[str, ast.expr] = {}
+        self.imports: dict[str, dict[str, str]] = {}
+        for path, tree in sources:
+            module = self.module(path)
+            imports: dict[str, str] = {}
+            for node in ast.walk(tree):
+                if isinstance(node, ast.Import):
+                    for alias in node.names:
+                        imports[alias.asname or alias.name.split(".")[0]] = (
+                            alias.name if alias.asname else alias.name.split(".")[0]
+                        )
+                elif isinstance(node, ast.ImportFrom):
+                    parent = module if path.endswith("/__init__.py") else module.rpartition(".")[0]
+                    target = (
+                        importlib.util.resolve_name("." * node.level + (node.module or ""), parent)
+                        if node.level
+                        else node.module or ""
+                    )
+                    for alias in node.names:
+                        imports[alias.asname or alias.name] = target + "." + alias.name
+            self.imports[module] = imports
+            for node in tree.body:
+                if isinstance(node, ast.ClassDef):
+                    self.classes[module + "." + node.name] = (path, node)
+                elif isinstance(node, ast.TypeAlias):
+                    self.aliases[module + "." + node.name.id] = node.value
+                elif (
+                    isinstance(node, ast.Assign)
+                    and len(node.targets) == 1
+                    and isinstance(node.targets[0], ast.Name)
+                    and isinstance(node.value, (ast.Name, ast.Attribute, ast.Subscript, ast.BinOp))
+                ):
+                    self.aliases[module + "." + node.targets[0].id] = node.value
+        self.evidence: set[str] = set()
+        self.compiled_outputs: set[str] = set()
+        for path, tree in sources:
+            if role_for_path(path) not in {"compiler", "execution"}:
+                continue
+            module = self.module(path)
+            for node in tree.body:
+                if (
+                    isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef))
+                    and not node.name.startswith("_")
+                    and node.returns is not None
+                ):
+                    alternatives = {
+                        name
+                        for name in self.return_variants(node.returns, module)
+                        if name in self.classes
+                        and role_for_path(self.classes[name][0]) in {"compiler", "execution"}
+                    }
+                    sum_alternatives = self.return_variants(node.returns, module, containers=False)
+                    if len(sum_alternatives) > 1:
+                        self.evidence.update(alternatives.intersection(sum_alternatives))
+                    self.compiled_outputs.update(alternatives)
+
+        # Published compiler and execution outputs own their composed numerical values too.
+        # Follow actual annotations and aliases, rather than a class-name allowlist.
+        self.compiled_values = set(self.compiled_outputs)
+        pending = list(self.compiled_values)
+        while pending:
+            name = pending.pop()
+            path, node = self.classes[name]
+            for field in node.body:
+                if not isinstance(field, ast.AnnAssign):
+                    continue
+                for expression in ast.walk(_annotation_expr(field.annotation)):
+                    if not isinstance(expression, ast.expr):
+                        continue
+                    for contained in self.return_variants(expression, self.module(path)):
+                        if (
+                            contained in self.classes
+                            and contained not in self.compiled_values
+                            and role_for_path(self.classes[contained][0])
+                            in {"compiler", "execution", "domain"}
+                        ):
+                            self.compiled_values.add(contained)
+                            pending.append(contained)
+
+    def return_variants(
+        self,
+        node: ast.expr,
+        module: str,
+        seen: frozenset[str] = frozenset(),
+        *,
+        containers: bool = True,
+    ) -> set[str]:
+        """Follow owned outputs, distinguishing a sum's alternatives from product members."""
+        node = _annotation_expr(node)
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+            return self.return_variants(
+                node.left, module, seen, containers=containers
+            ) | self.return_variants(node.right, module, seen, containers=containers)
+        name = self.resolve(node, module)
+        if name in self.aliases and name not in seen:
+            return self.return_variants(
+                self.aliases[name], name.rpartition(".")[0], seen | {name}, containers=containers
+            )
+        if (
+            isinstance(node, ast.Subscript)
+            and name.rsplit(".", 1)[-1] in {"Annotated", "Union"}
+            and isinstance(node.slice, ast.Tuple)
+        ):
+            members = node.slice.elts[:1] if name.endswith("Annotated") else node.slice.elts
+            return set().union(
+                *(
+                    self.return_variants(member, module, seen, containers=containers)
+                    for member in members
+                )
+            )
+        if (
+            containers
+            and isinstance(node, ast.Subscript)
+            and name.rsplit(".", 1)[-1]
+            in {
+                "tuple",
+                "Tuple",
+                "Mapping",
+                "Sequence",
+                "frozenset",
+                "FrozenSet",
+            }
+        ):
+            members = node.slice.elts if isinstance(node.slice, ast.Tuple) else (node.slice,)
+            return set().union(
+                *(
+                    self.return_variants(member, module, seen, containers=containers)
+                    for member in members
+                )
+            )
+        return {name} if isinstance(node, (ast.Name, ast.Attribute)) else set()
+
+    @staticmethod
+    def module(path: str) -> str:
+        marker = f"src/{PACKAGE}/"
+        relative = path.split(marker, 1)[1] if marker in path else path
+        return (
+            PACKAGE + "." + relative.removesuffix(".py").removesuffix("/__init__").replace("/", ".")
+        )
+
+    def resolve(self, node: ast.expr, module: str) -> str:
+        if isinstance(node, ast.Name):
+            return self.imports.get(module, {}).get(node.id, module + "." + node.id)
+        if isinstance(node, ast.Attribute):
+            return self.resolve(node.value, module) + "." + node.attr
+        if isinstance(node, ast.Subscript):
+            return self.resolve(node.value, module)
+        return ""
+
+    def owned(self, name: str, seen: frozenset[str] = frozenset()) -> bool:
+        if name in seen:
+            return False
+        if name in self.aliases:
+            return self.owned(
+                self.resolve(self.aliases[name], name.rpartition(".")[0]), seen | {name}
+            )
+        if name not in self.classes:
+            return False
+        path, node = self.classes[name]
+        if name in self.compiled_values:
+            return True
+        module = self.module(path)
+        bases = [self.resolve(base, module) for base in node.bases]
+        return any(
+            base == PACKAGE + ".artifacts.base.Value" or self.owned(base, seen | {name})
+            for base in bases
+        ) or (
+            not node.name.startswith("_")
+            and role_for_path(path) == "domain"
+            and "pydantic.BaseModel" in bases
+        )
+
+    def value_contract(self, name: str, seen: frozenset[str] = frozenset()) -> bool:
+        """An interpreted domain contract shares the configuration at its owner."""
+        if name == PACKAGE + ".artifacts.base.Value":
+            return True
+        if name not in self.classes or name in seen:
+            return False
+        path, node = self.classes[name]
+        return any(
+            self.value_contract(self.resolve(base, self.module(path)), seen | {name})
+            for base in node.bases
+        )
+
+    def mutable(self, node: ast.expr, module: str, seen: frozenset[str] = frozenset()) -> bool:
+        node = _annotation_expr(node)
+        name = self.resolve(node, module)
+        if name in seen:
+            return False
+        if name in self.aliases:
+            return self.mutable(self.aliases[name], name.rpartition(".")[0], seen | {name})
+        if name.rsplit(".", 1)[-1] == "Callable":
+            return False
+        if name.rsplit(".", 1)[-1] in _MUTABLE_NAMES:
+            return True
+        return any(
+            self.mutable(child, module, seen)
+            for child in ast.iter_child_nodes(node)
+            if isinstance(child, ast.expr)
+        )
+
+    def frozen(self, name: str, seen: frozenset[str] = frozenset()) -> bool:
+        if name not in self.classes or name in seen:
+            return False
+        path, node = self.classes[name]
+        for keyword in node.keywords:
+            if keyword.arg == "frozen":
+                return isinstance(keyword.value, ast.Constant) and keyword.value.value is True
+        for part in (
+            *node.decorator_list,
+            *(
+                value.value
+                for value in node.body
+                if isinstance(value, ast.Assign)
+                and any(isinstance(t, ast.Name) and t.id == "model_config" for t in value.targets)
+            ),
+        ):
+            if isinstance(part, ast.Call):
+                for keyword in part.keywords:
+                    if keyword.arg == "frozen":
+                        return (
+                            isinstance(keyword.value, ast.Constant) and keyword.value.value is True
+                        )
+        return any(
+            self.resolve(base, self.module(path))
+            in {
+                "equinox.Module",
+                "enum.StrEnum",
+                "enum.Enum",
+                "typing.NamedTuple",
+                "typing_extensions.NamedTuple",
+                "typing.Protocol",
+                "typing_extensions.Protocol",
+            }
+            or (isinstance(base, ast.Name) and base.id in {"str", "int", "float", "tuple"})
+            or self.frozen(self.resolve(base, self.module(path)), seen | {name})
+            for base in node.bases
+        )
+
+
+@lru_cache(maxsize=1)
+def _production_sources() -> tuple[tuple[str, ast.Module], ...]:
+    return tuple(
+        (
+            "src/" + PACKAGE + "/" + path.relative_to(SOURCE_ROOT).as_posix(),
+            ast.parse(path.read_text()),
+        )
+        for path in sorted(SOURCE_ROOT.rglob("*.py"))
+    )
+
+
 _CORE_REVALIDATION = frozenset(
     {
         "require_priors",
@@ -783,7 +1053,6 @@ _CORE_REVALIDATION = frozenset(
         "validate_parameter_anchors",
     }
 )
-_EVIDENCE_TYPES = frozenset({"CompiledFitInputs", "IncompleteModel", "UnsupportedFit"})
 _MUTABLE_NAMES = frozenset(
     {
         "list",
@@ -801,21 +1070,43 @@ _MUTABLE_NAMES = frozenset(
 
 def _annotation_expr(node: ast.expr) -> ast.expr:
     if isinstance(node, ast.Constant) and isinstance(node.value, str):
-        return ast.parse(node.value, mode="eval").body
+        try:
+            return ast.parse(node.value.strip(), mode="eval").body
+        except SyntaxError:
+            # Native shape and Literal metadata are string values, not forward types.
+            return node
     return node
 
 
 class _CoreVisitor(ast.NodeVisitor):
     """Syntactic call-name and core collection checks, without receiver inference."""
 
-    def __init__(self, tree: ast.Module, path: str, rules: frozenset[str]) -> None:
+    def __init__(
+        self, tree: ast.Module, path: str, rules: frozenset[str], index: TypeIndex
+    ) -> None:
+        self.index = index
+        self.module = index.module(path)
         self.path = path
         self.rules = rules
         self.scope: list[str] = []
         self.class_name: str | None = None
         self.in_function = False
+        self.failure_handler = False
         self.names: dict[str, str] = {}
         self.violations: list[Violation] = []
+        self.rebuild_dicts: set[int] = set()
+        for call in ast.walk(tree):
+            if isinstance(call, ast.Call) and (
+                (
+                    isinstance(call.func, ast.Attribute)
+                    and call.func.attr.startswith("model_validate")
+                )
+                or self.index.owned(self.index.resolve(call.func, self.module))
+            ):
+                for argument in (*call.args, *(keyword.value for keyword in call.keywords)):
+                    self.rebuild_dicts.update(
+                        id(value) for value in ast.walk(argument) if isinstance(value, ast.Dict)
+                    )
         for node in ast.walk(tree):
             if isinstance(node, (ast.Import, ast.ImportFrom)):
                 for name in node.names:
@@ -829,16 +1120,17 @@ class _CoreVisitor(ast.NodeVisitor):
         return ""
 
     def _owned_here(self, name: str) -> bool:
-        return self.path == "src/nof1_causal_lab/" + _CORE_OWNERS[name]
+        return self.index.classes[name][0] == self.path
 
     def _mutable(self, node: ast.expr) -> bool:
-        return any(
-            self._name(part) in _MUTABLE_NAMES
-            for part in ast.walk(_annotation_expr(node))
-            if isinstance(part, ast.expr)
-        )
+        return self.index.mutable(node, self.module)
 
-    def _add(self, node: ast.expr | ast.stmt, code: str, target: str, message: str) -> None:
+    def _class_owned(self) -> bool:
+        return self.class_name is not None and self.index.owned(self.module + "." + self.class_name)
+
+    def _add(
+        self, node: ast.expr | ast.stmt | ast.ExceptHandler, code: str, target: str, message: str
+    ) -> None:
         if code in self.rules:
             self.violations.append(
                 Violation(
@@ -858,15 +1150,36 @@ class _CoreVisitor(ast.NodeVisitor):
         previous = self.class_name
         self.class_name = node.name
         self.scope.append(node.name)
+        qualified = self.module + "." + node.name
+        if self._class_owned() and (
+            not self.index.frozen(qualified)
+            or (
+                role_for_path(self.path) == "domain"
+                and qualified not in self.index.compiled_values
+                and not self.index.value_contract(qualified)
+            )
+        ):
+            self._add(
+                node,
+                _FROZEN_VALUE,
+                node.name,
+                "Owned values are frozen; use the shared Value configuration or a frozen compiled dataclass",
+            )
         self.generic_visit(node)
         self.scope.pop()
         self.class_name = previous
 
     def _function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         previous_function = self.in_function
+        previous_failure_handler = self.failure_handler
+        self.failure_handler = any(
+            self.index.resolve(decorator, self.module)
+            == "nof1_causal_lab.actions.errors.execution_failure_handler"
+            for decorator in node.decorator_list
+        )
         self.scope.append(node.name)
         if (
-            self.class_name in _CORE_OWNERS
+            self._class_owned()
             and not node.name.startswith("_")
             and node.returns is not None
             and any(
@@ -885,6 +1198,7 @@ class _CoreVisitor(ast.NodeVisitor):
         self.generic_visit(node)
         self.scope.pop()
         self.in_function = previous_function
+        self.failure_handler = previous_failure_handler
 
     @override
     def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
@@ -898,7 +1212,7 @@ class _CoreVisitor(ast.NodeVisitor):
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
         if (
             isinstance(node.target, ast.Name)
-            and self.class_name in _CORE_OWNERS
+            and self._class_owned()
             and not self.in_function
             and not node.target.id.startswith("_")
             and self._mutable(node.annotation)
@@ -912,7 +1226,7 @@ class _CoreVisitor(ast.NodeVisitor):
         self.generic_visit(node)
 
     def _view_check(self, node: ast.expr | ast.stmt, target: str) -> None:
-        if self.path in _PROJECTION_SCOPES:
+        if projection_checks(self.path):
             self._add(
                 node,
                 _PARTIAL_VIEW,
@@ -933,8 +1247,47 @@ class _CoreVisitor(ast.NodeVisitor):
     @override
     def visit_Call(self, node: ast.Call) -> None:
         name = self._name(node.func)
-        if name in _CORE_REVALIDATION or name.startswith("model_validate"):
+        qualified = self.index.resolve(node.func, self.module)
+        if (
+            name in _CORE_REVALIDATION
+            or name.startswith("model_validate")
+            or name in {"validate_python", "validate_json", "validate_strings"}
+        ):
             self._view_check(node, name)
+        if role_for_path(self.path) not in {None, "edge"} and (
+            name.startswith("model_validate")
+            or name in {"validate_python", "validate_json", "validate_strings"}
+        ):
+            receiver = (
+                self.index.resolve(node.func.value, self.module)
+                if isinstance(node.func, ast.Attribute)
+                else ""
+            )
+            if (
+                isinstance(node.func, ast.Attribute)
+                and isinstance(node.func.value, ast.Name)
+                and node.func.value.id in {"cls", "self"}
+                and self.class_name is not None
+            ):
+                receiver = self.module + "." + self.class_name
+            if receiver not in self.index.classes or not self._owned_here(receiver):
+                self._add(
+                    node,
+                    _OWNER_PARSE,
+                    name,
+                    "Use the target owner's typed smart constructor; parse stored/transport JSON at its edge before compilation",
+                )
+        if (
+            qualified == "json.loads"
+            and role_for_path(self.path) not in {None, "edge"}
+            and not self._class_owned()
+        ):
+            self._add(
+                node,
+                _OWNER_PARSE,
+                "json.loads",
+                "Decode external or stored JSON at its edge or in its target value's owner parser",
+            )
         bypass = (
             name == "model_construct"
             or (
@@ -946,7 +1299,7 @@ class _CoreVisitor(ast.NodeVisitor):
                     and node.func.value.id == "self"
                 )
             )
-            or (name in _EVIDENCE_TYPES and not self._owned_here(name))
+            or (qualified in self.index.evidence and not self._owned_here(qualified))
         )
         if (
             name == "__setattr__"
@@ -958,7 +1311,7 @@ class _CoreVisitor(ast.NodeVisitor):
         if name == "cast" and len(node.args) == 2:
             target = _annotation_expr(node.args[0])
             bypass = self._mutable(target) or any(
-                self._name(part) in _EVIDENCE_TYPES
+                self.index.resolve(part, self.module) in self.index.evidence
                 for part in ast.walk(target)
                 if isinstance(part, ast.expr)
             )
@@ -971,6 +1324,112 @@ class _CoreVisitor(ast.NodeVisitor):
             )
         self.generic_visit(node)
 
+    @override
+    def visit_Dict(self, node: ast.Dict) -> None:
+        for key, value in zip(node.keys, node.values, strict=True):
+            if (
+                id(node) in self.rebuild_dicts
+                and key is None
+                and any(
+                    isinstance(call, ast.Call)
+                    and self._name(call.func) in {"model_dump", "model_dump_json"}
+                    for call in ast.walk(value)
+                )
+            ):
+                self._add(
+                    node,
+                    _CORE_BYPASS,
+                    "dump-spread",
+                    "Revise owned values at their owner; never dump and spread a value to rebuild it",
+                )
+        self.generic_visit(node)
+
+    def _check_catches(
+        self, node: ast.stmt | ast.ExceptHandler, errors: list[ast.expr], body: list[ast.stmt]
+    ) -> None:
+        if role_for_path(self.path) is None:
+            return
+        names = [
+            self._name(part)
+            for error in errors
+            for part in ast.walk(error)
+            if isinstance(part, (ast.Name, ast.Attribute))
+        ]
+        forbidden = {
+            name
+            for name in names
+            if name in vars(builtins)
+            and isinstance(vars(builtins)[name], type)
+            and issubclass(vars(builtins)[name], BaseException)
+        }
+        parse_operation = len(body) == 1 and any(
+            isinstance(call, ast.Call) and self.index.resolve(call.func, self.module) == "ast.parse"
+            for call in ast.walk(body[0])
+        )
+        declared_failure = (
+            role_for_path(self.path) in {"shell", "edge"}
+            and self.failure_handler
+            and forbidden
+            <= {
+                "Exception",
+                "OSError",
+                "FileNotFoundError",
+                "FileExistsError",
+                "ProcessLookupError",
+                "TimeoutError",
+            }
+        )
+        decoding_operation = (
+            len(body) == 1
+            and forbidden == {"UnicodeDecodeError"}
+            and any(
+                isinstance(call, ast.Call)
+                and isinstance(call.func, ast.Attribute)
+                and call.func.attr == "decode"
+                for call in ast.walk(body[0])
+            )
+        )
+        if (
+            forbidden
+            and not declared_failure
+            and not decoding_operation
+            and not (forbidden == {"SyntaxError"} and parse_operation)
+        ):
+            self._add(
+                node,
+                _BUILTIN_CATCH,
+                "catch",
+                "Catch a specific expected parse/constructor error at its operation; consume typed scientific outcomes and let bugs reach declared shell failure handlers",
+            )
+
+    @override
+    def visit_Try(self, node: ast.Try) -> None:
+        for handler in node.handlers:
+            self._check_catches(handler, [handler.type or ast.Name(id="Exception")], node.body)
+        self.generic_visit(node)
+
+    @override
+    def visit_With(self, node: ast.With) -> None:
+        for item in node.items:
+            context = item.context_expr
+            if (
+                isinstance(context, ast.Call)
+                and self.index.resolve(context.func, self.module) == "contextlib.suppress"
+            ):
+                self._check_catches(node, context.args, node.body)
+        self.generic_visit(node)
+
+    @override
+    def visit_AsyncWith(self, node: ast.AsyncWith) -> None:
+        for item in node.items:
+            context = item.context_expr
+            if (
+                isinstance(context, ast.Call)
+                and self.index.resolve(context.func, self.module) == "contextlib.suppress"
+            ):
+                self._check_catches(node, context.args, node.body)
+        self.generic_visit(node)
+
 
 def scan_text(
     source: str,
@@ -978,6 +1437,7 @@ def scan_text(
     path: str,
     domain_type_names: frozenset[str] | None = None,
     rules: frozenset[str] | None = None,
+    type_index: TypeIndex | None = None,
 ) -> list[Violation]:
     """Return violations from one Python source string."""
     tree = ast.parse(source, filename=path)
@@ -994,9 +1454,23 @@ def scan_text(
         _ALL_RULES if rules is None else rules,
     )
     visitor.visit(tree)
-    core_visitor = _CoreVisitor(tree, path, _ALL_RULES if rules is None else rules)
+    index = (
+        type_index
+        if type_index is not None
+        else TypeIndex(
+            [(name, module) for name, module in _production_sources() if name != path]
+            + [(path, tree)]
+        )
+    )
+    core_visitor = _CoreVisitor(tree, path, _ALL_RULES if rules is None else rules, index)
     core_visitor.visit(tree)
-    return visitor.violations + core_visitor.violations
+    lines = source.splitlines()
+    return [
+        violation
+        for violation in visitor.violations + core_visitor.violations
+        if re.search(r"# noqa: " + re.escape(violation.code) + r" -- \S", lines[violation.line - 1])
+        is None
+    ]
 
 
 def scan_paths(
@@ -1031,6 +1505,14 @@ def scan_paths(
     domain_type_names = _discover_domain_type_names(
         [tree for _path, _source, tree in parsed_sources]
     )
+    type_index = TypeIndex(
+        [
+            (path, tree)
+            for path, tree in _production_sources()
+            if path not in {p for p, _, _ in parsed_sources}
+        ]
+        + [(path, tree) for path, _, tree in parsed_sources]
+    )
     violations: list[Violation] = []
     for relative_path, source, _tree in parsed_sources:
         violations.extend(
@@ -1039,6 +1521,7 @@ def scan_paths(
                 path=relative_path,
                 domain_type_names=domain_type_names,
                 rules=rules,
+                type_index=type_index,
             )
         )
     return sorted(
@@ -1072,6 +1555,7 @@ def main(argv: list[str] | None = None) -> int:
 
     paths = [path if path.is_absolute() else Path.cwd() / path for path in args.paths]
     selected_rules = frozenset(args.select or _ALL_RULES)
+    role_inventory()
     violations = scan_paths(paths, repo_root=repo_root, rules=selected_rules)
     for violation in violations:
         print(violation.diagnostic(), file=sys.stderr)

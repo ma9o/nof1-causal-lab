@@ -9,6 +9,9 @@ The rules in this module protect the four promoted seams:
 4. The executable model surface is independent of inference algorithms, while
    inference consumes that surface and cannot reach back through runtime.
 
+5. Numerical sampler signatures accept the owned resolved SamplerSpec, never
+   partial configurations or forwarding TypedDicts.
+
 Imports guarded by ``TYPE_CHECKING`` are excluded because these rules constrain
 runtime ownership and initialization, not type annotation dependencies.
 """
@@ -17,13 +20,16 @@ from __future__ import annotations
 
 import argparse
 import ast
-import importlib.util
+import importlib
 import sys
 from dataclasses import dataclass
 from pathlib import Path
-from typing import override
 
-_PACKAGE = "nof1_causal_lab"
+import grimp
+
+from scripts.checks.architecture_roles import PACKAGE, fix_owner, role_for_module, role_inventory
+
+_PACKAGE = PACKAGE
 _SSM = f"{_PACKAGE}.models.ssm"
 _COMPILER = f"{_SSM}.compile"
 _EXECUTION = f"{_SSM}.execution"
@@ -51,90 +57,12 @@ class Violation:
 
     def diagnostic(self, source_root: Path) -> str:
         path = self.ref.path.relative_to(source_root.parent).as_posix()
-        return f"{path}:{self.ref.line}: {self.code} {self.message}"
-
-
-def _is_type_checking_test(node: ast.expr) -> bool:
-    return bool(
-        (isinstance(node, ast.Name) and node.id == "TYPE_CHECKING")
-        or (
-            isinstance(node, ast.Attribute)
-            and isinstance(node.value, ast.Name)
-            and node.value.id == "typing"
-            and node.attr == "TYPE_CHECKING"
+        role = role_for_module(self.ref.importer)
+        owner_path = f"src/{self.ref.importer.replace('.', '/')}.py"
+        return (
+            f"{path}:{self.ref.line}: {self.code} {self.message} "
+            f"[role={role}; fix at {fix_owner(owner_path)}]"
         )
-    )
-
-
-class _ImportVisitor(ast.NodeVisitor):
-    def __init__(self, *, path: Path, importer: str, package: str) -> None:
-        self.path = path
-        self.importer = importer
-        self.package = package
-        self.type_checking_depth = 0
-        self.refs: list[ImportRef] = []
-
-    def _append(self, imported: str, line: int) -> None:
-        if not self.type_checking_depth and imported.startswith(_PACKAGE):
-            self.refs.append(
-                ImportRef(
-                    path=self.path,
-                    line=line,
-                    importer=self.importer,
-                    imported=imported,
-                )
-            )
-
-    @override
-    def visit_If(self, node: ast.If) -> None:
-        if not _is_type_checking_test(node.test):
-            self.generic_visit(node)
-            return
-
-        self.type_checking_depth += 1
-        for statement in node.body:
-            self.visit(statement)
-        self.type_checking_depth -= 1
-        for statement in node.orelse:
-            self.visit(statement)
-
-    @override
-    def visit_Import(self, node: ast.Import) -> None:
-        for alias in node.names:
-            self._append(alias.name, node.lineno)
-
-    @override
-    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
-        if node.level:
-            relative_name = "." * node.level + (node.module or "")
-            base = importlib.util.resolve_name(relative_name, self.package)
-        else:
-            base = node.module or ""
-        self._append(base, node.lineno)
-
-
-def _module_name(source_root: Path, path: Path) -> tuple[str, str]:
-    relative = path.relative_to(source_root).with_suffix("")
-    parts = list(relative.parts)
-    is_package = parts[-1] == "__init__"
-    if is_package:
-        parts.pop()
-    suffix = ".".join(parts)
-    module = _PACKAGE if not suffix else f"{_PACKAGE}.{suffix}"
-    package = module if is_package else module.rpartition(".")[0]
-    return module, package
-
-
-def collect_imports(source_root: Path) -> tuple[ImportRef, ...]:
-    """Parse runtime imports below the package source root."""
-    refs: list[ImportRef] = []
-    for path in sorted(source_root.rglob("*.py")):
-        importer, package = _module_name(source_root, path)
-        tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(path))
-        visitor = _ImportVisitor(path=path, importer=importer, package=package)
-        visitor.visit(tree)
-        refs.extend(visitor.refs)
-    return tuple(refs)
 
 
 def _is_module(module: str, prefix: str) -> bool:
@@ -149,68 +77,236 @@ def find_violations(source_root: Path) -> tuple[Violation, ...]:
         f"{_PACKAGE}.utils.identifiability",
     )
 
-    for ref in collect_imports(source_root):
-        if _is_module(ref.importer, _COMPILER) and any(
-            _is_module(ref.imported, owner) for owner in structural_owners
+    # Resolve signatures by type ownership, including aliases and renamed arguments.
+    # Raw data/configuration is bound before execution; native numerical leaves remain valid.
+    from scripts.checks.architecture_roles import role_for_path
+    from scripts.checks.check_type_boundaries import TypeIndex
+
+    inventory = role_inventory(source_root)
+    sources = list(
+        (
+            "src/" + _PACKAGE + "/" + path.relative_to(source_root).as_posix(),
+            ast.parse(path.read_text(encoding="utf-8")),
+        )
+        for path in inventory
+    )
+    index = TypeIndex(sources)
+    raw = {
+        f"{_PACKAGE}.artifacts.model_spec.ModelSpec",
+        f"{_PACKAGE}.artifacts.likelihood.ObservationLawSpec",
+        f"{_PACKAGE}.artifacts.likelihood.LikelihoodSpec",
+        f"{_PACKAGE}.artifacts.posterior.FitSettingsSpec",
+        "polars.DataFrame",
+        "pandas.DataFrame",
+        "pyarrow.Table",
+    }
+
+    def unresolved(node: ast.expr, module: str, seen: frozenset[str] = frozenset()) -> bool:
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            try:
+                expression = ast.parse(node.value, mode="eval").body
+            except SyntaxError:
+                return False  # Jaxtyping dimension strings are metadata, not Python types.
+            return unresolved(expression, module, seen)
+        name = index.resolve(node, module)
+        if isinstance(node, ast.Subscript) and name.rsplit(".", 1)[-1] == "Literal":
+            return False
+        if (
+            isinstance(node, ast.Subscript)
+            and name.rsplit(".", 1)[-1] == "Annotated"
+            and isinstance(node.slice, ast.Tuple)
         ):
-            violations.append(
-                Violation(
-                    ref,
+            return unresolved(node.slice.elts[0], module, seen)
+        if name in raw:
+            return True
+        if name in seen:
+            return False
+        if name in index.aliases:
+            return unresolved(index.aliases[name], name.rpartition(".")[0], seen | {name})
+        if name in index.classes:
+            owner, declaration = index.classes[name]
+            if role_for_path(owner) in {"edge", "shell"}:
+                return True
+            if any(
+                keyword.arg == "total"
+                and isinstance(keyword.value, ast.Constant)
+                and keyword.value.value is False
+                for keyword in declaration.keywords
+            ):
+                return True
+            return any(
+                unresolved(base, name.rpartition(".")[0], seen | {name})
+                for base in declaration.bases
+            )
+        if (
+            isinstance(node, ast.Subscript)
+            and name.rsplit(".", 1)[-1]
+            in {
+                "dict",
+                "Dict",
+                "Mapping",
+                "MutableMapping",
+            }
+            and isinstance(node.slice, ast.Tuple)
+            and len(node.slice.elts) == 2
+        ):
+            value = node.slice.elts[1]
+            if index.resolve(value, module).rsplit(".", 1)[-1] in {"Any", "object"}:
+                return True
+        if (
+            isinstance(node, ast.BinOp)
+            and isinstance(node.op, ast.BitOr)
+            and any(
+                isinstance(part, ast.Constant) and part.value is None for part in ast.walk(node)
+            )
+            and f"{_PACKAGE}.sampler_config.SamplerSpec" in index.return_variants(node, module)
+        ):
+            return True
+        return any(
+            unresolved(child, module, seen)
+            for child in ast.iter_child_nodes(node)
+            if isinstance(child, ast.expr)
+        )
+
+    for (relative, tree), (path, role) in zip(sources, inventory.items(), strict=True):
+        if role != "execution":
+            continue
+        importer = index.module(relative)
+        for node in ast.walk(tree):
+            if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
+                continue
+            for argument in (*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs):
+                if argument.annotation is not None and unresolved(argument.annotation, importer):
+                    violations.append(
+                        Violation(
+                            ImportRef(
+                                path, argument.lineno, importer, ast.unparse(argument.annotation)
+                            ),
+                            "ARCH007",
+                            "execution requires compiled models, bound observations and resolved sampler values; bind authoring/transport inputs at their compiler or shell owner",
+                        )
+                    )
+
+    # grimp owns runtime import discovery, local imports and transitive traversal.
+    # A caller-supplied source root is also used by isolated checker regressions.
+    previous_package = sys.modules.pop(_PACKAGE, None)
+    sys.path.insert(0, str(source_root.parent.resolve()))
+    importlib.invalidate_caches()
+    try:
+        graph = grimp.build_graph(
+            _PACKAGE,
+            include_external_packages=True,
+            exclude_type_checking_imports=True,
+            cache_dir=None,
+        )
+    finally:
+        sys.path.pop(0)
+        if previous_package is not None:
+            sys.modules[_PACKAGE] = previous_package
+
+    modules = {
+        _PACKAGE
+        + (
+            "."
+            + path.relative_to(source_root)
+            .with_suffix("")
+            .as_posix()
+            .removesuffix("/__init__")
+            .replace("/", ".")
+            if path != source_root / "__init__.py"
+            else ""
+        ): path
+        for path in inventory
+    }
+    pure_roles = {"domain", "compiler", "execution", "projection"}
+    acquisition = {
+        "os",
+        "time",
+        "socket",
+        "subprocess",
+        "tempfile",
+        "shutil",
+        "fsspec",
+        "httpx",
+        "openai",
+        "pygit2",
+        "dotenv",
+        "uvicorn",
+        "fastapi",
+        "temporalio",
+        "mcp",
+        "modal",
+        "exa_py",
+        "botocore",
+        "zipfile",
+    }
+    for importer, path in sorted(modules.items()):
+        role = role_for_module(importer)
+        for imported in sorted(graph.find_upstream_modules(importer)):
+            code = message = None
+            if role in pure_roles and (
+                imported in acquisition
+                or (imported in modules and role_for_module(imported) in {"edge", "shell"})
+            ):
+                code, message = (
+                    "ARCH008",
+                    "pure roles cannot reach edge, shell, I/O, clock or environment acquisition",
+                )
+            elif (
+                imported in graph.find_modules_directly_imported_by(importer)
+                and _is_module(importer, _COMPILER)
+                and any(_is_module(imported, owner) for owner in structural_owners)
+            ):
+                code, message = (
                     "ARCH001",
                     "the SSM compiler must use ModelSpec accessors, not identification internals",
                 )
-            )
-
-        if _is_module(ref.importer, _SSM) and _is_module(ref.imported, f"{_PACKAGE}.workers"):
-            violations.append(
-                Violation(
-                    ref,
+            elif _is_module(importer, _SSM) and _is_module(imported, f"{_PACKAGE}.workers"):
+                code, message = (
                     "ARCH002",
                     "the SSM layer must consume typed artifacts, not worker schemas",
                 )
-            )
-
-        if _is_module(ref.importer, _COMPILER) and _is_module(ref.imported, _RUNTIME):
-            violations.append(
-                Violation(
-                    ref,
+            elif _is_module(importer, _COMPILER) and _is_module(imported, _RUNTIME):
+                code, message = (
                     "ARCH003",
                     "the compiler must derive outputs without constructing a runtime",
                 )
-            )
-
-        if (
-            ref.importer == _RUNTIME
-            and _is_module(ref.imported, _COMPILER)
-            and ref.imported != f"{_COMPILER}.inputs"
-        ):
-            violations.append(
-                Violation(
-                    ref,
-                    "ARCH004",
-                    "runtime construction must use pure compiler entry points",
-                )
-            )
-
-        if (
-            ref.importer in {f"{_SSM}.model", _RUNTIME} or _is_module(ref.importer, _EXECUTION)
-        ) and _is_module(ref.imported, _INFERENCE):
-            violations.append(
-                Violation(
-                    ref,
+            elif (
+                importer in {f"{_SSM}.model", _RUNTIME} or _is_module(importer, _EXECUTION)
+            ) and _is_module(imported, _INFERENCE):
+                code, message = (
                     "ARCH005",
                     "the executable SSM surface and hydration must not depend on inference",
                 )
-            )
-
-        if _is_module(ref.importer, _INFERENCE) and _is_module(ref.imported, _RUNTIME):
-            violations.append(
-                Violation(
-                    ref,
+            elif _is_module(importer, _INFERENCE) and _is_module(imported, _RUNTIME):
+                code, message = (
                     "ARCH006",
                     "inference must consume the executable SSM surface, not runtime adapters",
                 )
-            )
+            if code is not None:
+                chain = graph.find_shortest_chain(importer, imported)
+                assert chain is not None
+                details = graph.get_import_details(importer=chain[0], imported=chain[1])
+                violations.append(
+                    Violation(
+                        ImportRef(path, details[0]["line_number"], importer, imported),
+                        code,
+                        f"{message}: {' -> '.join(chain)}",
+                    )
+                )
+        # ARCH004 constrains which compiler entry point runtime names directly;
+        # that entry point necessarily reaches its own lowering implementation.
+        if importer == _RUNTIME:
+            for imported in sorted(graph.find_modules_directly_imported_by(importer)):
+                if _is_module(imported, _COMPILER) and imported != f"{_COMPILER}.inputs":
+                    details = graph.get_import_details(importer=importer, imported=imported)
+                    violations.append(
+                        Violation(
+                            ImportRef(path, details[0]["line_number"], importer, imported),
+                            "ARCH004",
+                            "runtime construction must use pure compiler entry points",
+                        )
+                    )
 
     return tuple(violations)
 
@@ -225,6 +321,7 @@ def main() -> int:
     )
     args = parser.parse_args()
 
+    role_inventory(args.source_root)
     violations = find_violations(args.source_root)
     for violation in violations:
         print(violation.diagnostic(args.source_root), file=sys.stderr)
