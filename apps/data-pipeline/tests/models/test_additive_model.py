@@ -53,11 +53,13 @@ def _model():
                         "temporal_status": "time_varying",
                         "indicators": [
                             {
-                                "id": "indicator:y",
-                                "name": "measured_y",
+                                "observation": {
+                                    "id": "indicator:y",
+                                    "name": "measured_y",
+                                    "measurement_dtype": "continuous",
+                                    "aggregation": "mean",
+                                },
                                 "construct_polarity": "positive",
-                                "measurement_dtype": "continuous",
-                                "aggregation": "mean",
                             }
                         ],
                     },
@@ -108,7 +110,10 @@ def test_entities_gain_detail_with_one_owner_and_native_prior():
     assert after.indicator_owner(IndicatorId("indicator:y")) is after.get_construct(
         ConstructId("construct:y")
     )
-    assert after.indicator(IndicatorId("indicator:y")).id == before.indicator("indicator:y").id
+    assert (
+        after.indicator(IndicatorId("indicator:y")).observation.id
+        == before.indicator("indicator:y").observation.id
+    )
     assert after.indicator(IndicatorId("indicator:y")).likelihood is not None
     assert before.indicator("indicator:y").likelihood is None
     assert after.parameters[0].id == before.parameters[0].id
@@ -137,7 +142,7 @@ def test_partial_model_is_valid_but_operation_requirements_are_explicit():
     partial = _model()
     with pytest.raises(ValueError, match="clock"):
         partial.require_measurements()
-    with pytest.raises(ValueError, match="clock"):
+    with pytest.raises(ValueError, match="prior laws"):
         partial.require_priors()
     complete_measurements = partial.revised(measurement_clock="1d")
     complete_measurements.require_measurements()

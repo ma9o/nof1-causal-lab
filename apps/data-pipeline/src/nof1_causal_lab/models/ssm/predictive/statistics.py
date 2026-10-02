@@ -1,4 +1,4 @@
-"""Read predictive observation statistics from the execution layer's exact laws."""
+"""Exact predictive moments from the same bound native law used by execution."""
 
 from __future__ import annotations
 
@@ -8,27 +8,25 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from nof1_causal_lab.artifacts.likelihood import DistributionFamily
-from nof1_causal_lab.models.ssm import numerics as numeric
-from nof1_causal_lab.models.ssm.execution.emissions import (
-    categorical_probabilities,
-    get_categorical_extra_params,
-    get_ordered_logistic_extra_params,
-    ordered_logistic_probabilities,
+from nof1_causal_lab.artifacts.likelihood import (
+    CategoricalLawSpec,
+    GammaLawSpec,
+    NormalLawSpec,
+    OrderedLogisticLawSpec,
 )
+from nof1_causal_lab.models.ssm.compile.observations import materialize_observation_laws
 from nof1_causal_lab.models.ssm.execution.observation_distributions import (
+    category_probabilities,
+    evaluate_law,
+    feasible_law,
     gaussian_distribution,
-    mean_observation_variance,
+    law_moments,
     point_observation_scales,
-)
-from nof1_causal_lab.models.ssm.execution.observation_extra_params import (
-    slice_observation_extra_params,
+    with_response,
 )
 from nof1_causal_lab.models.ssm.execution.observation_operator import compile_observation_operator
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
@@ -43,57 +41,54 @@ def observation_signal_and_variance(
     *,
     observation_support: ObservationSupportRuntime | None = None,
 ) -> tuple[np.ndarray, np.ndarray | None]:
-    """Conditional means/variances or categorical probability vectors for one channel.
-
-    Scalar means already include the observation operator's interval projection.
-    Discrete channels use the same assembled cutpoints, anchors, padding and
-    probability functions as the likelihood and sampler.
-    """
+    """Scalar moments or true-width categorical vectors; undefined moments stay NaN/inf."""
     paths = prediction.trajectory
-    n_channels = paths.observations.shape[2]
-    families = numeric.observation_families(spec)
-    family = families[manifest_index]
-    all_gaussian = all(item == DistributionFamily.GAUSSIAN for item in families)
     operator = compile_observation_operator(observation_support)
-    interval_summary = operator is not None and manifest_index in operator.interval_summary_indices
+    interval = operator is not None and manifest_index in operator.interval_summary_indices
+    all_gaussian = all(
+        isinstance(observation.law, NormalLawSpec) for observation in spec.observations
+    )
 
-    def per_draw(
-        means: jax.Array,
-        predictors: jax.Array,
-        covariance: jax.Array,
-        extra_params: Mapping[str, jax.Array],
-    ):
-        channel_params = slice_observation_extra_params(
-            extra_params, [manifest_index], source_channel_count=n_channels
-        )
-        if family == DistributionFamily.ORDERED_LOGISTIC:
-            levels, cutpoints = get_ordered_logistic_extra_params(channel_params)
-            probabilities = jax.vmap(
-                lambda eta: ordered_logistic_probabilities(eta, cutpoints, levels)
-            )(predictors)
-            return probabilities[:, 0, :], None
-        if family == DistributionFamily.CATEGORICAL:
-            levels, intercepts, slopes = get_categorical_extra_params(channel_params)
-            probabilities = jax.vmap(
-                lambda eta: categorical_probabilities(eta, intercepts, slopes, levels)
-            )(predictors)
-            return probabilities[:, 0, :], None
-        if family == DistributionFamily.GAUSSIAN and (all_gaussian or interval_summary):
-            marginal_covariance = covariance[
-                manifest_index : manifest_index + 1, manifest_index : manifest_index + 1
-            ]
-            return means, gaussian_distribution(means[:, None], marginal_covariance).variance[:, 0]
+    def per_draw(means, predictors, parameters):
+        bound = materialize_observation_laws(spec, parameters)[manifest_index]
+        covariance = parameters["manifest_cov"]
         scale = (
             jnp.sqrt(covariance[manifest_index, manifest_index])
-            if interval_summary
+            if interval
             else point_observation_scales(covariance)[manifest_index]
         )
-        return means, mean_observation_variance(family, means, scale, channel_params)
+
+        def at_time(predictor, response):
+            categorical = isinstance(bound, (OrderedLogisticLawSpec, CategoricalLawSpec))
+            baseline = (
+                predictor
+                if categorical
+                else jnp.ones_like(predictor)
+                if isinstance(bound, GammaLawSpec)
+                else jnp.zeros_like(predictor)
+            )
+            law = evaluate_law(bound, baseline, scale)
+            if not categorical:
+                law = with_response(law, response)
+            feasible, valid = feasible_law(law)
+            if isinstance(feasible, (OrderedLogisticLawSpec, CategoricalLawSpec)):
+                return category_probabilities(feasible), None
+            if isinstance(law, NormalLawSpec) and (all_gaussian or interval):
+                marginal = gaussian_distribution(
+                    law.loc[None],
+                    covariance[
+                        manifest_index : manifest_index + 1, manifest_index : manifest_index + 1
+                    ],
+                )
+                return marginal.mean[0], marginal.variance[0]
+            mean, variance = law_moments(feasible)
+            return jnp.where(valid, mean, jnp.nan), jnp.where(valid, variance, jnp.nan)
+
+        return jax.vmap(at_time)(predictors, means)
 
     signal, variance = jax.vmap(per_draw)(
         paths.expected_observations[:, time_indices, manifest_index],
-        paths.linear_predictors[:, time_indices, manifest_index : manifest_index + 1],
-        prediction.parameters["manifest_cov"],
-        prediction.likelihood_parameters,
+        paths.linear_predictors[:, time_indices, manifest_index],
+        dict(prediction.parameters),
     )
     return np.asarray(signal), None if variance is None else np.asarray(variance)

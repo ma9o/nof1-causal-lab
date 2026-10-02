@@ -54,8 +54,6 @@ class PriorAuthoringTransform(StrEnum):
     DT_PERSISTENCE_TO_CT_DECAY = "dt_persistence_to_ct_decay"
     DT_EFFECT_TO_CT_RATE = "dt_effect_to_ct_rate"
     INITIAL_STATE_CORRELATION = "initial_state_correlation"
-    SITE_WIDE = "site_wide"
-    SITE_ROW = "site_row"
 
 
 class ParameterCoordinate(Value):

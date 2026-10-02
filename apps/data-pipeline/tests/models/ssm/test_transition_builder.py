@@ -12,7 +12,6 @@ from dynestyx import (
 from numpyro.distributions import MultivariateNormal
 
 from nof1_causal_lab.artifacts.identity import scientific_id
-from nof1_causal_lab.artifacts.likelihood import LinkFunction
 from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.ssm.dynamics.edges import (
     DenseLinear,
@@ -42,6 +41,7 @@ from nof1_causal_lab.models.ssm.inference.targets.laplace.shared import (
 from nof1_causal_lab.models.ssm.inference.targets.transitions import build_discrete_transitions
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 from tests.dynamics_fixtures import hill_term
+from tests.observation_fixtures import observation_laws
 
 
 def _structural_drift(dynamics) -> StructuralDrift:
@@ -220,8 +220,6 @@ def test_nonlinear_laplace_backends_match_finite_difference(monkeypatch, solver)
     backend = LaplaceLikelihood(
         n_latent=2,
         n_manifest=1,
-        manifest_dists=[DistributionFamily.GAUSSIAN],
-        manifest_links=[LinkFunction.IDENTITY],
         n_ieks_iters=2,
         observation_support=None if solver == "point" else _interval_mean_support_runtime(),
     )
@@ -248,7 +246,12 @@ def test_nonlinear_laplace_backends_match_finite_difference(monkeypatch, solver)
             (_structural_drift(base_dynamics).args.params[0], hill_params),
         )
         result = backend.compute_log_likelihood_with_aux(
-            dynamics, measurement, initial, observations, intervals
+            dynamics,
+            measurement,
+            initial,
+            observations,
+            intervals,
+            observation_laws=observation_laws([DistributionFamily.GAUSSIAN]),
         )
         return result.log_likelihood, result
 

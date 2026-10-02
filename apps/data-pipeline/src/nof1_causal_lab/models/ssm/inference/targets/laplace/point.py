@@ -13,7 +13,7 @@ from nof1_causal_lab.models.ssm.covariance_utils import symmetrize, symmetrize_w
 from nof1_causal_lab.models.ssm.execution.contracts import (
     LIKELIHOOD_SOLVER_KIND_DENSE_SUPPORT,
     LIKELIHOOD_SOLVER_KIND_POINT_IEKS,
-    LikelihoodExtraParams,
+    ObservationLaws,
     build_likelihood_eval_aux,
 )
 from nof1_causal_lab.models.ssm.execution.observation_operator import (
@@ -50,8 +50,10 @@ from .shared import (
 if TYPE_CHECKING:
     from dynestyx import StochasticContinuousTimeStateEvolution
 
-    from nof1_causal_lab.models.ssm.execution.emissions import MeanLogProbFn
-    from nof1_causal_lab.models.ssm.execution.observation_model import ObservationKernel
+    from nof1_causal_lab.models.ssm.execution.observation_model import (
+        EmissionLogProbFn,
+        ObservationKernel,
+    )
 
 
 def _row_joint_log_prob(
@@ -548,7 +550,7 @@ def _point_ieks_laplace_core(
     obs_kernel: ObservationKernel,
     *,
     build_measurement_objects=None,
-    extra_params: LikelihoodExtraParams | None = None,
+    observation_laws: ObservationLaws = (),
     solver_kind: int,
     n_ieks_iters: int,
     z_init: jnp.ndarray | None = None,
@@ -588,9 +590,9 @@ def _point_ieks_laplace_core(
             R_curr,
             init_mean_curr,
             init_cov_curr,
-            extra_params_curr,
+            observation_laws_curr,
         ) = mode_params
-        measurement_semantics_curr = build_measurement_objects(R_curr, extra_params_curr)
+        measurement_semantics_curr = build_measurement_objects(R_curr, observation_laws_curr)
         return (
             Ad_curr,
             Qd_curr,
@@ -932,7 +934,7 @@ def _point_ieks_laplace_core(
             R,
             init_mean,
             init_cov,
-            extra_params,
+            observation_laws,
         )
     )
     z_est, mode_aux = _implicit_mode_solve(mode_params)
@@ -1179,7 +1181,7 @@ def _ieks_smooth(
     n_ieks_iters=5,
     z_init: jnp.ndarray | None = None,
     build_measurement_objects=None,
-    extra_params: LikelihoodExtraParams | None = None,
+    observation_laws: ObservationLaws = (),
 ) -> tuple[jnp.ndarray, jnp.ndarray, dict[str, jnp.ndarray]]:
     """Run the Iterated Extended Kalman Smoother to find the MAP state trajectory."""
     return _point_ieks_laplace_core(
@@ -1195,7 +1197,7 @@ def _ieks_smooth(
         init_cov,
         obs_kernel,
         build_measurement_objects=build_measurement_objects,
-        extra_params=extra_params,
+        observation_laws=observation_laws,
         solver_kind=solver_kind,
         n_ieks_iters=n_ieks_iters,
         z_init=z_init,
@@ -1214,7 +1216,7 @@ def _dense_support_laplace_log_lik(
     init_mean: jnp.ndarray,
     init_cov: jnp.ndarray,
     obs_kernel: ObservationKernel,
-    mean_log_prob_fn: MeanLogProbFn | None,
+    mean_log_prob_fn: EmissionLogProbFn | None,
     observation_support,
     n_newton_iters: int,
 ) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
@@ -1319,7 +1321,7 @@ def _dense_dynamic_support_laplace_log_lik(
     init_mean: jnp.ndarray,
     init_cov: jnp.ndarray,
     obs_kernel: ObservationKernel,
-    mean_log_prob_fn: MeanLogProbFn | None,
+    mean_log_prob_fn: EmissionLogProbFn | None,
     observation_support,
     n_newton_iters: int,
     *,

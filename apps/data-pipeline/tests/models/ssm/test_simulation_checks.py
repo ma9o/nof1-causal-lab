@@ -12,7 +12,11 @@ import pytest
 from nof1_causal_lab.artifacts.likelihood import DistributionFamily
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.ssm import numerics as numeric
-from nof1_causal_lab.models.ssm.execution.observation_distributions import mean_observation_variance
+from nof1_causal_lab.models.ssm.execution.observation_distributions import (
+    evaluate_law,
+    safe_native,
+    with_response,
+)
 from nof1_causal_lab.models.ssm.predictive.types import PredictiveDraws, PredictiveTrajectory
 from nof1_causal_lab.models.ssm.simulation_checks import (
     ConstructSimulationTarget,
@@ -23,6 +27,7 @@ from tests.helpers import (
     fixture_entity_id,
 )
 from tests.model_fixtures import compile_model_fixture
+from tests.observation_fixtures import observation_laws
 
 pytestmark = pytest.mark.inference(concern="predictive")
 
@@ -49,12 +54,15 @@ pytestmark = pytest.mark.inference(concern="predictive")
 def test_conditional_variance_uses_observation_family_moments(
     family, means, scale, extra, expected
 ):
-    actual = mean_observation_variance(
-        DistributionFamily(family),
-        jnp.asarray(means),
-        scale,
-        {name: jnp.asarray(value) for name, value in extra.items()},
-    )
+    bound = observation_laws(
+        [DistributionFamily(family)],
+        parameters={name: jnp.asarray(value) for name, value in extra.items()},
+    )[0]
+    mean = jnp.asarray(means)
+    baseline = jnp.ones_like(mean) if family == "gamma" else jnp.zeros_like(mean)
+    law = with_response(evaluate_law(bound, baseline, jnp.full_like(mean, scale)), mean)
+    native, valid = safe_native(law)
+    actual = jnp.where(valid, native.variance, jnp.nan)
     np.testing.assert_allclose(actual, expected, rtol=1e-6, atol=0.0, equal_nan=True)
 
 
@@ -66,7 +74,6 @@ def test_time_invariant_construct_omits_temporal_transmission_check():
     expected = latent.copy()
     pred = PredictiveDraws(
         parameters={"manifest_cov": jnp.broadcast_to(jnp.array([[[0.25]]]), (draws, 1, 1))},
-        likelihood_parameters={},
         trajectory=PredictiveTrajectory(
             latents=jnp.asarray(latent),
             linear_predictors=jnp.asarray(expected),
@@ -152,7 +159,6 @@ def test_fixed_hill_coefficients_participate_in_checks_and_edge_off(
     latents = np.broadcast_to(np.linspace(0.2, 2, ticks)[None, :, None], (draws, ticks, 2)).copy()
     predictive = PredictiveDraws(
         parameters={"manifest_cov": jnp.broadcast_to(jnp.eye(2) * 0.25, (draws, 2, 2))},
-        likelihood_parameters={},
         trajectory=PredictiveTrajectory(
             latents=jnp.asarray(latents),
             linear_predictors=jnp.asarray(latents),

@@ -8,11 +8,9 @@ can be carried through JAX transformations without closing over traced arrays.
 
 from __future__ import annotations
 
-from types import MappingProxyType
 from typing import TYPE_CHECKING, override
 
 import dynestyx as dsx
-import equinox as eqx
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -30,21 +28,18 @@ from nof1_causal_lab.models.ssm.execution.contracts import MeasurementParams
 from nof1_causal_lab.models.ssm.execution.observation_model import compile_observation_model
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Mapping
 
     from dynestyx import StochasticContinuousTimeStateEvolution
     from jax.typing import ArrayLike
 
-    from nof1_causal_lab.artifacts.likelihood import LinkFunction
-    from nof1_causal_lab.distributions import DistributionFamily
     from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
     from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
     from nof1_causal_lab.models.ssm.execution.contracts import (
-        LikelihoodExtraParams,
+        ObservationLaws,
     )
     from nof1_causal_lab.models.ssm.execution.observation_dispatch import ObservationSampleFn
     from nof1_causal_lab.models.ssm.execution.observation_model import ObservationKernel
-    from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
 
 
 def continuous_state_evolution(
@@ -68,13 +63,7 @@ class HeterogeneousObservation(dsx.ObservationModel):
     """Measurement mapping with the application's family/link and missingness rules."""
 
     measurement: MeasurementParams
-    families: tuple[DistributionFamily, ...] = eqx.field(static=True)
-    links: tuple[LinkFunction, ...] = eqx.field(static=True)
-    extra_params: LikelihoodExtraParams | None = None
-
-    def __post_init__(self) -> None:
-        if self.extra_params is not None:
-            object.__setattr__(self, "extra_params", MappingProxyType(dict(self.extra_params)))
+    laws: ObservationLaws
 
     @override
     def __call__(
@@ -98,6 +87,7 @@ class _ObservationDistribution(dist.Distribution):
     _measurement: MeasurementParams
     _kernel: ObservationKernel
     _sampler: ObservationSampleFn
+    _laws: ObservationLaws
 
     @property
     @override
@@ -106,12 +96,11 @@ class _ObservationDistribution(dist.Distribution):
 
     def __init__(self, predictor: jax.Array, observation: HeterogeneousObservation) -> None:
         self._predictor = predictor
+        self._laws = observation.laws
         self._measurement = observation.measurement
         compiled = compile_observation_model(
-            observation.families,
+            observation.laws,
             manifest_cov=self._measurement.manifest_cov,
-            extra_params=observation.extra_params,
-            manifest_links=observation.links,
         )
         self._kernel = compiled.kernel
         self._sampler = compiled.point_sampler.sample_point
@@ -122,8 +111,31 @@ class _ObservationDistribution(dist.Distribution):
         )
 
     @property
-    def mean(self) -> jax.Array:
+    def response(self) -> jax.Array:
+        """Declared response/location for observation projection."""
         return self._kernel.response_fn(self._predictor)
+
+    @property
+    def mean(self) -> jax.Array:
+        """Actual scalar moments; a category law's mean is its expected category code."""
+        from nof1_causal_lab.artifacts.likelihood import CategoricalLawSpec, OrderedLogisticLawSpec
+        from nof1_causal_lab.models.ssm.execution.observation_distributions import (
+            evaluate_law,
+            law_moments,
+            law_response,
+        )
+
+        means = []
+        for index, law in enumerate(self._laws):
+            native = evaluate_law(
+                law, self._predictor[index], jnp.sqrt(self._measurement.manifest_cov[index, index])
+            )
+            means.append(
+                law_response(native)
+                if isinstance(native, (CategoricalLawSpec, OrderedLogisticLawSpec))
+                else law_moments(native)[0]
+            )
+        return jnp.stack(means)
 
     def sample(self, key: jax.Array | None, sample_shape: tuple[int, ...] = ()) -> jax.Array:
         assert key is not None  # This stochastic distribution requires a NumPyro PRNG key.
@@ -175,7 +187,6 @@ def assemble_likelihood_inputs(
     samples: dict[str, jnp.ndarray],
     spec: CompiledModel,
     *,
-    registry: Sequence[SiteDescriptor],
     dynamics: DynamicsSpec | None = None,
     intervention: Intervention | None = None,
     input_values: jax.Array | None = None,
@@ -183,10 +194,10 @@ def assemble_likelihood_inputs(
     StochasticContinuousTimeStateEvolution,
     MeasurementParams,
     MultivariateNormal,
-    LikelihoodExtraParams | None,
+    ObservationLaws,
 ]:
     """Consume the canonical deterministic values from NumPyro's prior replay."""
-    from nof1_causal_lab.models.ssm.parameterization import assemble_extra_params_from_registry
+    from nof1_causal_lab.models.ssm.compile.observations import materialize_observation_laws
 
     dynamics_spec = spec.dynamics.spec if dynamics is None else dynamics
     compiled = spec.dynamics if dynamics is None else compile_dynamics(dynamics_spec)
@@ -205,8 +216,8 @@ def assemble_likelihood_inputs(
     initial = initial_state_distribution(
         spec, samples["t0_means"], samples["t0_cov"], input_values=input_values
     )
-    extra = assemble_extra_params_from_registry(spec, samples, registry)
-    return evolution, measurement, initial, extra or None
+    laws = materialize_observation_laws(spec, samples)
+    return evolution, measurement, initial, laws
 
 
 def build_dynamical_model(
@@ -222,17 +233,15 @@ def build_dynamical_model(
     NumPyro's prior replay. An execution-only dynamics override supports paired
     edge-off admission contrasts while retaining the same measurement and initial laws.
     """
-    evolution, measurement, initial, extra_params = assemble_likelihood_inputs(
-        values, model_spec, registry=model_spec.site_registry, dynamics=dynamics
+    evolution, measurement, initial, laws = assemble_likelihood_inputs(
+        values, model_spec, dynamics=dynamics
     )
     return dsx.DynamicalModel(
         initial_condition=initial,
         state_evolution=evolution,
         observation_model=HeterogeneousObservation(
             measurement,
-            tuple(numeric.observation_families(model_spec)),
-            tuple(numeric.observation_links(model_spec)),
-            extra_params,
+            laws,
         ),
         t0=t0,
     )

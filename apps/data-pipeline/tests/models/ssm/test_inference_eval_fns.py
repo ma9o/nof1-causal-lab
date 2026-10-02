@@ -70,13 +70,12 @@ def _build_test_evaluators(monkeypatch, *, backend: _RecordingBackend):
     inputs = compile_fit_fixture(spec)
     panel = bind_panel_fixture(inputs.compiled, bound_observations, bound_times)
 
-    def assemble(samples, spec, *, registry: object, intervention, input_values):
+    def assemble(samples, spec, *, intervention, input_values):
         assert spec is panel.model
-        assert registry is panel.model.site_registry
         assert intervention.overrides == ()
         assert jnp.all(jnp.isnan(input_values))
         assembled_samples.append(samples)
-        return "dynamics", "measurement", "initial", {"obs_df": 5.0}
+        return "dynamics", "measurement", "initial", ()
 
     monkeypatch.setattr(warmup_map, "assemble_likelihood_inputs", assemble)
     parameters = ParameterTransform(
@@ -126,7 +125,7 @@ def test_eval_fns_share_preparation_and_backend_semantics(monkeypatch) -> None:
         first_call["args"][4],
         [MIN_DT, *np.diff(np.asarray(times))],
     )
-    assert first_call["kwargs"]["extra_params"] == {"obs_df": 5.0}
+    assert first_call["kwargs"]["observation_laws"] == ()
 
 
 @pytest.mark.contract
@@ -178,7 +177,7 @@ class _InputFingerprintBackend:
         observations,
         intervals,
         *,
-        extra_params,
+        observation_laws,
         solver_state=EMPTY_LAPLACE_STATE,
     ):
         inputs = (
@@ -188,7 +187,7 @@ class _InputFingerprintBackend:
             initial.covariance_matrix,
             observations,
             intervals,
-            extra_params,
+            observation_laws,
         )
         arrays = jax.tree.leaves(eqx.filter(inputs, eqx.is_array))
         return sum((i + 1) * jnp.sum(value**2) for i, value in enumerate(arrays))

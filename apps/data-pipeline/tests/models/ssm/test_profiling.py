@@ -44,7 +44,7 @@ def test_fit_shell_closes_trace_and_owns_artifact_writes(monkeypatch, tmp_path, 
     inference = import_module("nof1_causal_lab.models.ssm.inference")
     calls = []
     compiled = object()
-    result = SimpleNamespace(diagnostics={"compiled_step": compiled})
+    result = SimpleNamespace(diagnostics=SimpleNamespace(compiled_step=compiled))
 
     class ExecutionFailed(Exception):
         pass

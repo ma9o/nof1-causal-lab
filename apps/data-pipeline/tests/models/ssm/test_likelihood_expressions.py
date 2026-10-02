@@ -20,17 +20,16 @@ from nof1_causal_lab.artifacts.likelihood import (
     LikelihoodSpec,
     NormalLawSpec,
     ObservationLawSpec,
-    observation_expressions,
 )
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.compilation_errors import IncompleteModelError
 from nof1_causal_lab.models.likelihoods import function
 from nof1_causal_lab.models.model_parameters import iter_coefficient_uses
-from nof1_causal_lab.models.ssm.execution.observation_dispatch import get_emission_fn
 from nof1_causal_lab.study.equations import observation_equations
 from tests.helpers import make_model
 from tests.model_fixtures import compile_model_fixture
+from tests.observation_fixtures import observation_kernel
 
 
 @pytest.mark.inference(concern="sampling")
@@ -200,7 +199,7 @@ def test_native_conditional_law_matches_exact_emission_lowering(
             call=lambda name, arguments: functions[name](*arguments),
         )
 
-    arguments = {name: evaluate(value) for name, value in observation_expressions(likelihood.law)}
+    arguments = {name: evaluate(value) for name, value in likelihood.law.operands()}
     expected = getattr(dist, likelihood.law.distribution)(**arguments).log_prob(observed)
     terms = likelihood.parsed
     extra = {
@@ -215,7 +214,7 @@ def test_native_conditional_law_matches_exact_emission_lowering(
         extra["obs_cat_intercepts"] = values["category_intercepts"][None, :]
         extra["obs_cat_slopes"] = values["category_slopes"][None, :]
         extra["obs_level_counts"] = jnp.array([3])
-    density = get_emission_fn(terms.family, extra_params=extra, link=terms.link)
+    density = observation_kernel([terms.family], [terms.link], extra).log_prob_fn
     actual = density(
         jnp.array([observed], dtype=float),
         jnp.atleast_1d(evaluate(terms.predictor)),
@@ -390,14 +389,14 @@ def test_completion_binding_equations_and_serialization_follow_the_same_cross_lo
     )
     uses = [use for use in iter_coefficient_uses(model) if use.quantity == SiteKind.LOADING]
     cross = next(use for use in uses if use.value == 0.25)
-    assert {ref.id for ref in cross.owners} == {indicator.id, other.id}
-    equation = observation_equations(model)[indicator.id]
+    assert {ref.id for ref in cross.owners} == {indicator.observation.id, other.id}
+    equation = observation_equations(model)[indicator.observation.id]
     assert r"\operatorname{Normal}" in equation
     assert r"0.25" in equation
     assert r"\eta_{\text{Y}}(t)" in equation
     assert ModelSpec.model_validate_json(model.model_dump_json()) == model
     renamed = model.revised(edges=replace_constructs(model.edges, (other.revised(name="Renamed"),)))
-    assert r"\eta_{\text{Renamed}}(t)" in observation_equations(renamed)[indicator.id]
+    assert r"\eta_{\text{Renamed}}(t)" in observation_equations(renamed)[indicator.observation.id]
     assert {p.id for p in renamed.parameters} == {p.id for p in model.parameters}
 
 
@@ -452,7 +451,7 @@ def test_partial_law_is_explicit_and_unsupported_formulas_fail_before_execution(
     unfinished = with_law(partial)
     with pytest.raises(IncompleteModelError):
         compile_model_fixture(unfinished)
-    assert "?" in observation_equations(unfinished)[indicator.id]
+    assert "?" in observation_equations(unfinished)[indicator.observation.id]
     compile_model_fixture(
         ModelSpec.model_validate_json(
             (
@@ -476,3 +475,51 @@ def test_partial_law_is_explicit_and_unsupported_formulas_fail_before_execution(
     )
     with pytest.raises(ValidationError, match="must include its measured construct"):
         with_law(wrong_owner)
+
+
+@pytest.mark.contract
+def test_law_map_preserves_every_constructor_operand_and_composes():
+    """Mapping operands neither changes a law nor drops a native argument."""
+    from pydantic import TypeAdapter
+
+    from nof1_causal_lab.artifacts.expressions import Expression, LiteralExpression
+    from nof1_causal_lab.artifacts.likelihood import (
+        OBSERVATION_LAW_TYPES,
+        ObservationLawSpec,
+        map_law,
+    )
+
+    def literal(value: Expression) -> float:
+        assert isinstance(value, LiteralExpression)
+        return value.value
+
+    def identity(value: Expression) -> Expression:
+        return value
+
+    def increment(value: Expression) -> float:
+        return literal(value) + 1
+
+    def double(value: float) -> float:
+        return value * 2
+
+    def increment_then_double(value: Expression) -> float:
+        return (literal(value) + 1) * 2
+
+    for constructor in OBSERVATION_LAW_TYPES:
+        law = TypeAdapter(ObservationLawSpec).validate_python(
+            {
+                "distribution": constructor.model_fields["distribution"].default,
+                **{
+                    name: LiteralExpression(value=index)
+                    for index, name in enumerate(constructor.model_fields)
+                    if name != "distribution"
+                },
+            }
+        )
+        assert map_law(law, identity).model_dump() == law.model_dump()
+        first = map_law(law, increment)
+        composed = map_law(first, double)
+        direct = map_law(law, increment_then_double)
+        assert composed.distribution == law.distribution
+        assert composed.model_dump() == direct.model_dump()
+        assert set(composed.model_dump()) == set(law.model_dump())

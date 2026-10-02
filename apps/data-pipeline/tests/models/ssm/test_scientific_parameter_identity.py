@@ -180,7 +180,7 @@ def test_shared_likelihood_parameter_owns_only_active_channels():
     )
     assert {o.id for o in model.parameter_context(shared.id).owners} == {
         first.id,
-        first.indicators[0].id,
+        first.indicators[0].observation.id,
     }
     second = second.revised(
         indicators=(
@@ -216,8 +216,8 @@ def test_shared_likelihood_parameter_owns_only_active_channels():
     assert {o.id for o in expanded.parameter_context(newer.id).owners} == {
         first.id,
         second.id,
-        first.indicators[0].id,
-        second.indicators[0].id,
+        first.indicators[0].observation.id,
+        second.indicators[0].observation.id,
     }
     compile_model_fixture(expanded)
 

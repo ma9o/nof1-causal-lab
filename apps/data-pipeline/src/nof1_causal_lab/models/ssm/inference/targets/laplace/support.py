@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
@@ -10,7 +10,7 @@ import numpy as np
 
 from nof1_causal_lab.models.ssm.execution.contracts import (
     LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS,
-    LikelihoodExtraParams,
+    ObservationLaws,
     build_likelihood_eval_aux,
 )
 from nof1_causal_lab.models.ssm.execution.observation_operator import (
@@ -51,9 +51,14 @@ if TYPE_CHECKING:
     from dynestyx import StochasticContinuousTimeStateEvolution
     from jaxtyping import PyTree
 
-    from nof1_causal_lab.models.ssm.execution.emissions import MeanLogProbFn
-    from nof1_causal_lab.models.ssm.execution.observation_model import ObservationKernel
+    from nof1_causal_lab.models.ssm.execution.observation_model import (
+        CompiledObservationModel,
+        EmissionLogProbFn,
+        ObservationKernel,
+    )
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
+
+type SupportWindowDerivatives = Callable[..., tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]]
 
 
 def _assemble_support_aware_observation_system(
@@ -66,7 +71,7 @@ def _assemble_support_aware_observation_system(
     obs_kernel: ObservationKernel,
     support_window_batches: tuple[SupportObservationWindowBatch, ...],
     point_like_mask: jnp.ndarray,
-    window_derivatives: tuple[Any, ...],
+    window_derivatives: tuple[SupportWindowDerivatives, ...],
     bandwidth: int,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Assemble exact Newton observation terms in block-banded form."""
@@ -161,8 +166,8 @@ def _make_support_window_derivatives(
     n_manifest: int,
     summary_operator_codes: jnp.ndarray,
     obs_kernel: ObservationKernel,
-    mean_log_prob_fn: MeanLogProbFn | None,
-):
+    mean_log_prob_fn: EmissionLogProbFn | None,
+) -> SupportWindowDerivatives:
     """Build support-window derivatives with Gauss-Newton curvature in mean space."""
     assert mean_log_prob_fn is not None
 
@@ -321,7 +326,7 @@ def _support_aware_joint_log_prob(
     d: jnp.ndarray,
     R: jnp.ndarray,
     obs_kernel: ObservationKernel,
-    mean_log_prob_fn: MeanLogProbFn | None,
+    mean_log_prob_fn: EmissionLogProbFn | None,
     observation_support: ObservationSupportRuntime,
 ) -> jnp.ndarray:
     """Exact latent joint log-density used for support-aware step acceptance."""
@@ -428,7 +433,7 @@ def _support_aware_posterior_system(
     obs_kernel: ObservationKernel,
     support_window_batches: tuple[SupportObservationWindowBatch, ...],
     point_like_mask: jnp.ndarray,
-    window_derivatives: tuple[Any, ...],
+    window_derivatives: tuple[SupportWindowDerivatives, ...],
     bandwidth: int,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Assemble the exact support-aware posterior Newton system at `z_est`."""
@@ -471,7 +476,7 @@ def _support_aware_mode_optimality(
     obs_kernel: ObservationKernel,
     support_window_batches: tuple[SupportObservationWindowBatch, ...],
     point_like_mask: jnp.ndarray,
-    window_derivatives: tuple[Any, ...],
+    window_derivatives: tuple[SupportWindowDerivatives, ...],
     bandwidth: int,
 ) -> jnp.ndarray:
     """Return the latent-mode optimality residual F(z, theta) = 0."""
@@ -508,13 +513,13 @@ def _support_aware_ieks_mode(
     init_mean: jnp.ndarray,
     init_cov: jnp.ndarray,
     obs_kernel: ObservationKernel,
-    mean_log_prob_fn: MeanLogProbFn | None,
+    mean_log_prob_fn: EmissionLogProbFn | None,
     observation_support: ObservationSupportRuntime,
     support_window_batches: tuple[SupportObservationWindowBatch, ...],
     bandwidth: int,
     row_upper_bandwidths: jnp.ndarray,
     row_lower_bandwidths: jnp.ndarray,
-    window_derivatives: tuple[Any, ...],
+    window_derivatives: tuple[SupportWindowDerivatives, ...],
     n_ieks_iters: int,
     z_init: jnp.ndarray | None = None,
     *,
@@ -843,11 +848,11 @@ def _support_aware_laplace_terms_from_mode(
     init_mean: jnp.ndarray,
     init_cov: jnp.ndarray,
     obs_kernel: ObservationKernel,
-    mean_log_prob_fn: MeanLogProbFn | None,
+    mean_log_prob_fn: EmissionLogProbFn | None,
     observation_support: ObservationSupportRuntime,
     support_window_batches: tuple[SupportObservationWindowBatch, ...],
     point_like_mask: jnp.ndarray,
-    window_derivatives: tuple[Any, ...],
+    window_derivatives: tuple[SupportWindowDerivatives, ...],
     bandwidth: int,
     row_upper_bandwidths: jnp.ndarray,
     row_lower_bandwidths: jnp.ndarray,
@@ -919,13 +924,13 @@ def _support_dynamic_transition_ieks_laplace(
     init_mean: jnp.ndarray,
     init_cov: jnp.ndarray,
     obs_kernel: ObservationKernel,
-    mean_log_prob_fn: MeanLogProbFn | None,
+    mean_log_prob_fn: EmissionLogProbFn | None,
     observation_support: ObservationSupportRuntime,
     support_window_batches: tuple[SupportObservationWindowBatch, ...],
     bandwidth: int,
     row_upper_bandwidths: jnp.ndarray,
     row_lower_bandwidths: jnp.ndarray,
-    window_derivatives: tuple[Any, ...],
+    window_derivatives: tuple[SupportWindowDerivatives, ...],
     n_ieks_iters: int,
     *,
     z_init: jnp.ndarray | None = None,
@@ -1162,18 +1167,18 @@ def _support_aware_ieks_laplace_core(
     init_mean: jnp.ndarray,
     init_cov: jnp.ndarray,
     obs_kernel: ObservationKernel,
-    mean_log_prob_fn: MeanLogProbFn | None,
+    mean_log_prob_fn: EmissionLogProbFn | None,
     observation_support: ObservationSupportRuntime,
     support_window_batches: tuple[SupportObservationWindowBatch, ...],
     bandwidth: int,
     row_upper_bandwidths: jnp.ndarray,
     row_lower_bandwidths: jnp.ndarray,
-    window_derivatives: tuple[Any, ...],
+    window_derivatives: tuple[SupportWindowDerivatives, ...],
     build_measurement_objects: Callable[
-        [jnp.ndarray, LikelihoodExtraParams | None],
-        tuple[Any, tuple[Any, ...]],
+        [jnp.ndarray, ObservationLaws],
+        tuple[CompiledObservationModel, tuple[SupportWindowDerivatives, ...]],
     ],
-    extra_params: LikelihoodExtraParams | None,
+    observation_laws: ObservationLaws,
     n_ieks_iters: int,
     z_init: jnp.ndarray | None = None,
     final_factor_block_cholesky_fn=_factor_block_profile_cholesky,
@@ -1207,11 +1212,11 @@ def _support_aware_ieks_laplace_core(
             R_curr,
             init_mean_curr,
             init_cov_curr,
-            extra_params_curr,
+            observation_laws_curr,
         ) = mode_params
         measurement_semantics_curr, window_derivatives_curr = build_measurement_objects(
             R_curr,
-            extra_params_curr,
+            observation_laws_curr,
         )
         return _support_aware_ieks_mode(
             observations=observations,
@@ -1271,11 +1276,11 @@ def _support_aware_ieks_laplace_core(
             R_curr,
             init_mean_curr,
             init_cov_curr,
-            extra_params_curr,
+            observation_laws_curr,
         ) = mode_params
         measurement_semantics_curr, window_derivatives_curr = build_measurement_objects(
             R_curr,
-            extra_params_curr,
+            observation_laws_curr,
         )
         system_diag, system_upper, _system_rhs = _support_aware_posterior_system(
             z_mode,
@@ -1319,11 +1324,11 @@ def _support_aware_ieks_laplace_core(
                 R_inner,
                 init_mean_inner,
                 init_cov_inner,
-                extra_params_inner,
+                observation_laws_inner,
             ) = mode_params_inner
             measurement_semantics_inner, window_derivatives_inner = build_measurement_objects(
                 R_inner,
-                extra_params_inner,
+                observation_laws_inner,
             )
             return _support_aware_mode_optimality(
                 z_mode,
@@ -1362,11 +1367,11 @@ def _support_aware_ieks_laplace_core(
             R_curr,
             init_mean_curr,
             init_cov_curr,
-            extra_params_curr,
+            observation_laws_curr,
         ) = mode_params
         measurement_semantics_curr, window_derivatives_curr = build_measurement_objects(
             R_curr,
-            extra_params_curr,
+            observation_laws_curr,
         )
         log_lik, mode_log_joint, laplace_logdet, min_chol_diag = (
             _support_aware_laplace_terms_from_mode(
@@ -1429,11 +1434,11 @@ def _support_aware_ieks_laplace_core(
             R_curr,
             init_mean_curr,
             init_cov_curr,
-            extra_params_curr,
+            observation_laws_curr,
         ) = mode_params
         measurement_semantics_curr, window_derivatives_curr = build_measurement_objects(
             R_curr,
-            extra_params_curr,
+            observation_laws_curr,
         )
 
         def _mode_log_joint_eval(mode_params_inner, z_inner):
@@ -1446,11 +1451,11 @@ def _support_aware_ieks_laplace_core(
                 R_inner,
                 init_mean_inner,
                 init_cov_inner,
-                extra_params_inner,
+                observation_laws_inner,
             ) = mode_params_inner
             measurement_semantics_inner, _window_derivatives_inner = build_measurement_objects(
                 R_inner,
-                extra_params_inner,
+                observation_laws_inner,
             )
             prior_terms_inner = build_gaussian_trajectory_prior_terms(
                 Ad_inner,
@@ -1519,11 +1524,11 @@ def _support_aware_ieks_laplace_core(
                 R_inner,
                 init_mean_inner,
                 init_cov_inner,
-                extra_params_inner,
+                observation_laws_inner,
             ) = mode_params_inner
             measurement_semantics_inner, window_derivatives_inner = build_measurement_objects(
                 R_inner,
-                extra_params_inner,
+                observation_laws_inner,
             )
             return _support_aware_posterior_system(
                 z_inner,
@@ -1567,7 +1572,7 @@ def _support_aware_ieks_laplace_core(
         R,
         init_mean,
         init_cov,
-        extra_params,
+        observation_laws,
     )
     z_est, mode_aux = _implicit_mode_solve(mode_params)
     (
@@ -1610,18 +1615,18 @@ def _support_aware_ieks_laplace(
     init_mean: jnp.ndarray,
     init_cov: jnp.ndarray,
     obs_kernel: ObservationKernel,
-    mean_log_prob_fn: MeanLogProbFn | None,
+    mean_log_prob_fn: EmissionLogProbFn | None,
     observation_support: ObservationSupportRuntime,
     support_window_batches: tuple[SupportObservationWindowBatch, ...],
     bandwidth: int,
     row_upper_bandwidths: jnp.ndarray,
     row_lower_bandwidths: jnp.ndarray,
-    window_derivatives: tuple[Any, ...],
+    window_derivatives: tuple[SupportWindowDerivatives, ...],
     build_measurement_objects: Callable[
-        [jnp.ndarray, LikelihoodExtraParams | None],
-        tuple[Any, tuple[Any, ...]],
+        [jnp.ndarray, ObservationLaws],
+        tuple[CompiledObservationModel, tuple[SupportWindowDerivatives, ...]],
     ],
-    extra_params: LikelihoodExtraParams | None,
+    observation_laws: ObservationLaws,
     n_ieks_iters: int,
     z_init: jnp.ndarray | None = None,
 ) -> tuple[jnp.ndarray, jnp.ndarray, dict[str, jnp.ndarray]]:
@@ -1646,7 +1651,7 @@ def _support_aware_ieks_laplace(
         row_lower_bandwidths,
         window_derivatives,
         build_measurement_objects,
-        extra_params,
+        observation_laws,
         n_ieks_iters,
         z_init=z_init,
         final_factor_block_cholesky_fn=_factor_block_profile_cholesky,

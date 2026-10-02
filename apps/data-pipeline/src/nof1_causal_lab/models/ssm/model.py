@@ -35,6 +35,7 @@ if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.execution.contracts import InitializationLikelihoodBackend
     from nof1_causal_lab.models.ssm.runtime import BoundPanel
 
+from nof1_causal_lab.models.ssm.compile.observations import materialize_observation_laws
 from nof1_causal_lab.models.ssm.constants import MIN_DT
 from nof1_causal_lab.models.ssm.covariance_utils import (
     INITIAL_STATE_COV_MIN_EIGENVALUE,
@@ -42,12 +43,10 @@ from nof1_causal_lab.models.ssm.covariance_utils import (
 from nof1_causal_lab.models.ssm.execution.contracts import (
     MeasurementParams,
 )
-from nof1_causal_lab.models.ssm.likelihood_extra_params import (
-    assemble_sampled_extra_params,
-)
 from nof1_causal_lab.models.ssm.parameterization import (
     PriorRuntimeBundle,
     likelihood_sites,
+    process_sites,
 )
 
 
@@ -120,7 +119,8 @@ def numpyro_model(
 
     manifest_cov = sampled["manifest_cov"]
     t0_cov = sampled["t0_cov"]
-    extra_params = assemble_sampled_extra_params(
+    sample_sites(process_sites(spec), priors.priors.__getitem__)
+    observation_laws = materialize_observation_laws(
         spec, sample_sites(likelihood_sites(spec), priors.priors.__getitem__)
     )
     dynamics = continuous_state_evolution(
@@ -146,7 +146,7 @@ def numpyro_model(
         init,
         observations,
         time_intervals,
-        extra_params=extra_params or None,
+        observation_laws=observation_laws,
     )
 
     # lnc is (T,) cumulative log-normalizing constants from the filter.

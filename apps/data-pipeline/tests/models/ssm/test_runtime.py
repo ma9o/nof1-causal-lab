@@ -260,12 +260,15 @@ class TestPrepareModelRuntime:
         )
         late = ModelSpec.model_validate_json(
             early.model_dump_json()
-            .replace(str(early.indicators[0].id), "indicator:late")
-            .replace(early.indicators[0].name, "late_obs")
+            .replace(str(early.indicators[0].observation.id), "indicator:late")
+            .replace(early.indicators[0].observation.name, "late_obs")
         )
         rows = pl.DataFrame(
             {
-                "indicator_id": [early.indicators[0].id, late.indicators[0].id],
+                "indicator_id": [
+                    early.indicators[0].observation.id,
+                    late.indicators[0].observation.id,
+                ],
                 "value": [1.0, 2.0],
                 "anchor_time": [datetime(2024, 1, 2), datetime(2024, 1, 12)],
                 "support_start": [datetime(2024, 1, 1), datetime(2024, 1, 11)],
@@ -284,7 +287,7 @@ class TestPrepareModelRuntime:
                 selected, wide, time_origin=origin
             )
             assert augmented["time"].to_list() == [0.0, expected]
-            assert augmented[model.indicators[0].name][0] is None
+            assert augmented[model.indicators[0].observation.name][0] is None
 
     @pytest.mark.contract
     def test_preserves_long_observation_metadata_and_augments_support_boundaries(self, caplog):

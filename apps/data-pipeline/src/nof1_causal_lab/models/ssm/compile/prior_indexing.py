@@ -6,18 +6,28 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
-from nof1_causal_lab.artifacts.parameter import PriorAuthoringTransform, SiteKind
+from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.compilation_errors import AggregatedCompileError
 from nof1_causal_lab.models.ssm.compile import support as numeric
-from nof1_causal_lab.models.ssm.structure.sites import SemanticBinding
+from nof1_causal_lab.models.ssm.structure.sites import (
+    RowSiteSelection,
+    ScalarSiteSelection,
+    SemanticBinding,
+    WholeSiteSelection,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
     from nof1_causal_lab.artifacts.identity import ParameterId
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
     from nof1_causal_lab.models.ssm.dynamics.expression import ExpressionComponentSpec
-    from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor, SitePosition
+    from nof1_causal_lab.models.ssm.structure.sites import (
+        SiteDescriptor,
+        SitePosition,
+        SiteSelection,
+    )
 
 
 class PriorIndexingError(AggregatedCompileError):
@@ -49,9 +59,8 @@ def _native_dynamics_bindings(
             result[identity] = SemanticBinding(
                 parameter_name=parameter.name,
                 site_name=site.name,
-                flat_index=0,
+                selection=ScalarSiteSelection(0),
                 site_kind=site.site_kind,
-                transform=parameter.transform.kind,
                 prior_field=site.priors_field,
                 construct_names=tuple(
                     model.get_construct(key).name
@@ -70,6 +79,7 @@ def build_semantic_prior_bindings(
     model: ModelSpec,
     sites: tuple[SiteDescriptor, ...],
     components: tuple[ExpressionComponentSpec, ...],
+    parameters: tuple[ParameterSpec, ...],
 ) -> SemanticBindingRegistry:
     """Bind by mechanism coefficient references, quantities, and scientific owner IDs."""
     from nof1_causal_lab.models.ssm.compile.parameter_identity import SHARED_OBSERVATION_FAMILIES
@@ -81,33 +91,31 @@ def build_semantic_prior_bindings(
     latent_names = numeric.state_names(model)
     manifest_names = numeric.observation_names(model)
 
-    for parameter in model.parameters:
+    for parameter in parameters:
         if parameter.id in bindings:
             continue
         kind = model.parameter_context(parameter.id).quantity
-        matches: list[tuple[SiteDescriptor, int]] = []
+        matches: list[tuple[SiteDescriptor, SiteSelection]] = []
         owners = model.parameter_context(parameter.id).owners
         construct_ids = {owner.id for owner in owners if owner.kind == "construct"}
         indicator_ids = {owner.id for owner in owners if owner.kind == "indicator"}
         state_indices = {latent[key] for key in construct_ids if key in latent}
         indicator_indices = {manifest[key] for key in indicator_ids if key in manifest}
         position: SitePosition | None = None
-        transform = parameter.transform.kind
         if kind in SHARED_OBSERVATION_FAMILIES or kind == SiteKind.PROC_DF:
-            matches = [(site, 0) for site in sites if site.site_kind == kind]
-            transform = PriorAuthoringTransform.SITE_WIDE
+            matches = [(site, WholeSiteSelection()) for site in sites if site.site_kind == kind]
         elif kind in {SiteKind.OBS_ORDERED_BASE, SiteKind.OBS_ORDERED_GAPS}:
             if len(indicator_indices) == 1:
                 matches = [
-                    (site, next(iter(indicator_indices)))
+                    (
+                        site,
+                        RowSiteSelection(next(iter(indicator_indices)))
+                        if kind == SiteKind.OBS_ORDERED_GAPS
+                        else ScalarSiteSelection(next(iter(indicator_indices))),
+                    )
                     for site in sites
                     if site.site_kind == kind
                 ]
-            transform = (
-                PriorAuthoringTransform.SITE_ROW
-                if kind == SiteKind.OBS_ORDERED_GAPS
-                else PriorAuthoringTransform.IDENTITY
-            )
         else:
             if kind == SiteKind.STATIC_STATE_SD:
                 factor_ids = construct_ids & set(numeric.static_factor_ids(model))
@@ -132,7 +140,7 @@ def build_semantic_prior_bindings(
                 position = next(iter(state_indices))
             if position is not None:
                 matches = [
-                    (site, index)
+                    (site, ScalarSiteSelection(index))
                     for site in sites
                     if site.site_kind == kind
                     for index, candidate in enumerate(site.positions)
@@ -144,14 +152,13 @@ def build_semantic_prior_bindings(
                 f"one active site through its scientific owners; found {len(matches)}"
             )
             continue
-        site, flat_index = matches[0]
+        site, selection = matches[0]
         bindings[parameter.id] = SemanticBinding(
             parameter_name=parameter.name,
             site_name=site.name,
             prior_field=site.priors_field,
-            flat_index=flat_index,
+            selection=selection,
             site_kind=kind,
-            transform=transform,
             construct_names=tuple(latent_names[index] for index in sorted(state_indices)),
             indicator_names=tuple(manifest_names[index] for index in sorted(indicator_indices)),
         )
@@ -161,7 +168,6 @@ def build_semantic_prior_bindings(
 
 
 __all__ = [
-    "PriorAuthoringTransform",
     "PriorIndexingError",
     "SemanticBinding",
     "SemanticBindingRegistry",

@@ -38,31 +38,17 @@ def strict_lower_positions(mask: np.ndarray | jnp.ndarray, n: int) -> list[tuple
 # ---------------------------------------------------------------------------
 
 
-def assemble_sparse_vector(
+def assemble_sparse[Position: int | tuple[int, int]](
     template: jnp.ndarray,
-    free_positions: list[int],
+    free_positions: tuple[Position, ...],
     free: jnp.ndarray | None,
 ) -> jnp.ndarray:
-    """Insert free values into a 1-D template at marked positions."""
+    """Insert free values at typed vector or matrix coordinates."""
     out = jnp.asarray(template)
     if free is not None:
         free = jnp.asarray(free, dtype=out.dtype)
-        for idx, latent_idx in enumerate(free_positions):
-            out = out.at[latent_idx].set(free[idx])
-    return out
-
-
-def assemble_sparse_matrix(
-    template: jnp.ndarray,
-    free_positions: list[tuple[int, int]],
-    free: jnp.ndarray | None,
-) -> jnp.ndarray:
-    """Insert free values into a 2-D template at marked ``(i, j)`` positions."""
-    out = jnp.asarray(template)
-    if free is not None and len(free_positions) > 0:
-        free = jnp.asarray(free, dtype=out.dtype)
-        for idx, (i, j) in enumerate(free_positions):
-            out = out.at[i, j].set(free[idx])
+        for index, position in enumerate(free_positions):
+            out = out.at[position].set(free[index])
     return out
 
 

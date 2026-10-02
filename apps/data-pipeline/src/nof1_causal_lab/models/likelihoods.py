@@ -55,7 +55,7 @@ def _call(value: Expression, name: str) -> tuple[Expression, ...]:
 
 
 @dataclass(frozen=True)
-class LikelihoodTerms:
+class LikelihoodAnalysis:
     """Native affine response and coefficient uses derived from a conditional law."""
 
     family: DistributionFamily
@@ -128,7 +128,7 @@ def _response(
     raise ValueError("Observation response is outside the supported expression grammar")
 
 
-def likelihood_terms(law: ObservationLawSpec) -> LikelihoodTerms:
+def likelihood_terms(law: ObservationLawSpec) -> LikelihoodAnalysis:
     auxiliary: list[CoefficientExpression] = []
     family = law.family
     match law.distribution:
@@ -180,6 +180,6 @@ def likelihood_terms(law: ObservationLawSpec) -> LikelihoodTerms:
     intercept, loadings = _affine_terms(predictor)
     if link not in VALID_LINKS_FOR_DISTRIBUTION[family]:
         raise ValueError(f"Unsupported response for {law.distribution}")
-    return LikelihoodTerms(
+    return LikelihoodAnalysis(
         family, link, predictor, intercept, MappingProxyType(loadings), tuple(auxiliary)
     )

@@ -173,17 +173,20 @@ def test_observation_model_keeps_partial_and_complete_missingness(runtime):
 def test_native_discrete_law_samples_categories_from_predictors():
     from nof1_causal_lab.models.ssm.execution.contracts import MeasurementParams
     from nof1_causal_lab.models.ssm.execution.dynamical_model import HeterogeneousObservation
+    from tests.observation_fixtures import observation_laws
 
     observation = HeterogeneousObservation(
         MeasurementParams(jnp.eye(2), jnp.zeros(2), jnp.eye(2)),
-        (DistributionFamily.ORDERED_LOGISTIC, DistributionFamily.CATEGORICAL),
-        (LinkFunction.CUMULATIVE_LOGIT, LinkFunction.SOFTMAX),
-        {
-            "obs_level_counts": jnp.array([3, 3]),
-            "obs_ordered_cutpoints": jnp.array([[-1.0, 1.0], [-1.0, 1.0]]),
-            "obs_cat_intercepts": jnp.zeros((2, 2)),
-            "obs_cat_slopes": jnp.array([[0.0, 0.0], [-1.0, 1.0]]),
-        },
+        observation_laws(
+            (DistributionFamily.ORDERED_LOGISTIC, DistributionFamily.CATEGORICAL),
+            (LinkFunction.CUMULATIVE_LOGIT, LinkFunction.SOFTMAX),
+            {
+                "obs_ordered_cutpoints": jnp.array([[-1.0, 1.0], [-1.0, 1.0]]),
+                "obs_cat_intercepts": jnp.zeros((2, 2)),
+                "obs_cat_slopes": jnp.array([[0.0, 0.0], [-1.0, 1.0]]),
+            },
+            level_counts=(3, 3),
+        ),
     )
     # At this predictor both declared laws concentrate on their final category.
     # Reconstructing a law from the response mean would lose that information.
@@ -275,7 +278,7 @@ def test_indexed_sde_keeps_its_brownian_path_and_uses_dynestyx_evolution(monkeyp
     def solve(terms, _solver, **settings):
         evolution = settings["args"]
         assert isinstance(evolution, dsx.StochasticContinuousTimeStateEvolution)
-        brownian = terms.law.parsed[1].control
+        brownian = terms.terms[1].control
         assert isinstance(brownian, simulator._IndexedBrownianPath)
         np.testing.assert_array_equal(jax.random.key_data(brownian.key), jax.random.key_data(key))
         np.testing.assert_allclose(
@@ -286,7 +289,7 @@ def test_indexed_sde_keeps_its_brownian_path_and_uses_dynestyx_evolution(monkeyp
         base_drift = -0.4 * initial - 0.2 * initial**3
         for time in grid:
             np.testing.assert_allclose(
-                terms.law.parsed[0].vf(time, initial, settings["args"]), base_drift
+                terms.terms[0].vf(time, initial, settings["args"]), base_drift
             )
         assert float(settings["dt0"]) == pytest.approx(0.01)
         assert isinstance(settings["adjoint"], simulator.dfx.ForwardMode)

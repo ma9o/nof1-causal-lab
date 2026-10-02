@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 import math
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 import numpy as np
 import numpyro.distributions as dist
@@ -21,12 +21,16 @@ from nof1_causal_lab.artifacts.parameter_spec import (
     PersistenceTransformSpec,
 )
 from nof1_causal_lab.artifacts.prior import (
+    PriorFailureStage,
     PriorPathologyCertificate,
     PriorValidationResult,
 )
 from nof1_causal_lab.compilation_errors import AggregatedCompileError
 from nof1_causal_lab.models.ssm import numerics as numeric
-from nof1_causal_lab.models.ssm.compile.bindings import CompiledParameterBinding
+from nof1_causal_lab.models.ssm.compile.bindings import (
+    CompiledParameterBinding,
+    resolve_site_selection,
+)
 from nof1_causal_lab.models.ssm.execution.contracts import NUMERICAL_EPSILON
 from nof1_causal_lab.models.ssm.parameterization import build_site_registry
 from nof1_causal_lab.models.ssm.priors import (
@@ -52,16 +56,6 @@ if TYPE_CHECKING:
 
 logger = logging.getLogger("nof1_causal_lab.models.ssm.compile.inputs")
 CompileDiagnostic = PriorValidationResult
-PriorFailureStage = Literal[
-    "compiled_parameters",
-    "latent_dynamics",
-    "observation_mean",
-    "observation_sample",
-    "support_violation",
-    "model_build",
-    "prior_sampling",
-    "unknown",
-]
 _LOGM_IMAG_TOL = 1e-8
 _LOGM_RELATIVE_DEVIATION_WARNING_THRESHOLD = 0.2
 
@@ -523,21 +517,6 @@ def compile_priors(
     site_by_name = {site.name: site for site in active_sites}
     per_site: dict[str, dict[int, dist.Distribution]] = {}
 
-    def attach(site: SiteDescriptor, index: int, prior: dist.Distribution) -> None:
-        if index < 0 or index >= site_size(site.shape):
-            raise PriorCompilationError(
-                [f"Prior index {index} is outside site {site.name!r} shape {site.shape}"]
-            )
-        if prior.batch_shape or prior.event_shape:
-            raise PriorCompilationError(["Each authored prior must describe one scalar parameter"])
-        validate_site_prior(site, prior)
-        values = per_site.setdefault(site.name, {})
-        if index in values:
-            raise PriorCompilationError(
-                [f"Multiple authored priors bind to {site.name!r} coordinate {index}"]
-            )
-        values[index] = prior
-
     bindings = model.bindings
     binding_by_parameter = {binding.parameter_id: binding for binding in bindings}
     errors: list[str] = []
@@ -558,43 +537,11 @@ def compile_priors(
                 assert binding.cause_idx is not None
                 offdiag_interval_days[(binding.effect_idx, binding.cause_idx)] = effect_interval
 
-            if binding.transform == PriorAuthoringTransform.SITE_WIDE:
-                site = site_by_name.get(binding.site_name)
-                if site is None:
-                    raise PriorCompilationError(
-                        [f"Prior {param_name!r} maps to inactive site {binding.site_name!r}."]
-                    )
-                for index in range(site_size(site.shape)):
-                    attach(site, index, prior)
-                continue
-
-            if binding.transform == PriorAuthoringTransform.SITE_ROW:
-                site = site_by_name.get(binding.site_name)
-                if site is None:
-                    raise PriorCompilationError(
-                        [f"Prior {param_name!r} maps to inactive site {binding.site_name!r}."]
-                    )
-                if len(site.shape) != 2:
-                    raise PriorCompilationError(
-                        [
-                            f"Prior {param_name!r} requires a matrix-valued site, "
-                            f"but {binding.site_name!r} has shape {site.shape}."
-                        ]
-                    )
-                row_idx = binding.flat_index
-                n_rows, n_cols = site.shape
-                if row_idx >= n_rows:
-                    raise PriorCompilationError(
-                        [
-                            f"Prior {param_name!r} maps to row {row_idx} of "
-                            f"{binding.site_name!r}, which has {n_rows} rows."
-                        ]
-                    )
-                for col_idx in range(n_cols):
-                    attach(site, row_idx * n_cols + col_idx, prior)
-                continue
-
-            attach(site_by_name[binding.site_name], binding.flat_index, prior)
+            site = site_by_name[binding.site_name]
+            validate_site_prior(site, prior)
+            per_site.setdefault(site.name, {}).update(
+                {coordinate.flat_index: prior for coordinate in binding.native_coordinates}
+            )
         except AggregatedCompileError as exc:
             errors.extend(exc.errors)
             continue
@@ -603,11 +550,7 @@ def compile_priors(
         raise PriorCompilationError(errors)
 
     for site_name, entries in per_site.items():
-        site = site_by_name.get(site_name)
-        if site is None:
-            raise PriorCompilationError(
-                [f"Prior site {site_name!r} maps to no active sample site."]
-            )
+        site = site_by_name[site_name]
         coordinates = [prior_entries[site.name]] * site_size(site.shape)
         for index, prior in entries.items():
             coordinates[index] = prior
@@ -634,7 +577,6 @@ def bind_parameters(
     registry: tuple[SiteDescriptor, ...],
 ) -> tuple[tuple[CompiledParameterBinding, ...], tuple[ParameterCoordinate, ...]]:
     """Compile scientific definitions into explicit scalar execution bindings."""
-    from nof1_causal_lab.artifacts.parameter import ParameterCoordinate
     from nof1_causal_lab.models.ssm.compile.parameter_identity import (
         component_identity,
     )
@@ -649,22 +591,16 @@ def bind_parameters(
     for parameter_id, binding in sorted(all_bindings.items()):
         definition = definitions[parameter_id]
         site = sites[binding.site_name]
-        shape = site.shape
-        if binding.transform == PriorAuthoringTransform.SITE_WIDE:
-            indices = list(np.ndindex(shape))
-        elif binding.transform == PriorAuthoringTransform.SITE_ROW:
-            indices = [(binding.flat_index, column) for column in range(shape[1])]
-        else:
-            indices = [tuple(int(i) for i in np.unravel_index(binding.flat_index, shape))]
+        native_coordinates = resolve_site_selection(site, binding.selection)
         elements, coordinates = {}, {}
-        for index in indices:
-            coordinate = ParameterCoordinate(site_name=site.name, indices=index)
+        for native in native_coordinates:
+            coordinate = native.coordinate
             if coordinate in bound_coordinates:
                 raise PriorCompilationError(
                     [f"Runtime coordinate {coordinate.label} has multiple scientific owners"]
                 )
             bound_coordinates.add(coordinate)
-            component = component_identity(definition, index, binding, site, model_spec)
+            component = component_identity(definition, native, binding.selection, site, model_spec)
             if component is None:
                 auxiliary.append(coordinate)
                 continue
@@ -683,11 +619,12 @@ def bind_parameters(
                 parameter_name=definition.name,
                 coordinates=coordinates,
                 elements=elements,
+                native_coordinates=native_coordinates,
                 site_name=site.name,
                 prior_field=binding.prior_field,
-                flat_index=binding.flat_index,
+                flat_index=native_coordinates[0].flat_index,
                 site_kind=binding.site_kind,
-                transform=binding.transform,
+                transform=definition.transform.kind,
                 construct_names=binding.construct_names,
                 indicator_names=binding.indicator_names,
                 component_index=binding.component_index,

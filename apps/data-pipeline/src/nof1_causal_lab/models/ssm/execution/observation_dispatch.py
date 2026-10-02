@@ -1,227 +1,146 @@
-"""Runtime dispatch for observation-family behavior."""
+"""Constructor/layout sampling with the original row and channel random streams."""
 
 from __future__ import annotations
 
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
+from functools import partial
 from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
+import numpyro.distributions as dist
 
-from nof1_causal_lab.artifacts.likelihood import DistributionFamily
+from nof1_causal_lab.artifacts.likelihood import (
+    BernoulliLogitsLawSpec,
+    CategoricalLawSpec,
+    Law,
+    NormalLawSpec,
+    OrderedLogisticLawSpec,
+)
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
-from nof1_causal_lab.models.ssm.execution.emissions import build_heterogeneous_mean_sample_fn
-from nof1_causal_lab.models.ssm.execution.observation_distributions import point_observation_scales
-from nof1_causal_lab.models.ssm.execution.observation_extra_params import (
-    slice_observation_extra_params,
+from nof1_causal_lab.models.ssm.execution.observation_distributions import (
+    category_probabilities,
+    feasible_law,
+    gaussian_distribution,
+    point_observation_scales,
+    safe_native,
+    to_native,
 )
-from nof1_causal_lab.models.ssm.execution.observation_families import (
-    FAMILY_REGISTRY,
-    POSTERIOR_PREDICTIVE_SWITCH_BRANCHES,
-    get_posterior_predictive_switch_index,
-    resolve_family_link,
-    resolve_manifest_families_and_links,
-)
+from nof1_causal_lab.models.ssm.execution.observation_model import compile_law_groups
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from nof1_causal_lab.models.ssm.execution.contracts import ObservationLaws
+    from nof1_causal_lab.models.ssm.execution.observation_model import LawGroup
 
-    from nof1_causal_lab.artifacts.likelihood import LinkFunction
-    from nof1_causal_lab.models.ssm.execution.contracts import LikelihoodExtraParams
-    from nof1_causal_lab.models.ssm.execution.observation_families import (
-        EmissionLogProbFn,
-        ScoreWeightFn,
-    )
-
-
-def get_emission_score_weight_fn(
-    manifest_dist: DistributionFamily,
-    extra_params: LikelihoodExtraParams | None = None,
-    *,
-    link: LinkFunction | None = None,
-) -> ScoreWeightFn | None:
-    """Return analytical (score, neg_hess_diag) w.r.t. linear predictor eta."""
-    extra_params = extra_params or {}
-    dist, link_fn = resolve_family_link(manifest_dist, link)
-    family_spec = FAMILY_REGISTRY[dist]
-    return family_spec.score_weight_fns[link_fn](extra_params)
-
-
-def get_emission_fn(
-    manifest_dist: DistributionFamily,
-    extra_params: LikelihoodExtraParams | None = None,
-    *,
-    link: LinkFunction | None = None,
-) -> EmissionLogProbFn:
-    """Resolve predictor-space log-probability for one valid family/link pair."""
-    extra_params = extra_params or {}
-    dist, link_fn = resolve_family_link(manifest_dist, link)
-    family_spec = FAMILY_REGISTRY[dist]
-
-    return family_spec.emission_fns[link_fn](extra_params)
-
-
-type ObservationSampleFn = Callable[[jax.Array, jnp.ndarray], jnp.ndarray]
+type ObservationSampleFn = Callable[[jax.Array, jax.Array], jax.Array]
 
 
 @dataclass(frozen=True)
 class PointObservationSampler:
-    """Compiled predictor-space sampler shared by predictive paths."""
-
     sample_point: ObservationSampleFn
     sample_point_trajectory: ObservationSampleFn
 
 
 @dataclass(frozen=True)
 class MeanObservationSampler:
-    """Compiled sampler for families with a mean-parameter observation law."""
-
     sample_mean_trajectory: ObservationSampleFn
 
 
 def _trajectory_sampler(sample_vector: ObservationSampleFn) -> ObservationSampleFn:
-    def sample_trajectory(key: jnp.ndarray, trajectory: jnp.ndarray) -> jnp.ndarray:
-        keys = jax.random.split(key, trajectory.shape[0])
-        return jax.vmap(sample_vector)(keys, trajectory)
+    def sample(key: jax.Array, trajectory: jax.Array) -> jax.Array:
+        return jax.vmap(sample_vector)(jax.random.split(key, trajectory.shape[0]), trajectory)
 
-    return sample_trajectory
+    return sample
 
 
-def build_interval_summary_sampler(
-    manifest_dists: Sequence[DistributionFamily],
-    manifest_cov: jnp.ndarray,
-    interval_summary_indices: Sequence[int],
-    *,
-    extra_params: LikelihoodExtraParams | None = None,
-) -> MeanObservationSampler:
-    """Compile a mean-space sampler for the declared interval-summary channels."""
-    indices = jnp.asarray(interval_summary_indices, dtype=jnp.int32)
-    covariance = manifest_cov[jnp.ix_(indices, indices)]
-    mean_sample_fn = build_heterogeneous_mean_sample_fn(
-        [manifest_dists[idx] for idx in interval_summary_indices],
-        slice_observation_extra_params(
-            extra_params,
-            list(interval_summary_indices),
-            source_channel_count=len(manifest_dists),
-        ),
-    )
+def _padded_categorical(masses: jax.Array) -> dist.CategoricalLogits:
+    """Draw from padded category masses with the original normalization arithmetic."""
+    return dist.CategoricalLogits(logits=jnp.log(masses / jnp.sum(masses)))
 
-    def sample_vector(key: jax.Array, means: jnp.ndarray) -> jnp.ndarray:
-        return mean_sample_fn(key, means, covariance)
 
-    return MeanObservationSampler(sample_mean_trajectory=_trajectory_sampler(sample_vector))
+def _sample_native(key: jax.Array, law: Law[jax.Array], sampling_size: int) -> jax.Array:
+    feasible, valid = feasible_law(law)
+    native = to_native(feasible)
+    if isinstance(law, BernoulliLogitsLawSpec):
+        native = dist.CategoricalLogits(
+            logits=jnp.stack(
+                (jax.nn.log_sigmoid(-law.logits), jax.nn.log_sigmoid(law.logits)), axis=-1
+            )
+        )
+    elif isinstance(law, CategoricalLawSpec):
+        # Preserve the padded Gumbel shape and the old probability arithmetic.
+        logits = jnp.pad(
+            law.logits, ((0, sampling_size - law.logits.shape[-1]),), constant_values=-1e30
+        )
+        native = _padded_categorical(
+            jnp.where(jnp.arange(sampling_size) < law.logits.shape[-1], jax.nn.softmax(logits), 0.0)
+        )
+    elif isinstance(feasible, OrderedLogisticLawSpec):
+        masses = category_probabilities(feasible)
+        native = _padded_categorical(
+            jnp.pad(jnp.maximum(masses, 0.0), ((0, sampling_size - masses.shape[-1]),))
+        )
+    draw = native.sample(key)
+    return jnp.where(valid, draw, jnp.nan)
 
 
 def build_point_observation_sampler(
-    manifest_dists: Sequence[DistributionFamily],
-    manifest_cov: jnp.ndarray,
-    *,
-    manifest_links: Sequence[LinkFunction | None] | None = None,
-    extra_params: LikelihoodExtraParams | None = None,
+    laws: ObservationLaws, manifest_cov: jax.Array, *, groups: tuple[LawGroup, ...] | None = None
 ) -> PointObservationSampler:
-    """Compile predictor-space samplers for point observations."""
-    dists, links = resolve_manifest_families_and_links(
-        manifest_dists,
-        manifest_links=manifest_links,
-    )
-    n_manifest = len(dists)
-    all_gaussian = all(dist == DistributionFamily.GAUSSIAN for dist in dists)
-    if all_gaussian:
-        manifest_cov_adj = symmetrize_with_jitter(manifest_cov)
-        manifest_chol: jax.Array = jnp.linalg.cholesky(manifest_cov_adj)
+    n_channels = len(laws)
+    if all(isinstance(law, NormalLawSpec) for law in laws):
+        factor = jnp.linalg.cholesky(symmetrize_with_jitter(manifest_cov))
 
-        def _sample_point_vector(key: jnp.ndarray, linear_predictor: jnp.ndarray) -> jnp.ndarray:
-            return linear_predictor + manifest_chol @ jax.random.normal(key, linear_predictor.shape)
+        def sample_gaussian(key: jax.Array, predictors: jax.Array) -> jax.Array:
+            return predictors + jnp.matmul(factor, jax.random.normal(key, predictors.shape))
 
-        sample_point_trajectory = _trajectory_sampler(_sample_point_vector)
+        return PointObservationSampler(sample_gaussian, _trajectory_sampler(sample_gaussian))
+    compiled_groups = compile_law_groups(laws) if groups is None else groups
+    scales = point_observation_scales(manifest_cov)
 
-        return PointObservationSampler(
-            sample_point=_sample_point_vector,
-            sample_point_trajectory=sample_point_trajectory,
-        )
+    def sample_vector(key: jax.Array, predictors: jax.Array) -> jax.Array:
+        channel_keys = jax.random.split(key, n_channels)
+        sampled = jnp.zeros_like(predictors)
+        for group in compiled_groups:
+            indices = jnp.asarray(group.indices)
+            law = group.evaluate(predictors, scales)
+            sampling_size = 0
+            if isinstance(group.laws[0], OrderedLogisticLawSpec):
+                sampling_size = group.laws[0].cutpoints.sampling_size
+            elif isinstance(group.laws[0], CategoricalLawSpec):
+                sampling_size = group.laws[0].logits.sampling_size
+            draws = jax.vmap(partial(_sample_native, sampling_size=sampling_size))(
+                channel_keys[indices], law
+            )
+            sampled = sampled.at[indices].set(draws.astype(sampled.dtype))
+        return sampled
 
-    dist_indices = jnp.asarray(
-        [
-            get_posterior_predictive_switch_index(dist, link=link)
-            for dist, link in zip(dists, links, strict=False)
-        ],
-        dtype=jnp.int32,
-    )
-    manifest_std = point_observation_scales(manifest_cov)
-    params = extra_params or {}
-    level_counts = params.get("obs_level_counts")
-    if level_counts is None:
-        level_counts = jnp.ones((n_manifest,), dtype=jnp.int32)
-    else:
-        level_counts = jnp.asarray(level_counts, dtype=jnp.int32)
-    ordered_cutpoints = params.get("obs_ordered_cutpoints")
-    if ordered_cutpoints is None:
-        ordered_cutpoints = jnp.zeros((n_manifest, 1), dtype=manifest_cov.dtype)
-    cat_intercepts = params.get("obs_cat_intercepts")
-    if cat_intercepts is None:
-        cat_intercepts = jnp.zeros((n_manifest, 1), dtype=manifest_cov.dtype)
-    cat_slopes = params.get("obs_cat_slopes")
-    if cat_slopes is None:
-        cat_slopes = jnp.zeros((n_manifest, 1), dtype=manifest_cov.dtype)
-    obs_df = jnp.asarray(params.get("obs_df", 5.0), dtype=manifest_cov.dtype)
-    obs_shape = jnp.asarray(params.get("obs_shape", 2.0), dtype=manifest_cov.dtype)
-    obs_r = jnp.asarray(params.get("obs_r", 5.0), dtype=manifest_cov.dtype)
-    obs_concentration = jnp.asarray(
-        params.get("obs_concentration", 10.0),
-        dtype=manifest_cov.dtype,
-    )
+    return PointObservationSampler(sample_vector, _trajectory_sampler(sample_vector))
 
-    def _sample_channel(
-        loc_j: jnp.ndarray,
-        key: jnp.ndarray,
-        dist_idx: jnp.ndarray,
-        std_j: jnp.ndarray,
-        df: float | jnp.ndarray,
-        shape_p: jnp.ndarray,
-        r_p: jnp.ndarray,
-        phi_p: jnp.ndarray,
-        level_count: jnp.ndarray,
-        cutpoints: jnp.ndarray | float | int,
-        cat_intercepts_j: jnp.ndarray | float | int,
-        cat_slopes_j: jnp.ndarray | float | int,
-    ) -> jnp.ndarray:
-        result: jnp.ndarray = jax.lax.switch(
-            dist_idx,
-            POSTERIOR_PREDICTIVE_SWITCH_BRANCHES,
-            loc_j,
-            key,
-            std_j,
-            df,
-            shape_p,
-            r_p,
-            phi_p,
-            level_count,
-            cutpoints,
-            cat_intercepts_j,
-            cat_slopes_j,
-        )
-        return result
 
-    def _sample_point_vector(key: jnp.ndarray, linear_predictor: jnp.ndarray) -> jnp.ndarray:
-        channel_keys = jax.random.split(key, n_manifest)
-        return jax.vmap(_sample_channel)(
-            linear_predictor,
-            channel_keys,
-            dist_indices,
-            manifest_std,
-            jnp.full((n_manifest,), obs_df),
-            jnp.full((n_manifest,), obs_shape),
-            jnp.full((n_manifest,), obs_r),
-            jnp.full((n_manifest,), obs_concentration),
-            level_counts,
-            ordered_cutpoints,
-            cat_intercepts,
-            cat_slopes,
-        )
+def build_interval_summary_sampler(
+    laws: ObservationLaws, manifest_cov: jax.Array, interval_summary_indices: Sequence[int]
+) -> MeanObservationSampler:
+    """Project responses first; native arguments are reconstructed per original group."""
+    groups = compile_law_groups(laws, interval_summary_indices, interval=True)
+    scales = jnp.sqrt(jnp.diag(manifest_cov))
+    positions = jnp.asarray(interval_summary_indices)
 
-    sample_point_trajectory = _trajectory_sampler(_sample_point_vector)
+    def sample_vector(key: jax.Array, responses: jax.Array) -> jax.Array:
+        means = jnp.zeros((len(laws),), dtype=responses.dtype).at[positions].set(responses)
+        sampled = jnp.zeros_like(means)
+        keys = (key,) if len(groups) == 1 else jax.random.split(key, len(groups))
+        for subkey, group in zip(keys, groups, strict=True):
+            indices = jnp.asarray(group.indices)
+            law = group.evaluate(jnp.zeros_like(means), scales, means)
+            if isinstance(law, NormalLawSpec):
+                # The jittered covariance block, not the scale operand, owns Gaussian noise.
+                native = gaussian_distribution(law.loc, manifest_cov[jnp.ix_(indices, indices)])
+                valid = jnp.isfinite(law.loc)
+            else:
+                native, valid = safe_native(law)
+            sampled = sampled.at[indices].set(jnp.where(valid, native.sample(subkey), jnp.nan))
+        return sampled[positions]
 
-    return PointObservationSampler(
-        sample_point=_sample_point_vector,
-        sample_point_trajectory=sample_point_trajectory,
-    )
+    return MeanObservationSampler(_trajectory_sampler(sample_vector))

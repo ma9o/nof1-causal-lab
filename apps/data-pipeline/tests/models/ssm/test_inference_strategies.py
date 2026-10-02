@@ -29,11 +29,7 @@ from nof1_causal_lab.models.ssm.execution.contracts import (
     MeasurementParams,
 )
 from nof1_causal_lab.models.ssm.execution.dynamical_model import continuous_state_evolution
-from nof1_causal_lab.models.ssm.execution.emissions import get_mean_param_log_prob_fn
-from nof1_causal_lab.models.ssm.execution.observation_model import (
-    build_observation_kernel,
-    compile_observation_model,
-)
+from nof1_causal_lab.models.ssm.execution.observation_model import compile_observation_model
 from nof1_causal_lab.models.ssm.execution.observation_operator import (
     compile_observation_operator,
     expected_observation_mean,
@@ -75,6 +71,7 @@ from tests.model_fixtures import (
     compile_fit_fixture,
     make_observation_support_runtime,
 )
+from tests.observation_fixtures import mean_density, observation_kernel, observation_laws
 
 
 def _runtime_dynamics(
@@ -218,9 +215,8 @@ class TestLaplaceEMBlockSolver:
         init_mean = jnp.array([0.05, -0.1])
         init_cov = jnp.array([[0.8, 0.05], [0.05, 0.7]])
 
-        obs_kernel = build_observation_kernel(
-            DistributionFamily.GAUSSIAN,
-            LinkFunction.IDENTITY,
+        obs_kernel = observation_kernel(
+            [DistributionFamily.GAUSSIAN] * M, [LinkFunction.IDENTITY] * M, None
         )
 
         H_rows = jnp.broadcast_to(H[None, :, :], (T, *H.shape))
@@ -287,12 +283,12 @@ class TestSupportAwareTrajectoryObservationLogProb:
         H = jnp.array([[1.0]], dtype=jnp.float32)
         d_meas = jnp.array([0.0], dtype=jnp.float32)
         R = jnp.array([[0.2]], dtype=jnp.float32)
-        obs_kernel = build_observation_kernel(
-            DistributionFamily.GAUSSIAN,
-            LinkFunction.IDENTITY,
-            manifest_cov=R,
+        obs_kernel = observation_kernel(
+            [DistributionFamily.GAUSSIAN], [LinkFunction.IDENTITY], None
         )
-        mean_log_prob_fn = get_mean_param_log_prob_fn(DistributionFamily.GAUSSIAN)
+        mean_log_prob_fn = mean_density(
+            observation_laws([DistributionFamily.GAUSSIAN], parameters=None)[0]
+        )
 
         ll = trajectory_observation_log_probs(
             latent,
@@ -355,12 +351,12 @@ class TestSupportAwareTrajectoryObservationLogProb:
         H = jnp.array([[1.0]], dtype=jnp.float32)
         d_meas = jnp.array([0.0], dtype=jnp.float32)
         R = jnp.array([[0.2]], dtype=jnp.float32)
-        obs_kernel = build_observation_kernel(
-            DistributionFamily.GAUSSIAN,
-            LinkFunction.IDENTITY,
-            manifest_cov=R,
+        obs_kernel = observation_kernel(
+            [DistributionFamily.GAUSSIAN], [LinkFunction.IDENTITY], None
         )
-        mean_log_prob_fn = get_mean_param_log_prob_fn(DistributionFamily.GAUSSIAN)
+        mean_log_prob_fn = mean_density(
+            observation_laws([DistributionFamily.GAUSSIAN], parameters=None)[0]
+        )
 
         ll = trajectory_observation_log_probs(
             latent,
@@ -536,12 +532,12 @@ class TestLaplaceSupportAware:
         assert len(window_batches) == 1
         windows = window_batches[0]
         observation_operator = compile_observation_operator(support)
-        obs_kernel = build_observation_kernel(
-            DistributionFamily.GAUSSIAN,
-            LinkFunction.IDENTITY,
-            manifest_cov=jnp.array([[0.2]], dtype=jnp.float32),
+        obs_kernel = observation_kernel(
+            [DistributionFamily.GAUSSIAN], [LinkFunction.IDENTITY], None
         )
-        mean_log_prob_fn = get_mean_param_log_prob_fn(DistributionFamily.GAUSSIAN)
+        mean_log_prob_fn = mean_density(
+            observation_laws([DistributionFamily.GAUSSIAN], parameters=None)[0]
+        )
         window_derivatives = (
             _make_support_window_derivatives(
                 max_state_len=windows.max_state_len,
@@ -659,8 +655,6 @@ class TestLaplaceSolverState:
         backend = LaplaceLikelihood(
             n_latent=1,
             n_manifest=1,
-            manifest_dists=[DistributionFamily.GAUSSIAN],
-            manifest_links=[LinkFunction.IDENTITY],
             n_ieks_iters=2,
         )
         ct_params = _runtime_dynamics(
@@ -706,6 +700,7 @@ class TestLaplaceSolverState:
             init,
             observations,
             time_intervals,
+            observation_laws=observation_laws([DistributionFamily.GAUSSIAN]),
         )
         second = backend.compute_log_likelihood_with_aux(
             ct_params,
@@ -714,6 +709,7 @@ class TestLaplaceSolverState:
             observations,
             time_intervals,
             solver_state=first.state,
+            observation_laws=observation_laws([DistributionFamily.GAUSSIAN]),
         )
 
         assert float(first.log_likelihood) == pytest.approx(-1.0)
@@ -723,7 +719,12 @@ class TestLaplaceSolverState:
         assert warm_start is not None
         np.testing.assert_allclose(warm_start, np.asarray(returned_mode))
         backend.compute_log_likelihood_with_aux(
-            ct_params, meas_params, init, observations, time_intervals
+            ct_params,
+            meas_params,
+            init,
+            observations,
+            time_intervals,
+            observation_laws=observation_laws([DistributionFamily.GAUSSIAN]),
         )
         assert seen_inits[2] is None
         from dataclasses import FrozenInstanceError
@@ -748,15 +749,12 @@ class TestLaplaceSolverState:
         backend = LaplaceLikelihood(
             n_latent=1,
             n_manifest=1,
-            manifest_dists=[DistributionFamily.GAUSSIAN],
-            manifest_links=[LinkFunction.IDENTITY],
             n_ieks_iters=2,
             observation_support=support,
         )
         compiled = compile_observation_model(
-            [DistributionFamily.GAUSSIAN],
+            observation_laws([DistributionFamily.GAUSSIAN], [LinkFunction.IDENTITY], None),
             manifest_cov=jnp.array([[0.2]], dtype=jnp.float32),
-            manifest_links=[LinkFunction.IDENTITY],
             observation_support=support,
         )
         built = []
@@ -775,9 +773,8 @@ class TestLaplaceSolverState:
         assert len(built) == 2
 
         changed = compile_observation_model(
-            [DistributionFamily.POISSON],
+            observation_laws([DistributionFamily.POISSON], [LinkFunction.LOG], None),
             manifest_cov=jnp.array([[0.2]], dtype=jnp.float32),
-            manifest_links=[LinkFunction.LOG],
             observation_support=support,
         )
         assert backend._build_support_window_derivatives(changed) != first
@@ -797,11 +794,7 @@ class TestObservationKernelMissingData:
     def test_missing_dimension_not_penalized(self):
         """Missing dims should not incur huge log-det penalties."""
         n_latent, n_manifest = 1, 2
-        kernel = build_observation_kernel(
-            DistributionFamily.GAUSSIAN,
-            LinkFunction.IDENTITY,
-            manifest_cov=jnp.diag(jnp.array([0.5, 0.5])),
-        )
+        kernel = observation_kernel([DistributionFamily.GAUSSIAN], [LinkFunction.IDENTITY], None)
         x = jnp.array([0.0])
         y = jnp.array([1.0, -2.0])
         obs_mask = jnp.array([True, False])

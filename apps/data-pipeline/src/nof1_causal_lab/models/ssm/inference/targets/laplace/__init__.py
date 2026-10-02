@@ -15,7 +15,7 @@ likelihood.  Three solver strategies are dispatched automatically:
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, cast
+from typing import TYPE_CHECKING, cast
 
 import jax
 import jax.numpy as jnp
@@ -31,6 +31,7 @@ from nof1_causal_lab.models.ssm.execution.observation_model import compile_obser
 from nof1_causal_lab.models.ssm.execution.observation_operator import (
     get_summary_operator_codes,
 )
+from nof1_causal_lab.models.ssm.inference.backend_factory import initialization_observation_laws
 from nof1_causal_lab.models.ssm.inference.targets.transitions import build_discrete_transitions
 
 from .point import (
@@ -68,16 +69,16 @@ if TYPE_CHECKING:
     from dynestyx import StochasticContinuousTimeStateEvolution
     from numpyro.distributions import MultivariateNormal
 
-    from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
     from nof1_causal_lab.models.ssm.dynamics.vector_field import StructuralDrift
     from nof1_causal_lab.models.ssm.execution.contracts import (
-        LikelihoodExtraParams,
         MeasurementParams,
+        ObservationLaws,
     )
     from nof1_causal_lab.models.ssm.execution.observation_model import CompiledObservationModel
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
     from .shared import SupportObservationWindowBatch
+    from .support import SupportWindowDerivatives
 
 
 @dataclass(frozen=True, init=False, eq=False)
@@ -87,8 +88,8 @@ class LaplaceLikelihood:
     Computes log p(y|theta) via IEKS + Laplace approximation.
     Implements the default marginal likelihood path.
 
-    Accepts per-channel distribution and link lists to support heterogeneous
-    observation models (e.g., channel 0 Gaussian, channel 1 Poisson).
+    Receives bound native laws per evaluation, including dynamic observation
+    parameters in the custom gradient path.
     """
 
     # The support-aware Laplace path constructs runtime callables and custom-VJP
@@ -96,8 +97,6 @@ class LaplaceLikelihood:
     checkpoint_loglik = False
     n_latent: int
     n_manifest: int
-    manifest_dists: tuple[DistributionFamily, ...]
-    manifest_links: tuple[LinkFunction, ...]
     n_ieks_iters: int
     observation_support: ObservationSupportRuntime | None
     _summary_operator_codes: jax.Array
@@ -110,15 +109,11 @@ class LaplaceLikelihood:
         self,
         n_latent: int,
         n_manifest: int,
-        manifest_dists: list[DistributionFamily],
-        manifest_links: list[LinkFunction],
         n_ieks_iters: int = 5,
         observation_support: ObservationSupportRuntime | None = None,
     ) -> None:
         object.__setattr__(self, "n_latent", n_latent)
         object.__setattr__(self, "n_manifest", n_manifest)
-        object.__setattr__(self, "manifest_dists", tuple(manifest_dists))
-        object.__setattr__(self, "manifest_links", tuple(manifest_links))
         object.__setattr__(self, "n_ieks_iters", n_ieks_iters)
         object.__setattr__(self, "observation_support", observation_support)
         if observation_support is not None:
@@ -176,7 +171,7 @@ class LaplaceLikelihood:
 
     def _build_support_window_derivatives(
         self, observation_model: CompiledObservationModel
-    ) -> tuple[Any, ...]:
+    ) -> tuple[SupportWindowDerivatives, ...]:
         return tuple(
             _make_support_window_derivatives(
                 max_state_len=batch.max_state_len,
@@ -198,7 +193,7 @@ class LaplaceLikelihood:
         time_intervals: jnp.ndarray,
         *,
         obs_mask: jnp.ndarray | None = None,
-        extra_params: LikelihoodExtraParams | None = None,
+        observation_laws: ObservationLaws,
         latent_mode_init: jnp.ndarray | None = None,
     ) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
         """Shared Laplace likelihood implementation with caller-owned solver initialization."""
@@ -210,10 +205,8 @@ class LaplaceLikelihood:
 
         with jax.named_scope("map/compile_observation_model"):
             observation_model = compile_observation_model(
-                self.manifest_dists,
+                initialization_observation_laws(observation_laws),
                 manifest_cov=measurement_params.manifest_cov,
-                extra_params=extra_params,
-                manifest_links=self.manifest_links,
                 observation_support=self.observation_support,
             )
         obs_kernel = observation_model.kernel
@@ -288,13 +281,11 @@ class LaplaceLikelihood:
 
             def _build_support_measurement_objects(
                 manifest_cov: jnp.ndarray,
-                runtime_extra_params: LikelihoodExtraParams | None,
-            ) -> tuple[CompiledObservationModel, tuple[Any, ...]]:
+                runtime_observation_laws: ObservationLaws,
+            ) -> tuple[CompiledObservationModel, tuple[SupportWindowDerivatives, ...]]:
                 runtime_observation_model = compile_observation_model(
-                    self.manifest_dists,
+                    initialization_observation_laws(runtime_observation_laws),
                     manifest_cov=manifest_cov,
-                    extra_params=runtime_extra_params,
-                    manifest_links=self.manifest_links,
                     observation_support=self.observation_support,
                 )
                 return runtime_observation_model, self._build_support_window_derivatives(
@@ -348,7 +339,7 @@ class LaplaceLikelihood:
                     self._support_row_lower_bandwidths,
                     window_derivatives=window_derivatives,
                     build_measurement_objects=_build_support_measurement_objects,
-                    extra_params=extra_params,
+                    observation_laws=observation_laws,
                     n_ieks_iters=self.n_ieks_iters,
                     z_init=support_mode_init,
                 )
@@ -372,13 +363,11 @@ class LaplaceLikelihood:
 
         def _build_point_measurement_objects(
             manifest_cov: jnp.ndarray,
-            runtime_extra_params: LikelihoodExtraParams | None,
+            runtime_observation_laws: ObservationLaws,
         ) -> CompiledObservationModel:
             return compile_observation_model(
-                self.manifest_dists,
+                initialization_observation_laws(runtime_observation_laws),
                 manifest_cov=manifest_cov,
-                extra_params=runtime_extra_params,
-                manifest_links=self.manifest_links,
                 observation_support=self.observation_support,
             )
 
@@ -415,7 +404,7 @@ class LaplaceLikelihood:
                     n_ieks_iters=self.n_ieks_iters,
                     z_init=point_mode_init,
                     build_measurement_objects=_build_point_measurement_objects,
-                    extra_params=extra_params,
+                    observation_laws=observation_laws,
                 )
 
         return log_lik, inner_eval_aux
@@ -427,8 +416,9 @@ class LaplaceLikelihood:
         initial_state: MultivariateNormal,
         observations: jnp.ndarray,
         time_intervals: jnp.ndarray,
+        *,
         obs_mask: jnp.ndarray | None = None,
-        extra_params: LikelihoodExtraParams | None = None,
+        observation_laws: ObservationLaws,
         solver_state: LaplaceSolverState = EMPTY_LAPLACE_STATE,
     ) -> jnp.ndarray:
         """Compute Laplace-approximated log-likelihood.
@@ -443,7 +433,7 @@ class LaplaceLikelihood:
             observations,
             time_intervals,
             obs_mask=obs_mask,
-            extra_params=extra_params,
+            observation_laws=observation_laws,
             latent_mode_init=solver_state.latent_mode,
         )
         return log_lik
@@ -455,8 +445,9 @@ class LaplaceLikelihood:
         initial_state: MultivariateNormal,
         observations: jnp.ndarray,
         time_intervals: jnp.ndarray,
+        *,
         obs_mask: jnp.ndarray | None = None,
-        extra_params: LikelihoodExtraParams | None = None,
+        observation_laws: ObservationLaws,
         solver_state: LaplaceSolverState = EMPTY_LAPLACE_STATE,
     ) -> LaplaceEvaluationResult:
         """Compute Laplace-approximated log-likelihood plus host-log aux."""
@@ -467,7 +458,7 @@ class LaplaceLikelihood:
             observations,
             time_intervals,
             obs_mask=obs_mask,
-            extra_params=extra_params,
+            observation_laws=observation_laws,
             latent_mode_init=solver_state.latent_mode,
         )
         return LaplaceEvaluationResult(

@@ -65,7 +65,7 @@ def test_parameter_trace_preserves_site_order_shapes_and_public_deterministics()
         trace = handlers.trace(sample_parameters).get_trace(
             model.compiled, model.prior_runtime_bundle
         )
-    sampled_names = [name for name, site in trace.items() if name in values]
+    sampled_names = [name for name in trace if name in values]
     assert sampled_names == list(values)
     for name, value in values.items():
         np.testing.assert_array_equal(trace[name]["value"], value)

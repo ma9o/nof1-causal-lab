@@ -10,21 +10,8 @@ import jax.scipy.stats as jstats
 import pytest
 
 from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
-from nof1_causal_lab.models.ssm.execution.emissions import (
-    emission_log_prob_bernoulli,
-    emission_log_prob_bernoulli_probit,
-    emission_log_prob_beta,
-    emission_log_prob_beta_probit,
-    emission_log_prob_categorical,
-    emission_log_prob_gamma_inverse,
-    emission_log_prob_gaussian,
-    emission_log_prob_negative_binomial,
-    emission_log_prob_ordered_logistic,
-    emission_log_prob_poisson,
-    emission_log_prob_student_t,
-    get_mean_param_log_prob_fn,
-)
-from nof1_causal_lab.models.ssm.execution.observation_dispatch import get_emission_fn
+from nof1_causal_lab.models.ssm.execution.emissions import gaussian_block_log_prob
+from tests.observation_fixtures import mean_density, observation_kernel, observation_laws
 
 # =============================================================================
 # Helpers
@@ -63,7 +50,7 @@ class TestGaussianEmission:
             )
 
         def score(location):
-            return emission_log_prob_gaussian(
+            return gaussian_block_log_prob(
                 jnp.where(mask, values, jnp.nan), location, covariance, mask
             )
 
@@ -77,8 +64,8 @@ class TestGaussianEmission:
         y_close = jnp.array([1.0, 2.0])
         y_far = jnp.array([1.0, 999.0])
         mask = jnp.array([1.0, 0.0])
-        lp_close = emission_log_prob_gaussian(y_close, H @ z + d, R, mask)
-        lp_far = emission_log_prob_gaussian(y_far, H @ z + d, R, mask)
+        lp_close = gaussian_block_log_prob(y_close, H @ z + d, R, mask)
+        lp_far = gaussian_block_log_prob(y_far, H @ z + d, R, mask)
         assert jnp.isclose(lp_close, lp_far, atol=1e-3)
 
     def test_all_missing_returns_zero(self):
@@ -87,7 +74,7 @@ class TestGaussianEmission:
         z = jnp.array([1.0, 2.0])
         y = jnp.array([999.0, 999.0])
         mask = jnp.zeros(2)
-        lp = emission_log_prob_gaussian(y, H @ z + d, R, mask)
+        lp = gaussian_block_log_prob(y, H @ z + d, R, mask)
         assert jnp.isclose(lp, 0.0)
 
 
@@ -106,7 +93,11 @@ class TestPoissonEmission:
         z = jnp.array([jnp.log(5.0)])
         y = jnp.array([3.0])
         mask = jnp.ones(1)
-        lp = emission_log_prob_poisson(y, H @ z + d, R, mask)
+        lp = observation_kernel(
+            [DistributionFamily.POISSON] * (H @ z + d).shape[-1],
+            [LinkFunction.LOG] * (H @ z + d).shape[-1],
+            None,
+        ).log_prob_fn(y, H @ z + d, R, mask)
         expected = jstats.poisson.logpmf(3.0, 5.0)
         assert jnp.isclose(lp, expected, atol=1e-5)
 
@@ -118,7 +109,11 @@ class TestPoissonEmission:
         z = jnp.array([jnp.log(5.0), jnp.log(10.0)])
         y = jnp.array([3.0, 999.0])
         mask = jnp.array([1.0, 0.0])
-        lp = emission_log_prob_poisson(y, H @ z + d, R, mask)
+        lp = observation_kernel(
+            [DistributionFamily.POISSON] * (H @ z + d).shape[-1],
+            [LinkFunction.LOG] * (H @ z + d).shape[-1],
+            None,
+        ).log_prob_fn(y, H @ z + d, R, mask)
         expected = jstats.poisson.logpmf(3.0, 5.0)
         assert jnp.isclose(lp, expected, atol=1e-5)
 
@@ -136,8 +131,12 @@ class TestStudentTEmission:
         z = jnp.array([0.0])
         y = jnp.array([5.0])
         mask = jnp.ones(1)
-        lp_t = emission_log_prob_student_t(y, H @ z + d, R, mask, df=3.0)
-        lp_g = emission_log_prob_gaussian(y, H @ z + d, R, mask)
+        lp_t = observation_kernel(
+            [DistributionFamily.STUDENT_T] * (H @ z + d).shape[-1],
+            [LinkFunction.IDENTITY] * (H @ z + d).shape[-1],
+            {"obs_df": 3.0},
+        ).log_prob_fn(y, H @ z + d, R, mask)
+        lp_g = gaussian_block_log_prob(y, H @ z + d, R, mask)
         assert lp_t > lp_g
 
     def test_matches_scipy_univariate(self):
@@ -149,7 +148,11 @@ class TestStudentTEmission:
         y = jnp.array([3.0])
         mask = jnp.ones(1)
         df = 5.0
-        lp = emission_log_prob_student_t(y, H @ z + d, R, mask, df=df)
+        lp = observation_kernel(
+            [DistributionFamily.STUDENT_T] * (H @ z + d).shape[-1],
+            [LinkFunction.IDENTITY] * (H @ z + d).shape[-1],
+            {"obs_df": df},
+        ).log_prob_fn(y, H @ z + d, R, mask)
         scale = jnp.sqrt(2.0)
         expected = jstats.t.logpdf(3.0, df, loc=1.0, scale=scale)
         assert jnp.isclose(lp, expected, atol=1e-5)
@@ -170,7 +173,11 @@ class TestGammaEmission:
         z = jnp.array([0.5])
         y = jnp.array([1.5])
         mask = jnp.ones(1)
-        lp = emission_log_prob_gamma_inverse(y, H @ z + d, R, mask, shape=2.0)
+        lp = observation_kernel(
+            [DistributionFamily.GAMMA] * (H @ z + d).shape[-1],
+            [LinkFunction.INVERSE] * (H @ z + d).shape[-1],
+            {"obs_shape": 2.0},
+        ).log_prob_fn(y, H @ z + d, R, mask)
         # mean = 1/0.5 = 2.0, scale = 2.0/2.0 = 1.0
         expected = jstats.gamma.logpdf(1.5, a=2.0, scale=1.0)
         assert jnp.isclose(lp, expected, atol=1e-5)
@@ -182,7 +189,7 @@ class TestGammaEmission:
         z = jnp.array([jnp.log(2.0)])
         y = jnp.array([0.0])
         mask = jnp.ones(1)
-        fn = get_emission_fn(DistributionFamily.GAMMA, extra_params={"obs_shape": 2.0})
+        fn = observation_kernel([DistributionFamily.GAMMA], None, {"obs_shape": 2.0}).log_prob_fn
         lp = fn(y, H @ z + d, R, mask)
         assert jnp.isneginf(lp)
 
@@ -193,7 +200,11 @@ class TestGammaEmission:
         z = jnp.array([-0.5])
         y = jnp.array([1.5])
         mask = jnp.ones(1)
-        lp = emission_log_prob_gamma_inverse(y, H @ z + d, R, mask, shape=2.0)
+        lp = observation_kernel(
+            [DistributionFamily.GAMMA] * (H @ z + d).shape[-1],
+            [LinkFunction.INVERSE] * (H @ z + d).shape[-1],
+            {"obs_shape": 2.0},
+        ).log_prob_fn(y, H @ z + d, R, mask)
         assert jnp.isneginf(lp)
 
 
@@ -212,8 +223,16 @@ class TestBernoulliEmission:
         z = jnp.array([0.0])
         y = jnp.array([1.0])
         mask = jnp.ones(1)
-        lp_logit = emission_log_prob_bernoulli(y, H @ z + d, R, mask)
-        lp_probit = emission_log_prob_bernoulli_probit(y, H @ z + d, R, mask)
+        lp_logit = observation_kernel(
+            [DistributionFamily.BERNOULLI] * (H @ z + d).shape[-1],
+            [LinkFunction.LOGIT] * (H @ z + d).shape[-1],
+            None,
+        ).log_prob_fn(y, H @ z + d, R, mask)
+        lp_probit = observation_kernel(
+            [DistributionFamily.BERNOULLI] * (H @ z + d).shape[-1],
+            [LinkFunction.PROBIT] * (H @ z + d).shape[-1],
+            None,
+        ).log_prob_fn(y, H @ z + d, R, mask)
         assert jnp.isclose(lp_logit, jnp.log(0.5), atol=1e-5)
         assert jnp.isclose(lp_probit, jnp.log(0.5), atol=1e-5)
 
@@ -233,8 +252,16 @@ class TestNegBinEmission:
         z = jnp.array([jnp.log(5.0)])
         y = jnp.array([3.0])
         mask = jnp.ones(1)
-        lp_low_r = emission_log_prob_negative_binomial(y, H @ z + d, R, mask, r=2.0)
-        lp_high_r = emission_log_prob_negative_binomial(y, H @ z + d, R, mask, r=100.0)
+        lp_low_r = observation_kernel(
+            [DistributionFamily.NEGATIVE_BINOMIAL] * (H @ z + d).shape[-1],
+            [LinkFunction.LOG] * (H @ z + d).shape[-1],
+            {"obs_r": 2.0},
+        ).log_prob_fn(y, H @ z + d, R, mask)
+        lp_high_r = observation_kernel(
+            [DistributionFamily.NEGATIVE_BINOMIAL] * (H @ z + d).shape[-1],
+            [LinkFunction.LOG] * (H @ z + d).shape[-1],
+            {"obs_r": 100.0},
+        ).log_prob_fn(y, H @ z + d, R, mask)
         # Higher r (less overdispersion) should give higher log-prob near the mean
         assert lp_high_r > lp_low_r
 
@@ -256,7 +283,10 @@ class TestDiscreteEmission:
         cutpoints = jnp.array([[-1.0, 1.0]])
         level_counts = jnp.array([3])
 
-        lp = emission_log_prob_ordered_logistic(y, H @ z + d, R, mask, cutpoints, level_counts)
+        lp = observation_kernel(
+            [DistributionFamily.ORDERED_LOGISTIC] * (H @ z + d).shape[-1],
+            parameters={"obs_ordered_cutpoints": cutpoints, "obs_level_counts": level_counts},
+        ).log_prob_fn(y, H @ z + d, R, mask)
         expected = jnp.log(jax.nn.sigmoid(1.0) - jax.nn.sigmoid(-1.0))
         assert jnp.isclose(lp, expected, atol=1e-5)
 
@@ -271,15 +301,14 @@ class TestDiscreteEmission:
         slopes = jnp.array([[0.2, -0.4]])
         level_counts = jnp.array([3])
 
-        lp = emission_log_prob_categorical(
-            y,
-            H @ z + d,
-            R,
-            mask,
-            intercepts,
-            slopes,
-            level_counts,
-        )
+        lp = observation_kernel(
+            [DistributionFamily.CATEGORICAL] * (H @ z + d).shape[-1],
+            parameters={
+                "obs_cat_intercepts": intercepts,
+                "obs_cat_slopes": slopes,
+                "obs_level_counts": level_counts,
+            },
+        ).log_prob_fn(y, H @ z + d, R, mask)
         logits = jnp.array([0.0, -1.0 + 0.2 * 0.7, 0.5 - 0.4 * 0.7])
         expected = jax.nn.log_softmax(logits)[2]
         assert jnp.isclose(lp, expected, atol=1e-5)
@@ -300,7 +329,11 @@ class TestBetaEmission:
         z = jnp.array([0.0])
         y = jnp.array([0.5])
         mask = jnp.ones(1)
-        lp = emission_log_prob_beta_probit(y, H @ z + d, R, mask, concentration=10.0)
+        lp = observation_kernel(
+            [DistributionFamily.BETA] * (H @ z + d).shape[-1],
+            [LinkFunction.PROBIT] * (H @ z + d).shape[-1],
+            {"obs_concentration": 10.0},
+        ).log_prob_fn(y, H @ z + d, R, mask)
         # Phi(0)=0.5, concentration=10 → alpha=beta=5, y=0.5 is mode → high density
         assert lp > 0.0, f"Log-prob at mode of symmetric Beta should be positive, got {lp}"
 
@@ -313,8 +346,16 @@ class TestBetaEmission:
         y = jnp.array([0.5])
         mask = jnp.ones(1)
         conc = 10.0
-        lp_logit = emission_log_prob_beta(y, H @ z + d, R, mask, concentration=conc)
-        lp_probit = emission_log_prob_beta_probit(y, H @ z + d, R, mask, concentration=conc)
+        lp_logit = observation_kernel(
+            [DistributionFamily.BETA] * (H @ z + d).shape[-1],
+            [LinkFunction.LOGIT] * (H @ z + d).shape[-1],
+            {"obs_concentration": conc},
+        ).log_prob_fn(y, H @ z + d, R, mask)
+        lp_probit = observation_kernel(
+            [DistributionFamily.BETA] * (H @ z + d).shape[-1],
+            [LinkFunction.PROBIT] * (H @ z + d).shape[-1],
+            {"obs_concentration": conc},
+        ).log_prob_fn(y, H @ z + d, R, mask)
         assert jnp.isclose(lp_logit, lp_probit, atol=1e-4)
 
     def test_invalid_observation_returns_negative_infinity(self):
@@ -324,14 +365,20 @@ class TestBetaEmission:
         z = jnp.array([0.0])
         y = jnp.array([1.0])
         mask = jnp.ones(1)
-        lp = emission_log_prob_beta(y, H @ z + d, R, mask, concentration=10.0)
+        lp = observation_kernel(
+            [DistributionFamily.BETA] * (H @ z + d).shape[-1],
+            [LinkFunction.LOGIT] * (H @ z + d).shape[-1],
+            {"obs_concentration": 10.0},
+        ).log_prob_fn(y, H @ z + d, R, mask)
         assert jnp.isneginf(lp)
 
 
 @pytest.mark.inference(concern="sampling")
 class TestMeanParamLogProb:
     def test_gamma_invalid_support_returns_negative_infinity(self):
-        fn = get_mean_param_log_prob_fn(DistributionFamily.GAMMA, extra_params={"obs_shape": 2.0})
+        fn = mean_density(
+            observation_laws([DistributionFamily.GAMMA], parameters={"obs_shape": 2.0})[0]
+        )
         lp = fn(
             jnp.array([0.0], dtype=jnp.float32),
             jnp.array([2.0], dtype=jnp.float32),
@@ -341,8 +388,8 @@ class TestMeanParamLogProb:
         assert jnp.isneginf(lp)
 
     def test_beta_invalid_mean_returns_negative_infinity(self):
-        fn = get_mean_param_log_prob_fn(
-            DistributionFamily.BETA, extra_params={"obs_concentration": 10.0}
+        fn = mean_density(
+            observation_laws([DistributionFamily.BETA], parameters={"obs_concentration": 10.0})[0]
         )
         lp = fn(
             jnp.array([0.5], dtype=jnp.float32),
@@ -351,163 +398,3 @@ class TestMeanParamLogProb:
             jnp.array([1.0], dtype=jnp.float32),
         )
         assert jnp.isneginf(lp)
-
-
-# =============================================================================
-# get_emission_fn dispatcher
-# =============================================================================
-
-
-class TestGetEmissionFn:
-    @pytest.mark.inference(concern="sampling")
-    def test_bernoulli_probit(self):
-        fn = get_emission_fn(DistributionFamily.BERNOULLI, link=LinkFunction.PROBIT)
-        assert fn is emission_log_prob_bernoulli_probit
-
-    @pytest.mark.inference(concern="sampling")
-    def test_student_t_wraps_df(self):
-        fn = get_emission_fn(DistributionFamily.STUDENT_T, extra_params={"obs_df": 10.0})
-        H = jnp.eye(1)
-        z = jnp.array([0.0])
-        y = jnp.array([1.0])
-        d = jnp.zeros(1)
-        R = jnp.eye(1)
-        mask = jnp.ones(1)
-        eta = H @ z + d
-        lp = fn(y, eta, R, mask)
-        expected = emission_log_prob_student_t(y, eta, R, mask, df=10.0)
-        assert jnp.isclose(lp, expected)
-
-    @pytest.mark.inference(concern="sampling")
-    def test_gamma_default_log_matches_direct(self):
-        fn = get_emission_fn(DistributionFamily.GAMMA, extra_params={"obs_shape": 2.0})
-        H = jnp.eye(1)
-        z = jnp.array([jnp.log(3.0)])
-        y = jnp.array([2.0])
-        d = jnp.zeros(1)
-        R = jnp.eye(1)
-        mask = jnp.ones(1)
-        lp = fn(y, H @ z + d, R, mask)
-        # Log link: mean = exp(eta) = 3.0, scale = 3.0/2.0 = 1.5
-        expected = jstats.gamma.logpdf(2.0, a=2.0, scale=1.5)
-        assert jnp.isclose(lp, expected, atol=1e-5)
-
-    @pytest.mark.inference(concern="sampling")
-    def test_gamma_inverse_matches_direct(self):
-        fn = get_emission_fn(
-            DistributionFamily.GAMMA, extra_params={"obs_shape": 2.0}, link=LinkFunction.INVERSE
-        )
-        H = jnp.eye(1)
-        z = jnp.array([0.5])
-        y = jnp.array([1.5])
-        d = jnp.zeros(1)
-        R = jnp.eye(1)
-        mask = jnp.ones(1)
-        eta = H @ z + d
-        lp_dispatch = fn(y, eta, R, mask)
-        lp_direct = emission_log_prob_gamma_inverse(y, eta, R, mask, shape=2.0)
-        assert jnp.isclose(lp_dispatch, lp_direct)
-
-    @pytest.mark.inference(concern="sampling")
-    def test_negative_binomial_matches_direct(self):
-        fn = get_emission_fn(DistributionFamily.NEGATIVE_BINOMIAL, extra_params={"obs_r": 5.0})
-        H = jnp.eye(1)
-        z = jnp.array([jnp.log(3.0)])
-        y = jnp.array([2.0])
-        d = jnp.zeros(1)
-        R = jnp.eye(1)
-        mask = jnp.ones(1)
-        eta = H @ z + d
-        lp_dispatch = fn(y, eta, R, mask)
-        lp_direct = emission_log_prob_negative_binomial(y, eta, R, mask, r=5.0)
-        assert jnp.isclose(lp_dispatch, lp_direct)
-
-    @pytest.mark.inference(concern="sampling")
-    def test_beta_default_logit_matches_direct(self):
-        fn = get_emission_fn(DistributionFamily.BETA, extra_params={"obs_concentration": 10.0})
-        H = jnp.eye(1)
-        z = jnp.array([0.0])
-        y = jnp.array([0.5])
-        d = jnp.zeros(1)
-        R = jnp.eye(1)
-        mask = jnp.ones(1)
-        eta = H @ z + d
-        lp_dispatch = fn(y, eta, R, mask)
-        lp_direct = emission_log_prob_beta(y, eta, R, mask, concentration=10.0)
-        assert jnp.isclose(lp_dispatch, lp_direct)
-
-    @pytest.mark.inference(concern="sampling")
-    def test_beta_probit_matches_direct(self):
-        fn = get_emission_fn(
-            DistributionFamily.BETA,
-            extra_params={"obs_concentration": 10.0},
-            link=LinkFunction.PROBIT,
-        )
-        H = jnp.eye(1)
-        z = jnp.array([0.0])
-        y = jnp.array([0.5])
-        d = jnp.zeros(1)
-        R = jnp.eye(1)
-        mask = jnp.ones(1)
-        eta = H @ z + d
-        lp_dispatch = fn(y, eta, R, mask)
-        lp_direct = emission_log_prob_beta_probit(y, eta, R, mask, concentration=10.0)
-        assert jnp.isclose(lp_dispatch, lp_direct)
-
-    @pytest.mark.inference(concern="sampling")
-    def test_ordered_logistic_matches_direct(self):
-        cutpoints = jnp.array([[-1.0, 1.0]])
-        level_counts = jnp.array([3])
-        fn = get_emission_fn(
-            DistributionFamily.ORDERED_LOGISTIC,
-            extra_params={
-                "obs_level_counts": level_counts,
-                "obs_ordered_cutpoints": cutpoints,
-            },
-            link=LinkFunction.CUMULATIVE_LOGIT,
-        )
-        H = jnp.eye(1)
-        z = jnp.array([0.0])
-        y = jnp.array([1.0])
-        d = jnp.zeros(1)
-        R = jnp.eye(1)
-        mask = jnp.ones(1)
-        eta = H @ z + d
-        lp_dispatch = fn(y, eta, R, mask)
-        lp_direct = emission_log_prob_ordered_logistic(y, eta, R, mask, cutpoints, level_counts)
-        assert jnp.isclose(lp_dispatch, lp_direct)
-
-    @pytest.mark.inference(concern="sampling")
-    def test_categorical_matches_direct(self):
-        intercepts = jnp.array([[-1.0, 0.5]])
-        slopes = jnp.array([[0.2, -0.4]])
-        level_counts = jnp.array([3])
-        fn = get_emission_fn(
-            DistributionFamily.CATEGORICAL,
-            extra_params={
-                "obs_level_counts": level_counts,
-                "obs_cat_intercepts": intercepts,
-                "obs_cat_slopes": slopes,
-            },
-            link=LinkFunction.SOFTMAX,
-        )
-        H = jnp.eye(1)
-        z = jnp.array([0.7])
-        y = jnp.array([2.0])
-        d = jnp.zeros(1)
-        R = jnp.eye(1)
-        mask = jnp.ones(1)
-        eta = H @ z + d
-        lp_dispatch = fn(y, eta, R, mask)
-        lp_direct = emission_log_prob_categorical(y, eta, R, mask, intercepts, slopes, level_counts)
-        assert jnp.isclose(lp_dispatch, lp_direct)
-
-    @pytest.mark.contract
-    def test_unsupported_family_rejected_at_parse_boundary(self):
-        with pytest.raises(ValueError, match="is not a valid DistributionFamily"):
-            DistributionFamily("unsupported_distribution")
-
-    @pytest.mark.contract
-    def test_explicit_invalid_family_link_pair_raises(self):
-        with pytest.raises(ValueError, match="invalid for observation family 'gaussian'"):
-            get_emission_fn(DistributionFamily.GAUSSIAN, link=LinkFunction.LOG)

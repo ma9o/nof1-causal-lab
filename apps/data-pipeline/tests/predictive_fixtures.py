@@ -6,14 +6,15 @@ import jax
 import jax.numpy as jnp
 import numpyro.distributions as dist
 
-from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
+from nof1_causal_lab.artifacts.likelihood import (
+    OBSERVATION_LINK_VALUES_BY_DISTRIBUTION,
+    DistributionFamily,
+    LinkFunction,
+)
 from nof1_causal_lab.models.predictive_simulation import sample_model_observations
 from nof1_causal_lab.models.ssm.execution.contracts import MeasurementParams
 from nof1_causal_lab.models.ssm.execution.dynamical_model import HeterogeneousObservation
-from nof1_causal_lab.models.ssm.execution.observation_families import (
-    any_family_needs_level_metadata,
-    resolve_manifest_families_and_links,
-)
+from tests.observation_fixtures import observation_laws
 
 
 def _zero_drift(x, u, t):
@@ -48,15 +49,20 @@ def sample_observation_fixture(
             return value[indices]
         return jnp.broadcast_to(value, (n_use, *value.shape))
 
-    families, links = resolve_manifest_families_and_links(
+    families = (
         [DistributionFamily(value) for value in manifest_dists]
         if manifest_dists is not None
-        else [DistributionFamily.GAUSSIAN] * channels,
-        manifest_links=[None if value is None else LinkFunction(value) for value in manifest_links]
-        if manifest_links is not None
-        else None,
+        else [DistributionFamily.GAUSSIAN] * channels
     )
-    if manifest_level_counts is None and any_family_needs_level_metadata(families):
+    links = (
+        [LinkFunction(OBSERVATION_LINK_VALUES_BY_DISTRIBUTION[family][0]) for family in families]
+        if manifest_links is None
+        else [LinkFunction(value) for value in manifest_links]
+    )
+    if manifest_level_counts is None and any(
+        family in {DistributionFamily.ORDERED_LOGISTIC, DistributionFamily.CATEGORICAL}
+        for family in families
+    ):
         raise ValueError("manifest_level_counts is required for discrete observation fixtures")
     extras = {name: broadcast(value) for name, value in samples.items() if name.startswith("obs_")}
 
@@ -68,9 +74,7 @@ def sample_observation_fixture(
             state_evolution=dsx.DeterministicContinuousTimeStateEvolution(drift=_zero_drift),
             observation_model=HeterogeneousObservation(
                 MeasurementParams(jnp.eye(channels), jnp.zeros(channels), covariance),
-                tuple(families),
-                tuple(links),
-                parameters,
+                observation_laws(families, links, parameters, level_counts=manifest_level_counts),
             ),
             control_dim=0,
             t0=times[0],

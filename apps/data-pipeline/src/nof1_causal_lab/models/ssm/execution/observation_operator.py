@@ -11,8 +11,10 @@ import jax.numpy as jnp
 from nof1_causal_lab.models.ssm.execution.contracts import NUMERICAL_EPSILON
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.execution.emissions import MeanLogProbFn
-    from nof1_causal_lab.models.ssm.execution.observation_model import ObservationKernel
+    from nof1_causal_lab.models.ssm.execution.observation_model import (
+        EmissionLogProbFn,
+        ObservationKernel,
+    )
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
 _POINT_SUPPORT_CODE = 0
@@ -467,7 +469,7 @@ def trajectory_observation_log_probs(
     d_meas: jnp.ndarray,
     R: jnp.ndarray,
     obs_kernel: ObservationKernel,
-    mean_log_prob_fn: MeanLogProbFn | None = None,
+    mean_log_prob_fn: EmissionLogProbFn | None = None,
     observation_support: ObservationSupportRuntime | None = None,
 ) -> jnp.ndarray:
     """Return per-timestep log-likelihood contributions for a latent trajectory."""
@@ -523,7 +525,7 @@ def trajectory_observation_log_prob(
     d_meas: jnp.ndarray,
     R: jnp.ndarray,
     obs_kernel: ObservationKernel,
-    mean_log_prob_fn: MeanLogProbFn | None = None,
+    mean_log_prob_fn: EmissionLogProbFn | None = None,
     observation_support: ObservationSupportRuntime | None = None,
 ) -> jnp.ndarray:
     """Return the total observation log-likelihood for a latent trajectory."""

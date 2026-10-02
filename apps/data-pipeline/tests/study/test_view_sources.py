@@ -230,9 +230,11 @@ def test_likelihood_plot_requires_its_pinned_panel(
     candidate = make_model(["Y"])
     owner = candidate.constructs[0]
     indicator = owner.indicators[0].revised(
-        id="indicator:8ab0e6245f029d222a9a",
-        measurement_dtype="binary" if family == "bernoulli" else "continuous",
-        aggregation="last" if family == "bernoulli" else "mean",
+        observation=owner.indicators[0].observation.revised(
+            id="indicator:8ab0e6245f029d222a9a",
+            measurement_dtype="binary" if family == "bernoulli" else "continuous",
+            aggregation="last" if family == "bernoulli" else "mean",
+        ),
         likelihood=LikelihoodSpec(
             law=TypeAdapter(ObservationLawSpec).validate_json(
                 (
@@ -264,7 +266,10 @@ def test_likelihood_plot_requires_its_pinned_panel(
         },
         produced_by="derive:validation_report",
         json_files={
-            "validation_report.json": {"is_valid": True, "indicators": {}, "dataset_issues": []}
+            "validation_report.json": {
+                "is_valid": True,
+                "data": {"indicators": {}, "dataset_issues": []},
+            }
         },
     )
     StudyRepository("PLOTS").append(
@@ -284,8 +289,8 @@ def test_likelihood_plot_requires_its_pinned_panel(
     reader = ModelReader("PLOTS")
     view = reader.diagnostics
     assert view is not None
-    diagnostic = view.likelihood_diagnostics[indicator.id]
-    assert sum(bin.count for bin in diagnostic.histogram) == len(observed)
+    diagnostic = view.likelihood_diagnostics[indicator.observation.id]
+    assert sum(histogram_bin.count for histogram_bin in diagnostic.histogram) == len(observed)
     current_panel = store.write_artifact(
         "panel",
         derived_from={},

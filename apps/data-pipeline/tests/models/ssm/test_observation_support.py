@@ -75,7 +75,7 @@ def test_missing_declared_levels_are_rejected_in_the_scientific_definition():
                 / "observation_support/mixed_family_model.json"
             ).read_text()
         ).indicators
-        if item.measurement_dtype == "ordinal"
+        if item.observation.measurement_dtype == "ordinal"
     )
     with pytest.raises(ValueError, match="ordinal_levels"):
-        indicator.revised(ordinal_levels=None)
+        indicator.revised(observation=indicator.observation.revised(ordinal_levels=None))

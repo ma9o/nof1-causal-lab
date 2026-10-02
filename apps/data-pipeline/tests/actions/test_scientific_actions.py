@@ -37,7 +37,7 @@ def test_scientific_tool_transport_shares_the_action_endpoint(monkeypatch):
 
     requests = []
 
-    async def capture(workspace_id, body, *, branch, expected_head):
+    async def capture(workspace_id, body, clients, *, branch, expected_head):
         assert branch == "alternative"
         assert expected_head == git_oid(123)
         requests.append((workspace_id, body))
@@ -76,7 +76,7 @@ def test_scientific_tool_transport_shares_the_action_endpoint(monkeypatch):
     assert invalid.status_code == 422
     assert len(requests) == 1
 
-    async def poll(workspace_id, attempt_id):
+    async def poll(workspace_id, attempt_id, clients):
         assert workspace_id == "TEST"
         assert attempt_id == UUID(int=1)
         return RunningPoll()
@@ -549,7 +549,6 @@ def test_simulation_selects_checks_before_execution_and_persists_only_parameters
     paths = jnp.zeros((2, 3, 1))
     prediction = PredictiveDraws(
         parameters={"future_parameter_site": jnp.array([1.0, 2.0])},
-        likelihood_parameters={"obs_level_counts": jnp.ones((2, 1), dtype=int)},
         trajectory=PredictiveTrajectory(
             paths, paths, paths, jnp.ones_like(paths, dtype=bool), paths
         ),

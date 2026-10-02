@@ -27,7 +27,6 @@ if TYPE_CHECKING:
     import numpyro.distributions as dist
 
     from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
-    from nof1_causal_lab.models.ssm.execution.contracts import LikelihoodExtraParams
     from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
 
 
@@ -52,25 +51,13 @@ def likelihood_sites(spec: CompiledModel) -> tuple[SiteDescriptor, ...]:
     return tuple(site for site in spec.site_registry if site.assembly_group == "likelihood")
 
 
+def process_sites(spec: CompiledModel) -> tuple[SiteDescriptor, ...]:
+    return tuple(site for site in spec.site_registry if site.assembly_group == "process")
+
+
 # ---------------------------------------------------------------------------
 # Selection and assembly of authored parameter values
 # ---------------------------------------------------------------------------
-
-
-def select_site_samples(
-    samples: dict[str, jnp.ndarray],
-    registry: Sequence[SiteDescriptor],
-    *,
-    assembly_group: str | None = None,
-) -> dict[str, jnp.ndarray]:
-    """Select sampled site values using registry metadata instead of name lists."""
-    selected: dict[str, jnp.ndarray] = {}
-    for site in registry:
-        if assembly_group is not None and site.assembly_group != assembly_group:
-            continue
-        if site.name in samples:
-            selected[site.name] = samples[site.name]
-    return selected
 
 
 def _resolve_num_draws(
@@ -99,20 +86,6 @@ def assemble_deterministics_from_registry(
         )[0]
 
     return jax.vmap(assemble_draw)(jnp.arange(n_draws))
-
-
-def assemble_extra_params_from_registry(
-    spec: CompiledModel,
-    samples: dict[str, jnp.ndarray],
-    registry: Sequence[SiteDescriptor],
-) -> LikelihoodExtraParams:
-    """Assemble likelihood extra parameters using registry metadata as authority."""
-    from nof1_causal_lab.models.ssm.likelihood_extra_params import assemble_sampled_extra_params
-
-    return assemble_sampled_extra_params(
-        spec,
-        select_site_samples(samples, registry, assembly_group="likelihood"),
-    )
 
 
 # ---------------------------------------------------------------------------

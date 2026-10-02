@@ -21,8 +21,8 @@ if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.autoreparam import Strategy
     from nof1_causal_lab.models.ssm.execution.contracts import (
         LaplaceSolverState,
-        LikelihoodExtraParams,
         MeasurementParams,
+        ObservationLaws,
     )
     from nof1_causal_lab.models.ssm.inference.targets.laplace import LaplaceLikelihood
     from nof1_causal_lab.models.ssm.parameterization import PriorRuntimeBundle
@@ -59,7 +59,6 @@ from nof1_causal_lab.models.ssm.inference.utils import (
     prepare_model_parameters,
 )
 from nof1_causal_lab.models.ssm.model import initialization_input_intervention
-from nof1_causal_lab.models.ssm.parameterization import build_site_registry
 
 
 class InnerEvaluationDiagnostics(TypedDict):
@@ -1049,7 +1048,6 @@ def _build_eval_fns(
 ]:
     """Build initialization evaluators with explicit observations, times and solver state."""
     model = panel.model
-    runtime_registry = build_site_registry(model)
 
     def _inputs(
         z: jax.Array, times: jax.Array
@@ -1057,13 +1055,12 @@ def _build_eval_fns(
         StochasticContinuousTimeStateEvolution,
         MeasurementParams,
         MultivariateNormal,
-        LikelihoodExtraParams | None,
+        ObservationLaws,
         jax.Array,
     ]:
         dynamics, measurement, initial, extra = assemble_likelihood_inputs(
             parameters.constrain(z),
             model,
-            registry=runtime_registry,
             intervention=initialization_input_intervention(panel, times),
             input_values=panel.input_values,
         )
@@ -1091,7 +1088,7 @@ def _build_eval_fns(
                 initial,
                 observations,
                 intervals,
-                extra_params=extra,
+                observation_laws=extra,
                 solver_state=solver_state,
             )
         )
@@ -1110,7 +1107,7 @@ def _build_eval_fns(
             initial,
             observations,
             intervals,
-            extra_params=extra,
+            observation_laws=extra,
             solver_state=solver_state,
         )
         return _total(evaluated.log_likelihood), evaluated

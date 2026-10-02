@@ -10,7 +10,6 @@ import pytest
 
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.ssm import numerics as numeric
-from nof1_causal_lab.models.ssm.likelihood_extra_params import assemble_sampled_extra_params
 from nof1_causal_lab.models.ssm.predictive.statistics import observation_signal_and_variance
 from nof1_causal_lab.models.ssm.predictive.types import PredictiveDraws, PredictiveTrajectory
 from tests.model_fixtures import compile_model_fixture
@@ -48,7 +47,6 @@ def test_predictive_trajectory_rejects_misaligned_axes(field, values):
 def test_predictive_batch_preserves_pairing_and_rejects_misaligned_parameters():
     batch = PredictiveDraws(
         parameters={"coefficient": jnp.array([1.0, 2.0])},
-        likelihood_parameters={"obs_level_counts": jnp.array([[2, 3], [2, 3]])},
         trajectory=_trajectory(),
         reference=_trajectory(),
     )
@@ -56,14 +54,12 @@ def test_predictive_batch_preserves_pairing_and_rejects_misaligned_parameters():
     assert jax.block_until_ready(batch).parameters.keys() == {"coefficient"}
     with pytest.raises(ValueError, match="draw axis"):
         replace(batch, parameters={"coefficient": jnp.ones(3)})
-    with pytest.raises(ValueError, match="channel axis"):
-        replace(batch, likelihood_parameters={"obs_level_counts": jnp.ones((2, 1))})
     with pytest.raises(ValueError, match="Reference"):
         replace(batch, reference=replace(_trajectory(), latents=jnp.zeros((2, 3, 2))))
 
 
 @pytest.mark.inference(concern="predictive")
-def test_discrete_diagnostics_share_cutpoints_anchors_and_padded_probabilities():
+def test_discrete_diagnostics_share_cutpoints_anchors_and_declared_probabilities():
     spec = ModelSpec.model_validate_json(
         (
             Path(__file__).resolve().parents[2]
@@ -78,14 +74,10 @@ def test_discrete_diagnostics_share_cutpoints_anchors_and_padded_probabilities()
         # The categorical anchor must replace 99 by +1, and padded entries vanish.
         "obs_cat_slopes": jnp.full((2, 2, 3), 99.0),
     }
-    metadata = jax.vmap(
-        lambda draw: assemble_sampled_extra_params(compile_model_fixture(spec), draw)
-    )(raw)
     assert numeric.categorical_anchors(compile_model_fixture(spec))[1]
     predictors = jnp.broadcast_to(jnp.array([-100.0, 0.0, 100.0])[None, :, None], (2, 3, 2))
     batch = PredictiveDraws(
         parameters={**raw, "manifest_cov": jnp.broadcast_to(jnp.eye(2), (2, 2, 2))},
-        likelihood_parameters={name: jnp.asarray(value) for name, value in metadata.items()},
         trajectory=replace(_trajectory(), linear_predictors=predictors),
     )
     indices = np.arange(3)
@@ -102,7 +94,7 @@ def test_discrete_diagnostics_share_cutpoints_anchors_and_padded_probabilities()
         compile_model_fixture(spec), batch, 1, indices
     )
     assert variance is None
-    np.testing.assert_array_equal(categorical[:, :, 2:], 0.0)
+    assert categorical.shape == (2, 3, 2)
     np.testing.assert_allclose(categorical[:, 1, :2], 0.5)
     np.testing.assert_array_equal(categorical[:, 0, :2], [[1.0, 0.0]] * 2)
     np.testing.assert_array_equal(categorical[:, -1, :2], [[0.0, 1.0]] * 2)
@@ -113,7 +105,6 @@ def test_scalar_diagnostics_use_projected_means_at_supported_times():
     means = jnp.array([[[jnp.nan, 0.0], [1e-12, 0.0], [4e-12, 0.0]]] * 2)
     batch = PredictiveDraws(
         parameters={"manifest_cov": jnp.broadcast_to(jnp.eye(2), (2, 2, 2))},
-        likelihood_parameters={},
         trajectory=replace(
             _trajectory(),
             linear_predictors=jnp.full((2, 3, 2), 10.0),
@@ -145,8 +136,10 @@ def test_undefined_student_moments_produce_an_explicit_diagnostic():
 
     paths = _trajectory()
     batch = PredictiveDraws(
-        parameters={"manifest_cov": jnp.broadcast_to(jnp.eye(2), (2, 2, 2))},
-        likelihood_parameters={"obs_df": jnp.array([0.5, 5.0])},
+        parameters={
+            "manifest_cov": jnp.broadcast_to(jnp.eye(2), (2, 2, 2)),
+            "obs_df": jnp.array([0.5, 5.0]),
+        },
         trajectory=paths,
     )
     signal, variance = observation_signal_and_variance(
@@ -165,8 +158,11 @@ def test_undefined_student_moments_produce_an_explicit_diagnostic():
     )
     result = check_transmission("heavy_tail", signal, variance)
     assert not result.passed
-    assert result.value == "undefined conditional variance in 50.0% of draws"
-    assert "cannot be reported" in result.note
+    assert np.isnan(signal[0]).all()
+    assert variance is not None
+    assert np.isnan(variance[0]).all()
+    assert result.assessment.kind == "not_evaluated"
+    assert result.assessment.reason == "NONFINITE_SIGNAL"
 
 
 @pytest.mark.inference(concern="predictive")
@@ -224,9 +220,9 @@ def test_diagnostic_noise_matches_point_and_interval_execution(
     values = jnp.zeros((2, 3, channels))
     prediction = PredictiveDraws(
         parameters={
-            "manifest_cov": jnp.broadcast_to(jnp.eye(channels) * 1e-12, (2, channels, channels))
+            "manifest_cov": jnp.broadcast_to(jnp.eye(channels) * 1e-12, (2, channels, channels)),
+            "obs_df": jnp.full(2, 5.0),
         },
-        likelihood_parameters={"obs_df": jnp.full(2, 5.0)},
         trajectory=PredictiveTrajectory(
             values, values, values, jnp.ones_like(values, dtype=bool), values
         ),

@@ -19,12 +19,6 @@ from nof1_causal_lab.models.ssm.execution.contracts import MeasurementParams
 from nof1_causal_lab.models.ssm.execution.dynamical_model import (
     continuous_state_evolution,
 )
-from nof1_causal_lab.models.ssm.execution.emissions import (
-    get_mean_param_log_prob_fn,
-)
-from nof1_causal_lab.models.ssm.execution.observation_model import (
-    build_observation_kernel,
-)
 from nof1_causal_lab.models.ssm.inference.targets.laplace import (
     LaplaceLikelihood,
     _dense_support_laplace_log_lik,
@@ -32,6 +26,7 @@ from nof1_causal_lab.models.ssm.inference.targets.laplace import (
 from tests.model_fixtures import (
     make_observation_support_runtime,
 )
+from tests.observation_fixtures import mean_density, observation_kernel, observation_laws
 
 pytestmark = pytest.mark.inference(concern="warmup")
 
@@ -65,8 +60,6 @@ def test_student_t_laplace_value_and_gradient_match_scalar_reference(monkeypatch
     backend = LaplaceLikelihood(
         n_latent=1,
         n_manifest=1,
-        manifest_dists=[DistributionFamily.STUDENT_T],
-        manifest_links=[LinkFunction.IDENTITY],
         n_ieks_iters=4,
         observation_support=support,
     )
@@ -91,7 +84,9 @@ def test_student_t_laplace_value_and_gradient_match_scalar_reference(monkeypatch
             initial,
             jnp.array([[jnp.nan], [0.25]], dtype=jnp.float32),
             jnp.ones(2, dtype=jnp.float32),
-            extra_params={"obs_df": jnp.exp(raw[0]) + 2.5},
+            observation_laws=observation_laws(
+                [DistributionFamily.STUDENT_T], parameters={"obs_df": jnp.exp(raw[0]) + 2.5}
+            ),
         )
 
     anchors = np.array([1.0, 2.0])
@@ -176,8 +171,6 @@ class TestLaplaceSupportAware:
         backend = LaplaceLikelihood(
             n_latent=1,
             n_manifest=1,
-            manifest_dists=[DistributionFamily.GAUSSIAN],
-            manifest_links=[LinkFunction.IDENTITY],
             n_ieks_iters=1,
             observation_support=support,
         )
@@ -202,16 +195,23 @@ class TestLaplaceSupportAware:
         Ad = jnp.full((3, 1, 1), np.exp(-0.4), dtype=jnp.float32)
         Qd = jnp.full((3, 1, 1), -0.1 * np.expm1(-0.8) / 0.8, dtype=jnp.float32)
         cd = jnp.zeros((3, 1), dtype=jnp.float32)
-        obs_kernel = build_observation_kernel(
-            DistributionFamily.GAUSSIAN,
-            LinkFunction.IDENTITY,
-            manifest_cov=meas_params.manifest_cov,
+        obs_kernel = observation_kernel(
+            [DistributionFamily.GAUSSIAN], [LinkFunction.IDENTITY], None
         )
-        mean_log_prob_fn = get_mean_param_log_prob_fn(DistributionFamily.GAUSSIAN)
+        mean_log_prob_fn = mean_density(
+            observation_laws([DistributionFamily.GAUSSIAN], parameters=None)[0]
+        )
 
         @jax.jit
         def _banded(obs):
-            return backend.compute_log_likelihood(ct_params, meas_params, init, obs, time_intervals)
+            return backend.compute_log_likelihood(
+                ct_params,
+                meas_params,
+                init,
+                obs,
+                time_intervals,
+                observation_laws=observation_laws([DistributionFamily.GAUSSIAN]),
+            )
 
         @jax.jit
         def _dense(obs):

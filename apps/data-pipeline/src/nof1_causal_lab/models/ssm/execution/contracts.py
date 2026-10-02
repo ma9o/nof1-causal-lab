@@ -13,7 +13,6 @@ into NumPyro models via numpyro.factor().
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING, NamedTuple, Protocol
@@ -22,10 +21,14 @@ import jax
 import jax.numpy as jnp
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from dynestyx import StochasticContinuousTimeStateEvolution
     from jax.typing import ArrayLike, DTypeLike
     from numpyro.distributions import MultivariateNormal
 
+    from nof1_causal_lab.artifacts.likelihood import Law
+    from nof1_causal_lab.models.ssm.dynamics.expression import BoundExpression
     from nof1_causal_lab.models.ssm.shapes import Array, Float
 
 MISSING_DATA_LARGE_VAR = 1e10
@@ -33,8 +36,7 @@ CHOL_JITTER = 1e-8
 NUMERICAL_EPSILON = 1e-10
 PROB_CLIP_MIN = 1e-7
 
-type LikelihoodParameterValue = jnp.ndarray | int | float
-type LikelihoodExtraParams = Mapping[str, LikelihoodParameterValue]
+type ObservationLaws = tuple[Law[BoundExpression], ...]
 
 LIKELIHOOD_SOLVER_KIND_POINT_IEKS = 1
 LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS = 2
@@ -66,7 +68,7 @@ class InitializationLikelihoodBackend(Protocol):
         time_intervals: jnp.ndarray,
         /,
         *,
-        extra_params: LikelihoodExtraParams | None = None,
+        observation_laws: ObservationLaws,
     ) -> jnp.ndarray: ...
 
 

@@ -16,7 +16,6 @@ from nof1_causal_lab.artifacts.expressions import (
     restoring_coefficients,
 )
 from nof1_causal_lab.models.ssm import numerics as numeric
-from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel, CompiledState
 from nof1_causal_lab.models.ssm.dynamics.expression import (
     SCALAR_OPERATIONS,
     apply_expression_function,
@@ -428,7 +427,7 @@ def measure_construct_measurement(
     for indicator in spec.observations:
         if indicator.state_index != d:
             continue
-        lik = indicator.likelihood
+        lik = indicator.law
         started = clock()
         var = indicator.id
         observed = np.asarray(design.values_by_indicator[var])
@@ -483,7 +482,7 @@ def measure_construct_measurement(
                     indicator.name,
                     pp_y,
                     observed,
-                    distribution=lik.family.value,
+                    distribution=lik.family,
                     level_count=level_count,
                 )
             ]

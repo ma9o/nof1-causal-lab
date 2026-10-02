@@ -307,10 +307,13 @@ def fold_expression[T](
     coefficient_value: Callable[[CoefficientExpression], T],
     binary: Callable[[BinaryOperator, T, T], T],
     call: Callable[[ExpressionFunction, tuple[T, ...]], T],
+    substitution: tuple[Expression, T] | None = None,
 ) -> T:
     """Interpret a tree as executable scalar arithmetic or rendered mathematics."""
 
     def visit(node: Expression) -> T:
+        if substitution is not None and node == substitution[0]:
+            return substitution[1]
         match node:
             case LiteralExpression():
                 return literal(node.value)

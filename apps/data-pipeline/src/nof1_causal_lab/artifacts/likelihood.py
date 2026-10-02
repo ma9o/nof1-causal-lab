@@ -6,7 +6,7 @@ from enum import StrEnum
 from functools import cached_property
 from typing import TYPE_CHECKING, Annotated, ClassVar, Literal, Self, assert_never, get_args
 
-from pydantic import Field, model_validator
+from pydantic import ConfigDict, Field, model_validator
 
 from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.distributions import DistributionFamily
@@ -15,7 +15,9 @@ from .evidence import LiteratureSource
 from .expressions import CoefficientRole, Expression
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.models.likelihoods import LikelihoodTerms
+    from collections.abc import Callable
+
+    from nof1_causal_lab.models.likelihoods import LikelihoodAnalysis
 
 
 class LinkFunction(StrEnum):
@@ -33,120 +35,158 @@ class LinkFunction(StrEnum):
 class _ObservationLaw(Value):
     """Shared catalog metadata; concrete laws own their required expression fields."""
 
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+
     family: ClassVar[DistributionFamily]
     summary: ClassVar[str]
     links: ClassVar[tuple[str, ...]]
     parameter_roles: ClassVar[tuple[CoefficientRole, ...]] = ()
 
 
-class DeltaLawSpec(_ObservationLaw):
+class DeltaLawSpec[A](_ObservationLaw):
     """The Delta conditional law."""
 
     distribution: Literal["Delta"] = "Delta"
-    v: Expression
+    v: A
     family: ClassVar[DistributionFamily] = DistributionFamily.DELTA
     summary: ClassVar[str] = (
         "Exact observation of a state or its declared window summary, with no measurement noise. Missing observations impose no constraint. Particle inference supports direct point bindings; affine and interval constraints are not yet supported."
     )
     links: ClassVar[tuple[str, ...]] = ("identity",)
 
+    def operands(self) -> tuple[tuple[str, A], ...]:
+        """Typed operands in their declared order."""
+        return (("v", self.v),)
 
-class NormalLawSpec(_ObservationLaw):
+
+class NormalLawSpec[A](_ObservationLaw):
     """The Normal conditional law."""
 
     distribution: Literal["Normal"] = "Normal"
-    loc: Expression
-    scale: Expression
+    loc: A
+    scale: A
     family: ClassVar[DistributionFamily] = DistributionFamily.GAUSSIAN
     summary: ClassVar[str] = "Continuous unbounded data, approximately symmetric."
     links: ClassVar[tuple[str, ...]] = ("identity",)
 
+    def operands(self) -> tuple[tuple[str, A], ...]:
+        """Typed operands in their declared order."""
+        return (("loc", self.loc), ("scale", self.scale))
 
-class StudentTLawSpec(_ObservationLaw):
+
+class StudentTLawSpec[A](_ObservationLaw):
     """The StudentT conditional law."""
 
     distribution: Literal["StudentT"] = "StudentT"
-    df: Expression
-    loc: Expression
-    scale: Expression
+    df: A
+    loc: A
+    scale: A
     family: ClassVar[DistributionFamily] = DistributionFamily.STUDENT_T
     summary: ClassVar[str] = "Continuous data with heavy tails or outliers."
     links: ClassVar[tuple[str, ...]] = ("identity",)
     parameter_roles: ClassVar[tuple[CoefficientRole, ...]] = ("degrees_of_freedom",)
 
+    def operands(self) -> tuple[tuple[str, A], ...]:
+        """Typed operands in their declared order."""
+        return (("df", self.df), ("loc", self.loc), ("scale", self.scale))
 
-class PoissonLawSpec(_ObservationLaw):
+
+class PoissonLawSpec[A](_ObservationLaw):
     """The Poisson conditional law."""
 
     distribution: Literal["Poisson"] = "Poisson"
-    rate: Expression
+    rate: A
     family: ClassVar[DistributionFamily] = DistributionFamily.POISSON
     summary: ClassVar[str] = "Count data with variance roughly tracking the mean."
     links: ClassVar[tuple[str, ...]] = ("log",)
 
+    def operands(self) -> tuple[tuple[str, A], ...]:
+        """Typed operands in their declared order."""
+        return (("rate", self.rate),)
 
-class GammaLawSpec(_ObservationLaw):
+
+class GammaLawSpec[A](_ObservationLaw):
     """The Gamma conditional law."""
 
     distribution: Literal["Gamma"] = "Gamma"
-    concentration: Expression
-    rate: Expression
+    concentration: A
+    rate: A
     family: ClassVar[DistributionFamily] = DistributionFamily.GAMMA
     summary: ClassVar[str] = "Positive continuous data such as durations or reaction times."
     links: ClassVar[tuple[str, ...]] = ("log", "inverse")
     parameter_roles: ClassVar[tuple[CoefficientRole, ...]] = ("shape",)
 
+    def operands(self) -> tuple[tuple[str, A], ...]:
+        """Typed operands in their declared order."""
+        return (("concentration", self.concentration), ("rate", self.rate))
 
-class BernoulliLogitsLawSpec(_ObservationLaw):
+
+class BernoulliLogitsLawSpec[A](_ObservationLaw):
     """The BernoulliLogits conditional law."""
 
     distribution: Literal["BernoulliLogits"] = "BernoulliLogits"
-    logits: Expression
+    logits: A
     family: ClassVar[DistributionFamily] = DistributionFamily.BERNOULLI
     summary: ClassVar[str] = "Binary outcomes with two possible states."
     links: ClassVar[tuple[str, ...]] = ("logit",)
 
+    def operands(self) -> tuple[tuple[str, A], ...]:
+        """Typed operands in their declared order."""
+        return (("logits", self.logits),)
 
-class BernoulliProbsLawSpec(_ObservationLaw):
+
+class BernoulliProbsLawSpec[A](_ObservationLaw):
     """The BernoulliProbs conditional law."""
 
     distribution: Literal["BernoulliProbs"] = "BernoulliProbs"
-    probs: Expression
+    probs: A
     family: ClassVar[DistributionFamily] = DistributionFamily.BERNOULLI
     summary: ClassVar[str] = "Binary outcomes with two possible states."
-    links: ClassVar[tuple[str, ...]] = ("probit",)
+    links: ClassVar[tuple[str, ...]] = ("logit", "probit")
+
+    def operands(self) -> tuple[tuple[str, A], ...]:
+        """Typed operands in their declared order."""
+        return (("probs", self.probs),)
 
 
-class NegativeBinomial2LawSpec(_ObservationLaw):
+class NegativeBinomial2LawSpec[A](_ObservationLaw):
     """The NegativeBinomial2 conditional law."""
 
     distribution: Literal["NegativeBinomial2"] = "NegativeBinomial2"
-    mean: Expression
-    concentration: Expression
+    mean: A
+    concentration: A
     family: ClassVar[DistributionFamily] = DistributionFamily.NEGATIVE_BINOMIAL
     summary: ClassVar[str] = "Overdispersed count data where variance exceeds the mean."
     links: ClassVar[tuple[str, ...]] = ("log",)
     parameter_roles: ClassVar[tuple[CoefficientRole, ...]] = ("dispersion",)
 
+    def operands(self) -> tuple[tuple[str, A], ...]:
+        """Typed operands in their declared order."""
+        return (("mean", self.mean), ("concentration", self.concentration))
 
-class BetaLawSpec(_ObservationLaw):
+
+class BetaLawSpec[A](_ObservationLaw):
     """The Beta conditional law."""
 
     distribution: Literal["Beta"] = "Beta"
-    concentration1: Expression
-    concentration0: Expression
+    concentration1: A
+    concentration0: A
     family: ClassVar[DistributionFamily] = DistributionFamily.BETA
     summary: ClassVar[str] = "Proportions or rates strictly inside the unit interval."
     links: ClassVar[tuple[str, ...]] = ("logit", "probit")
     parameter_roles: ClassVar[tuple[CoefficientRole, ...]] = ("concentration",)
 
+    def operands(self) -> tuple[tuple[str, A], ...]:
+        """Typed operands in their declared order."""
+        return (("concentration1", self.concentration1), ("concentration0", self.concentration0))
 
-class OrderedLogisticLawSpec(_ObservationLaw):
+
+class OrderedLogisticLawSpec[A](_ObservationLaw):
     """The OrderedLogistic conditional law."""
 
     distribution: Literal["OrderedLogistic"] = "OrderedLogistic"
-    predictor: Expression
-    cutpoints: Expression
+    predictor: A
+    cutpoints: A
     family: ClassVar[DistributionFamily] = DistributionFamily.ORDERED_LOGISTIC
     summary: ClassVar[str] = (
         "Ordered categorical outcomes with ranked levels. Keeps a loading on the latent (fixed logistic scale), unlike `categorical`."
@@ -154,12 +194,16 @@ class OrderedLogisticLawSpec(_ObservationLaw):
     links: ClassVar[tuple[str, ...]] = ("cumulative_logit",)
     parameter_roles: ClassVar[tuple[CoefficientRole, ...]] = ("cutpoint_base", "cutpoint_gaps")
 
+    def operands(self) -> tuple[tuple[str, A], ...]:
+        """Typed operands in their declared order."""
+        return (("predictor", self.predictor), ("cutpoints", self.cutpoints))
 
-class CategoricalLawSpec(_ObservationLaw):
+
+class CategoricalLawSpec[A](_ObservationLaw):
     """The Categorical conditional law."""
 
     distribution: Literal["Categorical"] = "Categorical"
-    logits: Expression
+    logits: A
     family: ClassVar[DistributionFamily] = DistributionFamily.CATEGORICAL
     summary: ClassVar[str] = (
         "Unordered multi-class outcomes. Choosing it removes the channel's loading (the class slopes are exactly redundant with it, so the compiler pins it); discrimination moves into `obs_cat_slopes`."
@@ -170,26 +214,32 @@ class CategoricalLawSpec(_ObservationLaw):
         "category_slopes",
     )
 
+    def operands(self) -> tuple[tuple[str, A], ...]:
+        """Typed operands in their declared order."""
+        return (("logits", self.logits),)
 
-type ObservationLawSpec = Annotated[
-    DeltaLawSpec
-    | NormalLawSpec
-    | StudentTLawSpec
-    | PoissonLawSpec
-    | GammaLawSpec
-    | BernoulliLogitsLawSpec
-    | BernoulliProbsLawSpec
-    | NegativeBinomial2LawSpec
-    | BetaLawSpec
-    | OrderedLogisticLawSpec
-    | CategoricalLawSpec,
+
+type Law[A] = Annotated[
+    DeltaLawSpec[A]
+    | NormalLawSpec[A]
+    | StudentTLawSpec[A]
+    | PoissonLawSpec[A]
+    | GammaLawSpec[A]
+    | BernoulliLogitsLawSpec[A]
+    | BernoulliProbsLawSpec[A]
+    | NegativeBinomial2LawSpec[A]
+    | BetaLawSpec[A]
+    | OrderedLogisticLawSpec[A]
+    | CategoricalLawSpec[A],
     Field(discriminator="distribution"),
 ]
 
 
+type ObservationLawSpec = Law[Expression]
+
 # Derive catalogs from the same closed union that defines the authored schema.
-OBSERVATION_LAW_TYPES: tuple[type[_ObservationLaw], ...] = get_args(
-    get_args(ObservationLawSpec.__value__)[0]
+OBSERVATION_LAW_TYPES: tuple[type[_ObservationLaw], ...] = tuple(
+    law.__pydantic_generic_metadata__["origin"] for law in get_args(get_args(Law.__value__)[0])
 )
 OBSERVATION_FAMILY_SPECS = tuple({law.family: law for law in OBSERVATION_LAW_TYPES}.values())
 OBSERVATION_LINK_VALUES_BY_DISTRIBUTION = {
@@ -206,50 +256,40 @@ VALID_LINKS_FOR_DISTRIBUTION = {
 }
 
 
-def observation_expressions(law: ObservationLawSpec) -> tuple[tuple[str, Expression], ...]:
-    """Render typed operands without reconstructing a string-keyed argument bag."""
+def map_law[A, B](law: Law[A], function: Callable[[A], B]) -> Law[B]:
+    """Transform every native operand, preserving its constructor and discriminator."""
     match law:
         case DeltaLawSpec():
-            return (("v", law.v),)
+            return DeltaLawSpec(v=function(law.v))
         case NormalLawSpec():
-            return (
-                ("loc", law.loc),
-                ("scale", law.scale),
-            )
+            return NormalLawSpec(loc=function(law.loc), scale=function(law.scale))
         case StudentTLawSpec():
-            return (
-                ("df", law.df),
-                ("loc", law.loc),
-                ("scale", law.scale),
+            return StudentTLawSpec(
+                df=function(law.df), loc=function(law.loc), scale=function(law.scale)
             )
         case PoissonLawSpec():
-            return (("rate", law.rate),)
+            return PoissonLawSpec(rate=function(law.rate))
         case GammaLawSpec():
-            return (
-                ("concentration", law.concentration),
-                ("rate", law.rate),
-            )
+            return GammaLawSpec(concentration=function(law.concentration), rate=function(law.rate))
         case BernoulliLogitsLawSpec():
-            return (("logits", law.logits),)
+            return BernoulliLogitsLawSpec(logits=function(law.logits))
         case BernoulliProbsLawSpec():
-            return (("probs", law.probs),)
+            return BernoulliProbsLawSpec(probs=function(law.probs))
         case NegativeBinomial2LawSpec():
-            return (
-                ("mean", law.mean),
-                ("concentration", law.concentration),
+            return NegativeBinomial2LawSpec(
+                mean=function(law.mean), concentration=function(law.concentration)
             )
         case BetaLawSpec():
-            return (
-                ("concentration1", law.concentration1),
-                ("concentration0", law.concentration0),
+            return BetaLawSpec(
+                concentration1=function(law.concentration1),
+                concentration0=function(law.concentration0),
             )
         case OrderedLogisticLawSpec():
-            return (
-                ("predictor", law.predictor),
-                ("cutpoints", law.cutpoints),
+            return OrderedLogisticLawSpec(
+                predictor=function(law.predictor), cutpoints=function(law.cutpoints)
             )
         case CategoricalLawSpec():
-            return (("logits", law.logits),)
+            return CategoricalLawSpec(logits=function(law.logits))
     assert_never(law)
 
 
@@ -270,7 +310,7 @@ class LikelihoodSpec(Value):
         return self
 
     @cached_property
-    def parsed(self) -> LikelihoodTerms:
+    def parsed(self) -> LikelihoodAnalysis:
         """Retain the supported expression grammar at its scientific owner boundary."""
         from nof1_causal_lab.models.likelihoods import likelihood_terms
 

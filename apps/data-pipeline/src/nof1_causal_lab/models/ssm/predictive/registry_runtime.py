@@ -11,7 +11,7 @@ import json
 import logging
 import threading
 from collections import OrderedDict
-from typing import TYPE_CHECKING, Any, NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 import equinox as eqx
 import jax
@@ -40,17 +40,17 @@ from nof1_causal_lab.models.ssm.execution.dynamical_model import build_dynamical
 from nof1_causal_lab.models.ssm.parameterization import (
     PriorRuntimeBundle,
     assemble_deterministics_from_registry,
-    assemble_extra_params_from_registry,
-    build_site_registry,
     sample_prior_parameters,
 )
 
 from .types import PredictiveDraws, PredictiveTrajectory
 
 if TYPE_CHECKING:
+    from _hashlib import HASH
     from collections.abc import Callable, Mapping
 
     import dynestyx as dsx
+    from jax.typing import ArrayLike
 
     from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
     from nof1_causal_lab.models.ssm.dynamics.spec import CompiledDynamics, DynamicsSpec
@@ -70,31 +70,6 @@ def predictive_keys(seed: int) -> PredictiveKeys:
     """Derive independent parameter, latent, and observation streams."""
     parameter_key, latent_key, observation_key = random.split(random.PRNGKey(seed), 3)
     return PredictiveKeys(parameter_key, latent_key, observation_key)
-
-
-def _assemble_extra_params_batched(
-    spec: CompiledModel,
-    constrained_samples: Mapping[str, jnp.ndarray],
-    registry,
-    *,
-    n_draws: int,
-) -> dict[str, jnp.ndarray]:
-    """Assemble per-draw observation/process hyperparameters."""
-    if not any(site.assembly_group == "likelihood" for site in registry):
-        return {}
-
-    def _assemble_one(draw_idx: jnp.ndarray) -> dict[str, jnp.ndarray]:
-        sampled_values = {
-            site_name: values[draw_idx] for site_name, values in constrained_samples.items()
-        }
-        return {
-            name: jnp.asarray(value)
-            for name, value in assemble_extra_params_from_registry(
-                spec, sampled_values, registry
-            ).items()
-        }
-
-    return jax.vmap(_assemble_one)(jnp.arange(n_draws, dtype=jnp.int32))
 
 
 def forward_simulation_supported(spec: CompiledModel) -> bool:
@@ -137,7 +112,7 @@ _latent_cache: OrderedDict[str, jax.Array] = OrderedDict()
 _latent_cache_lock = threading.Lock()
 
 
-def _update_array_digest(digest: Any, label: str, value: Any) -> None:
+def _update_array_digest(digest: HASH, label: str, value: ArrayLike) -> None:
     array = np.asarray(jax.device_get(value))
     digest.update(label.encode())
     digest.update(array.dtype.str.encode())
@@ -147,7 +122,7 @@ def _update_array_digest(digest: Any, label: str, value: Any) -> None:
 
 def _prior_predictive_latent_cache_key(
     dynamics: DynamicsSpec,
-    vf_params: Any,
+    vf_params: object,
     samples: Mapping[str, jnp.ndarray],
     times: jnp.ndarray,
     rng_key: jax.Array,
@@ -437,9 +412,6 @@ def simulate_predictive_draws(
     """Generate one shared path/observation batch from aligned parameter draws."""
     _ensure_gaussian_process_diffusion(spec)
     n_draws = int(next(iter(samples.values())).shape[0])
-    likelihood_parameters = _assemble_extra_params_batched(
-        spec, samples, build_site_registry(spec), n_draws=n_draws
-    )
     keys = predictive_keys(seed)
     latents, linear_predictors, reference_latents = simulate_latent_histories(
         spec,
@@ -492,7 +464,6 @@ def simulate_predictive_draws(
         )
     return PredictiveDraws(
         parameters=dict(samples),
-        likelihood_parameters=likelihood_parameters,
         trajectory=trajectory,
         reference=reference,
     )

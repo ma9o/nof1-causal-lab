@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 import numpy as np
 import numpyro.distributions as dist
 
-from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
+from nof1_causal_lab.artifacts.likelihood import NormalLawSpec, StudentTLawSpec
 from nof1_causal_lab.models.ssm import numerics as numeric
 
 if TYPE_CHECKING:
@@ -15,8 +15,6 @@ if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.runtime import BoundPanel
 
 LOCATION_REACH_SIGMAS = 6.0
-
-_LOCATION_FAMILIES = (DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T)
 
 
 class ObservationPreflightError(ValueError):
@@ -66,8 +64,6 @@ def validate_observations_for_fit(priors: PriorRuntimeBundle, panel: BoundPanel)
     validate_observation_support_for_fit(panel)
     spec = panel.model
     obs = np.asarray(panel.observations, dtype=np.float64)
-    dists = numeric.observation_families(spec)
-    links = numeric.observation_links(spec)
     standardized = numeric.observation_standardized(spec)
     names = numeric.observation_names(spec)
 
@@ -86,9 +82,7 @@ def validate_observations_for_fit(priors: PriorRuntimeBundle, panel: BoundPanel)
         if bool(standardized[j]):
             continue
 
-        if DistributionFamily(dists[j]) not in _LOCATION_FAMILIES:
-            continue
-        if links[j] != LinkFunction.IDENTITY:
+        if not isinstance(spec.observations[j].law, (NormalLawSpec, StudentTLawSpec)):
             continue
         if not bool(free_support[j]):
             continue

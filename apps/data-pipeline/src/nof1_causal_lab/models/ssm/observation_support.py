@@ -9,7 +9,6 @@ from typing import TYPE_CHECKING
 import numpy as np
 import polars as pl
 
-from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.preflight import ObservationPreflightError
 from nof1_causal_lab.utils.time_coordinates import ModelTime, ObservationInstant
 
@@ -392,17 +391,12 @@ def extract_numeric_column_values(X: pl.DataFrame, column: str) -> np.ndarray:
 
 def validate_discrete_manifest_metadata(spec: CompiledModel, X: pl.DataFrame) -> None:
     """Check encoded observations against the levels declared on their indicators."""
-    from nof1_causal_lab.models.ssm.execution.observation_families import get_family_spec
+    from nof1_causal_lab.artifacts.likelihood import CategoricalLawSpec, OrderedLogisticLawSpec
 
-    for column, family, count in zip(
-        numeric.observation_names(spec),
-        numeric.observation_families(spec),
-        numeric.observation_level_counts(spec),
-        strict=True,
-    ):
-        family_spec = get_family_spec(family)
-        if not family_spec.needs_level_metadata:
+    for observation in spec.observations:
+        if not isinstance(observation.law, (CategoricalLawSpec, OrderedLogisticLawSpec)):
             continue
+        column, count = observation.name, len(observation.levels)
         if count < 2:
             raise ObservationPreflightError(
                 f"Indicator {column!r} requires at least two declared levels"
@@ -421,31 +415,47 @@ def validate_discrete_manifest_metadata(spec: CompiledModel, X: pl.DataFrame) ->
 
 def validate_observation_support(spec: CompiledModel, X: pl.DataFrame) -> None:
     """Reject likelihoods whose support is incompatible with observed data."""
-    from nof1_causal_lab.models.ssm.execution.observation_families import get_family_spec
-
-    manifest_cols = numeric.observation_names(spec)
-    manifest_dists = numeric.observation_families(spec)
+    from nof1_causal_lab.artifacts.likelihood import (
+        BernoulliLogitsLawSpec,
+        BernoulliProbsLawSpec,
+        BetaLawSpec,
+        GammaLawSpec,
+        NegativeBinomial2LawSpec,
+        PoissonLawSpec,
+    )
 
     issues: list[str] = []
-    for column, dist in zip(manifest_cols, manifest_dists, strict=False):
+    for observation in spec.observations:
+        column, law, family = observation.name, observation.law, observation.law.family
         values = extract_numeric_column_values(X, column)
         if values.size == 0:
             continue
         if np.any(~np.isfinite(values)):
             issues.append(
-                f"- '{column}' uses {dist.value} emission but observed data contain non-finite values"
+                f"- '{column}' uses {family.value} emission but observed data contain non-finite values"
             )
             continue
 
-        family_spec = get_family_spec(dist)
-        invalid = family_spec.validate_support(values)
+        if isinstance(law, GammaLawSpec):
+            invalid, description = values <= 0.0, "strictly positive"
+        elif isinstance(law, BetaLawSpec):
+            invalid, description = (values <= 0.0) | (values >= 1.0), "strictly inside (0, 1)"
+        elif isinstance(law, (BernoulliLogitsLawSpec, BernoulliProbsLawSpec)):
+            invalid, description = ~np.isin(values, (0.0, 1.0)), "binary 0/1"
+        elif isinstance(law, (PoissonLawSpec, NegativeBinomial2LawSpec)):
+            invalid, description = (
+                (values < 0.0) | ~np.isclose(values, np.rint(values), atol=1e-6),
+                "nonnegative integer",
+            )
+        else:
+            continue
         if not np.any(invalid):
             continue
 
         bad_values = values[invalid]
         issues.append(
-            f"- '{column}' uses {dist.value} emission but {bad_values.size}/{values.size} "
-            f"observations are outside support ({family_spec.support_description}; "
+            f"- '{column}' uses {family.value} emission but {bad_values.size}/{values.size} "
+            f"observations are outside support ({description}; "
             f"min={float(values.min()):.3g}, max={float(values.max()):.3g})"
         )
 

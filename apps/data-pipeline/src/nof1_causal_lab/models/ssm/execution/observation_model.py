@@ -1,115 +1,136 @@
-"""Kernel layer: pre-resolved callables for SSM inference.
-
-Separates the specification domain (ModelSpec: serializable enums for web UI)
-from the inference domain (kernels: bound JAX callables). Kernels are built
-once per likelihood evaluation from spec enums + sampled hyperparameters,
-then passed to all backend internals.
-
-ObservationKernel: p(y_t | eta_t) — predictor log-prob, inverse link, EKF variance.
-"""
+"""Compile constructor/layout groups for exact observation operations."""
 
 from __future__ import annotations
 
-import logging
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, assert_never
+from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
 import jax.scipy.linalg as jla
-import jax.scipy.stats as jstats
-import numpy as np
 
-from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
+from nof1_causal_lab.artifacts.likelihood import (
+    BernoulliLogitsLawSpec,
+    BernoulliProbsLawSpec,
+    BetaLawSpec,
+    CategoricalLawSpec,
+    DeltaLawSpec,
+    GammaLawSpec,
+    Law,
+    LinkFunction,
+    NegativeBinomial2LawSpec,
+    NormalLawSpec,
+    OrderedLogisticLawSpec,
+    PoissonLawSpec,
+    StudentTLawSpec,
+    map_law,
+)
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize, symmetrize_with_jitter
-from nof1_causal_lab.models.ssm.execution.emissions import (
-    MeanLogProbFn,
-    build_heterogeneous_mean_log_prob_fn,
-    get_mean_param_log_prob_fn,
+from nof1_causal_lab.models.ssm.execution import emissions
+from nof1_causal_lab.models.ssm.execution.observation_distributions import (
+    evaluate_law,
+    law_response,
+    masked_law_log_prob,
+    with_response,
 )
-from nof1_causal_lab.models.ssm.execution.observation_extra_params import (
-    slice_observation_extra_params,
-)
-
-from .observation_dispatch import (
-    MeanObservationSampler,
-    PointObservationSampler,
-    build_interval_summary_sampler,
-    build_point_observation_sampler,
-    get_emission_fn,
-    get_emission_score_weight_fn,
-)
-
-logger = logging.getLogger(__name__)
+from nof1_causal_lab.models.ssm.execution.observation_operator import compile_observation_operator
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
-
-    from nof1_causal_lab.models.ssm.execution.contracts import LikelihoodExtraParams
-    from nof1_causal_lab.models.ssm.execution.observation_families import (
-        EmissionLogProbFn,
-        ScoreWeightFn,
+    from nof1_causal_lab.models.ssm.dynamics.expression import BoundExpression
+    from nof1_causal_lab.models.ssm.execution.contracts import ObservationLaws
+    from nof1_causal_lab.models.ssm.execution.observation_dispatch import (
+        MeanObservationSampler,
+        PointObservationSampler,
     )
-    from nof1_causal_lab.models.ssm.execution.observation_kernel_helpers import (
-        ResponseFn,
-        VarianceFn,
-    )
-    from nof1_causal_lab.models.ssm.execution.observation_operator import (
-        ObservationOperator,
-    )
+    from nof1_causal_lab.models.ssm.execution.observation_operator import ObservationOperator
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
+type EmissionLogProbFn = Callable[[jax.Array, jax.Array, jax.Array, jax.Array], jax.Array]
+type ResponseFn = Callable[[jax.Array], jax.Array]
+type ScoreWeightFn = Callable[[jax.Array, jax.Array, jax.Array], tuple[jax.Array, jax.Array]]
 type LatentGradHessFn = Callable[
-    [
-        jnp.ndarray,
-        jnp.ndarray,
-        jnp.ndarray,
-        jnp.ndarray,
-        jnp.ndarray,
-        jnp.ndarray,
-    ],
-    tuple[jnp.ndarray, jnp.ndarray],
+    [jax.Array, jax.Array, jax.Array, jax.Array, jax.Array, jax.Array], tuple[jax.Array, jax.Array]
 ]
-
-# =============================================================================
-# Kernel dataclasses
-# =============================================================================
 
 
 @dataclass(frozen=True)
 class ObservationKernel:
-    """Pre-resolved predictor-to-observation likelihood operations.
-
-    Built once from DistributionFamily + LinkFunction + sampled hyperparameters.
-    Consumed by the marginal likelihood and blocked MCMC backends.
-
-    Attributes:
-        log_prob_fn: Log-probability (y, eta, R, mask) -> scalar.
-        response_fn: Inverse link, maps linear predictor to mean (elementwise).
-        variance_fn: Maps predicted mean to (n_m, n_m) pseudo-covariance for
-            EKF linearization. Diagonal for GLM families; full manifest_cov
-            for Gaussian/Student-t.
-        is_gaussian: Whether the observation family is Gaussian.
-    """
-
     log_prob_fn: EmissionLogProbFn
     response_fn: ResponseFn
-    variance_fn: VarianceFn
-    is_gaussian: bool
     latent_grad_hess_fn: LatentGradHessFn
 
 
 @dataclass(frozen=True)
-class CompiledObservationModel:
-    """One compiled family/link interface shared by fitting and prediction."""
+class LawGroup:
+    """Compatible native operands with their original channel positions."""
 
+    indices: tuple[int, ...]
+    laws: ObservationLaws
+    interval: bool = False
+
+    def evaluate(
+        self,
+        predictors: jax.Array,
+        scales: jax.Array,
+        responses: jax.Array | None = None,
+        mask: jax.Array | None = None,
+    ) -> Law[jax.Array]:
+        arrays: list[Law[jax.Array]] = []
+        for index, law in zip(self.indices, self.laws, strict=True):
+            eta = predictors[index]
+            if responses is not None:
+                eta = jnp.ones_like(eta) if isinstance(law, GammaLawSpec) else jnp.zeros_like(eta)
+            observed = None if mask is None else mask[index] > 0.5
+            native = evaluate_law(law, eta, scales[index], observed)
+            if responses is not None:
+                response = responses[index]
+                if observed is not None:
+                    response = jnp.where(observed, response, 1.0)
+                native = with_response(native, response)
+            arrays.append(native)
+        operands = tuple(iter(value for _, value in law.operands()) for law in arrays)
+        return map_law(
+            arrays[0], lambda _value: jnp.stack(tuple(next(values) for values in operands))
+        )
+
+
+def compile_law_groups(
+    laws: ObservationLaws,
+    indices: Sequence[int] | None = None,
+    *,
+    interval: bool = False,
+    roles: Sequence[str] | None = None,
+) -> tuple[LawGroup, ...]:
+    selected = range(len(laws)) if indices is None else indices
+    groups: dict[tuple[type, int, str, LinkFunction], list[int]] = {}
+    for index in selected:
+        law = laws[index]
+        constructor = type(law)
+        event_size = 0
+        if isinstance(law, OrderedLogisticLawSpec):
+            event_size = law.cutpoints.event_size
+        elif isinstance(law, CategoricalLawSpec):
+            event_size = law.logits.event_size
+        if interval and isinstance(law, (BernoulliLogitsLawSpec, BernoulliProbsLawSpec)):
+            constructor = BernoulliProbsLawSpec
+        role = "point" if roles is None else roles[index]
+        if isinstance(law, NormalLawSpec):
+            role = "gaussian_block"
+        groups.setdefault((constructor, event_size, role, _law_link(law)), []).append(index)
+    return tuple(
+        LawGroup(tuple(positions), tuple(laws[index] for index in positions), interval)
+        for positions in groups.values()
+    )
+
+
+@dataclass(frozen=True)
+class CompiledObservationModel:
     kernel: ObservationKernel
     point_sampler: PointObservationSampler
     interval_summary_sampler: MeanObservationSampler | None
-    mean_log_prob_fn: MeanLogProbFn | None
+    mean_log_prob_fn: EmissionLogProbFn | None
     observation_operator: ObservationOperator | None
-    manifest_dists: tuple[DistributionFamily, ...]
-    manifest_links: tuple[LinkFunction, ...]
 
     @property
     def requires_interval_summary_handling(self) -> bool:
@@ -117,48 +138,6 @@ class CompiledObservationModel:
             self.observation_operator is not None
             and self.observation_operator.requires_interval_summary_handling
         )
-
-
-# =============================================================================
-# Response functions (inverse links)
-# =============================================================================
-
-
-def _response_identity(eta: jnp.ndarray) -> jnp.ndarray:
-    return eta
-
-
-def _response_exp(eta: jnp.ndarray) -> jnp.ndarray:
-    return jnp.exp(eta)
-
-
-def _response_sigmoid(eta: jnp.ndarray) -> jnp.ndarray:
-    return jax.nn.sigmoid(eta)
-
-
-def _response_probit(eta: jnp.ndarray) -> jnp.ndarray:
-    return jstats.norm.cdf(eta)
-
-
-def _response_inverse(eta: jnp.ndarray) -> jnp.ndarray:
-    valid_eta = jnp.isfinite(eta) & (eta > 0.0)
-    safe_eta = jnp.where(valid_eta, eta, 1.0)
-    response = 1.0 / safe_eta
-    return jnp.where(valid_eta, response, jnp.nan)
-
-
-_RESPONSE_FNS: dict[LinkFunction, ResponseFn] = {
-    LinkFunction.IDENTITY: _response_identity,
-    LinkFunction.LOG: _response_exp,
-    LinkFunction.LOGIT: _response_sigmoid,
-    LinkFunction.PROBIT: _response_probit,
-    LinkFunction.INVERSE: _response_inverse,
-}
-
-
-# =============================================================================
-# Emission gradient/Hessian factories for IEKS (analytical, GPU-compatible)
-# =============================================================================
 
 
 def _make_glm_grad_hess(score_weight_fn: ScoreWeightFn) -> LatentGradHessFn:
@@ -250,310 +229,201 @@ def _make_gaussian_grad_hess() -> LatentGradHessFn:
     return emission_grad_hess_fn
 
 
-# =============================================================================
-# ObservationKernel factory
-# =============================================================================
+def _law_link(law: Law[BoundExpression]) -> LinkFunction:
+    """Every operand of a bound law carries the law's parsed link."""
+    return law.operands()[0][1].link
 
 
-def build_observation_kernel(
-    dist: DistributionFamily,
-    link: LinkFunction,
-    extra_params: LikelihoodExtraParams | None = None,
-    manifest_cov: jnp.ndarray | None = None,
-) -> ObservationKernel:
-    """Build an ObservationKernel from spec enums + sampled hyperparameters.
+def _group_initialization(group: LawGroup) -> LatentGradHessFn:
+    template = group.laws[0]
+    if isinstance(template, NormalLawSpec):
+        return _make_gaussian_grad_hess()
+    if isinstance(template, DeltaLawSpec):
+        return _delta_grad_hess
 
-    This is the single resolution point: enums and runtime parameters go in,
-    pre-bound callables come out. Called once per likelihood evaluation.
-
-    Args:
-        dist: Distribution family enum.
-        link: Link function enum.
-        extra_params: Sampled hyperparameters (obs_df, obs_shape, obs_r,
-            obs_concentration, etc.).
-        manifest_cov: Measurement noise covariance matrix. Required for
-            Gaussian/Student-t (used as EKF pseudo-covariance). Ignored
-            for GLM families.
-    """
-    from nof1_causal_lab.models.ssm.execution.observation_families import (
-        FAMILY_REGISTRY,
-        resolve_family_link,
-    )
-
-    extra_params = extra_params or {}
-    dist, link = resolve_family_link(dist, link)
-    family_spec = FAMILY_REGISTRY[dist]
-
-    # Emission log-prob (delegates to existing canonical functions)
-    log_prob_fn = get_emission_fn(dist, extra_params, link=link)
-
-    # Response function (inverse link)
-    if family_spec.make_response_fn is not None:
-        response_fn = family_spec.make_response_fn(extra_params)
-    else:
-        response_fn = _RESPONSE_FNS.get(link)
-        if response_fn is None:
-            raise ValueError(
-                f"No response function for link={link!r}. Supported: {list(_RESPONSE_FNS.keys())}"
+    def score_weight(y: jax.Array, eta: jax.Array, mask: jax.Array) -> tuple[jax.Array, jax.Array]:
+        size = max(group.indices) + 1
+        full_eta = jnp.zeros((size,), dtype=eta.dtype).at[jnp.asarray(group.indices)].set(eta)
+        law = group.evaluate(full_eta, jnp.ones((size,), dtype=eta.dtype))
+        if isinstance(law, PoissonLawSpec):
+            return emissions._score_weight_poisson(y, eta, mask)
+        if isinstance(law, BernoulliLogitsLawSpec):
+            return emissions._score_weight_bernoulli_logit(y, eta, mask)
+        if isinstance(law, BernoulliProbsLawSpec):
+            fn = (
+                emissions._score_weight_bernoulli_probit
+                if _law_link(template) == LinkFunction.PROBIT
+                else emissions._score_weight_bernoulli_logit
             )
+            return fn(y, eta, mask)
+        if isinstance(law, NegativeBinomial2LawSpec):
+            return emissions._score_weight_negative_binomial(y, eta, mask, law.concentration)
+        if isinstance(law, GammaLawSpec):
+            fn = (
+                emissions._score_weight_gamma_inverse
+                if _law_link(template) == LinkFunction.INVERSE
+                else emissions._score_weight_gamma_log
+            )
+            return fn(y, eta, mask, law.concentration)
+        if isinstance(law, BetaLawSpec):
+            fn = (
+                emissions._score_weight_beta_probit
+                if _law_link(template) == LinkFunction.PROBIT
+                else emissions._score_weight_beta_logit
+            )
+            return fn(y, eta, mask, law.concentration1 + law.concentration0)
+        if isinstance(law, OrderedLogisticLawSpec):
+            return emissions._score_weight_ordered_logistic(
+                y, eta, mask, law.cutpoints, jnp.full(eta.shape, law.cutpoints.shape[-1] + 1)
+            )
+        if isinstance(law, CategoricalLawSpec):
+            intercepts = jnp.stack(
+                tuple(
+                    operand.logits.evaluate(jnp.zeros(()), jnp.ones(()))[1:]
+                    for operand in group.laws
+                    if isinstance(operand, CategoricalLawSpec)
+                )
+            )
+            slopes = jnp.stack(
+                tuple(
+                    jax.jacfwd(operand.logits.evaluate, argnums=0)(jnp.zeros(()), jnp.ones(()))[1:]
+                    for operand in group.laws
+                    if isinstance(operand, CategoricalLawSpec)
+                )
+            )
+            return emissions._score_weight_categorical(
+                y, eta, mask, intercepts, slopes, jnp.full(eta.shape, law.logits.shape[-1])
+            )
+        raise ValueError("This law has no GLM initialization score")
 
-    # Variance function + is_gaussian flag
-    is_gaussian = dist == DistributionFamily.GAUSSIAN
-    variance_fn = family_spec.make_variance_fn(extra_params, manifest_cov)
+    if isinstance(template, StudentTLawSpec):
 
-    # Build emission_grad_hess_fn (analytical, avoids jax.hessian on GPU)
-    if family_spec.grad_hess_strategy == "gaussian":
-        emission_grad_hess_fn = _make_gaussian_grad_hess()
-    elif family_spec.grad_hess_strategy == "student_t":
-        emission_grad_hess_fn = _make_student_t_grad_hess(extra_params.get("obs_df", 5.0))
-    elif family_spec.grad_hess_strategy == "delta":
-        emission_grad_hess_fn = _delta_grad_hess
-    elif family_spec.grad_hess_strategy == "glm":
-        sw_fn = get_emission_score_weight_fn(dist, extra_params, link=link)
-        assert sw_fn is not None, f"No analytical score/weight fn for dist={dist!r}"
-        emission_grad_hess_fn = _make_glm_grad_hess(sw_fn)
-    else:
-        assert_never(family_spec.grad_hess_strategy)
+        def student(
+            y: jax.Array,
+            z: jax.Array,
+            H: jax.Array,
+            d: jax.Array,
+            R: jax.Array,
+            mask: jax.Array,
+        ) -> tuple[jax.Array, jax.Array]:
+            df = jnp.stack(
+                tuple(
+                    law.df.evaluate(jnp.zeros(()), jnp.ones(()))
+                    for law in group.laws
+                    if isinstance(law, StudentTLawSpec)
+                )
+            )
+            return _make_student_t_grad_hess(df)(y, z, H, d, R, mask)
 
-    return ObservationKernel(
-        log_prob_fn=log_prob_fn,
-        response_fn=response_fn,
-        variance_fn=variance_fn,
-        is_gaussian=is_gaussian,
-        latent_grad_hess_fn=emission_grad_hess_fn,
-    )
+        return student
+    return _make_glm_grad_hess(score_weight)
 
 
-# =============================================================================
-# ObservationKernel for per-channel heterogeneous distributions
-# =============================================================================
-
-
-def build_heterogeneous_observation_kernel(
-    dists: list[DistributionFamily],
-    links: list[LinkFunction],
-    extra_params: LikelihoodExtraParams | None = None,
-    manifest_cov: jnp.ndarray | None = None,
-) -> ObservationKernel:
-    """Build an ObservationKernel that handles per-channel heterogeneous distributions.
-
-    Groups channels by unique (dist, link) combination, builds one kernel per group,
-    and composes their predictor log-probabilities and latent derivatives per group.
-
-    When all channels share the same (dist, link), delegates to the standard
-    build_observation_kernel for zero overhead.
-
-    Args:
-        dists: Per-channel distribution families (length n_manifest).
-        links: Per-channel link functions (length n_manifest).
-        extra_params: Sampled hyperparameters (obs_df, obs_shape, etc.).
-        manifest_cov: Measurement noise covariance matrix for Gaussian / Student-t
-            subgroups inside a heterogeneous manifest family layout.
-    """
-    n_manifest = len(dists)
-    if n_manifest != len(links):
-        raise ValueError(f"dists ({len(dists)}) and links ({len(links)}) must have same length")
-
-    # Fast path: all channels homogeneous → standard kernel
-    if len(set(zip(dists, links, strict=True))) == 1:
-        return build_observation_kernel(
-            dists[0],
-            links[0],
-            extra_params,
-            manifest_cov=manifest_cov,
+def _group_density(
+    group: LawGroup,
+    y: jax.Array,
+    predictors: jax.Array,
+    R: jax.Array,
+    mask: jax.Array,
+    responses: jax.Array | None = None,
+) -> jax.Array:
+    indices = jnp.asarray(group.indices)
+    law = group.evaluate(predictors, jnp.sqrt(jnp.diag(R)), responses, mask)
+    if isinstance(law, NormalLawSpec):
+        return emissions.gaussian_block_log_prob(
+            y[indices], law.loc, R[jnp.ix_(indices, indices)], mask[indices]
         )
-
-    # Group channels by (dist, link)
-    from collections import defaultdict
-
-    groups: dict[tuple[DistributionFamily, LinkFunction], list[int]] = defaultdict(list)
-    for ch_idx in range(n_manifest):
-        groups[(dists[ch_idx], links[ch_idx])].append(ch_idx)
-
-    # Build per-group kernels
-    group_kernels: list[tuple[list[int], ObservationKernel]] = []
-    for (dist, link), ch_indices in groups.items():
-        kernel = build_observation_kernel(
-            dist,
-            link,
-            slice_observation_extra_params(
-                extra_params,
-                ch_indices,
-                source_channel_count=n_manifest,
-            ),
-            manifest_cov=(
-                manifest_cov[jnp.ix_(jnp.asarray(ch_indices), jnp.asarray(ch_indices))]
-                if manifest_cov is not None
-                else None
-            ),
-        )
-        group_kernels.append((ch_indices, kernel))
-
-    # Compose predictor-space log-probability: sum per-group contributions.
-    def heterogeneous_log_prob_fn(
-        y_t: jnp.ndarray, eta: jnp.ndarray, R: jnp.ndarray, mask_t: jnp.ndarray
-    ) -> jnp.ndarray:
-        total_ll = jnp.zeros((), dtype=y_t.dtype)
-        for ch_indices, kernel in group_kernels:
-            idx = jnp.array(ch_indices)
-            y_g = y_t[idx]
-            eta_g = eta[idx]
-            R_g = R[jnp.ix_(idx, idx)]
-            mask_g = mask_t[idx]
-            total_ll = total_ll + kernel.log_prob_fn(y_g, eta_g, R_g, mask_g)
-        return total_ll
-
-    # Compose emission_grad_hess_fn: sum per-group gradients and Hessians
-    def heterogeneous_emission_grad_hess_fn(
-        y_t: jnp.ndarray,
-        z_t: jnp.ndarray,
-        H: jnp.ndarray,
-        d: jnp.ndarray,
-        R: jnp.ndarray,
-        mask_t: jnp.ndarray,
-    ) -> tuple[jnp.ndarray, jnp.ndarray]:
-        D = z_t.shape[0]
-        total_grad = jnp.zeros(D)
-        total_hess = jnp.zeros((D, D))
-        for ch_indices, kernel in group_kernels:
-            idx = jnp.array(ch_indices)
-            y_g = y_t[idx]
-            H_g = H[idx, :]
-            d_g = d[idx]
-            R_g = R[jnp.ix_(idx, idx)]
-            mask_g = mask_t[idx]
-            g, neg_H = kernel.latent_grad_hess_fn(y_g, z_t, H_g, d_g, R_g, mask_g)
-            total_grad = total_grad + g
-            total_hess = total_hess + neg_H
-        return total_grad, total_hess
-
-    def heterogeneous_response_fn(eta: jnp.ndarray) -> jnp.ndarray:
-        response = jnp.zeros_like(eta)
-        for ch_indices, kernel in group_kernels:
-            idx = jnp.array(ch_indices)
-            response = response.at[idx].set(kernel.response_fn(eta[idx]))
-        return response
-
-    def heterogeneous_variance_fn(mean: jnp.ndarray) -> jnp.ndarray:
-        variance = jnp.zeros((n_manifest, n_manifest), dtype=mean.dtype)
-        for ch_indices, kernel in group_kernels:
-            idx = jnp.array(ch_indices)
-            variance = variance.at[jnp.ix_(idx, idx)].set(kernel.variance_fn(mean[idx]))
-        return variance
-
-    return ObservationKernel(
-        log_prob_fn=heterogeneous_log_prob_fn,
-        response_fn=heterogeneous_response_fn,
-        variance_fn=heterogeneous_variance_fn,
-        is_gaussian=False,  # heterogeneous is never purely Gaussian
-        latent_grad_hess_fn=heterogeneous_emission_grad_hess_fn,
-    )
+    return masked_law_log_prob(law, y[indices], mask[indices])
 
 
 def compile_observation_model(
-    manifest_dists: Sequence[DistributionFamily],
+    laws: ObservationLaws,
     *,
-    manifest_cov: jnp.ndarray,
-    extra_params: LikelihoodExtraParams | None = None,
-    manifest_links: Sequence[LinkFunction | None] | None = None,
+    manifest_cov: jax.Array,
     observation_support: ObservationSupportRuntime | None = None,
 ) -> CompiledObservationModel:
-    """Compile likelihood, prediction, and support semantics through one pair resolution."""
-    from nof1_causal_lab.models.ssm.execution.observation_families import (
-        resolve_manifest_families_and_links,
-    )
-    from nof1_causal_lab.models.ssm.execution.observation_operator import (
-        compile_observation_operator,
+    """Compile exact laws, shared response projection, and initialization operations."""
+    from .observation_dispatch import (
+        build_interval_summary_sampler,
+        build_point_observation_sampler,
     )
 
-    n_manifest = len(manifest_dists)
-    if int(manifest_cov.shape[0]) != n_manifest:
-        raise ValueError(
-            "manifest_cov width must match manifest_dists length: "
-            f"{int(manifest_cov.shape[0])} vs {n_manifest}"
-        )
-    if observation_support is not None and len(observation_support.support_kinds) != n_manifest:
-        raise ValueError(
-            "observation_support width must match manifest_dists length: "
-            f"{len(observation_support.support_kinds)} vs {n_manifest}"
+    if manifest_cov.shape != (len(laws), len(laws)):
+        raise ValueError("manifest_cov must match the compiled observation law axes")
+    if observation_support is not None and len(observation_support.support_kinds) != len(laws):
+        raise ValueError("observation_support must match the compiled observation law axes")
+    roles = (
+        None
+        if observation_support is None
+        else tuple(str(kind) for kind in observation_support.support_kinds)
+    )
+    groups = compile_law_groups(laws, roles=roles)
+    derivatives = tuple(_group_initialization(group) for group in groups)
+
+    def density(y: jax.Array, eta: jax.Array, R: jax.Array, mask: jax.Array) -> jax.Array:
+        return sum(
+            (_group_density(group, y, eta, R, mask) for group in groups),
+            jnp.zeros((), dtype=y.dtype),
         )
 
-    dists, links = resolve_manifest_families_and_links(
-        manifest_dists,
-        manifest_links=manifest_links,
-    )
-    if len(set(zip(dists, links, strict=True))) == 1:
-        kernel = build_observation_kernel(
-            dists[0],
-            links[0],
-            extra_params,
-            manifest_cov=manifest_cov,
-        )
-    else:
-        kernel = build_heterogeneous_observation_kernel(
-            dists,
-            links,
-            extra_params,
-            manifest_cov=manifest_cov,
-        )
+    def response(eta: jax.Array) -> jax.Array:
+        values = jnp.zeros_like(eta)
+        for group in groups:
+            native = group.evaluate(eta, jnp.sqrt(jnp.diag(manifest_cov)))
+            if isinstance(native, (CategoricalLawSpec, OrderedLogisticLawSpec)):
+                declared = law_response(native)
+            else:
+                declared = jnp.stack(
+                    tuple(
+                        next(iter(law.operands()))[1].response_fn(eta[index])
+                        for index, law in zip(group.indices, group.laws, strict=True)
+                    )
+                )
+            values = values.at[jnp.asarray(group.indices)].set(declared)
+        return values
 
-    observation_operator = compile_observation_operator(observation_support)
-    point_sampler = build_point_observation_sampler(
-        dists,
-        manifest_cov,
-        manifest_links=links,
-        extra_params=extra_params,
-    )
-    mean_log_prob_fn: MeanLogProbFn | None = None
-    interval_summary_sampler = None
-    if observation_operator is not None and observation_operator.requires_interval_summary_handling:
-        interval_summary_indices = list(observation_operator.interval_summary_indices)
-        interval_summary_idx = np.asarray(interval_summary_indices, dtype=np.int32)
-        interval_summary_dists = [dists[idx] for idx in interval_summary_indices]
-        interval_extra_params = slice_observation_extra_params(
-            extra_params,
-            interval_summary_indices,
-            source_channel_count=n_manifest,
-        )
-        if len(set(interval_summary_dists)) == 1:
-            base_mean_log_prob_fn = get_mean_param_log_prob_fn(
-                interval_summary_dists[0], interval_extra_params
+    def grad_hess(
+        y: jax.Array,
+        z: jax.Array,
+        H: jax.Array,
+        d: jax.Array,
+        R: jax.Array,
+        mask: jax.Array,
+    ) -> tuple[jax.Array, jax.Array]:
+        gradient, hessian = jnp.zeros_like(z), jnp.zeros((z.size, z.size), dtype=z.dtype)
+        for group, derivative in zip(groups, derivatives, strict=True):
+            indices = jnp.asarray(group.indices)
+            g, h = derivative(
+                y[indices], z, H[indices], d[indices], R[jnp.ix_(indices, indices)], mask[indices]
             )
-        else:
-            base_mean_log_prob_fn = build_heterogeneous_mean_log_prob_fn(
-                interval_summary_dists,
-                interval_extra_params,
-            )
+            gradient, hessian = gradient + g, hessian + h
+        return gradient, hessian
 
-        interval_summary_sampler = build_interval_summary_sampler(
-            dists,
-            manifest_cov,
-            interval_summary_indices,
-            extra_params=extra_params,
+    operator = compile_observation_operator(observation_support)
+    kernel = ObservationKernel(density, response, grad_hess)
+    point_sampler = build_point_observation_sampler(laws, manifest_cov, groups=groups)
+    if operator is None or not operator.requires_interval_summary_handling:
+        return CompiledObservationModel(kernel, point_sampler, None, None, operator)
+    interval_groups = compile_law_groups(laws, operator.interval_summary_indices, interval=True)
+    if any(
+        isinstance(group.laws[0], (CategoricalLawSpec, OrderedLogisticLawSpec))
+        for group in interval_groups
+    ):
+        raise ValueError("Category laws have no scalar interval-summary response")
+
+    def mean_density(y: jax.Array, means: jax.Array, R: jax.Array, mask: jax.Array) -> jax.Array:
+        return sum(
+            (
+                _group_density(group, y, jnp.zeros_like(means), R, mask, means)
+                for group in interval_groups
+            ),
+            jnp.zeros((), dtype=y.dtype),
         )
-
-        def interval_mean_log_prob_fn(
-            y_t: jnp.ndarray, mean_t: jnp.ndarray, R: jnp.ndarray, obs_mask_t: jnp.ndarray
-        ) -> jnp.ndarray:
-            y_interval_summary = y_t[interval_summary_idx]
-            mean_interval_summary = mean_t[interval_summary_idx]
-            mask_interval_summary = obs_mask_t[interval_summary_idx]
-            R_interval_summary = R[np.ix_(interval_summary_idx, interval_summary_idx)]
-            return base_mean_log_prob_fn(
-                y_interval_summary,
-                mean_interval_summary,
-                R_interval_summary,
-                mask_interval_summary,
-            )
-
-        mean_log_prob_fn = interval_mean_log_prob_fn
 
     return CompiledObservationModel(
-        kernel=kernel,
-        point_sampler=point_sampler,
-        interval_summary_sampler=interval_summary_sampler,
-        mean_log_prob_fn=mean_log_prob_fn,
-        observation_operator=observation_operator,
-        manifest_dists=tuple(dists),
-        manifest_links=tuple(links),
+        kernel,
+        point_sampler,
+        build_interval_summary_sampler(laws, manifest_cov, operator.interval_summary_indices),
+        mean_density,
+        operator,
     )

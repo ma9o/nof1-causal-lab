@@ -163,8 +163,8 @@ def test_exact_measurements_retain_scientific_states_and_project_only_supported_
     assert dispositions[by_name["Driver"].id] == "retained_state"
     assert dispositions[by_name["History"].id] == "retained_state"
     assert dispositions[by_name["U"].id] == "marginalized"
-    assert by_name["Driver"].indicators[0].id in tuple(
-        indicator.id for indicator in selected_indicators(model)
+    assert by_name["Driver"].indicators[0].observation.id in tuple(
+        indicator.observation.id for indicator in selected_indicators(model)
     )
     assert model.induced_dependencies
     assert selected_edges(model)[0] is model.edges[0]
@@ -262,10 +262,10 @@ def test_severed_components_do_not_require_priors_or_bind_numerical_parameters()
     )
     before = selected.model_dump(mode="json")
     assert set(numeric.state_names(compile_model_fixture(selected))) == {"X", "Y"}
-    assert len(tuple(indicator.id for indicator in selected_indicators(selected))) == 2
+    assert len(tuple(indicator.observation.id for indicator in selected_indicators(selected))) == 2
     assert island_parameter.id not in {item.id for item in execution_parameters(selected)}
     compile_model_fixture(selected)
-    bindings = compile_fit_fixture(selected).bindings
+    bindings = compile_fit_fixture(selected).compiled.bindings
     assert {item.parameter_id for item in bindings} == {
         item.id for item in execution_parameters(selected)
     }
@@ -293,9 +293,12 @@ def test_severed_components_do_not_require_priors_or_bind_numerical_parameters()
     )
 
     # Without a selected outcome, the operation still covers all measured components.
-    assert set(
-        numeric.state_names(compile_model_fixture(selected.revised(default_outcome=None)))
-    ) == {"A", "B", "X", "Y"}
+    assert set(numeric.state_names(compile_model_fixture(model.revised(default_outcome=None)))) == {
+        "A",
+        "B",
+        "X",
+        "Y",
+    }
 
 
 @pytest.mark.contract

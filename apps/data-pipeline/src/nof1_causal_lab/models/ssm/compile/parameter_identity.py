@@ -14,12 +14,14 @@ from nof1_causal_lab.artifacts.parameter import (
 )
 from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.ssm.compile import support as numeric
+from nof1_causal_lab.models.ssm.structure.sites import WholeSiteSelection
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.identity import ParameterElementId
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
-    from nof1_causal_lab.models.ssm.structure.sites import SemanticBinding, SiteDescriptor
+    from nof1_causal_lab.models.ssm.compile.bindings import CompiledSiteCoordinate
+    from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor, SiteSelection
 
 
 SHARED_OBSERVATION_FAMILIES = {
@@ -32,8 +34,8 @@ SHARED_OBSERVATION_FAMILIES = {
 
 def component_identity(
     parameter: ParameterSpec,
-    indices: tuple[int, ...],
-    binding: SemanticBinding,
+    coordinate: CompiledSiteCoordinate,
+    selection: SiteSelection,
     site: SiteDescriptor,
     spec: ModelSpec,
 ) -> tuple[ParameterElementId, str] | None:
@@ -41,6 +43,7 @@ def component_identity(
 
     Padded likelihood coordinates are execution-only and have no scientific component.
     """
+    indices = coordinate.coordinate.indices
     kind = site.site_kind
     key: object = "scalar"
     label = parameter.name
@@ -50,30 +53,30 @@ def component_identity(
         SiteKind.OBS_CAT_INTERCEPTS,
         SiteKind.OBS_CAT_SLOPES,
     }:
-        indicators = {item.name: item for item in spec.indicators}
+        indicators = {item.observation.name: item for item in spec.indicators}
         indicator = indicators[numeric.observation_names(spec)[indices[0]]]
         levels = (
-            indicator.ordinal_levels
+            indicator.observation.ordinal_levels
             if kind in {SiteKind.OBS_ORDERED_BASE, SiteKind.OBS_ORDERED_GAPS}
-            else indicator.categorical_levels
+            else indicator.observation.categorical_levels
         )
         if levels is None:
             return None
         if kind == SiteKind.OBS_ORDERED_BASE:
-            key = [indicator.id, "first_cutpoint", levels[:2]]
-            label = f"{indicator.name}: {levels[0]} | {levels[1]}"
+            key = [indicator.observation.id, "first_cutpoint", levels[:2]]
+            label = f"{indicator.observation.name}: {levels[0]} | {levels[1]}"
         elif kind == SiteKind.OBS_ORDERED_GAPS:
             column = indices[1]
             if column >= len(levels) - 2:
                 return None
-            key = [indicator.id, "cutpoint_gap", levels[column : column + 3]]
-            label = f"{indicator.name}: gap {levels[column]} / {levels[column + 1]} / {levels[column + 2]}"
+            key = [indicator.observation.id, "cutpoint_gap", levels[column : column + 3]]
+            label = f"{indicator.observation.name}: gap {levels[column]} / {levels[column + 1]} / {levels[column + 2]}"
         else:
             column = indices[1]
             if column >= len(levels) - 1:
                 return None
-            key = [indicator.id, "category_contrast", levels[column + 1], levels[0]]
-            label = f"{indicator.name}: {levels[column + 1]} vs {levels[0]}"
+            key = [indicator.observation.id, "category_contrast", levels[column + 1], levels[0]]
+            label = f"{indicator.observation.name}: {levels[column + 1]} vs {levels[0]}"
     elif kind in {
         SiteKind.DIFFUSION_LOWER,
         SiteKind.DIFFUSION_DIAG,
@@ -83,10 +86,10 @@ def component_identity(
         # A Cholesky entry is conditional on the preceding ordered basis. Reordering
         # that basis changes the quantity even if the endpoint labels survive.
         constructs = {item.name: item.id for item in spec.constructs}
-        position = site.positions[binding.flat_index]
+        position = site.positions[coordinate.flat_index]
         row = position[0] if isinstance(position, tuple) else position
         basis = [constructs[name] for name in numeric.state_names(spec)[: row + 1]]
         key = ["cholesky", basis]
-    elif any(n > 1 for n in site.shape) and binding.transform.value == "site_wide":
+    elif any(n > 1 for n in site.shape) and isinstance(selection, WholeSiteSelection):
         raise ValueError(f"Parameter {parameter.name!r} needs explicit scientific component axes")
     return scientific_id("element", [parameter.id, key]), label

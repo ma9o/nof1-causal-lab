@@ -124,17 +124,21 @@ def two_construct_structure() -> ModelSpec:
                         "temporal_status": "time_varying",
                         "indicators": [
                             {
-                                "id": "indicator:4ff8be7491bd87d28af4",
-                                "name": "stress_self_report",
-                                "measurement_dtype": "continuous",
-                                "aggregation": "mean",
+                                "observation": {
+                                    "id": "indicator:4ff8be7491bd87d28af4",
+                                    "name": "stress_self_report",
+                                    "measurement_dtype": "continuous",
+                                    "aggregation": "mean",
+                                },
                                 "construct_polarity": "positive",
                             },
                             {
-                                "id": "indicator:522342c2385e38d5e750",
-                                "name": "stress_cortisol",
-                                "measurement_dtype": "continuous",
-                                "aggregation": "mean",
+                                "observation": {
+                                    "id": "indicator:522342c2385e38d5e750",
+                                    "name": "stress_cortisol",
+                                    "measurement_dtype": "continuous",
+                                    "aggregation": "mean",
+                                },
                                 "construct_polarity": "positive",
                             },
                         ],
@@ -147,10 +151,12 @@ def two_construct_structure() -> ModelSpec:
                         "temporal_status": "time_varying",
                         "indicators": [
                             {
-                                "id": "indicator:e05e217de7f4442abdc5",
-                                "name": "mood_rating",
-                                "measurement_dtype": "continuous",
-                                "aggregation": "mean",
+                                "observation": {
+                                    "id": "indicator:e05e217de7f4442abdc5",
+                                    "name": "mood_rating",
+                                    "measurement_dtype": "continuous",
+                                    "aggregation": "mean",
+                                },
                                 "construct_polarity": "positive",
                             }
                         ],
@@ -191,7 +197,7 @@ class TestE2ESpecToDiscretization:
         assert (
             numeric.n_observations(compile_model_fixture(two_construct_model)) == 3
         )  # mood_rating, stress_self_report, stress_cortisol
-        assert numeric.state_names(compile_model_fixture(two_construct_model)) == ["stress", "mood"]
+        assert numeric.state_names(compile_model_fixture(two_construct_model)) == ("stress", "mood")
 
         # Dynamics support: diagonal decay (AR) + stress→mood linear edge.
         np.testing.assert_array_equal(_decay_support(two_construct_model), [True, True])
@@ -295,12 +301,12 @@ class TestE2ESpecToDiscretization:
                     ).read_text()
                 )
             )
-        ) == ["stress", "mood"]
-        assert numeric.observation_names(compile_model_fixture(typed_scientific_model)) == [
+        ) == ("stress", "mood")
+        assert numeric.observation_names(compile_model_fixture(typed_scientific_model)) == (
             "stress_self_report",
             "stress_cortisol",
             "mood_rating",
-        ]
+        )
         binding_rows = [
             {
                 "parameter": next(
@@ -353,43 +359,31 @@ class TestE2ESpecToDiscretization:
         )
 
         indicator_ids = {
-            item.name: item.id for item in two_construct_structure._indicators.values()
+            item.observation.name: item.observation.id
+            for item in two_construct_structure._indicators.values()
         }
         data_for_model = data_for_model.with_columns(
             pl.col("indicator").replace_strict(indicator_ids).alias("indicator_id")
         ).drop("indicator")
-        model = compile_fit_fixture(
-            ModelSpec.model_validate_json(
-                (
-                    Path(__file__).resolve().parents[2]
-                    / "fixtures/models"
-                    / "e2e_discretization/weekly_reference_intervals.json"
-                ).read_text()
-            )
+        source = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "e2e_discretization/weekly_reference_intervals.json"
+            ).read_text()
         )
+        model = compile_fit_fixture(source)
         spec = model.compiled
-        assert numeric.state_names(compile_model_fixture(spec)) == ["stress", "mood"]
-        edge_support = _linear_edge_support(spec)
+        assert numeric.state_names(spec) == ("stress", "mood")
+        edge_support = _linear_edge_support(source)
         assert edge_support[1, 0]
         assert not edge_support[0, 1]
-        assert compile_model_fixture(spec).loading_block.free_support is not None
-        assert compile_model_fixture(spec).loading_block.free_support[1, 0]
+        assert spec.loading_block.free_support is not None
+        assert spec.loading_block.free_support[1, 0]
         runtime = model.prior_runtime_bundle
         assert runtime.priors["vf_0_p0"].batch_shape == ()
         assert runtime.priors["vf_1_p0"].batch_shape == ()
-        assert model.parameter_bindings == tuple(
-            parameter_bindings(
-                compile_model_fixture(
-                    ModelSpec.model_validate_json(
-                        (
-                            Path(__file__).resolve().parents[2]
-                            / "fixtures/models"
-                            / "e2e_discretization/weekly_reference_intervals.json"
-                        ).read_text()
-                    )
-                )
-            )[0]
-        )
+        assert spec.bindings == parameter_bindings(compile_model_fixture(source))[0]
 
     def test_residual_sd_priors_are_construct_specific(
         self, two_construct_structure, two_construct_model

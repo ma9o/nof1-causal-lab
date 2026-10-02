@@ -123,25 +123,17 @@ class DiffusionBlockSpec:
 
 
 # ---------------------------------------------------------------------------
-# Sparse-vector block: a vector-shape parameter (means, intercepts)
+# Sparse substitution for vector and matrix parameters
 # ---------------------------------------------------------------------------
 
 
 @dataclass(frozen=True, eq=False)
-class SparseVectorBlockSpec:
-    """Generic sparse-vector block: free entries on a 1-D support substituted
-    into a template. Used for ``t0_means``, ``manifest_means``, and
-    any other length-``n`` parameter sampled element-wise.
+class SparseBlockSpec[Position: int | tuple[int, int]]:
+    """Element-wise substitution at compiler-owned immutable coordinates."""
 
-    The role-identifying fields (``support``, ``site_kind``,
-    ``assembly_group``, ``fixed_spec_field``, ``priors_field``)
-    let the block declare its own SiteDescriptor without consulting
-    an external table.
-    """
-
-    n: int
     free_support: np.ndarray
     template: jnp.ndarray
+    free_positions: tuple[Position, ...]
     free_site_name: str
     det_site_name: str
     support: SupportClass
@@ -149,12 +141,6 @@ class SparseVectorBlockSpec:
     assembly_group: str
     fixed_spec_field: str
     priors_field: str
-
-    @property
-    def free_positions(self) -> list[int]:
-        from nof1_causal_lab.models.ssm.structure.assembly import dense_vector_positions
-
-        return dense_vector_positions(self.free_support, self.n)
 
     @property
     def n_free(self) -> int:
@@ -168,73 +154,16 @@ class SparseVectorBlockSpec:
                 self.support,
                 self.assembly_group,
                 self.site_kind,
-                positions=tuple(self.free_positions),
+                positions=self.free_positions,
                 deterministic_name=self.det_site_name,
                 fixed_spec_field=self.fixed_spec_field,
                 priors_field=self.priors_field,
             )
 
     def assemble(self, free: jnp.ndarray | None = None) -> jnp.ndarray:
-        from nof1_causal_lab.models.ssm.structure.assembly import assemble_sparse_vector
+        from nof1_causal_lab.models.ssm.structure.assembly import assemble_sparse
 
-        return assemble_sparse_vector(
-            template=self.template,
-            free_positions=self.free_positions,
-            free=free,
-        )
-
-
-# ---------------------------------------------------------------------------
-# Sparse-matrix block: a rectangular-shape parameter (loadings)
-# ---------------------------------------------------------------------------
-
-
-@dataclass(frozen=True, eq=False)
-class SparseMatrixBlockSpec:
-    """Generic sparse-matrix block: free entries on a 2-D rectangular support
-    substituted into a template. Used for the loading matrix.
-    """
-
-    n_rows: int
-    n_cols: int
-    free_support: np.ndarray
-    template: jnp.ndarray
-    free_site_name: str
-    det_site_name: str
-    support: SupportClass
-    site_kind: SiteKind
-    assembly_group: str
-    fixed_spec_field: str
-    priors_field: str
-
-    @property
-    def free_positions(self) -> list[tuple[int, int]]:
-        from nof1_causal_lab.models.ssm.structure.assembly import rect_matrix_positions
-
-        return rect_matrix_positions(self.free_support, self.n_rows, self.n_cols)
-
-    @property
-    def n_free(self) -> int:
-        return len(self.free_positions)
-
-    def iter_sites(self) -> Iterator[SiteDescriptor]:
-        if self.n_free > 0:
-            yield make_site(
-                self.free_site_name,
-                (self.n_free,),
-                self.support,
-                self.assembly_group,
-                self.site_kind,
-                positions=tuple(self.free_positions),
-                deterministic_name=self.det_site_name,
-                fixed_spec_field=self.fixed_spec_field,
-                priors_field=self.priors_field,
-            )
-
-    def assemble(self, free: jnp.ndarray | None = None) -> jnp.ndarray:
-        from nof1_causal_lab.models.ssm.structure.assembly import assemble_sparse_matrix
-
-        return assemble_sparse_matrix(
+        return assemble_sparse(
             template=self.template,
             free_positions=self.free_positions,
             free=free,

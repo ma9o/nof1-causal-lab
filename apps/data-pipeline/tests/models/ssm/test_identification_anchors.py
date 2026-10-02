@@ -9,20 +9,23 @@ that reopens an exact likelihood ridge fails at construction.
 from pathlib import Path
 from typing import Any
 
+import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.likelihood import (
+    CategoricalLawSpec,
     DistributionFamily,
     LinkFunction,
+    OrderedLogisticLawSpec,
 )
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.compilation_errors import AggregatedCompileError
 from nof1_causal_lab.models.model_structure import selected_state_ids
 from nof1_causal_lab.models.ssm import numerics as numeric
-from nof1_causal_lab.models.ssm.likelihood_extra_params import assemble_sampled_extra_params
+from nof1_causal_lab.models.ssm.compile.observations import materialize_observation_laws
 from tests.helpers import fixture_entity_id, make_model
 from tests.model_fixtures import compile_model_fixture
 
@@ -40,19 +43,21 @@ def _indicator(
     *,
     polarity: str = "positive",
 ) -> dict[str, Any]:
-    indicator = {
-        "id": fixture_entity_id("indicator", name),
+    levels: dict[str, list[str]] = {
+        "ordinal": {"ordinal_levels": ["low", "medium", "high"]},
+        "categorical": {"categorical_levels": ["a", "b", "c"]},
+    }.get(dtype, {})
+    return {
+        "observation": {
+            "id": fixture_entity_id("indicator", name),
+            "name": name,
+            "measurement_dtype": dtype,
+            "aggregation": "mean" if dtype == "continuous" else "last",
+            **levels,
+        },
         "construct_id": fixture_entity_id("construct", construct_name),
-        "name": name,
         "construct_polarity": polarity,
-        "measurement_dtype": dtype,
-        "aggregation": "mean" if dtype == "continuous" else "last",
     }
-    if dtype == "ordinal":
-        indicator["ordinal_levels"] = ["low", "medium", "high"]
-    if dtype == "categorical":
-        indicator["categorical_levels"] = ["a", "b", "c"]
-    return indicator
 
 
 def _structure(
@@ -109,15 +114,18 @@ class TestOrderedThresholds:
                 / "identification_anchors/testorderedthresholds_test_cutpoints_keep_free_base_model_fixture.json"
             ).read_text()
         )
-        extra = assemble_sampled_extra_params(
+        laws = materialize_observation_laws(
             compile_model_fixture(spec),
             {
                 "obs_ordered_base": jnp.array([0.7]),
                 "obs_ordered_gaps": jnp.array([[0.5]]),
             },
         )
+        ordered = laws[0]
+        assert isinstance(ordered, OrderedLogisticLawSpec)
         np.testing.assert_allclose(
-            np.asarray(extra["obs_ordered_cutpoints"]), np.array([[0.7, 1.2]])
+            np.asarray(ordered.cutpoints.evaluate(jnp.zeros(()), jnp.ones(())))[None, :],
+            np.array([[0.7, 1.2]]),
         )
 
     def test_ordinal_only_construct_compiles(self):
@@ -167,7 +175,7 @@ class TestLocationAnchors:
 
     def test_manifest_intercept_remains_free_for_raw_gaussian_sum_channel(self):
         indicator = _indicator("fill_quantity", "dose", "continuous")
-        indicator["aggregation"] = "sum"
+        indicator["observation"]["aggregation"] = "sum"
         spec = ModelSpec.model_validate_json(
             (
                 Path(__file__).resolve().parents[2]
@@ -317,14 +325,21 @@ class TestCategoricalAnchors:
         assert numeric.categorical_anchors(compile_model_fixture(spec)) == (True,)
         assert numeric.observation_level_counts(compile_model_fixture(spec)) == (3,)
 
-        extra = assemble_sampled_extra_params(
+        laws = materialize_observation_laws(
             compile_model_fixture(spec),
             {
                 "obs_cat_intercepts": jnp.array([[0.3, -0.4]]),
                 "obs_cat_slopes": jnp.array([[9.9, 2.0]]),
             },
         )
-        np.testing.assert_allclose(np.asarray(extra["obs_cat_slopes"]), np.array([[1.0, 2.0]]))
+        categorical = laws[0]
+        assert isinstance(categorical, CategoricalLawSpec)
+        np.testing.assert_allclose(
+            np.asarray(jax.jacfwd(categorical.logits.evaluate)(jnp.zeros(()), jnp.ones(())))[
+                None, 1:
+            ],
+            np.array([[1.0, 2.0]]),
+        )
 
     def test_manifest_intercept_is_rejected_for_categorical_channel(self):
         with pytest.raises(AggregatedCompileError, match=r"Observation intercept.*is inactive"):

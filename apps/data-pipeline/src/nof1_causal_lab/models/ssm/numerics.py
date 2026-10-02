@@ -8,14 +8,12 @@ import numpy as np
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.identity import ConstructId, IndicatorId
-    from nof1_causal_lab.artifacts.likelihood import LinkFunction
     from nof1_causal_lab.distributions import DistributionFamily
     from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
     from nof1_causal_lab.models.ssm.structure import (
         DiffusionBlockSpec,
         ManifestCholBlockSpec,
-        SparseMatrixBlockSpec,
-        SparseVectorBlockSpec,
+        SparseBlockSpec,
         T0CholBlockSpec,
     )
 
@@ -37,11 +35,7 @@ def observation_names(model: CompiledModel) -> tuple[str, ...]:
 
 
 def observation_families(model: CompiledModel) -> tuple[DistributionFamily, ...]:
-    return tuple(observation.likelihood.family for observation in model.observations)
-
-
-def observation_links(model: CompiledModel) -> tuple[LinkFunction, ...]:
-    return tuple(observation.likelihood.link for observation in model.observations)
+    return tuple(observation.law.family for observation in model.observations)
 
 
 def observation_level_counts(model: CompiledModel) -> tuple[int, ...]:
@@ -88,12 +82,12 @@ def parameter_blocks(
     model: CompiledModel,
 ) -> tuple[
     DiffusionBlockSpec,
-    SparseMatrixBlockSpec,
-    SparseVectorBlockSpec,
+    SparseBlockSpec[tuple[int, int]],
+    SparseBlockSpec[int],
     ManifestCholBlockSpec,
-    SparseVectorBlockSpec,
+    SparseBlockSpec[int],
     T0CholBlockSpec,
-    SparseVectorBlockSpec,
+    SparseBlockSpec[int],
 ]:
     return (
         model.diffusion_block,

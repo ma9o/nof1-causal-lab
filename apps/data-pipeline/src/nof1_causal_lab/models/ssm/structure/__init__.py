@@ -8,8 +8,7 @@ from nof1_causal_lab.artifacts.parameter import (
 from nof1_causal_lab.models.ssm.structure.blocks import (
     DiffusionBlockSpec,
     ManifestCholBlockSpec,
-    SparseMatrixBlockSpec,
-    SparseVectorBlockSpec,
+    SparseBlockSpec,
     T0CholBlockSpec,
 )
 from nof1_causal_lab.models.ssm.structure.sites import SemanticBinding, SiteDescriptor
@@ -21,8 +20,7 @@ __all__ = [
     "SemanticBinding",
     "SiteDescriptor",
     "SiteKind",
-    "SparseMatrixBlockSpec",
-    "SparseVectorBlockSpec",
+    "SparseBlockSpec",
     "SupportClass",
     "T0CholBlockSpec",
 ]

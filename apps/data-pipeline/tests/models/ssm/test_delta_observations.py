@@ -17,6 +17,7 @@ from nof1_causal_lab.artifacts.likelihood import (
     DeltaLawSpec,
     DistributionFamily,
     LikelihoodSpec,
+    NormalLawSpec,
     ObservationLawSpec,
 )
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
@@ -25,7 +26,7 @@ from nof1_causal_lab.models.model_structure import selected_indicators, selected
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.execution.observation_model import compile_observation_model
 from nof1_causal_lab.models.ssm.inference import problem as problem_module
-from nof1_causal_lab.models.ssm.inference.backend_factory import build_laplace_backend
+from nof1_causal_lab.models.ssm.inference.backend_factory import initialization_observation_laws
 from nof1_causal_lab.models.ssm.inference.conditioning import compile_exact_state_constraints
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._math import (
     _masked_mean,
@@ -41,6 +42,7 @@ from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRun
 from nof1_causal_lab.study.equations import observation_equations
 from tests.helpers import make_model
 from tests.model_fixtures import bind_panel_fixture, compile_fit_fixture, compile_model_fixture
+from tests.observation_fixtures import observation_laws
 
 
 @pytest.fixture
@@ -69,7 +71,7 @@ def test_exact_binding_roundtrips_without_authored_measurement_parameters(exact_
     assert all(
         isinstance(use.value, (int, float))
         for use in iter_coefficient_uses(model)
-        if any(ref.id == indicator.id for ref in use.owners)
+        if any(ref.id == indicator.observation.id for ref in use.owners)
     )
     np.testing.assert_array_equal(compile_model_fixture(model).loading_block.template, np.eye(2))
     assert compile_model_fixture(model).observation_mean_block.template[0] == 0
@@ -80,7 +82,7 @@ def test_exact_binding_roundtrips_without_authored_measurement_parameters(exact_
     assert owner.id in selected_state_ids(model)
     assert "usage" not in type(owner).model_fields
     compile_model_fixture(model)
-    assert r"\operatorname{Delta}" in observation_equations(model)[indicator.id]
+    assert r"\operatorname{Delta}" in observation_equations(model)[indicator.observation.id]
 
 
 @pytest.mark.contract
@@ -120,7 +122,7 @@ def test_authored_affine_delta_keeps_its_calibration_coefficients(exact_model):
             / "delta_observations/authored_affine_delta_keeps_its_calibration_coefficients_complete_model.json"
         ).read_text()
     )
-    completed = model.indicator(indicator.id).likelihood
+    completed = model.indicator(indicator.observation.id).likelihood
     assert completed is not None
     assert isinstance(completed.parsed.intercept.value, str)
     assert not completed.parsed.auxiliary
@@ -171,7 +173,9 @@ def test_exact_measurement_is_available_but_never_selected_by_default(
     updates = {"measurement_dtype": dtype, "aggregation": "last"}
     if dtype in {"ordinal", "categorical"}:
         updates[f"{dtype}_levels"] = ("low", "high")
-    indicator = owner.indicators[0].revised(**updates)
+    indicator = owner.indicators[0].revised(
+        observation=owner.indicators[0].observation.revised(**updates)
+    )
     model = model.revised(
         edges=replace_constructs(
             model.edges,
@@ -180,7 +184,7 @@ def test_exact_measurement_is_available_but_never_selected_by_default(
     )
     from nof1_causal_lab.distributions import VALID_LIKELIHOODS_FOR_DTYPE
 
-    assert VALID_LIKELIHOODS_FOR_DTYPE[indicator.measurement_dtype][0] == default_family
+    assert VALID_LIKELIHOODS_FOR_DTYPE[indicator.observation.measurement_dtype][0] == default_family
     exact = LikelihoodSpec(
         law=TypeAdapter(ObservationLawSpec).validate_json(
             (
@@ -202,7 +206,8 @@ def test_exact_measurement_is_available_but_never_selected_by_default(
 def test_mixed_delta_density_draws_and_missingness_remain_exact():
     covariance = jnp.eye(2) * 100.0
     compiled = compile_observation_model(
-        [DistributionFamily.DELTA, DistributionFamily.POISSON], manifest_cov=covariance
+        observation_laws([DistributionFamily.DELTA, DistributionFamily.POISSON], None, None),
+        manifest_cov=covariance,
     )
     kernel = compiled.kernel
     predictor = jnp.array([-2.0, jnp.log(3.0)])
@@ -217,7 +222,6 @@ def test_mixed_delta_density_draws_and_missingness_remain_exact():
         expected,
     )
     assert density(jnp.full(2, jnp.nan), predictor, covariance, jnp.zeros(2)) == 0
-    np.testing.assert_array_equal(kernel.variance_fn(kernel.response_fn(predictor))[0], [0, 0])
     draw = compiled.point_sampler.sample_point(jax.random.key(2), predictor)
     assert draw[0] == predictor[0]
     with pytest.raises(ValueError, match="no smooth log-density"):
@@ -245,7 +249,9 @@ def test_exact_window_mean_constrains_the_summary_without_pinning_the_path():
     )
     covariance = jnp.zeros((1, 1))
     compiled = compile_observation_model(
-        [DistributionFamily.DELTA], manifest_cov=covariance, observation_support=support
+        observation_laws([DistributionFamily.DELTA], None, None),
+        manifest_cov=covariance,
+        observation_support=support,
     )
     assert compiled.observation_operator is not None
     assert compiled.mean_log_prob_fn is not None
@@ -270,7 +276,7 @@ def test_unsupported_delta_constraints_fail_before_parameter_initialization(
     owner = exact_model.constructs[0]
     indicator = owner.indicators[0]
     if unsupported == "interval":
-        indicator = indicator.revised(aggregation="mean")
+        indicator = indicator.revised(observation=indicator.observation.revised(aggregation="mean"))
     else:
         indicator = indicator.revised(
             likelihood=LikelihoodSpec(
@@ -349,7 +355,9 @@ def test_multiple_exact_indicators_must_agree_at_shared_times(exact_model):
     owner = exact_model.constructs[0]
     original = owner.indicators[0]
     duplicate = original.revised(
-        id=scientific_id("indicator", "second_recording"), name="second_recording"
+        observation=original.observation.revised(
+            id=scientific_id("indicator", "second_recording"), name="second_recording"
+        )
     )
     model = exact_model.revised(
         edges=replace_constructs(
@@ -360,18 +368,21 @@ def test_multiple_exact_indicators_must_agree_at_shared_times(exact_model):
     columns = {
         identity: column
         for column, identity in enumerate(
-            tuple(indicator.id for indicator in selected_indicators(model))
+            tuple(indicator.observation.id for indicator in selected_indicators(model))
         )
     }
     observations = jnp.full((2, 3), jnp.nan)
-    observations = observations.at[:, columns[original.id]].set(jnp.array([1.0, jnp.nan]))
-    observations = observations.at[:, columns[duplicate.id]].set(jnp.array([1.0, 4.0]))
+    observations = observations.at[:, columns[original.observation.id]].set(
+        jnp.array([1.0, jnp.nan])
+    )
+    observations = observations.at[:, columns[duplicate.observation.id]].set(jnp.array([1.0, 4.0]))
     constraints = compile_exact_state_constraints(compile_model_fixture(model), observations)
     assert constraints is not None
     np.testing.assert_array_equal(constraints.values[:, 0], [1.0, 4.0])
     with pytest.raises(ValueError, match="Conflicting exact observations"):
         compile_exact_state_constraints(
-            compile_model_fixture(model), observations.at[0, columns[duplicate.id]].set(2.0)
+            compile_model_fixture(model),
+            observations.at[0, columns[duplicate.observation.id]].set(2.0),
         )
 
 
@@ -455,9 +466,15 @@ def test_conditioned_target_preserves_initial_and_transition_evidence(point_prob
 
 @pytest.mark.contract
 def test_gaussian_view_is_confined_to_warmup(exact_model):
-    warmup = build_laplace_backend(compile_model_fixture(exact_model), n_ieks_iters=1)
-    assert warmup.manifest_dists == ("gaussian", "gaussian")
-    assert numeric.observation_families(compile_model_fixture(exact_model)) == ("delta", "gaussian")
+    compiled = compile_model_fixture(exact_model)
+    laws = tuple(observation.law for observation in compiled.observations)
+    warmup_laws = initialization_observation_laws(laws)
+    assert all(isinstance(law, NormalLawSpec) for law in warmup_laws)
+    delta, gaussian = laws[0], warmup_laws[0]
+    assert isinstance(delta, DeltaLawSpec)
+    assert isinstance(gaussian, NormalLawSpec)
+    assert gaussian.loc is delta.v
+    assert numeric.observation_families(compiled) == ("delta", "gaussian")
 
 
 @pytest.mark.inference(concern="sampling")
@@ -522,32 +539,30 @@ def test_exact_observations_pass_through_full_construct_diagnostics(exact_model)
     from tests.model_fixtures import compile_model_fixture, parameter_draws
 
     draws, ticks = 2, 6
+    compiled = compile_model_fixture(exact_model)
     parameters = parameter_draws(exact_model, draws)
-    parameters.update(
-        assemble_deterministics_from_registry(
-            parameters, compile_model_fixture(exact_model), n_draws=draws
-        )
-    )
+    parameters.update(assemble_deterministics_from_registry(parameters, compiled, n_draws=draws))
     paths = jnp.broadcast_to(jnp.linspace(-1.0, 1.0, ticks)[None, :, None], (draws, ticks, 2))
     prediction = PredictiveDraws(
         parameters=parameters,
-        likelihood_parameters={},
         trajectory=PredictiveTrajectory(
             paths, paths, paths, jnp.ones_like(paths, dtype=bool), paths
         ),
     )
     target = exact_model.constructs[0]
-    indicator_id = target.indicators[0].id
+    indicator_id = target.indicators[0].observation.id
     results, _ = measure_construct_simulation(
-        exact_model,
+        compiled,
         prediction,
         DesignInfo(
             t_grid=jnp.arange(ticks, dtype=float),
-            manifest_ids=tuple(numeric.observation_ids(compile_model_fixture(exact_model))),
+            manifest_ids=tuple(numeric.observation_ids(compiled)),
             obs_index_by_indicator={indicator_id: np.arange(ticks)},
             values_by_indicator={indicator_id: np.asarray(paths[0, :, 0])},
         ),
-        ConstructSimulationTarget(target),
+        ConstructSimulationTarget(
+            next(state for state in compiled.states if state.id == target.id)
+        ),
         clock=time.monotonic,
     )
     transmission = next(result for result in results if result.check == "C5c transmission")

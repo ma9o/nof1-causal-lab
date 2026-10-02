@@ -150,7 +150,7 @@ def test_exact_hill_curves_retain_saturation_and_sign_changing_moderation():
     assert result.curves[1].values[20] == pytest.approx(2.0)
     assert result.curves[1].values[-1] is not None
     assert result.curves[1].values[-1] < 4
-    with pytest.raises(ValueError, match="moderator"):
+    with pytest.raises(StudyLookupError, match="moderator"):
         ModelReader.mechanism_curves(
             Mock(spec=ModelReader, model=model),
             request.revised(moderator=edge.cause.id),
@@ -281,7 +281,7 @@ def test_predictive_overlay_uses_pinned_schedule_including_support_boundaries(mo
     panel = pl.DataFrame(
         [
             {
-                "indicator_id": indicator.id,
+                "indicator_id": indicator.observation.id,
                 "value": 1.0,
                 "anchor_time": origin + timedelta(days=t),
                 "support_start": origin + timedelta(days=t - 1),
@@ -295,7 +295,7 @@ def test_predictive_overlay_uses_pinned_schedule_including_support_boundaries(mo
             for t in (1, 10)
         ]
     )
-    identity = model.indicators[0].id
+    identity = model.indicators[0].observation.id
     overlay = PPCOverlay(
         indicator_id=identity,
         observed=[None, 1.0, None, 1.0],

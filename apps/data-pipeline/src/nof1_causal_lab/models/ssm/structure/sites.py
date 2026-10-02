@@ -11,12 +11,10 @@ binding keys used by compile-time and runtime layers.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from typing import TYPE_CHECKING
 
-from nof1_causal_lab.artifacts.parameter import (
-    PriorAuthoringTransform,
-    SiteKind,
-    SupportClass,
-)
+if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
 
 type SitePosition = int | tuple[int, ...]
 
@@ -45,14 +43,31 @@ class SiteDescriptor:
 
 
 @dataclass(frozen=True)
+class ScalarSiteSelection:
+    flat_index: int
+
+
+@dataclass(frozen=True)
+class RowSiteSelection:
+    row: int
+
+
+@dataclass(frozen=True)
+class WholeSiteSelection:
+    """Select every native coordinate, including execution-only padding."""
+
+
+type SiteSelection = ScalarSiteSelection | RowSiteSelection | WholeSiteSelection
+
+
+@dataclass(frozen=True)
 class SemanticBinding:
     """One semantic model parameter bound to a runtime sample-site component."""
 
     parameter_name: str
     site_name: str
-    flat_index: int
+    selection: SiteSelection
     site_kind: SiteKind
-    transform: PriorAuthoringTransform = PriorAuthoringTransform.IDENTITY
     prior_field: str | None = None
     construct_names: tuple[str, ...] = ()
     indicator_names: tuple[str, ...] = ()

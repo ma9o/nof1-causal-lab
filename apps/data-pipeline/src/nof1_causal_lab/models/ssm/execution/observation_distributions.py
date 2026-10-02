@@ -1,20 +1,281 @@
-"""Native observation laws shared by likelihoods, draws, and moments."""
+"""One native-law interpreter and exact observation boundary adapters."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from functools import partial
+from typing import TYPE_CHECKING, ClassVar, assert_never, override
 
 import jax
 import jax.numpy as jnp
 import numpyro.distributions as dist
 from numpyro.distributions import constraints
+from pydantic import BaseModel
 
-from nof1_causal_lab.artifacts.likelihood import DistributionFamily
+from nof1_causal_lab.artifacts.likelihood import (
+    OBSERVATION_LAW_TYPES,
+    BernoulliLogitsLawSpec,
+    BernoulliProbsLawSpec,
+    BetaLawSpec,
+    CategoricalLawSpec,
+    DeltaLawSpec,
+    GammaLawSpec,
+    Law,
+    NegativeBinomial2LawSpec,
+    NormalLawSpec,
+    OrderedLogisticLawSpec,
+    PoissonLawSpec,
+    StudentTLawSpec,
+    map_law,
+)
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
 from nof1_causal_lab.models.ssm.execution.contracts import NUMERICAL_EPSILON
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.execution.contracts import LikelihoodExtraParams
+    from collections.abc import Iterable
+
+    from jax.typing import ArrayLike
+
+    from nof1_causal_lab.models.ssm.dynamics.expression import BoundExpression
+
+
+def _log_mass(value: jax.Array) -> jax.Array:
+    """Exact zero mass without differentiating log(0) on an unselected branch."""
+    positive = value > 0.0
+    return jnp.where(positive, jnp.log(jnp.where(positive, value, 1.0)), -jnp.inf)
+
+
+class BinaryProbabilityDistribution(dist.CategoricalLogits):
+    """Exact Bernoulli endpoints, with the original categorical draw stream."""
+
+    probability: jax.Array
+    arg_constraints: ClassVar[dict[str, constraints.Constraint]] = {  # pyright: ignore[reportIncompatibleVariableOverride] - numpyro reads this class metadata but annotates it as an instance variable
+        "probs": constraints.unit_interval
+    }
+
+    def __init__(self, probs: jax.Array) -> None:
+        self.probability = probs
+        super().__init__(logits=jnp.stack((_log_mass(1.0 - probs), _log_mass(probs)), axis=-1))
+
+    @override
+    def log_prob(self, value: ArrayLike) -> jax.Array:
+        return jnp.where(
+            jnp.asarray(value) == 1, _log_mass(self.probability), _log_mass(1.0 - self.probability)
+        )
+
+    @property
+    @override
+    def mean(self) -> jax.Array:
+        return self.probability
+
+    @property
+    @override
+    def variance(self) -> jax.Array:
+        return self.probability * (1.0 - self.probability)
+
+
+class ZeroMeanNegativeBinomial(dist.MixtureGeneral):
+    """NB2 including its exact zero-mean limit and right derivative."""
+
+    response_mean: jax.Array
+    concentration: jax.Array
+    arg_constraints: ClassVar[dict[str, constraints.Constraint]] = {  # pyright: ignore[reportIncompatibleVariableOverride] - numpyro reads this class metadata but annotates it as an instance variable
+        "mean": constraints.nonnegative,
+        "concentration": constraints.positive,
+    }
+
+    def __init__(self, mean: jax.Array, concentration: jax.Array) -> None:
+        self.response_mean = mean
+        self.concentration = concentration
+        zero = mean == 0.0
+        selector = dist.CategoricalLogits(
+            logits=jnp.stack(
+                (jnp.where(zero, 0.0, -jnp.inf), jnp.where(zero, -jnp.inf, 0.0)), axis=-1
+            )
+        )
+        super().__init__(
+            selector,
+            [
+                dist.DiscreteUniform(jnp.zeros_like(mean, dtype=jnp.int32), 0),
+                dist.NegativeBinomial2(jnp.where(zero, 1.0, mean), concentration),
+            ],
+            support=constraints.nonnegative_integer,
+        )
+
+    @override
+    def log_prob(self, value: ArrayLike, intermediates: list[jax.Array] | None = None) -> jax.Array:
+        zero_count = -self.concentration * jnp.log1p(self.response_mean / self.concentration)
+        positive_count = super().log_prob(value, intermediates)
+        positive_count = jnp.where(self.response_mean == 0.0, -jnp.inf, positive_count)
+        return jnp.where(jnp.asarray(value) == 0, zero_count, positive_count)
+
+    @property
+    @override
+    def mean(self) -> jax.Array:
+        return self.response_mean
+
+    @property
+    @override
+    def variance(self) -> jax.Array:
+        return self.response_mean + self.response_mean**2 / self.concentration
+
+
+class OrderedCategoryDistribution(dist.OrderedLogistic):
+    """True-width ordered density with exact zero masses and finite selected gradients."""
+
+    @override
+    def log_prob(self, value: ArrayLike) -> jax.Array:
+        selected = jnp.take_along_axis(self.probs, jnp.asarray(value)[..., None], axis=-1)[..., 0]
+        return _log_mass(selected) - jnp.log(jnp.sum(self.probs, axis=-1))
+
+
+def to_native(law: Law[jax.Array]) -> dist.Distribution:
+    """Interpret the closed authored algebra without family/link keys or argument bags."""
+    match law:
+        case DeltaLawSpec():
+            return dist.Delta(law.v)
+        case NormalLawSpec():
+            return dist.Normal(law.loc, law.scale)
+        case StudentTLawSpec():
+            return dist.StudentT(law.df, law.loc, law.scale)
+        case PoissonLawSpec():
+            return dist.Poisson(law.rate)
+        case GammaLawSpec():
+            return dist.Gamma(law.concentration, law.rate)
+        case BernoulliLogitsLawSpec():
+            return dist.BernoulliLogits(logits=law.logits)
+        case BernoulliProbsLawSpec():
+            return BinaryProbabilityDistribution(law.probs)
+        case NegativeBinomial2LawSpec():
+            return ZeroMeanNegativeBinomial(law.mean, law.concentration)
+        case BetaLawSpec():
+            return dist.Beta(law.concentration1, law.concentration0)
+        case OrderedLogisticLawSpec():
+            return OrderedCategoryDistribution(law.predictor, law.cutpoints)
+        case CategoricalLawSpec():
+            return dist.CategoricalLogits(logits=law.logits)
+    assert_never(law)
+
+
+def category_probabilities(
+    law: OrderedLogisticLawSpec[jax.Array] | CategoricalLawSpec[jax.Array],
+) -> jax.Array:
+    """Masses over the declared categories."""
+    if isinstance(law, CategoricalLawSpec):
+        return jnp.asarray(dist.CategoricalLogits(logits=law.logits).probs)
+    return jnp.asarray(OrderedCategoryDistribution(law.predictor, law.cutpoints).probs)
+
+
+def feasible_law(law: Law[jax.Array]) -> tuple[Law[jax.Array], jax.Array]:
+    """Reject invalid parameters, substituting feasible operands before density evaluation."""
+    native = to_native(law)
+    valid = jnp.ones(native.batch_shape, dtype=bool)
+    for name, value in law.operands():
+        constraint = (
+            constraints.real if isinstance(law, DeltaLawSpec) else native.arg_constraints[name]
+        )
+        finite = jnp.isfinite(value)
+        if constraint.event_dim:
+            finite = jnp.all(finite, axis=tuple(range(-constraint.event_dim, 0)))
+        valid = valid & finite & jnp.asarray(constraint(value))
+    operands = iter(law.operands())
+
+    def feasible(value: jax.Array) -> jax.Array:
+        name, _ = next(operands)
+        constraint = (
+            constraints.real if isinstance(law, DeltaLawSpec) else native.arg_constraints[name]
+        )
+        expanded = valid.reshape((*valid.shape, *((1,) * constraint.event_dim)))
+        return jnp.where(expanded, value, constraint.feasible_like(value))
+
+    return map_law(law, feasible), valid
+
+
+def safe_native(law: Law[jax.Array]) -> tuple[dist.Distribution, jax.Array]:
+    feasible, valid = feasible_law(law)
+    return to_native(feasible), valid
+
+
+def masked_law_log_prob(law: Law[jax.Array], values: jax.Array, mask: jax.Array) -> jax.Array:
+    """Missing factors/derivatives are zero; invalid observed events have zero mass."""
+    native, valid = safe_native(law)
+    support = native.support
+    assert support is not None
+    valid = valid & jnp.isfinite(values) & support(values)
+    if isinstance(law, GammaLawSpec):
+        valid = valid & (values > 0.0)
+    elif isinstance(law, BetaLawSpec):
+        valid = valid & (values > 0.0) & (values < 1.0)
+    observed = mask > 0.5
+    safe_values = jnp.where(valid & observed, values, support.feasible_like(values))
+    if support.is_discrete:
+        safe_values = safe_values.astype(jnp.int32)
+    log_probs = native.log_prob(safe_values)
+    total = jnp.sum(jnp.where(valid & observed, log_probs, 0.0))
+    return jnp.where(jnp.any(observed & ~valid), -jnp.inf, total)
+
+
+def evaluate_law(
+    law: Law[BoundExpression],
+    predictor: jax.Array,
+    scale: jax.Array,
+    observed: jax.Array | None = None,
+) -> Law[jax.Array]:
+    def evaluate(operand: BoundExpression) -> jax.Array:
+        return operand.evaluate(predictor, scale, observed)
+
+    return map_law(law, evaluate)
+
+
+def law_moments(law: Law[jax.Array]) -> tuple[jax.Array, jax.Array]:
+    """Actual mean and variance: undefined moments are NaN, divergent ones infinite."""
+    native = to_native(law)
+    mean = jnp.asarray(native.mean)
+    if isinstance(law, StudentTLawSpec):
+        # NumPyro reports +inf where the mean is undefined (df <= 1).
+        mean = jnp.where(jnp.asarray(law.df) > 1.0, mean, jnp.nan)
+    return mean, jnp.asarray(native.variance)
+
+
+def law_response(law: Law[jax.Array]) -> jax.Array:
+    """Declared response/location, kept separate from statistical moments."""
+    if isinstance(law, StudentTLawSpec):
+        return jnp.asarray(law.loc)
+    if isinstance(law, (CategoricalLawSpec, OrderedLogisticLawSpec)):
+        probabilities = category_probabilities(law)
+        return jnp.sum(probabilities * jnp.arange(probabilities.shape[-1]), axis=-1)
+    return jnp.asarray(to_native(law).mean)
+
+
+def with_response(law: Law[jax.Array], response: jax.Array) -> Law[jax.Array]:
+    """Reconstruct native operands after projecting a declared response trajectory."""
+    match law:
+        case DeltaLawSpec():
+            return DeltaLawSpec(v=response)
+        case NormalLawSpec():
+            return NormalLawSpec(loc=response, scale=law.scale)
+        case StudentTLawSpec():
+            return StudentTLawSpec(df=law.df, loc=response, scale=law.scale)
+        case PoissonLawSpec():
+            return PoissonLawSpec(rate=response)
+        case GammaLawSpec():
+            valid = jnp.isfinite(response) & (response > 0.0)
+            rate = law.concentration / jnp.where(valid, response, 1.0)
+            return GammaLawSpec(
+                concentration=law.concentration, rate=jnp.where(valid, rate, jnp.nan)
+            )
+        case BernoulliLogitsLawSpec() | BernoulliProbsLawSpec():
+            return BernoulliProbsLawSpec(probs=response)
+        case NegativeBinomial2LawSpec():
+            return NegativeBinomial2LawSpec(mean=response, concentration=law.concentration)
+        case BetaLawSpec():
+            concentration = law.concentration1 + law.concentration0
+            return BetaLawSpec(
+                concentration1=response * concentration,
+                concentration0=(1.0 - response) * concentration,
+            )
+        case OrderedLogisticLawSpec() | CategoricalLawSpec():
+            raise ValueError("Category laws have no scalar interval-summary response")
+    assert_never(law)
 
 
 def gaussian_distribution(mean: jax.Array, covariance: jax.Array) -> dist.Distribution:
@@ -22,120 +283,21 @@ def gaussian_distribution(mean: jax.Array, covariance: jax.Array) -> dist.Distri
 
 
 def point_observation_scales(covariance: jax.Array) -> jax.Array:
-    """Marginal scales of the independent mixed-family point sampler."""
+    """Retain the mixed point sampler's marginal scale floor."""
     return jnp.sqrt(jnp.maximum(jnp.diag(covariance), NUMERICAL_EPSILON))
 
 
-def categorical_distribution(probs: jax.Array) -> dist.CategoricalLogits:
-    """Logits preserve exact zero probabilities, including padded categories."""
-    return dist.CategoricalLogits(logits=jnp.log(probs))
+def _flatten_law(law: BaseModel) -> tuple[tuple[object, ...], tuple[str, ...]]:
+    fields = tuple((name, value) for name, value in law if name != "distribution")
+    return tuple(value for _, value in fields), tuple(name for name, _ in fields)
 
 
-def binary_logits_distribution(logits: jax.Array) -> dist.CategoricalLogits:
-    """Stable predictor tails with the same binary categorical law as mean space."""
-    return dist.CategoricalLogits(
-        logits=jnp.stack([jax.nn.log_sigmoid(-logits), jax.nn.log_sigmoid(logits)], axis=-1)
-    )
+def _unflatten_law[L: BaseModel](
+    law_type: type[L], names: tuple[str, ...], values: Iterable[object]
+) -> L:
+    return law_type(**dict(zip(names, values, strict=True)))
 
 
-_MEAN_DOMAINS = {
-    DistributionFamily.DELTA: constraints.real,
-    DistributionFamily.GAUSSIAN: constraints.real,
-    DistributionFamily.STUDENT_T: constraints.real,
-    DistributionFamily.POISSON: constraints.nonnegative,
-    DistributionFamily.GAMMA: constraints.positive,
-    DistributionFamily.BERNOULLI: constraints.unit_interval,
-    DistributionFamily.NEGATIVE_BINOMIAL: constraints.nonnegative,
-    DistributionFamily.BETA: constraints.open_interval(0.0, 1.0),
-}
-
-
-def safe_observation_mean(
-    family: DistributionFamily, mean: jax.Array
-) -> tuple[jax.Array, jax.Array]:
-    """Preserve valid means; use interior placeholders only for invalid channels."""
-    valid = jnp.isfinite(mean) & jnp.asarray(_MEAN_DOMAINS[family](mean), dtype=bool)
-    return jnp.where(valid, mean, 0.5), valid
-
-
-def mean_parameter_distribution(
-    family: DistributionFamily,
-    mean: jax.Array,
-    scale: jax.Array | float,
-    extra_params: LikelihoodExtraParams,
-) -> dist.Distribution:
-    """Construct the exact independent-channel law for an already valid mean."""
-    match family:
-        case DistributionFamily.DELTA:
-            return dist.Delta(mean)
-        case DistributionFamily.GAUSSIAN:
-            return dist.Normal(mean, scale)
-        case DistributionFamily.STUDENT_T:
-            return dist.StudentT(extra_params.get("obs_df", 5.0), mean, scale)
-        case DistributionFamily.POISSON:
-            return dist.Poisson(mean)
-        case DistributionFamily.GAMMA:
-            shape = extra_params.get("obs_shape", 1.0)
-            return dist.Gamma(shape, shape / mean)
-        case DistributionFamily.BERNOULLI:
-            # BernoulliProbs clamps its density at p=0/1. Binary categorical logits
-            # retain the exact same probability law for both density and draws.
-            return categorical_distribution(jnp.stack([1.0 - mean, mean], axis=-1))
-        case DistributionFamily.NEGATIVE_BINOMIAL:
-            # NegativeBinomial2 requires mean > 0. Its mean=0 limit is a point
-            # mass at zero. A deterministic native selector includes that limit
-            # without an epsilon rate or an additional zero-inflation parameter.
-            zero = mean == 0.0
-            selector = dist.Categorical(
-                logits=jnp.stack(
-                    [jnp.where(zero, 0.0, -jnp.inf), jnp.where(zero, -jnp.inf, 0.0)], axis=-1
-                )
-            )
-            return dist.MixtureGeneral(
-                selector,
-                [
-                    dist.DiscreteUniform(jnp.zeros_like(mean, dtype=jnp.int32), 0),
-                    dist.NegativeBinomial2(
-                        jnp.where(zero, 1.0, mean), extra_params.get("obs_r", 5.0)
-                    ),
-                ],
-                support=constraints.nonnegative_integer,
-            )
-        case DistributionFamily.BETA:
-            concentration = extra_params.get("obs_concentration", 10.0)
-            return dist.Beta(mean * concentration, (1.0 - mean) * concentration)
-        case _:
-            raise ValueError(f"Mean-parameter observations are not defined for {family.value!r}")
-
-
-def sample_mean_observation(
-    family: DistributionFamily,
-    key: jnp.ndarray,
-    mean: jnp.ndarray,
-    scale: jax.Array | float,
-    extra_params: LikelihoodExtraParams,
-) -> jax.Array:
-    safe_mean, valid = safe_observation_mean(family, mean)
-    draw = mean_parameter_distribution(family, safe_mean, scale, extra_params).sample(key)
-    return jnp.where(valid, draw, jnp.nan)
-
-
-def mean_observation_variance(
-    family: DistributionFamily,
-    mean: jax.Array,
-    scale: jax.Array | float,
-    extra_params: LikelihoodExtraParams,
-) -> jax.Array:
-    """Exact scalar-law variance, including zero, infinite and undefined moments.
-
-    Unlike initialization pseudo-covariances, this never floors a valid mean or
-    changes a likelihood parameter. Binary categorical laws have Bernoulli moments.
-    """
-    safe_mean, valid = safe_observation_mean(family, mean)
-    law = mean_parameter_distribution(family, safe_mean, scale, extra_params)
-    variance = (
-        dist.BernoulliProbs(probs=safe_mean).variance
-        if family == DistributionFamily.BERNOULLI
-        else law.variance
-    )
-    return jnp.where(valid, variance, jnp.nan)
+# Register only the existing constructors; operands are the pytree children.
+for _law_type in OBSERVATION_LAW_TYPES:
+    jax.tree_util.register_pytree_node(_law_type, _flatten_law, partial(_unflatten_law, _law_type))

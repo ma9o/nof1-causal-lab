@@ -10,13 +10,10 @@ import jax.numpy as jnp
 import jax.random as random
 import numpy as np
 
-from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
+from nof1_causal_lab.artifacts.likelihood import LinkFunction
 from nof1_causal_lab.models.ssm.execution.dynamical_model import HeterogeneousObservation
 from nof1_causal_lab.models.ssm.execution.observation_dispatch import (
     build_interval_summary_sampler,
-)
-from nof1_causal_lab.models.ssm.execution.observation_families import (
-    resolve_manifest_families_and_links,
 )
 from nof1_causal_lab.models.ssm.execution.observation_operator import (
     compile_observation_operator,
@@ -27,6 +24,7 @@ if TYPE_CHECKING:
 
     import dynestyx as dsx
 
+    from nof1_causal_lab.models.ssm.execution.contracts import ObservationLaws
     from nof1_causal_lab.models.ssm.execution.observation_operator import ObservationOperator
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
@@ -114,16 +112,14 @@ def _apply_observation_mask(
 def _raise_if_log_link_mean_overflow(
     linear_predictors: jnp.ndarray,
     *,
-    manifest_dists: Sequence[DistributionFamily],
-    manifest_links: Sequence[LinkFunction | None] | None,
+    laws: ObservationLaws,
     manifest_names: Sequence[str] | None,
 ) -> None:
     """Fail fast when a log-link predictive mean would overflow before sampling."""
-    _dists, links = resolve_manifest_families_and_links(
-        list(manifest_dists),
-        manifest_links=list(manifest_links) if manifest_links is not None else None,
+
+    log_link_mask = np.asarray(
+        [next(iter(law.operands()))[1].link == LinkFunction.LOG for law in laws], dtype=bool
     )
-    log_link_mask = np.asarray([link == LinkFunction.LOG for link in links], dtype=bool)
     if not bool(log_link_mask.any()):
         return
 
@@ -170,7 +166,7 @@ def _sample_observations_for_draw(
 
     def emit(key: jax.Array, predictor: jax.Array) -> tuple[jax.Array, jax.Array]:
         law = observation_model.at_predictor(predictor)
-        return law.sample(key), law.mean
+        return law.sample(key), law.response
 
     point_samples, responses = jax.vmap(emit)(
         random.split(key_point, linear_predictors.shape[0]), linear_predictors
@@ -193,10 +189,9 @@ def _sample_observations_for_draw(
     interval_summary_indices = list(observation_operator.interval_summary_indices)
     interval_summary_idx = jnp.asarray(interval_summary_indices, dtype=jnp.int32)
     interval_sampler = build_interval_summary_sampler(
-        observation_model.families,
+        observation_model.laws,
         observation_model.measurement.manifest_cov,
         interval_summary_indices,
-        extra_params=observation_model.extra_params,
     )
     sampled_interval_summary = interval_sampler.sample_mean_trajectory(
         key_interval_summary,
@@ -264,8 +259,7 @@ def sample_model_observations(
     )
     _raise_if_log_link_mean_overflow(
         linear_predictors,
-        manifest_dists=observation.families,
-        manifest_links=observation.links,
+        laws=observation.laws,
         manifest_names=manifest_names,
     )
     keys = random.split(rng_key, linear_predictors.shape[0])

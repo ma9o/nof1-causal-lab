@@ -454,12 +454,12 @@ class TestRuntimeStructuralSupport:
             ).read_text()
         )
         spec = model
-        assert numeric.observation_standardized(compile_model_fixture(spec)) == [
+        assert numeric.observation_standardized(compile_model_fixture(spec)) == (
             True,
             True,
             True,
             True,
-        ]
+        )
 
     def test_translate_spec_fixes_manifest_noise_for_single_indicator_constructs(self):
 

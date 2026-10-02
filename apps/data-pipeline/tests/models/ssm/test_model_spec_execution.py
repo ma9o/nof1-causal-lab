@@ -64,9 +64,11 @@ def test_conditioning_revises_the_same_type_and_retains_joint_uncertainty(
         model = make_model(["A", "B"], [("A", "B")])
         construct = model.constructs[1]
         indicator = construct.indicators[0].revised(
-            measurement_dtype="categorical",
-            categorical_levels=("low", "medium", "high"),
-            aggregation="last",
+            observation=construct.indicators[0].observation.revised(
+                measurement_dtype="categorical",
+                categorical_levels=("low", "medium", "high"),
+                aggregation="last",
+            ),
             likelihood=LikelihoodSpec(
                 law=TypeAdapter(ObservationLawSpec).validate_json(
                     (
@@ -170,7 +172,11 @@ def test_conditioning_revises_the_same_type_and_retains_joint_uncertainty(
                     (
                         construct.revised(
                             indicators=(
-                                indicator.revised(categorical_levels=("medium", "low", "high")),
+                                indicator.revised(
+                                    observation=indicator.observation.revised(
+                                        categorical_levels=("medium", "low", "high")
+                                    )
+                                ),
                             )
                         ),
                     ),
@@ -195,7 +201,7 @@ def test_numerical_function_constructs_dynestyx_model(model):
     assert isinstance(native.observation_model, HeterogeneousObservation)
     assert isinstance(native.state_evolution, dsx.StochasticContinuousTimeStateEvolution)
     assert native.state_evolution.drift is not None
-    assert native.observation_model.families == tuple(
+    assert tuple(law.family for law in native.observation_model.laws) == tuple(
         numeric.observation_families(compile_model_fixture(model))
     )
     assert native.state_evolution.drift(jnp.ones(2), jnp.empty(0), 0.0).shape == (2,)
@@ -394,14 +400,15 @@ def test_fixed_quantities_and_interactions_remain_effective_in_edge_off_checks(m
     paths = jnp.ones((2, 3, 3))
     prediction = PredictiveDraws(
         parameters=original_samples,
-        likelihood_parameters={},
         trajectory=PredictiveTrajectory(
             paths, paths, paths, jnp.ones_like(paths, dtype=bool), paths
         ),
     )
 
+    compiled = compile_model_fixture(source)
+
     def capture(model, samples, times, *, dynamics, **_kwargs):
-        assert model is source
+        assert model is compiled
         assert samples is prediction.parameters
         for index in (3, 4):
             assert dynamics.components[index].expression == LiteralExpression(value=0)
@@ -412,7 +419,7 @@ def test_fixed_quantities_and_interactions_remain_effective_in_edge_off_checks(m
 
     monkeypatch.setattr(registry_runtime, "_simulate_vector_field_predictive_latents", capture)
     _resimulate_edge_off(
-        compile_model_fixture(source),
+        compiled,
         prediction,
         jnp.arange(3),
         target,

@@ -17,8 +17,7 @@ from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
 from nof1_causal_lab.models.ssm.structure import (
     DiffusionBlockSpec,
     ManifestCholBlockSpec,
-    SparseMatrixBlockSpec,
-    SparseVectorBlockSpec,
+    SparseBlockSpec,
     T0CholBlockSpec,
 )
 
@@ -38,6 +37,10 @@ from nof1_causal_lab.artifacts.likelihood import DistributionFamily
 from nof1_causal_lab.compilation_errors import AggregatedCompileError
 from nof1_causal_lab.models.model_semantics import (
     indicator_requires_observation_intercept,
+)
+from nof1_causal_lab.models.ssm.structure.assembly import (
+    dense_vector_positions,
+    rect_matrix_positions,
 )
 from nof1_causal_lab.models.ssm.structure.sites import make_site
 from nof1_causal_lab.utils.model_structure import (
@@ -75,8 +78,9 @@ def categorical_anchors(model: ModelSpec) -> tuple[bool, ...]:
         )
     }
     return tuple(
-        model.indicator_owner(indicator.id).id in categorical_states
-        and indicator.name == references[model.indicator_owner(indicator.id).name]
+        model.indicator_owner(indicator.observation.id).id in categorical_states
+        and indicator.observation.name
+        == references[model.indicator_owner(indicator.observation.id).name]
         for indicator in observed_indicators(model)
     )
 
@@ -153,16 +157,16 @@ def n_states(model: ModelSpec) -> int:
 def observed_indicators(model: ModelSpec) -> tuple[IndicatorSpec, ...]:
     return tuple(
         model.indicator(identity)
-        for identity in tuple(indicator.id for indicator in selected_indicators(model))
+        for identity in tuple(indicator.observation.id for indicator in selected_indicators(model))
     )
 
 
 def observation_ids(model: ModelSpec) -> tuple[IndicatorId, ...]:
-    return tuple(indicator.id for indicator in observed_indicators(model))
+    return tuple(indicator.observation.id for indicator in observed_indicators(model))
 
 
 def observation_names(model: ModelSpec) -> tuple[str, ...]:
-    return tuple(indicator.name for indicator in observed_indicators(model))
+    return tuple(indicator.observation.name for indicator in observed_indicators(model))
 
 
 def n_observations(model: ModelSpec) -> int:
@@ -173,7 +177,7 @@ def _likelihoods(model: ModelSpec) -> Iterator[LikelihoodSpec]:
     for indicator in observed_indicators(model):
         if indicator.likelihood is None:
             raise IncompleteModelError(
-                f"Retained indicator {indicator.name!r} requires a likelihood"
+                f"Retained indicator {indicator.observation.name!r} requires a likelihood"
             )
         yield indicator.likelihood
 
@@ -184,7 +188,7 @@ def observation_families(model: ModelSpec) -> tuple[DistributionFamily, ...]:
 
 def observation_level_counts(model: ModelSpec) -> tuple[int, ...]:
     return tuple(
-        len(indicator.ordinal_levels or indicator.categorical_levels or ())
+        len(indicator.observation.ordinal_levels or indicator.observation.categorical_levels or ())
         if indicator.likelihood is not None
         and indicator.likelihood.law.family
         in {DistributionFamily.ORDERED_LOGISTIC, DistributionFamily.CATEGORICAL}
@@ -303,16 +307,15 @@ def _quantity_values(
     return values, free
 
 
-def loading_block(model: ModelSpec) -> SparseMatrixBlockSpec:
+def loading_block(model: ModelSpec) -> SparseBlockSpec[tuple[int, int]]:
     shape = (n_observations(model), n_states(model))
     template, support = _quantity_values(
         model, SiteKind.LOADING, np.zeros(shape), np.zeros(shape, dtype=bool)
     )
-    return SparseMatrixBlockSpec(
-        n_rows=n_observations(model),
-        n_cols=n_states(model),
+    return SparseBlockSpec[tuple[int, int]](
         free_support=support,
         template=jnp.asarray(template),
+        free_positions=tuple(rect_matrix_positions(support, *shape)),
         free_site_name="lambda_free",
         det_site_name="lambda",
         support=SupportClass.REAL,
@@ -323,9 +326,9 @@ def loading_block(model: ModelSpec) -> SparseMatrixBlockSpec:
     )
 
 
-def observation_mean_block(model: ModelSpec) -> SparseVectorBlockSpec:
+def observation_mean_block(model: ModelSpec) -> SparseBlockSpec[int]:
     inactive = [
-        indicator.name
+        indicator.observation.name
         for indicator in observed_indicators(model)
         if indicator.likelihood is not None
         and isinstance(indicator.likelihood.parsed.intercept.value, str)
@@ -349,10 +352,10 @@ def observation_mean_block(model: ModelSpec) -> SparseVectorBlockSpec:
         np.zeros(n_observations(model)),
         np.zeros(n_observations(model), dtype=bool),
     )
-    return SparseVectorBlockSpec(
-        n=n_observations(model),
+    return SparseBlockSpec[int](
         free_support=support,
         template=jnp.asarray(template),
+        free_positions=tuple(dense_vector_positions(support, n_observations(model))),
         free_site_name="manifest_means_free",
         det_site_name="manifest_means",
         support=SupportClass.REAL,
@@ -433,15 +436,15 @@ def diffusion_block(model: ModelSpec) -> DiffusionBlockSpec:
     )
 
 
-def initial_mean_block(model: ModelSpec) -> SparseVectorBlockSpec:
+def initial_mean_block(model: ModelSpec) -> SparseBlockSpec[int]:
     support = np.zeros(n_states(model), dtype=bool)
     template, support = _quantity_values(
         model, SiteKind.T0_MEANS, np.zeros(n_states(model)), support
     )
-    return SparseVectorBlockSpec(
-        n=n_states(model),
+    return SparseBlockSpec[int](
         free_support=support,
         template=jnp.asarray(template),
+        free_positions=tuple(dense_vector_positions(support, n_states(model))),
         free_site_name="t0_means_free",
         det_site_name="t0_means",
         support=SupportClass.REAL,
@@ -494,15 +497,15 @@ def static_factor_loadings(model: ModelSpec) -> jnp.ndarray:
     return jnp.asarray(_build_static_factor_structure(model, state_names(model))[2])
 
 
-def static_scale_block(model: ModelSpec) -> SparseVectorBlockSpec:
+def static_scale_block(model: ModelSpec) -> SparseBlockSpec[int]:
     n = len(static_factor_ids(model))
     values, support = _quantity_values(
         model, SiteKind.STATIC_STATE_SD, np.zeros(n), np.ones(n, dtype=bool)
     )
-    return SparseVectorBlockSpec(
-        n=len(values),
+    return SparseBlockSpec[int](
         free_support=support,
         template=jnp.asarray(values),
+        free_positions=tuple(dense_vector_positions(support, len(values))),
         free_site_name="static_state_sd_free",
         det_site_name="static_state_sds",
         support=SupportClass.POSITIVE,
@@ -527,12 +530,12 @@ def parameter_blocks(
     model: ModelSpec,
 ) -> tuple[
     DiffusionBlockSpec,
-    SparseMatrixBlockSpec,
-    SparseVectorBlockSpec,
+    SparseBlockSpec[tuple[int, int]],
+    SparseBlockSpec[int],
     ManifestCholBlockSpec,
-    SparseVectorBlockSpec,
+    SparseBlockSpec[int],
     T0CholBlockSpec,
-    SparseVectorBlockSpec,
+    SparseBlockSpec[int],
 ]:
     return (
         diffusion_block(model),
@@ -551,12 +554,6 @@ def _require_execution_choices(model: ModelSpec) -> None:
 
     validate_execution_structure(model)
     from nof1_causal_lab.distributions import DistributionFamily
-    from nof1_causal_lab.models.ssm.compile.support import (
-        NumericalSupportError,
-    )
-    from nof1_causal_lab.models.ssm.execution.observation_families import (
-        supported_distribution_families,
-    )
 
     def require_hyperparameter(coefficient: float | ParameterId | None, label: str) -> None:
         if not isinstance(coefficient, str):
@@ -582,26 +579,23 @@ def _require_execution_choices(model: ModelSpec) -> None:
                 construct.coefficient("process_degrees_of_freedom"),
                 f"{construct.name}.process_degrees_of_freedom",
             )
-    supported = supported_distribution_families()
     for indicator in observed_indicators(model):
         likelihood = indicator.likelihood
         if likelihood is None:
             raise IncompleteModelError(
-                f"Retained indicator {indicator.name!r} requires a likelihood"
-            )
-        if likelihood.law.family not in supported:
-            raise NumericalSupportError(
-                [f"Indicator {indicator.name!r} has no native emission function"]
+                f"Retained indicator {indicator.observation.name!r} requires a likelihood"
             )
         terms = likelihood.parsed
         missing = [operand.role for operand in terms.operands if operand.value is None]
         if missing:
             raise IncompleteModelError(
-                f"Indicator {indicator.name!r} requires explicit measurement coefficients: {missing}"
+                f"Indicator {indicator.observation.name!r} requires explicit measurement coefficients: {missing}"
             )
         for operand in terms.auxiliary:
             if operand.role != "observation_scale":
-                require_hyperparameter(operand.value, f"{indicator.name}.likelihood.{operand.role}")
+                require_hyperparameter(
+                    operand.value, f"{indicator.observation.name}.likelihood.{operand.role}"
+                )
 
 
 def likelihood_sites(spec: ModelSpec) -> tuple[SiteDescriptor, ...]:
@@ -661,7 +655,7 @@ def likelihood_sites(spec: ModelSpec) -> tuple[SiteDescriptor, ...]:
                 meaning.quantity.value,
                 (),
                 meaning.support,
-                "likelihood",
+                "process",
                 meaning.quantity,
                 priors_field=meaning.quantity.value,
             )

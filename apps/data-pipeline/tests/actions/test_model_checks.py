@@ -225,7 +225,6 @@ def test_nonfinite_findings_save_but_generator_errors_do_not_publish(
         )
         return PredictiveDraws(
             {name: value[:2] for name, value in samples.items()},
-            {},
             PredictiveTrajectory(
                 paths, emissions, emissions, jnp.ones_like(emissions, dtype=bool), emissions
             ),

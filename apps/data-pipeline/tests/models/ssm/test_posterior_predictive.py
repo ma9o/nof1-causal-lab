@@ -2,13 +2,14 @@
 
 from pathlib import Path
 
+import equinox as eqx
 import jax.numpy as jnp
 import jax.random as random
 import numpy as np
 import pytest
 
 from nof1_causal_lab.artifacts.identity import IndicatorId
-from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
+from nof1_causal_lab.artifacts.likelihood import DistributionFamily
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.posterior_predictive import (
     _check_calibration,
@@ -21,9 +22,6 @@ from nof1_causal_lab.models.predictive_simulation import (
     PredictiveObservationMeanOverflow,
 )
 from nof1_causal_lab.models.ssm import numerics as numeric
-from nof1_causal_lab.models.ssm.execution.observation_families import (
-    get_posterior_predictive_switch_index,
-)
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 from tests.model_fixtures import compile_model_fixture
 from tests.models.ssm._support import complex_mixed_family_config
@@ -81,13 +79,6 @@ class TestForwardSimulation:
         """Serialized distribution names are validated before predictive dispatch."""
         with pytest.raises(ValueError, match="is not a valid DistributionFamily"):
             DistributionFamily("nonexistent_distribution")
-
-    @pytest.mark.contract
-    def test_switch_index_invalid_family_link_pair_raises(self):
-        with pytest.raises(ValueError, match="invalid for observation family 'gaussian'"):
-            get_posterior_predictive_switch_index(
-                DistributionFamily.GAUSSIAN, link=LinkFunction.LOG
-            )
 
     @pytest.mark.inference(concern="predictive")
     def test_mixed_families_preserve_means_and_sample_domains(self):
@@ -228,7 +219,13 @@ class TestForwardSimulation:
             )
 
         def _fake_observations(models, linear_predictors, *_args, **_kwargs):
-            captured.update(models.observation_model.extra_params)
+            from nof1_causal_lab.artifacts.likelihood import OrderedLogisticLawSpec
+
+            bound = models.observation_model.laws[1]
+            assert isinstance(bound, OrderedLogisticLawSpec)
+            captured["cutpoints"] = eqx.filter_vmap(
+                lambda operand: operand.evaluate(jnp.zeros(()), jnp.ones(()))
+            )(bound.cutpoints)
             shape = linear_predictors.shape
             return jnp.zeros(shape), jnp.ones(shape, dtype=bool), jnp.zeros(shape)
 
@@ -250,7 +247,7 @@ class TestForwardSimulation:
         )
 
         np.testing.assert_allclose(
-            np.asarray(captured["obs_ordered_cutpoints"][:, 1]),
+            captured["cutpoints"],
             np.array([[-1.0, 0.0], [-1.0, 0.0]]),
         )
 

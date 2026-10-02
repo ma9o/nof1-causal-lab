@@ -36,18 +36,18 @@ if TYPE_CHECKING:
         EdgeId,
         IndicatorId,
     )
+    from nof1_causal_lab.artifacts.likelihood import Law
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.parameter import ParameterCoordinate
     from nof1_causal_lab.artifacts.prior import PriorValidationResult
-    from nof1_causal_lab.models.likelihoods import LikelihoodTerms
     from nof1_causal_lab.models.ssm.compile.bindings import CompiledParameterBinding
+    from nof1_causal_lab.models.ssm.dynamics.expression import BoundExpression
     from nof1_causal_lab.models.ssm.dynamics.spec import CompiledDynamics
     from nof1_causal_lab.models.ssm.joint_layout import JointLawLayout
     from nof1_causal_lab.models.ssm.structure import (
         DiffusionBlockSpec,
         ManifestCholBlockSpec,
-        SparseMatrixBlockSpec,
-        SparseVectorBlockSpec,
+        SparseBlockSpec,
         T0CholBlockSpec,
     )
     from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
@@ -73,7 +73,7 @@ class CompiledObservation:
     id: IndicatorId
     name: str
     state_index: int
-    likelihood: LikelihoodTerms
+    law: Law[BoundExpression]
     levels: tuple[str, ...]
     standardized: bool
     categorical_anchor: bool
@@ -100,12 +100,12 @@ class CompiledModel:
     observations: tuple[CompiledObservation, ...]
     static_factors: tuple[CompiledState, ...]
     diffusion_block: DiffusionBlockSpec
-    loading_block: SparseMatrixBlockSpec
-    observation_mean_block: SparseVectorBlockSpec
+    loading_block: SparseBlockSpec[tuple[int, int]]
+    observation_mean_block: SparseBlockSpec[int]
     observation_noise_block: ManifestCholBlockSpec
-    initial_mean_block: SparseVectorBlockSpec
+    initial_mean_block: SparseBlockSpec[int]
     initial_covariance_block: T0CholBlockSpec
-    static_scale_block: SparseVectorBlockSpec
+    static_scale_block: SparseBlockSpec[int]
     static_factor_loadings: jax.Array
     dynamics: CompiledDynamics
     site_registry: tuple[SiteDescriptor, ...]
@@ -232,13 +232,40 @@ def compile_model(model: ModelSpec) -> CompiledModel | IncompleteModel | Unsuppo
         clock_days = numeric.get_construct_dt_days(model)
         assert model.measurement_clock is not None
 
+        parameters = execution_parameters(model)
+        bindings, auxiliary = bind_parameters(
+            build_semantic_prior_bindings(model, sites, dynamics_spec.components, parameters),
+            model,
+            parameters,
+            sites,
+        )
+        from nof1_causal_lab.models.ssm.compile.observations import bind_observation_law
+
+        binding_index = {binding.parameter_id: binding for binding in bindings}
+        max_levels = max(numeric.observation_level_counts(model), default=0)
         observations = tuple(
             CompiledObservation(
-                indicator.id,
-                indicator.name,
-                state_index[model.indicator_owner(indicator.id).id],
-                indicator.likelihood.parsed,
-                (indicator.ordinal_levels or indicator.categorical_levels or ())
+                indicator.observation.id,
+                indicator.observation.name,
+                state_index[model.indicator_owner(indicator.observation.id).id],
+                bind_observation_law(
+                    indicator.likelihood.law,
+                    indicator.likelihood.parsed,
+                    binding_index,
+                    channel=channel,
+                    category_count=len(
+                        indicator.observation.ordinal_levels
+                        or indicator.observation.categorical_levels
+                        or ()
+                    ),
+                    sampling_count=max_levels,
+                    categorical_anchor=anchor,
+                ),
+                (
+                    indicator.observation.ordinal_levels
+                    or indicator.observation.categorical_levels
+                    or ()
+                )
                 if indicator.likelihood.law.family
                 in {
                     DistributionFamily.ORDERED_LOGISTIC,
@@ -247,18 +274,12 @@ def compile_model(model: ModelSpec) -> CompiledModel | IncompleteModel | Unsuppo
                 else (),
                 indicator.likelihood.standardized,
                 anchor,
-                indicator._observation_semantics(),
-                (indicator.observation_window or model.measurement_clock).days,
-                (indicator.observation_window or model.measurement_clock).source,
+                indicator.observation._observation_semantics(),
+                (indicator.observation.observation_window or model.measurement_clock).days,
+                (indicator.observation.observation_window or model.measurement_clock).source,
             )
-            for indicator, anchor in zip(indicators, anchors, strict=True)
+            for channel, (indicator, anchor) in enumerate(zip(indicators, anchors, strict=True))
             if indicator.likelihood is not None
-        )
-        bindings, auxiliary = bind_parameters(
-            build_semantic_prior_bindings(model, sites, dynamics_spec.components),
-            model,
-            execution_parameters(model),
-            sites,
         )
         return CompiledModel(
             clock_days=clock_days,

@@ -21,15 +21,21 @@ from nof1_causal_lab.artifacts.expressions import (
     fold_expression,
 )
 from nof1_causal_lab.artifacts.parameter import SiteKind
-from nof1_causal_lab.models.ssm.structure.sites import SemanticBinding, make_site
+from nof1_causal_lab.models.ssm.structure.sites import (
+    ScalarSiteSelection,
+    SemanticBinding,
+    make_site,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator, Mapping
+    from collections.abc import Callable, Iterator, Mapping
 
     from jax import Array
     from jax.typing import ArrayLike
 
     from nof1_causal_lab.artifacts.identity import ConstructId, ParameterId
+    from nof1_causal_lab.artifacts.likelihood import LinkFunction
+    from nof1_causal_lab.artifacts.parameter import ParameterCoordinate
     from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
 
     from .spec import PriorFn
@@ -186,7 +192,7 @@ class ExpressionComponentSpec:
             yield SemanticBinding(
                 parameter_name=identity,
                 site_name=site.name,
-                flat_index=0,
+                selection=ScalarSiteSelection(0),
                 site_kind=site.site_kind,
                 prior_field=site.priors_field,
                 construct_names=tuple(
@@ -202,3 +208,45 @@ class ExpressionComponentSpec:
             identity: jnp.asarray(samples[site.name])
             for identity, site in self.parameter_sites(prefix)
         }
+
+
+# Observation operand arithmetic over (predictor, observation scale, gathered parameter values).
+type OperandEvaluator = Callable[[Array, Array, tuple[Array, ...]], Array]
+
+
+class BoundExpression(eqx.Module):
+    """Resolved observation arithmetic and parsed link; parameter arrays are pytree leaves."""
+
+    expression: Expression = eqx.field(static=True)
+    evaluate_fn: OperandEvaluator = eqx.field(static=True)
+    coordinates: tuple[ParameterCoordinate, ...] = eqx.field(static=True)
+    values: tuple[Array, ...]
+    event_size: int = eqx.field(static=True)
+    sampling_size: int = eqx.field(static=True)
+    response_fn: Callable[[Array], Array] = eqx.field(static=True)
+    link: LinkFunction = eqx.field(static=True)
+
+    def bind(self, samples: Mapping[str, Array]) -> BoundExpression:
+        values = tuple(
+            jnp.asarray(samples[coordinate.site_name])[coordinate.indices]
+            for coordinate in self.coordinates
+        )
+        return BoundExpression(
+            self.expression,
+            self.evaluate_fn,
+            self.coordinates,
+            values,
+            self.event_size,
+            self.sampling_size,
+            self.response_fn,
+            self.link,
+        )
+
+    def evaluate(self, predictor: Array, scale: Array, observed: Array | None = None) -> Array:
+        values = self.values
+        if observed is not None:
+            # Missing channels never differentiate undefined expression arithmetic.
+            predictor = jnp.where(observed, predictor, 1.0)
+            scale = jnp.where(observed, scale, 1.0)
+            values = tuple(jnp.where(observed, value, 1.0) for value in values)
+        return self.evaluate_fn(predictor, scale, values)

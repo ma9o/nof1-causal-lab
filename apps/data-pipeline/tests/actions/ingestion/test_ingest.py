@@ -5,6 +5,7 @@ import zipfile
 import pytest
 
 from nof1_causal_lab.actions.ingestion.tools import _safe_resolve
+from nof1_causal_lab.study.errors import StudyLookupError
 
 pytestmark = pytest.mark.contract
 
@@ -23,7 +24,7 @@ class TestSafeResolve:
         assert _safe_resolve(tmp_path, "sub/data.csv") == child.resolve()
 
     def test_traversal_blocked(self, tmp_path):
-        with pytest.raises(ValueError, match="Path traversal blocked"):
+        with pytest.raises(StudyLookupError, match="Path traversal blocked"):
             _safe_resolve(tmp_path, "../../../etc/passwd")
 
     def test_sibling_prefix_traversal_blocked(self, tmp_path):
@@ -32,7 +33,7 @@ class TestSafeResolve:
         sibling = tmp_path / "base_evil"
         sibling.write_text("outside")
 
-        with pytest.raises(ValueError, match="Path traversal blocked"):
+        with pytest.raises(StudyLookupError, match="Path traversal blocked"):
             _safe_resolve(base, "../base_evil")
 
 

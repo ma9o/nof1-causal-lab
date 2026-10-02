@@ -12,17 +12,16 @@ import pytest
 from numpyro import handlers
 
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.artifacts.parameter import PriorAuthoringTransform, SiteKind, SupportClass
+from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
 from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.execution.parameters import sample_sites
 from nof1_causal_lab.models.ssm.inference.utils import _discover_sites, _DummyLikelihoodBackend
-from nof1_causal_lab.models.ssm.likelihood_extra_params import assemble_sampled_extra_params
 from nof1_causal_lab.models.ssm.model import sample_parameters
 from nof1_causal_lab.models.ssm.parameterization import (
     assemble_deterministics_from_registry,
     build_site_registry,
-    likelihood_sites,
+    process_sites,
     sample_prior_parameters,
 )
 from nof1_causal_lab.models.ssm.priors import resolve_site_priors
@@ -245,12 +244,8 @@ class TestSiteRegistry:
 
         with handlers.seed(rng_seed=0):
             trace = handlers.trace(
-                lambda: assemble_sampled_extra_params(
-                    model.compiled,
-                    sample_sites(
-                        likelihood_sites(model.compiled),
-                        model.prior_runtime_bundle.priors.__getitem__,
-                    ),
+                lambda: sample_sites(
+                    process_sites(model.compiled), model.prior_runtime_bundle.priors.__getitem__
                 )
             ).get_trace()
 
@@ -580,14 +575,11 @@ class TestCompiledArtifactIntegration:
         }
         assert binding_by_parameter["obs_ordered_base_short_scale"].flat_index == 0
         assert binding_by_parameter["obs_ordered_base_long_scale"].flat_index == 1
-        assert (
-            binding_by_parameter["obs_ordered_gaps_short_scale"].transform
-            is PriorAuthoringTransform.SITE_ROW
-        )
-        assert (
-            binding_by_parameter["obs_ordered_gaps_long_scale"].transform
-            is PriorAuthoringTransform.SITE_ROW
-        )
+        for row, name in enumerate(("obs_ordered_gaps_short_scale", "obs_ordered_gaps_long_scale")):
+            assert {
+                native.coordinate.indices[0]
+                for native in binding_by_parameter[name].native_coordinates
+            } == {row}
 
         base_prior = priors["obs_ordered_base"]
         np.testing.assert_allclose(base_prior.loc, [-1.0, -3.0])
