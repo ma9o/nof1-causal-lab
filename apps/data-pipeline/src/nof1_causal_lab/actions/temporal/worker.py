@@ -33,7 +33,7 @@ from nof1_causal_lab.actions.temporal.llm_subroutine_activities import (
     run_harness_turn_activity,
 )
 from nof1_causal_lab.actions.temporal.llm_subroutine_workflow import LLMSubroutineWorkflow
-from nof1_causal_lab.actions.temporal.measurement_activities import call_openrouter_activity
+from nof1_causal_lab.actions.temporal.measurement_activities import OpenRouterActivities
 from nof1_causal_lab.actions.temporal.measurement_workflow import (
     ExtractionChunkWorkflow,
     MeasurementsWorkflow,
@@ -41,6 +41,7 @@ from nof1_causal_lab.actions.temporal.measurement_workflow import (
 from nof1_causal_lab.actions.temporal.workflow import StudyWorkflow
 
 if TYPE_CHECKING:
+    from openai import AsyncOpenAI
     from temporalio.client import Client
 
 logger = logging.getLogger(__name__)
@@ -82,14 +83,18 @@ def build_worker(client: Client, task_queue: str = STUDY_TASK_QUEUE) -> Worker:
     )
 
 
-def build_openrouter_worker(client: Client, task_queue: str = OPENROUTER_TASK_QUEUE) -> Worker:
+def build_openrouter_worker(
+    client: Client,
+    openrouter_client: AsyncOpenAI,
+    task_queue: str = OPENROUTER_TASK_QUEUE,
+) -> Worker:
     from nof1_causal_lab.utils.config import get_config
 
     max_rpm = get_config().extraction_workers.max_rpm
     return Worker(
         client,
         task_queue=task_queue,
-        activities=[call_openrouter_activity],
+        activities=[OpenRouterActivities(openrouter_client).call_openrouter_activity],
         max_task_queue_activities_per_second=(max_rpm / 60) if max_rpm else None,
     )
 
@@ -120,41 +125,45 @@ def build_model_checks_worker(
 
 async def run_worker() -> None:
     from nof1_causal_lab.utils.config import configure_jax_persistent_cache
+    from nof1_causal_lab.utils.openrouter_client import create_openrouter_client
 
     configure_jax_persistent_cache()
     client = await connect_client()
-    study_worker = build_worker(client)
-    openrouter_worker = build_openrouter_worker(client)
-    claude_worker = build_harness_worker(
-        client,
-        HARNESS_CLAUDE_TASK_QUEUE,
-    )
-    codex_worker = build_harness_worker(
-        client,
-        HARNESS_CODEX_TASK_QUEUE,
-    )
-    pi_worker = build_harness_worker(
-        client,
-        HARNESS_PI_TASK_QUEUE,
-    )
-    model_checks_worker = build_model_checks_worker(client)
-    logger.info("Study worker started on task queue %s", STUDY_TASK_QUEUE)
-    logger.info("OpenRouter worker started on task queue %s", OPENROUTER_TASK_QUEUE)
-    logger.info("Claude harness worker started on task queue %s", HARNESS_CLAUDE_TASK_QUEUE)
-    logger.info("Codex harness worker started on task queue %s", HARNESS_CODEX_TASK_QUEUE)
-    logger.info("Pi harness worker started on task queue %s", HARNESS_PI_TASK_QUEUE)
-    logger.info(
-        "Model checks worker started on task queue %s",
-        MODEL_CHECKS_TASK_QUEUE,
-    )
-    await asyncio.gather(
-        study_worker.run(),
-        openrouter_worker.run(),
-        claude_worker.run(),
-        codex_worker.run(),
-        pi_worker.run(),
-        model_checks_worker.run(),
-    )
+    async with create_openrouter_client() as openrouter_client:
+        study_worker = build_worker(client)
+        openrouter_worker = build_openrouter_worker(client, openrouter_client)
+        claude_worker = build_harness_worker(
+            client,
+            HARNESS_CLAUDE_TASK_QUEUE,
+        )
+        codex_worker = build_harness_worker(
+            client,
+            HARNESS_CODEX_TASK_QUEUE,
+        )
+        pi_worker = build_harness_worker(
+            client,
+            HARNESS_PI_TASK_QUEUE,
+        )
+        model_checks_worker = build_model_checks_worker(client)
+        logger.info("Study worker started on task queue %s", STUDY_TASK_QUEUE)
+        logger.info("OpenRouter worker started on task queue %s", OPENROUTER_TASK_QUEUE)
+        logger.info("Claude harness worker started on task queue %s", HARNESS_CLAUDE_TASK_QUEUE)
+        logger.info("Codex harness worker started on task queue %s", HARNESS_CODEX_TASK_QUEUE)
+        logger.info("Pi harness worker started on task queue %s", HARNESS_PI_TASK_QUEUE)
+        logger.info(
+            "Model checks worker started on task queue %s",
+            MODEL_CHECKS_TASK_QUEUE,
+        )
+        async with asyncio.TaskGroup() as tasks:
+            for worker in (
+                study_worker,
+                openrouter_worker,
+                claude_worker,
+                codex_worker,
+                pi_worker,
+                model_checks_worker,
+            ):
+                tasks.create_task(worker.run())
 
 
 if __name__ == "__main__":

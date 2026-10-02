@@ -10,6 +10,8 @@ from pydantic import Field, InstanceOf
 
 from nof1_causal_lab.artifacts.base import Value
 
+type DSMCLeafProposal = Literal["amala_exact", "paid_mix"]
+
 
 class MarginalParticleGibbsSpec(Value):
     """Marginalized Particle Gibbs inference settings."""
@@ -29,7 +31,7 @@ class MarginalParticleGibbsSpec(Value):
     amala_adaptation_gamma: float = -0.5
     amala_kappa: float = 0.75
     amala_grad_clip: float = math.inf
-    dsmc_leaf_proposal: Literal["amala_exact", "paid_mix"] = "amala_exact"
+    dsmc_leaf_proposal: DSMCLeafProposal = "amala_exact"
     # Coordinate-block proposals: number of latent coordinates proposed per sweep
     # (None = all). Blocks of 2-4 sidestep the joint-coherence weight degeneracy of
     # full-state proposals at higher latent dimension.

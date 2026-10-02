@@ -32,7 +32,6 @@ _LATENT_SMOOTHER_DSMC = "dsmc"
 # proposal mass — never correctness — so the mixture strictly generalizes
 # amala_exact (its z-component alone).
 _DSMC_LEAF_PROPOSAL_PAID_MIX = "paid_mix"
-type DSMCLeafProposal = Literal["amala_exact", "paid_mix"]
 
 
 class MPGibbsLatentSmoother(NamedTuple):

@@ -13,9 +13,8 @@ from typing import TYPE_CHECKING, Any
 import pytest
 
 from nof1_causal_lab.utils.harness.stream_json import (
-    ClaudeStreamState,
     CodexStreamState,
-    PiStreamState,
+    SessionStreamRuntime,
     apply_claude_event,
     apply_codex_event,
     apply_pi_event,
@@ -50,7 +49,7 @@ def _parse_stream(lines, state, apply_event, label):
 
 
 def parse_claude_stream(lines):
-    return _parse_stream(lines, ClaudeStreamState(), apply_claude_event, "claude")
+    return _parse_stream(lines, SessionStreamRuntime(), apply_claude_event, "claude")
 
 
 def parse_codex_stream(lines):
@@ -58,7 +57,7 @@ def parse_codex_stream(lines):
 
 
 def parse_pi_stream(lines):
-    return _parse_stream(lines, PiStreamState(), apply_pi_event, "pi")
+    return _parse_stream(lines, SessionStreamRuntime(), apply_pi_event, "pi")
 
 
 def _pi_events_tool_loop() -> list[dict[str, Any]]:
@@ -131,9 +130,7 @@ class TestPiParser:
         assert state.total_time_seconds == 1.2
 
     def test_incremental_apply_and_log_format(self):
-        from nof1_causal_lab.utils.harness.stream_json import PiStreamState
-
-        state = PiStreamState()
+        state = SessionStreamRuntime()
         for event in _pi_events_tool_loop():
             apply_pi_event(state, event)
 

@@ -30,7 +30,7 @@ def test_extension_registers_only_supplied_tools():
 
 def test_argv_disables_builtin_and_discovered_capabilities(tmp_path):
     argv = build_pi_argv(
-        bin="pi",
+        executable="pi",
         user_message="hello",
         provider="openai-codex",
         model="gpt-5.4-mini",

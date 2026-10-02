@@ -42,73 +42,88 @@ from nof1_causal_lab.study.sweep import collect_completed_runs
 
 
 @activity.defn
-async def run_action_activity(input: ActionInput) -> ActionAttempt:
+async def run_action_activity(activity_input: ActionInput) -> ActionAttempt:
     try:
-        result = await run_action(input.workspace_id, input.request, input.state)
+        result = await run_action(
+            activity_input.workspace_id, activity_input.request, activity_input.state
+        )
     except StudyLookupError as exc:
-        return failed_attempt(input.request, Rejected(reason="input_unavailable", detail=str(exc)))
+        return failed_attempt(
+            activity_input.request, Rejected(reason="input_unavailable", detail=str(exc))
+        )
     except (IncompleteModelError, AggregatedCompileError) as exc:
-        return failed_attempt(input.request, Rejected(reason="scientific_inputs", detail=str(exc)))
+        return failed_attempt(
+            activity_input.request, Rejected(reason="scientific_inputs", detail=str(exc))
+        )
     except ActionExecutionError as exc:
         raise ApplicationError(
             str(exc), exc.diagnostics, type=type(exc).__name__, non_retryable=True
         ) from exc
-    return applied_attempt(input.request, result)
+    return applied_attempt(activity_input.request, result)
 
 
 @activity.defn
-async def edit_model_activity(input: EditModelInput) -> EditAttempt:
+async def edit_model_activity(activity_input: EditModelInput) -> EditAttempt:
     try:
-        result = edit_model(input.workspace_id, input.request, input.state)
+        result = edit_model(
+            activity_input.workspace_id, activity_input.request, activity_input.state
+        )
     except ArtifactWriteRejected as exc:
         return EditAttempt(
-            request=input.request, outcome=Rejected(reason="revision_conflict", detail=str(exc))
+            request=activity_input.request,
+            outcome=Rejected(reason="revision_conflict", detail=str(exc)),
         )
-    return EditAttempt(request=input.request, outcome=Applied(result=result))
+    return EditAttempt(request=activity_input.request, outcome=Applied(result=result))
 
 
 @activity.defn
 async def evaluate_model_checks_activity(
-    input: EvaluateChecksInput[ModelEditResult | ModelFitResult],
+    activity_input: EvaluateChecksInput[ModelEditResult | ModelFitResult],
 ) -> ModelEditResult | ModelFitResult:
     from nof1_causal_lab.actions.model_checks import evaluate_model_checks
 
     return await asyncio.to_thread(
         lambda: evaluate_model_checks(
-            input.workspace_id, input.state, input.effects, action=input.effects.action
+            activity_input.workspace_id,
+            activity_input.state,
+            activity_input.effects,
+            action=activity_input.effects.action,
         )
     )
 
 
 @activity.defn
 async def evaluate_data_checks_activity(
-    input: EvaluateChecksInput[DataPreparationResult],
+    activity_input: EvaluateChecksInput[DataPreparationResult],
 ) -> DataPreparationResult:
     from nof1_causal_lab.actions.data_checks import evaluate_data_checks
 
     return await asyncio.to_thread(
-        evaluate_data_checks, input.workspace_id, input.state, input.effects
+        evaluate_data_checks,
+        activity_input.workspace_id,
+        activity_input.state,
+        activity_input.effects,
     )
 
 
 @activity.defn
-async def read_branch_activity(input: ReadBranchInput) -> BranchBase:
-    repository = StudyRepository(input.workspace_id)
+async def read_branch_activity(activity_input: ReadBranchInput) -> BranchBase:
+    repository = StudyRepository(activity_input.workspace_id)
     try:
-        commit_id = repository.head(input.branch)
+        commit_id = repository.head(activity_input.branch)
     except StudyLookupError as exc:
         raise ApplicationError(str(exc), type=type(exc).__name__, non_retryable=True) from exc
     return BranchBase(commit_id=commit_id, state=repository.state(commit_id))
 
 
 @activity.defn
-async def journal_activity(input: AttemptPublication) -> StudyRevision:
+async def journal_activity(activity_input: AttemptPublication) -> StudyRevision:
     """Publish the owned record and traces; replay retries use its persisted identity."""
-    journal = StudyRepository(input.workspace_id)
-    existing = journal.read_attempt(input.record.seq)
+    journal = StudyRepository(activity_input.workspace_id)
+    existing = journal.read_attempt(activity_input.record.seq)
     if existing is not None:
-        return journal.append(existing.record, expected_head=input.expected_head)
-    record = input.record
+        return journal.append(existing.record, expected_head=activity_input.expected_head)
+    record = activity_input.record
     messages = record.messages
     if isinstance(record.attempt.outcome, Applied) and messages:
         messages = (
@@ -116,19 +131,19 @@ async def journal_activity(input: AttemptPublication) -> StudyRevision:
             + completion_messages(
                 record.attempt.outcome.result,
                 messages[-1].timestamp,
-                ArtifactStore(input.workspace_id).completion_reports(
+                ArtifactStore(activity_input.workspace_id).completion_reports(
                     record.attempt.outcome.result.produced
                 ),
             )
             + messages[-1:]
         )
-    logs = collect_run_traces(input.workspace_id, record.seq)
+    logs = collect_run_traces(activity_input.workspace_id, record.seq)
     record = record.with_logs(
         messages=messages,
         trace_ids=tuple(path.removeprefix("traces/").removesuffix(".json") for path in logs),
     )
     try:
-        return journal.append(record, expected_head=input.expected_head, logs=logs)
+        return journal.append(record, expected_head=activity_input.expected_head, logs=logs)
     except BranchConflict as exc:
         raise ApplicationError(str(exc), type=type(exc).__name__, non_retryable=True) from exc
 

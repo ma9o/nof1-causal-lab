@@ -41,7 +41,7 @@ class TestBuildCodexMcpToml:
 class TestBuildCodexArgv:
     def test_first_turn_omits_resume_subcommand(self):
         argv = build_codex_argv(
-            bin="codex",
+            executable="codex",
             user_message="hello",
             thread_id=None,
             model="gpt-5.4",
@@ -64,7 +64,7 @@ class TestBuildCodexArgv:
 
     def test_follow_up_turn_uses_resume_subcommand_with_thread_id(self):
         argv = build_codex_argv(
-            bin="codex",
+            executable="codex",
             user_message="continue",
             thread_id="tid-123",
             model="gpt-5.4",
@@ -76,7 +76,7 @@ class TestBuildCodexArgv:
 
     def test_optional_flags_omitted(self):
         argv = build_codex_argv(
-            bin="codex",
+            executable="codex",
             user_message="hi",
             thread_id=None,
             model="m",
@@ -90,7 +90,7 @@ class TestBuildCodexArgv:
 
     def test_cwd_and_extra_config_pass_through(self):
         argv = build_codex_argv(
-            bin="codex",
+            executable="codex",
             user_message="hi",
             thread_id=None,
             model="m",

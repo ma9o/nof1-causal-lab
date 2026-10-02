@@ -1,6 +1,6 @@
 import json
 import uuid
-from typing import Any
+from typing import Any, cast
 
 import polars as pl
 import pyarrow as pa
@@ -14,21 +14,24 @@ from nof1_causal_lab.actions.temporal.llm_subroutine_activities import (
 from nof1_causal_lab.actions.temporal.llm_subroutine_storage import read_subroutine_json
 from nof1_causal_lab.actions.temporal.llm_subroutine_workflow import LLMSubroutineWorkflow
 from nof1_causal_lab.actions.temporal.measurement_activities import (
-    call_openrouter_activity,
+    OpenRouterActivities,
 )
 from nof1_causal_lab.actions.temporal.measurement_workflow import ExtractionChunkWorkflow
 from nof1_causal_lab.actions.temporal.messages import (
     AppendLLMRepairMessageInput,
     ExtractionChunkWorkflowInput,
     LLMSubroutineInput,
+    LLMSubroutineRef,
     LLMToolExecutionInput,
     LLMToolSpec,
+    MeasurementChunkRef,
     OpenRouterCallInput,
     ProgressEventInput,
     StoredConversation,
 )
 from nof1_causal_lab.llm_specs import EmbeddedLLMSpec, HarnessLLMSpec
 from nof1_causal_lab.utils import storage
+from nof1_causal_lab.utils.openrouter_client import create_openrouter_client
 from nof1_causal_lab.workers.schemas import ExtractionRow, WorkerOutput
 from tests.helpers import run_async
 
@@ -113,8 +116,10 @@ def test_call_openrouter_activity_reuses_persisted_call_result(monkeypatch, tmp_
         json.dumps({"messages": [{"role": "user", "content": "extract"}]}),
     )
 
-    async def fake_call_model(model_name, messages, tools=None, config=None, log_label=None):
-        del tools, config, log_label
+    async def fake_call_model(
+        model_name, messages, *, client, tools=None, config=None, log_label=None
+    ):
+        del client, tools, config, log_label
         calls.append(messages)
         return {
             "message": {"role": "assistant", "content": "", "tool_calls": []},
@@ -127,7 +132,7 @@ def test_call_openrouter_activity_reuses_persisted_call_result(monkeypatch, tmp_
 
     monkeypatch.setattr(openrouter_client, "call_model", fake_call_model)
 
-    input = OpenRouterCallInput(
+    activity_input = OpenRouterCallInput(
         conversation_ref=conversation_ref,
         next_conversation_ref=next_conversation_ref,
         call_ref=call_ref,
@@ -150,8 +155,9 @@ def test_call_openrouter_activity_reuses_persisted_call_result(monkeypatch, tmp_
         log_label="test",
     )
 
-    first = run_async(call_openrouter_activity(input))
-    second = run_async(call_openrouter_activity(input))
+    activities = OpenRouterActivities(cast("Any", object()))
+    first = run_async(activities.call_openrouter_activity(activity_input))
+    second = run_async(activities.call_openrouter_activity(activity_input))
 
     assert len(calls) == 1
     assert first == second
@@ -198,11 +204,13 @@ def test_execute_llm_tool_calls_activity_dispatches_by_tool_name(tmp_path):
                     "model_clock": "1d",
                     "indicators": [
                         {
-                            "id": "indicator:steps",
-                            "name": "steps",
-                            "how_to_measure": "Measure steps",
-                            "measurement_dtype": "continuous",
-                            "aggregation": "mean",
+                            "observation": {
+                                "id": "indicator:steps",
+                                "name": "steps",
+                                "measurement_dtype": "continuous",
+                                "aggregation": "mean",
+                            },
+                            "extraction": {"kind": "semantic", "how_to_measure": "Measure steps"},
                         }
                     ],
                 },
@@ -228,11 +236,13 @@ def test_execute_llm_tool_calls_activity_dispatches_by_tool_name(tmp_path):
     result = run_async(
         execute_llm_tool_calls_activity(
             LLMToolExecutionInput(
-                workspace_id="ws-test",
-                run_id="seq-000001",
-                subroutine_id="measurement-extraction",
-                context_kind="measurement_extraction",
-                context_ref=context_ref,
+                subroutine=LLMSubroutineRef(
+                    workspace_id="ws-test",
+                    run_id="seq-000001",
+                    subroutine_id="measurement-extraction",
+                    context_kind="measurement_extraction",
+                    context_ref=context_ref,
+                ),
                 conversation_ref=conversation_ref,
                 assistant_ref=assistant_ref,
                 execution_ref=execution_ref,
@@ -374,11 +384,13 @@ def test_execute_llm_tool_calls_activity_persists_raw_data_submit_table(
     result = run_async(
         execute_llm_tool_calls_activity(
             LLMToolExecutionInput(
-                workspace_id="ws-test",
-                run_id="seq-000001",
-                subroutine_id="raw-data",
-                context_kind="raw_data_ingestion",
-                context_ref=context_ref,
+                subroutine=LLMSubroutineRef(
+                    workspace_id="ws-test",
+                    run_id="seq-000001",
+                    subroutine_id="raw-data",
+                    context_kind="raw_data_ingestion",
+                    context_ref=context_ref,
+                ),
                 conversation_ref=conversation_ref,
                 assistant_ref=assistant_ref,
                 execution_ref=execution_ref,
@@ -488,11 +500,13 @@ def test_execute_llm_tool_calls_activity_executes_raw_python_locally(tmp_path):
     result = run_async(
         execute_llm_tool_calls_activity(
             LLMToolExecutionInput(
-                workspace_id="ws-test",
-                run_id="seq-000001",
-                subroutine_id="raw-data",
-                context_kind="raw_data_ingestion",
-                context_ref=context_ref,
+                subroutine=LLMSubroutineRef(
+                    workspace_id="ws-test",
+                    run_id="seq-000001",
+                    subroutine_id="raw-data",
+                    context_kind="raw_data_ingestion",
+                    context_ref=context_ref,
+                ),
                 conversation_ref=conversation_ref,
                 assistant_ref=assistant_ref,
                 execution_ref=execution_ref,
@@ -557,11 +571,13 @@ def test_execute_llm_tool_calls_activity_returns_recoverable_tool_exception(tmp_
     result = run_async(
         execute_llm_tool_calls_activity(
             LLMToolExecutionInput(
-                workspace_id="ws-test",
-                run_id="seq-000001",
-                subroutine_id="raw-data",
-                context_kind="raw_data_ingestion",
-                context_ref=context_ref,
+                subroutine=LLMSubroutineRef(
+                    workspace_id="ws-test",
+                    run_id="seq-000001",
+                    subroutine_id="raw-data",
+                    context_kind="raw_data_ingestion",
+                    context_ref=context_ref,
+                ),
                 conversation_ref=conversation_ref,
                 assistant_ref=assistant_ref,
                 execution_ref=execution_ref,
@@ -600,9 +616,13 @@ def test_append_llm_repair_message_activity_persists_repair_turn(tmp_path):
     result = run_async(
         append_llm_repair_message_activity(
             AppendLLMRepairMessageInput(
-                workspace_id="ws-test",
-                run_id="seq-000001",
-                subroutine_id="repair",
+                subroutine=LLMSubroutineRef(
+                    workspace_id="ws-test",
+                    run_id="seq-000001",
+                    subroutine_id="repair",
+                    context_kind="raw_data_ingestion",
+                    context_ref=str(tmp_path / "context.json"),
+                ),
                 conversation_ref=conversation_ref,
                 next_conversation_ref=next_conversation_ref,
                 error_text="provider rejected malformed tool context",
@@ -677,11 +697,13 @@ def test_execute_llm_tool_calls_activity_terminal_without_result_ref(tmp_path):
     result = run_async(
         execute_llm_tool_calls_activity(
             LLMToolExecutionInput(
-                workspace_id="ws-test",
-                run_id="seq-000001",
-                subroutine_id="raw-data",
-                context_kind="raw_data_ingestion",
-                context_ref=context_ref,
+                subroutine=LLMSubroutineRef(
+                    workspace_id="ws-test",
+                    run_id="seq-000001",
+                    subroutine_id="raw-data",
+                    context_kind="raw_data_ingestion",
+                    context_ref=context_ref,
+                ),
                 conversation_ref=conversation_ref,
                 assistant_ref=assistant_ref,
                 execution_ref=execution_ref,
@@ -733,7 +755,9 @@ def test_extraction_chunk_workflow_runs_shared_llm_subroutine(monkeypatch, tmp_p
         }
     )
 
-    async def fake_call_model(model_name, messages, tools=None, config=None, log_label=None):
+    async def fake_call_model(
+        model_name, messages, *, client, tools=None, config=None, log_label=None
+    ):
         assert not reused, "A retained cache hit must skip the LLM subroutine"
         del messages, tools, config, log_label
         return {
@@ -779,11 +803,13 @@ def test_extraction_chunk_workflow_runs_shared_llm_subroutine(monkeypatch, tmp_p
                     "model_clock": "1d",
                     "indicators": [
                         {
-                            "id": "indicator:steps",
-                            "name": "steps",
-                            "how_to_measure": "Measure steps",
-                            "measurement_dtype": "continuous",
-                            "aggregation": "mean",
+                            "observation": {
+                                "id": "indicator:steps",
+                                "name": "steps",
+                                "measurement_dtype": "continuous",
+                                "aggregation": "mean",
+                            },
+                            "extraction": {"kind": "semantic", "how_to_measure": "Measure steps"},
                         }
                     ],
                 },
@@ -795,18 +821,21 @@ def test_extraction_chunk_workflow_runs_shared_llm_subroutine(monkeypatch, tmp_p
         env = await WorkflowEnvironment.start_local(data_converter=pydantic_data_converter)
         try:
             async with (
+                create_openrouter_client() as transport,
                 build_worker(env.client, task_queue="test-episodes"),
-                build_openrouter_worker(env.client),
+                build_openrouter_worker(env.client, transport),
             ):
                 result = await env.client.execute_workflow(
                     ExtractionChunkWorkflow.run,
                     ExtractionChunkWorkflowInput(
                         workspace_id=workspace_id,
                         run_id="seq-000001",
-                        worker_id=0,
-                        n_windows=1,
-                        spec_ref=spec_ref,
-                        cached_result_ref=cached_result_ref,
+                        chunk=MeasurementChunkRef(
+                            worker_id=0,
+                            n_windows=1,
+                            spec_ref=spec_ref,
+                            cached_result_ref=cached_result_ref,
+                        ),
                         attempt=1,
                         llm=EmbeddedLLMSpec(
                             harness="none",
@@ -1023,11 +1052,13 @@ def test_llm_subroutine_workflow_delegates_harness_tool_to_temporal_activity(
                     "model_clock": "1d",
                     "indicators": [
                         {
-                            "id": "indicator:steps",
-                            "name": "steps",
-                            "how_to_measure": "Measure steps",
-                            "measurement_dtype": "continuous",
-                            "aggregation": "mean",
+                            "observation": {
+                                "id": "indicator:steps",
+                                "name": "steps",
+                                "measurement_dtype": "continuous",
+                                "aggregation": "mean",
+                            },
+                            "extraction": {"kind": "semantic", "how_to_measure": "Measure steps"},
                         }
                     ],
                 },
@@ -1050,11 +1081,13 @@ def test_llm_subroutine_workflow_delegates_harness_tool_to_temporal_activity(
                 handle = await env.client.start_workflow(
                     LLMSubroutineWorkflow.run,
                     LLMSubroutineInput(
-                        workspace_id=workspace_id,
-                        run_id="seq-000001",
-                        subroutine_id="measurement-extraction",
-                        context_kind="measurement_extraction",
-                        context_ref=context_ref,
+                        subroutine=LLMSubroutineRef(
+                            workspace_id=workspace_id,
+                            run_id="seq-000001",
+                            subroutine_id="measurement-extraction",
+                            context_kind="measurement_extraction",
+                            context_ref=context_ref,
+                        ),
                         llm=TypeAdapter(HarnessLLMSpec).validate_python(
                             {"harness": harness, "model": model}
                             | ({"timeout": 10} if harness != "claude-code" else {})

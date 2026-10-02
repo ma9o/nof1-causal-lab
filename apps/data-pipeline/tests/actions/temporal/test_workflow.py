@@ -10,6 +10,7 @@ import json
 import uuid
 from pathlib import Path
 from typing import Any
+from unittest.mock import AsyncMock
 
 import pytest
 
@@ -25,6 +26,7 @@ from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.records import EditAttempt, FitAttempt, Rejected
 from nof1_causal_lab.study.store import ArtifactStore, read_model
+from nof1_causal_lab.utils.openrouter_client import create_openrouter_client
 from tests.git_fixtures import git_oid
 from tests.helpers import graph_constructs
 
@@ -36,13 +38,17 @@ _PREPARATION: dict[str, Any] = {
         "default_window": "1d",
         "variables": [
             {
-                "id": "indicator:sleep",
-                "name": "sleep_steps_proxy",
-                "measurement_dtype": "continuous",
-                "aggregation": "mean",
-                "how_to_measure": "Read the steps column",
-                "source_columns": ["steps"],
-                "extraction_mode": "computed",
+                "observation": {
+                    "id": "indicator:sleep",
+                    "name": "sleep_steps_proxy",
+                    "measurement_dtype": "continuous",
+                    "aggregation": "mean",
+                },
+                "extraction": {
+                    "kind": "computed",
+                    "how_to_measure": "Read the steps column",
+                    "source_columns": ["steps"],
+                },
             }
         ],
     },
@@ -81,11 +87,13 @@ def _measured_model() -> dict[str, Any]:
     model["measurement_clock"] = "1d"
     graph_constructs(model)[0]["indicators"] = [
         {
-            "id": "indicator:sleep",
-            "name": "sleep_steps_proxy",
+            "observation": {
+                "id": "indicator:sleep",
+                "name": "sleep_steps_proxy",
+                "measurement_dtype": "continuous",
+                "aggregation": "mean",
+            },
             "construct_polarity": "positive",
-            "measurement_dtype": "continuous",
-            "aggregation": "mean",
         }
     ]
     return model
@@ -119,7 +127,9 @@ def machine_env(monkeypatch, tmp_path):
         ),
     )
 
-    async def fake_call_model(model_name, messages, tools=None, config=None, log_label=None):
+    async def fake_call_model(
+        model_name, messages, *, client, tools=None, config=None, log_label=None
+    ):
         del config, log_label
         tool_names = {tool.name for tool in tools or []}
         if "execute_python" in tool_names:
@@ -210,20 +220,26 @@ def test_study_workflow_journey(machine_env, monkeypatch):
         env = await WorkflowEnvironment.start_local(data_converter=pydantic_data_converter)
         try:
             async with (
+                create_openrouter_client() as transport,
                 build_worker(env.client),
                 build_model_checks_worker(env.client),
-                build_openrouter_worker(env.client),
+                build_openrouter_worker(env.client, transport),
                 asyncio.timeout(30),
             ):
                 monkeypatch.setenv("READ_ONLY_FACADE", "0")
-                monkeypatch.setattr(study_api, "_client", env.client)
-                handle = await study_api._study_handle(workspace_id)
+                clients = study_api.TemporalClientProvider()
+                monkeypatch.setattr(clients, "get", AsyncMock(return_value=env.client))
+                handle = await study_api._study_handle(workspace_id, clients)
 
                 async def execute(request):
-                    receipt = await study_api.execute_scientific_action(workspace_id, request)
+                    receipt = await study_api.execute_scientific_action(
+                        workspace_id, request, clients
+                    )
                     assert set(receipt.model_dump()) == {"attempt_id"}
                     await handle.get_update_handle(str(receipt.attempt_id)).result()
-                    polled = await study_api.read_action_poll(workspace_id, receipt.attempt_id)
+                    polled = await study_api.read_action_poll(
+                        workspace_id, receipt.attempt_id, clients
+                    )
                     assert isinstance(polled, CompletedPoll)
                     record = StudyRepository(workspace_id).dispatched_attempt(receipt.attempt_id)
                     assert record is not None
@@ -283,7 +299,7 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                     assert raised.record.attempt.outcome.reason == "scientific_inputs"
                     assert state().current == before
 
-                status = await study_api.get_study(workspace_id)
+                status = await study_api.get_study(workspace_id, clients)
                 assert set(status.actions) == {"edit_model", "prepare_data", "fit", "simulate"}
                 assert not any(artifact.stale for artifact in status.artifacts)
 
@@ -291,9 +307,9 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                 # attempt sequence, including failed attempts after the branch head.
                 previous_run_id = handle.first_execution_run_id
                 await handle.terminate()
-                handle = await study_api._study_handle(workspace_id)
+                handle = await study_api._study_handle(workspace_id, clients)
                 assert handle.first_execution_run_id != previous_run_id
-                recovered = await study_api.get_study(workspace_id)
+                recovered = await study_api.get_study(workspace_id, clients)
                 assert recovered.state == status.state
                 assert recovered.seq == status.seq
 
@@ -306,7 +322,7 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                 )
                 assert rewritten.record.attempt.outcome.status == "applied", rewritten
                 assert rewritten.record.seq == recovered.seq + 1
-                status = await study_api.get_study(workspace_id)
+                status = await study_api.get_study(workspace_id, clients)
                 stale = {a.artifact_id for a in status.artifacts if a.stale}
                 assert "panel" not in stale
                 assert "model" not in stale
@@ -388,25 +404,28 @@ def test_status_reports_only_attempts_a_live_workflow_executes(machine_env, monk
         env = await WorkflowEnvironment.start_local(data_converter=pydantic_data_converter)
         try:
             async with (
+                create_openrouter_client() as transport,
                 build_worker(env.client),
                 build_model_checks_worker(env.client),
-                build_openrouter_worker(env.client),
+                build_openrouter_worker(env.client, transport),
                 asyncio.timeout(30),
             ):
                 monkeypatch.setenv("READ_ONLY_FACADE", "0")
-                monkeypatch.setattr(study_api, "_client", env.client)
-                handle = await study_api._study_handle(workspace_id)
+                clients = study_api.TemporalClientProvider()
+                monkeypatch.setattr(clients, "get", AsyncMock(return_value=env.client))
+                handle = await study_api._study_handle(workspace_id, clients)
                 created = await study_api.execute_scientific_action(
                     workspace_id,
                     EditModelRequest(expected_revision=None, model=ModelSpec(question=_QUESTION)),
+                    clients,
                 )
                 await handle.get_update_handle(str(created.attempt_id)).result()
-                assert (await study_api.get_study(workspace_id)).running is None
+                assert (await study_api.get_study(workspace_id, clients)).running is None
 
                 preparing = await study_api.execute_scientific_action(
-                    workspace_id, PrepareDataRequest(input=_PREPARATION)
+                    workspace_id, PrepareDataRequest(input=_PREPARATION), clients
                 )
-                while (running := await study_api._running_action(workspace_id)) is None:
+                while (running := await study_api._running_action(workspace_id, clients)) is None:
                     await asyncio.sleep(0.05)
                 assert running.attempt_id == preparing.attempt_id
                 assert (running.action, running.branch) == ("prepare_data", "main")
@@ -418,7 +437,7 @@ def test_status_reports_only_attempts_a_live_workflow_executes(machine_env, monk
                     RUNNING_ACTION_MEMO, type_hint=RunningAction
                 )
                 assert memo == running
-                assert (await study_api.get_study(workspace_id)).running is None
+                assert (await study_api.get_study(workspace_id, clients)).running is None
         finally:
             release.set()
             await env.shutdown()

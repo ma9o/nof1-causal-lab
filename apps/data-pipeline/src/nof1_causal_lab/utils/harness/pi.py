@@ -20,9 +20,9 @@ from nof1_causal_lab.actions.errors import execution_failure_handler
 from nof1_causal_lab.utils.agent_session import AgentResult, TurnResult
 from nof1_causal_lab.utils.harness.pi_tool_bridge import serve_pi_tools_http
 from nof1_causal_lab.utils.harness.stream_json import (
-    PiStreamState,
+    SessionStreamRuntime,
     apply_pi_event,
-    finalize_pi_trace,
+    finalize_trace,
     format_pi_event_for_log,
     parse_stream_event,
 )
@@ -86,7 +86,7 @@ export default function (pi: ExtensionAPI) {{
 
 def build_pi_argv(
     *,
-    bin: str,
+    executable: str,
     user_message: str,
     provider: str,
     model: str,
@@ -99,7 +99,7 @@ def build_pi_argv(
 ) -> list[str]:
     """Build one deterministic, non-interactive Pi invocation."""
     argv = [
-        bin,
+        executable,
         "--mode",
         "json",
         "--print",
@@ -145,7 +145,7 @@ class PiHarnessSession:
         provider: str,
         model: str,
         thinking: str,
-        bin: str = "pi",
+        executable: str = "pi",
         timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
         log_label: str | None = None,
         initial_events: list[JsonObject] | None = None,
@@ -161,7 +161,7 @@ class PiHarnessSession:
         self._provider = provider
         self._model = model
         self._thinking = thinking
-        self._bin = bin
+        self._bin = executable
         self._timeout_seconds = timeout_seconds
         self._log_label = log_label
         self._session_id = session_id or str(uuid.uuid4())
@@ -172,7 +172,7 @@ class PiHarnessSession:
                 initial_session_jsonl
             )
 
-        self._state = PiStreamState()
+        self._state = SessionStreamRuntime()
         for event in initial_events or []:
             apply_pi_event(self._state, event)
         self._terminal_tool: tuple[str, str] | None = None
@@ -197,7 +197,7 @@ class PiHarnessSession:
         pre_event_count = len(self._state.raw_events)
         started = perf_counter()
         argv = build_pi_argv(
-            bin=self._bin,
+            executable=self._bin,
             user_message=user_message,
             provider=self._provider,
             model=self._model,
@@ -308,7 +308,7 @@ class PiHarnessSession:
     def result(self) -> AgentResult:
         return AgentResult(
             completion=self._state.final_text,
-            trace=finalize_pi_trace(self._state),
+            trace=finalize_trace(self._state),
             terminal_tool_name=self._terminal_tool[0] if self._terminal_tool else None,
             terminal_tool_output=self._terminal_tool[1] if self._terminal_tool else None,
         )
@@ -325,7 +325,7 @@ async def open_pi_harness_session(
     provider: str = "openai-codex",
     model: str,
     thinking: str = "high",
-    bin: str = "pi",
+    executable: str = "pi",
     timeout_seconds: float = _DEFAULT_TIMEOUT_SECONDS,
     log_label: str | None = None,
     initial_events: list[JsonObject] | None = None,
@@ -347,7 +347,7 @@ async def open_pi_harness_session(
                 provider=provider,
                 model=model,
                 thinking=thinking,
-                bin=bin,
+                executable=executable,
                 timeout_seconds=timeout_seconds,
                 log_label=log_label,
                 initial_events=initial_events,

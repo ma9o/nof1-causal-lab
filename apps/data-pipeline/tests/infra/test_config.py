@@ -7,7 +7,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from nof1_causal_lab.actions.inference.fit import resolve_sampler_spec
 from nof1_causal_lab.actions.temporal.backend_config import llm_backend_config
-from nof1_causal_lab.actions.temporal.messages import LLMSubroutineInput
+from nof1_causal_lab.actions.temporal.messages import LLMSubroutineInput, LLMSubroutineRef
 from nof1_causal_lab.artifacts.posterior import FitSettingsSpec
 from nof1_causal_lab.llm_specs import CodexLLMSpec, EmbeddedLLMSpec, LLMProfileSpec, PiLLMSpec
 from nof1_causal_lab.sampler_config import MarginalParticleGibbsSpec, SamplerSpec
@@ -424,15 +424,18 @@ class TestValidateConfig:
             max_tool_turns=None,
         )
         request = LLMSubroutineInput(
-            workspace_id="test",
-            run_id="run",
-            subroutine_id="raw_data",
-            context_kind="raw_data_ingestion",
-            context_ref="context.json",
+            subroutine=LLMSubroutineRef(
+                workspace_id="test",
+                run_id="run",
+                subroutine_id="raw_data",
+                context_kind="raw_data_ingestion",
+                context_ref="context.json",
+            ),
             llm=llm,
             max_tool_turns=5,
         )
         restored = LLMSubroutineInput.model_validate_json(request.model_dump_json())
+        assert restored.subroutine == request.subroutine
         assert restored.llm == CodexLLMSpec(
             model="codex-test",
             bin="custom-codex",

@@ -227,7 +227,7 @@ def _execute_raw_data_submit_table(
 
 async def execute_subroutine_tool(
     *,
-    input: LLMToolExecutionInput | HarnessToolRequest,
+    activity_input: LLMToolExecutionInput | HarnessToolRequest,
     tool: LLMToolSpec,
     args: object,
     result_ref: str,
@@ -235,7 +235,7 @@ async def execute_subroutine_tool(
     if tool.executor == "measurement_validation":
         data = json.loads(ValidateExtractionsInput.model_validate(args).output_json)
         context_output, feedback = _validate_measurement_payload(
-            context_ref=input.context_ref,
+            context_ref=activity_input.subroutine.context_ref,
             data=data,
         )
         if context_output is not None:
@@ -244,15 +244,19 @@ async def execute_subroutine_tool(
         return feedback, None
 
     if tool.executor == "raw_data_list_files":
-        return _execute_raw_data_list_files(input.context_ref, ListFilesInput.model_validate(args))
+        return _execute_raw_data_list_files(
+            activity_input.subroutine.context_ref, ListFilesInput.model_validate(args)
+        )
     if tool.executor == "raw_data_read_file_sample":
         return _execute_raw_data_read_file_sample(
-            input.context_ref, ReadFileSampleInput.model_validate(args)
+            activity_input.subroutine.context_ref, ReadFileSampleInput.model_validate(args)
         )
     if tool.executor == "raw_data_execute_python":
-        return _execute_raw_data_python(input.context_ref, ExecutePythonInput.model_validate(args))
+        return _execute_raw_data_python(
+            activity_input.subroutine.context_ref, ExecutePythonInput.model_validate(args)
+        )
     if tool.executor == "raw_data_submit_table":
         return _execute_raw_data_submit_table(
-            input.context_ref, result_ref, SubmitTableInput.model_validate(args)
+            activity_input.subroutine.context_ref, result_ref, SubmitTableInput.model_validate(args)
         )
     assert_never(tool.executor)

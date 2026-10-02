@@ -46,7 +46,6 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._conte
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._contract import (
     _DSMC_LEAF_PROPOSAL_PAID_MIX,
     _LATENT_SMOOTHER_DSMC,
-    DSMCLeafProposal,
     MPGibbsLatentSmoother,
     MPGibbsStatic,
     _resolve_latent_smoother,
@@ -62,7 +61,7 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.diagno
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.smoothers.dsmc import (
     step as dsmc_step,
 )
-from nof1_causal_lab.sampler_config import MarginalParticleGibbsSpec
+from nof1_causal_lab.sampler_config import DSMCLeafProposal, MarginalParticleGibbsSpec
 
 if TYPE_CHECKING:
     from collections.abc import Callable

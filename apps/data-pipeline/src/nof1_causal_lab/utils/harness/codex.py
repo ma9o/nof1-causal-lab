@@ -116,7 +116,7 @@ def build_codex_mcp_toml(
 
 def build_codex_argv(
     *,
-    bin: str,
+    executable: str,
     user_message: str,
     thread_id: str | None,
     model: str,
@@ -130,7 +130,7 @@ def build_codex_argv(
     When ``thread_id`` is provided, use the ``resume`` subcommand; on a
     fresh session, the ``thread_id`` comes back in the first event.
     """
-    argv: list[str] = [str(bin), "exec"]
+    argv: list[str] = [str(executable), "exec"]
     if thread_id is not None:
         argv.extend(["resume", thread_id])
     argv.extend(
@@ -271,7 +271,7 @@ class CodexHarnessSession:
         tools: list[Tool],
         codex_home: Path,
         model: str,
-        bin: str = "codex",
+        executable: str = "codex",
         reasoning_effort: str | None = None,
         service_tier: str | None = None,
         cwd: str | Path | None = None,
@@ -284,7 +284,7 @@ class CodexHarnessSession:
         self._tool_stop_map = {t.name: t.success_output for t in tools if t.stop_on_success}
         self._codex_home = codex_home
         self._model = model
-        self._bin = bin
+        self._bin = executable
         self._reasoning_effort = reasoning_effort
         self._service_tier = service_tier
         self._cwd = cwd
@@ -311,7 +311,7 @@ class CodexHarnessSession:
         pre_event_count = len(self._state.raw_events)
 
         inner_argv = build_codex_argv(
-            bin=self._bin,
+            executable=self._bin,
             user_message=user_message,
             thread_id=self._state.thread_id if self._turn_index > 1 else None,
             model=self._model,
@@ -503,7 +503,7 @@ async def open_codex_harness_session(
     tools: list[Tool],
     system_prompt: str | None = None,
     model: str,
-    bin: str = "codex",
+    executable: str = "codex",
     reasoning_effort: str | None = None,
     service_tier: str | None = None,
     cwd: str | Path | None = None,
@@ -537,7 +537,7 @@ async def open_codex_harness_session(
                 tools=tools,
                 codex_home=codex_home,
                 model=model,
-                bin=bin,
+                executable=executable,
                 reasoning_effort=reasoning_effort,
                 service_tier=service_tier,
                 # Default the agent's working root to the scratch CODEX_HOME

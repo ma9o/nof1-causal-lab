@@ -123,26 +123,24 @@ class LLMToolSpec(BaseModel):
     success_output: str | None = "VALID"
 
 
+class LLMSubroutineRef(BaseModel):
+    """Execution identity and stored context shared by a subroutine's messages."""
+
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    workspace_id: str
+    run_id: str
+    subroutine_id: str
+    context_kind: LLMSubroutineContextKind
+    context_ref: str
+
+
 class LLMSubroutineInput(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    workspace_id: str
-    run_id: str
-    subroutine_id: str
-    context_kind: LLMSubroutineContextKind
-    context_ref: str
+    subroutine: LLMSubroutineRef
     llm: LLMProfileSpec
     max_tool_turns: int
-
-
-class LLMSubroutineStartInput(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    workspace_id: str
-    run_id: str
-    subroutine_id: str
-    context_kind: LLMSubroutineContextKind
-    context_ref: str
 
 
 class LLMSubroutineStart(BaseModel):
@@ -163,11 +161,7 @@ class LLMSubroutineStart(BaseModel):
 class AppendLLMUserMessageInput(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    workspace_id: str
-    run_id: str
-    subroutine_id: str
-    context_kind: LLMSubroutineContextKind
-    context_ref: str
+    subroutine: LLMSubroutineRef
     conversation_ref: str
     user_message_index: int
 
@@ -181,9 +175,7 @@ class AppendLLMUserMessageResult(BaseModel):
 class AppendLLMRepairMessageInput(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    workspace_id: str
-    run_id: str
-    subroutine_id: str
+    subroutine: LLMSubroutineRef
     conversation_ref: str
     next_conversation_ref: str
     error_text: str
@@ -199,11 +191,7 @@ class AppendLLMRepairMessageResult(BaseModel):
 class LLMToolExecutionInput(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    workspace_id: str
-    run_id: str
-    subroutine_id: str
-    context_kind: LLMSubroutineContextKind
-    context_ref: str
+    subroutine: LLMSubroutineRef
     conversation_ref: str
     assistant_ref: str
     execution_ref: str
@@ -227,11 +215,7 @@ class HarnessTurnInput(BaseModel):
 
     workflow_id: str
     workflow_run_id: str
-    workspace_id: str
-    run_id: str
-    subroutine_id: str
-    context_kind: LLMSubroutineContextKind
-    context_ref: str
+    subroutine: LLMSubroutineRef
     harness_state_ref: str
     harness_tool_ref_base: str
     result_ref: str
@@ -245,11 +229,7 @@ class HarnessToolRequest(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     request_id: str
-    workspace_id: str
-    run_id: str
-    subroutine_id: str
-    context_kind: LLMSubroutineContextKind
-    context_ref: str
+    subroutine: LLMSubroutineRef
     result_ref: str
     tool: LLMToolSpec
     tool_name: str
@@ -292,9 +272,7 @@ class LLMSubroutineResult(BaseModel):
 class LLMSubroutineTraceInput(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    workspace_id: str
-    run_id: str
-    subroutine_id: str
+    subroutine: LLMSubroutineRef
     conversation_ref: str
     call_ref_base: str
     harness_trace_refs: list[str] = Field(default_factory=list)
@@ -362,13 +340,10 @@ class ExtractionChunkWorkflowInput(BaseModel):
 
     workspace_id: str
     run_id: str
-    worker_id: int
-    n_windows: int
-    spec_ref: str
+    chunk: MeasurementChunkRef
     attempt: int
     llm: EmbeddedLLMSpec
     max_tool_turns: int
-    cached_result_ref: str | None = None
 
 
 class OpenRouterCallInput(BaseModel):

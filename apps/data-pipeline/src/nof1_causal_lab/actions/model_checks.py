@@ -171,8 +171,7 @@ def _write_validation(
         for issue in data_binding_issues(model, read_data_metadata(store, pins["panel"]))
     )
     payload = ValidationReportArtifact(
-        indicators=audit_result.indicators,
-        dataset_issues=(*audit_result.dataset_issues, *binding_issues),
+        data=audit_result.revised(dataset_issues=(*audit_result.dataset_issues, *binding_issues)),
         preflight=preflight,
     )
     return store.write_artifact(

@@ -36,12 +36,12 @@ if TYPE_CHECKING:
 
     from pydantic.json_schema import JsonSchemaValue
 
+    from nof1_causal_lab.llm_specs import EmbeddedReasoningEffort
+
 
 logger = logging.getLogger(__name__)
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_MODEL_PREFIX = "openrouter/"
-
-type PydanticFieldDefinitions = dict[str, Any]
 
 
 # ---------------------------------------------------------------------------
@@ -87,8 +87,6 @@ class RpmLimiter:
 
 
 _limiters: dict[str, RpmLimiter] = {}
-_openrouter_client: AsyncOpenAI | None = None
-_openrouter_client_lock = threading.Lock()
 
 
 async def acquire_limiter(name: str) -> None:
@@ -98,18 +96,14 @@ async def acquire_limiter(name: str) -> None:
         await limiter.acquire()
 
 
-def _get_openrouter_client() -> AsyncOpenAI:
-    """The process-wide client, keyed by the ambient ``OPENROUTER_API_KEY``."""
-    global _openrouter_client
-    with _openrouter_client_lock:
-        if _openrouter_client is None:
-            _openrouter_client = AsyncOpenAI(
-                base_url=OPENROUTER_BASE_URL,
-                # The SDK requires a string up front; missing credentials still
-                # surface as a normal authentication error on the first request.
-                api_key=get_secret("OPENROUTER_API_KEY") or "missing",
-            )
-    return _openrouter_client
+def create_openrouter_client() -> AsyncOpenAI:
+    """Create the client whose connection pool is owned by its worker's lifetime."""
+    return AsyncOpenAI(
+        base_url=OPENROUTER_BASE_URL,
+        # The SDK requires a string up front; missing credentials still
+        # surface as a normal authentication error on the first request.
+        api_key=get_secret("OPENROUTER_API_KEY") or "missing",
+    )
 
 
 def normalize_openrouter_model_name(model_name: str) -> str:
@@ -127,7 +121,7 @@ class GenerateConfig:
 
     max_tokens: int | None = None
     timeout: int | None = None
-    reasoning_effort: Literal["none", "minimal", "low", "medium", "high", "xhigh"] | None = None
+    reasoning_effort: EmbeddedReasoningEffort | None = None
     max_tool_output: int | None = None
 
 
@@ -243,7 +237,7 @@ def _parameter_schema(handler: Callable[..., Awaitable[str]], name: str) -> Json
 
     signature = inspect.signature(handler)
     descriptions = _parse_arg_descriptions(inspect.getdoc(handler))
-    fields: PydanticFieldDefinitions = {}
+    fields: dict[str, Any] = {}  # pyright: ignore[reportExplicitAny] -- create_model types field definitions as Any keyword arguments beside its own __config__/__base__ options.
 
     for parameter_name, param in signature.parameters.items():
         annotation = param.annotation if param.annotation is not inspect.Signature.empty else Any
@@ -465,6 +459,8 @@ class ModelCallResult(TypedDict):
 async def call_model(
     model_name: str,
     messages: Sequence[object],
+    *,
+    client: AsyncOpenAI,
     tools: list[Tool] | None = None,
     config: GenerateConfig | None = None,
     log_label: str | None = None,
@@ -498,7 +494,7 @@ async def call_model(
         )
 
     started_at = perf_counter()
-    request_coro = _get_openrouter_client().chat.completions.create(
+    request_coro = client.chat.completions.create(
         model=normalized_model_name,
         messages=[normalize_message(message) for message in messages],
         max_tokens=request.max_tokens if request.max_tokens is not None else omit,

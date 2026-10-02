@@ -11,30 +11,35 @@ from nof1_causal_lab.artifacts.base import Value
 
 from .identity import ConstructId, EntityRef, IndicatorRef, ParameterRef
 
-type NotEvaluatedReason = Literal[
+type PredictiveCheckReason = Literal[
     "MODEL_INCOMPLETE",
     "MODEL_NOT_EXECUTABLE",
     "NO_COMPATIBLE_PANEL",
     "INSUFFICIENT_OBSERVATION_TIMES",
     "SIMULATION_UNSUPPORTED",
-    "NONFINITE_EMISSION_MEAN",
-    "INSUFFICIENT_TIMES",
-    "NO_RELAXATION_TERM",
-    "EDGE_CONTRASTS_EXPLICIT",
-    "NO_OBSERVATION_SUPPORT",
-    "NO_OBSERVATIONS",
-    "STATIC_CONSTRUCT",
-    "INSUFFICIENT_OBSERVATIONS",
-    "ZERO_RESIDUAL_VARIANCE",
-    "ZERO_OBSERVED_VARIANCE",
-    "NONFINITE_PATHS",
-    "NONFINITE_SIGNAL",
-    "COMPARISON_INPUTS_MISSING",
-    "INSUFFICIENT_CHAIN_SAMPLES",
-    "NO_RETAINED_CHAINS",
     "ARCHIVED_MEASUREMENT_NOT_RETAINED",
-    "ARCHIVED_ENGINE_NOT_RETAINED",
 ]
+type NotEvaluatedReason = (
+    PredictiveCheckReason
+    | Literal[
+        "NONFINITE_EMISSION_MEAN",
+        "INSUFFICIENT_TIMES",
+        "NO_RELAXATION_TERM",
+        "EDGE_CONTRASTS_EXPLICIT",
+        "NO_OBSERVATION_SUPPORT",
+        "NO_OBSERVATIONS",
+        "STATIC_CONSTRUCT",
+        "INSUFFICIENT_OBSERVATIONS",
+        "ZERO_RESIDUAL_VARIANCE",
+        "ZERO_OBSERVED_VARIANCE",
+        "NONFINITE_PATHS",
+        "NONFINITE_SIGNAL",
+        "COMPARISON_INPUTS_MISSING",
+        "INSUFFICIENT_CHAIN_SAMPLES",
+        "NO_RETAINED_CHAINS",
+        "ARCHIVED_ENGINE_NOT_RETAINED",
+    ]
+)
 
 
 class Evaluated[Subject, Evidence](Value):

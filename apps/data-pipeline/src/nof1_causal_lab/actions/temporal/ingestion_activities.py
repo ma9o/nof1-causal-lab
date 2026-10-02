@@ -45,15 +45,15 @@ def _read_raw_data_json(path: str) -> JsonObject:
 
 @activity.defn
 async def plan_ingestion_activity(
-    input: IngestionWorkflowInput,
+    activity_input: IngestionWorkflowInput,
 ) -> IngestionPlan:
     from nof1_causal_lab.actions.ingestion.flow import (
         _prepare_raw_input,
     )
     from nof1_causal_lab.utils.config import get_config
 
-    run_id = f"seq-{input.seq:06d}"
-    root = _raw_data_root(input.workspace_id, run_id)
+    run_id = f"seq-{activity_input.seq:06d}"
+    root = _raw_data_root(activity_input.workspace_id, run_id)
     upload_dir = storage.join(root, "upload")
     extract_dir = storage.join(root, "input")
     storage.rm_tree(upload_dir)
@@ -61,8 +61,10 @@ async def plan_ingestion_activity(
     storage.makedirs(upload_dir)
     storage.makedirs(extract_dir)
 
-    for index, raw_name in enumerate(input.source.files):
-        raw_storage_path = storage.join(data_module.input_dir(input.workspace_id), raw_name)
+    for index, raw_name in enumerate(activity_input.source.files):
+        raw_storage_path = storage.join(
+            data_module.input_dir(activity_input.workspace_id), raw_name
+        )
         local_raw = Path(upload_dir) / raw_name
         with storage.open_file(raw_storage_path, "rb") as uploaded:
             local_raw.write_bytes(uploaded.read())
@@ -97,7 +99,7 @@ async def plan_ingestion_activity(
         context_ref,
         llm,
         max_tool_turns,
-        {"files": input.source.files, "staged": manifest},
+        {"files": activity_input.source.files, "staged": manifest},
     )
     context = dict(_read_raw_data_json(context_ref))
     context["cache_ref"] = cache_ref
@@ -112,7 +114,7 @@ async def plan_ingestion_activity(
         _write_raw_data_json(cached_result_ref, {"table_ref": table_ref})
     _write_raw_data_json(context_ref, context)
     return IngestionPlan(
-        workspace_id=input.workspace_id,
+        workspace_id=activity_input.workspace_id,
         run_id=run_id,
         context_ref=context_ref,
         llm=llm,
@@ -123,14 +125,16 @@ async def plan_ingestion_activity(
 
 @activity.defn
 @execution_failure_handler
-async def finalize_ingestion_activity(input: IngestionFinalizeInput) -> DataPreparationResult:
+async def finalize_ingestion_activity(
+    activity_input: IngestionFinalizeInput,
+) -> DataPreparationResult:
     import pyarrow as pa
 
     from nof1_causal_lab.utils.content_cache import publish
 
     try:
-        result = _read_raw_data_json(input.result_ref)
-        context = RawDataContext.model_validate(_read_raw_data_json(input.context_ref))
+        result = _read_raw_data_json(activity_input.result_ref)
+        context = RawDataContext.model_validate(_read_raw_data_json(activity_input.context_ref))
         with storage.open_file(TypeAdapter(str).validate_python(result["table_ref"]), "rb") as file:
             payload = file.read()
         # Terminal submit_table validated this Arrow payload, including field metadata.
@@ -138,7 +142,7 @@ async def finalize_ingestion_activity(input: IngestionFinalizeInput) -> DataPrep
         payload = publish(context.cache_ref, payload)
         table = pa.ipc.open_file(pa.BufferReader(payload)).read_all()
 
-        store = ArtifactStore(input.workspace_id)
+        store = ArtifactStore(activity_input.workspace_id)
         produced = [
             store.write_artifact(
                 "raw_data",

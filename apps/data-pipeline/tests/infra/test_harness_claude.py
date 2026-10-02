@@ -53,7 +53,7 @@ class TestBuildMcpConfigJson:
 class TestBuildClaudeArgv:
     def test_first_turn_uses_session_id_not_resume(self):
         argv = build_claude_argv(
-            bin="claude",
+            executable="claude",
             user_message="hello",
             session_id="abc123",
             resume=False,
@@ -80,7 +80,7 @@ class TestBuildClaudeArgv:
 
     def test_follow_up_turn_uses_resume(self):
         argv = build_claude_argv(
-            bin="claude",
+            executable="claude",
             user_message="review",
             session_id="abc123",
             resume=True,
@@ -98,7 +98,7 @@ class TestBuildClaudeArgv:
 
     def test_optional_flags_omitted_when_none(self):
         argv = build_claude_argv(
-            bin="claude",
+            executable="claude",
             user_message="hi",
             session_id="s",
             resume=False,
@@ -118,7 +118,7 @@ class TestBuildClaudeArgv:
 
     def test_max_budget_and_fallback_model_pass_through(self):
         argv = build_claude_argv(
-            bin="claude",
+            executable="claude",
             user_message="hi",
             session_id="s",
             resume=False,

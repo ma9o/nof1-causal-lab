@@ -76,8 +76,8 @@ def _materialize_trace(state: _TraceAccumulator) -> LLMTrace:
 
 
 @dataclass
-class ClaudeStreamState:
-    """Accumulator for :func:`parse_claude_stream`."""
+class SessionStreamRuntime:
+    """Accumulator for Claude Code and Pi session event streams."""
 
     session_id: str | None = None
     model: str = ""
@@ -198,7 +198,7 @@ def _extract_usage(usage_raw: JsonValue) -> TraceUsage:
     )
 
 
-def apply_claude_event(state: ClaudeStreamState, event: JsonObject) -> None:
+def apply_claude_event(state: SessionStreamRuntime, event: JsonObject) -> None:
     """Fold one Claude stream-json event into the accumulator."""
     state.raw_events.append(event)
     etype = event.get("type")
@@ -481,7 +481,7 @@ def format_claude_event_for_log(event: JsonObject) -> str | None:
     return None
 
 
-def finalize_trace(state: ClaudeStreamState) -> LLMTrace:
+def finalize_trace(state: SessionStreamRuntime) -> LLMTrace:
     """Materialize an :class:`LLMTrace` from an accumulator."""
     return _materialize_trace(state)
 
@@ -622,20 +622,6 @@ def finalize_codex_trace(state: CodexStreamState) -> LLMTrace:
 # ---------------------------------------------------------------------------
 
 
-@dataclass
-class PiStreamState:
-    """Accumulator for Pi's ``--mode json`` event stream."""
-
-    session_id: str | None = None
-    model: str = ""
-    messages: list[TraceMessage] = field(default_factory=list)
-    usage: TraceUsage = field(default_factory=TraceUsage)
-    total_time_seconds: float = 0.0
-    stop_reason: str | None = None
-    final_text: str = ""
-    raw_events: list[JsonObject] = field(default_factory=list)
-
-
 def _pi_content_text(content: JsonValue) -> str:
     if isinstance(content, str):
         return content
@@ -687,7 +673,7 @@ def _add_usage(total: TraceUsage, usage_raw: JsonValue) -> TraceUsage:
     )
 
 
-def apply_pi_event(state: PiStreamState, event: JsonObject) -> None:
+def apply_pi_event(state: SessionStreamRuntime, event: JsonObject) -> None:
     """Fold one Pi JSON event into ``state``."""
     state.raw_events.append(event)
     etype = event.get("type")
@@ -771,8 +757,3 @@ def format_pi_event_for_log(event: JsonObject) -> str | None:
     if etype == "agent_end":
         return "pi turn completed"
     return None
-
-
-def finalize_pi_trace(state: PiStreamState) -> LLMTrace:
-    """Materialize an :class:`LLMTrace` from a Pi accumulator."""
-    return _materialize_trace(state)

@@ -9,21 +9,13 @@ from pydantic import Field
 
 from nof1_causal_lab.artifacts.base import Value
 
-from .checks import Evaluated, PredictiveAssessment, SpecificationReport
+from .checks import Evaluated, PredictiveAssessment, PredictiveCheckReason, SpecificationReport
 from .identity import GitOid
 from .posterior_diagnostics import PosteriorPredictiveChecks
 from .predictive_provenance import PredictiveLawProvenance
 from .simulation import SimulationSpec
 
 type CheckGroup = Literal["specification", "identification", "compatibility"]
-type PredictiveCheckReason = Literal[
-    "MODEL_INCOMPLETE",
-    "MODEL_NOT_EXECUTABLE",
-    "NO_COMPATIBLE_PANEL",
-    "INSUFFICIENT_OBSERVATION_TIMES",
-    "SIMULATION_UNSUPPORTED",
-    "ARCHIVED_MEASUREMENT_NOT_RETAINED",
-]
 
 
 class ModelPredictiveReport(Value):

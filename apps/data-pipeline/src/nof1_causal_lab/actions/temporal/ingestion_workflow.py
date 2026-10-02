@@ -21,6 +21,7 @@ with workflow.unsafe.imports_passed_through():
         IngestionFinalizeInput,
         IngestionWorkflowInput,
         LLMSubroutineInput,
+        LLMSubroutineRef,
     )
     from nof1_causal_lab.actions.temporal.workflow_support import (
         emit_progress,
@@ -42,19 +43,19 @@ _ACTIVITY_RETRY = RetryPolicy(
 class IngestionWorkflow:
     @workflow.run
     @execution_failure_handler
-    async def run(self, input: IngestionWorkflowInput) -> DataPreparationResult:
+    async def run(self, workflow_input: IngestionWorkflowInput) -> DataPreparationResult:
         def step(status: StepStatus, error: StepError | None = None) -> StepEvent:
             return StepEvent(
-                attempt_id=input.attempt_id, step="ingestion", status=status, error=error
+                attempt_id=workflow_input.attempt_id, step="ingestion", status=status, error=error
             )
 
-        await emit_progress(input.workspace_id, step("running"))
+        await emit_progress(workflow_input.workspace_id, step("running"))
         try:
             context_kind = "raw_data_ingestion"
             subroutine_id = "raw-data"
             plan = await workflow.execute_activity(
                 plan_ingestion_activity,
-                input,
+                workflow_input,
                 start_to_close_timeout=timedelta(minutes=30),
                 retry_policy=_ACTIVITY_RETRY,
                 summary="Plan raw-data ingestion",
@@ -64,23 +65,25 @@ class IngestionWorkflow:
                 subroutine = await workflow.execute_child_workflow(
                     LLMSubroutineWorkflow.run,
                     LLMSubroutineInput(
-                        workspace_id=input.workspace_id,
-                        run_id=plan.run_id,
-                        subroutine_id=subroutine_id,
-                        context_kind=context_kind,
-                        context_ref=plan.context_ref,
+                        subroutine=LLMSubroutineRef(
+                            workspace_id=workflow_input.workspace_id,
+                            run_id=plan.run_id,
+                            subroutine_id=subroutine_id,
+                            context_kind=context_kind,
+                            context_ref=plan.context_ref,
+                        ),
                         llm=plan.llm,
                         max_tool_turns=plan.max_tool_turns,
                     ),
-                    id=f"llm-raw-data-{input.workspace_id}-{input.seq:06d}",
+                    id=f"llm-raw-data-{workflow_input.workspace_id}-{workflow_input.seq:06d}",
                     task_queue=workflow.info().task_queue,
                     static_summary="LLM raw-data ingestion subroutine",
                     static_details=(
-                        f"workspace={input.workspace_id}; subroutine={subroutine_id}; "
+                        f"workspace={workflow_input.workspace_id}; subroutine={subroutine_id}; "
                         f"context={context_kind}"
                     ),
                     memo={
-                        "workspace_id": input.workspace_id,
+                        "workspace_id": workflow_input.workspace_id,
                         "subroutine_id": subroutine_id,
                         "context_kind": context_kind,
                         "run_id": plan.run_id,
@@ -90,7 +93,7 @@ class IngestionWorkflow:
             effects = await workflow.execute_activity(
                 finalize_ingestion_activity,
                 IngestionFinalizeInput(
-                    workspace_id=input.workspace_id,
+                    workspace_id=workflow_input.workspace_id,
                     context_ref=plan.context_ref,
                     result_ref=result_ref,
                 ),
@@ -101,9 +104,9 @@ class IngestionWorkflow:
         except Exception as exc:
             failure = temporal_failure(exc)
             await emit_progress(
-                input.workspace_id,
+                workflow_input.workspace_id,
                 step("failed", StepError(type=failure.error_type, message=failure.error_message)),
             )
             raise
-        await emit_progress(input.workspace_id, step("completed"))
+        await emit_progress(workflow_input.workspace_id, step("completed"))
         return effects

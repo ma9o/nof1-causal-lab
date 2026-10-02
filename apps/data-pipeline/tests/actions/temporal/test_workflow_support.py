@@ -2,6 +2,7 @@
 
 import asyncio
 from typing import Any
+from unittest.mock import AsyncMock, MagicMock, Mock
 from uuid import uuid4
 
 import pytest
@@ -16,6 +17,65 @@ from nof1_causal_lab.actions.temporal.workflow_support import (
 )
 
 pytestmark = pytest.mark.contract
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_openrouter_transport_is_scoped_to_the_worker_lifetime(monkeypatch, fails):
+    from nof1_causal_lab.actions.temporal import worker
+    from nof1_causal_lab.utils import config, openrouter_client
+
+    temporal_client = Mock()
+    transport = Mock()
+    pending_finished = not fails
+
+    def close_transport(*_args):
+        assert pending_finished
+        return False
+
+    transport_scope = MagicMock(
+        __aenter__=AsyncMock(return_value=transport),
+        __aexit__=AsyncMock(side_effect=close_transport),
+    )
+    factory = Mock(return_value=transport_scope)
+    monkeypatch.setattr(openrouter_client, "create_openrouter_client", factory)
+    monkeypatch.setattr(config, "configure_jax_persistent_cache", Mock())
+    monkeypatch.setattr(worker, "connect_client", AsyncMock(return_value=temporal_client))
+
+    builders = {}
+    for name in (
+        "build_worker",
+        "build_openrouter_worker",
+        "build_harness_worker",
+        "build_model_checks_worker",
+    ):
+        run = AsyncMock(
+            side_effect=RuntimeError("worker failed")
+            if fails and name == "build_openrouter_worker"
+            else None
+        )
+        builders[name] = Mock(return_value=Mock(run=run))
+        monkeypatch.setattr(worker, name, builders[name])
+
+    if fails:
+
+        async def pending_worker():
+            nonlocal pending_finished
+            try:
+                await asyncio.Event().wait()
+            finally:
+                pending_finished = True
+
+        builders["build_worker"].return_value.run = pending_worker
+        with pytest.raises(ExceptionGroup) as failure:
+            asyncio.run(worker.run_worker())
+        assert len(failure.value.exceptions) == 1
+        assert str(failure.value.exceptions[0]) == "worker failed"
+    else:
+        asyncio.run(worker.run_worker())
+
+    factory.assert_called_once_with()
+    builders["build_openrouter_worker"].assert_called_once_with(temporal_client, transport)
+    transport_scope.__aexit__.assert_awaited_once()
 
 
 class _WrappedError(FailureError):

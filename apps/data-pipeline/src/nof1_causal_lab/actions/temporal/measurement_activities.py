@@ -8,6 +8,7 @@ live progress events.
 from __future__ import annotations
 
 import json
+from typing import TYPE_CHECKING
 
 from pydantic import TypeAdapter
 from temporalio import activity
@@ -43,6 +44,9 @@ from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
 from nof1_causal_lab.workers.schemas import ExtractionRow
 
+if TYPE_CHECKING:
+    from openai import AsyncOpenAI
+
 
 def _run_root(workspace_id: str, run_id: str) -> str:
     return storage.join(data_module.scratch_run_dir(workspace_id, run_id), "extraction")
@@ -57,14 +61,14 @@ def _read_json(path: str) -> JsonObject:
 
 
 @activity.defn
-async def emit_progress_event_activity(input: ProgressEventInput) -> None:
+async def emit_progress_event_activity(activity_input: ProgressEventInput) -> None:
     from nof1_causal_lab.actions.progress import emit_event
 
-    emit_event(input.workspace_id, input.event)
+    emit_event(activity_input.workspace_id, activity_input.event)
 
 
 @activity.defn
-async def plan_measurements_activity(input: MeasurementsWorkflowInput) -> MeasurementsPlan:
+async def plan_measurements_activity(activity_input: MeasurementsWorkflowInput) -> MeasurementsPlan:
     import polars as pl
 
     from nof1_causal_lab.actions.extraction.planning import prepare_semantic_chunks
@@ -72,11 +76,11 @@ async def plan_measurements_activity(input: MeasurementsWorkflowInput) -> Measur
     from nof1_causal_lab.utils.config import get_config
     from nof1_causal_lab.workers.schemas import WorkerOutput
 
-    store = ArtifactStore(input.workspace_id)
-    store.read_meta("raw_data", input.raw_data_revision)
-    pins: dict[ArtifactId, GitOid] = {"raw_data": input.raw_data_revision}
-    run_id = f"seq-{input.seq:06d}"
-    root = _run_root(input.workspace_id, run_id)
+    store = ArtifactStore(activity_input.workspace_id)
+    store.read_meta("raw_data", activity_input.raw_data_revision)
+    pins: dict[ArtifactId, GitOid] = {"raw_data": activity_input.raw_data_revision}
+    run_id = f"seq-{activity_input.seq:06d}"
+    root = _run_root(activity_input.workspace_id, run_id)
 
     raw_table = store.read_parquet_table(
         "raw_data",
@@ -84,16 +88,16 @@ async def plan_measurements_activity(input: MeasurementsWorkflowInput) -> Measur
         parquet_filename("raw_data", "raw"),
     )
     raw_df = pl.DataFrame(raw_table)
-    preparation = input.preparation.definition
+    preparation = activity_input.preparation.definition
     question = preparation.context
-    measurement_structure = input.preparation.extraction_context()
+    measurement_structure = activity_input.preparation.extraction_context()
 
     config = get_config()
     extraction_workers = config.extraction_workers
     time_col = "timestamp"
 
     computed_dicts: list[ExtractionRow] = []
-    if any(ind.extraction_mode == "computed" for ind in measurement_structure.indicators):
+    if any(ind.extraction.kind == "computed" for ind in measurement_structure.indicators):
         computed_df = compute_indicators(
             raw_df,
             measurement_structure,
@@ -116,7 +120,7 @@ async def plan_measurements_activity(input: MeasurementsWorkflowInput) -> Measur
 
     chunks: list[MeasurementChunkRef] = []
     empty_output = WorkerOutput()
-    if any(ind.extraction_mode == "semantic" for ind in measurement_structure.indicators):
+    if any(ind.extraction.kind == "semantic" for ind in measurement_structure.indicators):
         chunk_texts, chunk_window_starts, chunk_contexts, empty_output = prepare_semantic_chunks(
             raw_df=raw_df,
             measurement_structure=measurement_structure,
@@ -168,12 +172,12 @@ async def plan_measurements_activity(input: MeasurementsWorkflowInput) -> Measur
     _write_json(
         plan_ref,
         {
-            "workspace_id": input.workspace_id,
+            "workspace_id": activity_input.workspace_id,
             "run_id": run_id,
             "pins": pins,
             "question": question,
             "measurement_structure": measurement_structure.model_dump(mode="json"),
-            "preparation": input.preparation.model_dump(mode="json"),
+            "preparation": activity_input.preparation.model_dump(mode="json"),
             "computed_dicts": computed_dicts,
             "empty_output": empty_output.model_dump(mode="json"),
             "chunks": [chunk.model_dump(mode="json") for chunk in chunks],
@@ -181,7 +185,7 @@ async def plan_measurements_activity(input: MeasurementsWorkflowInput) -> Measur
     )
 
     return MeasurementsPlan(
-        workspace_id=input.workspace_id,
+        workspace_id=activity_input.workspace_id,
         run_id=run_id,
         plan_ref=plan_ref,
         pins=pins,
@@ -193,78 +197,91 @@ async def plan_measurements_activity(input: MeasurementsWorkflowInput) -> Measur
     )
 
 
-@activity.defn
-async def call_openrouter_activity(input: OpenRouterCallInput) -> OpenRouterCallResult:
-    if storage.exists(input.call_ref):
-        return OpenRouterCallResult.model_validate(_read_json(input.call_ref)["result"])
+class OpenRouterActivities:
+    """Bind OpenRouter activities to their worker-owned transport client."""
 
-    from nof1_causal_lab.utils.openrouter_client import GenerateConfig, Tool, call_model
+    def __init__(self, client: AsyncOpenAI) -> None:
+        self._client = client
 
-    async def _unused_tool(**kwargs: str) -> str:
-        del kwargs
-        return ""
+    @activity.defn
+    async def call_openrouter_activity(
+        self, activity_input: OpenRouterCallInput
+    ) -> OpenRouterCallResult:
+        if storage.exists(activity_input.call_ref):
+            return OpenRouterCallResult.model_validate(
+                _read_json(activity_input.call_ref)["result"]
+            )
 
-    conversation = _read_json(input.conversation_ref)
-    messages = list(TypeAdapter(list[JsonObject]).validate_python(conversation["messages"]))
-    tools = [
-        Tool(
-            name=tool.name,
-            description=tool.description,
-            parameters=dict(tool.parameters),
-            execute=_unused_tool,
-            stop_on_success=tool.kind == "terminal",
-            success_output=tool.success_output,
+        from nof1_causal_lab.utils.openrouter_client import GenerateConfig, Tool, call_model
+
+        async def _unused_tool(**kwargs: str) -> str:
+            del kwargs
+            return ""
+
+        conversation = _read_json(activity_input.conversation_ref)
+        messages = list(TypeAdapter(list[JsonObject]).validate_python(conversation["messages"]))
+        tools = [
+            Tool(
+                name=tool.name,
+                description=tool.description,
+                parameters=dict(tool.parameters),
+                execute=_unused_tool,
+                stop_on_success=tool.kind == "terminal",
+                success_output=tool.success_output,
+            )
+            for tool in activity_input.tools
+        ] or None
+        output = await call_model(
+            activity_input.llm.model,
+            messages,
+            client=self._client,
+            tools=tools,
+            config=GenerateConfig(
+                max_tokens=activity_input.llm.max_tokens,
+                timeout=activity_input.llm.timeout,
+                reasoning_effort=activity_input.llm.reasoning_effort,
+            ),
+            log_label=activity_input.log_label,
         )
-        for tool in input.tools
-    ] or None
-    output = await call_model(
-        input.llm.model,
-        messages,
-        tools=tools,
-        config=GenerateConfig(
-            max_tokens=input.llm.max_tokens,
-            timeout=input.llm.timeout,
-            reasoning_effort=input.llm.reasoning_effort,
-        ),
-        log_label=input.log_label,
-    )
 
-    _write_json(input.assistant_ref, output)
+        _write_json(activity_input.assistant_ref, output)
 
-    next_messages = [*messages, output["message"]]
-    _write_json(input.next_conversation_ref, {"messages": next_messages})
+        next_messages = [*messages, output["message"]]
+        _write_json(activity_input.next_conversation_ref, {"messages": next_messages})
 
-    tool_calls = [
-        ToolCallSummary(
-            index=index,
-            id=str(tool_call.get("id", "")),
-            name=str((tool_call.get("function") or {}).get("name") or tool_call.get("name", "")),
+        tool_calls = [
+            ToolCallSummary(
+                index=index,
+                id=str(tool_call.get("id", "")),
+                name=str(
+                    (tool_call.get("function") or {}).get("name") or tool_call.get("name", "")
+                ),
+            )
+            for index, tool_call in enumerate(output["message"].get("tool_calls") or [])
+        ]
+        result = OpenRouterCallResult(
+            conversation_ref=activity_input.next_conversation_ref,
+            assistant_ref=activity_input.assistant_ref,
+            model=output["model"],
+            stop_reason=output.get("stop_reason"),
+            time=float(output.get("time") or 0.0),
+            usage=output.get("usage"),
+            completion_preview=str(output.get("completion") or "")[:240],
+            tool_calls=tool_calls,
         )
-        for index, tool_call in enumerate(output["message"].get("tool_calls") or [])
-    ]
-    result = OpenRouterCallResult(
-        conversation_ref=input.next_conversation_ref,
-        assistant_ref=input.assistant_ref,
-        model=output["model"],
-        stop_reason=output.get("stop_reason"),
-        time=float(output.get("time") or 0.0),
-        usage=output.get("usage"),
-        completion_preview=str(output.get("completion") or "")[:240],
-        tool_calls=tool_calls,
-    )
-    _write_json(input.call_ref, {"result": result.model_dump(mode="json")})
-    return result
+        _write_json(activity_input.call_ref, {"result": result.model_dump(mode="json")})
+        return result
 
 
 @activity.defn
 async def finalize_extraction_chunk_activity(
-    input: ExtractionChunkFinalizeInput,
+    activity_input: ExtractionChunkFinalizeInput,
 ) -> CompletedExtractionChunk:
     from nof1_causal_lab.utils.content_cache import publish
     from nof1_causal_lab.workers.schemas import WorkerOutput, validate_worker_output
 
-    data = _read_json(input.result_ref)
-    spec = MeasurementChunkContext.model_validate(_read_json(input.spec_ref))
+    data = _read_json(activity_input.result_ref)
+    spec = MeasurementChunkContext.model_validate(_read_json(activity_input.spec_ref))
     output, errors = validate_worker_output(
         data,
         spec.measurement_structure,
@@ -279,9 +296,9 @@ async def finalize_extraction_chunk_activity(
     dataframe = output.to_dataframe()
 
     result_ref = storage.join(
-        _run_root(input.workspace_id, input.run_id),
+        _run_root(activity_input.workspace_id, activity_input.run_id),
         "results",
-        f"worker-{input.worker_id:06d}.json",
+        f"worker-{activity_input.worker_id:06d}.json",
     )
     _write_json(
         result_ref,
@@ -292,19 +309,21 @@ async def finalize_extraction_chunk_activity(
         },
     )
     return CompletedExtractionChunk(
-        worker_id=input.worker_id,
+        worker_id=activity_input.worker_id,
         status="completed",
         n_extractions=len(output.extractions),
-        n_windows=input.n_windows,
-        n_llm_calls=input.n_llm_calls,
+        n_windows=activity_input.n_windows,
+        n_llm_calls=activity_input.n_llm_calls,
         result_ref=result_ref,
-        reused=input.reused,
+        reused=activity_input.reused,
     )
 
 
 @activity.defn
 @execution_failure_handler
-async def finalize_measurements_activity(input: MeasurementsFinalizeInput) -> DataPreparationResult:
+async def finalize_measurements_activity(
+    activity_input: MeasurementsFinalizeInput,
+) -> DataPreparationResult:
     import polars as pl
 
     from nof1_causal_lab.actions.extraction.materialization import (
@@ -317,11 +336,11 @@ async def finalize_measurements_activity(input: MeasurementsFinalizeInput) -> Da
     )
 
     try:
-        plan = MeasurementsFile.model_validate(_read_json(input.plan_ref))
+        plan = MeasurementsFile.model_validate(_read_json(activity_input.plan_ref))
         measurement_structure = plan.measurement_structure
         computed_dicts = plan.computed_dicts
         chunk_specs = plan.chunks
-        results_by_worker = {result.worker_id: result for result in input.chunk_results}
+        results_by_worker = {result.worker_id: result for result in activity_input.chunk_results}
 
         semantic_dicts: list[ExtractionRow] = TypeAdapter(list[ExtractionRow]).validate_python(
             plan.empty_output.to_dataframe().to_dicts()
@@ -354,12 +373,12 @@ async def finalize_measurements_activity(input: MeasurementsFinalizeInput) -> Da
             preparation=preparation.definition,
             time_origin=prepared_time_origin(panel, preparation.source.start),
         )
-        store = ArtifactStore(input.workspace_id)
+        store = ArtifactStore(activity_input.workspace_id)
         return DataPreparationResult(
             produced=(
                 store.write_artifact(
                     "panel",
-                    derived_from=input.pins,
+                    derived_from=activity_input.pins,
                     produced_by="prepare_data",
                     parquet_files={parquet_filename("panel", "panel"): panel},
                     json_files={
@@ -369,12 +388,12 @@ async def finalize_measurements_activity(input: MeasurementsFinalizeInput) -> Da
             ),
             workers=tuple(results_by_worker[spec.worker_id] for spec in chunk_specs),
             raw_data=GitRef(
-                workspace_id=input.workspace_id,
-                revision=input.pins["raw_data"],
+                workspace_id=activity_input.workspace_id,
+                revision=activity_input.pins["raw_data"],
                 path="raw.parquet",
             ),
             n_observations=len(panel),
-            extraction_reused=sum(result.reused is True for result in input.chunk_results),
+            extraction_reused=sum(result.reused is True for result in activity_input.chunk_results),
         )
     except Exception as exc:
         raise as_non_retryable_application_error(exc) from exc
@@ -383,7 +402,6 @@ async def finalize_measurements_activity(input: MeasurementsFinalizeInput) -> Da
 MEASUREMENT_ACTIVITIES = [
     emit_progress_event_activity,
     plan_measurements_activity,
-    call_openrouter_activity,
     finalize_extraction_chunk_activity,
     finalize_measurements_activity,
 ]

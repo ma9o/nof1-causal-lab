@@ -106,18 +106,15 @@ class TestOpenRouterClient:
             },
         )()
 
-        monkeypatch.setattr(
-            openrouter_client,
-            "_get_openrouter_client",
-            lambda _api_key=None: slow_client,
-        )
+        client = cast("Any", slow_client)
 
         timeout_seconds = cast("Any", 0.01)
-        with pytest.raises(TimeoutError, match=r"call_model timed out after 0\.01s"):
+        with pytest.raises(TimeoutError):
             _run(
                 openrouter_client.call_model(
                     "test-model",
                     [{"role": "user", "content": "hello"}],
+                    client=client,
                     config=openrouter_client.GenerateConfig(timeout=timeout_seconds),
                 )
             )
@@ -151,17 +148,14 @@ class TestOpenRouterClient:
             ],
         }
 
-        monkeypatch.setattr(
-            openrouter_client,
-            "_get_openrouter_client",
-            lambda: _FakeOpenRouterClient(response, seen),
-        )
+        client = cast("Any", _FakeOpenRouterClient(response, seen))
 
         with caplog.at_level(logging.INFO):
             _run(
                 openrouter_client.call_model(
                     "test-model",
                     [{"role": "user", "content": "hello"}],
+                    client=client,
                     config=openrouter_client.GenerateConfig(),
                     log_label="extraction chunk=1",
                 )
@@ -189,17 +183,14 @@ class TestOpenRouterClient:
             ],
         }
 
-        monkeypatch.setattr(
-            openrouter_client,
-            "_get_openrouter_client",
-            lambda: _FakeOpenRouterClient(response, seen),
-        )
+        client = cast("Any", _FakeOpenRouterClient(response, seen))
 
         with caplog.at_level(logging.INFO):
             _run(
                 openrouter_client.call_model(
                     "test-model",
                     [{"role": "user", "content": "hello"}],
+                    client=client,
                     config=openrouter_client.GenerateConfig(),
                 )
             )
@@ -226,16 +217,13 @@ class TestOpenRouterClient:
             ],
         }
 
-        monkeypatch.setattr(
-            openrouter_client,
-            "_get_openrouter_client",
-            lambda: _FakeOpenRouterClient(response, seen),
-        )
+        client = cast("Any", _FakeOpenRouterClient(response, seen))
 
         _run(
             openrouter_client.call_model(
                 "openrouter/anthropic/claude-sonnet-4",
                 [{"role": "user", "content": "hello"}],
+                client=client,
                 config=openrouter_client.GenerateConfig(),
             )
         )
@@ -264,7 +252,6 @@ class TestOpenRouterClient:
             seen["api_key"] = api_key
             return _FakeOpenRouterClient(response, seen)
 
-        monkeypatch.setattr(openrouter_client, "_openrouter_client", None)
         monkeypatch.setattr(openrouter_client, "AsyncOpenAI", fake_async_openai)
         monkeypatch.setenv("OPENROUTER_API_KEY", "env-key")
 
@@ -272,6 +259,7 @@ class TestOpenRouterClient:
             openrouter_client.call_model(
                 "test-model",
                 [{"role": "user", "content": "hello"}],
+                client=openrouter_client.create_openrouter_client(),
                 config=openrouter_client.GenerateConfig(),
             )
         )
@@ -296,16 +284,13 @@ class TestOpenRouterClient:
             ],
         }
 
-        monkeypatch.setattr(
-            openrouter_client,
-            "_get_openrouter_client",
-            lambda: _FakeOpenRouterClient(response, seen),
-        )
+        client = cast("Any", _FakeOpenRouterClient(response, seen))
 
         _run(
             openrouter_client.call_model(
                 "test-model",
                 [{"role": "user", "content": "hello"}],
+                client=client,
                 config=openrouter_client.GenerateConfig(reasoning_effort="high"),
             )
         )

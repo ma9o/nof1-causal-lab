@@ -8,6 +8,17 @@ from pydantic import Field
 
 from nof1_causal_lab.artifacts.base import Value
 
+type PriorFailureStage = Literal[
+    "compiled_parameters",
+    "latent_dynamics",
+    "observation_mean",
+    "observation_sample",
+    "support_violation",
+    "model_build",
+    "prior_sampling",
+    "unknown",
+]
+
 
 class PriorRepairScope(Value):
     """Deterministic repair scope for nonlocal prior-validation failures."""
@@ -53,19 +64,7 @@ class PriorValidationResult(Value):
     compiled_flat_index: int | None = None
     supporting_codes: tuple[str, ...] = Field(default_factory=tuple)
     repair_scope: PriorRepairScope | None = None
-    failure_stage: (
-        Literal[
-            "compiled_parameters",
-            "latent_dynamics",
-            "observation_mean",
-            "observation_sample",
-            "support_violation",
-            "model_build",
-            "prior_sampling",
-            "unknown",
-        ]
-        | None
-    ) = None
+    failure_stage: PriorFailureStage | None = None
     bad_sample_sites: tuple[str, ...] = Field(default_factory=tuple)
     bad_manifest_names: tuple[str, ...] = Field(default_factory=tuple)
     failing_draw_indices: tuple[int, ...] = Field(default_factory=tuple)
@@ -78,6 +77,7 @@ class PriorValidationResult(Value):
 
 
 __all__ = [
+    "PriorFailureStage",
     "PriorPathologyCertificate",
     "PriorRepairScope",
     "PriorValidationResult",

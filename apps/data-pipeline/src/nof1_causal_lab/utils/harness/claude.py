@@ -13,7 +13,7 @@ also force ``--strict-mcp-config`` so Claude ignores any user-level
 MCP config that might conflict.
 
 Stream-json output is parsed incrementally into the shared
-:class:`~.stream_json.ClaudeStreamState`; the per-turn ``TurnResult``
+:class:`~.stream_json.SessionStreamRuntime`; the per-turn ``TurnResult``
 and the cumulative ``AgentResult`` are derived from that.
 """
 
@@ -35,7 +35,7 @@ from nof1_causal_lab.actions.errors import execution_failure_handler
 from nof1_causal_lab.utils.agent_session import AgentResult, TurnResult
 from nof1_causal_lab.utils.harness.mcp_server import serve_tools_http
 from nof1_causal_lab.utils.harness.stream_json import (
-    ClaudeStreamState,
+    SessionStreamRuntime,
     apply_claude_event,
     event_object,
     finalize_trace,
@@ -80,7 +80,7 @@ def build_mcp_config_json(url: str, server_name: str = MCP_SERVER_NAME) -> str:
 
 def build_claude_argv(
     *,
-    bin: str,
+    executable: str,
     user_message: str,
     session_id: str,
     resume: bool,
@@ -110,7 +110,7 @@ def build_claude_argv(
     auth working out of the box.
     """
     argv: list[str] = [
-        str(bin),
+        str(executable),
         "-p",
         user_message,
         "--mcp-config",
@@ -157,7 +157,7 @@ class ClaudeHarnessSession:
         mcp_config_path: Path,
         system_prompt: str | None,
         model: str,
-        bin: str = "claude",
+        executable: str = "claude",
         effort: str | None = None,
         max_turns: int | None = None,
         max_budget_usd: float | None = None,
@@ -173,7 +173,7 @@ class ClaudeHarnessSession:
         self._mcp_config_path = mcp_config_path
         self._system_prompt = system_prompt
         self._model = model
-        self._bin = bin
+        self._bin = executable
         self._effort = effort
         self._max_turns = max_turns
         self._max_budget_usd = max_budget_usd
@@ -182,7 +182,7 @@ class ClaudeHarnessSession:
         self._log_label = log_label
 
         self._session_id = session_id or str(uuid.uuid4())
-        self._state = ClaudeStreamState()
+        self._state = SessionStreamRuntime()
         for event in initial_events or []:
             apply_claude_event(self._state, event)
         self._turn_index = turn_index
@@ -202,7 +202,7 @@ class ClaudeHarnessSession:
         pre_event_count = len(self._state.raw_events)
 
         argv = build_claude_argv(
-            bin=self._bin,
+            executable=self._bin,
             user_message=user_message,
             session_id=self._session_id,
             resume=self._turn_index > 1,
@@ -367,7 +367,7 @@ async def open_claude_harness_session(
     tools: list[Tool],
     system_prompt: str | None,
     model: str,
-    bin: str = "claude",
+    executable: str = "claude",
     effort: str | None = None,
     max_turns: int | None = None,
     max_budget_usd: float | None = None,
@@ -398,7 +398,7 @@ async def open_claude_harness_session(
                 mcp_config_path=mcp_config_path,
                 system_prompt=system_prompt,
                 model=model,
-                bin=bin,
+                executable=executable,
                 effort=effort,
                 max_turns=max_turns,
                 max_budget_usd=max_budget_usd,
