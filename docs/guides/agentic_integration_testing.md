@@ -129,12 +129,12 @@ New studies initialize their local bare repository on first use. On a fresh chec
 
 ```bash
 git clone --mirror data/DEMO/study/history.bundle data/DEMO/study/history.git
-git --git-dir=data/DEMO/study/history.git config nof1.format 9
+git --git-dir=data/DEMO/study/history.git config nof1.format 12
 ```
 
 #### Migrating a local study
 
-The current runtime requires format 9. To convert a format-8 study:
+The current runtime requires format 12. To convert a format-11 study:
 
 1. Stop work on the study and close its workflow:
 
@@ -142,16 +142,25 @@ The current runtime requires format 9. To convert a format-8 study:
    temporal workflow signal --workflow-id study-STUDY --name close
    ```
 
-2. Run the [format-9 converter](../../apps/data-pipeline/scripts/migrations/migrate_format_9.py). The destination must be new and outside the source, and the source is left untouched.
+2. Run the [format-12 converter](../../apps/data-pipeline/scripts/migrations/migrate_format_12.py). The destination must be new and outside the source, and the source is left untouched.
 
    ```bash
-   uv run --directory apps/data-pipeline python -m scripts.migrations.migrate_format_9 \
-     ../../data/STUDY /tmp/format9/STUDY
+   uv run --directory apps/data-pipeline python -m scripts.migrations.migrate_format_12 \
+     ../../data/STUDY /tmp/format12/STUDY
    ```
 
-   It rewrites each stored model. An exogenous construct read only through exact readings loses its law and becomes a given input. Every other exogenous construct becomes endogenous. Stored joint laws drop the inputs' trajectories. Saved artifacts, numerical files and results are otherwise unchanged. Changed Git objects get new identities, and references to them follow.
-3. Review the migrated snapshots. Then, while offline, back up the original outside `data/` and replace `data/STUDY` with the migrated repository, keeping one study per ID.
-4. Restart the workers with the new code and start a fresh `study-STUDY` workflow from the migrated Git state; don't replay the previous workflow. Regenerate any fixture bundle from the migrated repository. Re-prepare a study whose saved panel gives an input no value at its start; fit and simulate reject it.
+   Format 12 converts scientific schema alternatives: per-family observation fields,
+   drift/potential mechanisms, interval-owning transforms, completed/failed extraction
+   results, panel/simulation references, provenance and typed comparison changes.
+   It preserves scientific IDs, laws, expressions and external numerical bytes.
+   Explicit durations stay exact; legitimate model-clock defaults become explicit.
+   Git references follow changed identities atomically, and matching consumed model
+   fingerprints are translated without refreshing stale findings. The runtime accepts
+   only format 12. The [schema owners](codegen.md#type-naming-conventions) define the fields.
+
+3. Review the migrated snapshots and ref mapping before a live cutover. Then, while offline, back up each whole original under `.local/format11-backup-<date>/STUDY`, including `store/`, and replace `data/STUDY` with the migrated repository, keeping one study per ID. Keep backups outside `data/` in durable storage; temporary directories are only converter destinations.
+
+4. Restart the workers with the new code and start a fresh `study-STUDY` workflow from the migrated Git state; don't replay the previous workflow. Export any fixture bundle from the migrated repository, then run `bun run fixture:build` and `bun run fixture:check`.
 
 Earlier formats have no route to the current runtime.
 
@@ -170,7 +179,7 @@ Replace `R` with the applied commit OID. The dry run lists retained and dropped 
 
 At `R` and later commits, artifacts (including absence), checks and fresh reader findings are preserved. Stale findings can disappear, and earlier snapshots can change. This is the smallest closure of the mandatory writers, not a globally minimal history: reused reports and redundant retractions can retain extra actions. There is no optimizer, numerical execution or post-squash equality gate.
 
-Only current-format, single-branch histories are supported. The script refuses legacy model-authoring records (those with `prior_predictive` diagnostics) and `report_only` records, simulation-replicate panels anywhere in the preserved catalog, other branches (including successful attempts off the branch), and retained scientific inputs without a recorded producer. Review the new copy, select it offline, then start a fresh workflow and regenerate any fixture bundle using the migration procedure above. The source is unchanged.
+Only current-format, single-branch histories are supported. The script refuses records with archived metadata and `report_only` fit results, simulation-replicate panels anywhere in the preserved catalog, other branches (including successful attempts off the branch), and retained scientific inputs without a recorded producer. Review the new copy, select it offline, then start a fresh workflow and regenerate any fixture bundle using the migration procedure above. The source is unchanged.
 
 ### Local stack
 
@@ -295,7 +304,7 @@ curl -s -X POST http://localhost:3000/api/runs \
   -d "{\"workspaceId\":\"$WORKSPACE_ID\",\"query\":\"$QUESTION\"}"
 ```
 
-`GET /api/capabilities` reports `actions_enabled`, which is false on a read-only facade. Creating the run submits `edit_model` with the question and returns HTTP `202` with the workspace and `attempt_id`. Poll that attempt until `done` is true. Submit further actions as the [`nof1-study-api` skill](../../.agents/skills/nof1-study-api/SKILL.md) describes; the [action charts](../../README.md#documentation) show what each one does.
+`GET /api/capabilities` reports `actions_enabled`, which is false on a read-only facade. Creating the run submits `edit_model` with the question and returns HTTP `202` with the workspace and `attempt_id`. Poll that attempt until `kind` is `completed`. Submit further actions as the [`nof1-study-api` skill](../../.agents/skills/nof1-study-api/SKILL.md) describes; the [action charts](../../README.md#documentation) show what each one does.
 
 ### 2. Observe the study
 
@@ -308,7 +317,7 @@ curl -s http://localhost:8100/api/studies/$WORKSPACE_ID | jq '.artifacts'
 
 # The attempt journal: every action attempt (applied / rejected / raised)
 curl -s http://localhost:8100/api/studies/$WORKSPACE_ID/timeline \
-  | jq '.attempts[] | {seq, status, action, error_type}'
+  | jq '.attempts[] | {commit_id, seq: .record.seq, attempt: .record.attempt}'
 
 # Live progress of the running attempt (data-preparation steps and extraction fan-out)
 ATTEMPT_ID=$(curl -s http://localhost:8100/api/studies/$WORKSPACE_ID | jq -r '.running.attempt_id')
@@ -326,11 +335,11 @@ If the UI behaves unexpectedly, check Next.js devtools MCP errors before debuggi
 
 ## Resuming after a failed action
 
-A failed action is a `raised` attempt in the journal. The scientific branch is unchanged, and the typed error and diagnostics are on the record:
+A failed execution is a `raised` outcome in the journal. The scientific branch is unchanged, and the outcome retains its error. Expected input rejections carry a `rejected` outcome:
 
 ```bash
 curl -s http://localhost:8100/api/studies/$WORKSPACE_ID/timeline \
-  | jq '.attempts[] | select(.status=="raised") | {seq, action, error_type, error_message}'
+  | jq '.attempts[] | select(.record.attempt.outcome.status=="raised") | {seq: .record.seq, attempt: .record.attempt}'
 ```
 
 Correct the cause and resubmit the action to `/actions`, selecting fresh revisions if its inputs changed. There is no automatic-resume endpoint.

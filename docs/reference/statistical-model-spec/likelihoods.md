@@ -4,7 +4,7 @@ Defines the observation-model vocabulary for `LikelihoodSpec` entries in a `Mode
 
 ## Conditional Expressions
 
-`LikelihoodSpec.law` contains a native `distribution` name and its `arguments`. Arguments use scientific state references, coefficient operands, arithmetic, and bounded functions. In the table, `p = a + Σ bᵢ state(xᵢ)` is an affine predictor; each loading refers to its actual construct. `a`, `bᵢ`, and the auxiliary operands are fixed coefficients or references to `ModelSpec.parameters`.
+`LikelihoodSpec.law` is a [closed union of law specifications](../../../apps/data-pipeline/src/nof1_causal_lab/artifacts/likelihood.py), each with a `distribution` tag and required `Expression` fields directly on the law. Expressions use scientific state references, coefficient operands, arithmetic, and bounded functions. In the table, `p = a + Σ bᵢ state(xᵢ)` is an affine predictor; each loading refers to its actual construct. `a`, `bᵢ`, and the auxiliary operands are fixed coefficients or references to `ModelSpec.parameters`.
 
 | Native law | Argument expressions |
 |---|---|
@@ -13,7 +13,8 @@ Defines the observation-model vocabulary for `LikelihoodSpec` entries in a `Mode
 | `StudentT` | `df=ν`, `loc=p`, `scale=s` |
 | `Poisson` | `rate=exp(p)` |
 | `Gamma` | `concentration=k`, `rate=k / exp(p)` or `k / (1 / p)` |
-| `Bernoulli` | `logits=p` or `probs=normal_cdf(p)` |
+| `BernoulliLogits` | `logits=p` |
+| `BernoulliProbs` | `probs=normal_cdf(p)` |
 | `NegativeBinomial2` | `mean=exp(p)`, `concentration=r` |
 | `Beta` | `concentration1=m * c`, `concentration0=(1 - m) * c`, where `m=sigmoid(p)` or `normal_cdf(p)` |
 | `OrderedLogistic` | `predictor=p`, `cutpoints=ordered_cutpoints(base, gaps)` |
@@ -27,7 +28,7 @@ Particle inference supports direct point bindings `Delta(v=state(x))`. Observed 
 
 The numerical backend derives its family and response from these expressions, and it rejects unsupported formulas before fitting.
 
-> The sections below are generated from `nof1_causal_lab.distributions`.
+> The sections below are generated from the [law specifications](../../../apps/data-pipeline/src/nof1_causal_lab/artifacts/likelihood.py) and [dtype constraints](../../../apps/data-pipeline/src/nof1_causal_lab/distributions.py).
 > Edit the Python catalog and re-run `uv run python scripts/codegen/export_distribution_docs.py` instead of editing them manually.
 
 ## Dtype-to-Distribution Mapping
@@ -44,7 +45,7 @@ The model author writes each indicator's law and coefficients through `edit_mode
 
 ## Distribution Families
 
-`DistributionFamily` names the internal numerical emission kernels: `gaussian`, `student_t`, `poisson`, `gamma`, `bernoulli`, `negative_binomial`, `beta`, `ordered_logistic`, `categorical`, and `delta`.
+`DistributionFamily` names the internal numerical emission kernels: `delta`, `gaussian`, `student_t`, `poisson`, `gamma`, `bernoulli`, `negative_binomial`, `beta`, `ordered_logistic`, and `categorical`.
 
 ## Link Functions
 

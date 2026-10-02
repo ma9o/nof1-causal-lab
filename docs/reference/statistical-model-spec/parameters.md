@@ -2,6 +2,8 @@
 
 Defines the parameter roles, prior vocabulary, and default guidance for `ParameterSpec` entries with native priors in a `ModelSpec`.
 
+A [parameter transform](../../../apps/data-pipeline/src/nof1_causal_lab/artifacts/parameter_spec.py) owns its scale choice. `identity` and `initial_state_correlation` have only a `kind`. `dt_persistence_to_ct_decay` and `dt_effect_to_ct_rate` require `interval_days`, either a positive finite duration or the explicit string `model_clock`. The [compiler](../../../apps/data-pipeline/src/nof1_causal_lab/models/ssm/compile/prior_compilation.py) resolves that clock and transforms the full probability law.
+
 > All sections below are generated from `nof1_causal_lab.distributions`.
 > Edit the Python catalog and re-run `uv run python scripts/codegen/export_distribution_docs.py` instead of editing them manually.
 
@@ -59,7 +61,7 @@ The `Use When` column is the authoritative short guidance reused by the model-sp
 
 | Type | Typical Distribution | Typical Range | Scale |
 |---|---|---|---|
-| beta (causal effect) | Normal(0, 0.5) | [-2, 2] | Authored interval effect (defaults to model interval; use `reference_interval_days` when evidence is on another interval) |
+| beta (causal effect) | Normal(0, 0.5) | [-2, 2] | Authored interval effect (`transform.interval_days` names a positive duration or explicitly selects `model_clock`) |
 | rho (AR coefficient) | Beta(2, 2) or Uniform(0, 1) | [0, 1] | Baseline discrete-time persistence absent feedback |
 | sigma (residual SD) | HalfNormal(1) | [0, 5] | Data scale |
 | t0_mean (initial-state mean) | Normal(0, 1) | [-3, 3] | Latent state scale; do not copy raw indicator means or log-means unless the construct is explicitly identified on that observed scale |

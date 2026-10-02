@@ -1,72 +1,671 @@
 {
+  "per_variable_warnings": [
+    {
+      "kind": "evaluated",
+      "subject": {
+        "target": {
+          "kind": "indicator",
+          "id": "indicator:93c7007ff8e5a6565b25"
+        },
+        "check": "calibration"
+      },
+      "outcome": "warning",
+      "evidence": {
+        "criterion": "calibration",
+        "value": 0.92853,
+        "lower": null,
+        "upper": null,
+        "lower_inclusive": true,
+        "upper_inclusive": true,
+        "note": "Calibration is weakly assessed because the observed channel is sparse or degenerate.",
+        "display_value": "",
+        "band_label": ""
+      }
+    },
+    {
+      "kind": "evaluated",
+      "subject": {
+        "target": {
+          "kind": "indicator",
+          "id": "indicator:93c7007ff8e5a6565b25"
+        },
+        "check": "autocorrelation"
+      },
+      "outcome": "passed",
+      "evidence": {
+        "criterion": "autocorrelation",
+        "value": -0.03139,
+        "lower": null,
+        "upper": null,
+        "lower_inclusive": true,
+        "upper_inclusive": true,
+        "note": "Lag-1 residual autocorrelation -0.03.",
+        "display_value": "",
+        "band_label": ""
+      }
+    },
+    {
+      "kind": "evaluated",
+      "subject": {
+        "target": {
+          "kind": "indicator",
+          "id": "indicator:93c7007ff8e5a6565b25"
+        },
+        "check": "variance"
+      },
+      "outcome": "passed",
+      "evidence": {
+        "criterion": "variance",
+        "value": 0.88773,
+        "lower": null,
+        "upper": null,
+        "lower_inclusive": true,
+        "upper_inclusive": true,
+        "note": "Predictive-to-observed SD ratio 0.89.",
+        "display_value": "",
+        "band_label": ""
+      }
+    },
+    {
+      "kind": "evaluated",
+      "subject": {
+        "target": {
+          "kind": "indicator",
+          "id": "indicator:b3eb347f05220d9f4130"
+        },
+        "check": "calibration"
+      },
+      "outcome": "warning",
+      "evidence": {
+        "criterion": "calibration",
+        "value": 0.94455,
+        "lower": null,
+        "upper": null,
+        "lower_inclusive": true,
+        "upper_inclusive": true,
+        "note": "Calibration is weakly assessed because the observed channel is sparse or degenerate.",
+        "display_value": "",
+        "band_label": ""
+      }
+    },
+    {
+      "kind": "evaluated",
+      "subject": {
+        "target": {
+          "kind": "indicator",
+          "id": "indicator:b3eb347f05220d9f4130"
+        },
+        "check": "autocorrelation"
+      },
+      "outcome": "passed",
+      "evidence": {
+        "criterion": "autocorrelation",
+        "value": 0.16521,
+        "lower": null,
+        "upper": null,
+        "lower_inclusive": true,
+        "upper_inclusive": true,
+        "note": "Lag-1 residual autocorrelation +0.17.",
+        "display_value": "",
+        "band_label": ""
+      }
+    },
+    {
+      "kind": "evaluated",
+      "subject": {
+        "target": {
+          "kind": "indicator",
+          "id": "indicator:b3eb347f05220d9f4130"
+        },
+        "check": "variance"
+      },
+      "outcome": "passed",
+      "evidence": {
+        "criterion": "variance",
+        "value": 1.15001,
+        "lower": null,
+        "upper": null,
+        "lower_inclusive": true,
+        "upper_inclusive": true,
+        "note": "Predictive-to-observed SD ratio 1.15.",
+        "display_value": "",
+        "band_label": ""
+      }
+    },
+    {
+      "kind": "evaluated",
+      "subject": {
+        "target": {
+          "kind": "indicator",
+          "id": "indicator:b20fa3887689d5616a60"
+        },
+        "check": "calibration"
+      },
+      "outcome": "passed",
+      "evidence": {
+        "criterion": "calibration",
+        "value": 0.92843,
+        "lower": null,
+        "upper": null,
+        "lower_inclusive": true,
+        "upper_inclusive": true,
+        "note": "95% interval coverage 92.8%.",
+        "display_value": "",
+        "band_label": ""
+      }
+    },
+    {
+      "kind": "evaluated",
+      "subject": {
+        "target": {
+          "kind": "indicator",
+          "id": "indicator:b20fa3887689d5616a60"
+        },
+        "check": "autocorrelation"
+      },
+      "outcome": "passed",
+      "evidence": {
+        "criterion": "autocorrelation",
+        "value": -0.08993,
+        "lower": null,
+        "upper": null,
+        "lower_inclusive": true,
+        "upper_inclusive": true,
+        "note": "Lag-1 residual autocorrelation -0.09.",
+        "display_value": "",
+        "band_label": ""
+      }
+    },
+    {
+      "kind": "evaluated",
+      "subject": {
+        "target": {
+          "kind": "indicator",
+          "id": "indicator:b20fa3887689d5616a60"
+        },
+        "check": "variance"
+      },
+      "outcome": "passed",
+      "evidence": {
+        "criterion": "variance",
+        "value": 0.97207,
+        "lower": null,
+        "upper": null,
+        "lower_inclusive": true,
+        "upper_inclusive": true,
+        "note": "Predictive-to-observed SD ratio 0.97.",
+        "display_value": "",
+        "band_label": ""
+      }
+    },
+    {
+      "kind": "evaluated",
+      "subject": {
+        "target": {
+          "kind": "indicator",
+          "id": "indicator:8e1b73dd3c754b48e92c"
+        },
+        "check": "calibration"
+      },
+      "outcome": "passed",
+      "evidence": {
+        "criterion": "calibration",
+        "value": 0.95571,
+        "lower": null,
+        "upper": null,
+        "lower_inclusive": true,
+        "upper_inclusive": true,
+        "note": "95% interval coverage 95.6%.",
+        "display_value": "",
+        "band_label": ""
+      }
+    },
+    {
+      "kind": "evaluated",
+      "subject": {
+        "target": {
+          "kind": "indicator",
+          "id": "indicator:8e1b73dd3c754b48e92c"
+        },
+        "check": "autocorrelation"
+      },
+      "outcome": "passed",
+      "evidence": {
+        "criterion": "autocorrelation",
+        "value": -0.06611,
+        "lower": null,
+        "upper": null,
+        "lower_inclusive": true,
+        "upper_inclusive": true,
+        "note": "Lag-1 residual autocorrelation -0.07.",
+        "display_value": "",
+        "band_label": ""
+      }
+    },
+    {
+      "kind": "evaluated",
+      "subject": {
+        "target": {
+          "kind": "indicator",
+          "id": "indicator:8e1b73dd3c754b48e92c"
+        },
+        "check": "variance"
+      },
+      "outcome": "passed",
+      "evidence": {
+        "criterion": "variance",
+        "value": 0.90772,
+        "lower": null,
+        "upper": null,
+        "lower_inclusive": true,
+        "upper_inclusive": true,
+        "note": "Predictive-to-observed SD ratio 0.91.",
+        "display_value": "",
+        "band_label": ""
+      }
+    },
+    {
+      "kind": "evaluated",
+      "subject": {
+        "target": {
+          "kind": "indicator",
+          "id": "indicator:eca6b8b2c4379267b6c8"
+        },
+        "check": "calibration"
+      },
+      "outcome": "passed",
+      "evidence": {
+        "criterion": "calibration",
+        "value": 0.92606,
+        "lower": null,
+        "upper": null,
+        "lower_inclusive": true,
+        "upper_inclusive": true,
+        "note": "95% interval coverage 92.6%.",
+        "display_value": "",
+        "band_label": ""
+      }
+    },
+    {
+      "kind": "evaluated",
+      "subject": {
+        "target": {
+          "kind": "indicator",
+          "id": "indicator:eca6b8b2c4379267b6c8"
+        },
+        "check": "autocorrelation"
+      },
+      "outcome": "passed",
+      "evidence": {
+        "criterion": "autocorrelation",
+        "value": -0.05661,
+        "lower": null,
+        "upper": null,
+        "lower_inclusive": true,
+        "upper_inclusive": true,
+        "note": "Lag-1 residual autocorrelation -0.06.",
+        "display_value": "",
+        "band_label": ""
+      }
+    },
+    {
+      "kind": "evaluated",
+      "subject": {
+        "target": {
+          "kind": "indicator",
+          "id": "indicator:eca6b8b2c4379267b6c8"
+        },
+        "check": "variance"
+      },
+      "outcome": "passed",
+      "evidence": {
+        "criterion": "variance",
+        "value": 1.19584,
+        "lower": null,
+        "upper": null,
+        "lower_inclusive": true,
+        "upper_inclusive": true,
+        "note": "Predictive-to-observed SD ratio 1.20.",
+        "display_value": "",
+        "band_label": ""
+      }
+    },
+    {
+      "kind": "evaluated",
+      "subject": {
+        "target": {
+          "kind": "indicator",
+          "id": "indicator:eb0949a188790298c25d"
+        },
+        "check": "calibration"
+      },
+      "outcome": "passed",
+      "evidence": {
+        "criterion": "calibration",
+        "value": 0.93269,
+        "lower": null,
+        "upper": null,
+        "lower_inclusive": true,
+        "upper_inclusive": true,
+        "note": "95% interval coverage 93.3%.",
+        "display_value": "",
+        "band_label": ""
+      }
+    },
+    {
+      "kind": "evaluated",
+      "subject": {
+        "target": {
+          "kind": "indicator",
+          "id": "indicator:eb0949a188790298c25d"
+        },
+        "check": "autocorrelation"
+      },
+      "outcome": "passed",
+      "evidence": {
+        "criterion": "autocorrelation",
+        "value": 0.11203,
+        "lower": null,
+        "upper": null,
+        "lower_inclusive": true,
+        "upper_inclusive": true,
+        "note": "Lag-1 residual autocorrelation +0.11.",
+        "display_value": "",
+        "band_label": ""
+      }
+    },
+    {
+      "kind": "evaluated",
+      "subject": {
+        "target": {
+          "kind": "indicator",
+          "id": "indicator:eb0949a188790298c25d"
+        },
+        "check": "variance"
+      },
+      "outcome": "passed",
+      "evidence": {
+        "criterion": "variance",
+        "value": 1.0831,
+        "lower": null,
+        "upper": null,
+        "lower_inclusive": true,
+        "upper_inclusive": true,
+        "note": "Predictive-to-observed SD ratio 1.08.",
+        "display_value": "",
+        "band_label": ""
+      }
+    },
+    {
+      "kind": "evaluated",
+      "subject": {
+        "target": {
+          "kind": "indicator",
+          "id": "indicator:1f8878c9ba1ad571b89e"
+        },
+        "check": "calibration"
+      },
+      "outcome": "passed",
+      "evidence": {
+        "criterion": "calibration",
+        "value": 0.94592,
+        "lower": null,
+        "upper": null,
+        "lower_inclusive": true,
+        "upper_inclusive": true,
+        "note": "95% interval coverage 94.6%.",
+        "display_value": "",
+        "band_label": ""
+      }
+    },
+    {
+      "kind": "evaluated",
+      "subject": {
+        "target": {
+          "kind": "indicator",
+          "id": "indicator:1f8878c9ba1ad571b89e"
+        },
+        "check": "autocorrelation"
+      },
+      "outcome": "passed",
+      "evidence": {
+        "criterion": "autocorrelation",
+        "value": 0.13145,
+        "lower": null,
+        "upper": null,
+        "lower_inclusive": true,
+        "upper_inclusive": true,
+        "note": "Lag-1 residual autocorrelation +0.13.",
+        "display_value": "",
+        "band_label": ""
+      }
+    },
+    {
+      "kind": "evaluated",
+      "subject": {
+        "target": {
+          "kind": "indicator",
+          "id": "indicator:1f8878c9ba1ad571b89e"
+        },
+        "check": "variance"
+      },
+      "outcome": "passed",
+      "evidence": {
+        "criterion": "variance",
+        "value": 1.12825,
+        "lower": null,
+        "upper": null,
+        "lower_inclusive": true,
+        "upper_inclusive": true,
+        "note": "Predictive-to-observed SD ratio 1.13.",
+        "display_value": "",
+        "band_label": ""
+      }
+    },
+    {
+      "kind": "evaluated",
+      "subject": {
+        "target": {
+          "kind": "indicator",
+          "id": "indicator:7a4890fc254d4a508b7c"
+        },
+        "check": "calibration"
+      },
+      "outcome": "passed",
+      "evidence": {
+        "criterion": "calibration",
+        "value": 0.91193,
+        "lower": null,
+        "upper": null,
+        "lower_inclusive": true,
+        "upper_inclusive": true,
+        "note": "95% interval coverage 91.2%.",
+        "display_value": "",
+        "band_label": ""
+      }
+    },
+    {
+      "kind": "evaluated",
+      "subject": {
+        "target": {
+          "kind": "indicator",
+          "id": "indicator:7a4890fc254d4a508b7c"
+        },
+        "check": "autocorrelation"
+      },
+      "outcome": "passed",
+      "evidence": {
+        "criterion": "autocorrelation",
+        "value": -0.01849,
+        "lower": null,
+        "upper": null,
+        "lower_inclusive": true,
+        "upper_inclusive": true,
+        "note": "Lag-1 residual autocorrelation -0.02.",
+        "display_value": "",
+        "band_label": ""
+      }
+    },
+    {
+      "kind": "evaluated",
+      "subject": {
+        "target": {
+          "kind": "indicator",
+          "id": "indicator:7a4890fc254d4a508b7c"
+        },
+        "check": "variance"
+      },
+      "outcome": "passed",
+      "evidence": {
+        "criterion": "variance",
+        "value": 1.04704,
+        "lower": null,
+        "upper": null,
+        "lower_inclusive": true,
+        "upper_inclusive": true,
+        "note": "Predictive-to-observed SD ratio 1.05.",
+        "display_value": "",
+        "band_label": ""
+      }
+    },
+    {
+      "kind": "evaluated",
+      "subject": {
+        "target": {
+          "kind": "indicator",
+          "id": "indicator:21069529417a9a99ee50"
+        },
+        "check": "calibration"
+      },
+      "outcome": "passed",
+      "evidence": {
+        "criterion": "calibration",
+        "value": 0.95022,
+        "lower": null,
+        "upper": null,
+        "lower_inclusive": true,
+        "upper_inclusive": true,
+        "note": "95% interval coverage 95.0%.",
+        "display_value": "",
+        "band_label": ""
+      }
+    },
+    {
+      "kind": "evaluated",
+      "subject": {
+        "target": {
+          "kind": "indicator",
+          "id": "indicator:21069529417a9a99ee50"
+        },
+        "check": "autocorrelation"
+      },
+      "outcome": "passed",
+      "evidence": {
+        "criterion": "autocorrelation",
+        "value": 0.17611,
+        "lower": null,
+        "upper": null,
+        "lower_inclusive": true,
+        "upper_inclusive": true,
+        "note": "Lag-1 residual autocorrelation +0.18.",
+        "display_value": "",
+        "band_label": ""
+      }
+    },
+    {
+      "kind": "evaluated",
+      "subject": {
+        "target": {
+          "kind": "indicator",
+          "id": "indicator:21069529417a9a99ee50"
+        },
+        "check": "variance"
+      },
+      "outcome": "passed",
+      "evidence": {
+        "criterion": "variance",
+        "value": 1.13719,
+        "lower": null,
+        "upper": null,
+        "lower_inclusive": true,
+        "upper_inclusive": true,
+        "note": "Predictive-to-observed SD ratio 1.14.",
+        "display_value": "",
+        "band_label": ""
+      }
+    },
+    {
+      "kind": "evaluated",
+      "subject": {
+        "target": {
+          "kind": "indicator",
+          "id": "indicator:9becfedce394873f8c0c"
+        },
+        "check": "calibration"
+      },
+      "outcome": "passed",
+      "evidence": {
+        "criterion": "calibration",
+        "value": 0.96615,
+        "lower": null,
+        "upper": null,
+        "lower_inclusive": true,
+        "upper_inclusive": true,
+        "note": "95% interval coverage 96.6%.",
+        "display_value": "",
+        "band_label": ""
+      }
+    },
+    {
+      "kind": "evaluated",
+      "subject": {
+        "target": {
+          "kind": "indicator",
+          "id": "indicator:9becfedce394873f8c0c"
+        },
+        "check": "autocorrelation"
+      },
+      "outcome": "passed",
+      "evidence": {
+        "criterion": "autocorrelation",
+        "value": -0.00393,
+        "lower": null,
+        "upper": null,
+        "lower_inclusive": true,
+        "upper_inclusive": true,
+        "note": "Lag-1 residual autocorrelation -0.00.",
+        "display_value": "",
+        "band_label": ""
+      }
+    },
+    {
+      "kind": "evaluated",
+      "subject": {
+        "target": {
+          "kind": "indicator",
+          "id": "indicator:9becfedce394873f8c0c"
+        },
+        "check": "variance"
+      },
+      "outcome": "passed",
+      "evidence": {
+        "criterion": "variance",
+        "value": 0.78527,
+        "lower": null,
+        "upper": null,
+        "lower_inclusive": true,
+        "upper_inclusive": true,
+        "note": "Predictive-to-observed SD ratio 0.79.",
+        "display_value": "",
+        "band_label": ""
+      }
+    }
+  ],
   "checked": true,
   "n_subsample": 128,
   "overlays": [
     {
       "indicator_id": "indicator:93c7007ff8e5a6565b25",
-      "median": [
-        8.31453,
-        8.25974,
-        8.21337,
-        8.17616,
-        8.14868,
-        8.04204,
-        8.12449,
-        8.12815,
-        8.1423,
-        8.16671,
-        8.201,
-        8.24464,
-        8.29694,
-        8.3571,
-        8.42416,
-        8.49709,
-        8.57475,
-        8.65592,
-        8.73935,
-        5.54359,
-        8.90771,
-        8.99003,
-        9.06938,
-        9.14453,
-        9.2143,
-        9.2776,
-        9.33346,
-        9.38099,
-        9.41945,
-        9.44825,
-        9.46693,
-        9.4752,
-        9.47294,
-        9.46018,
-        9.43711,
-        9.4041,
-        9.36167,
-        9.31047,
-        9.25131,
-        9.1851,
-        9.11288,
-        9.03579,
-        8.95501,
-        8.87181,
-        8.78749,
-        8.70337,
-        8.62076,
-        8.54094,
-        8.46516,
-        8.39461,
-        8.33039,
-        8.27349,
-        8.22481,
-        8.18511,
-        8.155,
-        8.13496,
-        8.12529,
-        8.12615,
-        8.13753,
-        8.15924,
-        4.66111
-      ],
       "observed": [
         null,
         null,
@@ -129,6 +728,69 @@
         null,
         null,
         3.0
+      ],
+      "median": [
+        8.31453,
+        8.25974,
+        8.21337,
+        8.17616,
+        8.14868,
+        8.04204,
+        8.12449,
+        8.12815,
+        8.1423,
+        8.16671,
+        8.201,
+        8.24464,
+        8.29694,
+        8.3571,
+        8.42416,
+        8.49709,
+        8.57475,
+        8.65592,
+        8.73935,
+        5.54359,
+        8.90771,
+        8.99003,
+        9.06938,
+        9.14453,
+        9.2143,
+        9.2776,
+        9.33346,
+        9.38099,
+        9.41945,
+        9.44825,
+        9.46693,
+        9.4752,
+        9.47294,
+        9.46018,
+        9.43711,
+        9.4041,
+        9.36167,
+        9.31047,
+        9.25131,
+        9.1851,
+        9.11288,
+        9.03579,
+        8.95501,
+        8.87181,
+        8.78749,
+        8.70337,
+        8.62076,
+        8.54094,
+        8.46516,
+        8.39461,
+        8.33039,
+        8.27349,
+        8.22481,
+        8.18511,
+        8.155,
+        8.13496,
+        8.12529,
+        8.12615,
+        8.13753,
+        8.15924,
+        4.66111
       ],
       "spaghetti_draws": [
         [
@@ -387,69 +1049,6 @@
     },
     {
       "indicator_id": "indicator:b3eb347f05220d9f4130",
-      "median": [
-        6.27142,
-        6.32753,
-        6.38164,
-        6.43293,
-        6.48058,
-        6.16763,
-        6.56207,
-        6.59463,
-        6.62104,
-        6.64088,
-        6.65384,
-        6.65972,
-        6.65842,
-        6.64997,
-        6.6345,
-        6.61225,
-        6.58357,
-        6.5489,
-        6.50878,
-        4.10843,
-        6.4148,
-        6.36239,
-        6.30746,
-        6.25085,
-        6.19344,
-        6.13613,
-        6.07983,
-        6.02539,
-        5.97369,
-        5.92551,
-        5.88162,
-        5.84269,
-        5.80934,
-        5.78209,
-        5.76136,
-        5.74747,
-        5.74065,
-        5.74099,
-        5.7485,
-        5.76305,
-        5.78442,
-        5.81227,
-        5.84618,
-        5.8856,
-        5.92994,
-        5.97848,
-        6.03049,
-        6.08513,
-        6.14157,
-        6.19893,
-        6.2563,
-        6.31279,
-        6.36752,
-        6.41964,
-        6.46832,
-        6.51283,
-        6.55245,
-        6.58657,
-        6.61466,
-        6.63628,
-        3.48835
-      ],
       "observed": [
         null,
         null,
@@ -512,6 +1111,69 @@
         null,
         null,
         2.0
+      ],
+      "median": [
+        6.27142,
+        6.32753,
+        6.38164,
+        6.43293,
+        6.48058,
+        6.16763,
+        6.56207,
+        6.59463,
+        6.62104,
+        6.64088,
+        6.65384,
+        6.65972,
+        6.65842,
+        6.64997,
+        6.6345,
+        6.61225,
+        6.58357,
+        6.5489,
+        6.50878,
+        4.10843,
+        6.4148,
+        6.36239,
+        6.30746,
+        6.25085,
+        6.19344,
+        6.13613,
+        6.07983,
+        6.02539,
+        5.97369,
+        5.92551,
+        5.88162,
+        5.84269,
+        5.80934,
+        5.78209,
+        5.76136,
+        5.74747,
+        5.74065,
+        5.74099,
+        5.7485,
+        5.76305,
+        5.78442,
+        5.81227,
+        5.84618,
+        5.8856,
+        5.92994,
+        5.97848,
+        6.03049,
+        6.08513,
+        6.14157,
+        6.19893,
+        6.2563,
+        6.31279,
+        6.36752,
+        6.41964,
+        6.46832,
+        6.51283,
+        6.55245,
+        6.58657,
+        6.61466,
+        6.63628,
+        3.48835
       ],
       "spaghetti_draws": [
         [
@@ -770,69 +1432,6 @@
     },
     {
       "indicator_id": "indicator:b20fa3887689d5616a60",
-      "median": [
-        0.26922,
-        0.34311,
-        0.26039,
-        0.25627,
-        0.25242,
-        0.24891,
-        0.2458,
-        0.24314,
-        0.24095,
-        0.23929,
-        0.23817,
-        0.23761,
-        0.23763,
-        0.23821,
-        0.23936,
-        0.24105,
-        0.24326,
-        0.24595,
-        0.24908,
-        0.25261,
-        0.25647,
-        0.2606,
-        0.26495,
-        0.26945,
-        0.27402,
-        0.27859,
-        0.28309,
-        0.28746,
-        0.49452,
-        0.2955,
-        0.4221,
-        0.30222,
-        0.35598,
-        0.3072,
-        0.30893,
-        0.31013,
-        0.31076,
-        0.31082,
-        0.31031,
-        0.30924,
-        0.30762,
-        0.30548,
-        0.30285,
-        0.29977,
-        0.2963,
-        0.29248,
-        0.28837,
-        0.28405,
-        0.27957,
-        0.275,
-        0.27043,
-        0.26591,
-        0.26153,
-        0.25734,
-        0.25341,
-        0.50834,
-        0.51411,
-        0.2438,
-        0.24148,
-        0.23968,
-        0.40269
-      ],
       "observed": [
         null,
         0.38,
@@ -895,6 +1494,69 @@
         null,
         null,
         0.48
+      ],
+      "median": [
+        0.26922,
+        0.34311,
+        0.26039,
+        0.25627,
+        0.25242,
+        0.24891,
+        0.2458,
+        0.24314,
+        0.24095,
+        0.23929,
+        0.23817,
+        0.23761,
+        0.23763,
+        0.23821,
+        0.23936,
+        0.24105,
+        0.24326,
+        0.24595,
+        0.24908,
+        0.25261,
+        0.25647,
+        0.2606,
+        0.26495,
+        0.26945,
+        0.27402,
+        0.27859,
+        0.28309,
+        0.28746,
+        0.49452,
+        0.2955,
+        0.4221,
+        0.30222,
+        0.35598,
+        0.3072,
+        0.30893,
+        0.31013,
+        0.31076,
+        0.31082,
+        0.31031,
+        0.30924,
+        0.30762,
+        0.30548,
+        0.30285,
+        0.29977,
+        0.2963,
+        0.29248,
+        0.28837,
+        0.28405,
+        0.27957,
+        0.275,
+        0.27043,
+        0.26591,
+        0.26153,
+        0.25734,
+        0.25341,
+        0.50834,
+        0.51411,
+        0.2438,
+        0.24148,
+        0.23968,
+        0.40269
       ],
       "spaghetti_draws": [
         [
@@ -1153,69 +1815,6 @@
     },
     {
       "indicator_id": "indicator:8e1b73dd3c754b48e92c",
-      "median": [
-        0.99683,
-        0.98915,
-        0.98101,
-        0.97253,
-        0.30843,
-        0.9551,
-        0.94642,
-        0.93794,
-        0.92979,
-        0.92211,
-        0.91501,
-        0.90861,
-        0.903,
-        0.89827,
-        0.89449,
-        0.89173,
-        0.89003,
-        0.88941,
-        0.88988,
-        0.89144,
-        0.89406,
-        0.8977,
-        0.9023,
-        0.9078,
-        0.9141,
-        0.92111,
-        0.92872,
-        0.9368,
-        0.94525,
-        0.95391,
-        0.96266,
-        0.97136,
-        0.97987,
-        0.98807,
-        0.99582,
-        1.003,
-        1.0095,
-        1.01522,
-        1.02007,
-        1.02398,
-        1.02688,
-        1.02873,
-        1.02949,
-        1.02916,
-        1.02775,
-        1.02527,
-        1.02176,
-        1.01728,
-        1.0119,
-        1.0057,
-        0.99878,
-        0.99124,
-        0.98321,
-        0.97481,
-        0.96617,
-        0.95742,
-        0.94871,
-        0.94016,
-        0.93192,
-        0.9241,
-        0.97339
-      ],
       "observed": [
         null,
         null,
@@ -1278,6 +1877,69 @@
         null,
         null,
         1.0
+      ],
+      "median": [
+        0.99683,
+        0.98915,
+        0.98101,
+        0.97253,
+        0.30843,
+        0.9551,
+        0.94642,
+        0.93794,
+        0.92979,
+        0.92211,
+        0.91501,
+        0.90861,
+        0.903,
+        0.89827,
+        0.89449,
+        0.89173,
+        0.89003,
+        0.88941,
+        0.88988,
+        0.89144,
+        0.89406,
+        0.8977,
+        0.9023,
+        0.9078,
+        0.9141,
+        0.92111,
+        0.92872,
+        0.9368,
+        0.94525,
+        0.95391,
+        0.96266,
+        0.97136,
+        0.97987,
+        0.98807,
+        0.99582,
+        1.003,
+        1.0095,
+        1.01522,
+        1.02007,
+        1.02398,
+        1.02688,
+        1.02873,
+        1.02949,
+        1.02916,
+        1.02775,
+        1.02527,
+        1.02176,
+        1.01728,
+        1.0119,
+        1.0057,
+        0.99878,
+        0.99124,
+        0.98321,
+        0.97481,
+        0.96617,
+        0.95742,
+        0.94871,
+        0.94016,
+        0.93192,
+        0.9241,
+        0.97339
       ],
       "spaghetti_draws": [
         [
@@ -1536,69 +2198,6 @@
     },
     {
       "indicator_id": "indicator:eca6b8b2c4379267b6c8",
-      "median": [
-        0.43758,
-        0.42971,
-        0.42264,
-        0.41647,
-        0.41132,
-        0.40725,
-        0.40433,
-        0.40261,
-        0.40212,
-        0.40285,
-        0.4048,
-        0.40795,
-        0.41223,
-        0.41759,
-        0.42393,
-        0.43117,
-        0.43918,
-        0.44785,
-        0.45704,
-        0.4666,
-        0.47638,
-        0.48624,
-        0.49601,
-        0.50555,
-        0.51471,
-        0.52334,
-        0.53131,
-        0.5385,
-        0.54479,
-        0.55008,
-        0.5543,
-        0.55737,
-        0.55925,
-        0.55991,
-        0.55934,
-        0.55755,
-        0.55456,
-        0.55043,
-        0.54521,
-        0.53899,
-        0.53186,
-        0.52394,
-        0.51536,
-        0.50623,
-        0.49671,
-        0.48695,
-        0.4771,
-        0.4673,
-        0.45772,
-        0.4485,
-        0.43979,
-        0.43173,
-        0.42443,
-        0.41802,
-        0.41258,
-        0.40822,
-        0.40499,
-        0.40295,
-        0.40213,
-        0.40254,
-        0.12933
-      ],
       "observed": [
         null,
         null,
@@ -1661,6 +2260,69 @@
         null,
         null,
         0.0
+      ],
+      "median": [
+        0.43758,
+        0.42971,
+        0.42264,
+        0.41647,
+        0.41132,
+        0.40725,
+        0.40433,
+        0.40261,
+        0.40212,
+        0.40285,
+        0.4048,
+        0.40795,
+        0.41223,
+        0.41759,
+        0.42393,
+        0.43117,
+        0.43918,
+        0.44785,
+        0.45704,
+        0.4666,
+        0.47638,
+        0.48624,
+        0.49601,
+        0.50555,
+        0.51471,
+        0.52334,
+        0.53131,
+        0.5385,
+        0.54479,
+        0.55008,
+        0.5543,
+        0.55737,
+        0.55925,
+        0.55991,
+        0.55934,
+        0.55755,
+        0.55456,
+        0.55043,
+        0.54521,
+        0.53899,
+        0.53186,
+        0.52394,
+        0.51536,
+        0.50623,
+        0.49671,
+        0.48695,
+        0.4771,
+        0.4673,
+        0.45772,
+        0.4485,
+        0.43979,
+        0.43173,
+        0.42443,
+        0.41802,
+        0.41258,
+        0.40822,
+        0.40499,
+        0.40295,
+        0.40213,
+        0.40254,
+        0.12933
       ],
       "spaghetti_draws": [
         [
@@ -1919,69 +2581,6 @@
     },
     {
       "indicator_id": "indicator:eb0949a188790298c25d",
-      "median": [
-        16.34908,
-        16.38935,
-        16.43668,
-        16.49034,
-        16.54949,
-        16.61321,
-        16.6805,
-        16.75031,
-        16.82155,
-        16.89311,
-        16.96388,
-        17.03275,
-        17.09864,
-        17.16053,
-        17.21745,
-        17.26851,
-        17.31292,
-        17.34998,
-        17.37912,
-        17.39987,
-        17.41193,
-        17.41509,
-        17.40931,
-        17.39468,
-        17.37142,
-        17.33991,
-        17.30063,
-        17.25419,
-        17.20133,
-        17.14285,
-        17.07969,
-        17.01281,
-        16.94328,
-        16.87216,
-        16.80058,
-        16.72964,
-        16.66046,
-        16.59411,
-        16.53163,
-        16.474,
-        16.42211,
-        16.37678,
-        16.3387,
-        16.30849,
-        16.2866,
-        16.27337,
-        16.26903,
-        16.27362,
-        16.28709,
-        16.30921,
-        16.33966,
-        16.37794,
-        16.42347,
-        16.47553,
-        16.5333,
-        16.5959,
-        16.66234,
-        16.73159,
-        18.97682,
-        16.87414,
-        19.02247
-      ],
       "observed": [
         null,
         null,
@@ -2044,6 +2643,69 @@
         20.0,
         null,
         20.0
+      ],
+      "median": [
+        16.34908,
+        16.38935,
+        16.43668,
+        16.49034,
+        16.54949,
+        16.61321,
+        16.6805,
+        16.75031,
+        16.82155,
+        16.89311,
+        16.96388,
+        17.03275,
+        17.09864,
+        17.16053,
+        17.21745,
+        17.26851,
+        17.31292,
+        17.34998,
+        17.37912,
+        17.39987,
+        17.41193,
+        17.41509,
+        17.40931,
+        17.39468,
+        17.37142,
+        17.33991,
+        17.30063,
+        17.25419,
+        17.20133,
+        17.14285,
+        17.07969,
+        17.01281,
+        16.94328,
+        16.87216,
+        16.80058,
+        16.72964,
+        16.66046,
+        16.59411,
+        16.53163,
+        16.474,
+        16.42211,
+        16.37678,
+        16.3387,
+        16.30849,
+        16.2866,
+        16.27337,
+        16.26903,
+        16.27362,
+        16.28709,
+        16.30921,
+        16.33966,
+        16.37794,
+        16.42347,
+        16.47553,
+        16.5333,
+        16.5959,
+        16.66234,
+        16.73159,
+        18.97682,
+        16.87414,
+        19.02247
       ],
       "spaghetti_draws": [
         [
@@ -2302,69 +2964,6 @@
     },
     {
       "indicator_id": "indicator:1f8878c9ba1ad571b89e",
-      "median": [
-        1.92783,
-        1.92957,
-        1.93164,
-        1.93401,
-        1.93664,
-        1.93949,
-        1.94252,
-        1.94568,
-        1.94892,
-        1.95219,
-        1.95543,
-        1.95861,
-        1.96166,
-        1.96455,
-        1.96722,
-        1.96963,
-        1.97175,
-        1.97354,
-        1.97498,
-        1.97605,
-        1.97672,
-        1.97698,
-        1.97684,
-        1.97629,
-        1.97534,
-        1.97401,
-        1.97232,
-        1.97029,
-        1.96796,
-        1.96536,
-        1.96254,
-        1.95953,
-        1.95639,
-        1.95315,
-        1.94989,
-        1.94663,
-        1.94345,
-        1.94037,
-        1.93747,
-        1.93476,
-        1.93231,
-        1.93015,
-        1.92831,
-        1.92683,
-        1.92571,
-        1.92499,
-        1.92467,
-        1.92476,
-        1.92526,
-        1.92615,
-        1.92743,
-        1.92908,
-        1.93106,
-        1.93335,
-        1.93592,
-        1.93872,
-        1.9417,
-        1.94483,
-        1.94805,
-        1.95132,
-        1.98546
-      ],
       "observed": [
         null,
         null,
@@ -2427,6 +3026,69 @@
         null,
         null,
         2.0
+      ],
+      "median": [
+        1.92783,
+        1.92957,
+        1.93164,
+        1.93401,
+        1.93664,
+        1.93949,
+        1.94252,
+        1.94568,
+        1.94892,
+        1.95219,
+        1.95543,
+        1.95861,
+        1.96166,
+        1.96455,
+        1.96722,
+        1.96963,
+        1.97175,
+        1.97354,
+        1.97498,
+        1.97605,
+        1.97672,
+        1.97698,
+        1.97684,
+        1.97629,
+        1.97534,
+        1.97401,
+        1.97232,
+        1.97029,
+        1.96796,
+        1.96536,
+        1.96254,
+        1.95953,
+        1.95639,
+        1.95315,
+        1.94989,
+        1.94663,
+        1.94345,
+        1.94037,
+        1.93747,
+        1.93476,
+        1.93231,
+        1.93015,
+        1.92831,
+        1.92683,
+        1.92571,
+        1.92499,
+        1.92467,
+        1.92476,
+        1.92526,
+        1.92615,
+        1.92743,
+        1.92908,
+        1.93106,
+        1.93335,
+        1.93592,
+        1.93872,
+        1.9417,
+        1.94483,
+        1.94805,
+        1.95132,
+        1.98546
       ],
       "spaghetti_draws": [
         [
@@ -2685,69 +3347,6 @@
     },
     {
       "indicator_id": "indicator:7a4890fc254d4a508b7c",
-      "median": [
-        86.12412,
-        85.43221,
-        85.42216,
-        85.41413,
-        86.08824,
-        86.76458,
-        87.44321,
-        88.12416,
-        88.8074,
-        89.49289,
-        89.50055,
-        88.83024,
-        88.16182,
-        87.49511,
-        86.82991,
-        86.16598,
-        85.50306,
-        85.5209,
-        85.53922,
-        86.23773,
-        86.93613,
-        87.63416,
-        89.01151,
-        89.02793,
-        87.00983,
-        90.41693,
-        89.74908,
-        89.07938,
-        88.40769,
-        87.73387,
-        87.05783,
-        86.3795,
-        86.37886,
-        87.05592,
-        87.05072,
-        87.72335,
-        89.07392,
-        89.74258,
-        89.7295,
-        90.3949,
-        90.37898,
-        89.68202,
-        88.98426,
-        88.28599,
-        87.58749,
-        86.88905,
-        86.19097,
-        86.17351,
-        86.83695,
-        87.50156,
-        88.16757,
-        88.8352,
-        89.50464,
-        90.17606,
-        86.27996,
-        89.48533,
-        88.80335,
-        88.12368,
-        87.44632,
-        86.77122,
-        86.09831
-      ],
       "observed": [
         86.0,
         85.0,
@@ -2810,6 +3409,69 @@
         88.0,
         87.0,
         86.0
+      ],
+      "median": [
+        86.12412,
+        85.43221,
+        85.42216,
+        85.41413,
+        86.08824,
+        86.76458,
+        87.44321,
+        88.12416,
+        88.8074,
+        89.49289,
+        89.50055,
+        88.83024,
+        88.16182,
+        87.49511,
+        86.82991,
+        86.16598,
+        85.50306,
+        85.5209,
+        85.53922,
+        86.23773,
+        86.93613,
+        87.63416,
+        89.01151,
+        89.02793,
+        87.00983,
+        90.41693,
+        89.74908,
+        89.07938,
+        88.40769,
+        87.73387,
+        87.05783,
+        86.3795,
+        86.37886,
+        87.05592,
+        87.05072,
+        87.72335,
+        89.07392,
+        89.74258,
+        89.7295,
+        90.3949,
+        90.37898,
+        89.68202,
+        88.98426,
+        88.28599,
+        87.58749,
+        86.88905,
+        86.19097,
+        86.17351,
+        86.83695,
+        87.50156,
+        88.16757,
+        88.8352,
+        89.50464,
+        90.17606,
+        86.27996,
+        89.48533,
+        88.80335,
+        88.12368,
+        87.44632,
+        86.77122,
+        86.09831
       ],
       "spaghetti_draws": [
         [
@@ -3068,69 +3730,6 @@
     },
     {
       "indicator_id": "indicator:21069529417a9a99ee50",
-      "median": [
-        9161.86747,
-        8530.35614,
-        8058.3074,
-        7636.12654,
-        7332.37529,
-        7770.49367,
-        7965.04185,
-        7598.34206,
-        7813.36038,
-        8275.42853,
-        8758.00558,
-        9172.59951,
-        10163.76865,
-        10419.72295,
-        9531.72507,
-        8990.97127,
-        8536.31214,
-        8060.29298,
-        7643.83411,
-        7939.75078,
-        7962.07302,
-        7437.4851,
-        7520.00489,
-        7943.14293,
-        8419.34132,
-        8889.53247,
-        10002.53763,
-        10435.18534,
-        9713.6297,
-        9306.78861,
-        8927.14194,
-        8449.68963,
-        7964.30984,
-        8161.99712,
-        8031.02057,
-        7336.2022,
-        7271.03531,
-        7530.96301,
-        7929.05696,
-        8403.49625,
-        9579.24645,
-        10162.97893,
-        9640.63034,
-        9426.60238,
-        9197.88175,
-        8807.56038,
-        8333.11583,
-        8495.29201,
-        8256.34,
-        7410.13916,
-        7197.59836,
-        7325.53745,
-        7622.48875,
-        8099.89881,
-        9297.57012,
-        9983.90298,
-        9635.85733,
-        9616.71467,
-        9570.03988,
-        9313.48303,
-        4029.14106
-      ],
       "observed": [
         9727.0,
         8788.0,
@@ -3193,6 +3792,69 @@
         10243.0,
         9856.0,
         2076.0
+      ],
+      "median": [
+        9161.86747,
+        8530.35614,
+        8058.3074,
+        7636.12654,
+        7332.37529,
+        7770.49367,
+        7965.04185,
+        7598.34206,
+        7813.36038,
+        8275.42853,
+        8758.00558,
+        9172.59951,
+        10163.76865,
+        10419.72295,
+        9531.72507,
+        8990.97127,
+        8536.31214,
+        8060.29298,
+        7643.83411,
+        7939.75078,
+        7962.07302,
+        7437.4851,
+        7520.00489,
+        7943.14293,
+        8419.34132,
+        8889.53247,
+        10002.53763,
+        10435.18534,
+        9713.6297,
+        9306.78861,
+        8927.14194,
+        8449.68963,
+        7964.30984,
+        8161.99712,
+        8031.02057,
+        7336.2022,
+        7271.03531,
+        7530.96301,
+        7929.05696,
+        8403.49625,
+        9579.24645,
+        10162.97893,
+        9640.63034,
+        9426.60238,
+        9197.88175,
+        8807.56038,
+        8333.11583,
+        8495.29201,
+        8256.34,
+        7410.13916,
+        7197.59836,
+        7325.53745,
+        7622.48875,
+        8099.89881,
+        9297.57012,
+        9983.90298,
+        9635.85733,
+        9616.71467,
+        9570.03988,
+        9313.48303,
+        4029.14106
       ],
       "spaghetti_draws": [
         [
@@ -3451,69 +4113,6 @@
     },
     {
       "indicator_id": "indicator:9becfedce394873f8c0c",
-      "median": [
-        0.85939,
-        0.85947,
-        0.86088,
-        0.8636,
-        0.86757,
-        0.87275,
-        0.87904,
-        0.88636,
-        0.89458,
-        0.90358,
-        0.91322,
-        0.92334,
-        0.93379,
-        0.94441,
-        0.95503,
-        0.96549,
-        0.97562,
-        0.98526,
-        0.99426,
-        1.00249,
-        1.00981,
-        1.01611,
-        1.02129,
-        1.02527,
-        1.02799,
-        1.02941,
-        1.02951,
-        1.02827,
-        1.02573,
-        1.02191,
-        1.01689,
-        1.01074,
-        1.00356,
-        0.99545,
-        0.98655,
-        0.97698,
-        0.96692,
-        0.9565,
-        0.94589,
-        0.93526,
-        0.92477,
-        0.91459,
-        0.90488,
-        0.89578,
-        0.88744,
-        0.88,
-        0.87356,
-        0.86822,
-        0.86407,
-        0.86118,
-        0.85959,
-        0.85932,
-        0.86038,
-        0.86275,
-        0.8664,
-        0.87126,
-        0.87727,
-        0.88432,
-        0.89231,
-        0.90112,
-        0.97139
-      ],
       "observed": [
         null,
         null,
@@ -3576,6 +4175,69 @@
         null,
         null,
         1.0
+      ],
+      "median": [
+        0.85939,
+        0.85947,
+        0.86088,
+        0.8636,
+        0.86757,
+        0.87275,
+        0.87904,
+        0.88636,
+        0.89458,
+        0.90358,
+        0.91322,
+        0.92334,
+        0.93379,
+        0.94441,
+        0.95503,
+        0.96549,
+        0.97562,
+        0.98526,
+        0.99426,
+        1.00249,
+        1.00981,
+        1.01611,
+        1.02129,
+        1.02527,
+        1.02799,
+        1.02941,
+        1.02951,
+        1.02827,
+        1.02573,
+        1.02191,
+        1.01689,
+        1.01074,
+        1.00356,
+        0.99545,
+        0.98655,
+        0.97698,
+        0.96692,
+        0.9565,
+        0.94589,
+        0.93526,
+        0.92477,
+        0.91459,
+        0.90488,
+        0.89578,
+        0.88744,
+        0.88,
+        0.87356,
+        0.86822,
+        0.86407,
+        0.86118,
+        0.85959,
+        0.85932,
+        0.86038,
+        0.86275,
+        0.8664,
+        0.87126,
+        0.87727,
+        0.88432,
+        0.89231,
+        0.90112,
+        0.97139
       ],
       "spaghetti_draws": [
         [
@@ -3833,273 +4495,11 @@
       ]
     }
   ],
-  "per_variable_warnings": [
-    {
-      "check_type": "calibration",
-      "indicator_id": "indicator:93c7007ff8e5a6565b25",
-      "message": "Calibration is weakly assessed because the observed channel is sparse or degenerate.",
-      "passed": false,
-      "value": 0.92853
-    },
-    {
-      "check_type": "autocorrelation",
-      "indicator_id": "indicator:93c7007ff8e5a6565b25",
-      "message": "Lag-1 residual autocorrelation -0.03.",
-      "passed": true,
-      "value": -0.03139
-    },
-    {
-      "check_type": "variance",
-      "indicator_id": "indicator:93c7007ff8e5a6565b25",
-      "message": "Predictive-to-observed SD ratio 0.89.",
-      "passed": true,
-      "value": 0.88773
-    },
-    {
-      "check_type": "calibration",
-      "indicator_id": "indicator:b3eb347f05220d9f4130",
-      "message": "Calibration is weakly assessed because the observed channel is sparse or degenerate.",
-      "passed": false,
-      "value": 0.94455
-    },
-    {
-      "check_type": "autocorrelation",
-      "indicator_id": "indicator:b3eb347f05220d9f4130",
-      "message": "Lag-1 residual autocorrelation +0.17.",
-      "passed": true,
-      "value": 0.16521
-    },
-    {
-      "check_type": "variance",
-      "indicator_id": "indicator:b3eb347f05220d9f4130",
-      "message": "Predictive-to-observed SD ratio 1.15.",
-      "passed": true,
-      "value": 1.15001
-    },
-    {
-      "check_type": "calibration",
-      "indicator_id": "indicator:b20fa3887689d5616a60",
-      "message": "95% interval coverage 92.8%.",
-      "passed": true,
-      "value": 0.92843
-    },
-    {
-      "check_type": "autocorrelation",
-      "indicator_id": "indicator:b20fa3887689d5616a60",
-      "message": "Lag-1 residual autocorrelation -0.09.",
-      "passed": true,
-      "value": -0.08993
-    },
-    {
-      "check_type": "variance",
-      "indicator_id": "indicator:b20fa3887689d5616a60",
-      "message": "Predictive-to-observed SD ratio 0.97.",
-      "passed": true,
-      "value": 0.97207
-    },
-    {
-      "check_type": "calibration",
-      "indicator_id": "indicator:8e1b73dd3c754b48e92c",
-      "message": "95% interval coverage 95.6%.",
-      "passed": true,
-      "value": 0.95571
-    },
-    {
-      "check_type": "autocorrelation",
-      "indicator_id": "indicator:8e1b73dd3c754b48e92c",
-      "message": "Lag-1 residual autocorrelation -0.07.",
-      "passed": true,
-      "value": -0.06611
-    },
-    {
-      "check_type": "variance",
-      "indicator_id": "indicator:8e1b73dd3c754b48e92c",
-      "message": "Predictive-to-observed SD ratio 0.91.",
-      "passed": true,
-      "value": 0.90772
-    },
-    {
-      "check_type": "calibration",
-      "indicator_id": "indicator:eca6b8b2c4379267b6c8",
-      "message": "95% interval coverage 92.6%.",
-      "passed": true,
-      "value": 0.92606
-    },
-    {
-      "check_type": "autocorrelation",
-      "indicator_id": "indicator:eca6b8b2c4379267b6c8",
-      "message": "Lag-1 residual autocorrelation -0.06.",
-      "passed": true,
-      "value": -0.05661
-    },
-    {
-      "check_type": "variance",
-      "indicator_id": "indicator:eca6b8b2c4379267b6c8",
-      "message": "Predictive-to-observed SD ratio 1.20.",
-      "passed": true,
-      "value": 1.19584
-    },
-    {
-      "check_type": "calibration",
-      "indicator_id": "indicator:eb0949a188790298c25d",
-      "message": "95% interval coverage 93.3%.",
-      "passed": true,
-      "value": 0.93269
-    },
-    {
-      "check_type": "autocorrelation",
-      "indicator_id": "indicator:eb0949a188790298c25d",
-      "message": "Lag-1 residual autocorrelation +0.11.",
-      "passed": true,
-      "value": 0.11203
-    },
-    {
-      "check_type": "variance",
-      "indicator_id": "indicator:eb0949a188790298c25d",
-      "message": "Predictive-to-observed SD ratio 1.08.",
-      "passed": true,
-      "value": 1.0831
-    },
-    {
-      "check_type": "calibration",
-      "indicator_id": "indicator:1f8878c9ba1ad571b89e",
-      "message": "95% interval coverage 94.6%.",
-      "passed": true,
-      "value": 0.94592
-    },
-    {
-      "check_type": "autocorrelation",
-      "indicator_id": "indicator:1f8878c9ba1ad571b89e",
-      "message": "Lag-1 residual autocorrelation +0.13.",
-      "passed": true,
-      "value": 0.13145
-    },
-    {
-      "check_type": "variance",
-      "indicator_id": "indicator:1f8878c9ba1ad571b89e",
-      "message": "Predictive-to-observed SD ratio 1.13.",
-      "passed": true,
-      "value": 1.12825
-    },
-    {
-      "check_type": "calibration",
-      "indicator_id": "indicator:7a4890fc254d4a508b7c",
-      "message": "95% interval coverage 91.2%.",
-      "passed": true,
-      "value": 0.91193
-    },
-    {
-      "check_type": "autocorrelation",
-      "indicator_id": "indicator:7a4890fc254d4a508b7c",
-      "message": "Lag-1 residual autocorrelation -0.02.",
-      "passed": true,
-      "value": -0.01849
-    },
-    {
-      "check_type": "variance",
-      "indicator_id": "indicator:7a4890fc254d4a508b7c",
-      "message": "Predictive-to-observed SD ratio 1.05.",
-      "passed": true,
-      "value": 1.04704
-    },
-    {
-      "check_type": "calibration",
-      "indicator_id": "indicator:21069529417a9a99ee50",
-      "message": "95% interval coverage 95.0%.",
-      "passed": true,
-      "value": 0.95022
-    },
-    {
-      "check_type": "autocorrelation",
-      "indicator_id": "indicator:21069529417a9a99ee50",
-      "message": "Lag-1 residual autocorrelation +0.18.",
-      "passed": true,
-      "value": 0.17611
-    },
-    {
-      "check_type": "variance",
-      "indicator_id": "indicator:21069529417a9a99ee50",
-      "message": "Predictive-to-observed SD ratio 1.14.",
-      "passed": true,
-      "value": 1.13719
-    },
-    {
-      "check_type": "calibration",
-      "indicator_id": "indicator:9becfedce394873f8c0c",
-      "message": "95% interval coverage 96.6%.",
-      "passed": true,
-      "value": 0.96615
-    },
-    {
-      "check_type": "autocorrelation",
-      "indicator_id": "indicator:9becfedce394873f8c0c",
-      "message": "Lag-1 residual autocorrelation -0.00.",
-      "passed": true,
-      "value": -0.00393
-    },
-    {
-      "check_type": "variance",
-      "indicator_id": "indicator:9becfedce394873f8c0c",
-      "message": "Predictive-to-observed SD ratio 0.79.",
-      "passed": true,
-      "value": 0.78527
-    }
-  ],
   "test_stats": [
     {
-      "histogram": [
-        {
-          "bin_center": 3.9257575,
-          "bin_end": 4.060065,
-          "bin_start": 3.79145,
-          "count": 2
-        },
-        {
-          "bin_center": 4.1943725,
-          "bin_end": 4.32868,
-          "bin_start": 4.060065,
-          "count": 1
-        },
-        {
-          "bin_center": 4.4629875000000006,
-          "bin_end": 4.597295,
-          "bin_start": 4.32868,
-          "count": 5
-        },
-        {
-          "bin_center": 4.731602499999999,
-          "bin_end": 4.8659099999999995,
-          "bin_start": 4.597295,
-          "count": 10
-        },
-        {
-          "bin_center": 5.0002175,
-          "bin_end": 5.134525,
-          "bin_start": 4.8659099999999995,
-          "count": 18
-        },
-        {
-          "bin_center": 5.2688325,
-          "bin_end": 5.40314,
-          "bin_start": 5.134525,
-          "count": 13
-        },
-        {
-          "bin_center": 5.537447499999999,
-          "bin_end": 5.671754999999999,
-          "bin_start": 5.40314,
-          "count": 10
-        },
-        {
-          "bin_center": 5.8060624999999995,
-          "bin_end": 5.94037,
-          "bin_start": 5.671754999999999,
-          "count": 5
-        }
-      ],
       "indicator_id": "indicator:93c7007ff8e5a6565b25",
+      "stat_name": "mean",
       "observed_value": 5.0,
-      "p_value": 0.515625,
       "rep_values": [
         5.26338,
         5.20639,
@@ -4166,62 +4566,62 @@
         5.67679,
         4.95375
       ],
-      "stat_name": "mean"
-    },
-    {
+      "p_value": 0.515625,
       "histogram": [
         {
-          "bin_center": 1.26946625,
-          "bin_end": 1.3988825,
-          "bin_start": 1.14005,
-          "count": 4
+          "bin_center": 3.9257575,
+          "bin_start": 3.79145,
+          "bin_end": 4.060065,
+          "count": 2
         },
         {
-          "bin_center": 1.52829875,
-          "bin_end": 1.657715,
-          "bin_start": 1.3988825,
+          "bin_center": 4.1943725,
+          "bin_start": 4.060065,
+          "bin_end": 4.32868,
+          "count": 1
+        },
+        {
+          "bin_center": 4.4629875000000006,
+          "bin_start": 4.32868,
+          "bin_end": 4.597295,
           "count": 5
         },
         {
-          "bin_center": 1.78713125,
-          "bin_end": 1.9165475,
-          "bin_start": 1.657715,
-          "count": 6
+          "bin_center": 4.731602499999999,
+          "bin_start": 4.597295,
+          "bin_end": 4.8659099999999995,
+          "count": 10
         },
         {
-          "bin_center": 2.0459637500000003,
-          "bin_end": 2.17538,
-          "bin_start": 1.9165475,
-          "count": 14
+          "bin_center": 5.0002175,
+          "bin_start": 4.8659099999999995,
+          "bin_end": 5.134525,
+          "count": 18
         },
         {
-          "bin_center": 2.30479625,
-          "bin_end": 2.4342125,
-          "bin_start": 2.17538,
-          "count": 17
+          "bin_center": 5.2688325,
+          "bin_start": 5.134525,
+          "bin_end": 5.40314,
+          "count": 13
         },
         {
-          "bin_center": 2.5636287500000003,
-          "bin_end": 2.693045,
-          "bin_start": 2.4342125,
-          "count": 12
+          "bin_center": 5.537447499999999,
+          "bin_start": 5.40314,
+          "bin_end": 5.671754999999999,
+          "count": 10
         },
         {
-          "bin_center": 2.82246125,
-          "bin_end": 2.9518775,
-          "bin_start": 2.693045,
-          "count": 4
-        },
-        {
-          "bin_center": 3.0812937500000004,
-          "bin_end": 3.21071,
-          "bin_start": 2.9518775,
-          "count": 2
+          "bin_center": 5.8060624999999995,
+          "bin_start": 5.671754999999999,
+          "bin_end": 5.94037,
+          "count": 5
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:93c7007ff8e5a6565b25",
+      "stat_name": "sd",
       "observed_value": 2.16025,
-      "p_value": 0.5625,
       "rep_values": [
         2.02874,
         2.18136,
@@ -4288,62 +4688,62 @@
         2.4323,
         2.65774
       ],
-      "stat_name": "sd"
-    },
-    {
+      "p_value": 0.5625,
       "histogram": [
         {
-          "bin_center": 1.8199337500000001,
-          "bin_end": 2.0773275,
-          "bin_start": 1.56254,
-          "count": 12
+          "bin_center": 1.26946625,
+          "bin_start": 1.14005,
+          "bin_end": 1.3988825,
+          "count": 4
         },
         {
-          "bin_center": 2.33472125,
-          "bin_end": 2.5921149999999997,
-          "bin_start": 2.0773275,
-          "count": 6
-        },
-        {
-          "bin_center": 2.84950875,
-          "bin_end": 3.1069025,
-          "bin_start": 2.5921149999999997,
-          "count": 10
-        },
-        {
-          "bin_center": 3.3642962499999998,
-          "bin_end": 3.62169,
-          "bin_start": 3.1069025,
-          "count": 11
-        },
-        {
-          "bin_center": 3.87908375,
-          "bin_end": 4.1364775,
-          "bin_start": 3.62169,
-          "count": 11
-        },
-        {
-          "bin_center": 4.39387125,
-          "bin_end": 4.6512649999999995,
-          "bin_start": 4.1364775,
-          "count": 7
-        },
-        {
-          "bin_center": 4.90865875,
-          "bin_end": 5.1660525,
-          "bin_start": 4.6512649999999995,
+          "bin_center": 1.52829875,
+          "bin_start": 1.3988825,
+          "bin_end": 1.657715,
           "count": 5
         },
         {
-          "bin_center": 5.42344625,
-          "bin_end": 5.68084,
-          "bin_start": 5.1660525,
+          "bin_center": 1.78713125,
+          "bin_start": 1.657715,
+          "bin_end": 1.9165475,
+          "count": 6
+        },
+        {
+          "bin_center": 2.0459637500000003,
+          "bin_start": 1.9165475,
+          "bin_end": 2.17538,
+          "count": 14
+        },
+        {
+          "bin_center": 2.30479625,
+          "bin_start": 2.17538,
+          "bin_end": 2.4342125,
+          "count": 17
+        },
+        {
+          "bin_center": 2.5636287500000003,
+          "bin_start": 2.4342125,
+          "bin_end": 2.693045,
+          "count": 12
+        },
+        {
+          "bin_center": 2.82246125,
+          "bin_start": 2.693045,
+          "bin_end": 2.9518775,
+          "count": 4
+        },
+        {
+          "bin_center": 3.0812937500000004,
+          "bin_start": 2.9518775,
+          "bin_end": 3.21071,
           "count": 2
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:93c7007ff8e5a6565b25",
+      "stat_name": "min",
       "observed_value": 3.0,
-      "p_value": 0.609375,
       "rep_values": [
         2.80451,
         2.33958,
@@ -4410,62 +4810,62 @@
         5.09587,
         4.64201
       ],
-      "stat_name": "min"
-    },
-    {
+      "p_value": 0.609375,
       "histogram": [
         {
-          "bin_center": 4.58640875,
-          "bin_end": 5.0070475000000005,
-          "bin_start": 4.16577,
-          "count": 1
+          "bin_center": 1.8199337500000001,
+          "bin_start": 1.56254,
+          "bin_end": 2.0773275,
+          "count": 12
         },
         {
-          "bin_center": 5.427686250000001,
-          "bin_end": 5.848325,
-          "bin_start": 5.0070475000000005,
-          "count": 1
+          "bin_center": 2.33472125,
+          "bin_start": 2.0773275,
+          "bin_end": 2.5921149999999997,
+          "count": 6
         },
         {
-          "bin_center": 6.268963749999999,
-          "bin_end": 6.6896024999999995,
-          "bin_start": 5.848325,
-          "count": 8
-        },
-        {
-          "bin_center": 7.11024125,
-          "bin_end": 7.53088,
-          "bin_start": 6.6896024999999995,
-          "count": 18
-        },
-        {
-          "bin_center": 7.95151875,
-          "bin_end": 8.3721575,
-          "bin_start": 7.53088,
-          "count": 11
-        },
-        {
-          "bin_center": 8.79279625,
-          "bin_end": 9.213435,
-          "bin_start": 8.3721575,
-          "count": 14
-        },
-        {
-          "bin_center": 9.634073749999999,
-          "bin_end": 10.054712499999999,
-          "bin_start": 9.213435,
+          "bin_center": 2.84950875,
+          "bin_start": 2.5921149999999997,
+          "bin_end": 3.1069025,
           "count": 10
         },
         {
-          "bin_center": 10.47535125,
-          "bin_end": 10.89599,
-          "bin_start": 10.054712499999999,
-          "count": 1
+          "bin_center": 3.3642962499999998,
+          "bin_start": 3.1069025,
+          "bin_end": 3.62169,
+          "count": 11
+        },
+        {
+          "bin_center": 3.87908375,
+          "bin_start": 3.62169,
+          "bin_end": 4.1364775,
+          "count": 11
+        },
+        {
+          "bin_center": 4.39387125,
+          "bin_start": 4.1364775,
+          "bin_end": 4.6512649999999995,
+          "count": 7
+        },
+        {
+          "bin_center": 4.90865875,
+          "bin_start": 4.6512649999999995,
+          "bin_end": 5.1660525,
+          "count": 5
+        },
+        {
+          "bin_center": 5.42344625,
+          "bin_start": 5.1660525,
+          "bin_end": 5.68084,
+          "count": 2
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:93c7007ff8e5a6565b25",
+      "stat_name": "max",
       "observed_value": 8.0,
-      "p_value": 0.421875,
       "rep_values": [
         7.14697,
         9.26262,
@@ -4532,62 +4932,62 @@
         6.80216,
         6.2658
       ],
-      "stat_name": "max"
-    },
-    {
+      "p_value": 0.421875,
       "histogram": [
         {
-          "bin_center": 3.015874375,
-          "bin_end": 3.10186875,
-          "bin_start": 2.92988,
-          "count": 4
+          "bin_center": 4.58640875,
+          "bin_start": 4.16577,
+          "bin_end": 5.0070475000000005,
+          "count": 1
         },
         {
-          "bin_center": 3.187863125,
-          "bin_end": 3.2738575,
-          "bin_start": 3.10186875,
-          "count": 4
+          "bin_center": 5.427686250000001,
+          "bin_start": 5.0070475000000005,
+          "bin_end": 5.848325,
+          "count": 1
         },
         {
-          "bin_center": 3.359851875,
-          "bin_end": 3.4458462499999998,
-          "bin_start": 3.2738575,
-          "count": 4
-        },
-        {
-          "bin_center": 3.531840625,
-          "bin_end": 3.617835,
-          "bin_start": 3.4458462499999998,
-          "count": 13
-        },
-        {
-          "bin_center": 3.7038293749999998,
-          "bin_end": 3.78982375,
-          "bin_start": 3.617835,
-          "count": 19
-        },
-        {
-          "bin_center": 3.875818125,
-          "bin_end": 3.9618124999999997,
-          "bin_start": 3.78982375,
-          "count": 7
-        },
-        {
-          "bin_center": 4.047806874999999,
-          "bin_end": 4.133801249999999,
-          "bin_start": 3.9618124999999997,
+          "bin_center": 6.268963749999999,
+          "bin_start": 5.848325,
+          "bin_end": 6.6896024999999995,
           "count": 8
         },
         {
-          "bin_center": 4.219795625,
-          "bin_end": 4.30579,
-          "bin_start": 4.133801249999999,
-          "count": 5
+          "bin_center": 7.11024125,
+          "bin_start": 6.6896024999999995,
+          "bin_end": 7.53088,
+          "count": 18
+        },
+        {
+          "bin_center": 7.95151875,
+          "bin_start": 7.53088,
+          "bin_end": 8.3721575,
+          "count": 11
+        },
+        {
+          "bin_center": 8.79279625,
+          "bin_start": 8.3721575,
+          "bin_end": 9.213435,
+          "count": 14
+        },
+        {
+          "bin_center": 9.634073749999999,
+          "bin_start": 9.213435,
+          "bin_end": 10.054712499999999,
+          "count": 10
+        },
+        {
+          "bin_center": 10.47535125,
+          "bin_start": 10.054712499999999,
+          "bin_end": 10.89599,
+          "count": 1
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:b3eb347f05220d9f4130",
+      "stat_name": "mean",
       "observed_value": 3.66667,
-      "p_value": 0.5,
       "rep_values": [
         3.81556,
         3.99283,
@@ -4654,62 +5054,62 @@
         3.50218,
         3.75247
       ],
-      "stat_name": "mean"
-    },
-    {
+      "p_value": 0.5,
       "histogram": [
         {
-          "bin_center": 1.088268125,
-          "bin_end": 1.18889625,
-          "bin_start": 0.98764,
-          "count": 2
+          "bin_center": 3.015874375,
+          "bin_start": 2.92988,
+          "bin_end": 3.10186875,
+          "count": 4
         },
         {
-          "bin_center": 1.289524375,
-          "bin_end": 1.3901525000000001,
-          "bin_start": 1.18889625,
+          "bin_center": 3.187863125,
+          "bin_start": 3.10186875,
+          "bin_end": 3.2738575,
+          "count": 4
+        },
+        {
+          "bin_center": 3.359851875,
+          "bin_start": 3.2738575,
+          "bin_end": 3.4458462499999998,
+          "count": 4
+        },
+        {
+          "bin_center": 3.531840625,
+          "bin_start": 3.4458462499999998,
+          "bin_end": 3.617835,
+          "count": 13
+        },
+        {
+          "bin_center": 3.7038293749999998,
+          "bin_start": 3.617835,
+          "bin_end": 3.78982375,
+          "count": 19
+        },
+        {
+          "bin_center": 3.875818125,
+          "bin_start": 3.78982375,
+          "bin_end": 3.9618124999999997,
           "count": 7
         },
         {
-          "bin_center": 1.4907806250000002,
-          "bin_end": 1.59140875,
-          "bin_start": 1.3901525000000001,
-          "count": 12
+          "bin_center": 4.047806874999999,
+          "bin_start": 3.9618124999999997,
+          "bin_end": 4.133801249999999,
+          "count": 8
         },
         {
-          "bin_center": 1.6920368749999999,
-          "bin_end": 1.792665,
-          "bin_start": 1.59140875,
-          "count": 21
-        },
-        {
-          "bin_center": 1.893293125,
-          "bin_end": 1.99392125,
-          "bin_start": 1.792665,
-          "count": 10
-        },
-        {
-          "bin_center": 2.094549375,
-          "bin_end": 2.1951775000000002,
-          "bin_start": 1.99392125,
-          "count": 10
-        },
-        {
-          "bin_center": 2.295805625,
-          "bin_end": 2.39643375,
-          "bin_start": 2.1951775000000002,
-          "count": 1
-        },
-        {
-          "bin_center": 2.497061875,
-          "bin_end": 2.59769,
-          "bin_start": 2.39643375,
-          "count": 1
+          "bin_center": 4.219795625,
+          "bin_start": 4.133801249999999,
+          "bin_end": 4.30579,
+          "count": 5
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:b3eb347f05220d9f4130",
+      "stat_name": "sd",
       "observed_value": 1.69967,
-      "p_value": 0.515625,
       "rep_values": [
         1.90098,
         1.75522,
@@ -4776,62 +5176,62 @@
         0.98764,
         2.10812
       ],
-      "stat_name": "sd"
-    },
-    {
+      "p_value": 0.515625,
       "histogram": [
         {
-          "bin_center": 0.08459375000000001,
-          "bin_end": 0.3024875,
-          "bin_start": -0.1333,
-          "count": 1
-        },
-        {
-          "bin_center": 0.52038125,
-          "bin_end": 0.7382750000000001,
-          "bin_start": 0.3024875,
+          "bin_center": 1.088268125,
+          "bin_start": 0.98764,
+          "bin_end": 1.18889625,
           "count": 2
         },
         {
-          "bin_center": 0.9561687500000002,
-          "bin_end": 1.1740625000000002,
-          "bin_start": 0.7382750000000001,
+          "bin_center": 1.289524375,
+          "bin_start": 1.18889625,
+          "bin_end": 1.3901525000000001,
           "count": 7
         },
         {
-          "bin_center": 1.3919562500000002,
-          "bin_end": 1.6098500000000002,
-          "bin_start": 1.1740625000000002,
+          "bin_center": 1.4907806250000002,
+          "bin_start": 1.3901525000000001,
+          "bin_end": 1.59140875,
+          "count": 12
+        },
+        {
+          "bin_center": 1.6920368749999999,
+          "bin_start": 1.59140875,
+          "bin_end": 1.792665,
+          "count": 21
+        },
+        {
+          "bin_center": 1.893293125,
+          "bin_start": 1.792665,
+          "bin_end": 1.99392125,
           "count": 10
         },
         {
-          "bin_center": 1.8277437500000002,
-          "bin_end": 2.0456375,
-          "bin_start": 1.6098500000000002,
-          "count": 11
+          "bin_center": 2.094549375,
+          "bin_start": 1.99392125,
+          "bin_end": 2.1951775000000002,
+          "count": 10
         },
         {
-          "bin_center": 2.26353125,
-          "bin_end": 2.481425,
-          "bin_start": 2.0456375,
-          "count": 18
+          "bin_center": 2.295805625,
+          "bin_start": 2.1951775000000002,
+          "bin_end": 2.39643375,
+          "count": 1
         },
         {
-          "bin_center": 2.69931875,
-          "bin_end": 2.9172125,
-          "bin_start": 2.481425,
-          "count": 11
-        },
-        {
-          "bin_center": 3.13510625,
-          "bin_end": 3.353,
-          "bin_start": 2.9172125,
-          "count": 4
+          "bin_center": 2.497061875,
+          "bin_start": 2.39643375,
+          "bin_end": 2.59769,
+          "count": 1
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:b3eb347f05220d9f4130",
+      "stat_name": "min",
       "observed_value": 2.0,
-      "p_value": 0.515625,
       "rep_values": [
         2.06962,
         1.13247,
@@ -4898,62 +5298,62 @@
         1.24672,
         0.82842
       ],
-      "stat_name": "min"
-    },
-    {
+      "p_value": 0.515625,
       "histogram": [
         {
-          "bin_center": 4.822974374999999,
-          "bin_end": 5.01129875,
-          "bin_start": 4.63465,
+          "bin_center": 0.08459375000000001,
+          "bin_start": -0.1333,
+          "bin_end": 0.3024875,
+          "count": 1
+        },
+        {
+          "bin_center": 0.52038125,
+          "bin_start": 0.3024875,
+          "bin_end": 0.7382750000000001,
           "count": 2
         },
         {
-          "bin_center": 5.1996231250000005,
-          "bin_end": 5.3879475,
-          "bin_start": 5.01129875,
-          "count": 5
+          "bin_center": 0.9561687500000002,
+          "bin_start": 0.7382750000000001,
+          "bin_end": 1.1740625000000002,
+          "count": 7
         },
         {
-          "bin_center": 5.576271875,
-          "bin_end": 5.76459625,
-          "bin_start": 5.3879475,
-          "count": 16
-        },
-        {
-          "bin_center": 5.952920625,
-          "bin_end": 6.141245,
-          "bin_start": 5.76459625,
-          "count": 19
-        },
-        {
-          "bin_center": 6.329569375,
-          "bin_end": 6.517893750000001,
-          "bin_start": 6.141245,
+          "bin_center": 1.3919562500000002,
+          "bin_start": 1.1740625000000002,
+          "bin_end": 1.6098500000000002,
           "count": 10
         },
         {
-          "bin_center": 6.706218125,
-          "bin_end": 6.8945425,
-          "bin_start": 6.517893750000001,
-          "count": 6
+          "bin_center": 1.8277437500000002,
+          "bin_start": 1.6098500000000002,
+          "bin_end": 2.0456375,
+          "count": 11
         },
         {
-          "bin_center": 7.082866875000001,
-          "bin_end": 7.27119125,
-          "bin_start": 6.8945425,
-          "count": 5
+          "bin_center": 2.26353125,
+          "bin_start": 2.0456375,
+          "bin_end": 2.481425,
+          "count": 18
         },
         {
-          "bin_center": 7.459515625,
-          "bin_end": 7.64784,
-          "bin_start": 7.27119125,
-          "count": 1
+          "bin_center": 2.69931875,
+          "bin_start": 2.481425,
+          "bin_end": 2.9172125,
+          "count": 11
+        },
+        {
+          "bin_center": 3.13510625,
+          "bin_start": 2.9172125,
+          "bin_end": 3.353,
+          "count": 4
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:b3eb347f05220d9f4130",
+      "stat_name": "max",
       "observed_value": 6.0,
-      "p_value": 0.46875,
       "rep_values": [
         6.45763,
         6.94776,
@@ -5020,62 +5420,62 @@
         6.10724,
         5.41635
       ],
-      "stat_name": "max"
-    },
-    {
+      "p_value": 0.46875,
       "histogram": [
         {
-          "bin_center": 0.4548825,
-          "bin_end": 0.461915,
-          "bin_start": 0.44785,
-          "count": 7
-        },
-        {
-          "bin_center": 0.4689475,
-          "bin_end": 0.47598,
-          "bin_start": 0.461915,
-          "count": 3
-        },
-        {
-          "bin_center": 0.4830125,
-          "bin_end": 0.490045,
-          "bin_start": 0.47598,
+          "bin_center": 4.822974374999999,
+          "bin_start": 4.63465,
+          "bin_end": 5.01129875,
           "count": 2
         },
         {
-          "bin_center": 0.49707750000000006,
-          "bin_end": 0.5041100000000001,
-          "bin_start": 0.490045,
-          "count": 15
+          "bin_center": 5.1996231250000005,
+          "bin_start": 5.01129875,
+          "bin_end": 5.3879475,
+          "count": 5
         },
         {
-          "bin_center": 0.5111425,
-          "bin_end": 0.518175,
-          "bin_start": 0.5041100000000001,
-          "count": 7
+          "bin_center": 5.576271875,
+          "bin_start": 5.3879475,
+          "bin_end": 5.76459625,
+          "count": 16
         },
         {
-          "bin_center": 0.5252075,
-          "bin_end": 0.53224,
-          "bin_start": 0.518175,
-          "count": 15
+          "bin_center": 5.952920625,
+          "bin_start": 5.76459625,
+          "bin_end": 6.141245,
+          "count": 19
         },
         {
-          "bin_center": 0.5392725,
-          "bin_end": 0.546305,
-          "bin_start": 0.53224,
-          "count": 9
+          "bin_center": 6.329569375,
+          "bin_start": 6.141245,
+          "bin_end": 6.517893750000001,
+          "count": 10
         },
         {
-          "bin_center": 0.5533375,
-          "bin_end": 0.56037,
-          "bin_start": 0.546305,
+          "bin_center": 6.706218125,
+          "bin_start": 6.517893750000001,
+          "bin_end": 6.8945425,
           "count": 6
+        },
+        {
+          "bin_center": 7.082866875000001,
+          "bin_start": 6.8945425,
+          "bin_end": 7.27119125,
+          "count": 5
+        },
+        {
+          "bin_center": 7.459515625,
+          "bin_start": 7.27119125,
+          "bin_end": 7.64784,
+          "count": 1
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:b20fa3887689d5616a60",
+      "stat_name": "mean",
       "observed_value": 0.51143,
-      "p_value": 0.53125,
       "rep_values": [
         0.55461,
         0.52802,
@@ -5142,62 +5542,62 @@
         0.5565,
         0.49101
       ],
-      "stat_name": "mean"
-    },
-    {
+      "p_value": 0.53125,
       "histogram": [
         {
-          "bin_center": 0.01488,
-          "bin_end": 0.02704,
-          "bin_start": 0.00272,
-          "count": 1
+          "bin_center": 0.4548825,
+          "bin_start": 0.44785,
+          "bin_end": 0.461915,
+          "count": 7
         },
         {
-          "bin_center": 0.0392,
-          "bin_end": 0.05136,
-          "bin_start": 0.02704,
-          "count": 4
+          "bin_center": 0.4689475,
+          "bin_start": 0.461915,
+          "bin_end": 0.47598,
+          "count": 3
         },
         {
-          "bin_center": 0.06352,
-          "bin_end": 0.07568,
-          "bin_start": 0.05136,
-          "count": 6
+          "bin_center": 0.4830125,
+          "bin_start": 0.47598,
+          "bin_end": 0.490045,
+          "count": 2
         },
         {
-          "bin_center": 0.08784,
-          "bin_end": 0.1,
-          "bin_start": 0.07568,
-          "count": 12
-        },
-        {
-          "bin_center": 0.11216000000000001,
-          "bin_end": 0.12432000000000001,
-          "bin_start": 0.1,
-          "count": 22
-        },
-        {
-          "bin_center": 0.13648,
-          "bin_end": 0.14864,
-          "bin_start": 0.12432000000000001,
+          "bin_center": 0.49707750000000006,
+          "bin_start": 0.490045,
+          "bin_end": 0.5041100000000001,
           "count": 15
         },
         {
-          "bin_center": 0.1608,
-          "bin_end": 0.17296,
-          "bin_start": 0.14864,
-          "count": 2
+          "bin_center": 0.5111425,
+          "bin_start": 0.5041100000000001,
+          "bin_end": 0.518175,
+          "count": 7
         },
         {
-          "bin_center": 0.18512,
-          "bin_end": 0.19728,
-          "bin_start": 0.17296,
-          "count": 2
+          "bin_center": 0.5252075,
+          "bin_start": 0.518175,
+          "bin_end": 0.53224,
+          "count": 15
+        },
+        {
+          "bin_center": 0.5392725,
+          "bin_start": 0.53224,
+          "bin_end": 0.546305,
+          "count": 9
+        },
+        {
+          "bin_center": 0.5533375,
+          "bin_start": 0.546305,
+          "bin_end": 0.56037,
+          "count": 6
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:b20fa3887689d5616a60",
+      "stat_name": "sd",
       "observed_value": 0.10232,
-      "p_value": 0.59375,
       "rep_values": [
         0.1198,
         0.11084,
@@ -5264,62 +5664,62 @@
         0.09293,
         0.11777
       ],
-      "stat_name": "sd"
-    },
-    {
+      "p_value": 0.59375,
       "histogram": [
         {
-          "bin_center": 0.27921437499999996,
-          "bin_end": 0.29507874999999995,
-          "bin_start": 0.26335,
-          "count": 3
+          "bin_center": 0.01488,
+          "bin_start": 0.00272,
+          "bin_end": 0.02704,
+          "count": 1
         },
         {
-          "bin_center": 0.310943125,
-          "bin_end": 0.3268075,
-          "bin_start": 0.29507874999999995,
-          "count": 10
-        },
-        {
-          "bin_center": 0.34267187499999996,
-          "bin_end": 0.35853625,
-          "bin_start": 0.3268075,
-          "count": 11
-        },
-        {
-          "bin_center": 0.374400625,
-          "bin_end": 0.390265,
-          "bin_start": 0.35853625,
-          "count": 17
-        },
-        {
-          "bin_center": 0.40612937499999996,
-          "bin_end": 0.42199374999999995,
-          "bin_start": 0.390265,
-          "count": 11
-        },
-        {
-          "bin_center": 0.437858125,
-          "bin_end": 0.4537225,
-          "bin_start": 0.42199374999999995,
-          "count": 6
-        },
-        {
-          "bin_center": 0.46958687499999996,
-          "bin_end": 0.48545125,
-          "bin_start": 0.4537225,
+          "bin_center": 0.0392,
+          "bin_start": 0.02704,
+          "bin_end": 0.05136,
           "count": 4
         },
         {
-          "bin_center": 0.5013156249999999,
-          "bin_end": 0.51718,
-          "bin_start": 0.48545125,
+          "bin_center": 0.06352,
+          "bin_start": 0.05136,
+          "bin_end": 0.07568,
+          "count": 6
+        },
+        {
+          "bin_center": 0.08784,
+          "bin_start": 0.07568,
+          "bin_end": 0.1,
+          "count": 12
+        },
+        {
+          "bin_center": 0.11216000000000001,
+          "bin_start": 0.1,
+          "bin_end": 0.12432000000000001,
+          "count": 22
+        },
+        {
+          "bin_center": 0.13648,
+          "bin_start": 0.12432000000000001,
+          "bin_end": 0.14864,
+          "count": 15
+        },
+        {
+          "bin_center": 0.1608,
+          "bin_start": 0.14864,
+          "bin_end": 0.17296,
+          "count": 2
+        },
+        {
+          "bin_center": 0.18512,
+          "bin_start": 0.17296,
+          "bin_end": 0.19728,
           "count": 2
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:b20fa3887689d5616a60",
+      "stat_name": "min",
       "observed_value": 0.38,
-      "p_value": 0.453125,
       "rep_values": [
         0.36348,
         0.44764,
@@ -5386,62 +5786,62 @@
         0.33382,
         0.35313
       ],
-      "stat_name": "min"
-    },
-    {
+      "p_value": 0.453125,
       "histogram": [
         {
-          "bin_center": 0.5311175,
-          "bin_end": 0.548795,
-          "bin_start": 0.51344,
-          "count": 7
+          "bin_center": 0.27921437499999996,
+          "bin_start": 0.26335,
+          "bin_end": 0.29507874999999995,
+          "count": 3
         },
         {
-          "bin_center": 0.5664724999999999,
-          "bin_end": 0.58415,
-          "bin_start": 0.548795,
-          "count": 4
+          "bin_center": 0.310943125,
+          "bin_start": 0.29507874999999995,
+          "bin_end": 0.3268075,
+          "count": 10
         },
         {
-          "bin_center": 0.6018275,
-          "bin_end": 0.619505,
-          "bin_start": 0.58415,
+          "bin_center": 0.34267187499999996,
+          "bin_start": 0.3268075,
+          "bin_end": 0.35853625,
           "count": 11
         },
         {
-          "bin_center": 0.6371825,
-          "bin_end": 0.65486,
-          "bin_start": 0.619505,
-          "count": 14
+          "bin_center": 0.374400625,
+          "bin_start": 0.35853625,
+          "bin_end": 0.390265,
+          "count": 17
         },
         {
-          "bin_center": 0.6725375,
-          "bin_end": 0.690215,
-          "bin_start": 0.65486,
-          "count": 16
+          "bin_center": 0.40612937499999996,
+          "bin_start": 0.390265,
+          "bin_end": 0.42199374999999995,
+          "count": 11
         },
         {
-          "bin_center": 0.7078925,
-          "bin_end": 0.72557,
-          "bin_start": 0.690215,
-          "count": 5
+          "bin_center": 0.437858125,
+          "bin_start": 0.42199374999999995,
+          "bin_end": 0.4537225,
+          "count": 6
         },
         {
-          "bin_center": 0.7432475000000001,
-          "bin_end": 0.760925,
-          "bin_start": 0.72557,
-          "count": 5
+          "bin_center": 0.46958687499999996,
+          "bin_start": 0.4537225,
+          "bin_end": 0.48545125,
+          "count": 4
         },
         {
-          "bin_center": 0.7786025,
-          "bin_end": 0.79628,
-          "bin_start": 0.760925,
+          "bin_center": 0.5013156249999999,
+          "bin_start": 0.48545125,
+          "bin_end": 0.51718,
           "count": 2
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:b20fa3887689d5616a60",
+      "stat_name": "max",
       "observed_value": 0.64,
-      "p_value": 0.515625,
       "rep_values": [
         0.56259,
         0.69361,
@@ -5508,62 +5908,62 @@
         0.64648,
         0.63812
       ],
-      "stat_name": "max"
-    },
-    {
+      "p_value": 0.515625,
       "histogram": [
         {
-          "bin_center": 0.35782125,
-          "bin_end": 0.3738625,
-          "bin_start": 0.34178,
-          "count": 1
+          "bin_center": 0.5311175,
+          "bin_start": 0.51344,
+          "bin_end": 0.548795,
+          "count": 7
         },
         {
-          "bin_center": 0.38990375,
-          "bin_end": 0.405945,
-          "bin_start": 0.3738625,
-          "count": 1
-        },
-        {
-          "bin_center": 0.42198625,
-          "bin_end": 0.43802749999999996,
-          "bin_start": 0.405945,
-          "count": 6
-        },
-        {
-          "bin_center": 0.45406874999999997,
-          "bin_end": 0.47011,
-          "bin_start": 0.43802749999999996,
-          "count": 15
-        },
-        {
-          "bin_center": 0.48615125000000003,
-          "bin_end": 0.5021925,
-          "bin_start": 0.47011,
-          "count": 10
-        },
-        {
-          "bin_center": 0.51823375,
-          "bin_end": 0.5342749999999999,
-          "bin_start": 0.5021925,
-          "count": 15
-        },
-        {
-          "bin_center": 0.55031625,
-          "bin_end": 0.5663575,
-          "bin_start": 0.5342749999999999,
-          "count": 12
-        },
-        {
-          "bin_center": 0.58239875,
-          "bin_end": 0.59844,
-          "bin_start": 0.5663575,
+          "bin_center": 0.5664724999999999,
+          "bin_start": 0.548795,
+          "bin_end": 0.58415,
           "count": 4
+        },
+        {
+          "bin_center": 0.6018275,
+          "bin_start": 0.58415,
+          "bin_end": 0.619505,
+          "count": 11
+        },
+        {
+          "bin_center": 0.6371825,
+          "bin_start": 0.619505,
+          "bin_end": 0.65486,
+          "count": 14
+        },
+        {
+          "bin_center": 0.6725375,
+          "bin_start": 0.65486,
+          "bin_end": 0.690215,
+          "count": 16
+        },
+        {
+          "bin_center": 0.7078925,
+          "bin_start": 0.690215,
+          "bin_end": 0.72557,
+          "count": 5
+        },
+        {
+          "bin_center": 0.7432475000000001,
+          "bin_start": 0.72557,
+          "bin_end": 0.760925,
+          "count": 5
+        },
+        {
+          "bin_center": 0.7786025,
+          "bin_start": 0.760925,
+          "bin_end": 0.79628,
+          "count": 2
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:8e1b73dd3c754b48e92c",
+      "stat_name": "mean",
       "observed_value": 0.5,
-      "p_value": 0.484375,
       "rep_values": [
         0.5191,
         0.51844,
@@ -5630,62 +6030,62 @@
         0.44617,
         0.53981
       ],
-      "stat_name": "mean"
-    },
-    {
+      "p_value": 0.484375,
       "histogram": [
         {
-          "bin_center": 0.401484375,
-          "bin_end": 0.41475875,
-          "bin_start": 0.38821,
-          "count": 2
+          "bin_center": 0.35782125,
+          "bin_start": 0.34178,
+          "bin_end": 0.3738625,
+          "count": 1
         },
         {
-          "bin_center": 0.428033125,
-          "bin_end": 0.4413075,
-          "bin_start": 0.41475875,
-          "count": 4
+          "bin_center": 0.38990375,
+          "bin_start": 0.3738625,
+          "bin_end": 0.405945,
+          "count": 1
         },
         {
-          "bin_center": 0.454581875,
-          "bin_end": 0.46785625,
-          "bin_start": 0.4413075,
+          "bin_center": 0.42198625,
+          "bin_start": 0.405945,
+          "bin_end": 0.43802749999999996,
+          "count": 6
+        },
+        {
+          "bin_center": 0.45406874999999997,
+          "bin_start": 0.43802749999999996,
+          "bin_end": 0.47011,
+          "count": 15
+        },
+        {
+          "bin_center": 0.48615125000000003,
+          "bin_start": 0.47011,
+          "bin_end": 0.5021925,
           "count": 10
         },
         {
-          "bin_center": 0.481130625,
-          "bin_end": 0.494405,
-          "bin_start": 0.46785625,
-          "count": 10
+          "bin_center": 0.51823375,
+          "bin_start": 0.5021925,
+          "bin_end": 0.5342749999999999,
+          "count": 15
         },
         {
-          "bin_center": 0.5076793749999999,
-          "bin_end": 0.52095375,
-          "bin_start": 0.494405,
-          "count": 17
-        },
-        {
-          "bin_center": 0.534228125,
-          "bin_end": 0.5475025,
-          "bin_start": 0.52095375,
+          "bin_center": 0.55031625,
+          "bin_start": 0.5342749999999999,
+          "bin_end": 0.5663575,
           "count": 12
         },
         {
-          "bin_center": 0.560776875,
-          "bin_end": 0.57405125,
-          "bin_start": 0.5475025,
-          "count": 8
-        },
-        {
-          "bin_center": 0.5873256250000001,
-          "bin_end": 0.6006,
-          "bin_start": 0.57405125,
-          "count": 1
+          "bin_center": 0.58239875,
+          "bin_start": 0.5663575,
+          "bin_end": 0.59844,
+          "count": 4
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:8e1b73dd3c754b48e92c",
+      "stat_name": "sd",
       "observed_value": 0.5,
-      "p_value": 0.546875,
       "rep_values": [
         0.546,
         0.51103,
@@ -5752,62 +6152,62 @@
         0.42292,
         0.5544
       ],
-      "stat_name": "sd"
-    },
-    {
+      "p_value": 0.546875,
       "histogram": [
         {
-          "bin_center": -0.200654375,
-          "bin_end": -0.17461875,
-          "bin_start": -0.22669,
+          "bin_center": 0.401484375,
+          "bin_start": 0.38821,
+          "bin_end": 0.41475875,
           "count": 2
         },
         {
-          "bin_center": -0.14858312499999998,
-          "bin_end": -0.1225475,
-          "bin_start": -0.17461875,
-          "count": 3
+          "bin_center": 0.428033125,
+          "bin_start": 0.41475875,
+          "bin_end": 0.4413075,
+          "count": 4
         },
         {
-          "bin_center": -0.09651187500000001,
-          "bin_end": -0.07047625000000002,
-          "bin_start": -0.1225475,
-          "count": 13
+          "bin_center": 0.454581875,
+          "bin_start": 0.4413075,
+          "bin_end": 0.46785625,
+          "count": 10
         },
         {
-          "bin_center": -0.04444062500000001,
-          "bin_end": -0.018405000000000005,
-          "bin_start": -0.07047625000000002,
-          "count": 16
+          "bin_center": 0.481130625,
+          "bin_start": 0.46785625,
+          "bin_end": 0.494405,
+          "count": 10
         },
         {
-          "bin_center": 0.007630625000000002,
-          "bin_end": 0.03366625000000001,
-          "bin_start": -0.018405000000000005,
+          "bin_center": 0.5076793749999999,
+          "bin_start": 0.494405,
+          "bin_end": 0.52095375,
+          "count": 17
+        },
+        {
+          "bin_center": 0.534228125,
+          "bin_start": 0.52095375,
+          "bin_end": 0.5475025,
           "count": 12
         },
         {
-          "bin_center": 0.05970187499999999,
-          "bin_end": 0.08573749999999997,
-          "bin_start": 0.03366625000000001,
+          "bin_center": 0.560776875,
+          "bin_start": 0.5475025,
+          "bin_end": 0.57405125,
           "count": 8
         },
         {
-          "bin_center": 0.11177312499999997,
-          "bin_end": 0.13780874999999998,
-          "bin_start": 0.08573749999999997,
-          "count": 7
-        },
-        {
-          "bin_center": 0.163844375,
-          "bin_end": 0.18988,
-          "bin_start": 0.13780874999999998,
-          "count": 3
+          "bin_center": 0.5873256250000001,
+          "bin_start": 0.57405125,
+          "bin_end": 0.6006,
+          "count": 1
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:8e1b73dd3c754b48e92c",
+      "stat_name": "min",
       "observed_value": 0.0,
-      "p_value": 0.390625,
       "rep_values": [
         0.09548,
         -0.01517,
@@ -5874,62 +6274,62 @@
         -0.1003,
         0.07578
       ],
-      "stat_name": "min"
-    },
-    {
+      "p_value": 0.390625,
       "histogram": [
         {
-          "bin_center": 0.690920625,
-          "bin_end": 0.72824125,
-          "bin_start": 0.6536,
+          "bin_center": -0.200654375,
+          "bin_start": -0.22669,
+          "bin_end": -0.17461875,
           "count": 2
         },
         {
-          "bin_center": 0.765561875,
-          "bin_end": 0.8028824999999999,
-          "bin_start": 0.72824125,
-          "count": 0
+          "bin_center": -0.14858312499999998,
+          "bin_start": -0.17461875,
+          "bin_end": -0.1225475,
+          "count": 3
         },
         {
-          "bin_center": 0.8402031249999999,
-          "bin_end": 0.8775237499999999,
-          "bin_start": 0.8028824999999999,
-          "count": 4
+          "bin_center": -0.09651187500000001,
+          "bin_start": -0.1225475,
+          "bin_end": -0.07047625000000002,
+          "count": 13
         },
         {
-          "bin_center": 0.9148443749999999,
-          "bin_end": 0.9521649999999999,
-          "bin_start": 0.8775237499999999,
-          "count": 11
+          "bin_center": -0.04444062500000001,
+          "bin_start": -0.07047625000000002,
+          "bin_end": -0.018405000000000005,
+          "count": 16
         },
         {
-          "bin_center": 0.9894856249999999,
-          "bin_end": 1.02680625,
-          "bin_start": 0.9521649999999999,
-          "count": 17
+          "bin_center": 0.007630625000000002,
+          "bin_start": -0.018405000000000005,
+          "bin_end": 0.03366625000000001,
+          "count": 12
         },
         {
-          "bin_center": 1.064126875,
-          "bin_end": 1.1014475,
-          "bin_start": 1.02680625,
-          "count": 18
+          "bin_center": 0.05970187499999999,
+          "bin_start": 0.03366625000000001,
+          "bin_end": 0.08573749999999997,
+          "count": 8
         },
         {
-          "bin_center": 1.138768125,
-          "bin_end": 1.17608875,
-          "bin_start": 1.1014475,
-          "count": 9
+          "bin_center": 0.11177312499999997,
+          "bin_start": 0.08573749999999997,
+          "bin_end": 0.13780874999999998,
+          "count": 7
         },
         {
-          "bin_center": 1.213409375,
-          "bin_end": 1.25073,
-          "bin_start": 1.17608875,
+          "bin_center": 0.163844375,
+          "bin_start": 0.13780874999999998,
+          "bin_end": 0.18988,
           "count": 3
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:8e1b73dd3c754b48e92c",
+      "stat_name": "max",
       "observed_value": 1.0,
-      "p_value": 0.53125,
       "rep_values": [
         1.10416,
         1.07389,
@@ -5996,62 +6396,62 @@
         0.98325,
         0.92327
       ],
-      "stat_name": "max"
-    },
-    {
+      "p_value": 0.53125,
       "histogram": [
         {
-          "bin_center": -0.088025625,
-          "bin_end": -0.06787125,
-          "bin_start": -0.10818,
-          "count": 7
-        },
-        {
-          "bin_center": -0.04771687499999999,
-          "bin_end": -0.02756249999999999,
-          "bin_start": -0.06787125,
-          "count": 8
-        },
-        {
-          "bin_center": -0.007408124999999988,
-          "bin_end": 0.012746250000000015,
-          "bin_start": -0.02756249999999999,
-          "count": 14
-        },
-        {
-          "bin_center": 0.03290062500000002,
-          "bin_end": 0.05305500000000002,
-          "bin_start": 0.012746250000000015,
-          "count": 16
-        },
-        {
-          "bin_center": 0.07320937500000002,
-          "bin_end": 0.09336375000000002,
-          "bin_start": 0.05305500000000002,
-          "count": 15
-        },
-        {
-          "bin_center": 0.11351812500000003,
-          "bin_end": 0.13367250000000003,
-          "bin_start": 0.09336375000000002,
+          "bin_center": 0.690920625,
+          "bin_start": 0.6536,
+          "bin_end": 0.72824125,
           "count": 2
         },
         {
-          "bin_center": 0.15382687500000003,
-          "bin_end": 0.17398125000000003,
-          "bin_start": 0.13367250000000003,
-          "count": 1
+          "bin_center": 0.765561875,
+          "bin_start": 0.72824125,
+          "bin_end": 0.8028824999999999,
+          "count": 0
         },
         {
-          "bin_center": 0.19413562500000003,
-          "bin_end": 0.21429,
-          "bin_start": 0.17398125000000003,
-          "count": 1
+          "bin_center": 0.8402031249999999,
+          "bin_start": 0.8028824999999999,
+          "bin_end": 0.8775237499999999,
+          "count": 4
+        },
+        {
+          "bin_center": 0.9148443749999999,
+          "bin_start": 0.8775237499999999,
+          "bin_end": 0.9521649999999999,
+          "count": 11
+        },
+        {
+          "bin_center": 0.9894856249999999,
+          "bin_start": 0.9521649999999999,
+          "bin_end": 1.02680625,
+          "count": 17
+        },
+        {
+          "bin_center": 1.064126875,
+          "bin_start": 1.02680625,
+          "bin_end": 1.1014475,
+          "count": 18
+        },
+        {
+          "bin_center": 1.138768125,
+          "bin_start": 1.1014475,
+          "bin_end": 1.17608875,
+          "count": 9
+        },
+        {
+          "bin_center": 1.213409375,
+          "bin_start": 1.17608875,
+          "bin_end": 1.25073,
+          "count": 3
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:eca6b8b2c4379267b6c8",
+      "stat_name": "mean",
       "observed_value": 0.0,
-      "p_value": 0.59375,
       "rep_values": [
         0.13516,
         0.01506,
@@ -6118,62 +6518,62 @@
         0.21429,
         0.08111
       ],
-      "stat_name": "mean"
-    },
-    {
+      "p_value": 0.59375,
       "histogram": [
         {
-          "bin_center": -0.090564375,
-          "bin_end": -0.07530875,
-          "bin_start": -0.10582,
-          "count": 1
+          "bin_center": -0.088025625,
+          "bin_start": -0.10818,
+          "bin_end": -0.06787125,
+          "count": 7
         },
         {
-          "bin_center": -0.060053125,
-          "bin_end": -0.0447975,
-          "bin_start": -0.07530875,
+          "bin_center": -0.04771687499999999,
+          "bin_start": -0.06787125,
+          "bin_end": -0.02756249999999999,
           "count": 8
         },
         {
-          "bin_center": -0.029541875,
-          "bin_end": -0.01428625,
-          "bin_start": -0.0447975,
+          "bin_center": -0.007408124999999988,
+          "bin_start": -0.02756249999999999,
+          "bin_end": 0.012746250000000015,
+          "count": 14
+        },
+        {
+          "bin_center": 0.03290062500000002,
+          "bin_start": 0.012746250000000015,
+          "bin_end": 0.05305500000000002,
+          "count": 16
+        },
+        {
+          "bin_center": 0.07320937500000002,
+          "bin_start": 0.05305500000000002,
+          "bin_end": 0.09336375000000002,
           "count": 15
         },
         {
-          "bin_center": 0.0009693750000000015,
-          "bin_end": 0.016225000000000003,
-          "bin_start": -0.01428625,
-          "count": 13
+          "bin_center": 0.11351812500000003,
+          "bin_start": 0.09336375000000002,
+          "bin_end": 0.13367250000000003,
+          "count": 2
         },
         {
-          "bin_center": 0.031480625000000005,
-          "bin_end": 0.04673625000000001,
-          "bin_start": 0.016225000000000003,
-          "count": 13
+          "bin_center": 0.15382687500000003,
+          "bin_start": 0.13367250000000003,
+          "bin_end": 0.17398125000000003,
+          "count": 1
         },
         {
-          "bin_center": 0.061991875,
-          "bin_end": 0.0772475,
-          "bin_start": 0.04673625000000001,
-          "count": 5
-        },
-        {
-          "bin_center": 0.092503125,
-          "bin_end": 0.10775875000000001,
-          "bin_start": 0.0772475,
-          "count": 8
-        },
-        {
-          "bin_center": 0.12301437500000001,
-          "bin_end": 0.13827,
-          "bin_start": 0.10775875000000001,
+          "bin_center": 0.19413562500000003,
+          "bin_start": 0.17398125000000003,
+          "bin_end": 0.21429,
           "count": 1
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:eca6b8b2c4379267b6c8",
+      "stat_name": "sd",
       "observed_value": 0.0,
-      "p_value": 0.53125,
       "rep_values": [
         0.03961,
         0.08912,
@@ -6240,62 +6640,62 @@
         -0.01179,
         0.05279
       ],
-      "stat_name": "sd"
-    },
-    {
+      "p_value": 0.53125,
       "histogram": [
         {
-          "bin_center": -0.322359375,
-          "bin_end": -0.28158875,
-          "bin_start": -0.36313,
+          "bin_center": -0.090564375,
+          "bin_start": -0.10582,
+          "bin_end": -0.07530875,
           "count": 1
         },
         {
-          "bin_center": -0.240818125,
-          "bin_end": -0.2000475,
-          "bin_start": -0.28158875,
+          "bin_center": -0.060053125,
+          "bin_start": -0.07530875,
+          "bin_end": -0.0447975,
+          "count": 8
+        },
+        {
+          "bin_center": -0.029541875,
+          "bin_start": -0.0447975,
+          "bin_end": -0.01428625,
+          "count": 15
+        },
+        {
+          "bin_center": 0.0009693750000000015,
+          "bin_start": -0.01428625,
+          "bin_end": 0.016225000000000003,
+          "count": 13
+        },
+        {
+          "bin_center": 0.031480625000000005,
+          "bin_start": 0.016225000000000003,
+          "bin_end": 0.04673625000000001,
+          "count": 13
+        },
+        {
+          "bin_center": 0.061991875,
+          "bin_start": 0.04673625000000001,
+          "bin_end": 0.0772475,
+          "count": 5
+        },
+        {
+          "bin_center": 0.092503125,
+          "bin_start": 0.0772475,
+          "bin_end": 0.10775875000000001,
+          "count": 8
+        },
+        {
+          "bin_center": 0.12301437500000001,
+          "bin_start": 0.10775875000000001,
+          "bin_end": 0.13827,
           "count": 1
-        },
-        {
-          "bin_center": -0.15927687499999998,
-          "bin_end": -0.11850624999999998,
-          "bin_start": -0.2000475,
-          "count": 10
-        },
-        {
-          "bin_center": -0.07773562499999997,
-          "bin_end": -0.03696499999999997,
-          "bin_start": -0.11850624999999998,
-          "count": 14
-        },
-        {
-          "bin_center": 0.0038056250000000347,
-          "bin_end": 0.04457625000000004,
-          "bin_start": -0.03696499999999997,
-          "count": 16
-        },
-        {
-          "bin_center": 0.08534687500000004,
-          "bin_end": 0.12611750000000005,
-          "bin_start": 0.04457625000000004,
-          "count": 10
-        },
-        {
-          "bin_center": 0.16688812500000005,
-          "bin_end": 0.20765875000000006,
-          "bin_start": 0.12611750000000005,
-          "count": 9
-        },
-        {
-          "bin_center": 0.24842937500000004,
-          "bin_end": 0.2892,
-          "bin_start": 0.20765875000000006,
-          "count": 3
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:eca6b8b2c4379267b6c8",
+      "stat_name": "min",
       "observed_value": 0.0,
-      "p_value": 0.5,
       "rep_values": [
         0.16943,
         0.03261,
@@ -6362,62 +6762,62 @@
         0.01031,
         0.04275
       ],
-      "stat_name": "min"
-    },
-    {
+      "p_value": 0.5,
       "histogram": [
         {
-          "bin_center": -0.182185625,
-          "bin_end": -0.15140125,
-          "bin_start": -0.21297,
-          "count": 7
+          "bin_center": -0.322359375,
+          "bin_start": -0.36313,
+          "bin_end": -0.28158875,
+          "count": 1
         },
         {
-          "bin_center": -0.12061687499999998,
-          "bin_end": -0.0898325,
-          "bin_start": -0.15140125,
-          "count": 7
+          "bin_center": -0.240818125,
+          "bin_start": -0.28158875,
+          "bin_end": -0.2000475,
+          "count": 1
         },
         {
-          "bin_center": -0.059048125,
-          "bin_end": -0.028263750000000004,
-          "bin_start": -0.0898325,
-          "count": 12
-        },
-        {
-          "bin_center": 0.0025206249999999986,
-          "bin_end": 0.033305,
-          "bin_start": -0.028263750000000004,
+          "bin_center": -0.15927687499999998,
+          "bin_start": -0.2000475,
+          "bin_end": -0.11850624999999998,
           "count": 10
         },
         {
-          "bin_center": 0.06408937499999999,
-          "bin_end": 0.09487374999999998,
-          "bin_start": 0.033305,
-          "count": 8
+          "bin_center": -0.07773562499999997,
+          "bin_start": -0.11850624999999998,
+          "bin_end": -0.03696499999999997,
+          "count": 14
         },
         {
-          "bin_center": 0.12565812499999998,
-          "bin_end": 0.15644249999999998,
-          "bin_start": 0.09487374999999998,
+          "bin_center": 0.0038056250000000347,
+          "bin_start": -0.03696499999999997,
+          "bin_end": 0.04457625000000004,
+          "count": 16
+        },
+        {
+          "bin_center": 0.08534687500000004,
+          "bin_start": 0.04457625000000004,
+          "bin_end": 0.12611750000000005,
           "count": 10
         },
         {
-          "bin_center": 0.187226875,
-          "bin_end": 0.21801125,
-          "bin_start": 0.15644249999999998,
-          "count": 6
+          "bin_center": 0.16688812500000005,
+          "bin_start": 0.12611750000000005,
+          "bin_end": 0.20765875000000006,
+          "count": 9
         },
         {
-          "bin_center": 0.248795625,
-          "bin_end": 0.27958,
-          "bin_start": 0.21801125,
-          "count": 4
+          "bin_center": 0.24842937500000004,
+          "bin_start": 0.20765875000000006,
+          "bin_end": 0.2892,
+          "count": 3
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:eca6b8b2c4379267b6c8",
+      "stat_name": "max",
       "observed_value": 0.0,
-      "p_value": 0.515625,
       "rep_values": [
         -0.21032,
         -0.11505,
@@ -6484,62 +6884,62 @@
         0.13692,
         -0.06395
       ],
-      "stat_name": "max"
-    },
-    {
+      "p_value": 0.515625,
       "histogram": [
         {
-          "bin_center": 19.1653825,
-          "bin_end": 19.285665,
-          "bin_start": 19.0451,
-          "count": 2
+          "bin_center": -0.182185625,
+          "bin_start": -0.21297,
+          "bin_end": -0.15140125,
+          "count": 7
         },
         {
-          "bin_center": 19.405947500000003,
-          "bin_end": 19.52623,
-          "bin_start": 19.285665,
-          "count": 4
+          "bin_center": -0.12061687499999998,
+          "bin_start": -0.15140125,
+          "bin_end": -0.0898325,
+          "count": 7
         },
         {
-          "bin_center": 19.6465125,
-          "bin_end": 19.766795000000002,
-          "bin_start": 19.52623,
+          "bin_center": -0.059048125,
+          "bin_start": -0.0898325,
+          "bin_end": -0.028263750000000004,
+          "count": 12
+        },
+        {
+          "bin_center": 0.0025206249999999986,
+          "bin_start": -0.028263750000000004,
+          "bin_end": 0.033305,
           "count": 10
         },
         {
-          "bin_center": 19.8870775,
-          "bin_end": 20.00736,
-          "bin_start": 19.766795000000002,
-          "count": 9
+          "bin_center": 0.06408937499999999,
+          "bin_start": 0.033305,
+          "bin_end": 0.09487374999999998,
+          "count": 8
         },
         {
-          "bin_center": 20.1276425,
-          "bin_end": 20.247925,
-          "bin_start": 20.00736,
-          "count": 21
+          "bin_center": 0.12565812499999998,
+          "bin_start": 0.09487374999999998,
+          "bin_end": 0.15644249999999998,
+          "count": 10
         },
         {
-          "bin_center": 20.368207499999997,
-          "bin_end": 20.48849,
-          "bin_start": 20.247925,
-          "count": 13
+          "bin_center": 0.187226875,
+          "bin_start": 0.15644249999999998,
+          "bin_end": 0.21801125,
+          "count": 6
         },
         {
-          "bin_center": 20.6087725,
-          "bin_end": 20.729055,
-          "bin_start": 20.48849,
-          "count": 2
-        },
-        {
-          "bin_center": 20.849337499999997,
-          "bin_end": 20.96962,
-          "bin_start": 20.729055,
-          "count": 3
+          "bin_center": 0.248795625,
+          "bin_start": 0.21801125,
+          "bin_end": 0.27958,
+          "count": 4
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:eb0949a188790298c25d",
+      "stat_name": "mean",
       "observed_value": 20.0,
-      "p_value": 0.609375,
       "rep_values": [
         20.41592,
         20.36728,
@@ -6606,62 +7006,62 @@
         19.59424,
         20.16405
       ],
-      "stat_name": "mean"
-    },
-    {
+      "p_value": 0.609375,
       "histogram": [
         {
-          "bin_center": -0.763419375,
-          "bin_end": -0.65851875,
-          "bin_start": -0.86832,
+          "bin_center": 19.1653825,
+          "bin_start": 19.0451,
+          "bin_end": 19.285665,
+          "count": 2
+        },
+        {
+          "bin_center": 19.405947500000003,
+          "bin_start": 19.285665,
+          "bin_end": 19.52623,
+          "count": 4
+        },
+        {
+          "bin_center": 19.6465125,
+          "bin_start": 19.52623,
+          "bin_end": 19.766795000000002,
+          "count": 10
+        },
+        {
+          "bin_center": 19.8870775,
+          "bin_start": 19.766795000000002,
+          "bin_end": 20.00736,
+          "count": 9
+        },
+        {
+          "bin_center": 20.1276425,
+          "bin_start": 20.00736,
+          "bin_end": 20.247925,
+          "count": 21
+        },
+        {
+          "bin_center": 20.368207499999997,
+          "bin_start": 20.247925,
+          "bin_end": 20.48849,
+          "count": 13
+        },
+        {
+          "bin_center": 20.6087725,
+          "bin_start": 20.48849,
+          "bin_end": 20.729055,
+          "count": 2
+        },
+        {
+          "bin_center": 20.849337499999997,
+          "bin_start": 20.729055,
+          "bin_end": 20.96962,
           "count": 3
-        },
-        {
-          "bin_center": -0.5536181250000001,
-          "bin_end": -0.4487175,
-          "bin_start": -0.65851875,
-          "count": 3
-        },
-        {
-          "bin_center": -0.34381687499999997,
-          "bin_end": -0.23891624999999994,
-          "bin_start": -0.4487175,
-          "count": 7
-        },
-        {
-          "bin_center": -0.13401562499999997,
-          "bin_end": -0.029115000000000002,
-          "bin_start": -0.23891624999999994,
-          "count": 9
-        },
-        {
-          "bin_center": 0.07578562499999997,
-          "bin_end": 0.18068624999999994,
-          "bin_start": -0.029115000000000002,
-          "count": 16
-        },
-        {
-          "bin_center": 0.285586875,
-          "bin_end": 0.3904875000000001,
-          "bin_start": 0.18068624999999994,
-          "count": 9
-        },
-        {
-          "bin_center": 0.49538812500000007,
-          "bin_end": 0.60028875,
-          "bin_start": 0.3904875000000001,
-          "count": 9
-        },
-        {
-          "bin_center": 0.705189375,
-          "bin_end": 0.81009,
-          "bin_start": 0.60028875,
-          "count": 8
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:eb0949a188790298c25d",
+      "stat_name": "sd",
       "observed_value": 0.0,
-      "p_value": 0.625,
       "rep_values": [
         -0.4921,
         -0.14239,
@@ -6728,62 +7128,62 @@
         0.12819,
         -0.08331
       ],
-      "stat_name": "sd"
-    },
-    {
+      "p_value": 0.625,
       "histogram": [
         {
-          "bin_center": 17.636275625,
-          "bin_end": 17.94773125,
-          "bin_start": 17.32482,
-          "count": 2
+          "bin_center": -0.763419375,
+          "bin_start": -0.86832,
+          "bin_end": -0.65851875,
+          "count": 3
         },
         {
-          "bin_center": 18.259186874999997,
-          "bin_end": 18.570642499999998,
-          "bin_start": 17.94773125,
-          "count": 5
+          "bin_center": -0.5536181250000001,
+          "bin_start": -0.65851875,
+          "bin_end": -0.4487175,
+          "count": 3
         },
         {
-          "bin_center": 18.882098125,
-          "bin_end": 19.19355375,
-          "bin_start": 18.570642499999998,
+          "bin_center": -0.34381687499999997,
+          "bin_start": -0.4487175,
+          "bin_end": -0.23891624999999994,
+          "count": 7
+        },
+        {
+          "bin_center": -0.13401562499999997,
+          "bin_start": -0.23891624999999994,
+          "bin_end": -0.029115000000000002,
           "count": 9
         },
         {
-          "bin_center": 19.505009375,
-          "bin_end": 19.816465,
-          "bin_start": 19.19355375,
-          "count": 14
+          "bin_center": 0.07578562499999997,
+          "bin_start": -0.029115000000000002,
+          "bin_end": 0.18068624999999994,
+          "count": 16
         },
         {
-          "bin_center": 20.127920625,
-          "bin_end": 20.43937625,
-          "bin_start": 19.816465,
-          "count": 13
+          "bin_center": 0.285586875,
+          "bin_start": 0.18068624999999994,
+          "bin_end": 0.3904875000000001,
+          "count": 9
         },
         {
-          "bin_center": 20.750831875,
-          "bin_end": 21.0622875,
-          "bin_start": 20.43937625,
-          "count": 13
+          "bin_center": 0.49538812500000007,
+          "bin_start": 0.3904875000000001,
+          "bin_end": 0.60028875,
+          "count": 9
         },
         {
-          "bin_center": 21.373743124999997,
-          "bin_end": 21.685198749999998,
-          "bin_start": 21.0622875,
-          "count": 6
-        },
-        {
-          "bin_center": 21.996654375,
-          "bin_end": 22.30811,
-          "bin_start": 21.685198749999998,
-          "count": 2
+          "bin_center": 0.705189375,
+          "bin_start": 0.60028875,
+          "bin_end": 0.81009,
+          "count": 8
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:eb0949a188790298c25d",
+      "stat_name": "min",
       "observed_value": 20.0,
-      "p_value": 0.5,
       "rep_values": [
         21.40431,
         20.9489,
@@ -6850,62 +7250,62 @@
         18.95112,
         19.77929
       ],
-      "stat_name": "min"
-    },
-    {
+      "p_value": 0.5,
       "histogram": [
         {
-          "bin_center": 18.3517925,
-          "bin_end": 18.623124999999998,
-          "bin_start": 18.08046,
+          "bin_center": 17.636275625,
+          "bin_start": 17.32482,
+          "bin_end": 17.94773125,
+          "count": 2
+        },
+        {
+          "bin_center": 18.259186874999997,
+          "bin_start": 17.94773125,
+          "bin_end": 18.570642499999998,
+          "count": 5
+        },
+        {
+          "bin_center": 18.882098125,
+          "bin_start": 18.570642499999998,
+          "bin_end": 19.19355375,
+          "count": 9
+        },
+        {
+          "bin_center": 19.505009375,
+          "bin_start": 19.19355375,
+          "bin_end": 19.816465,
+          "count": 14
+        },
+        {
+          "bin_center": 20.127920625,
+          "bin_start": 19.816465,
+          "bin_end": 20.43937625,
+          "count": 13
+        },
+        {
+          "bin_center": 20.750831875,
+          "bin_start": 20.43937625,
+          "bin_end": 21.0622875,
+          "count": 13
+        },
+        {
+          "bin_center": 21.373743124999997,
+          "bin_start": 21.0622875,
+          "bin_end": 21.685198749999998,
           "count": 6
         },
         {
-          "bin_center": 18.894457499999998,
-          "bin_end": 19.165789999999998,
-          "bin_start": 18.623124999999998,
-          "count": 10
-        },
-        {
-          "bin_center": 19.437122499999997,
-          "bin_end": 19.708454999999997,
-          "bin_start": 19.165789999999998,
-          "count": 15
-        },
-        {
-          "bin_center": 19.9797875,
-          "bin_end": 20.25112,
-          "bin_start": 19.708454999999997,
-          "count": 15
-        },
-        {
-          "bin_center": 20.5224525,
-          "bin_end": 20.793785,
-          "bin_start": 20.25112,
-          "count": 10
-        },
-        {
-          "bin_center": 21.0651175,
-          "bin_end": 21.33645,
-          "bin_start": 20.793785,
-          "count": 2
-        },
-        {
-          "bin_center": 21.6077825,
-          "bin_end": 21.879115,
-          "bin_start": 21.33645,
-          "count": 4
-        },
-        {
-          "bin_center": 22.1504475,
-          "bin_end": 22.42178,
-          "bin_start": 21.879115,
+          "bin_center": 21.996654375,
+          "bin_start": 21.685198749999998,
+          "bin_end": 22.30811,
           "count": 2
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:eb0949a188790298c25d",
+      "stat_name": "max",
       "observed_value": 20.0,
-      "p_value": 0.375,
       "rep_values": [
         18.64221,
         20.45716,
@@ -6972,62 +7372,62 @@
         19.45208,
         19.23505
       ],
-      "stat_name": "max"
-    },
-    {
+      "p_value": 0.375,
       "histogram": [
         {
-          "bin_center": 1.9296112500000002,
-          "bin_end": 1.9381825000000001,
-          "bin_start": 1.92104,
-          "count": 1
+          "bin_center": 18.3517925,
+          "bin_start": 18.08046,
+          "bin_end": 18.623124999999998,
+          "count": 6
         },
         {
-          "bin_center": 1.94675375,
-          "bin_end": 1.9553250000000002,
-          "bin_start": 1.9381825000000001,
-          "count": 1
+          "bin_center": 18.894457499999998,
+          "bin_start": 18.623124999999998,
+          "bin_end": 19.165789999999998,
+          "count": 10
         },
         {
-          "bin_center": 1.9638962500000001,
-          "bin_end": 1.9724675,
-          "bin_start": 1.9553250000000002,
-          "count": 9
+          "bin_center": 19.437122499999997,
+          "bin_start": 19.165789999999998,
+          "bin_end": 19.708454999999997,
+          "count": 15
         },
         {
-          "bin_center": 1.9810387500000002,
-          "bin_end": 1.98961,
-          "bin_start": 1.9724675,
-          "count": 13
+          "bin_center": 19.9797875,
+          "bin_start": 19.708454999999997,
+          "bin_end": 20.25112,
+          "count": 15
         },
         {
-          "bin_center": 1.99818125,
-          "bin_end": 2.0067525,
-          "bin_start": 1.98961,
-          "count": 19
+          "bin_center": 20.5224525,
+          "bin_start": 20.25112,
+          "bin_end": 20.793785,
+          "count": 10
         },
         {
-          "bin_center": 2.0153237500000003,
-          "bin_end": 2.023895,
-          "bin_start": 2.0067525,
-          "count": 8
+          "bin_center": 21.0651175,
+          "bin_start": 20.793785,
+          "bin_end": 21.33645,
+          "count": 2
         },
         {
-          "bin_center": 2.03246625,
-          "bin_end": 2.0410375000000003,
-          "bin_start": 2.023895,
-          "count": 8
+          "bin_center": 21.6077825,
+          "bin_start": 21.33645,
+          "bin_end": 21.879115,
+          "count": 4
         },
         {
-          "bin_center": 2.04960875,
-          "bin_end": 2.05818,
-          "bin_start": 2.0410375000000003,
-          "count": 5
+          "bin_center": 22.1504475,
+          "bin_start": 21.879115,
+          "bin_end": 22.42178,
+          "count": 2
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:1f8878c9ba1ad571b89e",
+      "stat_name": "mean",
       "observed_value": 2.0,
-      "p_value": 0.390625,
       "rep_values": [
         1.99272,
         1.96728,
@@ -7094,62 +7494,62 @@
         1.99941,
         2.00237
       ],
-      "stat_name": "mean"
-    },
-    {
+      "p_value": 0.390625,
       "histogram": [
         {
-          "bin_center": -0.08625625,
-          "bin_end": -0.0770425,
-          "bin_start": -0.09547,
+          "bin_center": 1.9296112500000002,
+          "bin_start": 1.92104,
+          "bin_end": 1.9381825000000001,
           "count": 1
         },
         {
-          "bin_center": -0.06782875,
-          "bin_end": -0.058615,
-          "bin_start": -0.0770425,
-          "count": 4
+          "bin_center": 1.94675375,
+          "bin_start": 1.9381825000000001,
+          "bin_end": 1.9553250000000002,
+          "count": 1
         },
         {
-          "bin_center": -0.04940125,
-          "bin_end": -0.0401875,
-          "bin_start": -0.058615,
-          "count": 7
+          "bin_center": 1.9638962500000001,
+          "bin_start": 1.9553250000000002,
+          "bin_end": 1.9724675,
+          "count": 9
         },
         {
-          "bin_center": -0.03097375,
-          "bin_end": -0.02176,
-          "bin_start": -0.0401875,
-          "count": 4
+          "bin_center": 1.9810387500000002,
+          "bin_start": 1.9724675,
+          "bin_end": 1.98961,
+          "count": 13
         },
         {
-          "bin_center": -0.012546250000000002,
-          "bin_end": -0.003332500000000002,
-          "bin_start": -0.02176,
-          "count": 14
+          "bin_center": 1.99818125,
+          "bin_start": 1.98961,
+          "bin_end": 2.0067525,
+          "count": 19
         },
         {
-          "bin_center": 0.005881249999999998,
-          "bin_end": 0.015094999999999997,
-          "bin_start": -0.003332500000000002,
-          "count": 17
+          "bin_center": 2.0153237500000003,
+          "bin_start": 2.0067525,
+          "bin_end": 2.023895,
+          "count": 8
         },
         {
-          "bin_center": 0.024308750000000004,
-          "bin_end": 0.03352250000000001,
-          "bin_start": 0.015094999999999997,
-          "count": 11
+          "bin_center": 2.03246625,
+          "bin_start": 2.023895,
+          "bin_end": 2.0410375000000003,
+          "count": 8
         },
         {
-          "bin_center": 0.04273625,
-          "bin_end": 0.05195,
-          "bin_start": 0.03352250000000001,
-          "count": 6
+          "bin_center": 2.04960875,
+          "bin_start": 2.0410375000000003,
+          "bin_end": 2.05818,
+          "count": 5
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:1f8878c9ba1ad571b89e",
+      "stat_name": "sd",
       "observed_value": 0.0,
-      "p_value": 0.453125,
       "rep_values": [
         0.05195,
         -0.01623,
@@ -7216,62 +7616,62 @@
         0.02681,
         0.0481
       ],
-      "stat_name": "sd"
-    },
-    {
+      "p_value": 0.453125,
       "histogram": [
         {
-          "bin_center": 1.915225625,
-          "bin_end": 1.92641125,
-          "bin_start": 1.90404,
-          "count": 3
+          "bin_center": -0.08625625,
+          "bin_start": -0.09547,
+          "bin_end": -0.0770425,
+          "count": 1
         },
         {
-          "bin_center": 1.9375968749999999,
-          "bin_end": 1.9487824999999999,
-          "bin_start": 1.92641125,
-          "count": 5
+          "bin_center": -0.06782875,
+          "bin_start": -0.0770425,
+          "bin_end": -0.058615,
+          "count": 4
         },
         {
-          "bin_center": 1.9599681249999998,
-          "bin_end": 1.9711537499999998,
-          "bin_start": 1.9487824999999999,
-          "count": 3
-        },
-        {
-          "bin_center": 1.982339375,
-          "bin_end": 1.993525,
-          "bin_start": 1.9711537499999998,
-          "count": 13
-        },
-        {
-          "bin_center": 2.004710625,
-          "bin_end": 2.01589625,
-          "bin_start": 1.993525,
-          "count": 14
-        },
-        {
-          "bin_center": 2.027081875,
-          "bin_end": 2.0382675,
-          "bin_start": 2.01589625,
-          "count": 17
-        },
-        {
-          "bin_center": 2.049453125,
-          "bin_end": 2.06063875,
-          "bin_start": 2.0382675,
+          "bin_center": -0.04940125,
+          "bin_start": -0.058615,
+          "bin_end": -0.0401875,
           "count": 7
         },
         {
-          "bin_center": 2.071824375,
-          "bin_end": 2.08301,
-          "bin_start": 2.06063875,
-          "count": 2
+          "bin_center": -0.03097375,
+          "bin_start": -0.0401875,
+          "bin_end": -0.02176,
+          "count": 4
+        },
+        {
+          "bin_center": -0.012546250000000002,
+          "bin_start": -0.02176,
+          "bin_end": -0.003332500000000002,
+          "count": 14
+        },
+        {
+          "bin_center": 0.005881249999999998,
+          "bin_start": -0.003332500000000002,
+          "bin_end": 0.015094999999999997,
+          "count": 17
+        },
+        {
+          "bin_center": 0.024308750000000004,
+          "bin_start": 0.015094999999999997,
+          "bin_end": 0.03352250000000001,
+          "count": 11
+        },
+        {
+          "bin_center": 0.04273625,
+          "bin_start": 0.03352250000000001,
+          "bin_end": 0.05195,
+          "count": 6
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:1f8878c9ba1ad571b89e",
+      "stat_name": "min",
       "observed_value": 2.0,
-      "p_value": 0.5625,
       "rep_values": [
         2.01631,
         2.02892,
@@ -7338,62 +7738,62 @@
         1.9978,
         2.05355
       ],
-      "stat_name": "min"
-    },
-    {
+      "p_value": 0.5625,
       "histogram": [
         {
-          "bin_center": 1.937323125,
-          "bin_end": 1.95056625,
-          "bin_start": 1.92408,
+          "bin_center": 1.915225625,
+          "bin_start": 1.90404,
+          "bin_end": 1.92641125,
+          "count": 3
+        },
+        {
+          "bin_center": 1.9375968749999999,
+          "bin_start": 1.92641125,
+          "bin_end": 1.9487824999999999,
           "count": 5
         },
         {
-          "bin_center": 1.963809375,
-          "bin_end": 1.9770525,
-          "bin_start": 1.95056625,
-          "count": 10
+          "bin_center": 1.9599681249999998,
+          "bin_start": 1.9487824999999999,
+          "bin_end": 1.9711537499999998,
+          "count": 3
         },
         {
-          "bin_center": 1.9902956250000001,
-          "bin_end": 2.00353875,
-          "bin_start": 1.9770525,
-          "count": 23
+          "bin_center": 1.982339375,
+          "bin_start": 1.9711537499999998,
+          "bin_end": 1.993525,
+          "count": 13
         },
         {
-          "bin_center": 2.0167818750000004,
-          "bin_end": 2.030025,
-          "bin_start": 2.00353875,
-          "count": 12
+          "bin_center": 2.004710625,
+          "bin_start": 1.993525,
+          "bin_end": 2.01589625,
+          "count": 14
         },
         {
-          "bin_center": 2.043268125,
-          "bin_end": 2.05651125,
-          "bin_start": 2.030025,
-          "count": 8
+          "bin_center": 2.027081875,
+          "bin_start": 2.01589625,
+          "bin_end": 2.0382675,
+          "count": 17
         },
         {
-          "bin_center": 2.0697543749999996,
-          "bin_end": 2.0829975,
-          "bin_start": 2.05651125,
-          "count": 4
+          "bin_center": 2.049453125,
+          "bin_start": 2.0382675,
+          "bin_end": 2.06063875,
+          "count": 7
         },
         {
-          "bin_center": 2.096240625,
-          "bin_end": 2.10948375,
-          "bin_start": 2.0829975,
-          "count": 1
-        },
-        {
-          "bin_center": 2.1227268749999997,
-          "bin_end": 2.13597,
-          "bin_start": 2.10948375,
-          "count": 1
+          "bin_center": 2.071824375,
+          "bin_start": 2.06063875,
+          "bin_end": 2.08301,
+          "count": 2
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:1f8878c9ba1ad571b89e",
+      "stat_name": "max",
       "observed_value": 2.0,
-      "p_value": 0.453125,
       "rep_values": [
         2.01358,
         2.01549,
@@ -7460,62 +7860,62 @@
         1.99087,
         2.03228
       ],
-      "stat_name": "max"
-    },
-    {
+      "p_value": 0.453125,
       "histogram": [
         {
-          "bin_center": 87.74147375000001,
-          "bin_end": 87.8171075,
-          "bin_start": 87.66584,
-          "count": 2
+          "bin_center": 1.937323125,
+          "bin_start": 1.92408,
+          "bin_end": 1.95056625,
+          "count": 5
         },
         {
-          "bin_center": 87.89274125,
-          "bin_end": 87.96837500000001,
-          "bin_start": 87.8171075,
-          "count": 9
+          "bin_center": 1.963809375,
+          "bin_start": 1.95056625,
+          "bin_end": 1.9770525,
+          "count": 10
         },
         {
-          "bin_center": 88.04400875,
-          "bin_end": 88.1196425,
-          "bin_start": 87.96837500000001,
-          "count": 6
+          "bin_center": 1.9902956250000001,
+          "bin_start": 1.9770525,
+          "bin_end": 2.00353875,
+          "count": 23
         },
         {
-          "bin_center": 88.19527625,
-          "bin_end": 88.27091,
-          "bin_start": 88.1196425,
-          "count": 14
-        },
-        {
-          "bin_center": 88.34654375,
-          "bin_end": 88.4221775,
-          "bin_start": 88.27091,
-          "count": 11
-        },
-        {
-          "bin_center": 88.49781125,
-          "bin_end": 88.57344499999999,
-          "bin_start": 88.4221775,
+          "bin_center": 2.0167818750000004,
+          "bin_start": 2.00353875,
+          "bin_end": 2.030025,
           "count": 12
         },
         {
-          "bin_center": 88.64907875,
-          "bin_end": 88.7247125,
-          "bin_start": 88.57344499999999,
-          "count": 5
+          "bin_center": 2.043268125,
+          "bin_start": 2.030025,
+          "bin_end": 2.05651125,
+          "count": 8
         },
         {
-          "bin_center": 88.80034624999999,
-          "bin_end": 88.87598,
-          "bin_start": 88.7247125,
-          "count": 5
+          "bin_center": 2.0697543749999996,
+          "bin_start": 2.05651125,
+          "bin_end": 2.0829975,
+          "count": 4
+        },
+        {
+          "bin_center": 2.096240625,
+          "bin_start": 2.0829975,
+          "bin_end": 2.10948375,
+          "count": 1
+        },
+        {
+          "bin_center": 2.1227268749999997,
+          "bin_start": 2.10948375,
+          "bin_end": 2.13597,
+          "count": 1
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:7a4890fc254d4a508b7c",
+      "stat_name": "mean",
       "observed_value": 88.32203,
-      "p_value": 0.453125,
       "rep_values": [
         88.19855,
         88.73121,
@@ -7582,62 +7982,62 @@
         88.71059,
         88.35544
       ],
-      "stat_name": "mean"
-    },
-    {
+      "p_value": 0.453125,
       "histogram": [
         {
-          "bin_center": 1.46604,
-          "bin_end": 1.56262,
-          "bin_start": 1.36946,
-          "count": 3
+          "bin_center": 87.74147375000001,
+          "bin_start": 87.66584,
+          "bin_end": 87.8171075,
+          "count": 2
         },
         {
-          "bin_center": 1.6591999999999998,
-          "bin_end": 1.75578,
-          "bin_start": 1.56262,
-          "count": 5
+          "bin_center": 87.89274125,
+          "bin_start": 87.8171075,
+          "bin_end": 87.96837500000001,
+          "count": 9
         },
         {
-          "bin_center": 1.85236,
-          "bin_end": 1.94894,
-          "bin_start": 1.75578,
-          "count": 13
+          "bin_center": 88.04400875,
+          "bin_start": 87.96837500000001,
+          "bin_end": 88.1196425,
+          "count": 6
         },
         {
-          "bin_center": 2.04552,
-          "bin_end": 2.1421,
-          "bin_start": 1.94894,
+          "bin_center": 88.19527625,
+          "bin_start": 88.1196425,
+          "bin_end": 88.27091,
           "count": 14
         },
         {
-          "bin_center": 2.23868,
-          "bin_end": 2.33526,
-          "bin_start": 2.1421,
-          "count": 10
+          "bin_center": 88.34654375,
+          "bin_start": 88.27091,
+          "bin_end": 88.4221775,
+          "count": 11
         },
         {
-          "bin_center": 2.4318400000000002,
-          "bin_end": 2.52842,
-          "bin_start": 2.33526,
+          "bin_center": 88.49781125,
+          "bin_start": 88.4221775,
+          "bin_end": 88.57344499999999,
           "count": 12
         },
         {
-          "bin_center": 2.625,
-          "bin_end": 2.7215800000000003,
-          "bin_start": 2.52842,
+          "bin_center": 88.64907875,
+          "bin_start": 88.57344499999999,
+          "bin_end": 88.7247125,
           "count": 5
         },
         {
-          "bin_center": 2.81816,
-          "bin_end": 2.91474,
-          "bin_start": 2.7215800000000003,
-          "count": 2
+          "bin_center": 88.80034624999999,
+          "bin_start": 88.7247125,
+          "bin_end": 88.87598,
+          "count": 5
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:7a4890fc254d4a508b7c",
+      "stat_name": "sd",
       "observed_value": 2.14271,
-      "p_value": 0.453125,
       "rep_values": [
         2.35935,
         2.71768,
@@ -7704,62 +8104,62 @@
         1.82455,
         1.72581
       ],
-      "stat_name": "sd"
-    },
-    {
+      "p_value": 0.453125,
       "histogram": [
         {
-          "bin_center": 83.87920125,
-          "bin_end": 84.0771125,
-          "bin_start": 83.68129,
-          "count": 2
+          "bin_center": 1.46604,
+          "bin_start": 1.36946,
+          "bin_end": 1.56262,
+          "count": 3
         },
         {
-          "bin_center": 84.27502375,
-          "bin_end": 84.472935,
-          "bin_start": 84.0771125,
-          "count": 11
+          "bin_center": 1.6591999999999998,
+          "bin_start": 1.56262,
+          "bin_end": 1.75578,
+          "count": 5
         },
         {
-          "bin_center": 84.67084625000001,
-          "bin_end": 84.8687575,
-          "bin_start": 84.472935,
+          "bin_center": 1.85236,
+          "bin_start": 1.75578,
+          "bin_end": 1.94894,
+          "count": 13
+        },
+        {
+          "bin_center": 2.04552,
+          "bin_start": 1.94894,
+          "bin_end": 2.1421,
+          "count": 14
+        },
+        {
+          "bin_center": 2.23868,
+          "bin_start": 2.1421,
+          "bin_end": 2.33526,
+          "count": 10
+        },
+        {
+          "bin_center": 2.4318400000000002,
+          "bin_start": 2.33526,
+          "bin_end": 2.52842,
           "count": 12
         },
         {
-          "bin_center": 85.06666874999999,
-          "bin_end": 85.26458,
-          "bin_start": 84.8687575,
-          "count": 12
+          "bin_center": 2.625,
+          "bin_start": 2.52842,
+          "bin_end": 2.7215800000000003,
+          "count": 5
         },
         {
-          "bin_center": 85.46249125,
-          "bin_end": 85.6604025,
-          "bin_start": 85.26458,
-          "count": 18
-        },
-        {
-          "bin_center": 85.85831375000001,
-          "bin_end": 86.056225,
-          "bin_start": 85.6604025,
+          "bin_center": 2.81816,
+          "bin_start": 2.7215800000000003,
+          "bin_end": 2.91474,
           "count": 2
-        },
-        {
-          "bin_center": 86.25413625,
-          "bin_end": 86.4520475,
-          "bin_start": 86.056225,
-          "count": 6
-        },
-        {
-          "bin_center": 86.64995875,
-          "bin_end": 86.84787,
-          "bin_start": 86.4520475,
-          "count": 1
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:7a4890fc254d4a508b7c",
+      "stat_name": "min",
       "observed_value": 85.0,
-      "p_value": 0.578125,
       "rep_values": [
         85.38605,
         85.64768,
@@ -7826,62 +8226,62 @@
         85.26626,
         85.08514
       ],
-      "stat_name": "min"
-    },
-    {
+      "p_value": 0.578125,
       "histogram": [
         {
-          "bin_center": 90.70785187499999,
-          "bin_end": 90.90586375,
-          "bin_start": 90.50984,
-          "count": 4
-        },
-        {
-          "bin_center": 91.103875625,
-          "bin_end": 91.30188749999999,
-          "bin_start": 90.90586375,
-          "count": 9
-        },
-        {
-          "bin_center": 91.499899375,
-          "bin_end": 91.69791125,
-          "bin_start": 91.30188749999999,
-          "count": 7
-        },
-        {
-          "bin_center": 91.895923125,
-          "bin_end": 92.093935,
-          "bin_start": 91.69791125,
-          "count": 11
-        },
-        {
-          "bin_center": 92.29194687500001,
-          "bin_end": 92.48995875,
-          "bin_start": 92.093935,
-          "count": 17
-        },
-        {
-          "bin_center": 92.687970625,
-          "bin_end": 92.88598250000001,
-          "bin_start": 92.48995875,
-          "count": 11
-        },
-        {
-          "bin_center": 93.083994375,
-          "bin_end": 93.28200625000001,
-          "bin_start": 92.88598250000001,
-          "count": 3
-        },
-        {
-          "bin_center": 93.48001812500002,
-          "bin_end": 93.67803,
-          "bin_start": 93.28200625000001,
+          "bin_center": 83.87920125,
+          "bin_start": 83.68129,
+          "bin_end": 84.0771125,
           "count": 2
+        },
+        {
+          "bin_center": 84.27502375,
+          "bin_start": 84.0771125,
+          "bin_end": 84.472935,
+          "count": 11
+        },
+        {
+          "bin_center": 84.67084625000001,
+          "bin_start": 84.472935,
+          "bin_end": 84.8687575,
+          "count": 12
+        },
+        {
+          "bin_center": 85.06666874999999,
+          "bin_start": 84.8687575,
+          "bin_end": 85.26458,
+          "count": 12
+        },
+        {
+          "bin_center": 85.46249125,
+          "bin_start": 85.26458,
+          "bin_end": 85.6604025,
+          "count": 18
+        },
+        {
+          "bin_center": 85.85831375000001,
+          "bin_start": 85.6604025,
+          "bin_end": 86.056225,
+          "count": 2
+        },
+        {
+          "bin_center": 86.25413625,
+          "bin_start": 86.056225,
+          "bin_end": 86.4520475,
+          "count": 6
+        },
+        {
+          "bin_center": 86.64995875,
+          "bin_start": 86.4520475,
+          "bin_end": 86.84787,
+          "count": 1
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:7a4890fc254d4a508b7c",
+      "stat_name": "max",
       "observed_value": 92.0,
-      "p_value": 0.5625,
       "rep_values": [
         91.21701,
         92.30269,
@@ -7948,62 +8348,62 @@
         92.81043,
         92.50327
       ],
-      "stat_name": "max"
-    },
-    {
+      "p_value": 0.5625,
       "histogram": [
         {
-          "bin_center": 8398.414951875,
-          "bin_end": 8440.23494375,
-          "bin_start": 8356.59496,
-          "count": 1
+          "bin_center": 90.70785187499999,
+          "bin_start": 90.50984,
+          "bin_end": 90.90586375,
+          "count": 4
         },
         {
-          "bin_center": 8482.054935625001,
-          "bin_end": 8523.874927500001,
-          "bin_start": 8440.23494375,
-          "count": 3
-        },
-        {
-          "bin_center": 8565.694919375,
-          "bin_end": 8607.51491125,
-          "bin_start": 8523.874927500001,
-          "count": 13
-        },
-        {
-          "bin_center": 8649.334903125,
-          "bin_end": 8691.154895,
-          "bin_start": 8607.51491125,
-          "count": 21
-        },
-        {
-          "bin_center": 8732.974886875,
-          "bin_end": 8774.79487875,
-          "bin_start": 8691.154895,
-          "count": 10
-        },
-        {
-          "bin_center": 8816.614870625,
-          "bin_end": 8858.4348625,
-          "bin_start": 8774.79487875,
+          "bin_center": 91.103875625,
+          "bin_start": 90.90586375,
+          "bin_end": 91.30188749999999,
           "count": 9
         },
         {
-          "bin_center": 8900.254854375002,
-          "bin_end": 8942.074846250001,
-          "bin_start": 8858.4348625,
-          "count": 6
+          "bin_center": 91.499899375,
+          "bin_start": 91.30188749999999,
+          "bin_end": 91.69791125,
+          "count": 7
         },
         {
-          "bin_center": 8983.894838125001,
-          "bin_end": 9025.71483,
-          "bin_start": 8942.074846250001,
-          "count": 1
+          "bin_center": 91.895923125,
+          "bin_start": 91.69791125,
+          "bin_end": 92.093935,
+          "count": 11
+        },
+        {
+          "bin_center": 92.29194687500001,
+          "bin_start": 92.093935,
+          "bin_end": 92.48995875,
+          "count": 17
+        },
+        {
+          "bin_center": 92.687970625,
+          "bin_start": 92.48995875,
+          "bin_end": 92.88598250000001,
+          "count": 11
+        },
+        {
+          "bin_center": 93.083994375,
+          "bin_start": 92.88598250000001,
+          "bin_end": 93.28200625000001,
+          "count": 3
+        },
+        {
+          "bin_center": 93.48001812500002,
+          "bin_start": 93.28200625000001,
+          "bin_end": 93.67803,
+          "count": 2
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:21069529417a9a99ee50",
+      "stat_name": "mean",
       "observed_value": 8697.14754,
-      "p_value": 0.375,
       "rep_values": [
         9025.71483,
         8740.40615,
@@ -8070,62 +8470,62 @@
         8574.71059,
         8695.64789
       ],
-      "stat_name": "mean"
-    },
-    {
+      "p_value": 0.375,
       "histogram": [
         {
-          "bin_center": 1285.75519625,
-          "bin_end": 1328.1578725,
-          "bin_start": 1243.35252,
+          "bin_center": 8398.414951875,
+          "bin_start": 8356.59496,
+          "bin_end": 8440.23494375,
+          "count": 1
+        },
+        {
+          "bin_center": 8482.054935625001,
+          "bin_start": 8440.23494375,
+          "bin_end": 8523.874927500001,
           "count": 3
         },
         {
-          "bin_center": 1370.56054875,
-          "bin_end": 1412.963225,
-          "bin_start": 1328.1578725,
-          "count": 5
-        },
-        {
-          "bin_center": 1455.36590125,
-          "bin_end": 1497.7685775,
-          "bin_start": 1412.963225,
-          "count": 10
-        },
-        {
-          "bin_center": 1540.17125375,
-          "bin_end": 1582.57393,
-          "bin_start": 1497.7685775,
+          "bin_center": 8565.694919375,
+          "bin_start": 8523.874927500001,
+          "bin_end": 8607.51491125,
           "count": 13
         },
         {
-          "bin_center": 1624.97660625,
-          "bin_end": 1667.3792825,
-          "bin_start": 1582.57393,
-          "count": 17
+          "bin_center": 8649.334903125,
+          "bin_start": 8607.51491125,
+          "bin_end": 8691.154895,
+          "count": 21
         },
         {
-          "bin_center": 1709.7819587499998,
-          "bin_end": 1752.1846349999998,
-          "bin_start": 1667.3792825,
-          "count": 11
+          "bin_center": 8732.974886875,
+          "bin_start": 8691.154895,
+          "bin_end": 8774.79487875,
+          "count": 10
         },
         {
-          "bin_center": 1794.5873112499999,
-          "bin_end": 1836.9899874999999,
-          "bin_start": 1752.1846349999998,
-          "count": 3
+          "bin_center": 8816.614870625,
+          "bin_start": 8774.79487875,
+          "bin_end": 8858.4348625,
+          "count": 9
         },
         {
-          "bin_center": 1879.3926637499999,
-          "bin_end": 1921.79534,
-          "bin_start": 1836.9899874999999,
-          "count": 2
+          "bin_center": 8900.254854375002,
+          "bin_start": 8858.4348625,
+          "bin_end": 8942.074846250001,
+          "count": 6
+        },
+        {
+          "bin_center": 8983.894838125001,
+          "bin_start": 8942.074846250001,
+          "bin_end": 9025.71483,
+          "count": 1
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:21069529417a9a99ee50",
+      "stat_name": "sd",
       "observed_value": 1569.84656,
-      "p_value": 0.53125,
       "rep_values": [
         1374.36881,
         1723.20135,
@@ -8192,62 +8592,62 @@
         1595.98567,
         1689.50303
       ],
-      "stat_name": "sd"
-    },
-    {
+      "p_value": 0.53125,
       "histogram": [
         {
-          "bin_center": 1321.9415562499998,
-          "bin_end": 1440.5823925,
-          "bin_start": 1203.30072,
-          "count": 1
-        },
-        {
-          "bin_center": 1559.22322875,
-          "bin_end": 1677.864065,
-          "bin_start": 1440.5823925,
-          "count": 7
-        },
-        {
-          "bin_center": 1796.5049012499999,
-          "bin_end": 1915.1457375,
-          "bin_start": 1677.864065,
-          "count": 18
-        },
-        {
-          "bin_center": 2033.78657375,
-          "bin_end": 2152.42741,
-          "bin_start": 1915.1457375,
-          "count": 12
-        },
-        {
-          "bin_center": 2271.06824625,
-          "bin_end": 2389.7090824999996,
-          "bin_start": 2152.42741,
-          "count": 15
-        },
-        {
-          "bin_center": 2508.3499187499997,
-          "bin_end": 2626.990755,
-          "bin_start": 2389.7090824999996,
-          "count": 6
-        },
-        {
-          "bin_center": 2745.63159125,
-          "bin_end": 2864.2724275,
-          "bin_start": 2626.990755,
+          "bin_center": 1285.75519625,
+          "bin_start": 1243.35252,
+          "bin_end": 1328.1578725,
           "count": 3
         },
         {
-          "bin_center": 2982.9132637499997,
-          "bin_end": 3101.5541,
-          "bin_start": 2864.2724275,
+          "bin_center": 1370.56054875,
+          "bin_start": 1328.1578725,
+          "bin_end": 1412.963225,
+          "count": 5
+        },
+        {
+          "bin_center": 1455.36590125,
+          "bin_start": 1412.963225,
+          "bin_end": 1497.7685775,
+          "count": 10
+        },
+        {
+          "bin_center": 1540.17125375,
+          "bin_start": 1497.7685775,
+          "bin_end": 1582.57393,
+          "count": 13
+        },
+        {
+          "bin_center": 1624.97660625,
+          "bin_start": 1582.57393,
+          "bin_end": 1667.3792825,
+          "count": 17
+        },
+        {
+          "bin_center": 1709.7819587499998,
+          "bin_start": 1667.3792825,
+          "bin_end": 1752.1846349999998,
+          "count": 11
+        },
+        {
+          "bin_center": 1794.5873112499999,
+          "bin_start": 1752.1846349999998,
+          "bin_end": 1836.9899874999999,
+          "count": 3
+        },
+        {
+          "bin_center": 1879.3926637499999,
+          "bin_start": 1836.9899874999999,
+          "bin_end": 1921.79534,
           "count": 2
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:21069529417a9a99ee50",
+      "stat_name": "min",
       "observed_value": 2076.0,
-      "p_value": 0.46875,
       "rep_values": [
         2168.6337,
         2118.06359,
@@ -8314,62 +8714,62 @@
         1887.88233,
         2043.07201
       ],
-      "stat_name": "min"
-    },
-    {
+      "p_value": 0.46875,
       "histogram": [
         {
-          "bin_center": 10811.27491375,
-          "bin_end": 10908.7956375,
-          "bin_start": 10713.75419,
-          "count": 2
+          "bin_center": 1321.9415562499998,
+          "bin_start": 1203.30072,
+          "bin_end": 1440.5823925,
+          "count": 1
         },
         {
-          "bin_center": 11006.31636125,
-          "bin_end": 11103.837085,
-          "bin_start": 10908.7956375,
-          "count": 4
-        },
-        {
-          "bin_center": 11201.35780875,
-          "bin_end": 11298.878532499999,
-          "bin_start": 11103.837085,
+          "bin_center": 1559.22322875,
+          "bin_start": 1440.5823925,
+          "bin_end": 1677.864065,
           "count": 7
         },
         {
-          "bin_center": 11396.399256249999,
-          "bin_end": 11493.919979999999,
-          "bin_start": 11298.878532499999,
-          "count": 19
+          "bin_center": 1796.5049012499999,
+          "bin_start": 1677.864065,
+          "bin_end": 1915.1457375,
+          "count": 18
         },
         {
-          "bin_center": 11591.440703749999,
-          "bin_end": 11688.9614275,
-          "bin_start": 11493.919979999999,
-          "count": 17
+          "bin_center": 2033.78657375,
+          "bin_start": 1915.1457375,
+          "bin_end": 2152.42741,
+          "count": 12
         },
         {
-          "bin_center": 11786.48215125,
-          "bin_end": 11884.002875,
-          "bin_start": 11688.9614275,
-          "count": 5
+          "bin_center": 2271.06824625,
+          "bin_start": 2152.42741,
+          "bin_end": 2389.7090824999996,
+          "count": 15
         },
         {
-          "bin_center": 11981.52359875,
-          "bin_end": 12079.0443225,
-          "bin_start": 11884.002875,
+          "bin_center": 2508.3499187499997,
+          "bin_start": 2389.7090824999996,
+          "bin_end": 2626.990755,
           "count": 6
         },
         {
-          "bin_center": 12176.56504625,
-          "bin_end": 12274.08577,
-          "bin_start": 12079.0443225,
-          "count": 4
+          "bin_center": 2745.63159125,
+          "bin_start": 2626.990755,
+          "bin_end": 2864.2724275,
+          "count": 3
+        },
+        {
+          "bin_center": 2982.9132637499997,
+          "bin_start": 2864.2724275,
+          "bin_end": 3101.5541,
+          "count": 2
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:21069529417a9a99ee50",
+      "stat_name": "max",
       "observed_value": 11534.0,
-      "p_value": 0.453125,
       "rep_values": [
         11672.63799,
         11952.37923,
@@ -8436,62 +8836,62 @@
         11042.98463,
         11487.56665
       ],
-      "stat_name": "max"
-    },
-    {
+      "p_value": 0.453125,
       "histogram": [
         {
-          "bin_center": 0.885331875,
-          "bin_end": 0.90002375,
-          "bin_start": 0.87064,
+          "bin_center": 10811.27491375,
+          "bin_start": 10713.75419,
+          "bin_end": 10908.7956375,
+          "count": 2
+        },
+        {
+          "bin_center": 11006.31636125,
+          "bin_start": 10908.7956375,
+          "bin_end": 11103.837085,
           "count": 4
         },
         {
-          "bin_center": 0.9147156249999999,
-          "bin_end": 0.9294074999999999,
-          "bin_start": 0.90002375,
+          "bin_center": 11201.35780875,
+          "bin_start": 11103.837085,
+          "bin_end": 11298.878532499999,
+          "count": 7
+        },
+        {
+          "bin_center": 11396.399256249999,
+          "bin_start": 11298.878532499999,
+          "bin_end": 11493.919979999999,
+          "count": 19
+        },
+        {
+          "bin_center": 11591.440703749999,
+          "bin_start": 11493.919979999999,
+          "bin_end": 11688.9614275,
+          "count": 17
+        },
+        {
+          "bin_center": 11786.48215125,
+          "bin_start": 11688.9614275,
+          "bin_end": 11884.002875,
           "count": 5
         },
         {
-          "bin_center": 0.944099375,
-          "bin_end": 0.95879125,
-          "bin_start": 0.9294074999999999,
-          "count": 5
+          "bin_center": 11981.52359875,
+          "bin_start": 11884.002875,
+          "bin_end": 12079.0443225,
+          "count": 6
         },
         {
-          "bin_center": 0.973483125,
-          "bin_end": 0.988175,
-          "bin_start": 0.95879125,
-          "count": 10
-        },
-        {
-          "bin_center": 1.002866875,
-          "bin_end": 1.01755875,
-          "bin_start": 0.988175,
-          "count": 14
-        },
-        {
-          "bin_center": 1.032250625,
-          "bin_end": 1.0469424999999999,
-          "bin_start": 1.01755875,
-          "count": 13
-        },
-        {
-          "bin_center": 1.061634375,
-          "bin_end": 1.07632625,
-          "bin_start": 1.0469424999999999,
-          "count": 8
-        },
-        {
-          "bin_center": 1.091018125,
-          "bin_end": 1.10571,
-          "bin_start": 1.07632625,
-          "count": 5
+          "bin_center": 12176.56504625,
+          "bin_start": 12079.0443225,
+          "bin_end": 12274.08577,
+          "count": 4
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:9becfedce394873f8c0c",
+      "stat_name": "mean",
       "observed_value": 1.0,
-      "p_value": 0.5,
       "rep_values": [
         1.00144,
         0.99803,
@@ -8558,62 +8958,62 @@
         1.06742,
         1.09166
       ],
-      "stat_name": "mean"
-    },
-    {
+      "p_value": 0.5,
       "histogram": [
         {
-          "bin_center": -0.09819187500000001,
-          "bin_end": -0.08083375000000001,
-          "bin_start": -0.11555,
-          "count": 6
-        },
-        {
-          "bin_center": -0.06347562500000001,
-          "bin_end": -0.046117500000000006,
-          "bin_start": -0.08083375000000001,
-          "count": 10
-        },
-        {
-          "bin_center": -0.02875937500000001,
-          "bin_end": -0.011401250000000016,
-          "bin_start": -0.046117500000000006,
-          "count": 11
-        },
-        {
-          "bin_center": 0.0059568749999999865,
-          "bin_end": 0.02331499999999999,
-          "bin_start": -0.011401250000000016,
-          "count": 14
-        },
-        {
-          "bin_center": 0.04067312499999999,
-          "bin_end": 0.05803124999999999,
-          "bin_start": 0.02331499999999999,
-          "count": 11
-        },
-        {
-          "bin_center": 0.07538937499999998,
-          "bin_end": 0.09274749999999997,
-          "bin_start": 0.05803124999999999,
-          "count": 6
-        },
-        {
-          "bin_center": 0.11010562499999998,
-          "bin_end": 0.12746375,
-          "bin_start": 0.09274749999999997,
+          "bin_center": 0.885331875,
+          "bin_start": 0.87064,
+          "bin_end": 0.90002375,
           "count": 4
         },
         {
-          "bin_center": 0.144821875,
-          "bin_end": 0.16218,
-          "bin_start": 0.12746375,
-          "count": 2
+          "bin_center": 0.9147156249999999,
+          "bin_start": 0.90002375,
+          "bin_end": 0.9294074999999999,
+          "count": 5
+        },
+        {
+          "bin_center": 0.944099375,
+          "bin_start": 0.9294074999999999,
+          "bin_end": 0.95879125,
+          "count": 5
+        },
+        {
+          "bin_center": 0.973483125,
+          "bin_start": 0.95879125,
+          "bin_end": 0.988175,
+          "count": 10
+        },
+        {
+          "bin_center": 1.002866875,
+          "bin_start": 0.988175,
+          "bin_end": 1.01755875,
+          "count": 14
+        },
+        {
+          "bin_center": 1.032250625,
+          "bin_start": 1.01755875,
+          "bin_end": 1.0469424999999999,
+          "count": 13
+        },
+        {
+          "bin_center": 1.061634375,
+          "bin_start": 1.0469424999999999,
+          "bin_end": 1.07632625,
+          "count": 8
+        },
+        {
+          "bin_center": 1.091018125,
+          "bin_start": 1.07632625,
+          "bin_end": 1.10571,
+          "count": 5
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:9becfedce394873f8c0c",
+      "stat_name": "sd",
       "observed_value": 0.0,
-      "p_value": 0.453125,
       "rep_values": [
         -0.00278,
         0.01695,
@@ -8680,62 +9080,62 @@
         -0.02432,
         0.02772
       ],
-      "stat_name": "sd"
-    },
-    {
+      "p_value": 0.453125,
       "histogram": [
         {
-          "bin_center": 0.540973125,
-          "bin_end": 0.58677625,
-          "bin_start": 0.49517,
-          "count": 1
+          "bin_center": -0.09819187500000001,
+          "bin_start": -0.11555,
+          "bin_end": -0.08083375000000001,
+          "count": 6
         },
         {
-          "bin_center": 0.6325793749999999,
-          "bin_end": 0.6783825,
-          "bin_start": 0.58677625,
-          "count": 1
+          "bin_center": -0.06347562500000001,
+          "bin_start": -0.08083375000000001,
+          "bin_end": -0.046117500000000006,
+          "count": 10
         },
         {
-          "bin_center": 0.724185625,
-          "bin_end": 0.76998875,
-          "bin_start": 0.6783825,
-          "count": 1
+          "bin_center": -0.02875937500000001,
+          "bin_start": -0.046117500000000006,
+          "bin_end": -0.011401250000000016,
+          "count": 11
         },
         {
-          "bin_center": 0.8157918749999999,
-          "bin_end": 0.8615949999999999,
-          "bin_start": 0.76998875,
-          "count": 5
+          "bin_center": 0.0059568749999999865,
+          "bin_start": -0.011401250000000016,
+          "bin_end": 0.02331499999999999,
+          "count": 14
         },
         {
-          "bin_center": 0.9073981249999999,
-          "bin_end": 0.95320125,
-          "bin_start": 0.8615949999999999,
-          "count": 19
+          "bin_center": 0.04067312499999999,
+          "bin_start": 0.02331499999999999,
+          "bin_end": 0.05803124999999999,
+          "count": 11
         },
         {
-          "bin_center": 0.999004375,
-          "bin_end": 1.0448075,
-          "bin_start": 0.95320125,
-          "count": 17
+          "bin_center": 0.07538937499999998,
+          "bin_start": 0.05803124999999999,
+          "bin_end": 0.09274749999999997,
+          "count": 6
         },
         {
-          "bin_center": 1.090610625,
-          "bin_end": 1.13641375,
-          "bin_start": 1.0448075,
-          "count": 13
+          "bin_center": 0.11010562499999998,
+          "bin_start": 0.09274749999999997,
+          "bin_end": 0.12746375,
+          "count": 4
         },
         {
-          "bin_center": 1.182216875,
-          "bin_end": 1.22802,
-          "bin_start": 1.13641375,
-          "count": 7
+          "bin_center": 0.144821875,
+          "bin_start": 0.12746375,
+          "bin_end": 0.16218,
+          "count": 2
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:9becfedce394873f8c0c",
+      "stat_name": "min",
       "observed_value": 1.0,
-      "p_value": 0.40625,
       "rep_values": [
         0.93713,
         0.84179,
@@ -8802,62 +9202,62 @@
         0.98592,
         1.0429
       ],
-      "stat_name": "min"
-    },
-    {
+      "p_value": 0.40625,
       "histogram": [
         {
-          "bin_center": 0.66768,
-          "bin_end": 0.7155400000000001,
-          "bin_start": 0.61982,
+          "bin_center": 0.540973125,
+          "bin_start": 0.49517,
+          "bin_end": 0.58677625,
           "count": 1
         },
         {
-          "bin_center": 0.7634000000000001,
-          "bin_end": 0.8112600000000001,
-          "bin_start": 0.7155400000000001,
-          "count": 0
+          "bin_center": 0.6325793749999999,
+          "bin_start": 0.58677625,
+          "bin_end": 0.6783825,
+          "count": 1
         },
         {
-          "bin_center": 0.8591200000000001,
-          "bin_end": 0.90698,
-          "bin_start": 0.8112600000000001,
-          "count": 10
+          "bin_center": 0.724185625,
+          "bin_start": 0.6783825,
+          "bin_end": 0.76998875,
+          "count": 1
         },
         {
-          "bin_center": 0.9548399999999999,
-          "bin_end": 1.0027,
-          "bin_start": 0.90698,
+          "bin_center": 0.8157918749999999,
+          "bin_start": 0.76998875,
+          "bin_end": 0.8615949999999999,
+          "count": 5
+        },
+        {
+          "bin_center": 0.9073981249999999,
+          "bin_start": 0.8615949999999999,
+          "bin_end": 0.95320125,
+          "count": 19
+        },
+        {
+          "bin_center": 0.999004375,
+          "bin_start": 0.95320125,
+          "bin_end": 1.0448075,
           "count": 17
         },
         {
-          "bin_center": 1.05056,
-          "bin_end": 1.09842,
-          "bin_start": 1.0027,
-          "count": 18
-        },
-        {
-          "bin_center": 1.14628,
-          "bin_end": 1.19414,
-          "bin_start": 1.09842,
+          "bin_center": 1.090610625,
+          "bin_start": 1.0448075,
+          "bin_end": 1.13641375,
           "count": 13
         },
         {
-          "bin_center": 1.242,
-          "bin_end": 1.28986,
-          "bin_start": 1.19414,
-          "count": 3
-        },
-        {
-          "bin_center": 1.33772,
-          "bin_end": 1.38558,
-          "bin_start": 1.28986,
-          "count": 2
+          "bin_center": 1.182216875,
+          "bin_start": 1.13641375,
+          "bin_end": 1.22802,
+          "count": 7
         }
-      ],
+      ]
+    },
+    {
       "indicator_id": "indicator:9becfedce394873f8c0c",
+      "stat_name": "max",
       "observed_value": 1.0,
-      "p_value": 0.5625,
       "rep_values": [
         1.13308,
         1.23343,
@@ -8924,7 +9324,57 @@
         1.06172,
         0.85355
       ],
-      "stat_name": "max"
+      "p_value": 0.5625,
+      "histogram": [
+        {
+          "bin_center": 0.66768,
+          "bin_start": 0.61982,
+          "bin_end": 0.7155400000000001,
+          "count": 1
+        },
+        {
+          "bin_center": 0.7634000000000001,
+          "bin_start": 0.7155400000000001,
+          "bin_end": 0.8112600000000001,
+          "count": 0
+        },
+        {
+          "bin_center": 0.8591200000000001,
+          "bin_start": 0.8112600000000001,
+          "bin_end": 0.90698,
+          "count": 10
+        },
+        {
+          "bin_center": 0.9548399999999999,
+          "bin_start": 0.90698,
+          "bin_end": 1.0027,
+          "count": 17
+        },
+        {
+          "bin_center": 1.05056,
+          "bin_start": 1.0027,
+          "bin_end": 1.09842,
+          "count": 18
+        },
+        {
+          "bin_center": 1.14628,
+          "bin_start": 1.09842,
+          "bin_end": 1.19414,
+          "count": 13
+        },
+        {
+          "bin_center": 1.242,
+          "bin_start": 1.19414,
+          "bin_end": 1.28986,
+          "count": 3
+        },
+        {
+          "bin_center": 1.33772,
+          "bin_start": 1.28986,
+          "bin_end": 1.38558,
+          "count": 2
+        }
+      ]
     }
   ]
 }

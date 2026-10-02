@@ -31,10 +31,11 @@ async function seedCompleteWorkspace(
     [
       "uv",
       "run",
-      "--project",
+      "--directory",
       "apps/data-pipeline",
       "python",
-      "apps/data-pipeline/tests/scripts/fixtures/promotion_fixture.py",
+      "-m",
+      "tests.scripts.fixtures.promotion_fixture",
       dataRoot,
       workspaceId,
       JSON.stringify(options),
@@ -92,7 +93,13 @@ describe("promoteDataWorkspace", () => {
     expect(summary.traces).toHaveLength(5);
     expect(
       JSON.parse(await readFile(join(dataRoot, "DEMO", "fixture", "inference.json"), "utf8")),
-    ).toEqual({ report: { inference_metadata: { method: "test" } } });
+    ).toMatchObject({
+      action: "fit",
+      report: {
+        inference_metadata: { method: "test", n_samples: 0 },
+        engine: { kind: "not_evaluated", reason: "ARCHIVED_ENGINE_NOT_RETAINED" },
+      },
+    });
     expect(
       JSON.parse(
         await readFile(
@@ -100,7 +107,15 @@ describe("promoteDataWorkspace", () => {
           "utf8",
         ),
       ),
-    ).toEqual({ artifact: "statistical_model_spec", trace: "model-spec-sleep-attempt-001" });
+    ).toMatchObject({
+      model: "fixture",
+      messages: [
+        {
+          role: "assistant",
+          content: "statistical_model_spec: model-spec-sleep-attempt-001",
+        },
+      ],
+    });
     expect(await pathExists(join(dataRoot, "DEMO", "store", "model"))).toBe(false);
     expect(
       await pathExists(join(dataRoot, "DEMO", "fixture", "artifacts", "artificial.json")),

@@ -17,6 +17,12 @@ come from its versioned artifacts and append-only attempt log.
 2. Submit to `POST /api/studies/{workspace_id}/actions`:
    - `edit_model`: `{"action":"edit_model","expected_revision":null,"model":{"question":"Does workload affect sleep?"}}`.
      Model structure, measurements, mechanisms, constants, and laws can be edited together.
+     Each observation law has a distribution tag and direct Expression fields, e.g.
+     `{"distribution":"Delta","v":{"kind":"state","construct_id":"construct:workload"}}`.
+     Bernoulli uses `BernoulliLogits` with `logits` or `BernoulliProbs` with `probs`.
+     Edges carry drift mechanisms; construct dynamics may also carry potentials.
+     Parameter transforms own their interval: `{"kind":"dt_effect_to_ct_rate","interval_days":7}`
+     or an explicit `"model_clock"` duration; native-scale laws use `{"kind":"identity"}`.
      Valid incomplete models are saved with applicable specification findings.
    - `prepare_data`: supply `input={"source":{"files":["diary.csv"]},"definition":{...}}`
      with `default_window`, `variables`, and optional interpretation `context` in the definition.
@@ -50,9 +56,10 @@ come from its versioned artifacts and append-only attempt log.
      Compare the saved observations separately with `data_diff`; simulation does not
      accept comparison data or change its generation rules for predictive checks.
 3. Dispatch returns HTTP 202 with only `{"attempt_id":"<UUID>"}` after durable acceptance.
-   Poll `GET /api/studies/{workspace_id}/actions/{attempt_id}` for `{done, body, messages}`.
-   While running, `done` is false and `body` is null. At completion, `body` contains the
-   scientific result, or is null on failure. Messages accumulate as
+   Poll `GET /api/studies/{workspace_id}/actions/{attempt_id}` until `kind` is `completed`.
+   A `running` poll carries messages. A `completed` poll carries the correlated attempt,
+   its commit ID and messages. Its outcome is `applied` with a result, `rejected` with a
+   reason and detail, or `raised` with the execution error. Messages accumulate as
    `{timestamp, level, label}` with UTC timestamps, `debug|info|warn|error` levels,
    and stable `SCREAMING_SNAKE_CASE` labels. Warnings can accompany a saved result;
    failed actions leave the scientific branch unchanged. Do not redispatch while polling.
@@ -77,7 +84,7 @@ Model edits automatically run affected checks, including one exact whole-model
 predictive batch when a compatible panel is available. Data preparation runs only
 data checks. Unchanged checks reuse
 their recorded results. Scientific failures save as findings; missing prerequisites carry
-not_evaluated reasons. Read predictive details and law provenance in the action body.
+not_evaluated reasons. Read predictive details and law provenance in the applied result.
 Simulation reports retain their own generating model revision; a later edit makes that
 report historical rather than evidence for the edited model.
 
@@ -151,7 +158,7 @@ curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/acti
 
 ### GET `/api/studies/{workspace_id}/actions/{attempt_id}`
 
-Read accumulated labels and the final scientific body without dispatching work.
+Read progress or the completed attempt's typed outcome without dispatching work.
 
 **Parameters**
 
@@ -274,7 +281,7 @@ curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/data
 
 ### GET `/api/studies/{workspace_id}/data-diff/{commit_id}`
 
-Read a comparison's saved evidence; timeline records contain no report payload.
+Read the comparison report retained by its applied outcome.
 
 **Parameters**
 

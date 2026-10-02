@@ -755,51 +755,49 @@
             "id": "indicator:93c7007ff8e5a6565b25",
             "likelihood": {
               "law": {
-                "arguments": {
-                  "cutpoints": {
-                    "arguments": [
-                      {
-                        "construct_ids": [],
-                        "kind": "coefficient",
-                        "role": "cutpoint_base",
-                        "value": "parameter:9ec837565ea8266acf16f4e878ab3ec49c793f747dd1620cb8872a15b6d48170"
-                      },
-                      {
-                        "construct_ids": [],
-                        "kind": "coefficient",
-                        "role": "cutpoint_gaps",
-                        "value": "parameter:2098505b8d1d7997f62805340a3ff337efeeae3695f6f6e97a5d36b530ab9961"
-                      }
-                    ],
-                    "function": "ordered_cutpoints",
-                    "kind": "call"
+                "cutpoints": {
+                  "arguments": [
+                    {
+                      "construct_ids": [],
+                      "kind": "coefficient",
+                      "role": "cutpoint_base",
+                      "value": "parameter:9ec837565ea8266acf16f4e878ab3ec49c793f747dd1620cb8872a15b6d48170"
+                    },
+                    {
+                      "construct_ids": [],
+                      "kind": "coefficient",
+                      "role": "cutpoint_gaps",
+                      "value": "parameter:2098505b8d1d7997f62805340a3ff337efeeae3695f6f6e97a5d36b530ab9961"
+                    }
+                  ],
+                  "function": "ordered_cutpoints",
+                  "kind": "call"
+                },
+                "distribution": "OrderedLogistic",
+                "predictor": {
+                  "kind": "binary",
+                  "left": {
+                    "construct_ids": [],
+                    "kind": "coefficient",
+                    "role": "observation_intercept",
+                    "value": 0.0
                   },
-                  "predictor": {
+                  "operator": "add",
+                  "right": {
                     "kind": "binary",
                     "left": {
                       "construct_ids": [],
                       "kind": "coefficient",
-                      "role": "observation_intercept",
-                      "value": 0.0
+                      "role": "loading",
+                      "value": "parameter:501e52abe92a871a95f3b4b56fad364ae360efc3c575c1e877d754d470292cdc"
                     },
-                    "operator": "add",
+                    "operator": "multiply",
                     "right": {
-                      "kind": "binary",
-                      "left": {
-                        "construct_ids": [],
-                        "kind": "coefficient",
-                        "role": "loading",
-                        "value": "parameter:501e52abe92a871a95f3b4b56fad364ae360efc3c575c1e877d754d470292cdc"
-                      },
-                      "operator": "multiply",
-                      "right": {
-                        "construct_id": "construct:6ca86c47aaf18b2472ce",
-                        "kind": "state"
-                      }
+                      "construct_id": "construct:6ca86c47aaf18b2472ce",
+                      "kind": "state"
                     }
                   }
-                },
-                "distribution": "OrderedLogistic"
+                }
               },
               "reasoning": "ordinal support with point / last semantics; empirical profile n=5, mean=8.80, sd=5.63.",
               "sources": [],
@@ -846,51 +844,49 @@
             "id": "indicator:b3eb347f05220d9f4130",
             "likelihood": {
               "law": {
-                "arguments": {
-                  "cutpoints": {
-                    "arguments": [
-                      {
-                        "construct_ids": [],
-                        "kind": "coefficient",
-                        "role": "cutpoint_base",
-                        "value": "parameter:6e11cf59457acf739c486d4638043ab03622923871577e92928fdb95b23d4022"
-                      },
-                      {
-                        "construct_ids": [],
-                        "kind": "coefficient",
-                        "role": "cutpoint_gaps",
-                        "value": "parameter:975f2d0c21bddf6371a2c1d8dcea40ddfc63416258239751962298592d74b9f8"
-                      }
-                    ],
-                    "function": "ordered_cutpoints",
-                    "kind": "call"
+                "cutpoints": {
+                  "arguments": [
+                    {
+                      "construct_ids": [],
+                      "kind": "coefficient",
+                      "role": "cutpoint_base",
+                      "value": "parameter:6e11cf59457acf739c486d4638043ab03622923871577e92928fdb95b23d4022"
+                    },
+                    {
+                      "construct_ids": [],
+                      "kind": "coefficient",
+                      "role": "cutpoint_gaps",
+                      "value": "parameter:975f2d0c21bddf6371a2c1d8dcea40ddfc63416258239751962298592d74b9f8"
+                    }
+                  ],
+                  "function": "ordered_cutpoints",
+                  "kind": "call"
+                },
+                "distribution": "OrderedLogistic",
+                "predictor": {
+                  "kind": "binary",
+                  "left": {
+                    "construct_ids": [],
+                    "kind": "coefficient",
+                    "role": "observation_intercept",
+                    "value": 0.0
                   },
-                  "predictor": {
+                  "operator": "add",
+                  "right": {
                     "kind": "binary",
                     "left": {
                       "construct_ids": [],
                       "kind": "coefficient",
-                      "role": "observation_intercept",
-                      "value": 0.0
+                      "role": "loading",
+                      "value": "parameter:7965e9dce8c03b2a8ec99330856f28b3a430e74768c60d5068ea3111ba94566f"
                     },
-                    "operator": "add",
+                    "operator": "multiply",
                     "right": {
-                      "kind": "binary",
-                      "left": {
-                        "construct_ids": [],
-                        "kind": "coefficient",
-                        "role": "loading",
-                        "value": "parameter:7965e9dce8c03b2a8ec99330856f28b3a430e74768c60d5068ea3111ba94566f"
-                      },
-                      "operator": "multiply",
-                      "right": {
-                        "construct_id": "construct:6ca86c47aaf18b2472ce",
-                        "kind": "state"
-                      }
+                      "construct_id": "construct:6ca86c47aaf18b2472ce",
+                      "kind": "state"
                     }
                   }
-                },
-                "distribution": "OrderedLogistic"
+                }
               },
               "reasoning": "ordinal support with point / last semantics; empirical profile n=5, mean=6.20, sd=3.83.",
               "sources": [],
@@ -931,39 +927,37 @@
             "id": "indicator:b20fa3887689d5616a60",
             "likelihood": {
               "law": {
-                "arguments": {
-                  "loc": {
+                "distribution": "Normal",
+                "loc": {
+                  "kind": "binary",
+                  "left": {
+                    "construct_ids": [],
+                    "kind": "coefficient",
+                    "role": "observation_intercept",
+                    "value": 0.0
+                  },
+                  "operator": "add",
+                  "right": {
                     "kind": "binary",
                     "left": {
                       "construct_ids": [],
                       "kind": "coefficient",
-                      "role": "observation_intercept",
-                      "value": 0.0
+                      "role": "loading",
+                      "value": -1.0
                     },
-                    "operator": "add",
+                    "operator": "multiply",
                     "right": {
-                      "kind": "binary",
-                      "left": {
-                        "construct_ids": [],
-                        "kind": "coefficient",
-                        "role": "loading",
-                        "value": -1.0
-                      },
-                      "operator": "multiply",
-                      "right": {
-                        "construct_id": "construct:6ca86c47aaf18b2472ce",
-                        "kind": "state"
-                      }
+                      "construct_id": "construct:6ca86c47aaf18b2472ce",
+                      "kind": "state"
                     }
-                  },
-                  "scale": {
-                    "construct_ids": [],
-                    "kind": "coefficient",
-                    "role": "observation_scale",
-                    "value": "parameter:145cae7b491088b812e4c26ad611489cf0f1c53e028abbd083dbcf800675aaef"
                   }
                 },
-                "distribution": "Normal"
+                "scale": {
+                  "construct_ids": [],
+                  "kind": "coefficient",
+                  "role": "observation_scale",
+                  "value": "parameter:145cae7b491088b812e4c26ad611489cf0f1c53e028abbd083dbcf800675aaef"
+                }
               },
               "reasoning": "continuous support with interval / mean semantics; empirical profile n=145, mean=0.27, sd=0.31.",
               "sources": [],
@@ -981,51 +975,49 @@
             "id": "indicator:8e1b73dd3c754b48e92c",
             "likelihood": {
               "law": {
-                "arguments": {
-                  "cutpoints": {
-                    "arguments": [
-                      {
-                        "construct_ids": [],
-                        "kind": "coefficient",
-                        "role": "cutpoint_base",
-                        "value": "parameter:2e77fa252226c51341ede18b3f1d464dbeb890f4a60a438d704f0fefbc38188e"
-                      },
-                      {
-                        "construct_ids": [],
-                        "kind": "coefficient",
-                        "role": "cutpoint_gaps",
-                        "value": "parameter:6d06d0c355dba2e8343ac2e243a6754ed91712effdd567e08a2c88d6fac3fa86"
-                      }
-                    ],
-                    "function": "ordered_cutpoints",
-                    "kind": "call"
+                "cutpoints": {
+                  "arguments": [
+                    {
+                      "construct_ids": [],
+                      "kind": "coefficient",
+                      "role": "cutpoint_base",
+                      "value": "parameter:2e77fa252226c51341ede18b3f1d464dbeb890f4a60a438d704f0fefbc38188e"
+                    },
+                    {
+                      "construct_ids": [],
+                      "kind": "coefficient",
+                      "role": "cutpoint_gaps",
+                      "value": "parameter:6d06d0c355dba2e8343ac2e243a6754ed91712effdd567e08a2c88d6fac3fa86"
+                    }
+                  ],
+                  "function": "ordered_cutpoints",
+                  "kind": "call"
+                },
+                "distribution": "OrderedLogistic",
+                "predictor": {
+                  "kind": "binary",
+                  "left": {
+                    "construct_ids": [],
+                    "kind": "coefficient",
+                    "role": "observation_intercept",
+                    "value": 0.0
                   },
-                  "predictor": {
+                  "operator": "add",
+                  "right": {
                     "kind": "binary",
                     "left": {
                       "construct_ids": [],
                       "kind": "coefficient",
-                      "role": "observation_intercept",
-                      "value": 0.0
+                      "role": "loading",
+                      "value": "parameter:dff8a815d1f023dc237fcc95c1b14df7b8aeb51f7f1fa5c35830c3ac3893e0bc"
                     },
-                    "operator": "add",
+                    "operator": "multiply",
                     "right": {
-                      "kind": "binary",
-                      "left": {
-                        "construct_ids": [],
-                        "kind": "coefficient",
-                        "role": "loading",
-                        "value": "parameter:dff8a815d1f023dc237fcc95c1b14df7b8aeb51f7f1fa5c35830c3ac3893e0bc"
-                      },
-                      "operator": "multiply",
-                      "right": {
-                        "construct_id": "construct:6ca86c47aaf18b2472ce",
-                        "kind": "state"
-                      }
+                      "construct_id": "construct:6ca86c47aaf18b2472ce",
+                      "kind": "state"
                     }
                   }
-                },
-                "distribution": "OrderedLogistic"
+                }
               },
               "reasoning": "ordinal support with point / last semantics; empirical profile n=74, mean=0.96, sd=0.58.",
               "sources": [],
@@ -1295,51 +1287,49 @@
             "id": "indicator:eca6b8b2c4379267b6c8",
             "likelihood": {
               "law": {
-                "arguments": {
-                  "cutpoints": {
-                    "arguments": [
-                      {
-                        "construct_ids": [],
-                        "kind": "coefficient",
-                        "role": "cutpoint_base",
-                        "value": "parameter:4d037b0571237ffe38d08e6503b98580c2a7370156a7757848ffaa5fd1728fdd"
-                      },
-                      {
-                        "construct_ids": [],
-                        "kind": "coefficient",
-                        "role": "cutpoint_gaps",
-                        "value": "parameter:60c1e5624e5768a3cb12b77bca44cd14f93f40096f1954d34b8ef00457b560cd"
-                      }
-                    ],
-                    "function": "ordered_cutpoints",
-                    "kind": "call"
+                "cutpoints": {
+                  "arguments": [
+                    {
+                      "construct_ids": [],
+                      "kind": "coefficient",
+                      "role": "cutpoint_base",
+                      "value": "parameter:4d037b0571237ffe38d08e6503b98580c2a7370156a7757848ffaa5fd1728fdd"
+                    },
+                    {
+                      "construct_ids": [],
+                      "kind": "coefficient",
+                      "role": "cutpoint_gaps",
+                      "value": "parameter:60c1e5624e5768a3cb12b77bca44cd14f93f40096f1954d34b8ef00457b560cd"
+                    }
+                  ],
+                  "function": "ordered_cutpoints",
+                  "kind": "call"
+                },
+                "distribution": "OrderedLogistic",
+                "predictor": {
+                  "kind": "binary",
+                  "left": {
+                    "construct_ids": [],
+                    "kind": "coefficient",
+                    "role": "observation_intercept",
+                    "value": 0.0
                   },
-                  "predictor": {
+                  "operator": "add",
+                  "right": {
                     "kind": "binary",
                     "left": {
                       "construct_ids": [],
                       "kind": "coefficient",
-                      "role": "observation_intercept",
-                      "value": 0.0
+                      "role": "loading",
+                      "value": 1.0
                     },
-                    "operator": "add",
+                    "operator": "multiply",
                     "right": {
-                      "kind": "binary",
-                      "left": {
-                        "construct_ids": [],
-                        "kind": "coefficient",
-                        "role": "loading",
-                        "value": 1.0
-                      },
-                      "operator": "multiply",
-                      "right": {
-                        "construct_id": "construct:7b3d7a5f98ae353c60b6",
-                        "kind": "state"
-                      }
+                      "construct_id": "construct:7b3d7a5f98ae353c60b6",
+                      "kind": "state"
                     }
                   }
-                },
-                "distribution": "OrderedLogistic"
+                }
               },
               "reasoning": "ordinal support with point / last semantics; empirical profile n=79, mean=0.48, sd=0.66.",
               "sources": [],
@@ -1477,51 +1467,49 @@
             "id": "indicator:1f8878c9ba1ad571b89e",
             "likelihood": {
               "law": {
-                "arguments": {
-                  "cutpoints": {
-                    "arguments": [
-                      {
-                        "construct_ids": [],
-                        "kind": "coefficient",
-                        "role": "cutpoint_base",
-                        "value": "parameter:773a0c8da725a4e3f6240c7807ad981e4948eead8c502f9fe316d4ababbc2e6d"
-                      },
-                      {
-                        "construct_ids": [],
-                        "kind": "coefficient",
-                        "role": "cutpoint_gaps",
-                        "value": "parameter:ce1ebad1f8bd081a26421cfcf318798e7c0081cfa7e691a0938d3039982206ec"
-                      }
-                    ],
-                    "function": "ordered_cutpoints",
-                    "kind": "call"
+                "cutpoints": {
+                  "arguments": [
+                    {
+                      "construct_ids": [],
+                      "kind": "coefficient",
+                      "role": "cutpoint_base",
+                      "value": "parameter:773a0c8da725a4e3f6240c7807ad981e4948eead8c502f9fe316d4ababbc2e6d"
+                    },
+                    {
+                      "construct_ids": [],
+                      "kind": "coefficient",
+                      "role": "cutpoint_gaps",
+                      "value": "parameter:ce1ebad1f8bd081a26421cfcf318798e7c0081cfa7e691a0938d3039982206ec"
+                    }
+                  ],
+                  "function": "ordered_cutpoints",
+                  "kind": "call"
+                },
+                "distribution": "OrderedLogistic",
+                "predictor": {
+                  "kind": "binary",
+                  "left": {
+                    "construct_ids": [],
+                    "kind": "coefficient",
+                    "role": "observation_intercept",
+                    "value": 0.0
                   },
-                  "predictor": {
+                  "operator": "add",
+                  "right": {
                     "kind": "binary",
                     "left": {
                       "construct_ids": [],
                       "kind": "coefficient",
-                      "role": "observation_intercept",
-                      "value": 0.0
+                      "role": "loading",
+                      "value": 1.0
                     },
-                    "operator": "add",
+                    "operator": "multiply",
                     "right": {
-                      "kind": "binary",
-                      "left": {
-                        "construct_ids": [],
-                        "kind": "coefficient",
-                        "role": "loading",
-                        "value": 1.0
-                      },
-                      "operator": "multiply",
-                      "right": {
-                        "construct_id": "construct:b7418d1841c57d53abf8",
-                        "kind": "state"
-                      }
+                      "construct_id": "construct:b7418d1841c57d53abf8",
+                      "kind": "state"
                     }
                   }
-                },
-                "distribution": "OrderedLogistic"
+                }
               },
               "reasoning": "ordinal support with point / last semantics; empirical profile n=61, mean=1.95, sd=0.22.",
               "sources": [],
@@ -1658,39 +1646,37 @@
             "id": "indicator:eb0949a188790298c25d",
             "likelihood": {
               "law": {
-                "arguments": {
-                  "loc": {
+                "distribution": "Normal",
+                "loc": {
+                  "kind": "binary",
+                  "left": {
+                    "construct_ids": [],
+                    "kind": "coefficient",
+                    "role": "observation_intercept",
+                    "value": 0.0
+                  },
+                  "operator": "add",
+                  "right": {
                     "kind": "binary",
                     "left": {
                       "construct_ids": [],
                       "kind": "coefficient",
-                      "role": "observation_intercept",
-                      "value": 0.0
+                      "role": "loading",
+                      "value": 1.0
                     },
-                    "operator": "add",
+                    "operator": "multiply",
                     "right": {
-                      "kind": "binary",
-                      "left": {
-                        "construct_ids": [],
-                        "kind": "coefficient",
-                        "role": "loading",
-                        "value": 1.0
-                      },
-                      "operator": "multiply",
-                      "right": {
-                        "construct_id": "construct:27f64faaddd59b2ad491",
-                        "kind": "state"
-                      }
+                      "construct_id": "construct:27f64faaddd59b2ad491",
+                      "kind": "state"
                     }
-                  },
-                  "scale": {
-                    "construct_ids": [],
-                    "kind": "coefficient",
-                    "role": "observation_scale",
-                    "value": 0.0
                   }
                 },
-                "distribution": "Normal"
+                "scale": {
+                  "construct_ids": [],
+                  "kind": "coefficient",
+                  "role": "observation_scale",
+                  "value": 0.0
+                }
               },
               "reasoning": "continuous support with point / last semantics; empirical profile n=19, mean=16.84, sd=4.78.",
               "sources": [],
@@ -2069,39 +2055,37 @@
             "id": "indicator:7a4890fc254d4a508b7c",
             "likelihood": {
               "law": {
-                "arguments": {
-                  "loc": {
+                "distribution": "Normal",
+                "loc": {
+                  "kind": "binary",
+                  "left": {
+                    "construct_ids": [],
+                    "kind": "coefficient",
+                    "role": "observation_intercept",
+                    "value": 0.0
+                  },
+                  "operator": "add",
+                  "right": {
                     "kind": "binary",
                     "left": {
                       "construct_ids": [],
                       "kind": "coefficient",
-                      "role": "observation_intercept",
-                      "value": 0.0
+                      "role": "loading",
+                      "value": -1.0
                     },
-                    "operator": "add",
+                    "operator": "multiply",
                     "right": {
-                      "kind": "binary",
-                      "left": {
-                        "construct_ids": [],
-                        "kind": "coefficient",
-                        "role": "loading",
-                        "value": -1.0
-                      },
-                      "operator": "multiply",
-                      "right": {
-                        "construct_id": "construct:5bf588dc29d582cd7423",
-                        "kind": "state"
-                      }
+                      "construct_id": "construct:5bf588dc29d582cd7423",
+                      "kind": "state"
                     }
-                  },
-                  "scale": {
-                    "construct_ids": [],
-                    "kind": "coefficient",
-                    "role": "observation_scale",
-                    "value": 0.0
                   }
                 },
-                "distribution": "Normal"
+                "scale": {
+                  "construct_ids": [],
+                  "kind": "coefficient",
+                  "role": "observation_scale",
+                  "value": 0.0
+                }
               },
               "reasoning": "continuous support with interval / mean semantics; empirical profile n=1448, mean=86.72, sd=3.86.",
               "sources": [],
@@ -2240,51 +2224,49 @@
             "id": "indicator:9becfedce394873f8c0c",
             "likelihood": {
               "law": {
-                "arguments": {
-                  "cutpoints": {
-                    "arguments": [
-                      {
-                        "construct_ids": [],
-                        "kind": "coefficient",
-                        "role": "cutpoint_base",
-                        "value": "parameter:0e9a1b1dfe541174568e14b1ff28869410c133c12d1e3a9af74267469c804720"
-                      },
-                      {
-                        "construct_ids": [],
-                        "kind": "coefficient",
-                        "role": "cutpoint_gaps",
-                        "value": "parameter:d04f9da05c382797cd6ece7e35dc6fe984ba19224c035803da1b904139904cef"
-                      }
-                    ],
-                    "function": "ordered_cutpoints",
-                    "kind": "call"
+                "cutpoints": {
+                  "arguments": [
+                    {
+                      "construct_ids": [],
+                      "kind": "coefficient",
+                      "role": "cutpoint_base",
+                      "value": "parameter:0e9a1b1dfe541174568e14b1ff28869410c133c12d1e3a9af74267469c804720"
+                    },
+                    {
+                      "construct_ids": [],
+                      "kind": "coefficient",
+                      "role": "cutpoint_gaps",
+                      "value": "parameter:d04f9da05c382797cd6ece7e35dc6fe984ba19224c035803da1b904139904cef"
+                    }
+                  ],
+                  "function": "ordered_cutpoints",
+                  "kind": "call"
+                },
+                "distribution": "OrderedLogistic",
+                "predictor": {
+                  "kind": "binary",
+                  "left": {
+                    "construct_ids": [],
+                    "kind": "coefficient",
+                    "role": "observation_intercept",
+                    "value": 0.0
                   },
-                  "predictor": {
+                  "operator": "add",
+                  "right": {
                     "kind": "binary",
                     "left": {
                       "construct_ids": [],
                       "kind": "coefficient",
-                      "role": "observation_intercept",
-                      "value": 0.0
+                      "role": "loading",
+                      "value": 1.0
                     },
-                    "operator": "add",
+                    "operator": "multiply",
                     "right": {
-                      "kind": "binary",
-                      "left": {
-                        "construct_ids": [],
-                        "kind": "coefficient",
-                        "role": "loading",
-                        "value": 1.0
-                      },
-                      "operator": "multiply",
-                      "right": {
-                        "construct_id": "construct:bb5a697c4e5f020f733d",
-                        "kind": "state"
-                      }
+                      "construct_id": "construct:bb5a697c4e5f020f733d",
+                      "kind": "state"
                     }
                   }
-                },
-                "distribution": "OrderedLogistic"
+                }
               },
               "reasoning": "ordinal support with point / last semantics; empirical profile n=72, mean=0.94, sd=0.71.",
               "sources": [],
@@ -2378,13 +2360,11 @@
             "id": "indicator:0b02f0d32a40caec29ef",
             "likelihood": {
               "law": {
-                "arguments": {
-                  "v": {
-                    "construct_id": "construct:ac82920bb78125ab0aca",
-                    "kind": "state"
-                  }
-                },
-                "distribution": "Delta"
+                "distribution": "Delta",
+                "v": {
+                  "construct_id": "construct:ac82920bb78125ab0aca",
+                  "kind": "state"
+                }
               },
               "reasoning": "The earlier model conditioned on recorded values exactly. Delta preserves that assumption at observed anchors; absent readings remain unknown.",
               "sources": [],
@@ -2608,45 +2588,43 @@
             "id": "indicator:21069529417a9a99ee50",
             "likelihood": {
               "law": {
-                "arguments": {
-                  "concentration": {
-                    "construct_ids": [],
-                    "kind": "coefficient",
-                    "role": "dispersion",
-                    "value": "parameter:682bd44790ce8d881c45c2aa166884c83146b6f6a175a779c90033b22ba9403f"
-                  },
-                  "mean": {
-                    "arguments": [
-                      {
+                "concentration": {
+                  "construct_ids": [],
+                  "kind": "coefficient",
+                  "role": "dispersion",
+                  "value": "parameter:682bd44790ce8d881c45c2aa166884c83146b6f6a175a779c90033b22ba9403f"
+                },
+                "distribution": "NegativeBinomial2",
+                "mean": {
+                  "arguments": [
+                    {
+                      "kind": "binary",
+                      "left": {
+                        "construct_ids": [],
+                        "kind": "coefficient",
+                        "role": "observation_intercept",
+                        "value": "parameter:4c69c0ffa919eabbb08eed0878b3bf24a3fb06c1cd111d5a091f8fcddd8537e6"
+                      },
+                      "operator": "add",
+                      "right": {
                         "kind": "binary",
                         "left": {
                           "construct_ids": [],
                           "kind": "coefficient",
-                          "role": "observation_intercept",
-                          "value": "parameter:4c69c0ffa919eabbb08eed0878b3bf24a3fb06c1cd111d5a091f8fcddd8537e6"
+                          "role": "loading",
+                          "value": 1.0
                         },
-                        "operator": "add",
+                        "operator": "multiply",
                         "right": {
-                          "kind": "binary",
-                          "left": {
-                            "construct_ids": [],
-                            "kind": "coefficient",
-                            "role": "loading",
-                            "value": 1.0
-                          },
-                          "operator": "multiply",
-                          "right": {
-                            "construct_id": "construct:07f8d9915eaa311c9e50",
-                            "kind": "state"
-                          }
+                          "construct_id": "construct:07f8d9915eaa311c9e50",
+                          "kind": "state"
                         }
                       }
-                    ],
-                    "function": "exp",
-                    "kind": "call"
-                  }
-                },
-                "distribution": "NegativeBinomial2"
+                    }
+                  ],
+                  "function": "exp",
+                  "kind": "call"
+                }
               },
               "reasoning": "count support with interval / sum semantics; empirical profile n=1589, mean=8051.47, sd=1605.01.",
               "sources": [],
@@ -2914,13 +2892,11 @@
             "id": "indicator:7f51bc663e8e0bbea95f",
             "likelihood": {
               "law": {
-                "arguments": {
-                  "v": {
-                    "construct_id": "construct:428de2b75c12e36ca19d",
-                    "kind": "state"
-                  }
-                },
-                "distribution": "Delta"
+                "distribution": "Delta",
+                "v": {
+                  "construct_id": "construct:428de2b75c12e36ca19d",
+                  "kind": "state"
+                }
               },
               "reasoning": "The earlier model conditioned on recorded values exactly. Delta preserves that assumption at observed anchors; absent readings remain unknown.",
               "sources": [],
@@ -2980,362 +2956,427 @@
     {
       "description": "Effect of external_stressful_events on perceived_stress_burden (contemporaneous)",
       "distribution": "distribution:496082f22b14ee4769abd9b01dcd462de465cd1c7764e97357aadfc664bffc71",
-      "distribution_transform": "dt_effect_to_ct_rate",
       "id": "parameter:cabcaa1f20b4727a032e91419f21eb59950155a04fbe7397025855966d9cc647",
       "name": "beta_external_stressful_events_perceived_stress_burden",
-      "reference_interval_days": 1.0
+      "transform": {
+        "interval_days": 1.0,
+        "kind": "dt_effect_to_ct_rate"
+      }
     },
     {
       "description": "Effect of perceived_stress_burden on internalizing_symptom_burden (lagged)",
       "distribution": "distribution:c9910822aa33032d5664671cd67ab684767ac6f1448cfe95a9af53131e85e5ba",
-      "distribution_transform": "dt_effect_to_ct_rate",
       "id": "parameter:6644003d9f950a37d74b82563ce03df73bb93d24eca0f2a3bbcce99728418679",
       "name": "beta_perceived_stress_burden_internalizing_symptom_burden",
-      "reference_interval_days": 1.0
+      "transform": {
+        "interval_days": 1.0,
+        "kind": "dt_effect_to_ct_rate"
+      }
     },
     {
       "description": "Ordered-logistic threshold base for journal_stress_severity",
       "distribution": "distribution:ae80b1650ffc6f073260da72a09c0380b4b0704ae565c97b72fe4d984c44c2f6",
-      "distribution_transform": "identity",
       "id": "parameter:0e9a1b1dfe541174568e14b1ff28869410c133c12d1e3a9af74267469c804720",
       "name": "obs_ordered_base_journal_stress_severity",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "description": "Residual/innovation SD for internalizing_symptom_burden",
       "distribution": "distribution:ab2bbd1c8c8df0c6f6f12408cd2a79f5e9cd3b448f5300fe5c4bdb6adec26ee1",
-      "distribution_transform": "identity",
       "id": "parameter:10b6c3148f914ad631ff5205317ae8e4054f987ae4976b0ca02ff5dd6bd5dbeb",
       "name": "sigma_internalizing_symptom_burden",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "description": "Measurement-error SD for state_of_mind_valence",
       "distribution": "distribution:1ef3fe738fa13714276c1bddbffc17e5c9515c353ebaa67f9acb11599b3a39c8",
-      "distribution_transform": "identity",
       "id": "parameter:145cae7b491088b812e4c26ad611489cf0f1c53e028abbd083dbcf800675aaef",
       "name": "obs_sd_state_of_mind_valence",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "description": "Residual/innovation SD for physical_activity",
       "distribution": "distribution:49107e26e494b089fba2f6087eea7f8783c60b9962330a5ab977843802692aac",
-      "distribution_transform": "identity",
       "id": "parameter:19d63341a2cedf238201371098567432f756f81a31323d6428e69e87e94b1a19",
       "name": "sigma_physical_activity",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "description": "Ordered-logistic threshold gaps for phq9_screening_score",
       "distribution": "distribution:0c2c9cf4242ae6407514607c63ff0bc388bf7ef8152e500a12d05fc8874a9a88",
-      "distribution_transform": "identity",
       "id": "parameter:2098505b8d1d7997f62805340a3ff337efeeae3695f6f6e97a5d36b530ab9961",
       "name": "obs_ordered_gaps_phq9_screening_score",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "description": "Ordered-logistic threshold base for journal_internalizing_symptom_severity",
       "distribution": "distribution:288116cce726096db7b40795fe0afa75386a343fd524c9727cd91e2d5fa5a1db",
-      "distribution_transform": "identity",
       "id": "parameter:2e77fa252226c51341ede18b3f1d464dbeb890f4a60a438d704f0fefbc38188e",
       "name": "obs_ordered_base_journal_internalizing_symptom_severity",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "description": "Baseline daily persistence absent incoming feedback for internalizing_symptom_burden",
       "distribution": "distribution:cca95f52434cdcaeb826264c99bf39f273bc7d866b6151988184aea61f80e0e0",
-      "distribution_transform": "dt_persistence_to_ct_decay",
       "id": "parameter:0ad9908a17641c4c8cf0f5a359b0c7d4ecc8dfd394cdf28ac69da1f8f0af9eb2",
       "name": "rho_internalizing_symptom_burden",
-      "reference_interval_days": 1.0
+      "transform": {
+        "interval_days": 1.0,
+        "kind": "dt_persistence_to_ct_decay"
+      }
     },
     {
       "description": "Effect of internalizing_symptom_burden on physical_activity (lagged)",
       "distribution": "distribution:74978cad3ccc65d634926750aeae064b63e293239d46f3ff9cf53efc87643176",
-      "distribution_transform": "dt_effect_to_ct_rate",
       "id": "parameter:d20ec2885a6fc8305245a06e43d6887d2ae868345c8bf8c7b391ed03fd96b19d",
       "name": "beta_internalizing_symptom_burden_physical_activity",
-      "reference_interval_days": 1.0
+      "transform": {
+        "interval_days": 1.0,
+        "kind": "dt_effect_to_ct_rate"
+      }
     },
     {
       "description": "Baseline daily persistence absent incoming feedback for physical_activity",
       "distribution": "distribution:d6488b1e64593ab11cda2eccfe1ce1a41854d231d3a20f44ae34b3e7de4f73f9",
-      "distribution_transform": "dt_persistence_to_ct_decay",
       "id": "parameter:5e0f4616e4d76bd70855ce8c6bc4e088d231ffb6d74ba81555fa80703beae1c2",
       "name": "rho_physical_activity",
-      "reference_interval_days": 1.0
+      "transform": {
+        "interval_days": 1.0,
+        "kind": "dt_persistence_to_ct_decay"
+      }
     },
     {
       "description": "Observation intercept for daily_step_count",
       "distribution": "distribution:c3390fe19be39d8da920439eaceaadc5d556ff5ce81ebd92bb2edd811f5df0b6",
-      "distribution_transform": "identity",
       "id": "parameter:4c69c0ffa919eabbb08eed0878b3bf24a3fb06c1cd111d5a091f8fcddd8537e6",
       "name": "manifest_mean_daily_step_count",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "description": "Ordered-logistic threshold base for taper_speed_instruction_intensity",
       "distribution": "distribution:65dc4a125d59cc580bea340f77a0dd1880064c9f975c59e814964252c9ce7587",
-      "distribution_transform": "identity",
       "id": "parameter:4d037b0571237ffe38d08e6503b98580c2a7370156a7757848ffaa5fd1728fdd",
       "name": "obs_ordered_base_taper_speed_instruction_intensity",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "description": "Factor loading for phq9_screening_score on internalizing_symptom_burden",
       "distribution": "distribution:8cbb0485f75fd3827d368e3bb22bef4cd766f980e0f38a42493f36fbe3395280",
-      "distribution_transform": "identity",
       "id": "parameter:501e52abe92a871a95f3b4b56fad364ae360efc3c575c1e877d754d470292cdc",
       "name": "lambda_phq9_screening_score_internalizing_symptom_burden",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "description": "Effect of other_psychotropic_or_somatic_treatments on internalizing_symptom_burden (lagged)",
       "distribution": "distribution:a72e23316d425ca786dd0c141b04a2dfa24068f458f39fc267a355a356c56277",
-      "distribution_transform": "dt_effect_to_ct_rate",
       "id": "parameter:0366100fe006daacd286930ef8bd629af70d9e495e4c1cc45d0ee79028812884",
       "name": "beta_other_psychotropic_or_somatic_treatments_internalizing_symptom_burden",
-      "reference_interval_days": 1.0
+      "transform": {
+        "interval_days": 1.0,
+        "kind": "dt_effect_to_ct_rate"
+      }
     },
     {
       "description": "Baseline daily persistence absent incoming feedback for perceived_stress_burden",
       "distribution": "distribution:60032b84449d1abd8bbd25b04971120b6b33c45b1612600eb039fb35b1fa3f23",
-      "distribution_transform": "dt_persistence_to_ct_decay",
       "id": "parameter:9e966cbdb24cdb20e154c855c22d0dd7392a879ab49b9ca1d18c3c3b68c7901f",
       "name": "rho_perceived_stress_burden",
-      "reference_interval_days": 1.0
+      "transform": {
+        "interval_days": 1.0,
+        "kind": "dt_persistence_to_ct_decay"
+      }
     },
     {
       "description": "Residual/innovation SD for perceived_stress_burden",
       "distribution": "distribution:aacbcc02861e8eebdaef76401a12dbac61dfed9da74f51e423f92ff23ad43be2",
-      "distribution_transform": "identity",
       "id": "parameter:595facfc46354b6582dae818836589a0643813eae29b42665949b9383de56f29",
       "name": "sigma_perceived_stress_burden",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "description": "Ordered-logistic threshold gaps for taper_speed_instruction_intensity",
       "distribution": "distribution:18ddb11fd70eb792993e90f6fa88c1cda6cec90fb7c521c3d64b76e3dbab924c",
-      "distribution_transform": "identity",
       "id": "parameter:60c1e5624e5768a3cb12b77bca44cd14f93f40096f1954d34b8ef00457b560cd",
       "name": "obs_ordered_gaps_taper_speed_instruction_intensity",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "description": "Effect of physical_activity on sleep_circadian_disruption (lagged)",
       "distribution": "distribution:491e6a0e2428e5fdda8622a8899c72ead9a6223cf6aa60662d60eb32e26d1ba8",
-      "distribution_transform": "dt_effect_to_ct_rate",
       "id": "parameter:8f16c468bd931a509f0b080732c82a6ad95b9250c6d5419dbc7c962e27be5e4d",
       "name": "beta_physical_activity_sleep_circadian_disruption",
-      "reference_interval_days": 1.0
+      "transform": {
+        "interval_days": 1.0,
+        "kind": "dt_effect_to_ct_rate"
+      }
     },
     {
       "description": "Residual/innovation SD for escitalopram_dose_taken",
       "distribution": "distribution:7a0f9df3235cbb20c9ef2b4ed31ac4b6a172bebc313f72f1364e3a61d4465682",
-      "distribution_transform": "identity",
       "id": "parameter:6657e5ab0107fe6a181dfe91715b2003fb0f4bb5e65f903639c56bb7afb97500",
       "name": "sigma_escitalopram_dose_taken",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "description": "Effect of perceived_stress_burden on sleep_circadian_disruption (lagged)",
       "distribution": "distribution:3e5adb036faafa775bc242ff73ccf79cab95a0082fe3352cde4884aa3bcb0569",
-      "distribution_transform": "dt_effect_to_ct_rate",
       "id": "parameter:7ae993e70d7e440b5e653e0e7728fcb07f04c36479498a1e18c0bca4d5a4cd3e",
       "name": "beta_perceived_stress_burden_sleep_circadian_disruption",
-      "reference_interval_days": 1.0
+      "transform": {
+        "interval_days": 1.0,
+        "kind": "dt_effect_to_ct_rate"
+      }
     },
     {
       "description": "Negative-binomial observation dispersion",
       "distribution": "distribution:94a13dd3dceca9041e358054cf20e671d54ea5d8ec680828f726410e37ba2a69",
-      "distribution_transform": "identity",
       "id": "parameter:682bd44790ce8d881c45c2aa166884c83146b6f6a175a779c90033b22ba9403f",
       "name": "obs_r",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "description": "Residual/innovation SD for taper_speed_dose_reduction",
       "distribution": "distribution:13310129775282e866b788bba9a1dedb834bb9a59dddfdd0c3ae9b641547bd33",
-      "distribution_transform": "identity",
       "id": "parameter:6914c1f9f6cf7cc676006f1b1149cdf41592f7ff0e549e7c1efa85d888925eba",
       "name": "sigma_taper_speed_dose_reduction",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "description": "Ordered-logistic threshold gaps for journal_internalizing_symptom_severity",
       "distribution": "distribution:da1f3c2a614961765654c7d55cb49ea707e08ce5899daa585f9aca1187dd66f3",
-      "distribution_transform": "identity",
       "id": "parameter:6d06d0c355dba2e8343ac2e243a6754ed91712effdd567e08a2c88d6fac3fa86",
       "name": "obs_ordered_gaps_journal_internalizing_symptom_severity",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "description": "Ordered-logistic threshold base for gad7_screening_score",
       "distribution": "distribution:ec3a02889b9626bcc9ba4c8e72db7198822eab9d1bb6dfc9d7cc1052bebdb4bc",
-      "distribution_transform": "identity",
       "id": "parameter:6e11cf59457acf739c486d4638043ab03622923871577e92928fdb95b23d4022",
       "name": "obs_ordered_base_gad7_screening_score",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "description": "Ordered-logistic threshold base for medication_adherence_documented",
       "distribution": "distribution:cbaa20b2a959fb0c937869248b28ea10964a227e61f4fb8529c406efde66ce21",
-      "distribution_transform": "identity",
       "id": "parameter:773a0c8da725a4e3f6240c7807ad981e4948eead8c502f9fe316d4ababbc2e6d",
       "name": "obs_ordered_base_medication_adherence_documented",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "description": "Baseline daily persistence absent incoming feedback for taper_speed_dose_reduction",
       "distribution": "distribution:a1f47d88a5a55cb9362a5e8ec73a23ce292fe59f9b6715541f3d90c9a493fd45",
-      "distribution_transform": "dt_persistence_to_ct_decay",
       "id": "parameter:56338f70c5882bb1009fde7ce5d2bc81e92a49cbf50b3deb72c02583c0e057b8",
       "name": "rho_taper_speed_dose_reduction",
-      "reference_interval_days": 1.0
+      "transform": {
+        "interval_days": 1.0,
+        "kind": "dt_persistence_to_ct_decay"
+      }
     },
     {
       "description": "Factor loading for gad7_screening_score on internalizing_symptom_burden",
       "distribution": "distribution:d204b44d9d4e676d650ccf9a3e1d65399b69ce04a5eca8f0730e5f80d5516a22",
-      "distribution_transform": "identity",
       "id": "parameter:7965e9dce8c03b2a8ec99330856f28b3a430e74768c60d5068ea3111ba94566f",
       "name": "lambda_gad7_screening_score_internalizing_symptom_burden",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "description": "Effect of internalizing_symptom_burden on adherence_to_regimen (lagged)",
       "distribution": "distribution:c7f65f7671929b71f07ebc294b39a15972cc2f674eb925faadc6b52d2ab96b68",
-      "distribution_transform": "dt_effect_to_ct_rate",
       "id": "parameter:2132145147e99eb5ddd6a4c0f34e9972340540566816ea3034e424b7039c1a57",
       "name": "beta_internalizing_symptom_burden_adherence_to_regimen",
-      "reference_interval_days": 1.0
+      "transform": {
+        "interval_days": 1.0,
+        "kind": "dt_effect_to_ct_rate"
+      }
     },
     {
       "description": "Effect of physical_activity on internalizing_symptom_burden (lagged)",
       "distribution": "distribution:3c8496c65da11f3efdb202624428e40024264fed8d54bd1f268908009b23c0b3",
-      "distribution_transform": "dt_effect_to_ct_rate",
       "id": "parameter:4529be181165946bd05ca47eede4f26cefb5304f6312fd51ac7f67653ebec2fd",
       "name": "beta_physical_activity_internalizing_symptom_burden",
-      "reference_interval_days": 1.0
+      "transform": {
+        "interval_days": 1.0,
+        "kind": "dt_effect_to_ct_rate"
+      }
     },
     {
       "description": "Baseline daily persistence absent incoming feedback for escitalopram_dose_taken",
       "distribution": "distribution:053137cbe0d8d602a32b5d31de9a8e810429848ceb4da7fa2519e5f137d9f6bb",
-      "distribution_transform": "dt_persistence_to_ct_decay",
       "id": "parameter:1b3d4aad4fb2e60a554306e6b6409fb3c55e37aa2a4e9c619c4036863875a32a",
       "name": "rho_escitalopram_dose_taken",
-      "reference_interval_days": 1.0
+      "transform": {
+        "interval_days": 1.0,
+        "kind": "dt_persistence_to_ct_decay"
+      }
     },
     {
       "description": "Ordered-logistic threshold gaps for gad7_screening_score",
       "distribution": "distribution:abbce13ff2889b68e6d6efd9dd0b7f2c3c21df333e723b55c46cf8ee9fc33c41",
-      "distribution_transform": "identity",
       "id": "parameter:975f2d0c21bddf6371a2c1d8dcea40ddfc63416258239751962298592d74b9f8",
       "name": "obs_ordered_gaps_gad7_screening_score",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "description": "Residual/innovation SD for sleep_circadian_disruption",
       "distribution": "distribution:ab90adc61f10435e2aea1ae6a02028b3177878a3c0b22a6c07d2ba8f32bb45b2",
-      "distribution_transform": "identity",
       "id": "parameter:9cf821d64c956fb794f034de7b9143541795b485e3177647c1e24ea922bc177f",
       "name": "sigma_sleep_circadian_disruption",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "description": "Ordered-logistic threshold base for phq9_screening_score",
       "distribution": "distribution:320716146fd565a557ccb35ae17a41df9c21324cc3c0af9b9449cd572b73afe7",
-      "distribution_transform": "identity",
       "id": "parameter:9ec837565ea8266acf16f4e878ab3ec49c793f747dd1620cb8872a15b6d48170",
       "name": "obs_ordered_base_phq9_screening_score",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "description": "Baseline daily persistence absent incoming feedback for adherence_to_regimen",
       "distribution": "distribution:9f9287d449bb48a51d32ea3b7d464616cf2d843e7158721a7784b948d1a2410d",
-      "distribution_transform": "dt_persistence_to_ct_decay",
       "id": "parameter:69c28f479e2b862713dec406262d00777047e9b2a4d4f158eab27fc9c0a7644d",
       "name": "rho_adherence_to_regimen",
-      "reference_interval_days": 1.0
+      "transform": {
+        "interval_days": 1.0,
+        "kind": "dt_persistence_to_ct_decay"
+      }
     },
     {
       "description": "Effect of internalizing_symptom_burden on sleep_circadian_disruption (lagged)",
       "distribution": "distribution:5aad683d0ce8308023e0c05e71efd7c67c36ccfbfc3c8668abf684a476401352",
-      "distribution_transform": "dt_effect_to_ct_rate",
       "id": "parameter:586e79e66975d39c87963bba7fc30ee3e1569df19b00431aabd125ec7fa2d683",
       "name": "beta_internalizing_symptom_burden_sleep_circadian_disruption",
-      "reference_interval_days": 1.0
+      "transform": {
+        "interval_days": 1.0,
+        "kind": "dt_effect_to_ct_rate"
+      }
     },
     {
       "description": "Residual/innovation SD for adherence_to_regimen",
       "distribution": "distribution:623a240ec0a8635b08b68e5bf9e09993fe1a81c8bb6d1f237cbb17e9e0565f73",
-      "distribution_transform": "identity",
       "id": "parameter:a522641efd5adb152c5c47a37e5cb0881ff86a0ddfdb11151dda3735a0646a09",
       "name": "sigma_adherence_to_regimen",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "description": "Effect of adherence_to_regimen on escitalopram_dose_taken (lagged)",
       "distribution": "distribution:6627d992f700ad8b978149e37208786eaa2a94a9ed032148530392376d61c323",
-      "distribution_transform": "dt_effect_to_ct_rate",
       "id": "parameter:8140ddf85ce1d8034b0a3be7b25158ca5ca9c18347125ab73c3fa72de151b080",
       "name": "beta_adherence_to_regimen_escitalopram_dose_taken",
-      "reference_interval_days": 1.0
+      "transform": {
+        "interval_days": 1.0,
+        "kind": "dt_effect_to_ct_rate"
+      }
     },
     {
       "description": "Effect of escitalopram_dose_taken on internalizing_symptom_burden (lagged)",
       "distribution": "distribution:6e8abca2c7c0ae65d1a128c8157df67a905744571ca4f71525260fb4853a63f9",
-      "distribution_transform": "dt_effect_to_ct_rate",
       "id": "parameter:93e17976a307088a35da3743f512e7344391cc91defd96d1037b47c81e5f9210",
       "name": "beta_escitalopram_dose_taken_internalizing_symptom_burden",
-      "reference_interval_days": 1.0
+      "transform": {
+        "interval_days": 1.0,
+        "kind": "dt_effect_to_ct_rate"
+      }
     },
     {
       "description": "Baseline daily persistence absent incoming feedback for sleep_circadian_disruption",
       "distribution": "distribution:3aba3511182ece88ca115396d7e7f9ab00f196621b761eda14964c72ee452ea1",
-      "distribution_transform": "dt_persistence_to_ct_decay",
       "id": "parameter:a715e88716e8dcfb5aba9aeaf1fa536baa8f78ba1450262e33012a44950d47a1",
       "name": "rho_sleep_circadian_disruption",
-      "reference_interval_days": 1.0
+      "transform": {
+        "interval_days": 1.0,
+        "kind": "dt_persistence_to_ct_decay"
+      }
     },
     {
       "description": "Effect of taper_speed_dose_reduction on escitalopram_dose_taken (lagged)",
       "distribution": "distribution:3e2d9ea13d8a8c5903dfd0763f5e2e2264c9556f9fa21c6f48acf44979baf6bf",
-      "distribution_transform": "dt_effect_to_ct_rate",
       "id": "parameter:5404e8f376308cdef6da71e4de19f9b0eabc289b812d00c6fd1b0573f89e6dff",
       "name": "beta_taper_speed_dose_reduction_escitalopram_dose_taken",
-      "reference_interval_days": 1.0
+      "transform": {
+        "interval_days": 1.0,
+        "kind": "dt_effect_to_ct_rate"
+      }
     },
     {
       "description": "Ordered-logistic threshold gaps for medication_adherence_documented",
       "distribution": "distribution:8740c85acf8b94177dfe4aeddea65538ca176b6fcfdba8026fc3331d0af10b2b",
-      "distribution_transform": "identity",
       "id": "parameter:ce1ebad1f8bd081a26421cfcf318798e7c0081cfa7e691a0938d3039982206ec",
       "name": "obs_ordered_gaps_medication_adherence_documented",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "description": "Ordered-logistic threshold gaps for journal_stress_severity",
       "distribution": "distribution:3e6aa6ccec778bd4a42cead09d76a37b6fd248dc3a388e5dde644a35443bdb0e",
-      "distribution_transform": "identity",
       "id": "parameter:d04f9da05c382797cd6ece7e35dc6fe984ba19224c035803da1b904139904cef",
       "name": "obs_ordered_gaps_journal_stress_severity",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "description": "Factor loading for journal_internalizing_symptom_severity on internalizing_symptom_burden",
       "distribution": "distribution:4ade242b7a96b20fa48fab260cdb4510b0d5294a9ccb2545c8ce0ef10f5fba77",
-      "distribution_transform": "identity",
       "id": "parameter:dff8a815d1f023dc237fcc95c1b14df7b8aeb51f7f1fa5c35830c3ac3893e0bc",
       "name": "lambda_journal_internalizing_symptom_severity_internalizing_symptom_burden",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "description": "Effect of sleep_circadian_disruption on internalizing_symptom_burden (lagged)",
       "distribution": "distribution:2b4340e544b0d5990a726e24a540c6af175a546610aff77f2c514fb8ebfea5bb",
-      "distribution_transform": "dt_effect_to_ct_rate",
       "id": "parameter:e12fda642336ce481bd4a41010c8391d35da276abc819f7cebc574b61648628a",
       "name": "beta_sleep_circadian_disruption_internalizing_symptom_burden",
-      "reference_interval_days": 1.0
+      "transform": {
+        "interval_days": 1.0,
+        "kind": "dt_effect_to_ct_rate"
+      }
     }
   ],
   "question": "I've been on escitalopram for about two and a half years. I'm thinking about tapering. Has the medication actually been moving the needle, or did I just get better on my own — and what would my likely trajectory look like over the next two months if I taper off now versus stay on it?",

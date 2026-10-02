@@ -4,11 +4,11 @@ Generated API artifacts and generated documentation have separate ownership and 
 
 ## API Artifacts
 
-`bun run codegen` exports the Python contracts and API together, then generates the TypeScript types and model read client:
+`bun run codegen` exports the Python contracts and API together, then generates the TypeScript types and facade client:
 
-- **Contracts**: [`artifacts/catalog.py`](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/catalog.py) and the models owned by `artifacts/` are the source of truth. [`export_api.py`](../../apps/data-pipeline/scripts/codegen/export_api.py) writes the JSON schemas; `generate.ts` then feeds them through [`json-schema-to-typescript`](https://github.com/bcherny/json-schema-to-typescript) to write the TypeScript models and metadata.
+- **Contracts**: [`artifacts/catalog.py`](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/catalog.py) and the domain owners in `artifacts/` and [`study/records.py`](../../apps/data-pipeline/src/nof1_causal_lab/study/records.py) are the source of truth. [`export_api.py`](../../apps/data-pipeline/scripts/codegen/export_api.py) writes the JSON schemas; `generate.ts` then feeds them through [`json-schema-to-typescript`](https://github.com/bcherny/json-schema-to-typescript) to write the TypeScript models and metadata.
 - **Agent API**: The same exporter writes the OpenAPI schema and the generated `nof1-study-api` skill from the FastAPI application.
-- **Model client**: [`generate-client.ts`](../../packages/api-types/scripts/generate-client.ts) uses [openapi-typescript](https://openapi-ts.dev/node) to generate request paths, parameters, and response types. Response declarations reference the existing domain types; [openapi-fetch](https://openapi-ts.dev/openapi-fetch/) supplies the runtime client.
+- **Facade client**: [`generate-client.ts`](../../packages/api-types/scripts/generate-client.ts) uses [openapi-typescript](https://openapi-ts.dev/node) to generate every exported OpenAPI operation, including actions, polling, traces and multipart uploads. Response declarations reference the existing domain types; [openapi-fetch](https://openapi-ts.dev/openapi-fetch/) supplies the runtime client. Upload inputs use native `Blob` values, serialized as `FormData` by the caller.
 
 Native NumPyro distributions use the shared [JSON codec](../../apps/data-pipeline/src/nof1_causal_lab/numpyro_json.py) on scientific parameters and compiled sites. Export derives constructor signatures from native distribution arguments and constraints. There is no separate prior-parameter class hierarchy.
 
@@ -58,7 +58,8 @@ TypeScript exports use the same names.
 | API request and its input values | `...Request` or `...Input` | `SimulateRequest`, `SimulationSpec` |
 
 The scientific definition types are `ModelSpec`, `ConstructSpec`, `CausalEdgeSpec`,
-`IndicatorSpec`, `DynamicsMechanismSpec`, `LikelihoodSpec`, `ObservationLawSpec`,
+`IndicatorSpec`, `DriftMechanismSpec`, `PotentialMechanismSpec`, `LikelihoodSpec`,
+`ObservationLawSpec` (the closed union of per-family law specifications),
 and `ParameterSpec`. A spec may be partial during authoring, complete before
 execution, or enriched with conditioned distributions after inference. Its suffix
 describes its declarative role throughout those revisions.
@@ -82,11 +83,11 @@ Keep tagged references for mixed entity kinds and for shared graph endpoints.
 Python edges hold canonical `ConstructSpec` objects; their JSON representation
 defines a shared construct once and refers to it at subsequent endpoints.
 
-Scientific IDs are nominal Python `NewType` values with Pydantic format
-constraints. Construct IDs explicitly when allocating trusted identities; use
-Pydantic model validation or `TypeAdapter` when accepting serialized input.
-The `NewType` constructor alone does not validate a prefix or prove that an entity
-exists. Resolve membership against the selected model. Named JSON Schema
+Scientific IDs are nominal Python string subclasses whose constructors and
+Pydantic schemas enforce the same grammar. Construct IDs explicitly when
+allocating identities; parse serialized input at its owner or external boundary.
+The constructor proves the ID grammar. Resolve entity membership against the
+selected model. Named JSON Schema
 definitions preserve the corresponding TypeScript ID types.
 
 Entity identity survives renames and revisions. Exact provenance remains separate:
@@ -103,9 +104,18 @@ Workflow: **edit Python → `bun run codegen` → commit both**.
 Follow the [type naming conventions](#type-naming-conventions). `ModelSpec` is the
 directly persisted scientific definition; `ConstructSpec`, `IndicatorSpec`, and
 `ParameterSpec` retain their canonical ownership inside it. `ToolDefinition`
-describes a callable tool, while `ArtifactPayload` supplies the shared validation
+describes a callable tool, while [`Value`](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/base.py) supplies the shared immutable
 base. Server-composed views and study records share this export. Frontend code
 owns presentation state only.
+
+Owned values expose tuples and read-only mappings. Generated outputs have
+readonly properties, arrays and tuples; an ID-keyed map preserves its named key
+type as `Readonly<Partial<Record<Id, T>>>`. A lookup may be absent. A serialized
+defaulted field is required, including a nullable field emitted as `null`.
+Validation schemas describe inputs independently, so an input default may be
+omitted. Fields excluded from serialization do not appear in output schemas.
+
+[Assessments](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/checks.py) carry a producer's typed subject and evidence, or its explicit reason for unavailable evaluation. Consume those alternatives directly. Scientific classifications and plot series come from the backend. [Inference reports](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/posterior.py) compose a compact core with full plot detail; snapshot fields declare the core type, so serialization omits detail without filtering or reparsing owned values.
 
 - **New/changed field**: edit the owning Python model.
 - **New artifact contract**: add the payload class in `artifacts/`, register it in `ARTIFACT_CONTRACTS`, add re-export in `index.ts`.
@@ -116,7 +126,7 @@ owns presentation state only.
 | File | Source |
 |------|--------|
 | `src/generated/models.ts` | Generated — do not edit |
-| `src/generated/model-api.ts` | Generated model read operations referencing canonical domain declarations |
+| `src/generated/model-api.ts` | Every OpenAPI operation, referencing canonical domain declarations |
 | `src/client.ts` | Runtime client factory using the generated operation signatures |
 | `src/generated/metadata.ts` | Generated artifact IDs, file layout, and distribution metadata |
 | `src/index.ts` | Hand-written re-exports |
@@ -127,9 +137,21 @@ owns presentation state only.
 tuples into arrays. The client type test checks that a fetched batch retains the
 canonical `ModelSnapshot` contract, including posterior draw dimensions.
 
+The [client type test](../../packages/api-types/src/model-snapshot.type-test.ts)
+also compares all generated paths and methods with the exported OpenAPI schema.
+Web and API consumers enable `noUncheckedIndexedAccess` and
+`exactOptionalPropertyTypes`: sparse lookups retain absence, and omitted request
+options stay absent rather than being assigned `undefined`.
+
+[Fixture generation](../../apps/data-pipeline/scripts/fixtures/study.py) emits
+`.d.json.ts` declarations alongside canonical JSON projections. They reference
+the production domain types without copying payloads or declaring another
+schema. `fixture:build` and `fixture:check` own both outputs. Stored trace and
+predictive-check bytes pass through their Python contract owners before export;
+the declarations preserve discriminators and scientific IDs in JSON imports.
+
 ## Troubleshooting
 
-- **Optional vs required mismatch**: `_make_defaults_required()` in the export script promotes defaulted fields to required, but nullable fields (`default=None`) stay optional.
+- **Optional vs required mismatch**: `Value` owns serialization presence through Pydantic configuration; check the field's validation and serialization schemas separately.
 - **Spurious named type aliases** (e.g. `type RHat = number`): `stripFieldTitles()` in `generate.ts` strips Pydantic's per-field `title` annotations that cause these.
 - **Circular imports**: artifact contracts import other contracts; numerical implementations import those contracts. Keep the `artifacts` package initializer free of re-exports.
-- **tanstack-table column errors**: cast generated column defs as `ColumnDef<T, unknown>[]`.
