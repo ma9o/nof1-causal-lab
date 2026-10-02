@@ -13,7 +13,6 @@ import { useLLMTraceForAction } from "@/lib/hooks/use-llm-trace";
 import { useModelSnapshot } from "@/lib/hooks/use-model-snapshot";
 import type { StudyJournal } from "@/lib/hooks/use-study-journal";
 import { useSimulationPaths } from "@/lib/hooks/use-visuals";
-import { useDataDiff } from "@/lib/hooks/use-model-diff";
 import {
   useWorkbench,
   useWorkbenchSnapshots,
@@ -27,7 +26,7 @@ export interface CausalModelAssetViewProps {
   workspaceId: string;
   question: string | undefined;
   useSnapshot: SnapshotReader;
-  attempts: StudyRevision[];
+  attempts: readonly StudyRevision[];
   branches: StudyJournal["branches"];
   dependencies: StudyJournal["dependencies"];
   useActionTrace: UseActionTrace;
@@ -118,14 +117,14 @@ function ModelRevision({
     viewAt,
   });
   const recordedPaths = useSimulationPaths(model);
-  const tick = ticks.find((item) => item.seq === focusSeq);
-  const dataDiff = useDataDiff(
-    workspaceId,
-    tick?.action === "data_diff" && tick.status === "applied" ? tick.commitId : null,
-  );
+  const tick = ticks.find((item) => item.record.seq === focusSeq);
+  const dataDiff =
+    tick?.record.attempt.action === "data_diff" && tick.record.attempt.outcome.status === "applied"
+      ? tick.record.attempt.outcome.result.report
+      : null;
   const context = { ...versionContext, dataDiff };
   // Nodes chart what the viewed version's action produced.
-  const step = tick?.action ?? null;
+  const step = tick?.record.attempt.action ?? null;
   const comparisonPane = useRef<HTMLDivElement>(null);
   useEffect(() => {
     if (activeComparison?.pinned) {
@@ -193,7 +192,7 @@ function ModelRevision({
                   </span>
                   {compared.data &&
                     ([...compared.data.graph.constructs, ...compared.data.graph.edges].every(
-                      (item) => item.change === "unchanged",
+                      (item) => item.change.kind === "unchanged",
                     ) ? (
                       <span className="whitespace-nowrap text-muted-foreground">
                         No topology changes
@@ -245,8 +244,8 @@ function ModelRevision({
                   model={model}
                   entities={context.entities}
                   simulation={step === "simulate" ? simulationResult : null}
-                  simulationPaths={step === "simulate" ? recordedPaths.data : null}
-                  dataDiff={dataDiff.data ?? null}
+                  simulationPaths={step === "simulate" ? (recordedPaths.data ?? null) : null}
+                  dataDiff={dataDiff}
                   step={step}
                   selection={selection}
                   onSelect={select}
@@ -266,7 +265,7 @@ function ModelRevision({
           <DetailsPane
             selection={selection}
             context={context}
-            loading={loadingRevision || dataDiff.isLoading}
+            loading={loadingRevision}
             tick={tick}
           />
         </div>
@@ -274,7 +273,7 @@ function ModelRevision({
           aria-label="Action record"
           className="relative flex h-[480px] min-h-0 min-w-0 flex-col overflow-hidden rounded-2xl border bg-card md:h-auto"
         >
-          {loadingRevision || dataDiff.isLoading ? (
+          {loadingRevision ? (
             <p role="status" className="p-3 text-xs">
               Loading action record…
             </p>
@@ -312,7 +311,7 @@ export function CausalModelAsset({
 }) {
   const useSnapshot = useMemo(
     () =>
-      function useWorkspaceSnapshot(commitId: string, branch: string) {
+      function useWorkspaceSnapshot(commitId: string | undefined, branch: string) {
         return useModelSnapshot(workspaceId, commitId, branch);
       },
     [workspaceId],
@@ -320,8 +319,8 @@ export function CausalModelAsset({
   const useActionTrace = useMemo<UseActionTrace>(
     () =>
       function useWorkspaceActionTrace(seq, enabled): ActionTraceState {
-        const record = journal.attempts.find((attempt) => attempt.seq === seq);
-        const traceIds = record?.trace_ids ?? [];
+        const record = journal.attempts.find((attempt) => attempt.record.seq === seq);
+        const traceIds = record?.record.trace_ids ?? [];
         const query = useLLMTraceForAction(
           workspaceId,
           record?.commit_id ?? null,

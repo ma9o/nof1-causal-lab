@@ -8248,7 +8248,7 @@
       }
     },
     "effect": {
-      "label": "internalizing_symptom_burden",
+      "label": "construct:6ca86c47aaf18b2472ce",
       "action": [
         {
           "draw": 0,

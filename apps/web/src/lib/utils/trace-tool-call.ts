@@ -5,20 +5,14 @@ export interface NormalizedTraceToolCall {
 }
 
 export function normalizeTraceToolCall(toolCall: unknown): NormalizedTraceToolCall | null {
-  if (typeof toolCall !== "object" || toolCall === null) {
-    return null;
-  }
-
-  const record = toolCall as Record<string, unknown>;
+  const record = recordValue(toolCall);
+  if (record === null) return null;
   const toolCallId = typeof record.id === "string" && record.id.length > 0 ? record.id : null;
   if (!toolCallId) {
     return null;
   }
 
-  const nestedFunction =
-    typeof record.function === "object" && record.function !== null
-      ? (record.function as Record<string, unknown>)
-      : null;
+  const nestedFunction = recordValue(record.function);
   const toolName =
     typeof record.name === "string" && record.name.length > 0
       ? record.name
@@ -53,3 +47,4 @@ export function normalizeTraceToolCall(toolCall: unknown): NormalizedTraceToolCa
     };
   }
 }
+import { recordValue } from "@/lib/model-asset/action-presentation";

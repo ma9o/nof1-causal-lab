@@ -1,3 +1,4 @@
+import { fixtureValue } from "@/components/__fixtures__/fixture-value";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { withContainer } from "@/components/story-decorators";
 import { posterior } from "@/components/__fixtures__/inference-data";
@@ -13,5 +14,5 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
-  args: { loo: posterior.loo_diagnostics! },
+  args: { loo: fixtureValue(posterior.loo_diagnostics), points: posterior.detail.pareto_k },
 };

@@ -9,8 +9,8 @@ export function WorkspacesRail({
   error,
   isLoading,
 }: {
-  data?: WorkspaceList;
-  error?: string | null;
+  data: WorkspaceList | undefined;
+  error: string | null;
   isLoading: boolean;
 }) {
   const workspaces = data?.workspaces ?? [];

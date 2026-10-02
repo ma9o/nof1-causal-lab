@@ -5,12 +5,11 @@ import type {
   IndicatorId,
   IndicatorSpec,
   ModelSnapshot,
+  StructuralDisposition,
 } from "@nof1-causal-lab/api-types";
-import { ownLawUses } from "./laws";
 import type { ScopeContext } from "./scope";
-import { humanize } from "./selection";
 
-const DISPOSITION_LABEL: Record<string, string> = {
+const DISPOSITION_LABEL: Record<StructuralDisposition, string> = {
   unsupported: "unsupported",
   retained_state: "retained state",
   marginalized: "marginalized",
@@ -21,8 +20,8 @@ const DISPOSITION_LABEL: Record<string, string> = {
   excluded_indicator: "excluded indicator",
 };
 
-export function dispositionLabel(disposition: string): string {
-  return DISPOSITION_LABEL[disposition] ?? humanize(disposition);
+export function dispositionLabel(disposition: StructuralDisposition): string {
+  return DISPOSITION_LABEL[disposition];
 }
 
 /** These selectors only arrange recorded findings for their owning entities. */
@@ -34,11 +33,6 @@ export function constructPresentation(context: ScopeContext, id: ConstructId) {
   const disposition = context.model.findings.dispositions?.value.find(
     (item) => item.target.id === id,
   );
-  const finding = model.findings.identification?.value.treatments[id];
-  const identified = finding?.status === "identified" ? finding : null;
-  const notIdentified = finding?.status === "not_identified" ? finding : null;
-  const namesFor = (ids: ConstructId[]) =>
-    ids.map((id) => humanize(entities.constructById.get(id)!.name)).join(", ");
 
   return {
     model,
@@ -46,9 +40,6 @@ export function constructPresentation(context: ScopeContext, id: ConstructId) {
     construct,
     indicators,
     disposition,
-    identified,
-    notIdentified,
-    namesFor,
   };
 }
 
@@ -67,7 +58,7 @@ export function indicatorPresentation(context: ScopeContext, id: IndicatorId) {
     (predictive?.source.validity === "fresh"
       ? predictive.value.predictive_checks?.per_variable_warnings
       : []
-    )?.filter((item) => item.indicator_id === id) ?? [];
+    )?.filter((item) => item.subject.target.id === id) ?? [];
   const issues = audit?.issues.filter((issue) => issue.severity !== "info") ?? [];
   return {
     indicator,
@@ -86,51 +77,5 @@ export function entityFailures(
   model: ModelSnapshot,
   entity: ConstructSpec | CausalEdgeSpec | IndicatorSpec,
 ): string[] {
-  const failures: string[] = [];
-  const label = "name" in entity ? humanize(entity.name) : entity.id;
-  const { fit, predictive, identification, validation_report } = model.findings;
-  const parameters = new Set(ownLawUses(entity).map((use) => use.parameterId));
-  if (fit?.source.validity === "fresh") {
-    for (const failure of fit.value.convergence.failures) {
-      if (parameters.has(failure.subject.parameter_id))
-        failures.push(`Parameter convergence: ${humanize(failure.parameter)}`);
-    }
-  }
-  if (predictive?.source.validity === "fresh") {
-    if (
-      predictive.value.findings.some(
-        (finding) =>
-          finding.passed === false &&
-          (finding.target === entity.id ||
-            (finding.construct_id === entity.id &&
-              !(
-                "indicators" in entity &&
-                entity.indicators.some((indicator) => indicator.id === finding.target)
-              ))),
-      ) ||
-      predictive.value.predictive_checks?.per_variable_warnings.some(
-        (check) => !check.passed && check.indicator_id === entity.id,
-      )
-    )
-      failures.push(`Predictive checks: ${label}`);
-  }
-  const data = validation_report ?? model.data.profile;
-  const audits: Partial<NonNullable<typeof data>["value"]["indicators"]> =
-    data?.value.indicators ?? {};
-  if (
-    data?.source.validity === "fresh" &&
-    audits[entity.id]?.issues.some((issue) => issue.severity !== "info")
-  )
-    failures.push(`Data quality: ${label}`);
-  if ("indicators" in entity) {
-    const treatments: Partial<NonNullable<typeof identification>["value"]["treatments"]> =
-      identification?.value.treatments ?? {};
-    if (
-      identification?.source.validity === "fresh" &&
-      treatments[entity.id]?.status === "not_identified"
-    )
-      failures.push(`Identification against ★: ${label}`);
-    failures.push(...entity.indicators.flatMap((indicator) => entityFailures(model, indicator)));
-  }
-  return [...new Set(failures)];
+  return [...(model.findings.entity_failures[entity.id] ?? [])];
 }

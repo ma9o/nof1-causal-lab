@@ -1,9 +1,12 @@
 import { NextResponse } from "next/server";
 import { StudyRunError, createStudy } from "@/lib/server/study-runs";
 import { normalizeWorkspaceId } from "@/lib/workspace-id";
+import { recordValue } from "@/lib/model-asset/action-presentation";
 
 export async function POST(request: Request) {
-  const { workspaceId, query } = await request.json();
+  const body = recordValue(await request.json());
+  const workspaceId = body?.workspaceId;
+  const query = body?.query;
 
   if (typeof workspaceId !== "string" || !workspaceId.trim()) {
     return NextResponse.json({ error: "workspaceId is required" }, { status: 400 });

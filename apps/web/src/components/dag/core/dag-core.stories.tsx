@@ -90,11 +90,11 @@ function DagCoreDemo() {
               <DagNodeShell
                 width={n.width}
                 height={n.height}
-                title={node?.title}
-                subtitle={node?.subtitle}
-                accent={lit ? DAG_COLORS.positive : undefined}
+                {...(node?.title === undefined ? {} : { title: node.title })}
+                {...(node?.subtitle === undefined ? {} : { subtitle: node.subtitle })}
+                {...(lit ? { accent: DAG_COLORS.positive } : {})}
                 highlighted={lit}
-                outcome={node?.outcome}
+                {...(node?.outcome === undefined ? {} : { outcome: node.outcome })}
               />
             </g>
           );

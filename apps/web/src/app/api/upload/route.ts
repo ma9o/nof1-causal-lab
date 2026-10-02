@@ -6,13 +6,13 @@ const TOOL_SERVER = getToolServerUrl();
 
 export async function POST(request: Request) {
   const formData = await request.formData();
-  const file = formData.get("file") as File | null;
-  const workspaceId = formData.get("workspaceId") as string | null;
+  const file = formData.get("file");
+  const workspaceId = formData.get("workspaceId");
 
-  if (!file) {
+  if (!(file instanceof File)) {
     return NextResponse.json({ error: "No file provided" }, { status: 400 });
   }
-  if (!workspaceId) {
+  if (typeof workspaceId !== "string" || !workspaceId) {
     return NextResponse.json({ error: "No workspaceId provided" }, { status: 400 });
   }
   const safeWorkspaceId = normalizeWorkspaceId(workspaceId);
@@ -20,7 +20,7 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "Invalid workspaceId format" }, { status: 400 });
   }
 
-  const rawFileName = typeof file.name === "string" ? file.name : "";
+  const rawFileName = file.name;
   const safeFileName = rawFileName.split("/").at(-1)?.split("\\").at(-1) ?? "";
   if (!safeFileName) {
     return NextResponse.json({ error: "Invalid file name" }, { status: 400 });

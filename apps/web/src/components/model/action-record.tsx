@@ -1,11 +1,13 @@
 "use client";
 
+import { attemptError } from "@/lib/model-asset/journal";
+
 import type { ActionMessage, LLMTrace, RunningAction } from "@nof1-causal-lab/api-types";
 import { LoaderCircle, X } from "lucide-react";
 import { Fragment, useMemo } from "react";
 import { ChatMessages } from "@/components/ui/custom/chat-messages";
 import { useAttemptProgress } from "@/lib/hooks/use-attempt-progress";
-import type { JournalTick } from "@/lib/model-asset/journal";
+import type { StudyRevision } from "@nof1-causal-lab/api-types";
 import type { ScopeContext } from "@/lib/model-asset/scope";
 import { humanize } from "@/lib/model-asset/selection";
 import { timelineTickLabel } from "@/lib/model-asset/timeline-presentation";
@@ -23,7 +25,7 @@ export type ActionTraceState =
   | { status: "absent" };
 export type UseActionTrace = (seq: number, enabled: boolean) => ActionTraceState;
 
-function ActionLabels({ messages }: { messages: ActionMessage[] }) {
+function ActionLabels({ messages }: { messages: readonly ActionMessage[] }) {
   return (
     <ul className="space-y-1 px-4 py-1 text-[10px] font-mono" aria-label="Action messages">
       {messages.map((message, index) => (
@@ -109,15 +111,15 @@ function ActionTrace({
   tick,
   useActionTrace,
 }: {
-  tick: JournalTick;
+  tick: StudyRevision;
   useActionTrace: UseActionTrace;
 }) {
-  const traceState = useActionTrace(tick.seq, tick.traceIds.length > 0);
+  const traceState = useActionTrace(tick.record.seq, tick.record.trace_ids.length > 0);
   const messages = useMemo(
     () => (traceState.status === "ready" ? traceToUIMessages(traceState.trace) : []),
     [traceState],
   );
-  if (tick.traceIds.length === 0) return null;
+  if (tick.record.trace_ids.length === 0) return null;
   if (traceState.status === "loading")
     return (
       <p role="status" className="px-4 text-xs text-muted-foreground">
@@ -157,7 +159,7 @@ export function ActionRecord({
 }: {
   workspaceId: string;
   context: ScopeContext;
-  tick: JournalTick | undefined;
+  tick: StudyRevision | undefined;
   running: RunningAction | null;
   useActionTrace: UseActionTrace;
 }) {
@@ -167,42 +169,51 @@ export function ActionRecord({
         <h2 className="text-xs font-semibold">Action record</h2>
         {tick && (
           <span className="ml-auto flex min-w-0 items-center gap-1 font-mono text-[10px] text-muted-foreground">
-            {tick.status !== "applied" && (
+            {tick.record.attempt.outcome.status !== "applied" && (
               <X className="size-3 flex-none text-destructive" aria-hidden="true" />
             )}
             <span className="truncate">{timelineTickLabel(tick)}</span>
-            {tick.status !== "applied" && <span className="sr-only"> · failed</span>}
+            {tick.record.attempt.outcome.status !== "applied" && (
+              <span className="sr-only"> · failed</span>
+            )}
           </span>
         )}
       </div>
-      <div key={tick?.seq} className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 py-2">
+      <div
+        key={tick?.record.seq}
+        className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto px-3 py-2"
+      >
         {tick ? (
           <>
-            {tick.action === "simulate" ? (
-              <section role="log" aria-label="Simulator log">
-                <ActionLabels messages={tick.messages} />
-              </section>
-            ) : tick.status !== "applied" ? (
+            {tick.record.attempt.outcome.status !== "applied" ? (
               <Section
-                title={`${humanize(tick.action).replace(/^./, (letter) => letter.toUpperCase())} failed`}
+                title={`${humanize(tick.record.attempt.action).replace(/^./, (letter) => letter.toUpperCase())} failed`}
               >
-                <Hint issue>{tick.error}</Hint>
+                <Hint issue>{attemptError(tick.record.attempt.outcome)}</Hint>
               </Section>
+            ) : tick.record.attempt.action === "simulate" ? (
+              <section role="log" aria-label="Simulator log">
+                <ActionLabels messages={tick.record.messages} />
+              </section>
             ) : (
               <>
-                {tick.action === "edit_model" && <EditDetails context={context} tick={tick} />}
-                {tick.action === "prepare_data" && <DataDetails context={context} tick={tick} />}
-                {tick.action === "fit" && <FitOutcome context={context} />}
-                {tick.action === "data_diff" &&
-                  (context.dataDiff.error ? (
-                    <p role="alert">{context.dataDiff.error.message}</p>
-                  ) : (
-                    <DataComparisonOutcome context={context} />
-                  ))}
-                <ActionFindings context={context} tick={tick} />
+                {tick.record.attempt.action === "edit_model" && (
+                  <EditDetails context={context} tick={tick} />
+                )}
+                {tick.record.attempt.action === "prepare_data" && (
+                  <DataDetails context={context} result={tick.record.attempt.outcome.result} />
+                )}
+                {tick.record.attempt.action === "fit" && <FitOutcome context={context} />}
+                {tick.record.attempt.action === "data_diff" && (
+                  <DataComparisonOutcome
+                    context={context}
+                    report={tick.record.attempt.outcome.result.report}
+                  />
+                )}
+                <ActionFindings context={context} result={tick.record.attempt.outcome.result} />
               </>
             )}
-            {tick.action !== "simulate" && tick.traceIds.length > 0 && (
+            {tick.record.attempt.action !== "simulate" && tick.record.trace_ids.length > 0 && (
               <details className="px-3 text-xs">
                 <summary className="cursor-pointer text-muted-foreground">
                   Agent conversation

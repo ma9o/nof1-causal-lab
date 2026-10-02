@@ -1,166 +1,27 @@
-import type { StudyRevision } from "@nof1-causal-lab/api-types";
+import { fixtureValue } from "@/components/__fixtures__/fixture-value";
 import { describe, expect, it } from "vitest";
-import { journalTicks, latestSeq } from "./journal";
-type Produced = StudyRevision["produced"][number];
-function produced(artifactId: Produced["artifact_id"], revision: string): Produced {
-  return {
-    artifact_id: artifactId,
-    revision,
-    derived_from: {},
-    model_inputs: {},
-    consumed_model_inputs: {},
-    produced_by: null,
-    created_at: "2026-07-08T11:57:25Z",
-  };
-}
-function record(
-  seq: number,
-  action: Pick<StudyRevision, "action" | "inputs">,
-  status: StudyRevision["status"],
-  extra: Partial<StudyRevision> = {},
-): StudyRevision {
-  return {
-    seq,
-    commit_id: String(seq).padStart(40, "a"),
-    parent_ids: [],
-    ts: `2026-07-08T11:57:${String(seq).padStart(2, "0")}Z`,
-    ...action,
-    status,
-    branch: "main",
-    reason: null,
-    diagnostics: {},
-    messages: [],
-    error_type: null,
-    error_message: null,
-    produced: [],
-    retracted: [],
-    trace_ids: [],
-    ...extra,
-  };
-}
-const JOURNAL: StudyRevision[] = [
-  record(
-    1,
-    {
-      action: "prepare_data",
-      inputs: {},
-    },
-    "applied",
-    {
-      produced: [produced("raw_data", "0000000000000000000000000000000000000001")],
-      trace_ids: ["raw_data"],
-    },
-  ),
-  record(
-    2,
-    {
-      action: "edit_model",
-      inputs: { expected_revision: null },
-    },
-    "applied",
-    {
-      produced: [produced("model", "0000000000000000000000000000000000000001")],
-    },
-  ),
-  record(
-    3,
-    {
-      action: "edit_model",
-      inputs: {},
-    },
-    "applied",
-    {
-      produced: [
-        produced("model", "0000000000000000000000000000000000000002"),
-        produced("identification_report", "0000000000000000000000000000000000000001"),
-      ],
-      trace_ids: ["measurement_structure"],
-    },
-  ),
-  record(
-    4,
-    {
-      action: "edit_model",
-      inputs: {},
-    },
-    "raised",
-    {
-      error_type: "ValueError",
-      error_message: "prior admission failed",
-    },
-  ),
-  record(
-    5,
-    {
-      action: "edit_model",
-      inputs: {},
-    },
-    "rejected",
-    {
-      reason: "inputs missing",
-    },
-  ),
-  record(
-    6,
-    {
-      action: "edit_model",
-      inputs: {},
-    },
-    "applied",
-    {
-      produced: [
-        produced("model", "0000000000000000000000000000000000000003"),
-        produced("identification_report", "0000000000000000000000000000000000000001"),
-      ],
-    },
-  ),
-  record(
-    7,
-    {
-      action: "edit_model",
-      inputs: {},
-    },
-    "applied",
-    {
-      produced: [
-        produced("model", "0000000000000000000000000000000000000004"),
-        produced("identification_report", "0000000000000000000000000000000000000002"),
-      ],
-      retracted: [{ artifact_id: "identification_report", reason_ref: "stale-spec" }],
-    },
-  ),
-];
-describe("journalTicks", () => {
-  it("keeps every attempt for activity, including rejection reasons", () => {
-    const ticks = journalTicks(JOURNAL);
-    expect(ticks.map((tick) => tick.seq)).toEqual([1, 2, 3, 4, 5, 6, 7]);
-    expect(ticks[4].error).toBe("inputs missing");
+import { workbenchJournal } from "@/components/__fixtures__/workbench";
+import { attemptError, latestSeq } from "./journal";
+
+describe("owned journal outcomes", () => {
+  it("presents rejection and execution failure details from their respective variants", () => {
+    expect(
+      attemptError({ status: "rejected", reason: "scientific_inputs", detail: "inputs missing" }),
+    ).toBe("inputs missing");
+    const raised = fixtureValue(workbenchJournal[5]).record.attempt.outcome;
+    expect(attemptError(raised)).toContain("ProposalError: Parameter proposal failed.");
+    expect(attemptError(fixtureValue(workbenchJournal[0]).record.attempt.outcome)).toBeNull();
   });
-  it("retains produced artifacts for the action record", () => {
-    const [, , design, raised] = journalTicks(JOURNAL);
-    expect(design.produced.map((info) => [info.artifact_id, info.revision])).toEqual([
-      ["model", "2".padStart(40, "0")],
-      ["identification_report", "1".padStart(40, "0")],
-    ]);
-    expect(raised.error).toBe("prior admission failed");
+  it("excludes failed attempts and read-only comparison leaves from scientific revisions", () => {
+    expect(latestSeq(workbenchJournal.slice(0, 6))).toBe(5);
+    expect(latestSeq(workbenchJournal)).toBe(12);
   });
-});
-it("retains simulation findings as a committed checkpoint without an artifact output", () => {
-  const simulation = record(
-    8,
-    {
-      action: "simulate",
-      inputs: { model_revision: "4".padStart(40, "0") },
-    },
-    "applied",
-    { diagnostics: { simulation: { findings: [] } } },
-  );
-  const [tick] = journalTicks([simulation]);
-  expect(tick.produced).toEqual([]);
-  expect(latestSeq([...JOURNAL, simulation])).toBe(8);
-});
-describe("latestSeq", () => {
-  it("excludes failed attempts from model revisions", () => {
-    expect(latestSeq(JOURNAL.slice(0, 5))).toBe(3);
+  it("keeps a successful simulation checkpoint without an artifact output", () => {
+    const simulation = fixtureValue(workbenchJournal[8]);
+    const outcome = simulation.record.attempt.outcome;
+    expect(outcome.status).toBe("applied");
+    if (outcome.status !== "applied") throw new Error("Expected a successful fixture simulation");
+    expect(outcome.result.produced).toEqual([]);
+    expect(latestSeq(workbenchJournal.slice(0, 9))).toBe(9);
   });
 });

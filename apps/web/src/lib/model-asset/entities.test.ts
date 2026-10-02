@@ -1,3 +1,4 @@
+import { fixtureValue } from "@/components/__fixtures__/fixture-value";
 import { describe, expect, it } from "vitest";
 import { demoModel } from "@/components/__fixtures__/demo-artifacts";
 import { modelConstructs } from "@/lib/model-accessors";
@@ -11,7 +12,7 @@ function reversedGraph() {
   const endpoint = (id: (typeof demoModel.edges)[number]["cause"]["id"]) => {
     if (seen.has(id)) return { kind: "construct" as const, id };
     seen.add(id);
-    return constructs.get(id)!;
+    return fixtureValue(constructs.get(id));
   };
   return {
     ...demoModel,

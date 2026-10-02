@@ -1,3 +1,4 @@
+import { fixtureValue } from "@/components/__fixtures__/fixture-value";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { setupWorker } from "msw/browser";
@@ -18,7 +19,7 @@ import type { ActionTraceState } from "./action-record";
 
 const worker = setupWorker();
 
-function useStorySnapshot(commitId: string) {
+function useStorySnapshot(commitId: string | undefined) {
   return useModelSnapshot(WORKBENCH_WORKSPACE, commitId);
 }
 function useStoryTrace(seq: number, enabled: boolean): ActionTraceState {
@@ -140,9 +141,7 @@ export const Complete: Story = {
         await expect(details.queryByText("Time coverage")).not.toBeInTheDocument();
       }
       if (section === "Parameter convergence") {
-        await expect(
-          record.getByText(/R-hat < 1.01 not met for 1 of \d+ parameters/),
-        ).toBeVisible();
+        await expect(record.getByText(/R-hat fails for .+: 1.08/)).toBeVisible();
         await expect(
           details.queryByRole("region", { name: "Posterior predictive checks" }),
         ).not.toBeInTheDocument();
@@ -172,7 +171,9 @@ export const Complete: Story = {
         await expect(
           (await canvas.findAllByRole("img", { name: /recorded draws/ }))[0],
         ).toBeInTheDocument();
-        const firstDraw = (await canvas.findAllByRole("spinbutton", { name: "First draw" }))[0];
+        const firstDraw = fixtureValue(
+          (await canvas.findAllByRole("spinbutton", { name: "First draw" }))[0],
+        );
         await userEvent.clear(firstDraw);
         await userEvent.type(firstDraw, "25");
         await userEvent.tab();
@@ -196,22 +197,15 @@ export const Complete: Story = {
     ).toBeVisible();
     const record = within(canvas.getByRole("complementary", { name: "Action record" }));
     const details = within(canvas.getByRole("region", { name: "Model details" }));
+    let comparisonReads = 0;
     worker.use(
-      http.get(
-        `/api/studies/${WORKBENCH_WORKSPACE}/data-diff/:commit`,
-        () => HttpResponse.json({ detail: "Comparison report unavailable" }, { status: 503 }),
-        { once: true },
-      ),
+      http.get(`/api/studies/${WORKBENCH_WORKSPACE}/data-diff/:commit`, () => {
+        comparisonReads += 1;
+        return HttpResponse.json({ detail: "Comparison report unavailable" }, { status: 503 });
+      }),
     );
     await userEvent.click(canvas.getByRole("button", { name: "data_diff · c00000d" }));
-    await expect(await record.findByRole("alert")).toHaveTextContent(
-      "Comparison report unavailable",
-    );
-    await expect(details.getByRole("alert")).toHaveTextContent("Comparison report unavailable");
-    await expect(canvas.getByRole("region", { name: "Causal graph" })).toBeVisible();
-    await userEvent.click(canvas.getByRole("button", { name: "simulate · c00000c · latest" }));
-    await expect(await record.findByRole("log", { name: "fit · running" })).toBeVisible();
-    await userEvent.click(canvas.getByRole("button", { name: "data_diff · c00000d" }));
+    // The attempt already owns the complete report; no second read can hide its evidence.
     await expect(await record.findByRole("region", { name: "Data comparison" })).toBeVisible();
     await expect(record.getByText(/Panel from prepare_data · c000005/)).toBeVisible();
     await expect(record.getByText(/Observed values fall outside/)).toBeVisible();
@@ -228,6 +222,7 @@ export const Complete: Story = {
       details.getByRole("table", { name: /statistic distributions/ }),
     ).toBeInTheDocument();
     await expect(canvas.queryByRole("log", { name: "fit · running" })).not.toBeInTheDocument();
+    await expect(comparisonReads).toBe(0);
     await userEvent.click(canvas.getByRole("button", { name: "simulate · c00000c · latest" }));
     await expect(await canvas.findByRole("log", { name: "fit · running" })).toBeVisible();
   },

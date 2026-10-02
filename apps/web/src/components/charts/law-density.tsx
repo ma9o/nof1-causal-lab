@@ -12,9 +12,13 @@ const PRIOR_COLOR = "var(--muted-foreground)";
 /** Stable identity color; a nonlinear response's direction cannot be read from a mean. */
 export const POSTERIOR_COLOR = "var(--chart-3)";
 
-const priorPoints = (prior: DensityPoint[]): Point[] => prior.map((point) => [point.x, point.y]);
+const priorPoints = (prior: readonly DensityPoint[]): Point[] =>
+  prior.map((point) => [point.x, point.y]);
 const posteriorPoints = (marginal: PosteriorMarginal): Point[] =>
-  marginal.x_values.map((x, index) => [x, marginal.density[index]]);
+  marginal.x_values.flatMap((x, index) => {
+    const density = marginal.density[index];
+    return density === undefined ? [] : [[x, density] as const];
+  });
 
 /** The value range shared by every backend curve drawn for one law. */
 export function lawExtent(curve: LawCurve): [number, number] {

@@ -1,7 +1,7 @@
 "use client";
 
 import { formatNumber } from "@/lib/utils/format";
-import type { LOODiagnostics } from "@nof1-causal-lab/api-types";
+import type { LOOPITPoint } from "@nof1-causal-lab/api-types";
 import {
   CartesianGrid,
   Line,
@@ -13,27 +13,17 @@ import {
 } from "recharts";
 
 interface LOOPITChartProps {
-  loo: LOODiagnostics;
+  points: readonly LOOPITPoint[];
 }
 
-export function LOOPITChart({ loo }: LOOPITChartProps) {
-  if (!loo.loo_pit || loo.loo_pit.length === 0) return null;
-
-  // Build empirical CDF of LOO-PIT values
-  const sorted = [...loo.loo_pit].sort((a, b) => a - b);
-  const n = sorted.length;
-  const data = sorted.map((v, i) => ({
-    pit: v,
-    ecdf: (i + 1) / n,
-    uniform: v, // 45-degree line
-  }));
-
+export function LOOPITChart({ points }: LOOPITChartProps) {
+  if (points.length === 0) return null;
   return (
     <div className="space-y-2">
       <span className="text-xs font-mono text-muted-foreground">LOO-PIT Calibration</span>
       <div className="h-44 w-full">
         <ResponsiveContainer width="100%" height="100%">
-          <LineChart data={data} margin={{ top: 10, right: 20, left: 10, bottom: 5 }}>
+          <LineChart data={points} margin={{ top: 10, right: 20, left: 10, bottom: 5 }}>
             <CartesianGrid strokeDasharray="3 3" className="stroke-muted" />
             <XAxis
               dataKey="pit"

@@ -1,5 +1,5 @@
 import type { ActionId, RecordDependency } from "@nof1-causal-lab/api-types";
-import type { JournalTick } from "./journal";
+import type { StudyRevision } from "@nof1-causal-lab/api-types";
 
 /** Lanes group actions by what they produce: comparisons read histories, data makes them. */
 export const TIMELINE_LANES: ReadonlyArray<{ name: string; actions: readonly ActionId[] }> = [
@@ -9,7 +9,7 @@ export const TIMELINE_LANES: ReadonlyArray<{ name: string; actions: readonly Act
 ];
 
 export interface RevisionTimelineNode {
-  tick: JournalTick;
+  tick: StudyRevision;
   column: number;
   lane: number;
 }
@@ -23,15 +23,15 @@ export interface RevisionTimelineLink {
 
 /** Presentation only: execution order gives columns; the served dependencies give links. */
 export function revisionTimeline(
-  ticks: readonly JournalTick[],
+  ticks: readonly StudyRevision[],
   dependencies: readonly RecordDependency[],
 ) {
   const nodes: RevisionTimelineNode[] = ticks.map((tick, column) => ({
     tick,
     column,
-    lane: TIMELINE_LANES.findIndex((lane) => lane.actions.includes(tick.action)),
+    lane: TIMELINE_LANES.findIndex((lane) => lane.actions.includes(tick.record.attempt.action)),
   }));
-  const bySeq = new Map(nodes.map((node) => [node.tick.seq, node]));
+  const bySeq = new Map(nodes.map((node) => [node.tick.record.seq, node]));
   const links: RevisionTimelineLink[] = dependencies.flatMap((dependency) => {
     const from = bySeq.get(dependency.source_seq);
     const to = bySeq.get(dependency.seq);

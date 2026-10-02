@@ -1,3 +1,4 @@
+import { fixtureValue } from "@/components/__fixtures__/fixture-value";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -15,7 +16,9 @@ describe("recorded history geometry", () => {
     );
     const x = [...html.matchAll(/<circle cx="([\d.]+)"/g)].map((match) => Number(match[1]));
     expect(x).toHaveLength(3);
-    expect((x[1] - x[0]) / (x[2] - x[0])).toBeCloseTo(0.1);
+    expect(
+      (fixtureValue(x[1]) - fixtureValue(x[0])) / (fixtureValue(x[2]) - fixtureValue(x[0])),
+    ).toBeCloseTo(0.1);
   });
 
   it("breaks trajectories at missing values without fabricating a bridge", () => {

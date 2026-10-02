@@ -1,9 +1,10 @@
+import { fixtureValue } from "@/components/__fixtures__/fixture-value";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { demoModelSnapshot } from "@/components/__fixtures__/demo-artifacts";
 import { indexModel } from "@/lib/model-asset/entities";
-import type { JournalTick } from "@/lib/model-asset/journal";
+import type { ModelEditResult, StudyRevision } from "@nof1-causal-lab/api-types";
 import type { ScopeContext } from "@/lib/model-asset/scope";
 import { EditDetails } from "./edit-details";
 import { ActionFindings } from "../action-findings";
@@ -15,21 +16,16 @@ vi.mock("@/lib/hooks/use-model-diff", () => ({ useModelDiff: hooks.diff }));
 
 const context: ScopeContext = {
   ticks: [],
-  dataDiff: { data: undefined, error: null },
+  dataDiff: null,
   model: demoModelSnapshot,
   entities: indexModel(demoModelSnapshot.model?.value),
   select: vi.fn(),
 };
-const tick: JournalTick = {
-  messages: [],
-  seq: 5,
-  commitId: "rewritten-edit",
-  parentIds: ["preceding-commit"],
-  branch: "main",
-  ts: "2026-09-30T00:00:00Z",
+const result: ModelEditResult = {
   action: "edit_model",
-  inputs: {},
-  status: "applied",
+  checks: null,
+  retracted: [],
+  base: { workspace_id: "DEMO", revision: "archived-authorship-base", path: "model.json" },
   produced: [
     {
       artifact_id: "model",
@@ -41,9 +37,19 @@ const tick: JournalTick = {
       created_at: "2026-09-30T00:00:00Z",
     },
   ],
-  error: null,
-  traceIds: [],
-  checks: null,
+};
+const tick: StudyRevision = {
+  commit_id: "rewritten-edit",
+  parent_ids: ["preceding-commit"],
+  record: {
+    seq: 5,
+    attempt_id: null,
+    ts: "2026-09-30T00:00:00Z",
+    branch: "main",
+    messages: [],
+    trace_ids: [],
+    attempt: { action: "edit_model", request: null, outcome: { status: "applied", result } },
+  },
 };
 
 describe("edit change summaries after history compaction", () => {
@@ -104,26 +110,30 @@ describe("edit change summaries after history compaction", () => {
   });
 
   it("renders served graph and law changes in model terms, without definition paths or IDs", () => {
-    const edge = context.entities.edges[0];
-    const parameter = context.entities.parameters[0];
+    const edge = fixtureValue(context.entities.edges[0]);
+    const parameter = fixtureValue(context.entities.parameters[0]);
     hooks.diff.mockReturnValue({
       data: {
         graph: {
           constructs: [edge.cause, edge.effect].map((construct) => ({
             construct_id: construct.id,
-            change: "added",
-            after: context.entities.constructById.get(construct.id),
+            change: {
+              kind: "added",
+              after: fixtureValue(context.entities.constructById.get(construct.id)),
+            },
           })),
-          edges: [{ edge_id: edge.id, change: "added", after: edge }],
+          edges: [{ edge_id: edge.id, change: { kind: "added", after: edge } }],
         },
-        parameters: [{ parameter_id: parameter.id, change: "added", after: parameter }],
+        parameters: [{ parameter_id: parameter.id, change: { kind: "added", after: parameter } }],
         changed_inputs: ["compilation", "belief"],
         definition_changes: [{ path: "/internal/definition/path" }],
       },
       error: null,
     });
     const html = renderToStaticMarkup(createElement(EditDetails, { context, tick }));
-    expect(html).toContain(humanize(context.entities.constructById.get(edge.cause.id)!.name));
+    expect(html).toContain(
+      humanize(fixtureValue(context.entities.constructById.get(edge.cause.id)).name),
+    );
     expect(html).toContain(humanize(parameter.name));
     expect(html).toContain("compilation, belief");
     expect(html).not.toContain("/internal/definition/path");
@@ -131,26 +141,33 @@ describe("edit change summaries after history compaction", () => {
   });
 
   it("shows served check reasons unchanged and omits passing checks", () => {
-    const indicator = context.entities.indicators[0];
-    const checkedTick: JournalTick = {
-      ...tick,
+    const indicator = fixtureValue(context.entities.indicators[0]);
+    const checkedResult: ModelEditResult = {
+      ...result,
       checks: {
         input_keys: {},
+        predictive: null,
         reused: [],
         specification: {
           findings: [
             {
-              check: "model_execution",
-              status: "failed",
-              message: `${indicator.id} requires a likelihood.`,
+              kind: "evaluated",
+              subject: "model_execution",
+              outcome: "failed",
+              evidence: `${indicator.id} requires a likelihood.`,
             },
-            { check: "passed_check", status: "passed", message: "Do not list passing checks." },
+            {
+              kind: "evaluated",
+              subject: "passed_check",
+              outcome: "passed",
+              evidence: "Do not list passing checks.",
+            },
           ],
         },
       },
     };
     const html = renderToStaticMarkup(
-      createElement(ActionFindings, { context, tick: checkedTick }),
+      createElement(ActionFindings, { context, result: checkedResult }),
     );
     expect(html).toContain(indicator.id);
     expect(html).toContain("requires a likelihood.");

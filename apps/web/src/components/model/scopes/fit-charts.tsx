@@ -1,80 +1,17 @@
-import { recordValue } from "@/lib/model-asset/action-presentation";
-
-type ChainValues = { chain: number; values: number[] };
-type RankHistogram = { expected: number; chains: ChainValues[] };
-type LatentSteps = { initial: number[][]; final: number[][] };
+import type { RankHistogram, InferenceReportDetail } from "@nof1-causal-lab/api-types";
 
 /** Chains use the theme's categorical chart colors, cycling after five. */
 export const chainColor = (chain: number) => `var(--chart-${(chain % 5) + 1})`;
 
-const finite = (value: unknown): number[] =>
-  Array.isArray(value)
-    ? value.filter((item): item is number => typeof item === "number" && Number.isFinite(item))
-    : [];
-
-const records = (value: unknown): Record<string, unknown>[] =>
-  Array.isArray(value)
-    ? value.map(recordValue).filter((item): item is Record<string, unknown> => item !== null)
-    : [];
-
-function chainValues(entry: Record<string, unknown>, key: "values" | "counts"): ChainValues[] {
-  return records(entry.chains).flatMap((chain) =>
-    typeof chain.chain === "number" ? [{ chain: chain.chain, values: finite(chain[key]) }] : [],
-  );
-}
-
-/** Diagnostics label parameters differently but share the engine coordinate. */
-export function coordinateKey(value: unknown): string | null {
-  const coordinate = recordValue(value);
-  return coordinate && typeof coordinate.site_name === "string" && Array.isArray(coordinate.indices)
-    ? `${coordinate.site_name}[${coordinate.indices.join(",")}]`
-    : null;
-}
-
-function byCoordinate<T>(
-  value: unknown,
-  read: (entry: Record<string, unknown>) => T,
-): Map<string, T> {
-  return new Map(
-    records(value).flatMap((entry) => {
-      const key = coordinateKey(entry.coordinate);
-      return key ? [[key, read(entry)] as const] : [];
-    }),
-  );
-}
-
-/** Traces and rank histograms recorded by the engine, keyed by parameter coordinate. */
-export function readChainDiagnostics(diagnostics: Record<string, unknown>) {
-  const mcmc = recordValue(diagnostics.mcmc);
-  return {
-    traces: byCoordinate(mcmc?.trace_data, (entry) => chainValues(entry, "values")),
-    ranks: byCoordinate(
-      mcmc?.rank_histograms,
-      (entry): RankHistogram => ({
-        expected: typeof entry.expected_per_bin === "number" ? entry.expected_per_bin : 0,
-        chains: chainValues(entry, "counts"),
-      }),
-    ),
-  };
-}
-
-/** Per-time-point latent proposal step sizes before and after warmup adaptation. */
-export function readLatentSteps(diagnostics: Record<string, unknown>): LatentSteps | null {
-  const gibbs = recordValue(diagnostics.marginal_particle_gibbs);
-  const rows = (value: unknown) => (Array.isArray(value) ? value.map(finite) : []);
-  const final = rows(gibbs?.final_latent_delta);
-  return final.length ? { initial: rows(gibbs?.initial_latent_delta), final } : null;
-}
-
 const TRACE_WIDTH = 120;
 const TRACE_HEIGHT = 28;
 
-export function TraceSparkline({ chains }: { chains: ChainValues[] }) {
-  const values = chains.flatMap((chain) => chain.values);
+export function TraceSparkline({ chains }: { chains: readonly (readonly number[])[] }) {
+  const values = chains.flatMap((chain) => [...chain]);
   if (!values.length) return <span className="text-muted-foreground">—</span>;
   const low = Math.min(...values);
   const span = Math.max(...values) - low || 1;
-  const length = Math.max(...chains.map((chain) => chain.values.length));
+  const length = Math.max(...chains.map((chain) => chain.length));
   return (
     <svg
       viewBox={`0 0 ${TRACE_WIDTH} ${TRACE_HEIGHT}`}
@@ -82,7 +19,7 @@ export function TraceSparkline({ chains }: { chains: ChainValues[] }) {
       role="img"
       aria-label="Draws by chain"
     >
-      {chains.map(({ chain, values: draws }) => (
+      {chains.map((draws, chain) => (
         <polyline
           key={chain}
           fill="none"
@@ -106,12 +43,12 @@ const RANK_GAP = 2;
 
 export function RankBars({ histogram }: { histogram: RankHistogram }) {
   const rows = histogram.chains;
-  const bins = Math.max(0, ...rows.map((row) => row.values.length));
+  const bins = Math.max(0, ...rows.map((row) => row.length));
   if (!bins) return <span className="text-muted-foreground">—</span>;
   // Scale so evenly mixed chains fill about half a row and pile-ups stay visible.
-  const peak = Math.max(histogram.expected * 2, ...rows.flatMap((row) => row.values));
+  const peak = Math.max(histogram.expected_per_bin * 2, ...rows.flatMap((row) => [...row]));
   const height = rows.length * (RANK_ROW + RANK_GAP) - RANK_GAP;
-  const expected = RANK_ROW - (histogram.expected / peak) * RANK_ROW;
+  const expected = RANK_ROW - (histogram.expected_per_bin / peak) * RANK_ROW;
   return (
     <svg
       viewBox={`0 0 ${TRACE_WIDTH} ${height}`}
@@ -120,7 +57,8 @@ export function RankBars({ histogram }: { histogram: RankHistogram }) {
       role="img"
       aria-label="Rank histogram by chain"
     >
-      {rows.map(({ chain, values }, row) => {
+      {rows.map((values, row) => {
+        const chain = row;
         const top = row * (RANK_ROW + RANK_GAP);
         return (
           <g key={chain}>
@@ -158,15 +96,18 @@ export function RankBars({ histogram }: { histogram: RankHistogram }) {
 const STEP_WIDTH = 360;
 const STEP_HEIGHT = 72;
 
-export function LatentStepChart({ steps }: { steps: LatentSteps }) {
-  const positive = [...steps.final.flat(), ...steps.initial.flat()].filter((value) => value > 0);
+export function LatentStepChart({ detail }: { detail: InferenceReportDetail }) {
+  const initial = detail.initial_latent_delta ?? [];
+  const final = detail.final_latent_delta ?? [];
+  const positive = [...final.flat(), ...initial.flat()].filter((value) => value > 0);
   if (!positive.length) return null;
   const low = Math.log10(Math.min(...positive));
   const span = Math.log10(Math.max(...positive)) - low || 1;
   const y = (value: number) => STEP_HEIGHT - ((Math.log10(value) - low) / span) * STEP_HEIGHT;
-  const length = Math.max(...steps.final.map((row) => row.length));
-  const starts = steps.initial.flat();
-  const start = starts.length && starts.every((value) => value === starts[0]) ? starts[0] : null;
+  const length = Math.max(...final.map((row) => row.length));
+  const starts = initial.flat();
+  const first = starts.at(0);
+  const start = first !== undefined && starts.every((value) => value === first) ? first : null;
   return (
     <svg
       viewBox={`0 0 ${STEP_WIDTH} ${STEP_HEIGHT}`}
@@ -187,7 +128,7 @@ export function LatentStepChart({ steps }: { steps: LatentSteps }) {
           vectorEffect="non-scaling-stroke"
         />
       )}
-      {steps.final.map((row, chain) => (
+      {final.map((row, chain) => (
         <polyline
           // biome-ignore lint/suspicious/noArrayIndexKey: rows are chains in engine order
           key={chain}

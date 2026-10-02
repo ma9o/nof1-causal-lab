@@ -117,7 +117,6 @@ export const EmptyWorkspaces: Story = {
 /** Workspaces rail is loading. */
 export const WorkspacesLoading: Story = {
   args: {
-    railData: undefined,
     railLoading: true,
   },
 };
@@ -125,7 +124,6 @@ export const WorkspacesLoading: Story = {
 /** Workspaces rail failed to load. */
 export const WorkspacesError: Story = {
   args: {
-    railData: undefined,
     railError: "Failed to load workspaces.",
   },
 };

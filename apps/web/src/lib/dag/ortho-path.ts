@@ -13,13 +13,14 @@ const unit = (from: Point, to: Point): Point => {
  * Returns an SVG path `d` string (empty when there are fewer than two points).
  */
 export function orthoPath(points: Point[], radius = 12): string {
-  if (points.length < 2) return "";
-
-  let d = `M${points[0].x},${points[0].y}`;
-  for (let i = 1; i < points.length - 1; i++) {
-    const a = points[i - 1];
-    const p = points[i];
-    const b = points[i + 1];
+  const [start, ...rest] = points;
+  const end = rest.at(-1);
+  if (start === undefined || end === undefined) return "";
+  let d = `M${start.x},${start.y}`;
+  let a = start;
+  for (const [i, p] of rest.entries()) {
+    const b = rest[i + 1];
+    if (b === undefined) break;
     const r = Math.min(
       radius,
       Math.hypot(p.x - a.x, p.y - a.y) / 2,
@@ -28,8 +29,8 @@ export function orthoPath(points: Point[], radius = 12): string {
     const u = unit(p, a);
     const v = unit(p, b);
     d += `L${(p.x + u.x * r).toFixed(1)},${(p.y + u.y * r).toFixed(1)}Q${p.x},${p.y} ${(p.x + v.x * r).toFixed(1)},${(p.y + v.y * r).toFixed(1)}`;
+    a = p;
   }
-  const end = points[points.length - 1];
   d += `L${end.x},${end.y}`;
   return d;
 }

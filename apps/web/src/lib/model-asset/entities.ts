@@ -50,9 +50,10 @@ export function resolveEntity(
     case "edge": {
       const edge = entities.edgeById.get(selection.id);
       if (!edge) return undefined;
-      const relationships = [edge.cause, edge.effect].map((endpoint) =>
-        constructLink(entities.constructById.get(endpoint.id)!),
-      );
+      const cause = entities.constructById.get(edge.cause.id);
+      const effect = entities.constructById.get(edge.effect.id);
+      if (!cause || !effect) return undefined;
+      const relationships = [constructLink(cause), constructLink(effect)];
       return {
         selection,
         label: relationships.map((link) => link.label).join(" → "),
@@ -61,11 +62,12 @@ export function resolveEntity(
     }
     case "indicator": {
       const indicator = entities.indicatorById.get(selection.id);
-      return indicator
+      const owner = entities.indicatorOwnerById.get(selection.id);
+      return indicator && owner
         ? {
             selection,
             label: humanize(indicator.name),
-            relationships: [constructLink(entities.indicatorOwnerById.get(selection.id)!)],
+            relationships: [constructLink(owner)],
           }
         : undefined;
     }
@@ -78,10 +80,22 @@ export function resolveEntity(
 
 /** A parameter link opens the entity whose own law section displays it. */
 export function parameterOwner(entities: ModelEntities, id: ParameterId) {
-  for (const kind of ["edge", "indicator", "construct"] as const) {
-    const entity = entities[`${kind}s`].find((entity) =>
-      ownLawUses(entity).some((use) => use.parameterId === id),
-    );
-    if (entity) return resolveEntity(entities, { kind, id: entity.id } as EntitySelection);
-  }
+  const owners = [
+    ...entities.edges.map((entity) => ({
+      entity,
+      selection: { kind: "edge", id: entity.id } as const,
+    })),
+    ...entities.indicators.map((entity) => ({
+      entity,
+      selection: { kind: "indicator", id: entity.id } as const,
+    })),
+    ...entities.constructs.map((entity) => ({
+      entity,
+      selection: { kind: "construct", id: entity.id } as const,
+    })),
+  ];
+  const owner = owners.find(({ entity }) =>
+    ownLawUses(entity).some((use) => use.parameterId === id),
+  );
+  return owner ? resolveEntity(entities, owner.selection) : undefined;
 }

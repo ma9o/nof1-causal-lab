@@ -2,7 +2,7 @@
 
 import { LandingPageView, MAX_FILE_SIZE } from "@/components/landing/landing-page-view";
 import { WorkspacesRail } from "@/components/landing/workspaces-rail";
-import { apiFetch } from "@/lib/api/client";
+import { apiClient } from "@/lib/api/client";
 import { getCapabilities, getCapabilitiesQueryKey } from "@/lib/api/capabilities";
 import { getWorkspaces, getWorkspacesQueryKey } from "@/lib/api/workspaces";
 import { uploadFile } from "@/lib/api/endpoints";
@@ -85,13 +85,11 @@ export default function LandingPage() {
       const workspaceId = generateAnonymousWorkspaceId();
       await uploadFile(file, workspaceId);
 
-      await apiFetch<{ workspaceId: string }>("/api/runs", {
-        method: "POST",
-        body: JSON.stringify({
-          workspaceId,
-          query: question,
-        }),
+      const { data, response } = await apiClient.POST("/api/studies/{workspace_id}/actions", {
+        params: { path: { workspace_id: workspaceId } },
+        body: { action: "edit_model", expected_revision: null, model: { question } },
       });
+      if (data === undefined) throw new Error(`Cannot start study (${response.status})`);
 
       router.push(`/v2/${workspaceId}`);
     } catch (err) {

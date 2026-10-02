@@ -17,9 +17,9 @@ interface InfoTableOptions<TData> {
   data: TData[];
   enableSorting: boolean;
   estimateRowHeight: number;
-  groupBy?: (row: TData) => string;
+  groupBy: ((row: TData) => string) | undefined;
   hasGroupHeaders: boolean;
-  isRowExpanded?: (row: TData) => boolean;
+  isRowExpanded: ((row: TData) => boolean) | undefined;
 }
 
 const GROUP_HEADER_HEIGHT = 36;
@@ -49,8 +49,9 @@ export function useInfoTable<TData>({
   const table = useReactTable({
     data: filteredData,
     columns,
-    state: enableSorting ? { sorting: sortingState } : undefined,
-    onSortingChange: enableSorting ? setSortingState : undefined,
+    ...(enableSorting
+      ? { state: { sorting: sortingState }, onSortingChange: setSortingState }
+      : {}),
     getCoreRowModel: getCoreRowModel(),
     ...(enableSorting && { getSortedRowModel: getSortedRowModel() }),
   });
@@ -72,7 +73,7 @@ export function useInfoTable<TData>({
     count: flatItems.length,
     getScrollElement: () => parentRef.current,
     estimateSize: (index) =>
-      flatItems[index].kind === "group-header" ? GROUP_HEADER_HEIGHT : estimateRowHeight,
+      flatItems[index]?.kind === "group-header" ? GROUP_HEADER_HEIGHT : estimateRowHeight,
     overscan: flatItems.length <= 100 ? flatItems.length : 5,
   });
 
@@ -84,9 +85,8 @@ export function useInfoTable<TData>({
   const totalSize = virtualizer.getTotalSize();
 
   // Spacer heights for the padding approach (keeps <table> semantics)
-  const paddingTop = virtualItems.length > 0 ? virtualItems[0].start : 0;
-  const paddingBottom =
-    virtualItems.length > 0 ? totalSize - virtualItems[virtualItems.length - 1].end : 0;
+  const paddingTop = virtualItems.at(0)?.start ?? 0;
+  const paddingBottom = totalSize - (virtualItems.at(-1)?.end ?? totalSize);
 
   const isFiltered = searchQuery.length > 0;
 

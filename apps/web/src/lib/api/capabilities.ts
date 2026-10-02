@@ -1,13 +1,11 @@
-import { apiFetch } from "@/lib/api/client";
-
-export interface FacadeCapabilities {
-  actions_enabled: boolean;
-}
+import { apiClient } from "@/lib/api/client";
 
 export function getCapabilitiesQueryKey() {
   return ["capabilities"] as const;
 }
 
-export async function getCapabilities(): Promise<FacadeCapabilities> {
-  return apiFetch<FacadeCapabilities>("/api/capabilities", { cache: "no-store" });
+export async function getCapabilities() {
+  const { data, response } = await apiClient.GET("/api/capabilities", { cache: "no-store" });
+  if (data === undefined) throw new Error(`Capabilities error ${response.status}`);
+  return data;
 }

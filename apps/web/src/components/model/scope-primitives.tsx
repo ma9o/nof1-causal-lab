@@ -6,6 +6,7 @@ import { cn } from "@/lib/utils";
 
 const STATUS_PRESENTATION = {
   passed: { icon: Check, className: "text-success", label: "Passed" },
+  error: { icon: X, className: "text-destructive", label: "Error" },
   failed: { icon: X, className: "text-destructive", label: "Failed" },
   warning: { icon: TriangleAlert, className: "text-warning-foreground", label: "Warning" },
   not_evaluated: { icon: CircleDashed, className: "text-muted-foreground", label: "Not evaluated" },

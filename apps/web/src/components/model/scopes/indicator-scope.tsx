@@ -1,3 +1,4 @@
+import { presentEntries } from "@/lib/model-accessors";
 import type { IndicatorId } from "@nof1-causal-lab/api-types";
 import { TestStatSparkline } from "@/components/analysis-widgets/posterior/ppc-warnings-table";
 import { QuantileStrip } from "@/components/charts/quantile-strip";
@@ -32,7 +33,10 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
     predictive?.source.validity === "fresh" ? predictive.value.predictive_checks : null;
   const overlay = comparison?.overlays.find((item) => item.indicator_id === id);
   const statistics = comparison?.test_stats.filter((item) => item.indicator_id === id) ?? [];
-  const findings = predictive?.value.findings.filter((finding) => finding.target === id) ?? [];
+  const findings =
+    predictive?.value.findings.filter(
+      (finding) => typeof finding.subject.target !== "string" && finding.subject.target.id === id,
+    ) ?? [];
   return (
     <>
       <Section title="Measurement">
@@ -67,7 +71,12 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
       )}
       <LawSections context={context} uses={ownLawUses(indicator)} />
       {preparation && (
-        <Section title="Data preparation" source={context.model.data.metadata?.source}>
+        <Section
+          title="Data preparation"
+          {...(context.model.data.metadata?.source === undefined
+            ? {}
+            : { source: context.model.data.metadata.source })}
+        >
           <Hint>{preparation.how_to_measure}</Hint>
           <KeyValue
             rows={[
@@ -80,13 +89,21 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
       {disposition && disposition.disposition !== "manifest" && (
         <Section
           title={dispositionLabel(disposition.disposition)}
-          source={context.model.findings.dispositions?.source}
+          {...(context.model.findings.dispositions?.source === undefined
+            ? {}
+            : { source: context.model.findings.dispositions.source })}
         >
           <Hint issue>{disposition.reason}</Hint>
         </Section>
       )}
       {(counts != null || empirical) && (
-        <Section title="Observations" source={context.model.data.measurements?.source} wide>
+        <Section
+          title="Observations"
+          {...(context.model.data.measurements?.source === undefined
+            ? {}
+            : { source: context.model.data.measurements.source })}
+          wide
+        >
           {counts != null && <Hint>{counts.toLocaleString()} observations</Hint>}
           <ObservationPlots model={context.model} id={id} />
           {empirical && (
@@ -101,7 +118,12 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
         </Section>
       )}
       {audit && (
-        <Section title="Validation" source={context.model.findings.validation_report?.source}>
+        <Section
+          title="Validation"
+          {...(context.model.findings.validation_report?.source === undefined
+            ? {}
+            : { source: context.model.findings.validation_report.source })}
+        >
           {issues.map((issue) => (
             <div key={`${issue.issue_type}-${issue.message}`} className="flex items-start gap-2">
               <StatusIcon status={issue.severity === "error" ? "failed" : "warning"} />
@@ -111,7 +133,7 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
           <details>
             <summary className="cursor-pointer text-muted-foreground">All checks</summary>
             <ul className="mt-2 space-y-2">
-              {Object.entries(audit.checks).map(([check, status]) => (
+              {presentEntries(audit.checks).map(([check, status]) => (
                 <li key={check} className="flex items-center gap-2">
                   <StatusIcon status={CHECK_STATUS[status]} />
                   <span>{humanize(check)}</span>
@@ -122,14 +144,21 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
         </Section>
       )}
       {(checks.length > 0 || findings.length > 0 || overlay) && (
-        <Section title="Predictive checks" source={predictive?.source} wide>
+        <Section
+          title="Predictive checks"
+          {...(predictive?.source === undefined ? {} : { source: predictive.source })}
+          wide
+        >
           <PredictiveFindings findings={findings} entities={context.entities} />
           {checks.map((check) => (
-            <div key={check.check_type} className="flex items-center gap-2">
-              <StatusIcon status={check.passed ? "passed" : "failed"} />
+            <div key={check.subject.check} className="flex items-center gap-2">
+              <StatusIcon status={check.kind === "evaluated" ? check.outcome : "not_evaluated"} />
               <span>
-                {humanize(check.check_type)}: {check.value.toFixed(2)}
-                <Hint issue={!check.passed}>{check.message}</Hint>
+                {humanize(check.subject.check)}:{" "}
+                {check.kind === "evaluated" ? check.evidence.value.toFixed(2) : "Not evaluated"}
+                <Hint issue={check.kind === "evaluated" && check.outcome !== "passed"}>
+                  {check.kind === "evaluated" ? check.evidence.note : check.detail}
+                </Hint>
               </span>
             </div>
           ))}

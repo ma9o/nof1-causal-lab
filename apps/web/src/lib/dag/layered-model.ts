@@ -14,11 +14,13 @@ export type CausalGraphLayerId = (typeof CAUSAL_GRAPH_LAYER_ORDER)[number];
 
 /** Resolve the backend's graph selection without changing the scientific definition. */
 export function graphEntities(model: ModelSnapshot, indexed: ModelEntities) {
-  const constructs = model.findings.graph.construct_ids.map((id) => indexed.constructById.get(id)!);
+  const selectedConstructs = new Set(model.findings.graph.construct_ids);
+  const selectedEdges = new Set(model.findings.graph.edge_ids);
+  const constructs = indexed.constructs.filter((construct) => selectedConstructs.has(construct.id));
   return {
     constructs,
     dynamicConstructIds: model.findings.graph.dynamic_construct_ids,
-    edges: model.findings.graph.edge_ids.map((id) => indexed.edgeById.get(id)!),
+    edges: indexed.edges.filter((edge) => selectedEdges.has(edge.id)),
     indicators: constructs.flatMap((construct) => construct.indicators),
   };
 }

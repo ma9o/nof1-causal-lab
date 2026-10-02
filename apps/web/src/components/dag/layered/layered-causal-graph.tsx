@@ -31,7 +31,6 @@ import type { ConstructStatus } from "@/lib/dag/construct-statuses";
 import { boundsForBand, type CausalGraphLayerId } from "@/lib/dag/layered-model";
 import { BLOCKING, COMPARISON_COLORS, DAG_COLORS, MARGINALIZED } from "@/lib/dag/palette";
 import { type LayeredGraphOptions, useLayeredGraph } from "@/lib/dag/use-layered-graph";
-import { resolveEntity } from "@/lib/model-asset/entities";
 import { entityFailures } from "@/lib/model-asset/inspector";
 import type { EntitySelection } from "@/lib/model-asset/selection";
 import { type LawCurve, lawLabel } from "@/lib/model-asset/laws";
@@ -167,7 +166,7 @@ function StripRow({
   value: string;
   valueTone: string;
   /** The chart's value range, labelled under its ends. */
-  range?: [number, number];
+  range?: readonly [number, number];
   children: ReactNode;
 }) {
   const top = rowTop(index);
@@ -300,7 +299,7 @@ function DataStrip({
             label={name}
             value={`n ${formatSignificant(profile.n_obs)}`}
             valueTone={DAG_COLORS.ink}
-            range={quartiles ? [quartiles.min, quartiles.max] : undefined}
+            {...(quartiles ? { range: [quartiles.min, quartiles.max] as const } : {})}
           >
             {quartiles ? (
               <>
@@ -355,7 +354,7 @@ function ConstructCard({
   construct: ConstructSpec;
   isOutcome: boolean;
   failures: string[];
-  status?: ConstructStatus;
+  status: ConstructStatus | undefined;
   children: ReactNode;
   assignments: InterventionSpec[];
   timeOrigin: string | null;
@@ -366,6 +365,7 @@ function ConstructCard({
   const label = statusLabel(status);
   const hasAssignments = assignments.length > 0;
   const accent = hasAssignments ? DAG_COLORS.intervention : statusAccent(status);
+  const shellAccent = selected ? "var(--primary)" : accent;
   const badge = hasAssignments
     ? `${assignments.length} assignment${assignments.length === 1 ? "" : "s"}`
     : label;
@@ -391,7 +391,7 @@ function ConstructCard({
         width={LAYERED_NODE_WIDTH}
         height={LAYERED_NODE_HEIGHT}
         title={`${isOutcome ? "★ " : ""}${truncate(humanize(construct.name), 29)}`}
-        accent={selected ? "var(--primary)" : accent}
+        {...(shellAccent === undefined ? {} : { accent: shellAccent })}
         dashed={status === "marginalized"}
         highlighted={selected}
         outcome={isOutcome}
@@ -401,11 +401,13 @@ function ConstructCard({
             x={LAYERED_NODE_WIDTH - 8}
             label={badge}
             color={badgeColor}
-            description={
-              hasAssignments
-                ? assignments.map((event) => assignmentLabel(event, timeOrigin)).join("; ")
-                : undefined
-            }
+            {...(hasAssignments
+              ? {
+                  description: assignments
+                    .map((event) => assignmentLabel(event, timeOrigin))
+                    .join("; "),
+                }
+              : {})}
           />
         ) : null}
         {children}
@@ -436,11 +438,12 @@ function HistoryCard({
   onSelect,
 }: {
   construct: ConstructSpec;
-  status?: ConstructStatus;
+  status: ConstructStatus | undefined;
   dimmed: boolean;
   selected: boolean;
   onSelect: () => void;
 }) {
+  const accent = selected ? "var(--primary)" : statusAccent(status);
   return (
     <g
       opacity={dimmed ? 0.13 : 0.45}
@@ -455,7 +458,7 @@ function HistoryCard({
         width={LAYERED_HISTORY_WIDTH}
         height={LAYERED_HISTORY_HEIGHT}
         title={truncate(humanize(construct.name), 20)}
-        accent={selected ? "var(--primary)" : statusAccent(status)}
+        {...(accent === undefined ? {} : { accent })}
         dashed
         highlighted={selected}
       />
@@ -472,8 +475,8 @@ function EdgeSlot({
   dimmed,
 }: {
   meta: LayeredGraphEdgeMeta;
-  disposition?: StructuralItemDisposition["disposition"];
-  posterior?: PosteriorEstimate;
+  disposition: StructuralItemDisposition["disposition"] | undefined;
+  posterior: PosteriorEstimate | undefined;
   /** The edge mechanism's own laws; the first is drawn in the slot. */
   laws: LawCurve[];
   color: string;
@@ -738,13 +741,12 @@ export function LayeredCausalGraph({
               const meta = topology.nodeMeta.get(node.id);
               if (!meta) return null;
               if (meta.kind === "edge_slot") {
-                const edge = topology.edgeMeta.get(meta.edgeId);
-                if (!edge) return null;
+                const edge = meta.edge;
                 const visual = edgeVisual(edge);
                 const owner = entities.edges.find((item) => item.id === edge.id);
-                const target: EntitySelection = owner
-                  ? { kind: "edge", id: owner.id }
-                  : { kind: "construct", id: edge.cause };
+                const target: EntitySelection = edge.isSelf
+                  ? { kind: "construct", id: edge.cause.id }
+                  : { kind: "edge", id: edge.id };
                 const select = () => onSelect(selection?.id === target.id ? null : target);
                 const failures = owner && !dataDiff ? entityFailures(model, owner) : [];
                 return (
@@ -755,8 +757,8 @@ export function LayeredCausalGraph({
                     role="button"
                     aria-label={
                       edge.isSelf
-                        ? `${humanize(entities.constructById.get(edge.cause)!.name)} intrinsic dynamics`
-                        : resolveEntity(entities, target)!.label
+                        ? `${humanize(edge.cause.name)} intrinsic dynamics`
+                        : `${humanize(edge.cause.name)} → ${humanize(edge.effect.name)}`
                     }
                     tabIndex={0}
                     style={{ cursor: "pointer" }}
@@ -802,6 +804,7 @@ export function LayeredCausalGraph({
               }
 
               const construct = meta.construct;
+              const constructChange = difference.constructChanges.get(construct.id);
               const dimmed =
                 (selectedNeighborhood != null && !selectedNeighborhood.has(construct.id)) ||
                 (dataDiff !== null &&
@@ -874,7 +877,8 @@ export function LayeredCausalGraph({
                           );
                           const failures =
                             variable?.predictive_checks?.per_variable_warnings.filter(
-                              (finding) => !finding.passed,
+                              (finding) =>
+                                finding.kind !== "evaluated" || finding.outcome !== "passed",
                             ) ?? [];
                           const selectIndicator = () =>
                             onSelect({ kind: "indicator", id: indicator.id });
@@ -896,8 +900,13 @@ export function LayeredCausalGraph({
                               <StripRow
                                 index={index}
                                 title={
-                                  failures.map((finding) => finding.message).join("; ") ||
-                                  humanize(indicator.name)
+                                  failures
+                                    .map((finding) =>
+                                      finding.kind === "evaluated"
+                                        ? finding.evidence.note
+                                        : finding.detail,
+                                    )
+                                    .join("; ") || humanize(indicator.name)
                                 }
                                 label={humanize(indicator.name)}
                                 value={failures.length ? "⚠" : ""}
@@ -930,7 +939,7 @@ export function LayeredCausalGraph({
                       >
                         <HistoryPlot
                           compact
-                          times={simulationPaths!.times}
+                          times={simulationPaths.times}
                           series={pathLines(series)}
                           label={`${humanize(series.label)}: ${series.action.length} individual simulation draws`}
                           markers={[
@@ -938,7 +947,7 @@ export function LayeredCausalGraph({
                               time: event.time,
                               label: assignmentLabel(event, simulationResult?.time_origin ?? null),
                             })),
-                            ...(variant === "workbench"
+                            ...(variant === "workbench" && currentDay !== undefined
                               ? [{ time: currentDay, label: `Viewed day ${currentDay}` }]
                               : []),
                           ]}
@@ -950,7 +959,7 @@ export function LayeredCausalGraph({
                       <LawStrip laws={constructLaws.get(construct.id) ?? []} />
                     )}
                   </ConstructCard>
-                  {difference.constructChanges.has(construct.id) && (
+                  {constructChange !== undefined && (
                     <rect
                       x={-3}
                       y={-3}
@@ -958,7 +967,7 @@ export function LayeredCausalGraph({
                       height={LAYERED_NODE_HEIGHT + 6}
                       rx={12}
                       fill="none"
-                      stroke={COMPARISON_COLORS[difference.constructChanges.get(construct.id)!]}
+                      stroke={COMPARISON_COLORS[constructChange]}
                       strokeWidth={2 / zoom}
                     />
                   )}

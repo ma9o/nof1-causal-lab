@@ -1,101 +1,63 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { apiFetch } from "./client";
+import { describe, expect, it, vi } from "vitest";
+import { fixtureValue } from "@/components/__fixtures__/fixture-value";
+import { apiClient } from "./client";
 
-describe("apiFetch", () => {
-  const originalFetch = globalThis.fetch;
-
-  beforeEach(() => {
-    vi.stubGlobal("fetch", vi.fn());
-  });
-
-  afterEach(() => {
-    globalThis.fetch = originalFetch;
-    vi.unstubAllGlobals();
-  });
-
-  it("returns parsed JSON on success", async () => {
-    const mockData = { id: 1, name: "test" };
-    vi.mocked(fetch).mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve(mockData),
-    } as Response);
-
-    const result = await apiFetch("/api/test");
-    expect(result).toEqual(mockData);
-  });
-
-  it("sends Content-Type application/json by default", async () => {
-    vi.mocked(fetch).mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({}),
-    } as Response);
-
-    await apiFetch("/api/test");
-
-    expect(fetch).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          "Content-Type": "application/json",
-        }),
-      }),
-    );
-  });
-
-  it("throws on non-ok response with status and body", async () => {
-    vi.mocked(fetch).mockResolvedValue({
-      ok: false,
-      status: 404,
-      text: () => Promise.resolve("Not Found"),
-    } as Response);
-
-    await expect(apiFetch("/api/missing")).rejects.toThrow("API error 404: Not Found");
-  });
-
-  it("passes custom headers alongside Content-Type", async () => {
-    vi.mocked(fetch).mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({}),
-    } as Response);
-
-    await apiFetch("/api/test", {
+describe("generated facade client", () => {
+  it("returns the endpoint's response and accepts custom headers", async () => {
+    const body = { actions_enabled: false };
+    const fetch = vi.fn<(request: Request) => Promise<Response>>(async () => Response.json(body));
+    const result = await apiClient.GET("/api/capabilities", {
+      baseUrl: "http://viewer",
+      fetch,
       headers: { Authorization: "Bearer token" },
     });
-
-    expect(fetch).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          "Content-Type": "application/json",
-          Authorization: "Bearer token",
-        }),
-      }),
-    );
+    expect(result.data).toEqual(body);
+    const [request] = fixtureValue(fetch.mock.calls.at(0));
+    expect(request.url).toBe("http://viewer/api/capabilities");
+    expect(request.headers.get("Authorization")).toBe("Bearer token");
+    expect(request.headers.has("Content-Type")).toBe(false);
   });
 
-  it("passes additional init options like method and body", async () => {
-    vi.mocked(fetch).mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve({}),
-    } as Response);
-
-    await apiFetch("/api/test", {
-      method: "POST",
-      body: JSON.stringify({ key: "value" }),
+  it("serializes the endpoint's dispatch input as JSON", async () => {
+    const fetch = vi.fn<(request: Request) => Promise<Response>>(async () =>
+      Response.json({ attempt_id: "new-attempt" }, { status: 202 }),
+    );
+    const body = {
+      action: "edit_model",
+      expected_revision: null,
+      model: { question: "Why?" },
+    } as const;
+    const result = await apiClient.POST("/api/studies/{workspace_id}/actions", {
+      baseUrl: "http://viewer",
+      fetch,
+      params: { path: { workspace_id: "DEMO" } },
+      body,
     });
-
-    expect(fetch).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({
-        method: "POST",
-        body: JSON.stringify({ key: "value" }),
-      }),
-    );
+    const [request] = fixtureValue(fetch.mock.calls.at(0));
+    expect(request.method).toBe("POST");
+    expect(request.headers.get("Content-Type")).toBe("application/json");
+    expect(await request.json()).toEqual(body);
+    expect(result.data).toEqual({ attempt_id: "new-attempt" });
   });
 
-  it("propagates network errors when fetch rejects", async () => {
-    vi.mocked(fetch).mockRejectedValue(new TypeError("Failed to fetch"));
+  it("retains unsuccessful transport status and payload for the caller", async () => {
+    const result = await apiClient.GET("/api/capabilities", {
+      baseUrl: "http://viewer",
+      fetch: async () => Response.json({ detail: "Unavailable" }, { status: 503 }),
+    });
+    expect(result.data).toBeUndefined();
+    expect(result.response.status).toBe(503);
+    expect(result.error).toEqual({ detail: "Unavailable" });
+  });
 
-    await expect(apiFetch("/api/down")).rejects.toThrow("Failed to fetch");
+  it("propagates network errors", async () => {
+    await expect(
+      apiClient.GET("/api/capabilities", {
+        baseUrl: "http://viewer",
+        fetch: async () => {
+          throw new TypeError("Failed to fetch");
+        },
+      }),
+    ).rejects.toThrow("Failed to fetch");
   });
 });

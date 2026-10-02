@@ -5,7 +5,7 @@ import type {
   EdgeId,
 } from "@nof1-causal-lab/api-types";
 import type { DagGraphInput } from "@/lib/utils/dag-graph-layout";
-import { splitEdgesWithGlyphs, ghostId, isGhost } from "@/lib/dag/unroll";
+import { ghostId, isGhost } from "@/lib/dag/unroll";
 
 export const LAYERED_NODE_WIDTH = 250;
 export const LAYERED_NODE_HEIGHT = 112;
@@ -17,18 +17,16 @@ export const LAYERED_EDGE_SLOT_HEIGHT = 40;
 export type LayeredGraphNodeMeta =
   | { kind: "construct"; construct: ConstructSpec }
   | { kind: "history"; construct: ConstructSpec }
-  | { kind: "edge_slot"; edgeId: string };
+  | { kind: "edge_slot"; edge: LayeredGraphEdgeMeta };
 
-export interface LayeredGraphEdgeMeta {
-  id: EdgeId | `self:${ConstructId}`;
-  cause: ConstructId;
-  effect: ConstructId;
+export type LayeredGraphEdgeMeta = {
+  cause: ConstructSpec;
+  effect: ConstructSpec;
   source: string;
   target: string;
   crossSlice: boolean;
-  isSelf: boolean;
   slotId: string;
-}
+} & ({ isSelf: false; id: EdgeId } | { isSelf: true; id: `self:${ConstructId}` });
 
 export interface LayeredGraphSegmentMeta {
   edgeId: string;
@@ -51,20 +49,11 @@ const partition = (value: 0 | 1 | 2): Record<string, string> => ({
  * Comparisons decorate this layout without moving its existing nodes.
  */
 export function buildLayeredCausalGraph(
-  constructs: ConstructSpec[],
-  edges: CausalEdgeSpec[],
+  constructs: readonly ConstructSpec[],
+  edges: readonly CausalEdgeSpec[],
   dynamicConstructIds: readonly ConstructId[],
 ): LayeredGraphBundle {
   const constructById = new Map(constructs.map((construct) => [construct.id, construct] as const));
-  const historyById = new Map(constructs.map((construct) => [ghostId(construct.id), construct]));
-  for (const edge of edges) {
-    if (!constructById.has(edge.cause.id) || !constructById.has(edge.effect.id)) {
-      throw new Error(
-        `Causal edge '${edge.cause.id}→${edge.effect.id}' references an unknown construct.`,
-      );
-    }
-  }
-
   const timeVaryingIds = new Set(dynamicConstructIds);
   const constructPartition = (construct: ConstructSpec): 0 | 2 =>
     timeVaryingIds.has(construct.id) ? 2 : 0;
@@ -81,7 +70,7 @@ export function buildLayeredCausalGraph(
     ...selfDynamicConstructs.map((construct) => ghostId(construct.id)),
   ]);
 
-  const edgeDefinitions: Array<Omit<LayeredGraphEdgeMeta, "slotId">> = [
+  const edgeDefinitions = [
     ...causalLinks.map((edge) => ({
       id: edge.id,
       cause: edge.cause.id,
@@ -89,7 +78,7 @@ export function buildLayeredCausalGraph(
       source: edge.source,
       target: edge.target,
       crossSlice: isGhost(edge.source),
-      isSelf: false,
+      isSelf: false as const,
     })),
     ...selfDynamicConstructs.map((construct) => ({
       id: `self:${construct.id}` as const,
@@ -98,19 +87,9 @@ export function buildLayeredCausalGraph(
       source: ghostId(construct.id),
       target: construct.id,
       crossSlice: true,
-      isSelf: true,
+      isSelf: true as const,
     })),
   ];
-
-  const split = splitEdgesWithGlyphs(
-    edgeDefinitions.map((edge) => ({
-      a: edge.source,
-      b: edge.target,
-      isSelf: edge.isSelf,
-      crossSlice: isGhost(edge.source),
-    })),
-    { width: LAYERED_EDGE_SLOT_WIDTH, height: LAYERED_EDGE_SLOT_HEIGHT },
-  );
 
   const nodeMeta = new Map<string, LayeredGraphNodeMeta>();
   const nodes: DagGraphInput["nodes"] = [];
@@ -123,11 +102,8 @@ export function buildLayeredCausalGraph(
       layoutOptions: partition(constructPartition(construct)),
     });
   }
-  for (const ghost of ghosts) {
-    const construct = historyById.get(ghost);
-    if (!construct) {
-      throw new Error(`Temporal copy '${ghost}' has no source construct.`);
-    }
+  for (const construct of constructs.filter((construct) => ghosts.has(ghostId(construct.id)))) {
+    const ghost = ghostId(construct.id);
     nodeMeta.set(ghost, { kind: "history", construct });
     nodes.push({
       id: ghost,
@@ -139,8 +115,13 @@ export function buildLayeredCausalGraph(
 
   const edgeMeta = new Map<string, LayeredGraphEdgeMeta>();
   const segmentMeta = new Map<string, LayeredGraphSegmentMeta>();
-  split.glyphNodes.forEach((slot, index) => {
-    const definition = edgeDefinitions[index];
+  const segments: DagGraphInput["edges"] = [];
+  edgeDefinitions.forEach((definition, index) => {
+    const slot = {
+      id: `G__${index}`,
+      width: LAYERED_EDGE_SLOT_WIDTH,
+      height: LAYERED_EDGE_SLOT_HEIGHT,
+    };
     const sourceConstruct = constructById.get(definition.cause);
     const targetConstruct = constructById.get(definition.effect);
     if (!sourceConstruct || !targetConstruct) {
@@ -150,25 +131,30 @@ export function buildLayeredCausalGraph(
       ? 1
       : constructPartition(sourceConstruct);
     const targetPartition = constructPartition(targetConstruct);
-    const slotPartition =
-      sourcePartition < targetPartition
-        ? Math.max(sourcePartition, targetPartition - 1)
-        : sourcePartition;
+    const slotPartition = sourcePartition === 0 && targetPartition === 2 ? 1 : sourcePartition;
 
     nodes.push({
       ...slot,
-      layoutOptions: partition(slotPartition as 0 | 1 | 2),
+      layoutOptions: partition(slotPartition),
     });
-    nodeMeta.set(slot.id, { kind: "edge_slot", edgeId: definition.id });
-    edgeMeta.set(definition.id, { ...definition, slotId: slot.id });
+    const edge: LayeredGraphEdgeMeta = {
+      ...definition,
+      cause: sourceConstruct,
+      effect: targetConstruct,
+      slotId: slot.id,
+    };
+    nodeMeta.set(slot.id, { kind: "edge_slot", edge });
+    edgeMeta.set(edge.id, edge);
     segmentMeta.set(`e${index}s`, { edgeId: definition.id, markerEnd: false });
     segmentMeta.set(`e${index}t`, { edgeId: definition.id, markerEnd: true });
+    segments.push({ id: `e${index}s`, source: definition.source, target: slot.id });
+    segments.push({ id: `e${index}t`, source: slot.id, target: definition.target });
   });
 
   return {
     graph: {
       nodes,
-      edges: split.edges,
+      edges: segments,
       direction: "RIGHT",
       layoutOptions: {
         "elk.partitioning.activate": "true",

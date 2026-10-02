@@ -1,6 +1,7 @@
 import { createModelClient } from "@nof1-causal-lab/api-types";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { GET } from "@/app/api/studies/[workspaceId]/model/[[...path]]/route";
+import { fixtureValue } from "@/components/__fixtures__/fixture-value";
 
 afterEach(() => {
   vi.unstubAllGlobals();
@@ -30,7 +31,6 @@ describe("model read transport", () => {
       {
         headers: { Accept: "application/json", "Content-Type": "application/json" },
         method: "GET",
-        body: undefined,
         cache: "no-store",
         signal: request.signal,
       },
@@ -38,7 +38,7 @@ describe("model read transport", () => {
   });
 
   it("uses generated path and revision parameters for collection reads", async () => {
-    const fetch = vi.fn().mockResolvedValue(
+    const fetch = vi.fn<(request: Request) => Promise<Response>>().mockResolvedValue(
       new Response("[]", {
         headers: { "Content-Type": "application/json" },
       }),
@@ -48,7 +48,7 @@ describe("model read transport", () => {
       params: { path: { workspace_id: "DEMO" }, query: { at: "a".repeat(40) } },
     });
     expect(result.data).toEqual([]);
-    expect(fetch.mock.calls[0][0].url).toBe(
+    expect(fixtureValue(fetch.mock.calls.at(0))[0].url).toBe(
       "http://python:8100/api/studies/DEMO/model/constructs?at=aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
     );
   });

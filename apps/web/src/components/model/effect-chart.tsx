@@ -12,7 +12,9 @@ export function EffectChart({
   width?: number;
 }) {
   const trajectory = simulation.causal_result.effect_trajectory;
-  if (trajectory.length < 2) {
+  const first = trajectory.at(0),
+    last = trajectory.at(-1);
+  if (first === undefined || last === undefined || trajectory.length < 2) {
     return null;
   }
   const height = 150;
@@ -20,8 +22,8 @@ export function EffectChart({
   const x1 = width - 118;
   const y0 = 18;
   const y1 = height - 30;
-  const start = trajectory[0].day;
-  const end = trajectory[trajectory.length - 1].day;
+  const start = first.day;
+  const end = last.day;
   const values = [
     0,
     ...trajectory.flatMap((point) => [point.lower_95, point.effect, point.upper_95]),
@@ -40,14 +42,12 @@ export function EffectChart({
     .join("");
   const band =
     [
-      ...trajectory.map((point) => [point.day, point.upper_95]),
-      ...trajectory.toReversed().map((point) => [point.day, point.lower_95]),
+      ...trajectory.map((point) => [point.day, point.upper_95] as const),
+      ...trajectory.toReversed().map((point) => [point.day, point.lower_95] as const),
     ]
       .map(([day, value], index) => `${index === 0 ? "M" : "L"}${sx(day)},${sy(value)}`)
       .join("") + "Z";
   const color = signColor(simulation.causal_result.summary.mean);
-  const clamp = simulation.design.interventions[0];
-  const clampStart = clamp.time;
   const axisDays = [0, 0.25, 0.5, 0.75, 1].map((fraction) =>
     Number((start + (end - start) * fraction).toFixed(2)),
   );
@@ -60,24 +60,28 @@ export function EffectChart({
       aria-label="Effect on the outcome over the horizon"
     >
       <line x1={x0} x2={x1} y1={sy(0)} y2={sy(0)} stroke={DAG_COLORS.line2} />
-      <rect
-        x={sx(clampStart)}
-        y={y1 + 6}
-        width={2}
-        height={5}
-        rx={2}
-        fill={DAG_COLORS.intervention}
-      />
-      <text
-        x={sx(clampStart)}
-        y={y1 + 22}
-        fontSize={8.5}
-        fill={DAG_COLORS.intervention}
-        fontWeight={600}
-      >
-        do · {simulation.causal_result.labels[clamp.target]} {formatInterventionValue(clamp)} · d
-        {clampStart}
-      </text>
+      {simulation.design.interventions.map((clamp) => (
+        <g key={`${clamp.target}-${clamp.time}`}>
+          <rect
+            x={sx(clamp.time)}
+            y={y1 + 6}
+            width={2}
+            height={5}
+            rx={2}
+            fill={DAG_COLORS.intervention}
+          />
+          <text
+            x={sx(clamp.time)}
+            y={y1 + 22}
+            fontSize={8.5}
+            fill={DAG_COLORS.intervention}
+            fontWeight={600}
+          >
+            do · {simulation.causal_result.labels[clamp.target]} {formatInterventionValue(clamp)} ·
+            d{clamp.time}
+          </text>
+        </g>
+      ))}
       {axisDays.map((day) => (
         <text
           key={day}

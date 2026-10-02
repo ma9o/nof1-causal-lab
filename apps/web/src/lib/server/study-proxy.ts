@@ -6,7 +6,7 @@ export async function proxyStudyRequest(request: Request) {
   const response = await fetch(`${getToolServerUrl()}${url.pathname}${url.search}`, {
     method: request.method,
     headers: { Accept: "application/json", "Content-Type": "application/json" },
-    body: request.method === "GET" ? undefined : await request.text(),
+    ...(request.method === "GET" ? {} : { body: await request.text() }),
     cache: "no-store",
     signal: request.signal,
   });

@@ -45,7 +45,9 @@ export function EdgeScope({ context, id }: { context: ScopeContext; id: EdgeId }
       {disposition && disposition.disposition !== "retained_edge" && (
         <Section
           title={dispositionLabel(disposition.disposition)}
-          source={context.model.findings.dispositions?.source}
+          {...(context.model.findings.dispositions?.source === undefined
+            ? {}
+            : { source: context.model.findings.dispositions.source })}
         >
           <Hint issue>{disposition.reason}</Hint>
         </Section>

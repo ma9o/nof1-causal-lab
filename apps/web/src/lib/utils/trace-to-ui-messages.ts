@@ -33,13 +33,12 @@ export function traceToUIMessages(trace: LLMTrace): UIMessage[] {
   const messages: UIMessage[] = [];
   const traceMessages = trace.messages;
 
-  let i = 0;
-  while (i < traceMessages.length) {
-    const msg = traceMessages[i];
+  let nextIndex = 0;
+  for (const [i, msg] of traceMessages.entries()) {
+    if (i < nextIndex) continue;
 
     if (msg.role === "system" || msg.role === "user") {
       messages.push(makeMsg(msg.role, [{ type: "text", text: msg.content }], i));
-      i++;
       continue;
     }
 
@@ -48,7 +47,7 @@ export function traceToUIMessages(trace: LLMTrace): UIMessage[] {
 
       // Reasoning
       if (msg.reasoning) {
-        parts.push({ type: "reasoning", text: msg.reasoning, providerMetadata: undefined });
+        parts.push({ type: "reasoning", text: msg.reasoning });
       }
 
       // Text content
@@ -79,22 +78,23 @@ export function traceToUIMessages(trace: LLMTrace): UIMessage[] {
 
       // Consume following tool messages and merge them into the tool parts
       let j = i + 1;
-      while (j < traceMessages.length && traceMessages[j].role === "tool") {
-        const toolMsg = traceMessages[j];
+      for (const toolMsg of traceMessages.slice(i + 1)) {
+        if (toolMsg.role !== "tool") break;
         const callId = toolMsg.tool_call_id;
         if (callId && toolParts.has(callId)) {
           // Find the part in the parts array and replace it
           const idx = parts.findIndex(
             (p) => p.type === "dynamic-tool" && "toolCallId" in p && p.toolCallId === callId,
           );
-          if (idx !== -1) {
+          const part = parts[idx];
+          if (idx !== -1 && part?.type === "dynamic-tool") {
             if (toolMsg.tool_is_error) {
               parts[idx] = {
                 type: "dynamic-tool" as const,
                 toolCallId: callId,
                 toolName: toolMsg.tool_name ?? "unknown",
                 state: "output-error" as const,
-                input: (parts[idx] as { input: unknown }).input,
+                input: part.input,
                 errorText: toolMsg.tool_result ?? toolMsg.content,
               };
             } else {
@@ -103,7 +103,7 @@ export function traceToUIMessages(trace: LLMTrace): UIMessage[] {
                 toolCallId: callId,
                 toolName: toolMsg.tool_name ?? "unknown",
                 state: "output-available" as const,
-                input: (parts[idx] as { input: unknown }).input,
+                input: part.input,
                 output: toolMsg.tool_result ?? toolMsg.content,
               };
             }
@@ -113,7 +113,7 @@ export function traceToUIMessages(trace: LLMTrace): UIMessage[] {
       }
 
       messages.push(makeMsg("assistant", parts, i));
-      i = j; // skip past consumed tool messages
+      nextIndex = j; // skip past consumed tool messages
       continue;
     }
 
@@ -138,12 +138,10 @@ export function traceToUIMessages(trace: LLMTrace): UIMessage[] {
             output: msg.tool_result ?? msg.content,
           };
       messages.push(makeMsg("assistant", [part], i));
-      i++;
       continue;
     }
 
-    // Unknown role — skip
-    i++;
+    // Other provider role names have no UI conversation turn.
   }
 
   return messages;

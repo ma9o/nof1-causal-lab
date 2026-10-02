@@ -16,7 +16,10 @@ export function useModelSnapshot(
     enabled,
     queryFn: async ({ signal }) => {
       const { data, error, response } = await modelClient.GET("/api/studies/{workspace_id}/model", {
-        params: { path: { workspace_id: workspaceId }, query: { at: commitId, branch } },
+        params: {
+          path: { workspace_id: workspaceId },
+          query: { ...(commitId === undefined ? {} : { at: commitId }), branch },
+        },
         signal,
       });
       if (error) {

@@ -35,16 +35,6 @@ interface MaterializationRequest {
   svg: string;
 }
 
-interface StoryIndexEntry {
-  id: string;
-  type: string;
-  tags?: string[];
-}
-
-interface StoryIndex {
-  entries: Record<string, StoryIndexEntry>;
-}
-
 async function readMaterializationRequest(
   request: IncomingMessage,
 ): Promise<MaterializationRequest> {
@@ -52,10 +42,13 @@ async function readMaterializationRequest(
     throw new RequestError("Expected an application/json request.", 415);
   }
 
-  const chunks: Buffer[] = [];
+  const chunks: Uint8Array[] = [];
   let size = 0;
   for await (const rawChunk of request) {
-    const chunk = Buffer.isBuffer(rawChunk) ? rawChunk : Buffer.from(rawChunk);
+    const input: unknown = rawChunk;
+    if (!(input instanceof Uint8Array) && typeof input !== "string")
+      throw new RequestError("Invalid request chunk.", 400);
+    const chunk = typeof input === "string" ? Buffer.from(input) : input;
     size += chunk.byteLength;
     if (size > MAX_REQUEST_BYTES) {
       throw new RequestError("Materialized SVG exceeds the 24 MiB request limit.", 413);
@@ -72,7 +65,8 @@ async function readMaterializationRequest(
   if (typeof value !== "object" || value == null) {
     throw new RequestError("Request body must be an object.", 400);
   }
-  const { storyId, svg } = value as Partial<MaterializationRequest>;
+  const storyId = "storyId" in value ? value.storyId : undefined;
+  const svg = "svg" in value ? value.svg : undefined;
   if (typeof storyId !== "string" || !STORY_ID.test(storyId)) {
     throw new RequestError("Story id contains unsupported path characters.", 400);
   }
@@ -133,13 +127,31 @@ async function taggedStoryIds(origin: string): Promise<string[]> {
       if (!response.ok) {
         throw new Error(`Story index request failed (${response.status}).`);
       }
-      const index = (await response.json()) as { entries?: StoryIndex["entries"] | null } | null;
-      if (index == null || typeof index.entries !== "object" || index.entries == null) {
+      const index: unknown = await response.json();
+      if (
+        typeof index !== "object" ||
+        index === null ||
+        !("entries" in index) ||
+        typeof index.entries !== "object" ||
+        index.entries === null
+      ) {
         throw new Error("Storybook returned an invalid story index.");
       }
       const storyIds = Object.values(index.entries)
-        .filter((entry) => entry.type === "story" && entry.tags?.includes(SVG_MATERIALIZER_TAG))
-        .map((entry) => entry.id)
+        .flatMap((entry: unknown) => {
+          if (
+            typeof entry !== "object" ||
+            entry === null ||
+            !("type" in entry) ||
+            entry.type !== "story" ||
+            !("id" in entry) ||
+            typeof entry.id !== "string" ||
+            !("tags" in entry) ||
+            !Array.isArray(entry.tags)
+          )
+            return [];
+          return entry.tags.includes(SVG_MATERIALIZER_TAG) ? [entry.id] : [];
+        })
         .sort();
       if (storyIds.length === 0) {
         throw new Error(`No stories are tagged ${JSON.stringify(SVG_MATERIALIZER_TAG)}.`);

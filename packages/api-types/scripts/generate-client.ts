@@ -1,4 +1,4 @@
-/** Generate scientific operations from FastAPI, reusing the canonical domain declarations. */
+/** Generate every FastAPI operation, reusing the canonical domain declarations. */
 import { readFileSync, writeFileSync } from "node:fs";
 import { resolve } from "node:path";
 import openapiTS, { astToString } from "openapi-typescript";
@@ -8,16 +8,7 @@ const root = resolve(import.meta.dirname, "..");
 const schema = JSON.parse(readFileSync(resolve(root, "schemas/openapi.json"), "utf8"));
 const models = readFileSync(resolve(root, "src/generated/models.ts"), "utf8");
 const names = new Set([...models.matchAll(/export (?:interface|type) (\w+)/g)].map((m) => m[1]));
-// Keep the read paths the web viewer uses; request defaults stay optional.
-schema.paths = Object.fromEntries(
-  Object.entries(schema.paths).filter(([path]) =>
-    /^\/api\/studies\/\{workspace_id\}(?:\/(?:model|model-diff|data-diff|timeline|events)(?:\/|$)|$)/.test(
-      path,
-    ),
-  ),
-);
-
-// Keep only definitions reachable from these operations.
+// Keep definitions reachable from all exported operations.
 const referenced = new Set<string>();
 function visit(value: unknown): void {
   if (!value || typeof value !== "object") return;
@@ -51,9 +42,16 @@ for (const path of Object.values(schema.paths) as Record<string, { requestBody?:
   for (const operation of Object.values(path)) visitInput(operation.requestBody);
 }
 const ast = await openapiTS(schema, {
+  immutable: true,
   defaultNonNullable: false,
   inject: 'import type * as Domain from "./models";',
-  transform(_value, metadata) {
+  transform(value, metadata) {
+    if (
+      value.type === "string" &&
+      (value.format === "binary" || value.contentMediaType === "application/octet-stream")
+    ) {
+      return ts.factory.createTypeReferenceNode("Blob");
+    }
     const name = metadata.path?.match(/^#\/components\/schemas\/([^/]+)$/)?.[1];
     if (name === undefined) {
       return;

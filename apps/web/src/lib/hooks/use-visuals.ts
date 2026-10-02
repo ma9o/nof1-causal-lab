@@ -1,12 +1,18 @@
 "use client";
 
+import { presentEntries } from "@/lib/model-accessors";
+
 import {
   createModelClient,
   type IndicatorId,
-  type MechanismViewRequest,
   type ModelSnapshot,
 } from "@nof1-causal-lab/api-types";
+import type { paths } from "@nof1-causal-lab/api-types/src/generated/model-api";
 import { useQuery } from "@tanstack/react-query";
+
+export type MechanismViewport = Required<
+  paths["/api/studies/{workspace_id}/model/visuals/mechanism"]["post"]["requestBody"]["content"]["application/json"]
+>;
 
 const client = createModelClient();
 const pinned = (model: ModelSnapshot) => ({
@@ -83,14 +89,14 @@ export function useParameterDraws(model: ModelSnapshot) {
   });
 }
 
-export function useMechanismCurves(model: ModelSnapshot, request: MechanismViewRequest) {
+export function useMechanismCurves(model: ModelSnapshot, request: MechanismViewport) {
   return useQuery({
     queryKey: ["mechanism-curves", ...key(model), request],
     queryFn: ({ signal }) =>
       read(
         client.POST("/api/studies/{workspace_id}/model/visuals/mechanism", {
           params: pinned(model),
-          body: request,
+          body: { ...request, held: Object.fromEntries(presentEntries(request.held)) },
           signal,
         }),
       ),

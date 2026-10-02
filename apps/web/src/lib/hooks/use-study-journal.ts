@@ -22,10 +22,10 @@ export function journalPollIntervalMs(active: boolean): number {
 export interface StudyJournal {
   seq: number;
   running: RunningAction | null;
-  attempts: StudyRevision[];
-  branches: Record<string, string>;
+  attempts: readonly StudyRevision[];
+  branches: Readonly<Partial<Record<string, string>>>;
   /** Which earlier records each record's request named, served with the journal. */
-  dependencies: RecordDependency[];
+  dependencies: readonly RecordDependency[];
 }
 
 export function getStudyJournalQueryKey(workspaceId: string) {
@@ -40,7 +40,7 @@ export async function readStudyJournal(
 ): Promise<StudyJournal> {
   const status = await client.GET("/api/studies/{workspace_id}", {
     params: { path: { workspace_id: workspaceId } },
-    signal,
+    ...(signal === undefined ? {} : { signal }),
   });
   if (status.error) {
     throw new Error(
@@ -50,7 +50,7 @@ export async function readStudyJournal(
   if (held?.seq === status.data.seq) return { ...held, running: status.data.running };
   const timeline = await client.GET("/api/studies/{workspace_id}/timeline", {
     params: { path: { workspace_id: workspaceId } },
-    signal,
+    ...(signal === undefined ? {} : { signal }),
   });
   if (timeline.error) {
     throw new Error(

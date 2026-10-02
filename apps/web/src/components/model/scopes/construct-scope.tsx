@@ -1,4 +1,4 @@
-import type { ConstructId } from "@nof1-causal-lab/api-types";
+import type { ConstructId, ConstructSpec } from "@nof1-causal-lab/api-types";
 import { constructPresentation, dispositionLabel } from "@/lib/model-asset/inspector";
 import { ownLawUses } from "@/lib/model-asset/laws";
 import { humanize } from "@/lib/model-asset/selection";
@@ -26,8 +26,12 @@ export function ConstructScope({ context, id }: { context: ScopeContext; id: Con
   const findings =
     predictive?.value.findings.filter(
       (finding) =>
-        finding.construct_id === id &&
-        !indicators.some((indicator) => indicator.id === finding.target),
+        finding.subject.construct_id === id &&
+        !indicators.some(
+          (indicator) =>
+            typeof finding.subject.target !== "string" &&
+            indicator.id === finding.subject.target.id,
+        ),
     ) ?? [];
   return (
     <>
@@ -71,18 +75,24 @@ export function ConstructScope({ context, id }: { context: ScopeContext; id: Con
       {disposition && disposition.disposition !== "retained_state" && (
         <Section
           title={dispositionLabel(disposition.disposition)}
-          source={model.findings.dispositions?.source}
+          {...(model.findings.dispositions?.source === undefined
+            ? {}
+            : { source: model.findings.dispositions.source })}
         >
           <Hint issue>{disposition.reason}</Hint>
         </Section>
       )}
       {model.findings.identification?.value.treatments[id] && (
         <Section title="Identification" source={model.findings.identification.source}>
-          <IdentificationFinding context={context} id={id} />
+          <IdentificationFinding context={context} construct={construct} />
         </Section>
       )}
       {findings.length > 0 && (
-        <Section title="Predictive checks" source={predictive?.source} wide>
+        <Section
+          title="Predictive checks"
+          {...(predictive?.source === undefined ? {} : { source: predictive.source })}
+          wide
+        >
           <PredictiveFindings findings={findings} entities={context.entities} />
         </Section>
       )}
@@ -90,8 +100,21 @@ export function ConstructScope({ context, id }: { context: ScopeContext; id: Con
   );
 }
 
-export function IdentificationFinding({ context, id }: { context: ScopeContext; id: ConstructId }) {
-  const { identified, notIdentified, namesFor } = constructPresentation(context, id)!;
+export function IdentificationFinding({
+  context,
+  construct,
+}: {
+  context: ScopeContext;
+  construct: ConstructSpec;
+}) {
+  const finding = context.model.findings.identification?.value.treatments[construct.id];
+  const identified = finding?.status === "identified" ? finding : null;
+  const notIdentified = finding?.status === "not_identified" ? finding : null;
+  const namesFor = (ids: readonly ConstructId[]) =>
+    context.entities.constructs
+      .filter((entity) => ids.includes(entity.id))
+      .map((entity) => humanize(entity.name))
+      .join(", ");
   return (
     <>
       {identified && (

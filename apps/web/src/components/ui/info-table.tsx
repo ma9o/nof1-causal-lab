@@ -105,6 +105,7 @@ export function InfoTable<TData>({
     isRowExpanded,
   });
 
+  const visibleItems = new Map(virtualItems.map((item) => [item.index, item]));
   return (
     <div className="overflow-hidden rounded-md border">
       {enableFiltering && (
@@ -186,8 +187,9 @@ export function InfoTable<TData>({
                 <td style={{ height: paddingTop, padding: 0, border: "none" }} />
               </tr>
             )}
-            {virtualItems.map((vi) => {
-              const item = flatItems[vi.index];
+            {flatItems.flatMap((item, index) => {
+              const vi = visibleItems.get(index);
+              if (vi === undefined) return [];
               if (item.kind === "group-header") {
                 return (
                   <TableRow

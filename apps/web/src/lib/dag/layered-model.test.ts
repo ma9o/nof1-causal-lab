@@ -1,3 +1,4 @@
+import { fixtureValue } from "@/components/__fixtures__/fixture-value";
 import { indexModel } from "@/lib/model-asset/entities";
 import { describe, expect, it } from "vitest";
 import { demoSnapshotAt } from "@/components/__fixtures__/demo-artifacts";
@@ -15,8 +16,17 @@ describe("semantic graph layers", () => {
       "specification",
       "fit",
     ]);
-    const revised = structuredClone(demoSnapshotAt(8));
-    revised.findings.fit!.source.validity = "stale";
+    const base = demoSnapshotAt(8);
+    const revised = {
+      ...base,
+      findings: {
+        ...base.findings,
+        fit: {
+          ...fixtureValue(base.findings.fit),
+          source: { ...fixtureValue(base.findings.fit).source, validity: "stale" as const },
+        },
+      },
+    };
     expect(availableGraphLayers(revised)).not.toContain("fit");
   });
 
@@ -37,9 +47,21 @@ describe("semantic graph layers", () => {
     expect(graph.constructs.map((item) => item.id)).toEqual(measured.findings.graph.construct_ids);
     expect(graph.edges.map((item) => item.id)).toEqual(measured.findings.graph.edge_ids);
     // Identification status does not override the backend's retained-state selection.
-    measured.findings.graph.status[graph.constructs[0].id] = "blocking";
-    expect(graphEntities(measured, indexModel(measured.model?.value))).toEqual(graph);
-    expect(measured.model!.value.edges).toHaveLength(32);
+    const marked = {
+      ...measured,
+      findings: {
+        ...measured.findings,
+        graph: {
+          ...measured.findings.graph,
+          status: {
+            ...measured.findings.graph.status,
+            [fixtureValue(graph.constructs[0]).id]: "blocking" as const,
+          },
+        },
+      },
+    };
+    expect(graphEntities(marked, indexModel(marked.model?.value))).toEqual(graph);
+    expect(fixtureValue(measured.model).value.edges).toHaveLength(32);
     expect(
       graphEntities(demoSnapshotAt(2), indexModel(demoSnapshotAt(2).model?.value)).constructs,
     ).toEqual([]);

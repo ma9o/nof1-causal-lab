@@ -1,6 +1,6 @@
 "use client";
 
-import { useQuery } from "@tanstack/react-query";
+import { skipToken, useQuery } from "@tanstack/react-query";
 import { getLLMTraceForAction } from "../api/endpoints";
 
 const LLM_TRACE_QUERY_VERSION = 2;
@@ -25,7 +25,10 @@ export function useLLMTraceForAction(
 ) {
   return useQuery({
     queryKey: getLLMTraceForActionQueryKey(workspaceId, commitId),
-    queryFn: () => getLLMTraceForAction(workspaceId as string, commitId as string, traceIds),
+    queryFn:
+      workspaceId !== null && commitId !== null && traceIds.length > 0
+        ? () => getLLMTraceForAction(workspaceId, commitId, traceIds)
+        : skipToken,
     // An action without traces (e.g. submitted directly through the API) has nothing to fetch.
     enabled: !!workspaceId && commitId != null && traceIds.length > 0 && enabled,
     staleTime: Number.POSITIVE_INFINITY,

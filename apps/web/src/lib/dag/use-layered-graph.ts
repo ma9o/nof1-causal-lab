@@ -95,7 +95,7 @@ export function useLayeredGraph({
         : undefined,
     ]),
   );
-  const indicatorsByConstruct = new Map<ConstructId, IndicatorSpec[]>(
+  const indicatorsByConstruct = new Map<ConstructId, readonly IndicatorSpec[]>(
     visible.has("measurement")
       ? entities.constructs.map((construct) => [construct.id, construct.indicators])
       : [],
@@ -182,16 +182,19 @@ export function useLayeredGraph({
 
   const edgeVisual = (meta: LayeredGraphEdgeMeta) => {
     const disposition = meta.isSelf
-      ? nodeStatuses.get(meta.cause) === "marginalized"
+      ? nodeStatuses.get(meta.cause.id) === "marginalized"
         ? "projected_edge"
         : undefined
-      : edgeDispositions.get(meta.id as import("@nof1-causal-lab/api-types").EdgeId);
-    const posterior = meta.isSelf ? persistencePosteriors[meta.cause] : edgePosteriors[meta.id];
+      : edgeDispositions.get(meta.id);
+    const posterior = meta.isSelf
+      ? persistencePosteriors[meta.cause.id]
+      : Object.entries(edgePosteriors).find(([id]) => id === meta.id)?.[1];
     const blocking =
-      nodeStatuses.get(meta.cause) === "blocking" || nodeStatuses.get(meta.effect) === "blocking";
+      nodeStatuses.get(meta.cause.id) === "blocking" ||
+      nodeStatuses.get(meta.effect.id) === "blocking";
     const marginalized =
-      nodeStatuses.get(meta.cause) === "marginalized" ||
-      nodeStatuses.get(meta.effect) === "marginalized";
+      nodeStatuses.get(meta.cause.id) === "marginalized" ||
+      nodeStatuses.get(meta.effect.id) === "marginalized";
     const color = blocking
       ? BLOCKING
       : marginalized
@@ -204,7 +207,7 @@ export function useLayeredGraph({
     // A coefficient's mean is not the strength or sign of a nonlinear state-dependent effect.
     const width = 1.7;
     const selectedEdge =
-      selectedNode == null || meta.cause === selectedNode || meta.effect === selectedNode;
+      selectedNode == null || meta.cause.id === selectedNode || meta.effect.id === selectedNode;
     const dimmed = !selectedEdge || (hoveredEdge != null && hoveredEdge !== meta.id);
     const opacity = dimmed
       ? 0.1
@@ -217,7 +220,7 @@ export function useLayeredGraph({
     return {
       disposition,
       posterior,
-      laws: meta.isSelf || !lawsVisible ? [] : (edgeLaws.get(meta.id as EdgeId) ?? []),
+      laws: meta.isSelf || !lawsVisible ? [] : (edgeLaws.get(meta.id) ?? []),
       color:
         selection?.kind === "edge" && selection.id === meta.id
           ? "var(--primary)"

@@ -1,14 +1,14 @@
+import type { paths } from "@nof1-causal-lab/api-types/src/generated/model-api";
+import { fixtureValue } from "@/components/__fixtures__/fixture-value";
 import type {
+  ActionAttempt,
   ArtifactRecord,
   DataDiffReport,
   ModelDiffReport,
   ModelSnapshot,
   ModelSpec,
   SimulationReport,
-  SimulationPaths,
   PathSeries,
-  ObservationHistory,
-  MechanismCurves,
   RecordDependency,
   SpecificationReport,
   StudyRevision,
@@ -16,39 +16,40 @@ import type {
   TimelineResponse,
 } from "@nof1-causal-lab/api-types";
 import { delay, HttpResponse, http } from "msw";
-import { modelConstructs } from "@/lib/model-accessors";
+import { presentEntries, modelConstructs } from "@/lib/model-accessors";
 import { demoModelSnapshot, demoSnapshotAt } from "./demo-artifacts";
 import { demoTraces } from "./demo-traces";
+import { posterior } from "./inference-data";
 import comparisonFixture from "./workbench-comparisons.json";
 import visualFixture from "./workbench-visuals.json";
 export const WORKBENCH_WORKSPACE = "STORYBOOK";
 const stamp = "2026-09-16T12:00:00Z";
 // Illustrative interface data. Branch metadata and parameter decisions are staged;
 // retained DEMO evidence is reused for presentation, not claimed as new inference.
-const freeModel = structuredClone(demoModelSnapshot.model!.value);
+const freeModel = structuredClone(fixtureValue(demoModelSnapshot.model).value);
 // Generated and validated by scripts/fixtures/study.py.
-const pinnedModel = comparisonFixture.pinned_model as unknown as ModelSpec;
-const freeInputs = demoModelSnapshot.context.state.current.model!.model_inputs;
+const pinnedModel = comparisonFixture.pinned_model;
+const freeInputs = fixtureValue(demoModelSnapshot.context.state.current.model).model_inputs;
 const pinnedInputs = comparisonFixture.pinned_inputs;
-const definitionComparisons = comparisonFixture.comparisons as unknown as Record<
-  string,
-  Pick<ModelDiffReport, "graph" | "parameters" | "changed_inputs" | "definition_changes">
->;
+const definitionComparisons = comparisonFixture.comparisons;
 const checks: SpecificationReport = {
   findings: [
     {
-      check: "specification",
-      status: "not_evaluated",
-      message: "Specification checks have not been run.",
+      kind: "not_evaluated",
+      subject: "specification",
+      reason: "MODEL_INCOMPLETE",
+      detail: "Specification checks have not been run.",
     },
   ],
 };
 const commitId = (seq: number) => (0xc000000 + seq).toString(16).padEnd(40, "c");
 const modelId = (ordinal: number): string =>
   ordinal <= 4
-    ? demoSnapshotAt([2, 3, 4, 7][ordinal - 1]).context.state.current.model!.revision
+    ? fixtureValue(
+        demoSnapshotAt(fixtureValue([2, 3, 4, 7][ordinal - 1])).context.state.current.model,
+      ).revision
     : ordinal.toString(16).padStart(40, "a");
-const panelId = demoModelSnapshot.context.state.current.panel!.revision;
+const panelId = fixtureValue(demoModelSnapshot.context.state.current.panel).revision;
 const modelRef = (revision: string) => ({
   workspace_id: WORKBENCH_WORKSPACE,
   revision,
@@ -59,28 +60,19 @@ const logRef = (seq: number) => ({
   revision: commitId(seq),
   path: "logs/attempt.json",
 });
-function record(
-  seq: number,
-  action: Pick<StudyRevision, "action" | "inputs">,
-  produced: ArtifactRecord[] = [],
-  diagnostics: StudyRevision["diagnostics"] = {},
-): StudyRevision {
+function record(seq: number, attempt: ActionAttempt, trace_ids: string[] = []): StudyRevision {
   return {
-    seq,
     commit_id: commitId(seq),
     parent_ids: [commitId(seq - 1)],
-    branch: "main",
-    ts: stamp,
-    ...action,
-    produced,
-    diagnostics,
-    messages: [{ timestamp: stamp, level: "info", label: "ACTION_COMPLETED" }],
-    status: "applied",
-    retracted: [],
-    trace_ids: [],
-    reason: null,
-    error_type: null,
-    error_message: null,
+    record: {
+      seq,
+      attempt_id: null,
+      branch: "main",
+      ts: stamp,
+      attempt,
+      trace_ids,
+      messages: [{ timestamp: stamp, level: "info", label: "ACTION_COMPLETED" }],
+    },
   };
 }
 function metadata(
@@ -100,21 +92,23 @@ function metadata(
   };
 }
 function simulation(revision: string): SimulationReport {
-  const outcome = modelConstructs(freeModel).find(
-    (item) => item.name === "internalizing_symptom_burden",
-  )!;
-  const indicator = outcome.indicators.find((item) => item.name === "gad7_screening_score")!;
+  const outcome = fixtureValue(
+    modelConstructs(freeModel).find((item) => item.name === "internalizing_symptom_burden"),
+  );
+  const indicator = fixtureValue(
+    outcome.indicators.find((item) => item.name === "gad7_screening_score"),
+  );
   return {
-    ...structuredClone(visualFixture.report as unknown as SimulationReport),
+    ...structuredClone(visualFixture.report),
     model: modelRef(revision),
-    findings: [outcome.id, indicator.id].map((target) => ({
-      check: "dispersion",
-      target,
-      construct_id: outcome.id,
-      value: "Unavailable",
-      band: "Requires repeated observations across the simulation window.",
-      passed: null,
-      note: "This illustrative record has no observed comparison for the saved simulation draws.",
+    findings: [
+      { kind: "construct" as const, id: outcome.id },
+      { kind: "indicator" as const, id: indicator.id },
+    ].map((target) => ({
+      kind: "not_evaluated" as const,
+      subject: { check: "dispersion", target, construct_id: outcome.id },
+      reason: "COMPARISON_INPUTS_MISSING" as const,
+      detail: "This illustrative record has no observed comparison for the saved simulation draws.",
     })),
     ...(revision === modelId(7)
       ? {
@@ -129,18 +123,10 @@ const simulations = new Map([
   [5, simulation(modelId(5))],
   [7, simulation(modelId(7))],
 ]);
-function simulationInputs(report: SimulationReport) {
-  return {
-    model_revision: report.model.revision,
-    start: report.design.start ?? null,
-    end: report.design.end,
-    interventions: report.design.interventions.map((event) => ({ ...event })),
-  };
-}
 const models = new Map<string, ModelSpec>(
   [1, 2, 3, 4].map((revision) => {
-    const seq = [2, 3, 4, 7][revision - 1];
-    return [modelId(revision), demoSnapshotAt(seq).model!.value];
+    const seq = fixtureValue([2, 3, 4, 7][revision - 1]);
+    return [modelId(revision), fixtureValue(demoSnapshotAt(seq).model).value];
   }),
 );
 models.set(modelId(5), freeModel);
@@ -148,9 +134,11 @@ models.set(modelId(6), freeModel);
 models.set(modelId(7), pinnedModel);
 const snapshots = new Map<number, ModelSnapshot>(
   [0, 1, 2, 3, 4, 5, 7].map((seq) => {
-    const snapshot = structuredClone(demoSnapshotAt(seq));
-    snapshot.context.workspace_id = WORKBENCH_WORKSPACE;
-    return [seq, snapshot];
+    const snapshot = demoSnapshotAt(seq);
+    return [
+      seq,
+      { ...snapshot, context: { ...snapshot.context, workspace_id: WORKBENCH_WORKSPACE } },
+    ];
   }),
 );
 function branchSnapshot(
@@ -159,40 +147,54 @@ function branchSnapshot(
   fitted: boolean,
   report?: SimulationReport,
 ): ModelSnapshot {
-  const snapshot = structuredClone(demoModelSnapshot);
-  snapshot.context.workspace_id = WORKBENCH_WORKSPACE;
-  snapshot.context.seq = seq;
-  snapshot.context.state.current.model = info;
-  snapshot.model = {
-    value: models.get(info.revision)!,
-    source: {
-      ref: modelRef(info.revision),
-      pointer: "",
-      validity: "fresh",
+  const snapshot = demoModelSnapshot;
+  const model = {
+    value: fixtureValue(models.get(info.revision)),
+    source: { ref: modelRef(info.revision), pointer: "", validity: "fresh" as const },
+  };
+  return {
+    ...snapshot,
+    context: {
+      ...snapshot.context,
+      workspace_id: WORKBENCH_WORKSPACE,
+      seq,
+      state: {
+        ...snapshot.context.state,
+        current: { ...snapshot.context.state.current, model: info },
+      },
+    },
+    model,
+    findings: {
+      ...snapshot.findings,
+      specification: {
+        value: checks,
+        source: { ref: logRef(seq), pointer: "/attempt/outcome/result/checks", validity: "fresh" },
+      },
+      dispositions: snapshot.findings.dispositions
+        ? { ...snapshot.findings.dispositions, source: model.source }
+        : null,
+      fit: snapshot.findings.fit
+        ? {
+            ...snapshot.findings.fit,
+            source: {
+              ref: logRef(info.revision === modelId(5) ? 8 : 10),
+              pointer: "/attempt/outcome/result/report",
+              validity: fitted ? "fresh" : "stale",
+            },
+          }
+        : null,
+      simulation: report
+        ? {
+            value: report,
+            source: {
+              ref: logRef(seq),
+              pointer: "/attempt/outcome/result/report",
+              validity: "fresh",
+            },
+          }
+        : null,
     },
   };
-  snapshot.findings.specification = {
-    value: checks,
-    source: {
-      ref: logRef(seq),
-      pointer: "/diagnostics/checks",
-      validity: "fresh",
-    },
-  };
-  if (snapshot.findings.dispositions) snapshot.findings.dispositions.source = snapshot.model.source;
-  if (snapshot.findings.fit)
-    snapshot.findings.fit.source = {
-      ref: logRef(info.revision === modelId(5) ? 8 : 10),
-      pointer: "/diagnostics/report",
-      validity: fitted ? "fresh" : "stale",
-    };
-  snapshot.findings.simulation = report
-    ? {
-        value: report,
-        source: { ref: logRef(seq), pointer: "/diagnostics/report", validity: "fresh" },
-      }
-    : null;
-  return snapshot;
 }
 const v5 = metadata(modelId(5), modelId(4), "fit", freeInputs);
 const v6 = metadata(modelId(6), modelId(4), "fit", freeInputs);
@@ -202,209 +204,11 @@ snapshots.set(9, branchSnapshot(9, v5, true, simulations.get(5)));
 snapshots.set(10, branchSnapshot(10, v6, true));
 snapshots.set(11, branchSnapshot(11, v7, false));
 snapshots.set(12, branchSnapshot(12, v7, false, simulations.get(7)));
-const journal: StudyRevision[] = [
-  record(
-    1,
-    {
-      action: "prepare_data",
-      inputs: {},
-    },
-    [snapshots.get(1)!.context.state.current.raw_data!],
-  ),
-  record(
-    2,
-    {
-      action: "edit_model",
-      inputs: { expected_revision: null },
-    },
-    [snapshots.get(2)!.context.state.current.model!],
-  ),
-  {
-    ...record(
-      3,
-      {
-        action: "edit_model",
-        inputs: {},
-      },
-      [snapshots.get(3)!.context.state.current.model!],
-    ),
-    trace_ids: ["latent_structure"],
-  },
-  {
-    ...record(
-      4,
-      {
-        action: "edit_model",
-        inputs: {},
-      },
-      [snapshots.get(4)!.context.state.current.model!],
-    ),
-    trace_ids: ["measurement_structure"],
-  },
-  {
-    ...record(
-      5,
-      {
-        action: "prepare_data",
-        inputs: {
-          input: {
-            source: { file: "demo-observations.parquet" },
-            variables: snapshots
-              .get(5)!
-              .data.metadata!.value.variables.map((variable) => ({ ...variable })),
-          },
-        },
-      },
-      [snapshots.get(5)!.context.state.current.panel!],
-    ),
-    messages: [{ timestamp: stamp, level: "warn", label: "EXTRACTION_PARTIAL" }],
-  },
-  {
-    ...record(6, {
-      action: "edit_model",
-      inputs: {},
-    }),
-    status: "raised",
-    error_type: "ValueError",
-    error_message:
-      "Parameter proposal was rejected.\nTraceback: illustrative full failure details are retained here, never on the timeline tick.",
-  },
-  {
-    ...record(
-      7,
-      {
-        action: "edit_model",
-        inputs: {},
-      },
-      [snapshots.get(7)!.context.state.current.model!],
-    ),
-    trace_ids: ["statistical_model_spec"],
-  },
-  record(
-    8,
-    {
-      action: "fit",
-      inputs: { model_revision: modelId(4), panel_revision: panelId },
-    },
-    [v5],
-  ),
-  record(9, {
-    action: "simulate",
-    inputs: simulationInputs(simulations.get(5)!),
-  }),
-  record(
-    10,
-    {
-      action: "fit",
-      inputs: { model_revision: modelId(4), panel_revision: panelId },
-    },
-    [v6],
-  ),
-  record(
-    11,
-    {
-      action: "edit_model",
-      inputs: { expected_revision: modelId(6) },
-    },
-    [v7],
-  ),
-  record(12, {
-    action: "simulate",
-    inputs: simulationInputs(simulations.get(7)!),
-  }),
-  record(13, {
-    action: "data_diff",
-    inputs: {
-      left: { kind: "panel", revision: panelId },
-      right: { kind: "simulation", revision: commitId(9) },
-    },
-  }),
-];
-// This scenario includes a convergence warning and paired saved summaries.
-journal
-  .find((entry) => entry.seq === 8)!
-  .messages.push({ timestamp: stamp, level: "warn", label: "CONVERGENCE_CHECK_FAILED" });
-for (const seq of [8, 9]) {
-  const fit = snapshots.get(seq)!.findings.fit!.value;
-  const mcmc = fit.report.inference_diagnostics.mcmc as unknown as {
-    per_parameter: Array<{
-      parameter: string;
-      subject: import("@nof1-causal-lab/api-types").ParameterRef;
-      r_hat: number;
-    }>;
-  };
-  const row = mcmc.per_parameter[0];
-  row.r_hat = 1.08;
-  fit.convergence = {
-    ...fit.convergence,
-    passed: false,
-    failures: [
-      {
-        parameter: row.parameter,
-        subject: row.subject,
-        criterion: "R-hat < 1.01",
-      },
-    ],
-  };
-}
-// Explicit illustrative Git topology: alternative forks from version 7.
-for (const [seq, snapshot] of snapshots) {
-  snapshot.context.commit_id = commitId(seq);
-  snapshot.context.branch = seq >= 10 ? "alternative" : "main";
-}
-const commitParents: Record<number, number> = {
-  1: 0,
-  2: 1,
-  3: 2,
-  4: 3,
-  5: 4,
-  7: 5,
-  8: 7,
-  9: 8,
-  10: 7,
-  11: 10,
-  12: 11,
-  13: 9,
-};
-for (const entry of journal) {
-  if (entry.seq >= 10 && entry.seq <= 12) entry.branch = "alternative";
-  entry.parent_ids = [commitId(entry.seq === 6 ? 5 : commitParents[entry.seq])];
-}
-const branches = { main: commitId(9), alternative: commitId(12) };
-// Backend-shaped argument dependencies for the journal above, as the timeline route serves them.
-const dependencies: RecordDependency[] = (
-  [
-    [3, 2, "model"],
-    [4, 3, "model"],
-    [6, 4, "model"],
-    [7, 4, "model"],
-    [7, 5, "data_profile", true],
-    [8, 4, "model"],
-    [8, 5, "panel"],
-    [9, 8, "model"],
-    [10, 4, "model"],
-    [10, 5, "panel"],
-    [11, 10, "model"],
-    [12, 11, "model"],
-    [13, 5, "left"],
-    [13, 9, "right"],
-  ] as const
-).map(([seq, source_seq, argument, check = false]) => ({ seq, source_seq, argument, check }));
-const snapshotByCommit = (id: string | null) =>
-  [...snapshots.values()].find((snapshot) => snapshot.context.commit_id === id);
-const snapshotByModelRef = (id: string | null) =>
-  snapshotByCommit(id) ??
-  [...snapshots.values()].find((snapshot) => snapshot.model?.source.ref.revision === id);
-export const workbenchTraces = new Map([
-  [3, demoTraces.latent_structure],
-  [4, demoTraces.measurement_structure],
-  [7, demoTraces.statistical_model_spec],
-]);
-export const workbenchQuestion = freeModel.question ?? undefined;
-/** Exercise the real UI requests with isolated, explicit story responses. */
-const comparisonIndicator = modelConstructs(freeModel)
-  .flatMap((construct) => construct.indicators)
-  .find((indicator) => indicator.name === "gad7_screening_score")!;
+const comparisonIndicator = fixtureValue(
+  modelConstructs(freeModel)
+    .flatMap((construct) => construct.indicators)
+    .find((indicator) => indicator.name === "gad7_screening_score"),
+);
 const comparedSeries = (values: number[]) => ({
   variable: comparisonIndicator,
   time_origin: "2026-01-01T00:00:00Z",
@@ -430,6 +234,7 @@ const dataComparison: DataDiffReport = {
       statistics: [
         {
           statistic: "mean",
+          level: null,
           left: [2.67],
           right: [1, 2, 3],
           left_histogram: [{ bin_center: 2.67, bin_start: 2.5, bin_end: 3, count: 1 }],
@@ -446,11 +251,23 @@ const dataComparison: DataDiffReport = {
         n_subsample: 3,
         per_variable_warnings: [
           {
-            indicator_id: comparisonIndicator.id,
-            check_type: "calibration",
-            message: "Observed values fall outside the replicated range.",
-            value: 0.67,
-            passed: false,
+            kind: "evaluated",
+            subject: {
+              target: { kind: "indicator", id: comparisonIndicator.id },
+              check: "calibration",
+            },
+            outcome: "warning",
+            evidence: {
+              criterion: "calibration",
+              note: "Observed values fall outside the replicated range.",
+              value: 0.67,
+              lower: 0.7,
+              upper: 0.98,
+              lower_inclusive: true,
+              upper_inclusive: true,
+              display_value: "",
+              band_label: "",
+            },
           },
         ],
         test_stats: [
@@ -485,14 +302,341 @@ const dataComparison: DataDiffReport = {
   ],
 };
 
+export const workbenchJournal: StudyRevision[] = [
+  record(1, {
+    action: "prepare_data",
+    request: null,
+    outcome: {
+      status: "applied",
+      result: {
+        action: "prepare_data",
+        produced: [fixtureValue(fixtureValue(snapshots.get(1)).context.state.current.raw_data)],
+        retracted: [],
+        checks: null,
+        raw_data: null,
+        model: null,
+        simulation_source: null,
+        n_observations: null,
+        workers: [],
+        ingestion_reused: null,
+        extraction_reused: null,
+      },
+    },
+  }),
+  ...[2, 3, 4].map((seq) =>
+    record(
+      seq,
+      {
+        action: "edit_model",
+        request: null,
+        outcome: {
+          status: "applied",
+          result: {
+            action: "edit_model",
+            produced: [fixtureValue(fixtureValue(snapshots.get(seq)).context.state.current.model)],
+            retracted: [],
+            checks: null,
+            base: seq === 2 ? null : modelRef(modelId(seq - 2)),
+          },
+        },
+      },
+      seq === 2 ? [] : [seq === 3 ? "latent_structure" : "measurement_structure"],
+    ),
+  ),
+  record(5, {
+    action: "prepare_data",
+    request: null,
+    outcome: {
+      status: "applied",
+      result: {
+        action: "prepare_data",
+        produced: [fixtureValue(fixtureValue(snapshots.get(5)).context.state.current.panel)],
+        retracted: [],
+        checks: null,
+        raw_data: null,
+        model: modelRef(modelId(3)),
+        simulation_source: null,
+        n_observations: null,
+        ingestion_reused: null,
+        extraction_reused: null,
+        workers: [
+          {
+            worker_id: 0,
+            status: "failed",
+            n_extractions: 0,
+            n_windows: 1,
+            n_llm_calls: null,
+            error: "Illustrative extraction failure",
+            reused: null,
+          },
+        ],
+      },
+    },
+  }),
+  record(6, {
+    action: "edit_model",
+    request: null,
+    outcome: {
+      status: "raised",
+      error_type: "ProposalError",
+      error_message:
+        "Parameter proposal failed.\nTraceback: illustrative full failure details are retained here.",
+      details: [],
+    },
+  }),
+  record(
+    7,
+    {
+      action: "edit_model",
+      request: null,
+      outcome: {
+        status: "applied",
+        result: {
+          action: "edit_model",
+          produced: [fixtureValue(fixtureValue(snapshots.get(7)).context.state.current.model)],
+          retracted: [],
+          checks: null,
+          base: modelRef(modelId(3)),
+        },
+      },
+    },
+    ["statistical_model_spec"],
+  ),
+  record(8, {
+    action: "fit",
+    request: null,
+    outcome: {
+      status: "applied",
+      result: {
+        action: "fit",
+        produced: [v5],
+        retracted: [],
+        checks: null,
+        model: modelRef(modelId(4)),
+        panel: { ...modelRef(panelId), path: "panel.parquet" },
+        report: posterior,
+        retention: "report_only",
+      },
+    },
+  }),
+  record(9, {
+    action: "simulate",
+    request: null,
+    outcome: {
+      status: "applied",
+      result: {
+        action: "simulate",
+        produced: [],
+        retracted: [],
+        checks: null,
+        panel: { ...modelRef(panelId), path: "panel.parquet" },
+        report: fixtureValue(simulations.get(5)),
+      },
+    },
+  }),
+  record(10, {
+    action: "fit",
+    request: null,
+    outcome: {
+      status: "applied",
+      result: {
+        action: "fit",
+        produced: [v6],
+        retracted: [],
+        checks: null,
+        model: modelRef(modelId(4)),
+        panel: { ...modelRef(panelId), path: "panel.parquet" },
+        report: posterior,
+        retention: "report_only",
+      },
+    },
+  }),
+  record(11, {
+    action: "edit_model",
+    request: null,
+    outcome: {
+      status: "applied",
+      result: {
+        action: "edit_model",
+        produced: [v7],
+        retracted: [],
+        checks: null,
+        base: modelRef(modelId(6)),
+      },
+    },
+  }),
+  record(12, {
+    action: "simulate",
+    request: null,
+    outcome: {
+      status: "applied",
+      result: {
+        action: "simulate",
+        produced: [],
+        retracted: [],
+        checks: null,
+        panel: { ...modelRef(panelId), path: "panel.parquet" },
+        report: fixtureValue(simulations.get(7)),
+      },
+    },
+  }),
+  record(13, {
+    action: "data_diff",
+    request: {
+      action: "data_diff",
+      left: fixtureValue(dataComparison.left[0]),
+      right: fixtureValue(dataComparison.right[0]),
+    },
+    outcome: {
+      status: "applied",
+      result: {
+        action: "data_diff",
+        produced: [],
+        retracted: [],
+        checks: null,
+        report: dataComparison,
+      },
+    },
+  }),
+];
+const journal = workbenchJournal;
+// This scenario includes a convergence warning and paired saved summaries.
+const warned = journal.findIndex((entry) => entry.record.seq === 8);
+const warnedEntry = fixtureValue(journal[warned]);
+journal[warned] = {
+  ...warnedEntry,
+  record: {
+    ...warnedEntry.record,
+    messages: [
+      ...warnedEntry.record.messages,
+      { timestamp: stamp, level: "warn", label: "CONVERGENCE_CHECK_FAILED" },
+    ],
+  },
+};
+for (const seq of [8, 9]) {
+  const fit = fixtureValue(fixtureValue(snapshots.get(seq)).findings.fit).value;
+  const row = fit.report.inference_diagnostics?.per_parameter.at(0);
+  if (!row) throw new Error("The fixture fit requires recorded parameter diagnostics");
+  const snapshot = fixtureValue(snapshots.get(seq));
+  const sourced = fixtureValue(snapshot.findings.fit);
+  snapshots.set(seq, {
+    ...snapshot,
+    findings: {
+      ...snapshot.findings,
+      fit: {
+        ...sourced,
+        value: {
+          ...fit,
+          report: {
+            ...fit.report,
+            convergence: {
+              ...fit.report.convergence,
+              status: "failed",
+              messages: [`R-hat fails for ${row.parameter}: 1.08`],
+              assessments: [
+                {
+                  kind: "evaluated",
+                  subject: { parameter: row.subject, criterion: "r_hat", label: row.parameter },
+                  outcome: "failed",
+                  evidence: {
+                    criterion: "r_hat",
+                    value: 1.08,
+                    lower: null,
+                    upper: 1.01,
+                    lower_inclusive: true,
+                    upper_inclusive: false,
+                    note: row.parameter,
+                    display_value: "",
+                    band_label: "",
+                  },
+                },
+              ],
+            },
+          },
+        },
+      },
+    },
+  });
+}
+// Explicit illustrative Git topology: alternative forks from version 7.
+for (const [seq, snapshot] of snapshots) {
+  snapshots.set(seq, {
+    ...snapshot,
+    context: {
+      ...snapshot.context,
+      commit_id: commitId(seq),
+      branch: seq >= 10 ? "alternative" : "main",
+    },
+  });
+}
+const commitParents: Record<number, number> = {
+  1: 0,
+  2: 1,
+  3: 2,
+  4: 3,
+  5: 4,
+  7: 5,
+  8: 7,
+  9: 8,
+  10: 7,
+  11: 10,
+  12: 11,
+  13: 9,
+};
+for (const [index, entry] of journal.entries()) {
+  journal[index] = {
+    ...entry,
+    record: {
+      ...entry.record,
+      branch:
+        entry.record.seq >= 10 && entry.record.seq <= 12 ? "alternative" : entry.record.branch,
+    },
+    parent_ids: [
+      commitId(entry.record.seq === 6 ? 5 : fixtureValue(commitParents[entry.record.seq])),
+    ],
+  };
+}
+const branches = { main: commitId(9), alternative: commitId(12) };
+// Backend-shaped argument dependencies for the journal above, as the timeline route serves them.
+const dependencies: RecordDependency[] = (
+  [
+    [3, 2, "model"],
+    [4, 3, "model"],
+    [6, 4, "model"],
+    [7, 4, "model"],
+    [7, 5, "data_profile", true],
+    [8, 4, "model"],
+    [8, 5, "panel"],
+    [9, 8, "model"],
+    [10, 4, "model"],
+    [10, 5, "panel"],
+    [11, 10, "model"],
+    [12, 11, "model"],
+    [13, 5, "left"],
+    [13, 9, "right"],
+  ] as const
+).map(([seq, source_seq, argument, check = false]) => ({ seq, source_seq, argument, check }));
+const snapshotByCommit = (id: string | null) =>
+  [...snapshots.values()].find((snapshot) => snapshot.context.commit_id === id);
+const snapshotByModelRef = (id: string | null) =>
+  snapshotByCommit(id) ??
+  [...snapshots.values()].find((snapshot) => snapshot.model?.source.ref.revision === id);
+export const workbenchTraces = new Map([
+  [3, demoTraces.latent_structure],
+  [4, demoTraces.measurement_structure],
+  [7, demoTraces.statistical_model_spec],
+]);
+export const workbenchQuestion = freeModel.question ?? undefined;
+/** Exercise the real UI requests with isolated, explicit story responses. */
+
 export function workbenchHandlers() {
   // Only the journal fields are illustrated; this story reads no artifact freshness.
   const status = (): StudyStatus => ({
     workspace_id: WORKBENCH_WORKSPACE,
     branch: "main",
     commit_id: branches.main,
-    seq: journal.at(-1)!.seq,
-    state: { current: {} },
+    seq: fixtureValue(journal.at(-1)).record.seq,
+    state: { current: {}, checks: null },
     artifacts: [],
     actions: ["edit_model", "prepare_data", "fit", "simulate"],
     // A fit dispatched after the alternative branch's simulation is still executing.
@@ -510,21 +654,17 @@ export function workbenchHandlers() {
     dependencies,
   });
   return [
-    http.get(`/api/studies/${WORKBENCH_WORKSPACE}/data-diff/:commit`, () =>
-      HttpResponse.json(dataComparison),
-    ),
     http.get(
       `/api/studies/${WORKBENCH_WORKSPACE}/model/visuals/observations/:indicator`,
       ({ params, request }) => {
         const snapshot = snapshotByCommit(
           new URL(request.url).searchParams.get("at") ?? branches.alternative,
         );
-        const histories = visualFixture.observations as unknown as Record<
-          string,
-          ObservationHistory
-        >;
+        const histories = visualFixture.observations;
         return HttpResponse.json(
-          snapshot?.data.metadata ? (histories[String(params.indicator)] ?? null) : null,
+          snapshot?.data.metadata
+            ? (presentEntries(histories).find(([id]) => id === params.indicator)?.[1] ?? null)
+            : null,
         );
       },
     ),
@@ -538,7 +678,7 @@ export function workbenchHandlers() {
       const query = new URL(request.url).searchParams;
       const snapshot = snapshotByCommit(query.get("at") ?? branches.alternative);
       if (!snapshot?.findings.simulation) return HttpResponse.json(null);
-      const source = structuredClone(visualFixture.simulation as unknown as SimulationPaths);
+      const source = structuredClone(visualFixture.simulation);
       const start = Number(query.get("start") ?? 0),
         count = Number(query.get("count") ?? 24);
       const page = (series: PathSeries) => ({
@@ -551,10 +691,10 @@ export function workbenchHandlers() {
         start,
         count: Math.min(count, source.total_draws - start),
         states: Object.fromEntries(
-          Object.entries(source.states).map(([id, series]) => [id, page(series)]),
+          presentEntries(source.states).map(([id, series]) => [id, page(series)]),
         ),
         indicators: Object.fromEntries(
-          Object.entries(source.indicators).map(([id, series]) => [id, page(series)]),
+          presentEntries(source.indicators).map(([id, series]) => [id, page(series)]),
         ),
         effect:
           source.effect && snapshot.findings.simulation.value.causal_result
@@ -562,48 +702,40 @@ export function workbenchHandlers() {
             : null,
       });
     }),
-    http.post(
-      `/api/studies/${WORKBENCH_WORKSPACE}/model/visuals/mechanism`,
-      async ({ request }) => {
-        const input = (await request.json()) as {
-          owner_id: string;
-          lower: number;
-          upper: number;
-          start: number;
-          moderator?: string | null;
-          points: number;
-          count: number;
-          axis?: string | null;
-          held: Record<string, number>;
-        };
-        const curves = (
-          visualFixture.mechanisms as unknown as Partial<Record<string, MechanismCurves>>
-        )[input.owner_id];
-        return curves &&
-          input.lower === -3 &&
-          input.upper === 3 &&
-          input.start >= 0 &&
-          input.start < curves.count &&
-          !input.moderator &&
-          (!input.axis || input.axis === curves.axis) &&
-          Object.entries(input.held).every(([id, value]) => curves.held[id] === value) &&
-          input.points === 201
-          ? HttpResponse.json({
-              ...curves,
-              total_draws: curves.count,
-              start: input.start,
-              count: Math.min(input.count, curves.count - input.start),
-              curves: curves.curves.slice(input.start, input.start + input.count),
-            })
-          : HttpResponse.json(
-              {
-                detail:
-                  "This recorded story includes the default response viewport; use a live workspace to evaluate other conditions.",
-              },
-              { status: 422 },
-            );
-      },
-    ),
+    http.post<
+      Record<string, never>,
+      Required<
+        paths["/api/studies/{workspace_id}/model/visuals/mechanism"]["post"]["requestBody"]["content"]["application/json"]
+      >
+    >(`/api/studies/${WORKBENCH_WORKSPACE}/model/visuals/mechanism`, async ({ request }) => {
+      const input = await request.json();
+      const curves = visualFixture.mechanisms[input.owner_id];
+      return curves &&
+        input.lower === -3 &&
+        input.upper === 3 &&
+        input.start >= 0 &&
+        input.start < curves.count &&
+        !input.moderator &&
+        (!input.axis || input.axis === curves.axis) &&
+        Object.entries(input.held).every(([id, value]) =>
+          presentEntries(curves.held).some(([key, held]) => key === id && held === value),
+        ) &&
+        input.points === 201
+        ? HttpResponse.json({
+            ...curves,
+            total_draws: curves.count,
+            start: input.start,
+            count: Math.min(input.count, curves.count - input.start),
+            curves: curves.curves.slice(input.start, input.start + input.count),
+          })
+        : HttpResponse.json(
+            {
+              detail:
+                "This recorded story includes the default response viewport; use a live workspace to evaluate other conditions.",
+            },
+            { status: 422 },
+          );
+    }),
     http.get(`/api/studies/${WORKBENCH_WORKSPACE}/model/inference-report`, ({ request }) => {
       const snapshot = snapshotByCommit(
         new URL(request.url).searchParams.get("at") ?? branches.alternative,
@@ -631,10 +763,10 @@ export function workbenchHandlers() {
       const after = snapshotByModelRef(query.get("after"));
       if (!before?.model || !after?.model)
         return HttpResponse.json({ error: "Unknown story version" }, { status: 404 });
-      const beforeVersion = before.context.state.current.model!.revision;
-      const afterVersion = after.context.state.current.model!.revision;
+      const beforeVersion = fixtureValue(before.context.state.current.model).revision;
+      const afterVersion = fixtureValue(after.context.state.current.model).revision;
       return HttpResponse.json({
-        ...definitionComparisons[`${beforeVersion}:${afterVersion}`],
+        ...fixtureValue(definitionComparisons[`${beforeVersion}:${afterVersion}`]),
         before: { ...logRef(before.context.seq), path: "artifacts/model/model.json" },
         after: { ...logRef(after.context.seq), path: "artifacts/model/model.json" },
         before_checks: checks,

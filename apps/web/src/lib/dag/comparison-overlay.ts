@@ -1,7 +1,7 @@
 import type { ConstructId, ConstructSpec, ModelDiffReport } from "@nof1-causal-lab/api-types";
 import type { DagLayoutNode, Point } from "@/lib/utils/dag-graph-layout";
 import { humanize } from "@/lib/model-asset/selection";
-import { ghostId } from "@/lib/dag/unroll";
+import { ghostId, isGhost } from "@/lib/dag/unroll";
 import {
   LAYERED_NODE_HEIGHT,
   LAYERED_NODE_WIDTH,
@@ -43,7 +43,8 @@ export function placeComparisonOverlay(
 
   const addNode = (construct: ConstructSpec, history = false) => {
     const id = history ? ghostId(construct.id) : construct.id;
-    if (positions.has(id)) return;
+    const existing = positions.get(id);
+    if (existing) return existing;
     const node = {
       id,
       x: width + 60,
@@ -55,10 +56,14 @@ export function placeComparisonOverlay(
     addedNodes.push({ node, construct, history });
     overlayWidth = Math.max(overlayWidth, node.x + node.width);
     overlayHeight = Math.max(overlayHeight, node.y + node.height);
+    return node;
   };
-  const addEdge = (id: string, sourceId: string, targetId: string, crossSlice: boolean) => {
-    const source = positions.get(sourceId)!,
-      target = positions.get(targetId)!;
+  const addEdge = (
+    id: string,
+    source: DagLayoutNode,
+    target: DagLayoutNode,
+    crossSlice: boolean,
+  ) => {
     const start = { x: source.x + source.width, y: source.y + source.height / 2 };
     const end = { x: target.x, y: target.y + target.height / 2 };
     const middle = (start.x + end.x) / 2;
@@ -70,47 +75,60 @@ export function placeComparisonOverlay(
     return { id, x: middle, y: (start.y + end.y) / 2, width: 0, height: 0 };
   };
   for (const item of comparison?.graph.constructs ?? []) {
-    if (item.change === "unchanged") continue;
-    constructChanges.set(item.construct_id, item.change);
-    if (item.after) {
-      if (!item.before) addNode(item.after);
+    const change = item.change;
+    if (change.kind === "unchanged") continue;
+    constructChanges.set(item.construct_id, change.kind);
+    const definition = change.kind === "removed" ? change.before : change.after;
+    const node = change.kind === "added" ? addNode(change.after) : positions.get(item.construct_id);
+    if (!node) continue;
+    if (change.kind !== "removed") {
       if (dynamicIds.has(item.construct_id) && !previousDynamicIds.has(item.construct_id)) {
-        addNode(item.after, true);
-        addEdge(`self:${item.construct_id}`, ghostId(item.construct_id), item.construct_id, true);
+        const source = addNode(change.after, true);
+        addEdge(`self:${item.construct_id}`, source, node, true);
       }
     }
     if (previousDynamicIds.has(item.construct_id) && !dynamicIds.has(item.construct_id)) {
       edgeChanges.set(`self:${item.construct_id}`, "removed");
     }
-    const exclusion = item.change === "removed" ? item.after_disposition : null;
-    const node = positions.get(item.construct_id)!;
+    const exclusion = change.kind === "removed" ? item.after_disposition : null;
     marks.push({
       id: item.construct_id,
       x: node.x + node.width,
       y: node.y,
-      change: item.change,
-      title: `${exclusion ? "Excluded" : item.change === "revised" ? "Changed" : humanize(item.change)} construct`,
+      change: change.kind,
+      title: `${exclusion ? "Excluded" : change.kind === "revised" ? "Changed" : humanize(change.kind)} construct`,
       detail: exclusion
         ? `${humanize(exclusion.disposition)}: ${exclusion.reason}`
-        : item.change === "revised"
+        : change.kind === "revised"
           ? dynamicIds.has(item.construct_id)
             ? "History node and persistence added"
             : "History node and persistence removed"
-          : humanize((item.after ?? item.before)!.name),
+          : humanize(definition.name),
     });
   }
   for (const item of comparison?.graph.edges ?? []) {
-    if (item.change === "unchanged") continue;
-    edgeChanges.set(item.edge_id, item.change);
+    const change = item.change;
+    if (change.kind === "unchanged") continue;
+    edgeChanges.set(item.edge_id, change.kind);
+    const definition = change.kind === "removed" ? change.before : change.after;
     const existing = topology.edgeMeta.get(item.edge_id);
     let anchor = existing ? positions.get(existing.slotId) : undefined;
-    if (item.after) {
-      const cause = constructs.get(item.after.cause.id)!.after!;
-      const sourceId = dynamicIds.has(cause.id) ? ghostId(cause.id) : cause.id;
-      if (sourceId !== cause.id) addNode(cause, true);
-      if (!existing || existing.source !== sourceId || existing.target !== item.after.effect.id) {
+    if (change.kind !== "removed") {
+      const causeChange = constructs.get(change.after.cause.id)?.change;
+      const cause = causeChange && causeChange.kind !== "removed" ? causeChange.after : undefined;
+      const target = positions.get(change.after.effect.id);
+      const source = cause
+        ? dynamicIds.has(cause.id)
+          ? addNode(cause, true)
+          : positions.get(cause.id)
+        : undefined;
+      if (
+        source &&
+        target &&
+        (!existing || existing.source !== source.id || existing.target !== target.id)
+      ) {
         if (existing) edgeChanges.set(item.edge_id, "removed");
-        anchor = addEdge(item.edge_id, sourceId, item.after.effect.id, dynamicIds.has(cause.id));
+        anchor = addEdge(item.edge_id, source, target, isGhost(source.id));
       }
     }
     if (anchor)
@@ -118,12 +136,12 @@ export function placeComparisonOverlay(
         id: item.edge_id,
         x: anchor.x + anchor.width / 2,
         y: anchor.y + anchor.height / 2,
-        change: item.change,
-        title: `${item.change === "revised" ? "Rerouted" : humanize(item.change)} connection`,
+        change: change.kind,
+        title: `${change.kind === "revised" ? "Rerouted" : humanize(change.kind)} connection`,
         detail:
-          item.change === "removed" && item.after_disposition
+          change.kind === "removed" && item.after_disposition
             ? `${humanize(item.after_disposition.disposition)}: ${item.after_disposition.reason}`
-            : (item.after ?? item.before)!.description,
+            : definition.description,
       });
   }
   return {

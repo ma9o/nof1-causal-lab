@@ -1,5 +1,6 @@
-import type { PredictiveCheckFinding } from "@nof1-causal-lab/api-types";
-import type { ModelEntities } from "@/lib/model-asset/entities";
+import { presentEntries } from "@/lib/model-accessors";
+import type { ModelPredictiveReport } from "@nof1-causal-lab/api-types";
+import { resolveEntity, type ModelEntities } from "@/lib/model-asset/entities";
 import type { ScopeContext } from "@/lib/model-asset/scope";
 import { formatPlain, humanize } from "@/lib/model-asset/selection";
 import { hasCausalEffects } from "@/lib/simulation-report";
@@ -30,8 +31,11 @@ export function SimulationEvidence({ context }: { context: ScopeContext }) {
           <>
             <Hint>
               Certified effect on{" "}
-              {humanize(report.causal_result.labels[report.causal_result.outcome])} at the end of
-              the simulation.
+              {humanize(
+                report.causal_result.labels[report.causal_result.outcome] ??
+                  report.causal_result.outcome,
+              )}{" "}
+              at the end of the simulation.
             </Hint>
             <KeyValue
               rows={[
@@ -82,7 +86,7 @@ export function SimulationEvidence({ context }: { context: ScopeContext }) {
         )}
       </Section>
       {(["states", "indicators"] as const).flatMap((kind) =>
-        Object.entries(report.predictive[kind]).map(([id, series]) => (
+        presentEntries(report.predictive[kind]).map(([id, series]) => (
           <Section key={id} title={humanize(series.label)} source={simulation.source} wide>
             <SimulationHistory model={model} id={id} kind={kind} summary={series} />
           </Section>
@@ -101,7 +105,7 @@ export function PredictiveFindings({
   findings,
   entities,
 }: {
-  findings: PredictiveCheckFinding[];
+  findings: ModelPredictiveReport["findings"];
   entities: ModelEntities;
 }) {
   const names = new Map<string, string>([
@@ -109,10 +113,10 @@ export function PredictiveFindings({
       entity.id,
       entity.name,
     ]),
-    ...entities.edges.map((edge): [string, string] => [
-      edge.id,
-      `${entities.constructById.get(edge.cause.id)!.name} → ${entities.constructById.get(edge.effect.id)!.name}`,
-    ]),
+    ...entities.edges.flatMap((edge): [string, string][] => {
+      const entity = resolveEntity(entities, { kind: "edge", id: edge.id });
+      return entity ? [[edge.id, entity.label]] : [];
+    }),
   ]);
   if (findings.length === 0) return null;
   return (
@@ -125,32 +129,54 @@ export function PredictiveFindings({
         </tr>
       </thead>
       <tbody>
-        {findings.map((finding) => (
-          <tr key={`${finding.check}-${finding.target}`} className="border-t align-top">
-            <td className="py-2 pr-2">
-              <div className="flex items-start gap-1">
-                {finding.passed !== null && (
-                  <StatusIcon status={finding.passed ? "passed" : "failed"} />
+        {findings.map((finding) => {
+          const target =
+            typeof finding.subject.target === "string"
+              ? finding.subject.target
+              : finding.subject.target.id;
+          return (
+            <tr key={`${finding.subject.check}-${target}`} className="border-t align-top">
+              <td className="py-2 pr-2">
+                <div className="flex items-start gap-1">
+                  <StatusIcon
+                    status={finding.kind === "evaluated" ? finding.outcome : "not_evaluated"}
+                  />
+                  <span>{finding.subject.check.replaceAll("_", " ")}</span>
+                </div>
+                {target !== "whole_model" && (
+                  <span className="mt-1 block text-[10px] text-muted-foreground">
+                    {humanize(names.get(target) ?? target)}
+                  </span>
                 )}
-                <span>{finding.check.replaceAll("_", " ")}</span>
-              </div>
-              {finding.target !== "model" && (
-                <span className="mt-1 block text-[10px] text-muted-foreground">
-                  {humanize(names.get(finding.target) ?? finding.target)}
+              </td>
+              <td className="py-2 pr-2 font-mono">
+                {finding.kind === "evaluated"
+                  ? finding.evidence
+                      .map((item) => item.display_value || item.value.toLocaleString())
+                      .join("; ")
+                  : "Not evaluated"}
+              </td>
+              <td className="py-2">
+                <span
+                  className={
+                    finding.kind === "evaluated" && finding.outcome === "failed"
+                      ? "text-destructive"
+                      : "text-muted-foreground"
+                  }
+                >
+                  {finding.kind === "evaluated"
+                    ? finding.evidence.map((item) => item.band_label).join("; ")
+                    : humanize(finding.reason)}
                 </span>
-              )}
-            </td>
-            <td className="py-2 pr-2 font-mono">{finding.value}</td>
-            <td className="py-2">
-              <span
-                className={finding.passed === false ? "text-destructive" : "text-muted-foreground"}
-              >
-                {finding.band}
-              </span>
-              <p className="mt-1 leading-relaxed text-muted-foreground">{finding.note}</p>
-            </td>
-          </tr>
-        ))}
+                <p className="mt-1 leading-relaxed text-muted-foreground">
+                  {finding.kind === "evaluated"
+                    ? finding.evidence.map((item) => item.note).join("; ")
+                    : finding.detail}
+                </p>
+              </td>
+            </tr>
+          );
+        })}
       </tbody>
     </table>
   );

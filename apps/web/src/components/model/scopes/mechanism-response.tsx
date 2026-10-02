@@ -1,15 +1,17 @@
-import type { ConstructId, MechanismViewRequest } from "@nof1-causal-lab/api-types";
+import { presentEntries } from "@/lib/model-accessors";
 import { useState } from "react";
-import { HistoryPlot, PATH_COLORS } from "@/components/charts/history-plot";
+import { HistoryPlot, pathColor } from "@/components/charts/history-plot";
 import { PlotNumberInput } from "@/components/charts/plot-number-input";
-import { useMechanismCurves } from "@/lib/hooks/use-visuals";
+import { type MechanismViewport, useMechanismCurves } from "@/lib/hooks/use-visuals";
 import type { ScopeContext } from "@/lib/model-asset/scope";
 import { Hint, Section } from "../scope-primitives";
 import { DrawPager } from "./recorded-history";
 
 export function MechanismResponse({ context, owner }: { context: ScopeContext; owner: string }) {
-  const [request, setRequest] = useState<MechanismViewRequest>({
+  const [request, setRequest] = useState<MechanismViewport>({
     owner_id: owner,
+    axis: null,
+    moderator: null,
     lower: -3,
     upper: 3,
     held: {},
@@ -90,7 +92,10 @@ export function MechanismResponse({ context, owner }: { context: ScopeContext; o
                 className="block max-w-44 rounded border bg-background p-1"
                 value={curve.axis}
                 onChange={(event) => {
-                  const axis = event.target.value as ConstructId;
+                  const axis = presentEntries(curve.states).find(
+                    ([id]) => id === event.target.value,
+                  )?.[0];
+                  if (axis === undefined) return;
                   const held = { ...request.held };
                   delete held[axis];
                   setRequest({
@@ -101,7 +106,7 @@ export function MechanismResponse({ context, owner }: { context: ScopeContext; o
                   });
                 }}
               >
-                {Object.entries(curve.states).map(([id, name]) => (
+                {presentEntries(curve.states).map(([id, name]) => (
                   <option key={id} value={id}>
                     {name.replaceAll("_", " ")}
                   </option>
@@ -115,14 +120,18 @@ export function MechanismResponse({ context, owner }: { context: ScopeContext; o
                 className="block max-w-44 rounded border bg-background p-1"
                 value={request.moderator ?? ""}
                 onChange={(event) => {
-                  const moderator = (event.target.value || null) as ConstructId | null;
+                  const moderator =
+                    event.target.value === ""
+                      ? null
+                      : presentEntries(curve.states).find(([id]) => id === event.target.value)?.[0];
+                  if (moderator === undefined) return;
                   const held = { ...request.held };
                   if (moderator) delete held[moderator];
                   setRequest({ ...request, moderator, held });
                 }}
               >
                 <option value="">None</option>
-                {Object.entries(curve.states)
+                {presentEntries(curve.states)
                   .filter(([id]) => id !== curve.axis)
                   .map(([id, name]) => (
                     <option key={id} value={id}>
@@ -135,7 +144,7 @@ export function MechanismResponse({ context, owner }: { context: ScopeContext; o
           {request.moderator && (
             <div className="flex gap-2">
               {request.levels.map((value, index) => (
-                <label key={index} className="text-[10px]" style={{ color: PATH_COLORS[index] }}>
+                <label key={index} className="text-[10px]" style={{ color: pathColor(index) }}>
                   Level {index + 1}
                   <PlotNumberInput
                     aria-label={`Moderator level ${index + 1}`}
@@ -143,7 +152,7 @@ export function MechanismResponse({ context, owner }: { context: ScopeContext; o
                     className="block w-20 rounded border bg-background p-1"
                     value={value}
                     onValue={(value) => {
-                      const levels: MechanismViewRequest["levels"] = [...request.levels];
+                      const levels = [...request.levels];
                       levels[index] = value;
                       setRequest({ ...request, levels });
                     }}
@@ -152,9 +161,9 @@ export function MechanismResponse({ context, owner }: { context: ScopeContext; o
               ))}
             </div>
           )}
-          {Object.entries(curve.held).map(([id, value]) => (
+          {presentEntries(curve.held).map(([id, value]) => (
             <label key={id} className="flex items-center justify-between gap-2 text-[10px]">
-              Hold {curve.states[id].replaceAll("_", " ")} at
+              Hold {curve.states[id]?.replaceAll("_", " ")} at
               <PlotNumberInput
                 aria-label={`Hold ${curve.states[id]}`}
                 step="any"
@@ -191,21 +200,16 @@ export function MechanismResponse({ context, owner }: { context: ScopeContext; o
                 : curve.law === "retained"
                   ? "Original joint parameter draws; correlations are preserved."
                   : "Reproducible draws from the current authored laws (plot seed 0).",
-              ...Object.entries(curve.held).map(
-                ([id, value]) => `${curve.states[id].replaceAll("_", " ")} held at ${value}.`,
+              ...presentEntries(curve.held).map(
+                ([id, value]) => `${curve.states[id]?.replaceAll("_", " ")} held at ${value}.`,
               ),
               "Curves join evaluated grid points without smoothing.",
             ].join(" ")}
             series={curve.curves.map((path) => ({
               id: `${path.draw}:${path.level}`,
-              label: `Draw ${path.draw + 1}${path.level != null ? ` · ${curve.states[curve.moderator!]} = ${path.level}` : ""}`,
+              label: `Draw ${path.draw + 1}${path.level != null && curve.moderator !== null ? ` · ${curve.states[curve.moderator]} = ${path.level}` : ""}`,
               values: path.values,
-              color:
-                PATH_COLORS[
-                  path.level != null
-                    ? request.levels.indexOf(path.level) % PATH_COLORS.length
-                    : path.draw % PATH_COLORS.length
-                ],
+              color: pathColor(path.level != null ? request.levels.indexOf(path.level) : path.draw),
             }))}
           />
           <Hint>The range is user selected on the latent state scale.</Hint>

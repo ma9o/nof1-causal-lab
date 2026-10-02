@@ -1,7 +1,9 @@
 "use client";
 
+import { assertNever } from "@/lib/assert-never";
+
 import { isDataUIPart, type UIMessage } from "ai";
-import { Bot, Check, Eye, User, Wrench } from "lucide-react";
+import { Bot, User, Wrench } from "lucide-react";
 import { memo } from "react";
 import Markdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -12,21 +14,12 @@ import {
   AccordionTrigger,
 } from "@/components/ui/accordion";
 import { Badge } from "@/components/ui/badge";
-import type { SimulationWithEffects } from "@/lib/simulation-report";
-import { parseSimulationReport } from "@/lib/simulation-report";
 import { cn } from "@/lib/utils";
 
 const remarkPlugins = [remarkGfm];
 type DynamicToolMessagePart = Extract<UIMessage["parts"][number], { type: "dynamic-tool" }>;
 type StaticToolMessagePart = Extract<UIMessage["parts"][number], { type: `tool-${string}` }>;
 type ToolMessagePart = DynamicToolMessagePart | StaticToolMessagePart;
-
-const SIMULATION_TOOLS = new Set(["simulate"]);
-
-function simulationHeadline(result: SimulationWithEffects): string {
-  const { mean } = result.causal_result.summary;
-  return `${mean >= 0 ? "+" : ""}${mean.toFixed(2)} SD on ${result.causal_result.labels[result.causal_result.outcome]}`;
-}
 
 const TextPart = memo(function TextPart({ text }: { text: string }) {
   return (
@@ -86,16 +79,10 @@ function ToolPart({
   part,
   idx,
   className,
-  selected,
-  onSelect,
-  headline,
 }: {
   part: ToolMessagePart;
   idx: number;
   className?: string;
-  selected?: boolean;
-  onSelect?: () => void;
-  headline?: string;
 }) {
   const hasOutput = part.state === "output-available";
   const hasError = part.state === "output-error";
@@ -121,32 +108,7 @@ function ToolPart({
           </Badge>
         )}
         {!isFinished && <span className="text-[11px] text-muted-foreground italic">pending</span>}
-        {onSelect ? (
-          <button
-            type="button"
-            onClick={onSelect}
-            className={cn(
-              "ml-auto inline-flex items-center gap-1 rounded px-1.5 py-0.5 text-[11px] font-medium transition-colors",
-              selected
-                ? "bg-primary text-primary-foreground"
-                : "border text-muted-foreground hover:text-foreground",
-            )}
-          >
-            {selected ? (
-              <>
-                <Check className="h-3 w-3" /> Viewing
-              </>
-            ) : (
-              <>
-                <Eye className="h-3 w-3" /> View
-              </>
-            )}
-          </button>
-        ) : null}
       </div>
-      {headline ? (
-        <div className="mt-1 font-mono text-[11px] text-muted-foreground">{headline}</div>
-      ) : null}
 
       {/* Input arguments */}
       {part.input != null && (
@@ -224,15 +186,7 @@ function UserMessage({ msg }: { msg: UIMessage }) {
   );
 }
 
-function AssistantMessage({
-  msg,
-  selectedSimulationKey,
-  onSelectSimulation,
-}: {
-  msg: UIMessage;
-  selectedSimulationKey?: string;
-  onSelectSimulation?: (key: string, result: SimulationWithEffects) => void;
-}) {
+function AssistantMessage({ msg }: { msg: UIMessage }) {
   return (
     <div className="rounded-md border border-primary/20 bg-primary/5 p-2.5">
       <div className="mb-1 flex items-center gap-1.5">
@@ -245,26 +199,6 @@ function AssistantMessage({
         const key = `${part.type}-${i}`;
         if (isDataUIPart(part)) return null;
         if (isToolMessagePart(part)) {
-          const simulation =
-            part.type === "dynamic-tool" &&
-            part.state === "output-available" &&
-            SIMULATION_TOOLS.has(part.toolName)
-              ? parseSimulationReport(part.output)
-              : null;
-          if (simulation && onSelectSimulation) {
-            const callKey = part.toolCallId;
-            return (
-              <ToolPart
-                key={key}
-                part={part}
-                idx={i}
-                className="mt-2"
-                selected={callKey === selectedSimulationKey}
-                onSelect={() => onSelectSimulation(callKey, simulation)}
-                headline={simulationHeadline(simulation)}
-              />
-            );
-          }
           return <ToolPart key={key} part={part} idx={i} className="mt-2" />;
         }
         switch (part.type) {
@@ -278,22 +212,14 @@ function AssistantMessage({
           case "step-start":
             return null;
           default:
-            throw new Error(`Unhandled message part: ${part satisfies never}`);
+            return assertNever(part);
         }
       })}
     </div>
   );
 }
 
-export const ChatMessages = memo(function ChatMessages({
-  messages,
-  selectedSimulationKey,
-  onSelectSimulation,
-}: {
-  messages: UIMessage[];
-  selectedSimulationKey?: string;
-  onSelectSimulation?: (key: string, result: SimulationWithEffects) => void;
-}) {
+export const ChatMessages = memo(function ChatMessages({ messages }: { messages: UIMessage[] }) {
   return (
     <div className="flex flex-col gap-2">
       {messages.map((msg) => {
@@ -303,16 +229,9 @@ export const ChatMessages = memo(function ChatMessages({
           case "user":
             return <UserMessage key={msg.id} msg={msg} />;
           case "assistant":
-            return (
-              <AssistantMessage
-                key={msg.id}
-                msg={msg}
-                selectedSimulationKey={selectedSimulationKey}
-                onSelectSimulation={onSelectSimulation}
-              />
-            );
+            return <AssistantMessage key={msg.id} msg={msg} />;
           default:
-            return null;
+            return assertNever(msg.role);
         }
       })}
     </div>

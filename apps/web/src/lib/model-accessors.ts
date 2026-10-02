@@ -1,10 +1,22 @@
 import type {
-  CoefficientExpression,
   CoefficientRole,
   ConstructSpec,
+  Expression,
   ModelSpec,
   ParameterId,
 } from "@nof1-causal-lab/api-types";
+import { assertNever } from "./assert-never";
+
+/** Enumerate present entries without losing the trusted API's named key type. */
+export function presentEntries<Key extends string, Value>(
+  record: Readonly<Partial<Record<Key, Value | undefined>>>,
+): [Key, Value][] {
+  return Object.entries<Value | undefined>(record).flatMap(([key, value]) => {
+    if (value === undefined) return [];
+    // eslint-disable-next-line @typescript-eslint/no-unsafe-type-assertion -- Object.entries erases the key type of this trusted API-owned sparse map.
+    return [[key as Key, value] satisfies [Key, Value]];
+  });
+}
 
 /** Follow the serialized graph's endpoint definitions; references carry identity only. */
 export function modelConstructs(model: ModelSpec | null | undefined): ConstructSpec[] {
@@ -20,23 +32,28 @@ export interface CoefficientUse {
 }
 
 /** Follow serialized coefficient references in declaration order, keeping each parameter's first role. */
-export function coefficientUses(component: unknown): CoefficientUse[] {
+export function coefficientUses(expressions: readonly Expression[]): CoefficientUse[] {
   const uses = new Map<ParameterId, CoefficientUse>();
-  const visit = (value: unknown) => {
-    if (!value || typeof value !== "object") return;
-    if (Array.isArray(value)) {
-      value.forEach(visit);
-      return;
+  const visit = (operand: Expression): void => {
+    switch (operand.kind) {
+      case "coefficient":
+        if (typeof operand.value === "string" && !uses.has(operand.value))
+          uses.set(operand.value, { role: operand.role, parameterId: operand.value });
+        return;
+      case "binary":
+        visit(operand.left);
+        visit(operand.right);
+        return;
+      case "call":
+        operand.arguments.forEach(visit);
+        return;
+      case "literal":
+      case "state":
+        return;
+      default:
+        assertNever(operand);
     }
-    const record = value as Record<string, unknown>;
-    if (record.kind === "coefficient") {
-      const operand = record as unknown as CoefficientExpression;
-      if (typeof operand.value === "string" && !uses.has(operand.value))
-        uses.set(operand.value, { role: operand.role, parameterId: operand.value });
-      return;
-    }
-    Object.values(record).forEach(visit);
   };
-  visit(component);
+  expressions.forEach(visit);
   return [...uses.values()];
 }

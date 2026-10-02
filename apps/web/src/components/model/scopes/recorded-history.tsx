@@ -1,3 +1,4 @@
+import { presentEntries } from "@/lib/model-accessors";
 import type {
   IndicatorId,
   ModelSnapshot,
@@ -7,7 +8,7 @@ import type {
   DataVariableDiff,
 } from "@nof1-causal-lab/api-types";
 import { useState } from "react";
-import { HistoryPlot, PATH_COLORS, type HistoryLine } from "@/components/charts/history-plot";
+import { HistoryPlot, pathColor, type HistoryLine } from "@/components/charts/history-plot";
 import { PlotNumberInput } from "@/components/charts/plot-number-input";
 import {
   useObservationHistory,
@@ -20,11 +21,11 @@ import { COMPARISON_COLORS } from "@/lib/dag/palette";
 /** Align saved timestamps for plotting; no resampling, imputation or pooled statistics. */
 export function dataComparisonHistory(variable: DataVariableDiff) {
   const histories = [...variable.left, ...variable.right];
-  const definition = histories.find((history) => history.variable !== null)!.variable!;
+  const definition = histories.flatMap((history) => history.variable ?? []).at(0);
   const anchors = [
     ...new Set(histories.flatMap((history) => history.points.map((point) => point.anchor_time))),
   ].sort();
-  const origin = anchors[0];
+  const origin = anchors.at(0) ?? null;
   const series: HistoryLine[] = (["left", "right"] as const).flatMap((side) =>
     variable[side].map((history, index) => {
       const points = new Map(history.points.map((point) => [point.anchor_time, point.value]));
@@ -42,11 +43,22 @@ export function dataComparisonHistory(variable: DataVariableDiff) {
   // Reference observations sit above all replicas.
   series.sort((a, b) => Number(a.emphasized) - Number(b.emphasized));
   for (const change of ["added", "removed", "revised"] as const) {
-    const points = variable.changes.filter((point) => point.change === change);
+    const points = variable.changes.filter((point) => point.change.kind === change);
     if (points.length === 0) continue;
     for (const side of ["left", "right"] as const) {
       const values = new Map(
-        points.map((point) => [point.anchor_time, point[side]?.value ?? null]),
+        points.map((point) => {
+          const change = point.change;
+          const value =
+            side === "left"
+              ? change.kind === "added"
+                ? null
+                : change.before.value
+              : change.kind === "removed"
+                ? null
+                : change.after.value;
+          return [point.anchor_time, value];
+        }),
       );
       series.push({
         id: `${change}-${side}`,
@@ -59,9 +71,12 @@ export function dataComparisonHistory(variable: DataVariableDiff) {
     }
   }
   return {
-    label: `${definition.name}: data comparison`,
+    label: `${definition?.name ?? variable.indicator_id}: data comparison`,
     xLabel: "Days from first anchor",
-    times: anchors.map((anchor) => (Date.parse(anchor) - Date.parse(origin)) / 86400000),
+    times:
+      origin === null
+        ? []
+        : anchors.map((anchor) => (Date.parse(anchor) - Date.parse(origin)) / 86400000),
     timeOrigin: histories.every(
       (history) => history.variable === null || history.time_origin !== null,
     )
@@ -69,7 +84,7 @@ export function dataComparisonHistory(variable: DataVariableDiff) {
       : null,
     series,
     pointsOnly: variable.reference_side === null,
-    levels: definition.ordinal_levels ?? definition.categorical_levels,
+    levels: definition?.ordinal_levels ?? definition?.categorical_levels ?? null,
   };
 }
 
@@ -145,14 +160,14 @@ export function pathLines(series: PathSeries): HistoryLine[] {
       id: `reference-${path.draw}`,
       label: `Reference draw ${path.draw + 1}`,
       values: path.values,
-      color: PATH_COLORS[path.draw % PATH_COLORS.length],
+      color: pathColor(path.draw),
       dashed: true,
     })),
     ...series.action.map((path) => ({
       id: `action-${path.draw}`,
       label: `${series.reference.length ? "Intervened" : "Simulation"} draw ${path.draw + 1}`,
       values: path.values,
-      color: PATH_COLORS[path.draw % PATH_COLORS.length],
+      color: pathColor(path.draw),
     })),
   ];
 }
@@ -179,7 +194,10 @@ export function SimulationHistory({
         {paths.isLoading ? "Loading recorded paths…" : "No saved paths at this revision."}
       </Hint>
     );
-  const series = kind === "effect" ? paths.data.effect : paths.data[kind][id];
+  const series =
+    kind === "effect"
+      ? paths.data.effect
+      : presentEntries(paths.data[kind]).find(([key]) => key === id)?.[1];
   if (!series) return <Hint>No recorded series for this entity.</Hint>;
   const lines = pathLines(series);
   const description = [
@@ -227,7 +245,7 @@ export function SimulationHistory({
         timeOrigin={paths.data.time_origin}
         pointsOnly={kind === "indicators"}
         levels={series.levels}
-        markers={model.findings.simulation?.value.design.interventions.map((event) => ({
+        markers={(model.findings.simulation?.value.design.interventions ?? []).map((event) => ({
           time: event.time,
           label: `Day ${event.time}: set to ${event.value}`,
         }))}
@@ -289,19 +307,23 @@ export function EmpiricalPlot({
   label,
   xLabel,
 }: {
-  points: EmpiricalPoint[];
+  points: readonly EmpiricalPoint[];
   label: string;
   xLabel: string;
 }) {
   return (
     <>
       <HistoryPlot
-        times={[points[0].value, ...points.map((point) => point.value)]}
+        times={points.flatMap((point, index) =>
+          index === 0 ? [point.value, point.value] : [point.value],
+        )}
         series={[
           {
             id: "empirical",
             label: "Empirical cumulative probability",
-            values: [0, ...points.map((point) => point.probability)],
+            values: points.flatMap((point, index) =>
+              index === 0 ? [0, point.probability] : [point.probability],
+            ),
             emphasized: true,
           },
         ]}
@@ -337,7 +359,7 @@ export function PredictiveHistoryPlot({ model, id }: { model: ModelSnapshot; id:
             id: `replicate-${index}`,
             label: `Replicate ${index + 1}`,
             values,
-            color: PATH_COLORS[index % PATH_COLORS.length],
+            color: pathColor(index),
           })),
           {
             id: "observed",

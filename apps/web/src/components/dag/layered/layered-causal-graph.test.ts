@@ -1,3 +1,4 @@
+import { fixtureValue } from "@/components/__fixtures__/fixture-value";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -26,17 +27,30 @@ vi.mock("@/lib/hooks/use-dag-layout", () => ({
   }),
 }));
 
-const model = structuredClone(demoSnapshotAt(8));
-const indexed = indexModel(model.model?.value);
-const entities = graphEntities(model, indexed);
-const dose = entities.constructs.find((item) => item.name === "escitalopram_dose_taken")!;
-const symptoms = entities.constructs.find((item) => item.name === "internalizing_symptom_burden")!;
-const edge = entities.edges.find(
-  (item) => item.cause.id === dose.id && item.effect.id === symptoms.id,
-)!;
-model.findings.graph.construct_ids = [dose.id, symptoms.id];
-model.findings.graph.dynamic_construct_ids = [dose.id, symptoms.id];
-model.findings.graph.edge_ids = [edge.id];
+const base = demoSnapshotAt(8);
+const indexed = indexModel(base.model?.value);
+const entities = graphEntities(base, indexed);
+const dose = fixtureValue(
+  entities.constructs.find((item) => item.name === "escitalopram_dose_taken"),
+);
+const symptoms = fixtureValue(
+  entities.constructs.find((item) => item.name === "internalizing_symptom_burden"),
+);
+const edge = fixtureValue(
+  entities.edges.find((item) => item.cause.id === dose.id && item.effect.id === symptoms.id),
+);
+const model = {
+  ...base,
+  findings: {
+    ...base.findings,
+    graph: {
+      ...base.findings.graph,
+      construct_ids: [dose.id, symptoms.id],
+      dynamic_construct_ids: [dose.id, symptoms.id],
+      edge_ids: [edge.id],
+    },
+  },
+};
 
 const report: SimulationReport = {
   ...demoSimulationResult,
@@ -61,11 +75,13 @@ const paths: SimulationPaths = {
   states: {
     [dose.id]: {
       label: dose.name,
+      levels: null,
       action: [{ draw: 0, values: [9, 10, 9, 5, 6, 4, 0, 1] }],
       reference: [],
     },
   },
   indicators: {},
+  effect: null,
 };
 
 function render(variant: LayeredCausalGraphVariant, simulation: SimulationReport | null) {

@@ -1,4 +1,4 @@
-import { apiFetch } from "@/lib/api/client";
+import { apiClient } from "@/lib/api/client";
 import type { WorkspaceList } from "@/lib/server/workspaces";
 
 export function getWorkspacesQueryKey() {
@@ -6,7 +6,9 @@ export function getWorkspacesQueryKey() {
 }
 
 export async function getWorkspaces(): Promise<WorkspaceList> {
-  return apiFetch<WorkspaceList>("/api/workspaces", {
+  const { data, response } = await apiClient.GET("/api/workspaces", {
     cache: "no-store",
   });
+  if (data === undefined) throw new Error(`Workspace API error ${response.status}`);
+  return data;
 }

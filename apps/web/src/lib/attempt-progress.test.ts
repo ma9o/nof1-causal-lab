@@ -1,3 +1,4 @@
+import { fixtureValue } from "@/components/__fixtures__/fixture-value";
 import type { ProgressEvent } from "@nof1-causal-lab/api-types";
 import { describe, expect, it } from "vitest";
 import { applyProgressEvents, EMPTY_ATTEMPT_PROGRESS } from "./attempt-progress";
@@ -10,6 +11,7 @@ const events: ProgressEvent[] = [
     event: "nof1-causal-lab.step",
     step: "ingestion",
     status: "completed",
+    error: null,
   },
   {
     attempt_id,
@@ -24,6 +26,9 @@ const events: ProgressEvent[] = [
     event: "nof1-causal-lab.extraction.worker",
     worker_id: 0,
     state: "running",
+    n_extractions: null,
+    n_llm_calls: null,
+    error: null,
     n_windows: 3,
   },
   {
@@ -32,6 +37,7 @@ const events: ProgressEvent[] = [
     event: "nof1-causal-lab.extraction.worker",
     worker_id: 0,
     state: "completed",
+    error: null,
     n_windows: 3,
     n_extractions: 9,
     n_llm_calls: 2,
@@ -53,7 +59,7 @@ describe("attempt progress", () => {
     const view = applyProgressEvents(EMPTY_ATTEMPT_PROGRESS, events);
     expect(view.cursor).toBe("05-e.json");
     expect(view.steps.ingestion?.status).toBe("completed");
-    expect(view.workers[0].state).toBe("completed");
+    expect(fixtureValue(view.workers[0]).state).toBe("completed");
     expect(view.snapshot?.completed_workers).toBe(1);
   });
 

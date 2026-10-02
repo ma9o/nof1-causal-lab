@@ -10,13 +10,29 @@ import { PlotNumberInput } from "./plot-number-input";
 export interface HistoryLine {
   id: string;
   label: string;
-  values: (number | null)[];
+  values: readonly (number | null)[];
   color?: string;
   dashed?: boolean;
   emphasized?: boolean;
 }
 
-export const PATH_COLORS = ["#2563eb", "#d97706", "#059669", "#9333ea", "#e11d48"];
+const PATH_COLORS = ["#2563eb", "#d97706", "#059669", "#9333ea", "#e11d48"] as const;
+
+/** Total palette for display identities, including arbitrary draw numbers. */
+export function pathColor(index: number): string {
+  switch (index % PATH_COLORS.length) {
+    case 0:
+      return PATH_COLORS[0];
+    case 1:
+      return PATH_COLORS[1];
+    case 2:
+      return PATH_COLORS[2];
+    case 3:
+      return PATH_COLORS[3];
+    default:
+      return PATH_COLORS[4];
+  }
+}
 
 /** Display coordinates only: no smoothing, time thinning, imputation or statistical reduction. */
 export function HistoryPlot({
@@ -34,16 +50,16 @@ export function HistoryPlot({
   description,
   compact = false,
 }: {
-  times: number[];
-  series: HistoryLine[];
+  times: readonly number[];
+  series: readonly HistoryLine[];
   label: string;
   timeOrigin?: string | null;
   xLabel?: string;
   yLabel?: string;
   pointsOnly?: boolean;
-  levels?: string[] | null;
-  support?: { start: (number | null)[]; end: (number | null)[] };
-  markers?: { time: number; label: string }[];
+  levels?: readonly string[] | null;
+  support?: { start: readonly (number | null)[]; end: readonly (number | null)[] };
+  markers?: readonly { time: number; label: string }[];
   step?: boolean;
   description?: string;
   compact?: boolean;
@@ -59,11 +75,13 @@ export function HistoryPlot({
   );
   const extent: [number, number] = [bounds[0] ?? 0, bounds[1] ?? 1];
   const domain = window ?? extent;
-  const values = series.flatMap((row) =>
-    row.values.filter(
-      (value, index): value is number =>
-        value !== null && times[index] >= domain[0] && times[index] <= domain[1],
-    ),
+  const values = times.flatMap((time, index) =>
+    time < domain[0] || time > domain[1]
+      ? []
+      : series.flatMap((row) => {
+          const value = row.values[index];
+          return value == null ? [] : [value];
+        }),
   );
   const [low, high] = valueExtent(values);
   const lo = low ?? 0;
@@ -90,10 +108,9 @@ export function HistoryPlot({
       ? `${new Date(Date.parse(timeOrigin) + time * 86400000).toISOString()} · day ${time}`
       : String(time);
   const axisLabel = xLabel ?? "Model day";
-  const path = line<number | null>()
-    .defined((v) => v !== null)
-    .x((_, index) => sx(times[index]))
-    .y((v) => sy(v!))
+  const path = line<{ time: number; value: number }>()
+    .x((point) => sx(point.time))
+    .y((point) => sy(point.value))
     .curve(step ? curveStepAfter : curveLinear);
 
   const canvas = (suffix: string) => (
@@ -181,7 +198,21 @@ export function HistoryPlot({
           </g>
         ))}
         {series.map((row, rowIndex) => {
-          const color = row.color ?? PATH_COLORS[rowIndex % PATH_COLORS.length];
+          const points = times.map((time, index) => {
+            const value = row.values[index];
+            return value == null
+              ? null
+              : { time, value, start: support?.start[index], end: support?.end[index] };
+          });
+          let run: { time: number; value: number }[] = [];
+          const runs = [run];
+          for (const point of points) {
+            if (point === null) {
+              run = [];
+              runs.push(run);
+            } else run.push(point);
+          }
+          const color = row.color ?? pathColor(rowIndex);
           const active = highlight === row.id;
           const opacity = highlight
             ? active
@@ -203,7 +234,7 @@ export function HistoryPlot({
             >
               {!pointsOnly && (
                 <path
-                  d={path(row.values) ?? ""}
+                  d={runs.map((run) => path(run) ?? "").join("")}
                   fill="none"
                   strokeWidth={row.emphasized || active ? 2 : 1}
                   strokeDasharray={row.dashed ? "5 3" : undefined}
@@ -211,14 +242,20 @@ export function HistoryPlot({
                   <title>{row.label}</title>
                 </path>
               )}
-              {row.values.map((value, index) =>
-                value !== null &&
-                (pointsOnly || (row.values[index - 1] == null && row.values[index + 1] == null)) ? (
+              {points.map((point, index) => {
+                if (
+                  point === null ||
+                  (!pointsOnly && !(points[index - 1] == null && points[index + 1] == null))
+                )
+                  return null;
+                const { time, value, start, end } = point;
+                const interval = start != null && end != null ? { start, end } : null;
+                return (
                   <g key={index}>
-                    {support?.start[index] != null && support.end[index] != null && (
+                    {interval && (
                       <line
-                        x1={sx(support.start[index]!)}
-                        x2={sx(support.end[index]!)}
+                        x1={sx(interval.start)}
+                        x2={sx(interval.end)}
                         y1={sy(value)}
                         y2={sy(value)}
                         strokeWidth={2}
@@ -226,17 +263,17 @@ export function HistoryPlot({
                       />
                     )}
                     <circle
-                      cx={sx(times[index])}
+                      cx={sx(time)}
                       cy={sy(value)}
                       r={row.emphasized || active ? 2.8 : 1.7}
                       fill={row.dashed ? "var(--card)" : color}
                       strokeWidth={row.dashed ? 1 : 0}
                     >
-                      <title>{`${row.label} · ${title(times[index])}: ${levels?.[value] ?? value}${support?.start[index] != null ? ` · support ${title(support.start[index]!)}–${title(support.end[index]!)}` : ""}`}</title>
+                      <title>{`${row.label} · ${title(time)}: ${levels?.[value] ?? value}${interval ? ` · support ${title(interval.start)}–${title(interval.end)}` : ""}`}</title>
                     </circle>
                   </g>
-                ) : null,
-              )}
+                );
+              })}
             </g>
           );
         })}

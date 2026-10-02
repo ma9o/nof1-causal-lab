@@ -1,11 +1,13 @@
 import { LOOPITChart } from "@/components/charts/loo-pit-chart";
 import { ParetoKChart } from "@/components/charts/pareto-k-chart";
+import { useInferenceReport } from "@/lib/hooks/use-inference-report";
 import type { ScopeContext } from "@/lib/model-asset/scope";
 import { formatNumber } from "@/lib/utils/format";
 import { KeyValue, Section } from "../scope-primitives";
 
 /** The fit's leave-one-out predictive checks, as the engine recorded them. */
 export function FitCalibration({ context }: { context: ScopeContext }) {
+  const detail = useInferenceReport(context.model).data?.value.detail;
   const fit = context.model.findings.fit;
   const loo = fit?.value.report.loo_diagnostics;
   if (!fit || !loo) return null;
@@ -21,8 +23,8 @@ export function FitCalibration({ context }: { context: ScopeContext }) {
             : []),
         ]}
       />
-      {loo.loo_pit && loo.loo_pit.length > 0 && <LOOPITChart loo={loo} />}
-      {loo.pareto_k && loo.pareto_k.length > 0 && <ParetoKChart loo={loo} />}
+      {detail && <LOOPITChart points={detail.loo_pit} />}
+      {detail && <ParetoKChart loo={loo} points={detail.pareto_k} />}
     </Section>
   );
 }

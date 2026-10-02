@@ -7,7 +7,7 @@ import { ConstructScope, IdentificationFinding } from "./scopes/construct-scope"
 import { EdgeScope } from "./scopes/edge-scope";
 import { IndicatorScope } from "./scopes/indicator-scope";
 import type { ScopeContext } from "@/lib/model-asset/scope";
-import type { JournalTick } from "@/lib/model-asset/journal";
+import type { StudyRevision } from "@nof1-causal-lab/api-types";
 import { humanize } from "@/lib/model-asset/selection";
 import { Katex } from "@/components/analysis-widgets/statistical-model-spec/ssm-equation-display";
 import { DataComparisonEvidence, PreparedObservations } from "./scopes/data-details";
@@ -15,25 +15,38 @@ import { FitDetails } from "./scopes/fit-details";
 import { SimulationEvidence } from "./simulation-evidence";
 import { PPCWarningsTable } from "@/components/analysis-widgets/posterior/ppc-warnings-table";
 
-function ModelScope({ context, tick }: { context: ScopeContext; tick: JournalTick | undefined }) {
-  if (!tick || tick.status !== "applied") return <Hint>No new model-wide state was produced.</Hint>;
-  if (tick.action === "fit") return <FitDetails context={context} />;
-  if (tick.action === "simulate") return <SimulationEvidence context={context} />;
-  if (tick.action === "prepare_data") return <PreparedObservations context={context} />;
-  if (tick.action === "data_diff")
-    return <DataComparisonEvidence context={context} selection={null} />;
+function ModelScope({ context, tick }: { context: ScopeContext; tick: StudyRevision | undefined }) {
+  if (!tick || tick.record.attempt.outcome.status !== "applied")
+    return <Hint>No new model-wide state was produced.</Hint>;
+  if (tick.record.attempt.action === "fit") return <FitDetails context={context} />;
+  if (tick.record.attempt.action === "simulate") return <SimulationEvidence context={context} />;
+  if (tick.record.attempt.action === "prepare_data")
+    return <PreparedObservations context={context} />;
+  if (tick.record.attempt.action === "data_diff")
+    return (
+      <DataComparisonEvidence
+        context={context}
+        report={tick.record.attempt.outcome.result.report}
+        selection={null}
+      />
+    );
   const predictive =
-    tick.checks && !tick.checks.reused.includes("predictive") ? tick.checks.predictive : null;
+    tick.record.attempt.outcome.result.checks &&
+    !tick.record.attempt.outcome.result.checks.reused.includes("predictive")
+      ? tick.record.attempt.outcome.result.checks.predictive
+      : null;
   const identification = context.model.findings.identification;
   const diagnostics = context.model.findings.diagnostics;
   const equations = diagnostics
     ? [
-        ...diagnostics.state_equations.map((equation) => [equation.label, equation.latex]),
-        ...diagnostics.confounder_equations.map((equation) => [equation.label, equation.latex]),
-        ...Object.entries(diagnostics.observation_equations).map(([id, latex]) => [
-          context.entities.indicators.find((item) => item.id === id)!.name,
-          latex,
-        ]),
+        ...diagnostics.state_equations.map((equation) => [equation.label, equation.latex] as const),
+        ...diagnostics.confounder_equations.map(
+          (equation) => [equation.label, equation.latex] as const,
+        ),
+        ...context.entities.indicators.flatMap((indicator) => {
+          const latex = diagnostics.observation_equations[indicator.id];
+          return latex === undefined ? [] : [[indicator.name, latex] as const];
+        }),
       ]
     : [];
   return (
@@ -57,28 +70,30 @@ function ModelScope({ context, tick }: { context: ScopeContext; tick: JournalTic
           {Object.keys(identification.value.treatments).length === 0 && (
             <Hint>No treatment findings recorded.</Hint>
           )}
-          {identification.value.outcome && (
-            <Hint>
-              Outcome:{" "}
-              {humanize(context.entities.constructById.get(identification.value.outcome)!.name)}
-            </Hint>
-          )}
           {context.entities.constructs
-            .filter((construct) => construct.id in identification.value.treatments)
+            .filter((construct) => construct.id === identification.value.outcome)
             .map((construct) => (
-              <details key={construct.id}>
-                <summary className="cursor-pointer">
-                  <OwnerLink
-                    onClick={() => context.select({ kind: "construct", id: construct.id })}
-                  >
-                    {humanize(construct.name)}
-                  </OwnerLink>
-                  {" · "}
-                  {humanize(identification.value.treatments[construct.id].status)}
-                </summary>
-                <IdentificationFinding context={context} id={construct.id} />
-              </details>
+              <Hint key={construct.id}>Outcome: {humanize(construct.name)}</Hint>
             ))}
+          {context.entities.constructs.flatMap((construct) => {
+            const finding = identification.value.treatments[construct.id];
+            return finding
+              ? [
+                  <details key={construct.id}>
+                    <summary className="cursor-pointer">
+                      <OwnerLink
+                        onClick={() => context.select({ kind: "construct", id: construct.id })}
+                      >
+                        {humanize(construct.name)}
+                      </OwnerLink>
+                      {" · "}
+                      {humanize(finding.status)}
+                    </summary>
+                    <IdentificationFinding context={context} construct={construct} />
+                  </details>,
+                ]
+              : [];
+          })}
         </Section>
       )}
       {equations.length > 0 && (
@@ -127,7 +142,7 @@ export function DetailsPane({
   selection: EntitySelection | null;
   context: ScopeContext;
   loading: boolean;
-  tick: JournalTick | undefined;
+  tick: StudyRevision | undefined;
 }) {
   const entity = selection ? resolveEntity(context.entities, selection) : null;
   return (
@@ -153,19 +168,19 @@ export function DetailsPane({
       </div>
       {entity && <DefinitionContext entity={entity} onSelect={context.select} />}
       <div
-        key={selection?.id ?? tick?.seq}
+        key={selection?.id ?? tick?.record.seq}
         className="flex min-h-0 flex-1 flex-col flex-wrap content-start items-start gap-x-[18px] gap-y-3 overflow-x-auto pb-2 [&>section]:max-h-full [&>section]:w-[280px] [&>section[data-wide]]:w-[400px] [&>section>div:last-child]:overflow-auto"
       >
         {loading ? (
           <p role="status" className="text-xs">
             Loading version…
           </p>
-        ) : context.dataDiff.error ? (
-          <p role="alert" className="text-xs">
-            {context.dataDiff.error.message}
-          </p>
-        ) : context.dataDiff.data ? (
-          <DataComparisonEvidence context={context} selection={selection} />
+        ) : context.dataDiff ? (
+          <DataComparisonEvidence
+            context={context}
+            report={context.dataDiff}
+            selection={selection}
+          />
         ) : !selection ? (
           <ModelScope context={context} tick={tick} />
         ) : !entity ? (

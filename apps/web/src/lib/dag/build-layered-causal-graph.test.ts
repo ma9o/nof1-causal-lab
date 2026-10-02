@@ -1,3 +1,4 @@
+import { fixtureValue } from "@/components/__fixtures__/fixture-value";
 import { describe, expect, it } from "vitest";
 import { constructs, edges } from "@/components/dag/__fixtures__/dag-base-fixtures";
 import { demoModel, demoModelSnapshot } from "@/components/__fixtures__/demo-artifacts";
@@ -19,7 +20,7 @@ describe("buildLayeredCausalGraph", () => {
         isSelf: false,
       });
     }
-    const outcome = constructs.find((item) => item.id === demoModel.default_outcome)!;
+    const outcome = fixtureValue(constructs.find((item) => item.id === demoModel.default_outcome));
     expect(built.edgeMeta.get(`self:${outcome.id}`)).toMatchObject({
       source: `${outcome.id}__p`,
       target: outcome.id,
@@ -40,7 +41,13 @@ describe("buildLayeredCausalGraph", () => {
       demoModelSnapshot.findings.graph.dynamic_construct_ids,
     );
     expect(after.graph).toEqual(before.graph);
-    expect(after.edgeMeta).toEqual(before.edgeMeta);
+    const identities = (bundle: typeof before) =>
+      [...bundle.edgeMeta.values()].map(({ cause, effect, ...edge }) => ({
+        ...edge,
+        cause: cause.id,
+        effect: effect.id,
+      }));
+    expect(identities(after)).toEqual(identities(before));
     expect(after.segmentMeta).toEqual(before.segmentMeta);
   });
 });

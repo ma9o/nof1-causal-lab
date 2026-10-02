@@ -1,13 +1,7 @@
+import { presentEntries } from "@/lib/model-accessors";
 import { useInferenceReport } from "@/lib/hooks/use-inference-report";
-import { recordValue } from "@/lib/model-asset/action-presentation";
 import { distributionText } from "@/lib/utils/distribution-format";
-import {
-  ChainLegend,
-  coordinateKey,
-  readChainDiagnostics,
-  TraceSparkline,
-  RankBars,
-} from "./fit-charts";
+import { ChainLegend, TraceSparkline, RankBars } from "./fit-charts";
 import { LawChart } from "@/components/charts/law-density";
 import { PosteriorPairsChart } from "@/components/charts/posterior-pairs-chart";
 import { useParameterDraws } from "@/lib/hooks/use-visuals";
@@ -19,9 +13,8 @@ import { humanize } from "@/lib/model-asset/selection";
 import { Hint, KeyValue, Section, StatusIcon } from "../scope-primitives";
 import { EmpiricalPlot, SimulationHistory } from "./recorded-history";
 
-function interval(curve: LawCurve): string {
-  const days = curve.parameter.reference_interval_days;
-  return days == null ? "model clock tick" : `${days} d`;
+function interval(days: number | "model_clock"): string {
+  return days === "model_clock" ? "model clock tick" : `${days} d`;
 }
 
 /** Only scale changes and missing priors need words; the legend names the curves. */
@@ -30,96 +23,118 @@ function lawHint(curve: LawCurve): string | null {
     return curve.prior.length > 0
       ? null
       : "The fit's input model has no prior curve on the fitted scale.";
-  if (curve.parameter.distribution_transform === "dt_persistence_to_ct_decay")
-    return `Authored as persistence per ${interval(curve)}; a fit reports decay rates.`;
-  if (curve.parameter.distribution_transform === "dt_effect_to_ct_rate")
-    return `Authored as the effect over ${interval(curve)}; a fit reports rates per day.`;
+  const transform = curve.parameter.transform;
+  if (transform.kind === "dt_persistence_to_ct_decay")
+    return `Authored as persistence per ${interval(transform.interval_days)}; a fit reports decay rates.`;
+  if (transform.kind === "dt_effect_to_ct_rate")
+    return `Authored as the effect over ${interval(transform.interval_days)}; a fit reports rates per day.`;
   return null;
 }
 
 /** One section per law an entity's own terms name, with its prior and any posterior. */
-export function LawSections({ context, uses }: { context: ScopeContext; uses: CoefficientUse[] }) {
+export function LawSections({
+  context,
+  uses,
+}: {
+  context: ScopeContext;
+  uses: readonly CoefficientUse[];
+}) {
   const fit = context.model.findings.fit;
   const detail = useInferenceReport(context.model);
-  const chains = detail.data ? readChainDiagnostics(detail.data.value.inference_diagnostics) : null;
-  const mcmc = recordValue(fit?.value.report.inference_diagnostics.mcmc);
-  const rows = Array.isArray(mcmc?.per_parameter) ? mcmc.per_parameter.map(recordValue) : [];
+  const chains = detail.data?.value.detail;
+  const mcmc = fit?.value.report.inference_diagnostics;
+  const rows = mcmc?.per_parameter ?? [];
   const curves = lawCurves(context.model, uses);
-  return uses.map((use) => {
-    const parameter = context.entities.parameterById.get(use.parameterId)!;
-    const law = parameter.distribution
-      ? context.model.model!.value.distributions[parameter.distribution]
-      : null;
-    const curve = curves.find((item) => item.parameter.id === parameter.id);
-    const label = curve ? lawLabel(curve) : humanize(use.role);
-    const diagnostics = rows.filter(
-      (row) => recordValue(row!.subject)!.parameter_id === parameter.id,
-    );
-    return (
-      <Section
-        key={parameter.id}
-        title={label.charAt(0).toUpperCase() + label.slice(1)}
-        source={curve?.kind === "fitted" ? fit?.source : undefined}
-      >
-        <Hint>{humanize(parameter.description)}</Hint>
-        {curve ? (
-          <LawChart curve={curve} caption={humanize(parameter.name)} />
-        ) : (
-          <p>{humanize(parameter.name)}</p>
-        )}
-        {(!curve || law?.distribution === "Delta") &&
-          (law ? (
-            <p className="break-words font-mono">{distributionText(law)}</p>
+  return context.entities.parameters
+    .filter((parameter) => uses.some((use) => use.parameterId === parameter.id))
+    .map((parameter) => {
+      const law = parameter.distribution
+        ? context.model.model?.value.distributions[parameter.distribution]
+        : null;
+      const curve = curves.find((item) => item.parameter.id === parameter.id);
+      const label = curve
+        ? lawLabel(curve)
+        : uses
+            .filter((use) => use.parameterId === parameter.id)
+            .map((use) => humanize(use.role))
+            .join(", ");
+      const diagnostics = rows.filter((row) => row.subject.parameter_id === parameter.id);
+      return (
+        <Section
+          key={parameter.id}
+          title={label.charAt(0).toUpperCase() + label.slice(1)}
+          {...(curve?.kind === "fitted" && fit ? { source: fit.source } : {})}
+        >
+          <Hint>{humanize(parameter.description)}</Hint>
+          {curve ? (
+            <LawChart curve={curve} caption={humanize(parameter.name)} />
           ) : (
-            <Hint>No law assigned.</Hint>
-          ))}
-        {curve && lawHint(curve) && <Hint>{lawHint(curve)}</Hint>}
-        {diagnostics.map((row) => {
-          const subject = recordValue(row!.subject)!;
-          const failures = fit!.value.convergence.failures.filter(
-            (failure) => failure.subject.element_id === subject.element_id,
-          );
-          const key = coordinateKey(row!.coordinate);
-          const trace = key ? chains?.traces.get(key) : undefined;
-          const ranks = key ? chains?.ranks.get(key) : undefined;
-          return (
-            <div key={String(subject.element_id)} className="space-y-2 border-t pt-2">
-              <div className="flex items-center gap-2">
-                <StatusIcon status={failures.length ? "failed" : "passed"} />
-                <span>{humanize(String(row!.parameter))}</span>
+            <p>{humanize(parameter.name)}</p>
+          )}
+          {(!curve || law?.distribution === "Delta") &&
+            (law ? (
+              <p className="break-words font-mono">{distributionText(law)}</p>
+            ) : (
+              <Hint>No law assigned.</Hint>
+            ))}
+          {curve && lawHint(curve) && <Hint>{lawHint(curve)}</Hint>}
+          {diagnostics.map((row) => {
+            const subject = row.subject;
+            const assessments =
+              fit?.value.report.convergence.assessments.filter(
+                (item) =>
+                  typeof item.subject !== "string" &&
+                  item.subject.parameter.element_id === subject.element_id,
+              ) ?? [];
+            const trace = chains?.trace_data.find(
+              (item) => item.subject.element_id === subject.element_id,
+            );
+            const ranks = chains?.rank_histograms.find(
+              (item) => item.subject.element_id === subject.element_id,
+            );
+            return (
+              <div key={String(subject.element_id)} className="space-y-2 border-t pt-2">
+                <span>{humanize(row.parameter)}</span>
+                {assessments.map((item) => (
+                  <div
+                    key={typeof item.subject === "string" ? item.subject : item.subject.criterion}
+                    className="flex items-center gap-2"
+                  >
+                    <StatusIcon
+                      status={item.kind === "evaluated" ? item.outcome : "not_evaluated"}
+                    />
+                    <Hint>
+                      {item.kind === "evaluated" ? humanize(item.evidence.criterion) : item.detail}
+                    </Hint>
+                  </div>
+                ))}
+                <KeyValue
+                  rows={[
+                    ["R-hat", row.r_hat],
+                    ["ESS bulk", row.ess_bulk],
+                    ["ESS tail", row.ess_tail],
+                    ["MCSE mean", row.mcse_mean],
+                  ].map(([name, value]) => [
+                    String(name),
+                    typeof value === "number"
+                      ? value.toLocaleString(undefined, { maximumSignificantDigits: 5 })
+                      : "Unavailable",
+                  ])}
+                />
+                <div className="flex gap-3">
+                  {trace && <TraceSparkline chains={trace.chains} />}
+                  {ranks && <RankBars histogram={ranks} />}
+                </div>
               </div>
-              {failures.map((failure) => (
-                <Hint key={failure.criterion} issue>
-                  {failure.criterion}
-                </Hint>
-              ))}
-              <KeyValue
-                rows={[
-                  ["R-hat", row!.r_hat],
-                  ["ESS bulk", row!.ess_bulk],
-                  ["ESS tail", row!.ess_tail],
-                  ["MCSE mean", row!.mcse_mean],
-                ].map(([name, value]) => [
-                  String(name),
-                  typeof value === "number"
-                    ? value.toLocaleString(undefined, { maximumSignificantDigits: 5 })
-                    : "Unavailable",
-                ])}
-              />
-              <div className="flex gap-3">
-                {trace && <TraceSparkline chains={trace} />}
-                {ranks && <RankBars histogram={ranks} />}
-              </div>
-            </div>
-          );
-        })}
-        {diagnostics.length > 0 &&
-          chains &&
-          (chains.traces.size > 0 || chains.ranks.size > 0) &&
-          typeof mcmc?.num_chains === "number" && <ChainLegend chains={mcmc.num_chains} />}
-      </Section>
-    );
-  });
+            );
+          })}
+          {diagnostics.length > 0 &&
+            chains &&
+            (chains.trace_data.length > 0 || chains.rank_histograms.length > 0) &&
+            typeof mcmc?.num_chains === "number" && <ChainLegend chains={mcmc.num_chains} />}
+        </Section>
+      );
+    });
 }
 
 /** The saved simulation's history of one state or indicator, when it was simulated. */
@@ -133,7 +148,9 @@ export function SimulatedHistory({
   kind: "states" | "indicators";
 }) {
   const simulation = context.model.findings.simulation;
-  const series = simulation?.value.predictive[kind][id];
+  const series = simulation
+    ? presentEntries(simulation.value.predictive[kind]).find(([key]) => key === id)?.[1]
+    : undefined;
   if (!simulation || !series) return null;
   return (
     <Section title="Simulated history" source={simulation.source} wide>
@@ -198,6 +215,7 @@ export function PosteriorPairs({ context }: { context: ScopeContext }) {
                 param_y: y.label,
                 subject_y: y.subject,
                 y_values: y.values,
+                divergent: null,
               }}
             />
           )}

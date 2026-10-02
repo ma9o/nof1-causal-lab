@@ -1,3 +1,4 @@
+import { fixtureValue } from "@/components/__fixtures__/fixture-value";
 import type { ElkNode } from "elkjs/lib/elk.bundled.js";
 import { describe, expect, it } from "vitest";
 import { buildElkGraph, readElkLayout } from "./dag-graph-layout";
@@ -32,7 +33,7 @@ describe("buildElkGraph", () => {
 
     expect(graph.layoutOptions?.["elk.direction"]).toBe("DOWN");
     expect(graph.layoutOptions?.["elk.partitioning.activate"]).toBe("true");
-    expect(graph.children?.[0].layoutOptions?.["elk.partitioning.partition"]).toBe("2");
+    expect(graph.children?.[0]?.layoutOptions?.["elk.partitioning.partition"]).toBe("2");
   });
 });
 
@@ -72,7 +73,7 @@ describe("readElkLayout", () => {
     ]);
     expect(result.edges).toHaveLength(1);
     expect(result.edges[0]).toMatchObject({ id: "e0", source: "a", target: "b" });
-    expect(result.edges[0].points).toEqual([
+    expect(fixtureValue(result.edges[0]).points).toEqual([
       { x: 100, y: 25 },
       { x: 150, y: 25 },
       { x: 200, y: 85 },
@@ -85,6 +86,6 @@ describe("readElkLayout", () => {
       children: [],
       edges: [{ id: "e0", sources: ["a"], targets: ["b"] }],
     });
-    expect(result.edges[0].points).toEqual([]);
+    expect(fixtureValue(result.edges[0]).points).toEqual([]);
   });
 });

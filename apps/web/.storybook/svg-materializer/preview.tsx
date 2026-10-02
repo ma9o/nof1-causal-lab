@@ -1,10 +1,10 @@
+/// <reference types="vite/client" />
 import type { Decorator, Preview } from "@storybook/nextjs-vite";
 import { type ReactNode, useCallback, useEffect, useState } from "react";
 import {
   SVG_MATERIALIZER_ENDPOINT,
   SVG_MATERIALIZER_PARAMETER,
   type SvgMaterializerParameter,
-  type SvgMaterializerResponse,
 } from "./constants.ts";
 
 const INLINE_STYLE_PROPERTIES = [
@@ -70,7 +70,7 @@ export function serializeStandaloneSvg(source: SVGSVGElement, storyId: string): 
     throw new Error("The rendered DAG SVG must have a positive viewBox before materialization.");
   }
 
-  const clone = source.cloneNode(true) as SVGSVGElement;
+  const clone = source.cloneNode(true) as SVGSVGElement; // eslint-disable-line @typescript-eslint/no-unsafe-type-assertion -- DOM cloneNode preserves the source SVG tag but returns Node.
   inlineComputedStyles(source, clone);
   clone.setAttribute("xmlns", "http://www.w3.org/2000/svg");
   clone.setAttribute("xmlns:xlink", "http://www.w3.org/1999/xlink");
@@ -98,23 +98,29 @@ function SvgMaterializer({
   const materialize = useCallback(async () => {
     setState({ phase: "saving" });
     try {
-      const matches = document.querySelectorAll<SVGSVGElement>(parameter.selector);
-      if (matches.length !== 1) {
+      const matches = document.querySelectorAll(parameter.selector);
+      const [match] = matches;
+      if (!(match instanceof SVGSVGElement) || matches.length !== 1) {
         throw new Error(
           `Expected exactly one SVG matching ${JSON.stringify(parameter.selector)}; found ${matches.length}.`,
         );
       }
-      const svg = serializeStandaloneSvg(matches[0], storyId);
+      const svg = serializeStandaloneSvg(match, storyId);
       const response = await fetch(SVG_MATERIALIZER_ENDPOINT, {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ storyId, svg }),
       });
-      const payload = (await response.json()) as SvgMaterializerResponse | { error: string };
-      if (!response.ok || !("relativePath" in payload)) {
-        throw new Error(
-          "error" in payload ? payload.error : `Request failed (${response.status}).`,
-        );
+      const payload: unknown = await response.json();
+      if (typeof payload !== "object" || payload === null)
+        throw new Error("Invalid materializer response.");
+      if ("error" in payload && typeof payload.error === "string") throw new Error(payload.error);
+      if (
+        !response.ok ||
+        !("relativePath" in payload) ||
+        typeof payload.relativePath !== "string"
+      ) {
+        throw new Error(`Request failed (${response.status}).`);
       }
       setState({ phase: "saved", relativePath: payload.relativePath });
     } catch (error) {
@@ -174,14 +180,25 @@ function SvgMaterializer({
 }
 
 export const withSvgMaterializer: Decorator = (Story, context) => {
-  const parameter = context.parameters[SVG_MATERIALIZER_PARAMETER] as
-    | SvgMaterializerParameter
-    | undefined;
-  if (!import.meta.env.DEV || !parameter) {
-    return <Story />;
+  const parameter: unknown = context.parameters[SVG_MATERIALIZER_PARAMETER];
+  if (!import.meta.env.DEV || parameter === undefined) return <Story />;
+  if (
+    typeof parameter !== "object" ||
+    parameter === null ||
+    !("selector" in parameter) ||
+    typeof parameter.selector !== "string"
+  ) {
+    throw new Error("SVG materializer needs a selector.");
   }
+  const auto = "auto" in parameter ? parameter.auto : undefined;
+  if (auto !== undefined && typeof auto !== "boolean")
+    throw new Error("SVG materializer auto must be a boolean.");
+  const options: SvgMaterializerParameter = {
+    selector: parameter.selector,
+    ...(auto === undefined ? {} : { auto }),
+  };
   return (
-    <SvgMaterializer storyId={context.id} parameter={parameter}>
+    <SvgMaterializer storyId={context.id} parameter={options}>
       <Story />
     </SvgMaterializer>
   );

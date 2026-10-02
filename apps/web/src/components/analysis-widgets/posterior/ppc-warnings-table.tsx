@@ -5,7 +5,7 @@ import type {
   HistogramBin,
   PPCOverlay,
   PPCTestStat,
-  PPCWarning,
+  PosteriorPredictiveChecks,
 } from "@nof1-causal-lab/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
 import {
@@ -20,12 +20,14 @@ import {
   YAxis,
 } from "recharts";
 import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
+import { StatusIcon } from "@/components/model/scope-primitives";
 import { formatNumber } from "@/lib/utils/format";
 
 // ── Row type (one per variable) ──────────────────────────
 
-type CheckType = "calibration" | "autocorrelation" | "variance";
-type StatName = "mean" | "sd" | "min" | "max";
+type PPCWarning = PosteriorPredictiveChecks["per_variable_warnings"][number];
+type CheckType = PPCWarning["subject"]["check"];
+type StatName = PPCTestStat["stat_name"];
 
 interface PPCVariableRow {
   variable: string;
@@ -44,17 +46,17 @@ function getOrCreate(map: Map<string, PPCVariableRow>, variable: string): PPCVar
 }
 
 function buildRows(
-  warnings: PPCWarning[],
-  testStats: PPCTestStat[],
-  overlays: PPCOverlay[],
+  warnings: readonly PPCWarning[],
+  testStats: readonly PPCTestStat[],
+  overlays: readonly PPCOverlay[],
   indicators: Pick<IndicatorSpec, "id" | "name">[],
 ): PPCVariableRow[] {
   const map = new Map<string, PPCVariableRow>();
   for (const w of warnings) {
-    getOrCreate(map, w.indicator_id).checks[w.check_type] = w;
+    getOrCreate(map, w.subject.target.id).checks[w.subject.check] = w;
   }
   for (const ts of testStats) {
-    getOrCreate(map, ts.indicator_id).testStats[ts.stat_name as StatName] = ts;
+    getOrCreate(map, ts.indicator_id).testStats[ts.stat_name] = ts;
   }
   for (const ov of overlays) {
     getOrCreate(map, ov.indicator_id).overlay = ov;
@@ -64,7 +66,7 @@ function buildRows(
   );
   return Array.from(map.values()).map((row) => ({
     ...row,
-    variable: definitions.get(row.variable)!.name,
+    variable: definitions.get(row.variable)?.name ?? row.variable,
   }));
 }
 
@@ -91,7 +93,7 @@ export function HistogramPlot({
   histogram,
   observed,
 }: {
-  histogram: HistogramBin[];
+  histogram: readonly HistogramBin[];
   observed?: number;
 }) {
   return (
@@ -215,7 +217,11 @@ const columns: ColumnDef<PPCVariableRow, unknown>[] = [
         tooltip="Observed data (solid), every retained predictive series, and the predictive median (dashed)."
       />
     ),
-    cell: ({ row }) => <OverlaySparkline overlay={row.original.overlay} />,
+    cell: ({ row }) => (
+      <OverlaySparkline
+        {...(row.original.overlay === undefined ? {} : { overlay: row.original.overlay })}
+      />
+    ),
   }),
   ...CHECK_TYPES.map((ct) =>
     col.display({
@@ -230,16 +236,14 @@ const columns: ColumnDef<PPCVariableRow, unknown>[] = [
         const warning = row.original.checks[ct];
         if (!warning) return <span className="text-xs text-muted-foreground">—</span>;
         return (
-          <span className="font-mono text-xs" title={warning.message}>
-            {formatNumber(warning.value)}
+          <span
+            className="font-mono text-xs"
+            title={warning.kind === "evaluated" ? warning.evidence.note : warning.detail}
+          >
+            <StatusIcon status={warning.kind === "evaluated" ? warning.outcome : "not_evaluated"} />{" "}
+            {warning.kind === "evaluated" ? formatNumber(warning.evidence.value) : "Not evaluated"}
           </span>
         );
-      },
-      meta: {
-        severity: (_v: unknown, row: PPCVariableRow) => {
-          const warning = row.checks[ct];
-          return warning && !warning.passed ? "warn" : undefined;
-        },
       },
     }),
   ),
@@ -247,7 +251,10 @@ const columns: ColumnDef<PPCVariableRow, unknown>[] = [
     col.display({
       id: `t_${sn}`,
       header: () => <HeaderWithTooltip label={`T(${sn})`} tooltip={STAT_TOOLTIPS[sn]} />,
-      cell: ({ row }) => <TestStatSparkline stat={row.original.testStats[sn]} />,
+      cell: ({ row }) => {
+        const stat = row.original.testStats[sn];
+        return <TestStatSparkline {...(stat === undefined ? {} : { stat })} />;
+      },
     }),
   ),
 ];
@@ -260,9 +267,9 @@ export function PPCWarningsTable({
   overlays,
   indicators,
 }: {
-  warnings: PPCWarning[];
-  testStats: PPCTestStat[];
-  overlays: PPCOverlay[];
+  warnings: readonly PPCWarning[];
+  testStats: readonly PPCTestStat[];
+  overlays: readonly PPCOverlay[];
   indicators: Pick<IndicatorSpec, "id" | "name">[];
 }) {
   const rows = buildRows(warnings, testStats, overlays, indicators);

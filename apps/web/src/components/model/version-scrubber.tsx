@@ -1,8 +1,10 @@
 "use client";
 
+import { attemptError } from "@/lib/model-asset/journal";
+
 import type { RecordDependency } from "@nof1-causal-lab/api-types";
 import { useEffect, useMemo, useRef } from "react";
-import type { JournalTick } from "@/lib/model-asset/journal";
+import type { StudyRevision } from "@nof1-causal-lab/api-types";
 import { revisionTimeline, TIMELINE_LANES } from "@/lib/model-asset/revision-timeline";
 import {
   ACTION_STYLE,
@@ -72,8 +74,8 @@ export function VersionScrubber({
   onEndPreview,
   onKeepComparison,
 }: {
-  ticks: JournalTick[];
-  dependencies: RecordDependency[];
+  ticks: readonly StudyRevision[];
+  dependencies: readonly RecordDependency[];
   playhead: number;
   latest: number;
   branch: string;
@@ -87,12 +89,12 @@ export function VersionScrubber({
   const selected = useRef<HTMLDivElement>(null);
   const timeline = useMemo(() => revisionTimeline(ticks, dependencies), [ticks, dependencies]);
   const { width, height } = timelineSize(timeline.nodes.length);
-  const selectedNode = timeline.nodes.find((node) => node.tick.seq === playhead);
+  const selectedNode = timeline.nodes.find((node) => node.tick.record.seq === playhead);
   const hasComparisons = timeline.nodes.some(
     (node) =>
-      node.tick.status === "applied" &&
-      node.tick.action !== "data_diff" &&
-      node.tick.seq !== playhead,
+      node.tick.record.attempt.outcome.status === "applied" &&
+      node.tick.record.attempt.action !== "data_diff" &&
+      node.tick.record.seq !== playhead,
   );
   // A comparison costs a backend diff: start it only once the pointer rests on a tick.
   const hoverIntent = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -178,14 +180,18 @@ export function VersionScrubber({
                 const touches = link.from === selectedNode || link.to === selectedNode;
                 return (
                   <path
-                    key={`${link.from.tick.seq}:${link.to.tick.seq}`}
+                    key={`${link.from.tick.record.seq}:${link.to.tick.record.seq}`}
                     data-argument={link.argument}
                     d={timelineLinkPath(from, to)}
                     fill="none"
                     className={touches ? "stroke-muted-foreground" : "stroke-border"}
                     strokeWidth={touches ? 2 : 1.5}
                     strokeDasharray={
-                      link.check ? "2 4" : link.to.tick.status !== "applied" ? "3 4" : undefined
+                      link.check
+                        ? "2 4"
+                        : link.to.tick.record.attempt.outcome.status !== "applied"
+                          ? "3 4"
+                          : undefined
                     }
                   />
                 );
@@ -194,17 +200,19 @@ export function VersionScrubber({
             {timeline.nodes.map((node) => {
               const point = timelinePosition(node);
               const current = node === selectedNode;
-              const failed = node.tick.status !== "applied";
+              const failed = node.tick.record.attempt.outcome.status !== "applied";
               const canCompare =
-                !failed && node.tick.action !== "data_diff" && node.tick.seq !== playhead;
-              const compared = node.tick.seq === comparedSeq;
-              const isLatest = node.tick.seq === latest;
-              const style = ACTION_STYLE[node.tick.action];
+                !failed &&
+                node.tick.record.attempt.action !== "data_diff" &&
+                node.tick.record.seq !== playhead;
+              const compared = node.tick.record.seq === comparedSeq;
+              const isLatest = node.tick.record.seq === latest;
+              const style = ACTION_STYLE[node.tick.record.attempt.action];
               const label = timelineTickLabel(node.tick);
               const accessibleLabel = `${label}${failed ? " · failed" : ""}${isLatest ? " · latest" : ""}`;
               return (
                 <div
-                  key={node.tick.seq}
+                  key={node.tick.record.seq}
                   ref={current ? selected : undefined}
                   className="group absolute"
                   style={{
@@ -217,7 +225,7 @@ export function VersionScrubber({
                     cancelHoverIntent();
                     if (!canCompare) return onEndPreview();
                     hoverIntent.current = setTimeout(
-                      () => onPreviewComparison(node.tick.seq),
+                      () => onPreviewComparison(node.tick.record.seq),
                       HOVER_INTENT_MS,
                     );
                   }}
@@ -225,7 +233,7 @@ export function VersionScrubber({
                     cancelHoverIntent();
                     onEndPreview();
                   }}
-                  onFocus={() => canCompare && onPreviewComparison(node.tick.seq)}
+                  onFocus={() => canCompare && onPreviewComparison(node.tick.record.seq)}
                   onBlur={onEndPreview}
                 >
                   <button
@@ -237,10 +245,10 @@ export function VersionScrubber({
                     }
                     aria-expanded={canCompare ? compared : undefined}
                     aria-controls={compared ? "model-comparison-preview" : undefined}
-                    title={`${accessibleLabel}\n${new Date(node.tick.ts).toLocaleString()}${failed && node.tick.error ? `\n${node.tick.error}` : ""}`}
+                    title={`${accessibleLabel}\n${new Date(node.tick.record.ts).toLocaleString()}${failed && attemptError(node.tick.record.attempt.outcome) ? `\n${attemptError(node.tick.record.attempt.outcome)}` : ""}`}
                     onClick={() => {
                       cancelHoverIntent();
-                      onPlayhead(node.tick.seq);
+                      onPlayhead(node.tick.record.seq);
                     }}
                     className="flex h-full w-full cursor-pointer flex-col items-center rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
                     data-compared={compared || undefined}
@@ -269,7 +277,7 @@ export function VersionScrubber({
                         compared && "text-amber-900",
                       )}
                     >
-                      {node.tick.action}
+                      {node.tick.record.attempt.action}
                     </span>
                     <span
                       className={cn(
@@ -277,7 +285,7 @@ export function VersionScrubber({
                         current ? "text-foreground/70" : "text-muted-foreground/70",
                       )}
                     >
-                      {node.tick.commitId.slice(0, 7)}
+                      {node.tick.commit_id.slice(0, 7)}
                       {isLatest && (
                         <span
                           title="Latest action"
@@ -291,7 +299,7 @@ export function VersionScrubber({
                     <button
                       type="button"
                       aria-label={`Compare ${timelineTickLabel(selectedNode.tick)} with ${label}`}
-                      onClick={() => onKeepComparison(node.tick.seq)}
+                      onClick={() => onKeepComparison(node.tick.record.seq)}
                       className="absolute top-0 left-[calc(50%+14px)] cursor-pointer rounded border bg-card px-1 text-[9px] leading-[14px] text-muted-foreground opacity-0 shadow-xs transition-opacity hover:text-foreground group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:outline-2 focus-visible:outline-ring [@media(hover:none)]:opacity-100"
                     >
                       Compare

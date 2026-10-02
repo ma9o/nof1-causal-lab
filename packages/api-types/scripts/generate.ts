@@ -9,6 +9,7 @@
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
 import { compile } from "json-schema-to-typescript";
+import ts from "typescript";
 
 // biome-ignore lint/suspicious/noExplicitAny: JSON Schema nodes are inherently untyped
 type JsonSchema = any;
@@ -189,6 +190,78 @@ function generateMetadata(): void {
   }
 }
 
+/** Preserve the Python value interface in generated outputs, including map keys. */
+function readonlyOutputs(source: string, schema: JsonSchema): string {
+  const file = ts.createSourceFile("models.ts", source, ts.ScriptTarget.Latest, true);
+  const transformed = ts.transform(file, [
+    (context) => {
+      const visit: ts.Visitor = (node) => {
+        const child = ts.visitEachChild(node, visit, context);
+        if (ts.isArrayTypeNode(child) || ts.isTupleTypeNode(child)) {
+          return ts.factory.createTypeOperatorNode(ts.SyntaxKind.ReadonlyKeyword, child);
+        }
+        if (ts.isPropertySignature(child)) {
+          let type = child.type;
+          const owner = node.parent;
+          if (
+            owner &&
+            ts.isInterfaceDeclaration(owner) &&
+            child.name &&
+            ts.isIdentifier(child.name)
+          ) {
+            const field = schema.$defs?.[owner.name.text]?.properties?.[child.name.text];
+            const keyRef = field?.propertyNames?.$ref;
+            const index =
+              type && ts.isTypeLiteralNode(type)
+                ? type.members.find(ts.isIndexSignatureDeclaration)
+                : undefined;
+            if (keyRef && index?.type) {
+              const valueType = ts.isUnionTypeNode(index.type)
+                ? ts.factory.createUnionTypeNode(
+                    index.type.types.filter(
+                      (member) => member.kind !== ts.SyntaxKind.UndefinedKeyword,
+                    ),
+                  )
+                : index.type;
+              type = ts.factory.createTypeReferenceNode("Readonly", [
+                ts.factory.createTypeReferenceNode("Partial", [
+                  ts.factory.createTypeReferenceNode("Record", [
+                    ts.factory.createTypeReferenceNode(keyRef.split("/").at(-1)),
+                    valueType,
+                  ]),
+                ]),
+              ]);
+            }
+          }
+          return ts.factory.updatePropertySignature(
+            child,
+            [ts.factory.createModifier(ts.SyntaxKind.ReadonlyKeyword)],
+            child.name,
+            child.questionToken,
+            type,
+          );
+        }
+        if (ts.isIndexSignatureDeclaration(child)) {
+          return ts.factory.updateIndexSignature(
+            child,
+            [ts.factory.createModifier(ts.SyntaxKind.ReadonlyKeyword)],
+            child.parameters,
+            ts.factory.createUnionTypeNode([
+              child.type,
+              ts.factory.createKeywordTypeNode(ts.SyntaxKind.UndefinedKeyword),
+            ]),
+          );
+        }
+        return child;
+      };
+      return (node) => ts.visitNode(node, visit) as ts.SourceFile;
+    },
+  ]);
+  const result = ts.createPrinter().printFile(transformed.transformed[0]);
+  transformed.dispose();
+  return result;
+}
+
 async function main() {
   const rawSchema = JSON.parse(readFileSync(SCHEMA_PATH, "utf-8"));
   const schema = intersectUnionProperties(stripFieldTitles(collapseRefs(rawSchema)));
@@ -217,7 +290,7 @@ async function main() {
     },
   });
 
-  writeOrCheck(OUTPUT_PATH, ts);
+  writeOrCheck(OUTPUT_PATH, readonlyOutputs(ts, rawSchema));
 
   // Count interfaces generated
   const count = (ts.match(/export (interface|type)/g) || []).length;

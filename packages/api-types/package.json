@@ -16,7 +16,7 @@
     "format:check": "biome format .",
     "type-check": "tsc --noEmit",
 
-    "codegen": "bun run codegen:schemas && bun run --parallel --no-exit-on-error codegen:types codegen:client",
+    "codegen": "bun run codegen:schemas && bun run codegen:types && bun run codegen:client",
     "codegen:check": "bun run --parallel --no-exit-on-error codegen:schemas:check codegen:types:check codegen:client:check",
     "codegen:schemas": "uv run --directory ../../apps/data-pipeline python -m scripts.codegen.export_api",
     "codegen:schemas:check": "bun run codegen:schemas --check",

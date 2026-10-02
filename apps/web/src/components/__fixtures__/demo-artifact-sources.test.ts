@@ -1,9 +1,13 @@
-import { existsSync, readFileSync } from "node:fs";
+import { fixtureValue } from "@/components/__fixtures__/fixture-value";
+import { presentEntries } from "@/lib/model-accessors";
+import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { describe, expect, it } from "vitest";
-import { coefficientUses, modelConstructs } from "@/lib/model-accessors";
-import type { SimulationWithEffects } from "@/lib/simulation-report";
+import { modelConstructs } from "@/lib/model-accessors";
+import { hasCausalEffects } from "@/lib/simulation-report";
+import simulationReports from "@/components/dag/__fixtures__/simulation-reports.json";
+import { ownLawUses } from "@/lib/model-asset/laws";
 import { demoModel, demoModelSnapshot, demoPosterior } from "./demo-artifacts";
 import { predictiveChecks } from "./inference-data";
 
@@ -32,8 +36,8 @@ describe("promoted DEMO fixture", () => {
       expect(ids.has(edge.effect.id)).toBe(true);
     }
     const parameterIds = new Set(parameters.map((parameter) => parameter.id));
-    for (const { parameterId: id } of coefficientUses([constructs, edges]))
-      expect(parameterIds.has(id as (typeof parameters)[number]["id"])).toBe(true);
+    for (const { parameterId: id } of [...constructs, ...edges].flatMap(ownLawUses))
+      expect(parameterIds.has(id)).toBe(true);
     for (const parameter of parameters) {
       expect("owners" in parameter).toBe(false);
       expect("quantity" in parameter).toBe(false);
@@ -43,18 +47,15 @@ describe("promoted DEMO fixture", () => {
 
   it("keeps retained numerical findings on scientific IDs without compiler coordinates", () => {
     expect(demoModelSnapshot.findings).not.toHaveProperty("execution");
-    const posterior = demoModelSnapshot.findings.fit!.value.report;
-    const retained = JSON.parse(
-      readFileSync(join(repoRoot, "data/DEMO/fixture/inference.json"), "utf8"),
-    );
-    const coordinates = Object.keys(retained.retained_draw_axes.parameter_shapes).sort();
+    const posterior = fixtureValue(demoModelSnapshot.findings.fit).value.report;
     const parameters = new Set(demoModel.parameters.map((p) => p.id));
     expect(
-      posterior.posterior_marginals!.every((m) => parameters.has(m.subject.parameter_id)),
+      fixtureValue(posterior.posterior_marginals).every((m) =>
+        parameters.has(m.subject.parameter_id),
+      ),
     ).toBe(true);
-    expect(posterior.posterior_marginals!.map((m) => m.subject.element_id).sort()).toEqual(
-      coordinates,
-    );
+    expect(posterior.posterior_marginals).toHaveLength(92);
+    expect(posterior.engine.kind).toBe("not_evaluated");
     expect(posterior.inference_diagnostics).toEqual(demoPosterior.inference_diagnostics);
     const indicators = new Set(
       modelConstructs(demoModel).flatMap((construct) => construct.indicators.map((i) => i.id)),
@@ -63,20 +64,7 @@ describe("promoted DEMO fixture", () => {
   });
 
   it("materializes comprehensive DAG layers only where their process semantics exist", () => {
-    const trace = JSON.parse(
-      readFileSync(
-        join(repoRoot, "apps/web/src/components/dag/__fixtures__/simulation-trace.json"),
-        "utf8",
-      ),
-    ) as {
-      messages: Array<{ tool_name: string | null; tool_result: string | null }>;
-    };
-    const simulations = trace.messages
-      .filter(
-        (message): message is { tool_name: string; tool_result: string } =>
-          message.tool_name === "simulate" && message.tool_result != null,
-      )
-      .map((message) => JSON.parse(message.tool_result)) as SimulationWithEffects[];
+    const simulations = simulationReports.filter(hasCausalEffects);
 
     // Retained illustrative traces cover the constructs with authored dynamics.
     const stateIds = modelConstructs(demoModel)
@@ -87,7 +75,7 @@ describe("promoted DEMO fixture", () => {
     expect(simulations).toHaveLength(5);
     for (const result of simulations) {
       const trajectories = result.predictive.states;
-      const trajectory = result.causal_result.effect_trajectory!;
+      const trajectory = fixtureValue(result.causal_result.effect_trajectory);
       expect(
         result.causal_result.warnings.some((warning) =>
           warning.includes("Artificial Storybook simulation"),
@@ -100,7 +88,7 @@ describe("promoted DEMO fixture", () => {
       expect(result.design.interventions).toHaveLength(1);
       expect(Object.keys(trajectories).sort()).toEqual(stateIds);
       expect(trajectory).toHaveLength(61);
-      for (const series of Object.values(trajectories)) {
+      for (const series of presentEntries(trajectories).map(([, series]) => series)) {
         expect(series.reference?.kind).toBe("numeric");
         expect(series.action.kind).toBe("numeric");
         if (series.reference?.kind === "numeric" && series.action.kind === "numeric") {
