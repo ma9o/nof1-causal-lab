@@ -32,7 +32,6 @@ from nof1_causal_lab.artifacts.validation_report import (
     IndicatorEmpiricalProfile,
     ValidationReportArtifact,
 )
-from nof1_causal_lab.json_types import JsonValue
 from nof1_causal_lab.study.state import ArtifactRecord
 
 
@@ -199,19 +198,11 @@ class ModelGraphComparison(Value):
     after_dynamic_construct_ids: tuple[ConstructId, ...]
 
 
-class ModelDefinitionChange(Value):
-    """One changed field in identity-keyed scientific model definitions."""
-
-    path: str
-    change: Change[JsonValue]
-
-
 class ModelDiffReport(Value):
-    """A model diff joins definition changes and evidence at two model revisions or checkpoints."""
+    """A model diff joins typed entity comparisons and evidence at two model revisions or checkpoints."""
 
     before: GitRef
     after: GitRef
-    definition_changes: tuple[ModelDefinitionChange, ...]
     parameters: tuple[ParameterChange, ...]
     graph: ModelGraphComparison
     changed_inputs: tuple[str, ...]

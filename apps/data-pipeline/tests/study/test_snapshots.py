@@ -68,11 +68,13 @@ def _model():
             "temporal_status": "time_varying",
             "indicators": [
                 {
-                    "id": f"indicator:{key}",
-                    "name": f"{key.upper()}_obs",
+                    "observation": {
+                        "id": f"indicator:{key}",
+                        "name": f"{key.upper()}_obs",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                    },
                     "construct_polarity": "positive",
-                    "measurement_dtype": "continuous",
-                    "aggregation": "mean",
                 }
             ],
         }
@@ -140,7 +142,7 @@ def test_predictive_findings_use_entity_ids_and_keep_served_reasons(monkeypatch)
             )
             for target in (
                 edge.effect.name,
-                edge.effect.indicators[0].id,
+                edge.effect.indicators[0].observation.id,
                 f"{edge.cause.name}->{edge.effect.name}",
             )
         ], []
@@ -148,7 +150,7 @@ def test_predictive_findings_use_entity_ids_and_keep_served_reasons(monkeypatch)
     monkeypatch.setattr(simulation, "measure_construct_simulation", measured)
     paths = jnp.zeros((1, 2, 2))
     prediction = PredictiveDraws(
-        {}, {}, PredictiveTrajectory(paths, paths, paths, jnp.ones_like(paths, dtype=bool), paths)
+        {}, PredictiveTrajectory(paths, paths, paths, jnp.ones_like(paths, dtype=bool), paths)
     )
     batch = simulation.SimulationBatch(
         (0.0, 1.0), prediction, None, DesignInfo(jnp.array([0.0, 1.0]), (), {}, {})
@@ -160,7 +162,7 @@ def test_predictive_findings_use_entity_ids_and_keep_served_reasons(monkeypatch)
     assert all(not isinstance(target, str) for target in targets)
     assert [target.id for target in targets if not isinstance(target, str)] == [
         edge.effect.id,
-        edge.effect.indicators[0].id,
+        edge.effect.indicators[0].observation.id,
         edge.id,
     ]
     for finding in findings:
@@ -191,11 +193,16 @@ def _measured(workspace):
     _commit(workspace, "model", _model().model_dump(mode="json"))
 
 
-def _definitions(snapshot):
+def _identity_owners(snapshot):
     if not snapshot.model:
         return ()
     model = _present(snapshot.model).value
-    return (*model.constructs, *model.edges, *model.indicators, *model.parameters)
+    return (
+        *model.constructs,
+        *model.edges,
+        *(item.observation for item in model.indicators),
+        *model.parameters,
+    )
 
 
 def test_fitted_snapshot_keeps_joint_arrays_lazy_and_workspace_bound(workspace, monkeypatch):
@@ -348,7 +355,6 @@ def test_checkpoint_comparison_uses_evidence_from_each_selected_journal_prefix(w
     assert response.status_code == 200, response.text
     comparison = response.json()
     assert comparison["before"]["path"] == "model.json"
-    assert comparison["definition_changes"] == []
     assert comparison["before_simulation"] is None
     assert comparison["after_simulation"]["seed"] == 2
 
@@ -356,7 +362,7 @@ def test_checkpoint_comparison_uses_evidence_from_each_selected_journal_prefix(w
 def test_snapshot_exists_before_any_compilation(workspace):
     empty = ModelReader(workspace).snapshot()
     assert empty.context.seq == 0
-    assert _definitions(empty) == ()
+    assert _identity_owners(empty) == ()
     assert empty.model is None
     _commit(workspace, "model", {"question": "Does X change Y?"})
     snapshot = ModelReader(workspace).snapshot()
@@ -366,13 +372,13 @@ def test_snapshot_exists_before_any_compilation(workspace):
         "revision": artifact_revision(workspace, "model", 1),
         "path": "model.json",
     }
-    assert not _definitions(snapshot)
+    assert not _identity_owners(snapshot)
 
 
 def test_ownership_and_sources_are_explicit_from_first_structure(workspace):
     _measured(workspace)
     snapshot = ModelReader(workspace).snapshot()
-    assert {entity.id for entity in _definitions(snapshot)} == {
+    assert {entity.id for entity in _identity_owners(snapshot)} == {
         "construct:x",
         "construct:y",
         "edge:xy",
@@ -403,8 +409,8 @@ def test_rename_preserves_identity_and_historical_content(workspace):
     graph_constructs(payload)[0]["name"] = "Treatment"
     _commit(workspace, "model", payload, pins={"model": artifact_revision(workspace, "model", 1)})
     after = ModelReader(workspace).snapshot()
-    assert [entity.id for entity in _definitions(before)] == [
-        entity.id for entity in _definitions(after)
+    assert [entity.id for entity in _identity_owners(before)] == [
+        entity.id for entity in _identity_owners(after)
     ]
     assert ModelReader(workspace, at=before.context.commit_id).snapshot() == before
     assert _present(after.model).value.get_construct(ConstructId("construct:x")).name == "Treatment"
@@ -458,7 +464,7 @@ def test_snapshot_derives_dispositions_from_its_model_revision(workspace):
     _measured(workspace)
     planned = ModelReader(workspace).snapshot()
     assert {item.target.id for item in _present(planned.findings.dispositions).value} == {
-        item.id for item in _definitions(planned)
+        item.id for item in _identity_owners(planned)
     }
     _commit(
         workspace,
@@ -483,13 +489,13 @@ def test_removed_construct_removes_its_owned_indicators(workspace):
         "model",
         _drop_x(_model()).model_dump(mode="json"),
     )
-    assert {entity.id for entity in _definitions(ModelReader(workspace).snapshot())} == {
+    assert {entity.id for entity in _identity_owners(ModelReader(workspace).snapshot())} == {
         "construct:y",
         "indicator:y",
         "construct:z",
         "edge:yz",
     }
-    assert len(_definitions(ModelReader(workspace, at=commit_id(workspace, 1)).snapshot())) == 5
+    assert len(_identity_owners(ModelReader(workspace, at=commit_id(workspace, 1)).snapshot())) == 5
 
 
 def test_uncommitted_versions_and_failed_attempts_never_become_snapshots(workspace):
@@ -536,7 +542,9 @@ def test_snapshot_rejects_inconsistent_facts(workspace, violation):
     elif violation == "validity":
         payload["model"]["source"]["validity"] = "stale"
     else:
-        graph_constructs(payload["model"]["value"])[0]["indicators"][0]["id"] = "indicator:y"
+        graph_constructs(payload["model"]["value"])[0]["indicators"][0]["observation"]["id"] = (
+            "indicator:y"
+        )
     with pytest.raises(ValidationError):
         ModelSnapshot.model_validate(payload)
 
@@ -558,8 +566,8 @@ def test_owned_likelihood_survives_reused_names(workspace, monkeypatch):
     }
     _commit(workspace, "model", payload)
     before = ModelReader(workspace).snapshot()
-    graph_constructs(payload)[0]["indicators"][0]["name"] = "Y_obs"
-    graph_constructs(payload)[1]["indicators"][0]["name"] = "X_obs"
+    graph_constructs(payload)[0]["indicators"][0]["observation"]["name"] = "Y_obs"
+    graph_constructs(payload)[1]["indicators"][0]["observation"]["name"] = "X_obs"
     _commit(workspace, "model", payload)
 
     def reject_catalog(*_args):
@@ -572,7 +580,10 @@ def test_owned_likelihood_survives_reused_names(workspace, monkeypatch):
         _present(after.model).value.indicator(IndicatorId("indicator:y")).likelihood
         == _present(before.model).value.indicator(IndicatorId("indicator:y")).likelihood
     )
-    assert _present(after.model).value.indicator(IndicatorId("indicator:y")).name == "X_obs"
+    assert (
+        _present(after.model).value.indicator(IndicatorId("indicator:y")).observation.name
+        == "X_obs"
+    )
     assert ModelReader(workspace, at=before.context.commit_id).snapshot() == before
 
 
@@ -649,7 +660,7 @@ def test_identification_is_independent_and_keeps_original_pin_after_rename(works
         == _present(before.findings.identification).value
     )
     assert _present(after.findings.identification).source.validity == "stale"
-    assert after.context.state.current["identification_report"].derived_from == {
+    assert after.context.current["identification_report"].derived_from == {
         "model": artifact_revision(workspace, "model", 1)
     }
     assert "construct:x" in _present(after.findings.identification).value.estimable_treatments

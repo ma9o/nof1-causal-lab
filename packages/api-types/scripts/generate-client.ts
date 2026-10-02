@@ -57,6 +57,40 @@ const ast = await openapiTS(schema, {
       return;
     }
     const canonical = name.replace(/-(?:Input|Output)$/, "");
+    if (!inputNames.has(name) && typeof value["x-typescript-type"] === "string") {
+      const file = ts.createSourceFile(
+        "application.ts",
+        `type Application = ${value["x-typescript-type"]};`,
+        ts.ScriptTarget.Latest,
+        true,
+      );
+      const declaration = file.statements[0];
+      if (!declaration || !ts.isTypeAliasDeclaration(declaration))
+        throw new Error(`Invalid generic application: ${name}`);
+      const qualified = ts.transform(declaration.type, [
+        (context) => {
+          const visit: ts.Visitor = (node) => {
+            const child = ts.visitEachChild(node, visit, context);
+            if (ts.isStringLiteral(child)) return ts.factory.createStringLiteral(child.text);
+            if (ts.isNumericLiteral(child)) return ts.factory.createNumericLiteral(child.text);
+            return ts.isTypeReferenceNode(child) && ts.isIdentifier(child.typeName)
+              ? ts.factory.updateTypeReferenceNode(
+                  child,
+                  ts.factory.createQualifiedName(
+                    ts.factory.createIdentifier("Domain"),
+                    child.typeName,
+                  ),
+                  child.typeArguments,
+                )
+              : child;
+          };
+          return (node) => ts.visitNode(node, visit) as ts.TypeNode;
+        },
+      ]);
+      const result = qualified.transformed[0];
+      qualified.dispose();
+      return result;
+    }
     if (
       names.has(canonical) &&
       (!inputNames.has(name) || ["JsonObject", "JsonArray", "JsonValue"].includes(canonical))

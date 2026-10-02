@@ -156,6 +156,28 @@ function stripFieldTitles(schema: JsonSchema, isTopLevel = true): JsonSchema {
   return result;
 }
 
+/** Concrete JSON schemas keep validation; Python operands own TS applications. */
+function genericSchema(schema: JsonSchema): JsonSchema {
+  const definitions = { ...schema.$defs, ...schema["x-typescript-generics"] };
+  function visit(value: JsonSchema): JsonSchema {
+    if (Array.isArray(value)) return value.map(visit);
+    if (typeof value !== "object" || value === null) return value;
+    const application =
+      value.$ref && definitions[value.$ref.split("/").at(-1)]?.["x-typescript-type"];
+    if (application) return { tsType: application };
+    return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, visit(child)]));
+  }
+  return visit({
+    ...schema,
+    $defs: Object.fromEntries(
+      Object.entries(definitions).filter(
+        ([, definition]) => !(definition as JsonSchema)["x-typescript-type"],
+      ),
+    ),
+    "x-typescript-generics": undefined,
+  });
+}
+
 function generateMetadata(): void {
   const metadata = JSON.parse(readFileSync(METADATA_PATH, "utf-8"));
   const byDist = metadata.observationHyperparametersByDistribution;
@@ -197,7 +219,37 @@ function readonlyOutputs(source: string, schema: JsonSchema): string {
     (context) => {
       const visit: ts.Visitor = (node) => {
         const child = ts.visitEachChild(node, visit, context);
-        if (ts.isArrayTypeNode(child) || ts.isTupleTypeNode(child)) {
+        if (ts.isInterfaceDeclaration(child) || ts.isTypeAliasDeclaration(child)) {
+          const parameters = schema.$defs?.[child.name.text]?.["x-typescript-parameters"]?.map(
+            (name: string) => ts.factory.createTypeParameterDeclaration(undefined, name),
+          );
+          if (parameters) {
+            return ts.isInterfaceDeclaration(child)
+              ? ts.factory.updateInterfaceDeclaration(
+                  child,
+                  child.modifiers,
+                  child.name,
+                  parameters,
+                  child.heritageClauses,
+                  child.members,
+                )
+              : ts.factory.updateTypeAliasDeclaration(
+                  child,
+                  child.modifiers,
+                  child.name,
+                  parameters,
+                  child.type,
+                );
+          }
+        }
+        if (
+          (ts.isArrayTypeNode(child) || ts.isTupleTypeNode(child)) &&
+          !(
+            node.parent &&
+            ts.isTypeOperatorNode(node.parent) &&
+            node.parent.operator === ts.SyntaxKind.ReadonlyKeyword
+          )
+        ) {
           return ts.factory.createTypeOperatorNode(ts.SyntaxKind.ReadonlyKeyword, child);
         }
         if (ts.isPropertySignature(child)) {
@@ -264,7 +316,8 @@ function readonlyOutputs(source: string, schema: JsonSchema): string {
 
 async function main() {
   const rawSchema = JSON.parse(readFileSync(SCHEMA_PATH, "utf-8"));
-  const schema = intersectUnionProperties(stripFieldTitles(collapseRefs(rawSchema)));
+  const declarationSchema = genericSchema(rawSchema);
+  const schema = intersectUnionProperties(stripFieldTitles(collapseRefs(declarationSchema)));
 
   const ts = await compile(schema, "CausalSSMContracts", {
     bannerComment:
@@ -290,7 +343,7 @@ async function main() {
     },
   });
 
-  writeOrCheck(OUTPUT_PATH, readonlyOutputs(ts, rawSchema));
+  writeOrCheck(OUTPUT_PATH, readonlyOutputs(ts, declarationSchema));
 
   // Count interfaces generated
   const count = (ts.match(/export (interface|type)/g) || []).length;

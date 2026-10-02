@@ -57,7 +57,7 @@ def test_raised_attempt_discovers_trace_and_retry_no_longer_needs_scratch(data_r
     del data_root
     base = asyncio.run(read_branch_activity(ReadBranchInput(workspace_id="ws-trace")))
     _scratch_trace("ws-trace", 1, "latent-structure")
-    input = AttemptPublication(
+    publication_input = AttemptPublication(
         workspace_id="ws-trace",
         expected_head=base.commit_id,
         record=AttemptRecord(
@@ -70,10 +70,10 @@ def test_raised_attempt_discovers_trace_and_retry_no_longer_needs_scratch(data_r
         ),
     )
 
-    publication = asyncio.run(journal_activity(input))
+    publication = asyncio.run(journal_activity(publication_input))
     assert StudyRepository("ws-trace").head() == base.commit_id
     storage.rm_tree(data_module.scratch_run_dir("ws-trace", "seq-000001"))
-    asyncio.run(journal_activity(input))
+    asyncio.run(journal_activity(publication_input))
 
     record = StudyRepository("ws-trace").read_attempt(1)
     assert record is not None

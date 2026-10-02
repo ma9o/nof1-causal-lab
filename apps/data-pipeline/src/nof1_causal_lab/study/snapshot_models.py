@@ -82,15 +82,6 @@ class FitSummary(Value):
     )
 
 
-class SnapshotState(Value):
-    """A snapshot state lists the artifact revisions current at the selected commit.
-
-    Recorded checks appear once, as the specification and predictive findings.
-    """
-
-    current: Mapping[ArtifactId, ArtifactRecord] = Field(default_factory=dict)
-
-
 class SnapshotContext(Value):
     """A snapshot context identifies the selected Git commit and its artifact versions."""
 
@@ -99,7 +90,7 @@ class SnapshotContext(Value):
     commit_id: GitOid
     branch: str = "main"
     can_simulate: bool = False
-    state: SnapshotState
+    current: Mapping[ArtifactId, ArtifactRecord] = Field(default_factory=dict)
 
 
 class ModelData(Value):
@@ -204,7 +195,7 @@ class ModelSnapshot(Value):
         model = self.model.value if self.model else None
         constructs = {item.id for item in model.constructs} if model else set()
         edges = {item.id for item in model.edges} if model else set()
-        indicators = {item.id for item in model.indicators} if model else set()
+        indicators = {item.observation.id for item in model.indicators} if model else set()
         parameters = {item.id for item in model.parameters} if model else set()
         findings = self.findings
         if (
@@ -230,7 +221,7 @@ class ModelSnapshot(Value):
         # Undeclared variables are reported by preparation checks, never hidden here.
         if (
             findings.validation_report
-            and not findings.validation_report.value.indicators.keys() <= indicators
+            and not findings.validation_report.value.data.indicators.keys() <= indicators
         ):
             raise ValueError("Validation owner does not exist in the snapshot")
         if findings.fit:
@@ -259,7 +250,7 @@ class ModelSnapshot(Value):
                 or source.pointer != f"/{artifact_id}"
             ):
                 raise ValueError("Check source must identify this snapshot's recorded findings")
-            panel = self.context.state.current.get("panel")
+            panel = self.context.current.get("panel")
             expected = (
                 "stale"
                 if artifact_id == "predictive"
@@ -279,7 +270,7 @@ class ModelSnapshot(Value):
         if artifact_id in {"inference", "simulation", "specification", "predictive"}:
             raise ValueError("Operation findings require an action log or recorded check")
         current = next(
-            (record for key, record in self.context.state.current.items() if key == artifact_id),
+            (record for key, record in self.context.current.items() if key == artifact_id),
             None,
         )
         if current is None or current.revision != ref.revision:
@@ -292,7 +283,7 @@ class ModelSnapshot(Value):
             }.values()
         ):
             raise ValueError("Fact source does not identify a declared artifact payload")
-        state = StudyState(current=self.context.state.current)
+        state = StudyState(current=self.context.current)
         expected = "stale" if is_stale(state, current.artifact_id) else "fresh"
         if source.validity != expected:
             raise ValueError("Fact validity differs from its snapshot input references")

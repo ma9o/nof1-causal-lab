@@ -21,7 +21,6 @@ from nof1_causal_lab.study.view_models import (
     ComparisonConnection,
     ConstructComparison,
     EdgeComparison,
-    ModelDefinitionChange,
     ModelGraphComparison,
     ParameterChange,
     Removed,
@@ -35,7 +34,6 @@ if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.identity import ConstructId, IndicatorId
     from nof1_causal_lab.artifacts.indicator import IndicatorSpec
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.json_types import JsonValue
 
 type DependencyKey = tuple[
     ConstructId, ConstructId, Literal["innovation_correlation", "initial_state_correlation"]
@@ -97,7 +95,9 @@ def reference_indicators(model: ModelSpec) -> Mapping[ConstructId, IndicatorId]:
 
     return MappingProxyType(
         {
-            identity: choose_reference_indicator(model.get_construct(identity).indicators).id
+            identity: choose_reference_indicator(
+                model.get_construct(identity).indicators
+            ).observation.id
             for identity in selected_state_ids(model)
         }
     )
@@ -247,7 +247,7 @@ def structural_dispositions(model: ModelSpec) -> tuple[StructuralItemDisposition
     unsupported = unsupported_construct_ids(model)
     states = set(selected_state_ids(model))
     edge_ids = {edge.id for edge in selected_edges(model)}
-    manifests = {indicator.id for indicator in selected_indicators(model)}
+    manifests = {indicator.observation.id for indicator in selected_indicators(model)}
     findings = []
     for construct in model.constructs:
         if construct.id in states:
@@ -295,7 +295,7 @@ def structural_dispositions(model: ModelSpec) -> tuple[StructuralItemDisposition
             )
         )
     for indicator in model.indicators:
-        if indicator.id in manifests:
+        if indicator.observation.id in manifests:
             disposition = StructuralDisposition.MANIFEST
             reason = "Indicator retained as a manifest likelihood channel."
         else:
@@ -303,7 +303,7 @@ def structural_dispositions(model: ModelSpec) -> tuple[StructuralItemDisposition
             reason = "Indicator belongs to a construct outside the executable state vector."
         findings.append(
             StructuralItemDisposition(
-                target=IndicatorRef(id=indicator.id),
+                target=IndicatorRef(id=indicator.observation.id),
                 disposition=disposition,
                 reason=reason,
             )
@@ -355,57 +355,6 @@ def compare_parameters(left: ModelSpec, right: ModelSpec) -> list[ParameterChang
             else Revised(before=old[identity], after=new[identity])
         )
         changes.append(ParameterChange(parameter_id=identity, change=change))
-    return changes
-
-
-def compare_model_definitions(left: ModelSpec, right: ModelSpec) -> list[ModelDefinitionChange]:
-    """Compare every authored field, aligning entities by ID rather than list position."""
-
-    def definition(model: ModelSpec) -> JsonValue:
-        value: dict[str, JsonValue] = model.model_dump(mode="json", exclude={"edges", "parameters"})
-        constructs: dict[str, JsonValue] = {}
-        for item in model.constructs:
-            construct: dict[str, JsonValue] = item.model_dump(mode="json", exclude={"indicators"})
-            indicators: dict[str, JsonValue] = {
-                indicator.id: indicator.model_dump(mode="json") for indicator in item.indicators
-            }
-            construct["indicators"] = indicators
-            constructs[item.id] = construct
-        value["constructs"] = constructs
-        value["parameters"] = {item.id: item.model_dump(mode="json") for item in model.parameters}
-        value["edges"] = {
-            item.id: {
-                **item.model_dump(mode="json", exclude={"cause", "effect"}),
-                "cause": item.cause.id,
-                "effect": item.effect.id,
-            }
-            for item in model.edges
-        }
-        return value
-
-    changes = []
-
-    def walk(before: JsonValue, after: JsonValue, path: str) -> None:
-        if isinstance(before, dict) and isinstance(after, dict):
-            for key in sorted(before.keys() | after.keys()):
-                pointer = path + "/" + key.replace("~", "~0").replace("/", "~1")
-                if key not in before or key not in after:
-                    changes.append(
-                        ModelDefinitionChange(
-                            path=pointer,
-                            change=Added(after=after[key])
-                            if key in after
-                            else Removed(before=before[key]),
-                        )
-                    )
-                else:
-                    walk(before[key], after[key], pointer)
-        elif before != after:
-            changes.append(
-                ModelDefinitionChange(path=path, change=Revised(before=before, after=after))
-            )
-
-    walk(definition(left), definition(right), "")
     return changes
 
 

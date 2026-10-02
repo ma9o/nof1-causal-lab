@@ -23,6 +23,7 @@ from nof1_causal_lab.artifacts.checks import (
     PredictiveAssessment,
     PredictiveSubject,
 )
+from nof1_causal_lab.distributions import DistributionFamily
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -467,7 +468,7 @@ def check_coverage(
     pp_y: np.ndarray,
     y_obs: np.ndarray,
     *,
-    distribution: str,
+    distribution: DistributionFamily,
     level_count: int | None = None,
 ) -> list[CheckResult]:
     """C5a/C5b replicated-data location and family-aware dispersion."""
@@ -483,10 +484,14 @@ def check_coverage(
     def _inside(value: float, band: tuple[float, float]) -> bool:
         return bool(band[0] <= value <= band[1])
 
-    _categorical = distribution in {"bernoulli", "ordered_logistic", "categorical"}
-    _count = distribution in {"poisson", "negative_binomial"}
+    _categorical = distribution in {
+        DistributionFamily.BERNOULLI,
+        DistributionFamily.ORDERED_LOGISTIC,
+        DistributionFamily.CATEGORICAL,
+    }
+    _count = distribution in {DistributionFamily.POISSON, DistributionFamily.NEGATIVE_BINOMIAL}
     if _categorical:
-        _levels = level_count or (2 if distribution == "bernoulli" else 0)
+        _levels = level_count or (2 if distribution == DistributionFamily.BERNOULLI else 0)
         if _levels < 2:
             raise ValueError(f"{distribution} coverage requires declared level count")
 

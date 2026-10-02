@@ -29,7 +29,6 @@ from nof1_causal_lab.study.snapshot_models import (
     ModelFindings,
     ModelSnapshot,
     SnapshotContext,
-    SnapshotState,
     Sourced,
     SourceValidity,
 )
@@ -171,7 +170,7 @@ class ModelReader:
 
     @cached_property
     def _indicator_ids(self) -> frozenset[IndicatorId]:
-        return frozenset(item.id for item in self.indicators())
+        return frozenset(item.observation.id for item in self.indicators())
 
     @cached_property
     def _panel(self) -> pl.DataFrame | None:
@@ -501,7 +500,7 @@ class ModelReader:
                 commit_id=self.commit_id,
                 branch=self.branch,
                 can_simulate=can_simulate,
-                state=SnapshotState(current=self.state.current),
+                current=self.state.current,
             ),
             data=ModelData(
                 raw_data=self.raw_data,
@@ -595,7 +594,9 @@ class ModelReader:
                 "Saved predictive series do not match their pinned observation schedule"
             )
         likelihood = next(
-            law for indicator, law in model.iter_likelihoods() if indicator.id == indicator_id
+            law
+            for indicator, law in model.iter_likelihoods()
+            if indicator.observation.id == indicator_id
         )
         return PredictiveHistory(
             times=times, time_origin=origin, standardized=likelihood.standardized, overlay=overlay

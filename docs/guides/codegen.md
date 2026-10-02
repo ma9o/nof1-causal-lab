@@ -19,6 +19,14 @@ bun run codegen:check # verify API artifact drift
 
 Generated API files are committed. Run `codegen` after editing an artifact, read model, study record, tool contract, or facade response.
 
+Python generic owners export their parameter names, declaration bodies and typed
+applications through [`type_system_catalog.py`](../../apps/data-pipeline/scripts/codegen/type_system_catalog.py).
+The TypeScript generator emits one generic declaration per owner and uses its
+applications directly. Concrete JSON Schema definitions still validate each
+specialization. The facade client reads the same generic metadata to reference
+the canonical declarations. Generic operands come from Python types; generated
+schema names are never parsed to recover them.
+
 The combined `contracts.json` includes all registered JSON artifact payloads, facade responses, study records, and tool results. `panel` is a Parquet artifact whose file layout is declared in the generated metadata. OpenAPI remains the HTTP operation description; it is not a second source of domain types.
 
 ## Documentation Artifacts
@@ -30,7 +38,7 @@ bun run docs:codegen # regenerate documentation artifacts
 bun run docs:check   # verify documentation drift, Markdown, and spelling
 ```
 
-`bun run check` runs both drift checks alongside the repository's lint, type, test, and build tasks.
+`bun run lint` runs both drift checks with every other static check.
 
 ### Action-flow charts
 

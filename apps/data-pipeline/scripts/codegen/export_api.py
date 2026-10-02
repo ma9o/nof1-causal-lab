@@ -14,8 +14,6 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeAliasType
 
-from pydantic import TypeAdapter
-
 from nof1_causal_lab.actions.results import ActionPoll, ActionReceipt
 from nof1_causal_lab.actions.status import StudyStatus
 from nof1_causal_lab.artifacts.catalog import ARTIFACT_CONTRACTS
@@ -56,7 +54,11 @@ from nof1_causal_lab.study_api import (
     WorkspaceList,
 )
 from nof1_causal_lab.utils.llm import LLMTrace
-from scripts.codegen.type_system_catalog import annotate_definitions
+from scripts.codegen.type_system_catalog import (
+    ContractJsonSchema,
+    annotate_definitions,
+    generic_definitions,
+)
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
@@ -101,9 +103,13 @@ EXPORTED_TOOL_MODELS: tuple[type[BaseModel], ...] = (
 
 
 def _collect_model_schema(
-    model_cls: type[BaseModel] | TypeAliasType, all_defs: JsonSchemaValue
+    model_cls: type[BaseModel] | TypeAliasType,
+    all_defs: JsonSchemaValue,
+    generics: dict[str, type[BaseModel] | TypeAliasType],
 ) -> dict[str, str]:
-    schema = TypeAdapter(model_cls).json_schema(mode="serialization")
+    generator = ContractJsonSchema()
+    schema = generator.export(model_cls)
+    generics.update(generator.generic_types)
     defs = schema.pop("$defs", {})
     all_defs.update(defs)
     model_name = model_cls.__name__
@@ -114,13 +120,14 @@ def _collect_model_schema(
 def export_schemas() -> JsonSchemaValue:
     """Build a combined JSON Schema with exported Python models in $defs."""
     all_defs: JsonSchemaValue = {}
+    generics: dict[str, type[BaseModel] | TypeAliasType] = {}
     artifact_refs: dict[str, dict[str, str]] = {}
 
     for artifact_id, model_cls in ARTIFACT_CONTRACTS.items():
-        artifact_refs[artifact_id] = _collect_model_schema(model_cls, all_defs)
+        artifact_refs[artifact_id] = _collect_model_schema(model_cls, all_defs, generics)
 
     for model_cls in (*EXPORTED_API_MODELS, *EXPORTED_TOOL_MODELS):
-        _collect_model_schema(model_cls, all_defs)
+        _collect_model_schema(model_cls, all_defs, generics)
 
     annotate_definitions(all_defs)
     return {
@@ -130,6 +137,7 @@ def export_schemas() -> JsonSchemaValue:
         "type": "object",
         "properties": artifact_refs,
         "$defs": dict(sorted(all_defs.items())),
+        "x-typescript-generics": generic_definitions(generics),
     }
 
 
@@ -323,8 +331,13 @@ def main(*, check: bool = False) -> bool:
     from nof1_causal_lab.tool_server import app
 
     openapi = app.openapi()
+    contracts = export_schemas()
+    for name, schema in openapi["components"]["schemas"].items():
+        definition = contracts["$defs"].get(re.sub(r"-(?:Input|Output)$", "", name), {})
+        if "x-typescript-type" in definition:
+            schema["x-typescript-type"] = definition["x-typescript-type"]
     outputs = {
-        OUTPUT_DIR / "contracts.json": json.dumps(export_schemas(), indent=2) + "\n",
+        OUTPUT_DIR / "contracts.json": json.dumps(contracts, indent=2) + "\n",
         OUTPUT_DIR / "metadata.json": json.dumps(export_metadata(), indent=2) + "\n",
         OUTPUT_DIR / "openapi.json": json.dumps(openapi, indent=2) + "\n",
         SKILL_PATH: render_skill(openapi),

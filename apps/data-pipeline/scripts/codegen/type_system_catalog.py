@@ -2,13 +2,162 @@
 
 from __future__ import annotations
 
+import json
 import sys
-from typing import TYPE_CHECKING, TypeAliasType
+from types import UnionType
+from typing import (
+    TYPE_CHECKING,
+    Annotated,
+    Any,
+    Literal,
+    TypeAliasType,
+    Union,
+    get_args,
+    get_origin,
+    override,
+)
 
-from pydantic import BaseModel
+from pydantic import BaseModel, TypeAdapter, WithJsonSchema
+from pydantic.json_schema import GenerateJsonSchema
 
 if TYPE_CHECKING:
+    from pydantic.json_schema import CoreSchemaOrField, JsonSchemaValue
+
     from nof1_causal_lab.json_types import JsonValue
+
+
+def _typescript_type(value: Any) -> str:
+    """Render generic operands from Python types, never from mangled schema names."""
+    origin, args = get_origin(value), get_args(value)
+    if origin is Annotated:
+        for metadata in args[1:]:
+            if isinstance(metadata, WithJsonSchema):
+                return metadata.json_schema["tsType"]
+        return _typescript_type(args[0])
+    if isinstance(value, TypeAliasType):
+        return value.__name__
+    if isinstance(origin, TypeAliasType):
+        return f"{origin.__name__}<{', '.join(map(_typescript_type, args))}>"
+    if isinstance(value, type) and issubclass(value, BaseModel):
+        metadata = value.__pydantic_generic_metadata__
+        if metadata["origin"]:
+            return f"{metadata['origin'].__name__}<{', '.join(map(_typescript_type, metadata['args']))}>"
+        return value.__name__
+    if origin is Literal:
+        return " | ".join(json.dumps(arg) for arg in args)
+    if origin in {UnionType, Union}:
+        return " | ".join(map(_typescript_type, args))
+    if origin is tuple:
+        if len(args) == 2 and args[1] is Ellipsis:
+            return f"readonly ({_typescript_type(args[0])})[]"
+        return f"readonly [{', '.join(map(_typescript_type, args))}]"
+    return {
+        str: "string",
+        int: "number",
+        float: "number",
+        bool: "boolean",
+        type(None): "null",
+        Any: "unknown",
+    }[value]
+
+
+class ContractJsonSchema(GenerateJsonSchema):
+    """Preserve concrete validation schemas and their Python generic relationships."""
+
+    def __init__(self) -> None:
+        super().__init__()
+        self.generic_types: dict[str, type[BaseModel] | TypeAliasType] = {}
+        self.type_references: dict[str, str] = {}
+        self.seen: set[Any] = set()
+
+    def reference(self, value: Any) -> str:
+        schema: dict[str, object] = dict(TypeAdapter(value).core_schema)
+        if schema["type"] == "definitions":
+            nested = schema["schema"]
+            assert isinstance(nested, dict)
+            schema = nested
+        ref = schema["ref"]
+        assert isinstance(ref, str)
+        return ref
+
+    def register(self, value: Any) -> None:
+        origin, args = get_origin(value), get_args(value)
+        if origin is Annotated:
+            self.register(args[0])
+        elif isinstance(value, TypeAliasType) or isinstance(origin, TypeAliasType):
+            alias = origin or value
+            if value in self.seen:
+                return
+            self.seen.add(value)
+            if alias.__type_params__:
+                self.generic_types[alias.__name__] = alias
+                self.type_references[self.reference(value)] = _typescript_type(value)
+            self.register_core(TypeAdapter(value).core_schema)
+        elif isinstance(value, type) and issubclass(value, BaseModel):
+            if value in self.seen:
+                return
+            self.seen.add(value)
+            metadata = value.__pydantic_generic_metadata__
+            generic = metadata["origin"]
+            if generic is None:
+                for base in value.__bases__:
+                    if issubclass(base, BaseModel) and base.__pydantic_generic_metadata__["origin"]:
+                        self.register(base)
+                        self.type_references[self.reference(value)] = _typescript_type(base)
+            else:
+                self.generic_types[generic.__name__] = generic
+                self.type_references[self.reference(value)] = _typescript_type(value)
+            for field in value.model_fields.values():
+                self.register(field.annotation)
+        else:
+            for argument in args:
+                self.register(argument)
+
+    def register_core(self, schema: Any) -> None:
+        if isinstance(schema, dict):
+            if schema.get("type") == "model":
+                self.register(schema["cls"])
+            for child in schema.values():
+                self.register_core(child)
+        elif isinstance(schema, (tuple, list)):
+            for child in schema:
+                self.register_core(child)
+
+    @override
+    def generate_inner(self, schema: CoreSchemaOrField) -> JsonSchemaValue:
+        result = super().generate_inner(schema)
+        reference = self.type_references.get(schema.get("ref"))
+        if reference:
+            target = (
+                self.get_schema_from_definitions(result["$ref"]) if "$ref" in result else result
+            )
+            assert target is not None
+            target["x-typescript-type"] = reference
+        return result
+
+    def export(self, value: Any) -> JsonSchemaValue:
+        self.register(value)
+        return self.generate(TypeAdapter(value).core_schema, mode="serialization")
+
+
+def generic_definitions(generics: dict[str, type[BaseModel] | TypeAliasType]) -> JsonSchemaValue:
+    """Export generic declaration bodies from the same owned Python fields."""
+    definitions = {}
+    for name, generic in sorted(generics.items()):
+        parameters = generic.__type_params__
+        arguments: tuple[Any, ...] = tuple(
+            Annotated[Any, WithJsonSchema({"tsType": p.__name__})] for p in parameters
+        )
+        generator = ContractJsonSchema()
+        schema = generator.export(generic[arguments])
+        schema.pop("x-typescript-type", None)
+        schema["title"] = name
+        schema["x-python-module"] = generic.__module__
+        schema["x-typescript-parameters"] = [p.__name__ for p in parameters]
+        definitions.update(schema.pop("$defs", {}))
+        definitions[name] = schema
+    return definitions
+
 
 # Group exported types by their owning subject.
 CONCERNS = {

@@ -71,6 +71,9 @@ class ChainDiagnostics(Value):
     energy: EnergyDiagnostics | None = None
 
 
+type ConvergenceAssessmentSubject = ConvergenceSubject | Literal["recorded_parameter_chains"]
+
+
 class ParameterConvergenceReport(Value):
     """Recorded-chain criteria cover parameters, not latent-path mixing."""
 
@@ -78,12 +81,7 @@ class ParameterConvergenceReport(Value):
     checked: int
     status: Literal["passed", "failed", "not_evaluated"]
     messages: tuple[str, ...] = ()
-    assessments: tuple[
-        Assessment[
-            ConvergenceSubject | Literal["recorded_parameter_chains"], NumericCriterionEvidence
-        ],
-        ...,
-    ]
+    assessments: tuple[Assessment[ConvergenceAssessmentSubject, NumericCriterionEvidence], ...]
 
 
 class ParetoKPoint(Value):

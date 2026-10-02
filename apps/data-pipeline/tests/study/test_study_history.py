@@ -142,12 +142,12 @@ def test_action_captures_selected_branch_before_validation(study, monkeypatch):
     second = _model(store, "Main question", first.revision)
     repository.append(_record(2, produced=[second]))
 
-    async def execute(name, input, **kwargs):
+    async def execute(name, payload, **kwargs):
         name = name if isinstance(name, str) else name.__name__
         if name == "read_branch_activity":
-            return await read_branch_activity(input)
+            return await read_branch_activity(payload)
         if name == "journal_activity":
-            return await journal_activity(input)
+            return await journal_activity(payload)
         if name == "collect_completed_runs_activity":
             return None
         raise AssertionError(f"Rejected action must not execute: {name}")
@@ -210,17 +210,17 @@ def test_data_comparison_is_a_saved_leaf_at_dispatch_head(study, monkeypatch, fa
             raise StudyLookupError("The selected panel has no saved observations")
         return report
 
-    async def execute(name, input, **kwargs):
+    async def execute(name, payload, **kwargs):
         name = name if isinstance(name, str) else name.__name__
         if name == "read_branch_activity":
-            return await read_branch_activity(input)
+            return await read_branch_activity(payload)
         if name == "run_action_activity":
-            return await run_action_activity(input)
+            return await run_action_activity(payload)
         if name == "journal_activity":
             try:
                 # A journal activity retry reads the saved report rather than comparing again.
-                commit = await journal_activity(input)
-                assert await journal_activity(input) == commit
+                commit = await journal_activity(payload)
+                assert await journal_activity(payload) == commit
                 return commit
             except ApplicationError as exc:
                 raise ActivityError(

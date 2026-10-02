@@ -9,6 +9,7 @@ import jax.numpy as jnp
 import numpy as np
 
 from nof1_causal_lab.artifacts.expressions import StateExpression
+from nof1_causal_lab.artifacts.likelihood import DeltaLawSpec
 from nof1_causal_lab.models.ssm import numerics as numeric
 
 if TYPE_CHECKING:
@@ -41,7 +42,7 @@ def compile_exact_state_constraints(
     exact = [
         (index, indicator)
         for index, indicator in enumerate(spec.observations)
-        if indicator.likelihood.family.value == "delta"
+        if isinstance(indicator.law, DeltaLawSpec)
     ]
     if not exact:
         return None
@@ -53,7 +54,8 @@ def compile_exact_state_constraints(
             if input_values is None:
                 raise ValueError("Exogenous inputs require a replayed panel path")
             continue
-        expression = indicator.likelihood.predictor
+        assert isinstance(indicator.law, DeltaLawSpec)
+        expression = indicator.law.v.expression
         if indicator.support.support_kind != "point" or not isinstance(expression, StateExpression):
             raise ValueError(
                 f"Delta indicator {indicator.name!r} requires a direct point binding "

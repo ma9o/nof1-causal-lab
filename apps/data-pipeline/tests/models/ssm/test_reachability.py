@@ -5,6 +5,7 @@ from __future__ import annotations
 import numpy as np
 import pytest
 
+from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.ssm.reachability import (
     CheckResult,
     check_confinement,
@@ -146,7 +147,7 @@ class TestCoverage:
         pp = signal + rng.normal(0, 0.8, (200, 100))  # + modest noise
         res = _by_id(
             [
-                *check_coverage("y", pp, y_obs, distribution="gaussian"),
+                *check_coverage("y", pp, y_obs, distribution=DistributionFamily.GAUSSIAN),
                 check_transmission("y", signal, np.full_like(signal, 0.8**2)),
             ]
         )
@@ -161,7 +162,7 @@ class TestCoverage:
         pp = signal + rng.normal(0, 2.0, (200, 100))  # noise alone covers the data spread
         res = _by_id(
             [
-                *check_coverage("y", pp, y_obs, distribution="gaussian"),
+                *check_coverage("y", pp, y_obs, distribution=DistributionFamily.GAUSSIAN),
                 check_transmission("y", signal, np.full_like(signal, 2.0**2)),
             ]
         )
@@ -174,14 +175,16 @@ class TestCoverage:
         y_obs = self._obs(rng)
         signal = rng.normal(50.0, 2.0, (200, 100))  # centered far from the data
         pp = signal + rng.normal(0, 0.8, (200, 100))
-        res = _by_id(check_coverage("y", pp, y_obs, distribution="gaussian"))
+        res = _by_id(check_coverage("y", pp, y_obs, distribution=DistributionFamily.GAUSSIAN))
         assert not res["C5a location reach"].passed
 
     def test_zero_iqr_count_data_uses_family_statistics(self):
         rng = np.random.default_rng(12)
         y_obs = np.zeros(100)
         pp = rng.poisson(0.1, (200, 100))
-        results = _by_id(check_coverage("events", pp, y_obs, distribution="poisson"))
+        results = _by_id(
+            check_coverage("events", pp, y_obs, distribution=DistributionFamily.POISSON)
+        )
         assert "1000000000" not in results["C5b width"].value
         assert "zero fraction" in results["C5b width"].value
 
@@ -196,7 +199,7 @@ class TestCoverage:
                     "category",
                     predictive,
                     observed,
-                    distribution="categorical",
+                    distribution=DistributionFamily.CATEGORICAL,
                     level_count=3,
                 ),
                 check_transmission("category", probabilities),
@@ -210,7 +213,7 @@ class TestCoverage:
                     "category",
                     permutation[predictive],
                     permutation[observed],
-                    distribution="categorical",
+                    distribution=DistributionFamily.CATEGORICAL,
                     level_count=3,
                 ),
                 check_transmission("category", probabilities[..., inverse]),

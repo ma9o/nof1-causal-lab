@@ -9,7 +9,6 @@ from nof1_causal_lab.artifacts.identity import (
     GitRef,
 )
 from nof1_causal_lab.models.model_structure import (
-    compare_model_definitions,
     compare_model_graph,
     compare_parameters,
 )
@@ -76,7 +75,6 @@ def model_diff(workspace_id: str, before_id: GitOid, after_id: GitOid) -> ModelD
     return ModelDiffReport(
         before=before,
         after=after,
-        definition_changes=tuple(compare_model_definitions(left, right)),
         parameters=tuple(changes),
         graph=compare_model_graph(left, right),
         before_checks=check_specification(left),

@@ -4,20 +4,27 @@ import type { createModelClient } from "./client";
 import type { paths } from "./generated/model-api";
 import type {
   ActionPoll,
+  Assessment,
+  Attempt,
   CapabilitiesResponse,
+  Change,
   ConstructId,
   ConstructRef,
   ConstructSpec,
   DistributionId,
+  EditModelRequest,
   FactSource,
   IndicatorId,
   IndicatorSpec,
   InferenceReportCore,
+  ModelEditResult,
   ModelSnapshot,
   ModelSpec,
   NumPyroDistribution,
   ParameterSpec,
+  Rejected,
   ScientificActionId,
+  Sourced,
   TimelineResponse,
   WorkspaceList,
 } from "./generated/models";
@@ -25,6 +32,22 @@ import type {
 type Expect<T extends true> = T;
 type Extends<A, B> = A extends B ? true : false;
 type Equal<A, B> = [A, B] extends [B, A] ? true : false;
+
+export type GenericAttemptCorrelatesRequest = Expect<
+  Equal<
+    Attempt<"edit_model", EditModelRequest, ModelEditResult>["request"],
+    EditModelRequest | null
+  >
+>;
+export type GenericSourceRetainsValue = Expect<Equal<Sourced<ModelSpec>["value"], ModelSpec>>;
+export type GenericAssessmentRetainsSubject = Expect<
+  Equal<Assessment<string, number>["subject"], string>
+>;
+export type GenericChangeRetainsPayload = Expect<
+  Equal<Extract<Change<ModelSpec>, { kind: "added" }>["after"], ModelSpec>
+>;
+// @ts-expect-error Rejection reasons are the closed domain reason type.
+export type RejectionHasNoUnrelatedReason = Rejected<number>;
 
 export type CanonicalDefinition = Expect<
   Equal<NonNullable<ModelSnapshot["model"]>["value"], ModelSpec>

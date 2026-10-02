@@ -58,7 +58,9 @@ def test_completed_poll_is_typed_for_tools_and_cached_for_http(tmp_path, monkeyp
     monkeypatch.setattr(study_api, "CompletedPoll", unexpected_render)
     second = client.get(f"/api/studies/POLL/actions/{attempt_id}")
     assert second.content == first.content
-    typed = run_async(study_api.read_action_poll("POLL", attempt_id))
+    typed = run_async(
+        study_api.read_action_poll("POLL", attempt_id, study_api.TemporalClientProvider())
+    )
     assert isinstance(typed, CompletedPoll)
     assert typed.model_dump(mode="json") == first.json()
     tool = client.post(

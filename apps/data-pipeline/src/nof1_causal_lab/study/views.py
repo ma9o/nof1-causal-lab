@@ -12,6 +12,7 @@ from nof1_causal_lab.artifacts.construct import ConstructSpec
 from nof1_causal_lab.artifacts.effects import HistogramBin
 from nof1_causal_lab.artifacts.indicator import IndicatorSpec
 from nof1_causal_lab.artifacts.raw_data import column_descriptions
+from nof1_causal_lab.artifacts.validation_report import ValidationReportArtifact
 from nof1_causal_lab.numpyro_json import distribution_shape
 from nof1_causal_lab.study.equations import (
     confounder_equations,
@@ -40,7 +41,6 @@ if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.validation_report import (
         DataProfileArtifact,
-        ValidationReportArtifact,
     )
     from nof1_causal_lab.study.snapshot_models import FitSummary, Sourced
 
@@ -110,21 +110,15 @@ def model_diagnostics_view(
     """Compose equations and plots from findings already selected by the revision reader."""
     diagnostics = {}
     if panel is not None and validation is not None:
-        audits = validation.indicators
+        audits = validation.data.indicators
         for indicator, likelihood in model.iter_likelihoods():
-            observations = panel.filter(pl.col("indicator_id") == indicator.id)["value"]
+            observations = panel.filter(pl.col("indicator_id") == indicator.observation.id)["value"]
             numeric = observations.cast(pl.Float64, strict=False).to_numpy()
-            audit = audits.get(indicator.id)
-            discrete = likelihood.law.family in {
-                "poisson",
-                "bernoulli",
-                "negative_binomial",
-                "ordered_logistic",
-                "categorical",
-            }
+            audit = audits.get(indicator.observation.id)
+            discrete = likelihood.law.family.is_discrete
             bins = observed_histogram(numeric, discrete=discrete)
-            diagnostics[indicator.id] = LikelihoodDiagnostics(
-                indicator_id=indicator.id,
+            diagnostics[indicator.observation.id] = LikelihoodDiagnostics(
+                indicator_id=indicator.observation.id,
                 profile=audit.profile if audit else None,
                 histogram=tuple(bins),
             )
@@ -160,8 +154,15 @@ def entity_failures(
     failures: dict[ConstructId | EdgeId | IndicatorId, tuple[str, ...]] = {}
     for entity in entities:
         messages = []
-        label = entity.name if isinstance(entity, (ConstructSpec, IndicatorSpec)) else entity.id
-        parameters = {p.id for p in model.parameters_for(entity.id)}
+        identity = entity.observation.id if isinstance(entity, IndicatorSpec) else entity.id
+        label = (
+            entity.observation.name
+            if isinstance(entity, IndicatorSpec)
+            else entity.name
+            if isinstance(entity, ConstructSpec)
+            else entity.id
+        )
+        parameters = {p.id for p in model.parameters_for(identity)}
         if fit is not None and fit.source.validity == SourceValidity.FRESH:
             for assessment in fit.value.report.convergence.assessments:
                 if (
@@ -180,11 +181,11 @@ def entity_failures(
                     continue
                 subject = assessment.subject
                 target = subject.target.id if not isinstance(subject.target, str) else None
-                if target == entity.id or (
-                    subject.construct_id == entity.id
+                if target == identity or (
+                    subject.construct_id == identity
                     and (
                         not isinstance(entity, ConstructSpec)
-                        or target not in {i.id for i in entity.indicators}
+                        or target not in {i.observation.id for i in entity.indicators}
                     )
                 ):
                     messages.append(f"Predictive checks: {label}")
@@ -193,7 +194,7 @@ def entity_failures(
                     if (
                         isinstance(assessment, Evaluated)
                         and assessment.outcome in {"failed", "warning", "error"}
-                        and assessment.subject.target.id == entity.id
+                        and assessment.subject.target.id == identity
                     ):
                         messages.append(f"Predictive checks: {label}")
         if (
@@ -201,7 +202,10 @@ def entity_failures(
             and data.source.validity == SourceValidity.FRESH
             and isinstance(entity, IndicatorSpec)
         ):
-            audit = data.value.indicators.get(entity.id)
+            profile = (
+                data.value.data if isinstance(data.value, ValidationReportArtifact) else data.value
+            )
+            audit = profile.indicators.get(entity.observation.id)
             if audit is not None and any(issue.severity != "info" for issue in audit.issues):
                 messages.append(f"Data quality: {label}")
         if (
@@ -212,7 +216,7 @@ def entity_failures(
             treatment = identification.value.treatments.get(entity.id)
             if treatment is not None and treatment.status == "not_identified":
                 messages.append(f"Identification against ★: {label}")
-        failures[entity.id] = tuple(dict.fromkeys(messages))
+        failures[identity] = tuple(dict.fromkeys(messages))
     for construct in model.constructs:
         failures[construct.id] = tuple(
             dict.fromkeys(
@@ -221,7 +225,7 @@ def entity_failures(
                     *(
                         message
                         for indicator in construct.indicators
-                        for message in failures[indicator.id]
+                        for message in failures[indicator.observation.id]
                     ),
                 )
             )

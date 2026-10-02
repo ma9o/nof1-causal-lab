@@ -10,7 +10,6 @@ from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.expressions import coefficient, state
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.model_structure import (
-    compare_model_definitions,
     compare_model_graph,
     compare_parameters,
     model_graph_entities,
@@ -20,37 +19,6 @@ from nof1_causal_lab.models.ssm.joint_layout import JointLawLayout
 from tests.helpers import make_model
 
 pytestmark = pytest.mark.contract
-
-
-def test_complete_definition_diff_includes_laws_and_question_without_list_order_noise():
-    model = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[1]
-            / "fixtures/models"
-            / "model_comparison/y_z_model.json"
-        ).read_text()
-    )
-    parameter = model.parameters[0]
-    revised = model.revised(
-        question="A revised scientific question",
-        distributions={**model.distributions, parameter.distribution: dist.Normal(2.0, 1.0)},
-    )
-    changes = compare_model_definitions(model, revised)
-    assert any(
-        item.path == "/question"
-        and item.change.kind == "revised"
-        and item.change.after == revised.question
-        for item in changes
-    )
-    assert any(
-        item.path.startswith(f"/distributions/{parameter.distribution}/") for item in changes
-    )
-    reordered = model.revised(
-        edges=tuple(reversed(model.edges)), parameters=tuple(reversed(model.parameters))
-    )
-    assert compare_model_definitions(model, reordered) == []
-    graph = compare_model_graph(model, reordered)
-    assert all(item.change.kind == "unchanged" for item in (*graph.constructs, *graph.edges))
 
 
 def test_parameter_decisions_and_law_changes_leave_topology_unchanged():
@@ -121,7 +89,6 @@ def test_fitted_state_laws_and_time_points_leave_topology_unchanged():
         },
         time_points=layout.time_points,
     )
-    assert compare_model_definitions(model, fitted)
     for before, after in ((model, fitted), (fitted, model)):
         graph = compare_model_graph(before, after)
         assert all(item.change.kind == "unchanged" for item in (*graph.constructs, *graph.edges))
@@ -134,7 +101,11 @@ def test_graph_additions_and_removals_ignore_entity_attribute_changes():
     renamed = x.revised(
         name="Renamed X",
         description="Updated measurement",
-        indicators=(x.indicators[0].revised(name="Renamed observation"),),
+        indicators=(
+            x.indicators[0].revised(
+                observation=x.indicators[0].observation.revised(name="Renamed observation")
+            ),
+        ),
     )
     after = after.revised(
         default_outcome=after.constructs[1].id,

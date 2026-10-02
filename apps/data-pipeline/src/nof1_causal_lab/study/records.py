@@ -135,9 +135,14 @@ class Applied[ResultT: ActionEffects](Value):
     result: ResultT
 
 
-class Rejected[ReasonT](Value):
+type RejectionReason = Literal[
+    "revision_conflict", "input_unavailable", "scientific_inputs", "recorded_rejection"
+]
+
+
+class Rejected(Value):
     status: Literal["rejected"] = "rejected"
-    reason: ReasonT
+    reason: RejectionReason
     detail: str
 
 
@@ -149,53 +154,35 @@ class Raised(Value):
     details: tuple[str, ...] = ()
 
 
-type RejectionReason = Literal[
-    "revision_conflict", "input_unavailable", "scientific_inputs", "recorded_rejection"
-]
-type FailedOutcome = Rejected[RejectionReason] | Raised
+type FailedOutcome = Rejected | Raised
 
 
-class EditAttempt(Value):
+class Attempt[ActionT: str, RequestT: Value, ResultT: ActionEffects](Value):
+    """One action's request and successful result share the same attempt owner."""
+
+    action: ActionT
+    request: RequestT | None
+    outcome: Annotated[Applied[ResultT] | Rejected | Raised, Field(discriminator="status")]
+
+
+class EditAttempt(Attempt[Literal["edit_model"], EditModelRequest, ModelEditResult]):
     action: Literal["edit_model"] = "edit_model"
-    request: EditModelRequest | None
-    outcome: Annotated[
-        Applied[ModelEditResult] | Rejected[RejectionReason] | Raised, Field(discriminator="status")
-    ]
 
 
-class PrepareAttempt(Value):
+class PrepareAttempt(Attempt[Literal["prepare_data"], PrepareDataRequest, DataPreparationResult]):
     action: Literal["prepare_data"] = "prepare_data"
-    request: PrepareDataRequest | None
-    outcome: Annotated[
-        Applied[DataPreparationResult] | Rejected[RejectionReason] | Raised,
-        Field(discriminator="status"),
-    ]
 
 
-class FitAttempt(Value):
+class FitAttempt(Attempt[Literal["fit"], FitRequest, ModelFitResult]):
     action: Literal["fit"] = "fit"
-    request: FitRequest | None
-    outcome: Annotated[
-        Applied[ModelFitResult] | Rejected[RejectionReason] | Raised, Field(discriminator="status")
-    ]
 
 
-class SimulateAttempt(Value):
+class SimulateAttempt(Attempt[Literal["simulate"], SimulateRequest, ModelSimulationResult]):
     action: Literal["simulate"] = "simulate"
-    request: SimulateRequest | None
-    outcome: Annotated[
-        Applied[ModelSimulationResult] | Rejected[RejectionReason] | Raised,
-        Field(discriminator="status"),
-    ]
 
 
-class DataDiffAttempt(Value):
+class DataDiffAttempt(Attempt[Literal["data_diff"], DataDiffRequest, DataComparisonResult]):
     action: Literal["data_diff"] = "data_diff"
-    request: DataDiffRequest | None
-    outcome: Annotated[
-        Applied[DataComparisonResult] | Rejected[RejectionReason] | Raised,
-        Field(discriminator="status"),
-    ]
 
 
 type ActionAttempt = Annotated[
