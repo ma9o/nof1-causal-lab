@@ -94,7 +94,7 @@ def test_default_selection_includes_tracked_hunks_and_untracked_sources(tmp_path
     assert selection.path_count == 2
 
 
-def test_schema_overlap_finds_transport_and_runtime_mirrors(tmp_path: Path) -> None:
+def test_generic_family_replaces_weaker_schema_overlap_and_keeps_variants(tmp_path: Path) -> None:
     checker = _load_checker()
     runtime_path = _write_source(
         tmp_path,
@@ -120,6 +120,65 @@ class TransportConfig(BaseModel):
     model: str
     timeout: int | None = None
     effort: Literal["low", "high"] | None = None
+
+class Revised:
+    kind: Literal["revised"] = "revised"
+    value: int
+
+class Unchanged:
+    kind: Literal["unchanged"] = "unchanged"
+    value: int
+
+class Box[T]:
+    item: T
+
+class Specialized(Box[str]):
+    pass
+
+class ThreeHolesA:
+    a: int
+    b: int
+    c: int
+
+class ThreeHolesB:
+    a: str
+    b: float
+    c: bool
+
+class CoupledA:
+    action: Literal["a"] = "a"
+    request: RequestA | None
+    outcome: Envelope[ResultA]
+
+class CoupledB:
+    action: Literal["b"] = "b"
+    request: RequestB | None
+    outcome: Envelope[ResultB]
+
+class ContainerA:
+    entries: list[int]
+
+class ContainerB:
+    entries: list[str]
+
+class DifferentContainer:
+    entries: tuple[str, ...]
+
+class BareA:
+    kind: Literal["ref"] = "ref"
+    value: FirstId
+
+class BareB:
+    kind: Literal["ref"] = "ref"
+    value: SecondId
+
+class PartialRootA:
+    reasoning: str | None
+    details: JsonValue
+
+class PartialRootB:
+    reasoning: NotRequired[str]
+    details: NotRequired[JsonValue]
 """,
     )
     selection = checker.SourceSelection(
@@ -133,15 +192,299 @@ class TransportConfig(BaseModel):
     )
     candidates = checker.ast_candidates(definitions, selection=selection, deep=False)
 
-    schema_candidates = [
-        candidate for candidate in candidates if candidate.category == "class schema"
-    ]
-    assert len(schema_candidates) == 1
-    assert {schema_candidates[0].first.label, schema_candidates[0].second.label} == {
+    families = [candidate for candidate in candidates if candidate.category == "generic family"]
+    assert len(families) == 1
+    assert {families[0].first.label, families[0].second.label} == {
         "RuntimeConfig",
         "TransportConfig",
     }
-    assert "3/3 shared fields" in schema_candidates[0].reason
+    assert "1 annotation hole(s) [effort]" in families[0].reason
+    assert not any(candidate.category == "class schema" for candidate in candidates)
+    all_candidates = checker.ast_candidates(
+        definitions, selection=checker.SourceSelection(ranges=None, description="all"), deep=False
+    )
+    all_families = [c for c in all_candidates if c.category == "generic family"]
+    assert {frozenset((c.first.label, c.second.label)) for c in all_families} == {
+        frozenset(("RuntimeConfig", "TransportConfig")),
+        frozenset(("CoupledA", "CoupledB")),
+        frozenset(("ContainerA", "ContainerB")),
+    }
+    assert "identical payload fields [model, timeout]" in families[0].reason
+    coupled = next(c for c in all_families if c.first.label == "CoupledA")
+    assert "2 annotation hole(s) [outcome, request]" in coupled.reason
+    assert (
+        "roots above every hole [outcome: subscript Envelope; request: union |]" in coupled.reason
+    )
+
+
+def test_identical_declared_fields_keep_tags_defaults_methods_and_skip_ancestry(
+    tmp_path: Path,
+) -> None:
+    checker = _load_checker()
+    path = _write_source(
+        tmp_path,
+        "apps/data-pipeline/src/domain/signatures.py",
+        """
+from typing import Literal
+from pydantic import Field
+
+class Parent:
+    value: list[int] = Field(default_factory=list)
+    tag: Literal["open"] = "open"
+
+class Child(Parent):
+    value: list[int] = Field(default_factory=list)
+    tag: Literal["open"] = "open"
+
+class Grandchild(Child):
+    value: list[int] = Field(default_factory=list)
+    tag: Literal["open"] = "open"
+
+class Mirror:
+    value: list[int] = Field(default_factory=list)
+    tag: Literal["open"] = "open"
+    def close(self):
+        return self.value
+
+class OtherTag:
+    value: list[int] = Field(default_factory=list)
+    tag: Literal["closed"] = "closed"
+
+class OtherDefault:
+    value: list[int] = Field(default_factory=tuple)
+    tag: Literal["open"] = "open"
+
+class OtherContainer:
+    value: tuple[int, ...] = Field(default_factory=list)
+    tag: Literal["open"] = "open"
+""",
+    )
+    ignored_path = _write_source(
+        tmp_path, "apps/web/src/outside.py", "raise AssertionError('outside Python audit scope')\n"
+    )
+    selection = checker.SourceSelection(ranges=None, description="all")
+    definitions = checker.collect_python_definitions(tmp_path, (path, ignored_path))
+    candidates = checker.ast_candidates(definitions, selection=selection, deep=True)
+    identical = [c for c in candidates if c.category == "identical fields"]
+
+    assert len(identical) == 3
+    assert all("Mirror" in {c.first.label, c.second.label} for c in identical)
+    assert all(
+        "Mirror [close]" in c.reason and "2 identical declared field signatures" in c.reason
+        for c in identical
+    )
+    assert not any({c.first.label, c.second.label} == {"Parent", "Grandchild"} for c in candidates)
+    report = checker.render_report(
+        selection=selection, candidates=identical, shown=identical, definitions=definitions
+    )
+    assert "Identical declared field signatures" in report
+    assert "%" not in report
+    clone = dataclasses.replace(identical[0], category="token clone")
+    assert checker._covered_by_type_candidate(clone, identical, definitions)
+    outside = dataclasses.replace(clone, second=checker.Location("other.py", 1, 10))
+    assert not checker._covered_by_type_candidate(outside, identical, definitions)
+
+
+def test_repeated_row_counts_nested_copy_once_and_selects_changed_site(tmp_path: Path) -> None:
+    checker = _load_checker()
+    source = """
+raise AssertionError("source collection must not import this module")
+
+class Context:
+    a: str
+    b: str
+    c: list[int]
+
+class Envelope:
+    a: str
+    b: str
+    c: list[int]
+    extra: int
+
+class TupleEnvelope:
+    a: str
+    b: str
+    c: tuple[int, ...]
+    extra: int
+
+def outer(src: Context):
+    def inner():
+        return Envelope(a=src.a, b=src.b, c=src.c, extra=0)
+    return inner()
+
+def mixed(left, right):
+    return Envelope(a=left.a, b=right.b, c=left.c, extra=0)
+"""
+    path = _write_source(tmp_path, "apps/data-pipeline/src/domain/rows.py", source)
+    line = (
+        source.splitlines().index("        return Envelope(a=src.a, b=src.b, c=src.c, extra=0)") + 1
+    )
+    selection = checker.SourceSelection(
+        ranges={path.as_posix(): (checker.LineRange(line, line),)}, description="copy site"
+    )
+    definitions = checker.collect_python_definitions(tmp_path, (path,))
+    rows = [
+        c
+        for c in checker.ast_candidates(definitions, selection=selection, deep=False)
+        if c.category == "repeated row"
+    ]
+
+    assert len(rows) == 1
+    assert "1 distinct conversion site(s)" in rows[0].reason
+    assert {rows[0].first.label, rows[0].second.label} == {"Context", "Envelope"}
+    assert rows[0].first_selected is False
+    assert rows[0].second_selected is False
+    assert len(rows[0].evidence_locations) == 1
+    assert "Context -> Envelope" in rows[0].evidence_locations[0].label
+    assert "outer.inner" in rows[0].evidence_locations[0].label
+    assert (
+        checker.ast_candidates(
+            definitions,
+            selection=checker.SourceSelection(ranges={}, description="none"),
+            deep=False,
+        )
+        == ()
+    )
+    _write_source(tmp_path, path.as_posix(), source.replace("c=src.c, extra=0", "c=src.c, extra=1"))
+    changed = checker.collect_python_definitions(tmp_path, (path,))
+    changed_row = next(
+        c
+        for c in checker.ast_candidates(changed, selection=selection, deep=False)
+        if c.category == "repeated row"
+    )
+    assert changed_row.review_fingerprint != rows[0].review_fingerprint
+
+
+def test_presence_evidence_groups_owners_and_excludes_guards_and_non_none_defaults(
+    tmp_path: Path,
+) -> None:
+    checker = _load_checker()
+    path = _write_source(
+        tmp_path,
+        "apps/data-pipeline/src/domain/presence.py",
+        """
+from typing import Literal
+from pydantic import Field, field_validator, model_validator
+
+type Mode = Literal["a", "b"]
+
+class Levels:
+    mode: Mode
+    a: tuple[str, ...] | None = None
+    b: tuple[str, ...] | None = None
+    @model_validator(mode="after")
+    def validate_levels(self):
+        selected = self.a if self.mode == "a" else self.b
+        if not selected:
+            raise ValueError("levels required")
+        return self
+
+class Child(Levels):
+    detail: str | None = Field(default=None)
+    enabled: bool
+    def __post_init__(self):
+        if self.enabled == True and self.detail is None:
+            raise ValueError("detail required")
+
+class Pair:
+    a: int | None = None
+    b: int | None = None
+    def __post_init__(self):
+        paired = self.a is not None and self.b is not None
+        if not paired and self.a is not None:
+            raise ValueError("unpaired")
+
+class Guard:
+    a: int | None = None
+    b: int | None = None
+    labels: tuple[str, ...] | None = None
+    mode: Mode
+    n: int
+    def __post_init__(self):
+        if self.a is not None and self.b is not None and self.a >= self.b:
+            raise ValueError("order")
+        if self.labels and len(self.labels) != self.n:
+            raise ValueError("length")
+        if self.a is not None and self.a not in valid[self.mode]:
+            raise ValueError("value allowed by mode")
+
+class NonNoneDefault:
+    a: tuple[str, ...] = ()
+    b: tuple[str, ...] | None = None
+    def __post_init__(self):
+        if self.b is not None and self.a and len(self.a) != len(self.b):
+            raise ValueError("aligned")
+
+class FieldPair:
+    a: int | None = None
+    b: int | None = None
+    @field_validator("a")
+    @classmethod
+    def validate_a(cls, value, values):
+        if value is not None and values.get("b") is None:
+            raise ValueError("unpaired")
+        return value
+""",
+    )
+    definitions = checker.collect_python_definitions(tmp_path, (path,))
+    candidates = checker.ast_candidates(
+        definitions, selection=checker.SourceSelection(ranges=None, description="all"), deep=False
+    )
+    presence = [c for c in candidates if c.category == "presence dependency"]
+
+    assert {c.first.label for c in presence} == {"Levels", "Child", "Pair", "FieldPair"}
+    levels = next(c for c in presence if c.first.label == "Levels")
+    assert "optional presence [a, b] with tag values [mode]" in levels.reason
+    assert "inherited by: Child [validate_levels]" in levels.reason
+    assert "validate_levels" not in next(c for c in presence if c.first.label == "Child").reason
+
+
+def test_closed_vocabularies_include_alias_copies_enums_and_only_named_subsets(
+    tmp_path: Path,
+) -> None:
+    checker = _load_checker()
+    path = _write_source(
+        tmp_path,
+        "apps/data-pipeline/src/domain/vocabularies.py",
+        """
+from enum import StrEnum
+from typing import Literal, TypeAlias
+
+type Mode = Literal["a", "b", "c"]
+Legacy = Literal["c", "b", "a"]
+AnnotatedAlias: TypeAlias = Literal["a", "b", "c"]
+type Narrow = Literal["a", "b"]
+
+class ModeEnum(StrEnum):
+    A = "a"
+    B = "b"
+    C = "c"
+
+class Transport:
+    mode: Literal["a", "b", "c"]
+
+def restricted(value: Literal["a", "c"]):
+    return value
+""",
+    )
+    definitions = checker.collect_python_definitions(tmp_path, (path,))
+    candidates = checker.ast_candidates(
+        definitions, selection=checker.SourceSelection(ranges=None, description="all"), deep=False
+    )
+    vocabularies = [c for c in candidates if c.category == "closed vocabulary"]
+
+    assert len(vocabularies) == 2
+    exact = next(c for c in vocabularies if c.reason.startswith("exact"))
+    assert "exact inline copy of named alias" in exact.reason
+    assert "5 places (alias: 3, enum: 1, inline: 1)" in exact.reason
+    assert len(exact.evidence_locations) == 3
+    subset = next(c for c in vocabularies if c.reason.startswith("named proper subset"))
+    assert subset.first.label == "Narrow"
+    assert all(
+        "restricted" not in c.reason
+        and all("restricted" not in loc.label for loc in (c.first, c.second, *c.evidence_locations))
+        for c in vocabularies
+    )
 
 
 def test_function_overlap_normalizes_local_names(tmp_path: Path) -> None:
@@ -449,7 +792,8 @@ VALUE = 1
 def test_output_cap_reserves_space_for_each_candidate_category() -> None:
     checker = _load_checker()
     candidates = []
-    for category_index, category in enumerate(("token clone", "class schema", "function behavior")):
+    categories = (*checker.TYPE_CATEGORIES, "token clone", "class schema", "function behavior")
+    for category_index, category in enumerate(categories):
         for index in range(4):
             candidates.append(
                 checker.Candidate(
@@ -463,14 +807,10 @@ def test_output_cap_reserves_space_for_each_candidate_category() -> None:
                 )
             )
 
-    selected = checker.select_candidates(candidates, limit=3)
+    selected = checker.select_candidates(candidates, limit=len(categories))
 
-    assert len(selected) == 3
-    assert {candidate.category for candidate in selected} == {
-        "token clone",
-        "class schema",
-        "function behavior",
-    }
+    assert len(selected) == len(categories)
+    assert {candidate.category for candidate in selected} == set(categories)
     assert len(checker.select_candidates(candidates, limit=2)) == 2
 
 

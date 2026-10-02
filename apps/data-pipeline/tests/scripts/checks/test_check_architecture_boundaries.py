@@ -41,57 +41,6 @@ def _write_module(source_root: Path, relative_path: str, source: str) -> None:
     path.write_text(source, encoding="utf-8")
 
 
-def test_promoted_boundaries_reject_upward_runtime_imports(tmp_path: Path) -> None:
-    checker = _load_checker()
-    source_root = tmp_path / "nof1_causal_lab"
-    _write_module(
-        source_root,
-        "models/ssm/compile/example.py",
-        """
-from nof1_causal_lab.utils.identifiability import dag_to_admg
-from nof1_causal_lab.models.ssm.runtime import bind_panel
-from nof1_causal_lab.workers.schemas_prior import PriorProposal
-""",
-    )
-    _write_module(
-        source_root,
-        "models/ssm/model.py",
-        "from nof1_causal_lab.models.ssm.inference import fit\n",
-    )
-    _write_module(
-        source_root,
-        "models/ssm/runtime.py",
-        "from nof1_causal_lab.models.ssm.compile.parameters import build_parameterization\n",
-    )
-    _write_module(
-        source_root,
-        "models/ssm/inference/example.py",
-        "from nof1_causal_lab.models.ssm.runtime import bind_panel\n",
-    )
-
-    for relative in (
-        "utils/identifiability.py",
-        "models/ssm/compile/parameters.py",
-        "workers/schemas_prior.py",
-    ):
-        _write_module(source_root, relative, "")
-
-    violations = checker.find_violations(source_root)
-
-    assert {violation.code for violation in violations} == {
-        "ARCH001",
-        "ARCH008",
-        "ARCH003",
-        "ARCH004",
-        "ARCH005",
-        "ARCH006",
-    }
-    assert all(
-        "role=" in item.diagnostic(source_root) and "fix at" in item.diagnostic(source_root)
-        for item in violations
-    )
-
-
 def test_new_modules_inherit_roles_and_unclassified_roots_fail(tmp_path: Path) -> None:
     checker = _load_checker()
     source_root = tmp_path / "nof1_causal_lab"
@@ -109,24 +58,25 @@ def test_type_only_dependencies_do_not_initialize_forbidden_layers(tmp_path: Pat
     source_root = tmp_path / "nof1_causal_lab"
     _write_module(
         source_root,
-        "models/ssm/runtime.py",
+        "artifacts/new_value.py",
         """
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.compile.contracts import CompiledSSMArtifact
+    from nof1_causal_lab.utils.storage import read_text
 """,
     )
     _write_module(
         source_root,
-        "models/ssm/model.py",
+        "models/new_compiler.py",
         """
 import typing
 
 if typing.TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.inference.types import ParticleMCMCPosterior
+    import time
 """,
     )
+    _write_module(source_root, "utils/storage.py", "")
 
     assert checker.find_violations(source_root) == ()
 
@@ -210,3 +160,7 @@ def test_pure_roles_reject_transitive_function_local_acquisition(tmp_path: Path)
         assert {item.ref.imported for item in findings} == {"nof1_causal_lab.utils.storage", "time"}
         assert all(item.code == "ARCH008" for item in findings)
         assert all("nof1_causal_lab.utils.shared ->" in item.message for item in findings)
+    assert all(
+        "role=" in item.diagnostic(source_root) and "fix at" in item.diagnostic(source_root)
+        for item in violations
+    )

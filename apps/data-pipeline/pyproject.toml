@@ -79,7 +79,9 @@ dev = [
     "vulture>=2.16",
     "basedpyright>=1.40.1",
     "grimp>=3.17",
+    "import-linter>=2.15",
     "xarray>=2026.9.0",
+    "complexipy>=8.0.1",
 ]
 gpu = [
     "jax[cuda12]; sys_platform == 'linux'",
@@ -92,6 +94,8 @@ src = ["src", "tests", "evaluation"]
 fix = true
 
 [tool.ruff.lint]
+preview = true
+explicit-preview-rules = true
 external = ["V", "ERR", "ANN"]
 select = [
     "E",      # pycodestyle errors
@@ -99,6 +103,10 @@ select = [
     "F",      # Pyflakes
     "I",      # isort
     "B",      # flake8-bugbear
+    "B909",   # mutation of the collection being iterated
+    "A001",   # builtin variable shadowing
+    "A002",   # builtin argument shadowing
+    "PLW0603",# global rebinding
     "BLE",    # flake8-blind-except
     "C4",     # flake8-comprehensions
     "DTZ",    # flake8-datetimez
@@ -266,6 +274,61 @@ reportUnnecessaryIsInstance = "error"
 reportUnnecessaryContains = "error"
 reportMatchNotExhaustive = "error"
 reportTypedDictNotRequiredAccess = "error"
+reportExplicitAny = "error"
+
+# Static package seams. Role-derived rules (ARCH007, ARCH008) live in
+# scripts/checks/check_architecture_boundaries.py.
+[tool.importlinter]
+root_package = "nof1_causal_lab"
+exclude_type_checking_imports = true
+
+[[tool.importlinter.contracts]]
+name = "ARCH001 The SSM compiler uses ModelSpec accessors, not identification internals"
+type = "forbidden"
+source_modules = ["nof1_causal_lab.models.ssm.compile"]
+forbidden_modules = [
+    "nof1_causal_lab.utils.causal_design",
+    "nof1_causal_lab.utils.identifiability",
+]
+allow_indirect_imports = true
+
+[[tool.importlinter.contracts]]
+name = "ARCH002 The SSM layer consumes typed artifacts, not worker schemas"
+type = "forbidden"
+source_modules = ["nof1_causal_lab.models.ssm"]
+forbidden_modules = ["nof1_causal_lab.workers"]
+
+[[tool.importlinter.contracts]]
+name = "ARCH003 The compiler derives outputs without constructing a runtime"
+type = "forbidden"
+source_modules = ["nof1_causal_lab.models.ssm.compile"]
+forbidden_modules = ["nof1_causal_lab.models.ssm.runtime"]
+
+[[tool.importlinter.contracts]]
+name = "ARCH004 Runtime construction names only the pure compiler entry point"
+type = "forbidden"
+source_modules = ["nof1_causal_lab.models.ssm.runtime"]
+forbidden_modules = ["nof1_causal_lab.models.ssm.compile"]
+allow_indirect_imports = true
+# The entry point necessarily reaches its own lowering implementation.
+ignore_imports = ["nof1_causal_lab.models.ssm.runtime -> nof1_causal_lab.models.ssm.compile.inputs"]
+unmatched_ignore_imports_alerting = "none"
+
+[[tool.importlinter.contracts]]
+name = "ARCH005 The executable SSM surface and hydration do not depend on inference"
+type = "forbidden"
+source_modules = [
+    "nof1_causal_lab.models.ssm.model",
+    "nof1_causal_lab.models.ssm.runtime",
+    "nof1_causal_lab.models.ssm.execution",
+]
+forbidden_modules = ["nof1_causal_lab.models.ssm.inference"]
+
+[[tool.importlinter.contracts]]
+name = "ARCH006 Inference consumes the executable SSM surface, not runtime adapters"
+type = "forbidden"
+source_modules = ["nof1_causal_lab.models.ssm.inference"]
+forbidden_modules = ["nof1_causal_lab.models.ssm.runtime"]
 
 [tool.deptry]
 known_first_party = ["nof1_causal_lab"]

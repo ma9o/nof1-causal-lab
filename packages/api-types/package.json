@@ -9,12 +9,10 @@
     "src"
   ],
   "scripts": {
-    "check": "bun run --parallel --no-exit-on-error codegen:check lint type-check",
-    "lint": "biome check .",
+    "lint": "bun run --parallel --no-exit-on-error lint:biome lint:tsc codegen:check",
     "lint:fix": "biome check --fix .",
-    "format": "biome format --write .",
-    "format:check": "biome format .",
-    "type-check": "tsc --noEmit",
+    "lint:biome": "biome check .",
+    "lint:tsc": "tsc --noEmit",
 
     "codegen": "bun run codegen:schemas && bun run codegen:types && bun run codegen:client",
     "codegen:check": "bun run --parallel --no-exit-on-error codegen:schemas:check codegen:types:check codegen:client:check",

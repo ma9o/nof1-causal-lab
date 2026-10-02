@@ -1,16 +1,16 @@
-"""Enforce the dependency direction of the structural and SSM architecture.
+"""Enforce the role-derived dependency rules of the architecture.
 
-The rules in this module protect the four promoted seams:
+Static package seams are import-linter contracts in ``pyproject.toml``. The rules
+here follow the module roles owned by ``architecture_roles``:
 
-1. The SSM compiler consumes ``ModelSpec`` and its structural accessors instead
-   of calling identification algorithms directly.
-2. The numerical SSM layer consumes parameters with native distributions and never worker schemas.
-3. Runtime construction uses the pure compiler entry points; compilation never calls runtime.
-4. The executable model surface is independent of inference algorithms, while
-   inference consumes that surface and cannot reach back through runtime.
+``ARCH007``
+    Numerical execution signatures accept compiled models, bound observations
+    and the owned resolved SamplerSpec, never authoring or transport inputs,
+    partial configurations or forwarding TypedDicts.
 
-5. Numerical sampler signatures accept the owned resolved SamplerSpec, never
-   partial configurations or forwarding TypedDicts.
+``ARCH008``
+    Pure roles never reach edge or shell modules, I/O, clock or environment
+    acquisition, directly or transitively.
 
 Imports guarded by ``TYPE_CHECKING`` are excluded because these rules constrain
 runtime ownership and initialization, not type annotation dependencies.
@@ -30,11 +30,6 @@ import grimp
 from scripts.checks.architecture_roles import PACKAGE, fix_owner, role_for_module, role_inventory
 
 _PACKAGE = PACKAGE
-_SSM = f"{_PACKAGE}.models.ssm"
-_COMPILER = f"{_SSM}.compile"
-_EXECUTION = f"{_SSM}.execution"
-_INFERENCE = f"{_SSM}.inference"
-_RUNTIME = f"{_SSM}.runtime"
 
 
 @dataclass(frozen=True, slots=True)
@@ -65,17 +60,9 @@ class Violation:
         )
 
 
-def _is_module(module: str, prefix: str) -> bool:
-    return module == prefix or module.startswith(f"{prefix}.")
-
-
 def find_violations(source_root: Path) -> tuple[Violation, ...]:
     """Return every forbidden runtime dependency below ``source_root``."""
     violations: list[Violation] = []
-    structural_owners = (
-        f"{_PACKAGE}.utils.causal_design",
-        f"{_PACKAGE}.utils.identifiability",
-    )
 
     # Resolve signatures by type ownership, including aliases and renamed arguments.
     # Raw data/configuration is bound before execution; native numerical leaves remain valid.
@@ -241,72 +228,23 @@ def find_violations(source_root: Path) -> tuple[Violation, ...]:
         "zipfile",
     }
     for importer, path in sorted(modules.items()):
-        role = role_for_module(importer)
+        if role_for_module(importer) not in pure_roles:
+            continue
         for imported in sorted(graph.find_upstream_modules(importer)):
-            code = message = None
-            if role in pure_roles and (
-                imported in acquisition
-                or (imported in modules and role_for_module(imported) in {"edge", "shell"})
+            if imported in acquisition or (
+                imported in modules and role_for_module(imported) in {"edge", "shell"}
             ):
-                code, message = (
-                    "ARCH008",
-                    "pure roles cannot reach edge, shell, I/O, clock or environment acquisition",
-                )
-            elif (
-                imported in graph.find_modules_directly_imported_by(importer)
-                and _is_module(importer, _COMPILER)
-                and any(_is_module(imported, owner) for owner in structural_owners)
-            ):
-                code, message = (
-                    "ARCH001",
-                    "the SSM compiler must use ModelSpec accessors, not identification internals",
-                )
-            elif _is_module(importer, _SSM) and _is_module(imported, f"{_PACKAGE}.workers"):
-                code, message = (
-                    "ARCH002",
-                    "the SSM layer must consume typed artifacts, not worker schemas",
-                )
-            elif _is_module(importer, _COMPILER) and _is_module(imported, _RUNTIME):
-                code, message = (
-                    "ARCH003",
-                    "the compiler must derive outputs without constructing a runtime",
-                )
-            elif (
-                importer in {f"{_SSM}.model", _RUNTIME} or _is_module(importer, _EXECUTION)
-            ) and _is_module(imported, _INFERENCE):
-                code, message = (
-                    "ARCH005",
-                    "the executable SSM surface and hydration must not depend on inference",
-                )
-            elif _is_module(importer, _INFERENCE) and _is_module(imported, _RUNTIME):
-                code, message = (
-                    "ARCH006",
-                    "inference must consume the executable SSM surface, not runtime adapters",
-                )
-            if code is not None:
                 chain = graph.find_shortest_chain(importer, imported)
                 assert chain is not None
                 details = graph.get_import_details(importer=chain[0], imported=chain[1])
                 violations.append(
                     Violation(
                         ImportRef(path, details[0]["line_number"], importer, imported),
-                        code,
-                        f"{message}: {' -> '.join(chain)}",
+                        "ARCH008",
+                        "pure roles cannot reach edge, shell, I/O, clock or environment "
+                        f"acquisition: {' -> '.join(chain)}",
                     )
                 )
-        # ARCH004 constrains which compiler entry point runtime names directly;
-        # that entry point necessarily reaches its own lowering implementation.
-        if importer == _RUNTIME:
-            for imported in sorted(graph.find_modules_directly_imported_by(importer)):
-                if _is_module(imported, _COMPILER) and imported != f"{_COMPILER}.inputs":
-                    details = graph.get_import_details(importer=importer, imported=imported)
-                    violations.append(
-                        Violation(
-                            ImportRef(path, details[0]["line_number"], importer, imported),
-                            "ARCH004",
-                            "runtime construction must use pure compiler entry points",
-                        )
-                    )
 
     return tuple(violations)
 

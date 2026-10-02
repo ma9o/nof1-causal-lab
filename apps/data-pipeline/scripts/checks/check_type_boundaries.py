@@ -1,10 +1,7 @@
-"""Reject type annotations that erase domain types behind ``dict`` or ``Any``.
+"""Reject type annotations that erase domain types behind ``dict``.
 
-The checker owns project-specific rules that Ruff and ty cannot express:
-
-``CUSTOM001``
-    ``Any`` must not be a member of a union. Such a union is equivalent to
-    ``Any`` and therefore provides no narrowing.
+The checker owns project-specific rules that Ruff, ty and basedpyright cannot
+express. Explicit ``Any`` belongs to basedpyright's ``reportExplicitAny``.
 
 ``CUSTOM002``
     A named domain type must not be unioned with ``dict``. Raw mappings are
@@ -14,17 +11,6 @@ The checker owns project-specific rules that Ruff and ty cannot express:
     A parameter must not include ``None`` in its type only to reject ``None``
     on every normally completing path. Make the parameter required and let the
     type checker push absence handling to the boundary where it originates.
-
-``CUSTOM004``
-    An annotation must not spell an anonymous dictionary containing ``Any``.
-    Use the explicitly unsafe ``UncheckedJsonObject`` boundary type or define a
-    domain-specific named mapping alias so unchecked values cannot spread
-    invisibly. ``JsonObject`` is reserved for recursively JSON-safe values.
-
-``CUSTOM005``
-    ``UncheckedJsonObject`` is confined to parser parameters and local inputs.
-    Every read of such an input must feed model/TypeAdapter validation in that
-    function. It cannot be stored on objects, aliased, or returned unchecked.
 
 ``CORE001``
     Construction bypasses and mutable casts are checked by call name. Only
@@ -77,11 +63,8 @@ from scripts.checks.architecture_roles import (
     role_inventory,
 )
 
-_ANY_UNION = "CUSTOM001"
 _DOMAIN_DICT_UNION = "CUSTOM002"
 _REJECT_ONLY_OPTIONAL_PARAMETER = "CUSTOM003"
-_ANONYMOUS_ANY_DICT = "CUSTOM004"
-_UNCHECKED_JSON_ESCAPE = "CUSTOM005"
 _CORE_BYPASS = "CORE001"
 _MUTABLE_CORE = "CORE002"
 _PARTIAL_VIEW = "VIEW001"
@@ -90,11 +73,8 @@ _BUILTIN_CATCH = "ERR001"
 _OWNER_PARSE = "PARSE001"
 _ALL_RULES = frozenset(
     {
-        _ANY_UNION,
         _DOMAIN_DICT_UNION,
         _REJECT_ONLY_OPTIONAL_PARAMETER,
-        _ANONYMOUS_ANY_DICT,
-        _UNCHECKED_JSON_ESCAPE,
         _CORE_BYPASS,
         _MUTABLE_CORE,
         _PARTIAL_VIEW,
@@ -122,9 +102,7 @@ _MODEL_BASE_NAMES = frozenset({"BaseModel", "NamedTuple", "Protocol", "TypedDict
 class _TypingBindings:
     """Names through which one module refers to special typing forms."""
 
-    any_names: frozenset[str]
     optional_names: frozenset[str]
-    type_alias_names: frozenset[str]
     union_names: frozenset[str]
     module_names: frozenset[str]
 
@@ -154,9 +132,7 @@ class Violation:
 def _discover_typing_bindings(tree: ast.Module) -> _TypingBindings:
     """Resolve common direct and aliased imports from typing modules."""
     names = {
-        "Any": {"Any"},
         "Optional": {"Optional"},
-        "TypeAlias": {"TypeAlias"},
         "Union": {"Union"},
     }
     module_names = {"typing", "typing_extensions"}
@@ -173,9 +149,7 @@ def _discover_typing_bindings(tree: ast.Module) -> _TypingBindings:
                 if imported.name in names:
                     names[imported.name].add(imported.asname or imported.name)
     return _TypingBindings(
-        any_names=frozenset(names["Any"]),
         optional_names=frozenset(names["Optional"]),
-        type_alias_names=frozenset(names["TypeAlias"]),
         union_names=frozenset(names["Union"]),
         module_names=frozenset(module_names),
     )
@@ -365,67 +339,8 @@ def _generic_base_name(node: ast.expr) -> str | None:
     return _terminal_name(node)
 
 
-def _is_any_member(
-    node: ast.expr,
-    bindings: _TypingBindings,
-    any_aliases: frozenset[str],
-) -> bool:
-    if isinstance(node, ast.Name) and node.id in any_aliases:
-        return True
-    return _is_typing_form(
-        node,
-        direct_names=bindings.any_names,
-        attribute_name="Any",
-        bindings=bindings,
-    )
-
-
 def _is_dict_member(node: ast.expr) -> bool:
     return _generic_base_name(node) in {"dict", "Dict"}
-
-
-def _anonymous_any_dict_nodes(
-    node: ast.AST,
-    bindings: _TypingBindings,
-    any_aliases: frozenset[str],
-):
-    """Yield explicit ``dict[..., Any]`` expressions, including nested ones."""
-    for candidate in ast.walk(node):
-        if not isinstance(candidate, ast.Subscript) or not _is_dict_member(candidate):
-            continue
-        arguments = (
-            list(candidate.slice.elts)
-            if isinstance(candidate.slice, ast.Tuple)
-            else [candidate.slice]
-        )
-        if any(
-            _is_any_member(descendant, bindings, any_aliases)
-            for argument in arguments
-            for descendant in ast.walk(argument)
-            if isinstance(descendant, ast.expr)
-        ):
-            yield candidate
-
-
-def _discover_unchecked_json_names(tree: ast.Module) -> frozenset[str]:
-    """Names through which one module imports ``UncheckedJsonObject``."""
-    names = {"UncheckedJsonObject"}
-    for node in tree.body:
-        if not isinstance(node, ast.ImportFrom):
-            continue
-        for imported in node.names:
-            if imported.name == "UncheckedJsonObject":
-                names.add(imported.asname or imported.name)
-    return frozenset(names)
-
-
-def _unchecked_json_nodes(node: ast.AST, names: frozenset[str]):
-    """Yield direct references to the shared unchecked JSON escape hatch."""
-    for candidate in ast.walk(node):
-        if (isinstance(candidate, ast.Name) and candidate.id in names) or (
-            isinstance(candidate, ast.Attribute) and candidate.attr == "UncheckedJsonObject"
-        ):
-            yield candidate
 
 
 def _is_named_domain_member(
@@ -434,62 +349,6 @@ def _is_named_domain_member(
 ) -> bool:
     name = _generic_base_name(node)
     return bool(name and (name in domain_type_names or name.endswith(_DOMAIN_TYPE_SUFFIXES)))
-
-
-def _is_any_equivalent(
-    node: ast.expr,
-    bindings: _TypingBindings,
-    any_aliases: frozenset[str],
-) -> bool:
-    """Whether a type alias expression is equivalent to Any."""
-    if _is_any_member(node, bindings, any_aliases):
-        return True
-    direct_members = _direct_union_members(node, bindings)
-    return bool(
-        direct_members
-        and any(_is_any_equivalent(member, bindings, any_aliases) for member in direct_members)
-    )
-
-
-def _discover_any_aliases(
-    tree: ast.Module,
-    bindings: _TypingBindings,
-) -> frozenset[str]:
-    """Find module-level aliases that resolve to Any, directly or through a union."""
-    definitions: list[tuple[str, ast.expr]] = []
-    for node in tree.body:
-        if isinstance(node, ast.TypeAlias):
-            definitions.append((node.name.id, node.value))
-        elif (
-            isinstance(node, ast.AnnAssign)
-            and isinstance(node.target, ast.Name)
-            and node.value is not None
-            and _is_typing_form(
-                node.annotation,
-                direct_names=bindings.type_alias_names,
-                attribute_name="TypeAlias",
-                bindings=bindings,
-            )
-        ):
-            definitions.append((node.target.id, node.value))
-        elif (
-            isinstance(node, ast.Assign)
-            and len(node.targets) == 1
-            and isinstance(node.targets[0], ast.Name)
-        ):
-            # Implicit aliases such as ``Loose = Any`` remain valid typing syntax.
-            definitions.append((node.targets[0].id, node.value))
-
-    aliases: set[str] = set()
-    changed = True
-    while changed:
-        changed = False
-        known_aliases = frozenset(aliases)
-        for name, value in definitions:
-            if name not in aliases and _is_any_equivalent(value, bindings, known_aliases):
-                aliases.add(name)
-                changed = True
-    return frozenset(aliases)
 
 
 def _discover_domain_type_names(trees: list[ast.Module]) -> frozenset[str]:
@@ -521,144 +380,41 @@ def _discover_domain_type_names(trees: list[ast.Module]) -> frozenset[str]:
     return frozenset(domain_names)
 
 
-def _only_read_by_validator(function: ast.FunctionDef | ast.AsyncFunctionDef, name: str) -> bool:
-    """Recognize consumption by validation, independent of file or function names."""
-    nodes = [part for statement in function.body for part in _executed_nodes(statement)]
-    reads = {
-        id(part)
-        for part in nodes
-        if isinstance(part, ast.Name) and part.id == name and isinstance(part.ctx, ast.Load)
-    }
-    validated = {
-        id(part)
-        for call in nodes
-        if isinstance(call, ast.Call)
-        and isinstance(call.func, ast.Attribute)
-        and call.func.attr
-        in {"model_validate", "model_validate_json", "validate_python", "validate_json"}
-        for part in (
-            *call.args[:1],
-            *(
-                keyword.value
-                for keyword in call.keywords
-                if keyword.arg in {"obj", "object", "json_data", "data"}
-            ),
-        )
-        if isinstance(part, ast.Name) and part.id == name
-    }
-    return bool(reads) and reads <= validated
-
-
 class _AnnotationVisitor(ast.NodeVisitor):
+    """Check value annotations; recursive JSON aliases legitimately mix named aliases and dict."""
+
     def __init__(
         self,
         path: str,
         domain_type_names: frozenset[str],
         typing_bindings: _TypingBindings,
-        any_aliases: frozenset[str],
-        unchecked_json_names: frozenset[str],
         rules: frozenset[str],
     ) -> None:
         self.path = path
         self.domain_type_names = domain_type_names
         self.typing_bindings = typing_bindings
-        self.any_aliases = any_aliases
-        self.unchecked_json_names = unchecked_json_names
         self.rules = rules
         self.scope: list[str] = []
         self.violations: list[Violation] = []
-        self.functions: list[ast.FunctionDef | ast.AsyncFunctionDef] = []
 
     @override
     def visit(self, node: ast.AST):
-        # These Python 3.12 nodes are dispatched explicitly so static dead-code
-        # analysis can see the references that NodeVisitor otherwise resolves by name.
+        # This Python 3.12 node is dispatched explicitly so static dead-code
+        # analysis can see the reference that NodeVisitor otherwise resolves by name.
         if isinstance(node, ast.AnnAssign):
             self.visit_AnnAssign(node)
-            return None
-        if isinstance(node, ast.TypeAlias):
-            self.visit_TypeAlias(node)
             return None
         return super().visit(node)
 
     def _scope_name(self) -> str:
         return ".".join(self.scope) or "<module>"
 
-    def _check_annotation(
-        self,
-        annotation: ast.expr,
-        *,
-        target: str,
-        check_domain_dict: bool = True,
-    ) -> None:
-        if _UNCHECKED_JSON_ESCAPE in self.rules:
-            for raw in _unchecked_json_nodes(annotation, self.unchecked_json_names):
-                name = target.split(":", 1)[-1]
-                if (
-                    target.startswith(("parameter:", "variable:"))
-                    and self.functions
-                    and _only_read_by_validator(self.functions[-1], name)
-                ):
-                    continue
-                self.violations.append(
-                    Violation(
-                        path=self.path,
-                        line=raw.lineno,
-                        column=raw.col_offset + 1,
-                        code=_UNCHECKED_JSON_ESCAPE,
-                        scope=self._scope_name(),
-                        target=target,
-                        annotation=ast.unparse(raw),
-                        message="Unchecked JSON belongs only to parser inputs consumed by validation; use a validated type here",
-                    )
-                )
-        check_anonymous_dict = not target.startswith("alias:") or target == "alias:JsonObject"
-        if _ANONYMOUS_ANY_DICT in self.rules and check_anonymous_dict:
-            for anonymous_dict in _anonymous_any_dict_nodes(
-                annotation,
-                self.typing_bindings,
-                self.any_aliases,
-            ):
-                annotation_text = ast.unparse(anonymous_dict)
-                self.violations.append(
-                    Violation(
-                        path=self.path,
-                        line=anonymous_dict.lineno,
-                        column=anonymous_dict.col_offset + 1,
-                        code=_ANONYMOUS_ANY_DICT,
-                        scope=self._scope_name(),
-                        target=target,
-                        annotation=annotation_text,
-                        message=(
-                            f"`{annotation_text}` is an anonymous unchecked dictionary; "
-                            "use `UncheckedJsonObject` or a domain-specific named mapping alias"
-                        ),
-                    )
-                )
+    def _check_annotation(self, annotation: ast.expr, *, target: str) -> None:
         for union in _union_nodes(annotation, self.typing_bindings):
             members = _flatten_union(union, self.typing_bindings)
             annotation_text = ast.unparse(union)
-            if _ANY_UNION in self.rules and any(
-                _is_any_member(member, self.typing_bindings, self.any_aliases) for member in members
-            ):
-                self.violations.append(
-                    Violation(
-                        path=self.path,
-                        line=union.lineno,
-                        column=union.col_offset + 1,
-                        code=_ANY_UNION,
-                        scope=self._scope_name(),
-                        target=target,
-                        annotation=annotation_text,
-                        message=(
-                            f"`{annotation_text}` contains `Any`, so the entire union "
-                            "collapses to `Any`"
-                        ),
-                    )
-                )
             if (
                 _DOMAIN_DICT_UNION in self.rules
-                and check_domain_dict
                 and any(_is_dict_member(member) for member in members)
                 and any(
                     _is_named_domain_member(member, self.domain_type_names) for member in members
@@ -682,7 +438,6 @@ class _AnnotationVisitor(ast.NodeVisitor):
 
     def _check_function(self, node: ast.FunctionDef | ast.AsyncFunctionDef) -> None:
         self.scope.append(node.name)
-        self.functions.append(node)
         args = node.args
         parameters = (*args.posonlyargs, *args.args, *args.kwonlyargs)
         for arg in parameters:
@@ -731,7 +486,6 @@ class _AnnotationVisitor(ast.NodeVisitor):
 
         for statement in node.body:
             self.visit(statement)
-        self.functions.pop()
         self.scope.pop()
 
     @override
@@ -751,39 +505,12 @@ class _AnnotationVisitor(ast.NodeVisitor):
 
     @override
     def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
-        if (
-            isinstance(node.target, ast.Name)
-            and node.value is not None
-            and _is_typing_form(
-                node.annotation,
-                direct_names=self.typing_bindings.type_alias_names,
-                attribute_name="TypeAlias",
-                bindings=self.typing_bindings,
-            )
-        ):
-            self._check_annotation(
-                node.value,
-                target=f"alias:{node.target.id}",
-                check_domain_dict=False,
-            )
-            return
         self._check_annotation(
             node.annotation,
             target=f"variable:{ast.unparse(node.target)}",
         )
         if node.value is not None:
             self.visit(node.value)
-
-    @override
-    def visit_TypeAlias(self, node: ast.TypeAlias) -> None:
-        # Recursive JSON aliases legitimately contain both named aliases and dict.
-        # CUSTOM001 remains meaningful in aliases, but CUSTOM002 applies to value
-        # annotations at domain boundaries.
-        self._check_annotation(
-            node.value,
-            target=f"alias:{ast.unparse(node.name)}",
-            check_domain_dict=False,
-        )
 
 
 class TypeIndex:
@@ -1444,13 +1171,10 @@ def scan_text(
     resolved_domain_types = (
         _discover_domain_type_names([tree]) if domain_type_names is None else domain_type_names
     )
-    typing_bindings = _discover_typing_bindings(tree)
     visitor = _AnnotationVisitor(
         path,
         resolved_domain_types,
-        typing_bindings,
-        _discover_any_aliases(tree, typing_bindings),
-        _discover_unchecked_json_names(tree),
+        _discover_typing_bindings(tree),
         _ALL_RULES if rules is None else rules,
     )
     visitor.visit(tree)

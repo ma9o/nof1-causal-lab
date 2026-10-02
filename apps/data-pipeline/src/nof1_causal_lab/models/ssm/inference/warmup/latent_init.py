@@ -15,10 +15,9 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from nof1_causal_lab.models.ssm.autoreparam import Strategy
     from nof1_causal_lab.models.ssm.parameterization import PriorRuntimeBundle
     from nof1_causal_lab.models.ssm.runtime import BoundPanel
-
-from typing import Any
 
 import jax.numpy as jnp
 
@@ -31,7 +30,7 @@ def compute_ieks_latent_paths(
     *,
     positions: jnp.ndarray,
     trace_key: jnp.ndarray,
-    reparam: Any,
+    reparam: Strategy | None,
     n_ieks_iters: int,
 ) -> jnp.ndarray:
     """Return the IEKS smoothed latent path at each flat unconstrained position.

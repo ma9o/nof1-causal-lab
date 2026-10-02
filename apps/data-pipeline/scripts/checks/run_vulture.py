@@ -3,10 +3,12 @@
 vulture only scans .py files. This wrapper extracts code cells from every
 notebook under ``notebooks/`` into a temporary cache of ``.py`` shadows. The
 authoritative source pass scans only ``[tool.vulture].paths``. Evaluation code,
-scripts, notebooks, and tests each run in a separate Vulture instance that may
+scripts, notebooks, and tests each run in a separate Vulture process that may
 analyze source code to understand the protocols it consumes but reports only
-definitions owned by that seam. Therefore no non-source reference can make a
-source definition live, and references cannot leak between non-source seams.
+definitions owned by that seam. The five passes run concurrently with separate
+reference caches; their output retains ownership order. Therefore no non-source
+reference can make a source definition live, and references cannot leak between
+non-source seams.
 
 Three kinds of phantom usage are emitted into the cache so vulture stops
 flagging legitimate-but-statically-invisible references:
@@ -41,6 +43,11 @@ import shutil
 import sys
 import tempfile
 import tomllib
+from concurrent.futures import ProcessPoolExecutor
+from contextlib import redirect_stderr, redirect_stdout
+from dataclasses import dataclass
+from io import StringIO
+from multiprocessing import get_context
 from pathlib import Path
 
 import nbformat
@@ -72,6 +79,13 @@ VALIDATOR_DECORATORS = {
     "computed_field",
 }
 TYPING_CAST_FUNCS = {"cast", "assert_type", "reveal_type"}
+
+
+@dataclass(frozen=True, slots=True)
+class VulturePassResult:
+    exit_code: int
+    stdout: str
+    stderr: str
 
 
 def _extract_backtick_idents(text: str) -> set[str]:
@@ -441,45 +455,56 @@ def _aggregate_exit_code(exit_codes: list[int]) -> int:
     return int(vulture_core.ExitCode.NoDeadCode)
 
 
+def _run_pass(
+    seam_path: str | None,
+    *,
+    source_paths: list[str],
+    cache_dir: Path,
+    argv: list[str],
+) -> VulturePassResult:
+    stdout, stderr = StringIO(), StringIO()
+    with redirect_stdout(stdout), redirect_stderr(stderr):
+        analysis_paths = [*source_paths, seam_path] if seam_path is not None else source_paths
+        pass_cache_dir = cache_dir / (seam_path if seam_path is not None else "src")
+        _build_phantom_refs(pass_cache_dir, analysis_paths)
+        report_roots = [seam_path] if seam_path is not None else source_paths
+        if seam_path == "notebooks":
+            markdown_refs = _convert_notebooks(pass_cache_dir) | _marimo_markdown_refs()
+            _write_phantom(pass_cache_dir, "_notebook_markdown_refs.py", markdown_refs)
+            report_roots.append(_cache_path(pass_cache_dir))
+        exit_code = _run_vulture(
+            [*analysis_paths, _cache_path(pass_cache_dir), *argv],
+            report_roots=report_roots,
+            collision_roots=source_paths if seam_path is None else None,
+        )
+    return VulturePassResult(exit_code, stdout.getvalue(), stderr.getvalue())
+
+
 def main() -> int:
     CACHE_ROOT.mkdir(parents=True, exist_ok=True)
     cache_dir = Path(tempfile.mkdtemp(prefix="run-", dir=CACHE_ROOT))
-    source_cache_dir = cache_dir / "src"
     try:
         config = tomllib.loads(PYPROJECT.read_text())
         source_paths = config["tool"]["vulture"]["paths"]
-
-        _build_phantom_refs(source_cache_dir, source_paths)
-        exit_codes = [
-            _run_vulture(
-                [*source_paths, _cache_path(source_cache_dir), *sys.argv[1:]],
-                report_roots=source_paths,
-                collision_roots=source_paths,
-            )
-        ]
-
-        for seam_path in SEAM_PATHS:
-            analysis_paths = [*source_paths, seam_path]
-            seam_cache_dir = cache_dir / seam_path
-            _build_phantom_refs(seam_cache_dir, analysis_paths)
-            report_roots = [seam_path]
-            if seam_path == "notebooks":
-                markdown_refs = _convert_notebooks(seam_cache_dir) | _marimo_markdown_refs()
-                _write_phantom(
-                    seam_cache_dir,
-                    "_notebook_markdown_refs.py",
-                    markdown_refs,
+        passes = (None, *SEAM_PATHS)
+        # Vulture mutates sys.argv, cwd and module globals, so passes need processes.
+        with ProcessPoolExecutor(max_workers=len(passes), mp_context=get_context("spawn")) as pool:
+            futures = [
+                pool.submit(
+                    _run_pass,
+                    seam_path,
+                    source_paths=source_paths,
+                    cache_dir=cache_dir,
+                    argv=sys.argv[1:],
                 )
-                report_roots.append(_cache_path(seam_cache_dir))
-            exit_codes.append(
-                _run_vulture(
-                    [*analysis_paths, _cache_path(seam_cache_dir), *sys.argv[1:]],
-                    report_roots=report_roots,
-                    collision_roots=None,
-                )
-            )
+                for seam_path in passes
+            ]
+            results = [future.result() for future in futures]
 
-        return _aggregate_exit_code(exit_codes)
+        for result in results:
+            print(result.stdout, end="")
+            print(result.stderr, end="", file=sys.stderr)
+        return _aggregate_exit_code([result.exit_code for result in results])
     finally:
         shutil.rmtree(cache_dir, ignore_errors=True)
 

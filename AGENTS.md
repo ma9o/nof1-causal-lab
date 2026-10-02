@@ -1,10 +1,6 @@
 - Add tests only when necessary to cover broad behavior; this repo's test suite is already costly.
 
-- Before running tests, follow the [test selection guide](docs/guides/agentic_integration_testing.md#choosing-tests-for-a-change). Start with affected test files or node IDs and an explicit concern selector: relevant contracts plus only the inference children or workflows exercised by the change. Broaden for affected shared behavior, failure diagnosis, or an explicit broader request; do not automatically run every category after focused checks pass. For documentation-only changes, run the documentation checks.
-
-- Every Python test must explicitly declare at least one concern owner: `pytest.mark.contract`, `pytest.mark.workflow`, or `pytest.mark.inference(concern="...")` with `sampling`, `warmup`, `simulation`, `predictive`, or `recovery`. Pytest selects the whole numerical group with `-m inference` and a child with `-m "inference(concern='warmup')"`. Use module, class, or function markers at the narrowest shared scope; collection rejects unowned tests and missing or invalid inference concerns before selection. Keep the default and specialized selections separate.
-
-- Project description: nof1-causal-lab is for observational longitudinal causal questions, especially intensive longitudinal data (ILD) and idiographic / N-of-1 settings where measurements are irregular, messy, and semantically heterogeneous. The LLM proposes constructs, indicators, causal structure, and priors. It combines explicit causal-identification checks with continuous-time latent state-space estimation, and only produces numeric causal claims when those checks support them.
+- Before running tests, follow the [test selection guide](docs/guides/agentic_integration_testing.md#choosing-tests-for-a-change). Before integration testing, starting services, health checks, or manual pipeline runs, read and follow [docs/guides/agentic_integration_testing.md](docs/guides/agentic_integration_testing.md).
 
 - TODO references mean the gitignored `scratchpad/TODO.md`.
 
@@ -14,17 +10,16 @@
 
 - There is no baselining in this repo. Never record existing lint, type or test failures in a baseline, a bulk suppression or a "known failures" list. A new check ships with all its findings fixed, and a failing check gets fixed, not recorded. The only exception is an inline suppression of a genuine false positive, with its reason on the same line.
 
-- Before integration testing, starting services, health checks, or manual pipeline runs, read and follow [docs/guides/agentic_integration_testing.md](docs/guides/agentic_integration_testing.md).
+- The core follows functional programming. It is every module whose role is `domain`, `compiler`, `execution` or `projection` in `apps/data-pipeline/scripts/checks/architecture_roles.py`, which owns module roles; only `edge` and `shell` modules do I/O or read clocks and configuration.
+  - Values are immutable: frozen, with `tuple`, `frozenset` and `Mapping` collections. Build records whole instead of mutating them.
+  - Composition over inheritance: a value type subclasses only `Value` and composes other values as fields. Alternatives are sum types, not a tag plus optional fields.
+  - Parse, don't validate: each invariant has one owner, a smart constructor or an edge parser, and nothing downstream re-checks it. Pass the owner, not values derived from it. Projections are total; if one seems to need a check, fix the core type.
+  - Return expected failures as typed outcomes instead of raising. Only bugs and infrastructure failures raise, and the shell handles them.
 
-- Prefer `ast-grep` for code navigation.
-
-- Run `bun run --cwd apps/data-pipeline check:core` for fast source-only feedback: projections are total; if one seems to need a check, fix the core type.
-  Module roles are owned by `apps/data-pipeline/scripts/checks/architecture_roles.py`; every enabled role rule runs in `check:core`.
+- Run lint for static feedback and before committing: `bun run --cwd apps/<app> lint` when a change touches only one app, otherwise `bun run lint` at the repo root, which adds the cross-package checks (knip and API-type, docs and fixture drift).
   Fix findings at the owner named by the checker; rule details live in the checker docstrings.
 
-- Follow the [type naming conventions](docs/guides/codegen.md#type-naming-conventions): use `...Spec` for declarative model definitions, `...Expression` for formulas, and role-specific names for runtime objects, reports, results, and references.
-
-- After substantive source changes, run `bun run duplicates` and review its advisory candidates. The audit is diff-aware; use `--deep` for a broader search and `--all` only for repository-wide audits.
+- Follow the [type naming conventions](docs/guides/codegen.md#type-naming-conventions).
 
 # Notebooks
 
@@ -37,7 +32,6 @@
 # Docs
 
 - Place references beside the claims they support or hyperlink the relevant terms.
-- After editing `README.md` or files under `docs/`, run `bun run docs:check`.
 
 - Each fact has one maintained owner: the action charts in `docs/assets/action-flows` own control flow, code owns field meanings and the API, and `docs/assumptions.md` owns modeling commitments and limits. Link to the owner instead of restating it.
 
@@ -47,25 +41,14 @@
 
 - Never put domain logic or statistical computations in frontend code.
 
-- A flagged web condition means either the check is useless or a type hides absence; fix whichever is wrong.
-
 - v2 (`/v2/{workspaceId}`) is the only interface. v1 lives at the annotated `v1-reference` tag as a reference for things v2 might surface; run it from a separate checkout of that tag with its own fixtures.
-
-- Reuse the dev server on port 3000 if running; restart it when needed.
-- Check errors with the next-devtools MCP.
-- Use `bun` exclusively.
 
 # Data Pipeline
 
 - Budget GPU benchmarks carefully: a B200 on Modal costs $6/hour.
 
-- Never run evals unless explicitly asked. From `apps/data-pipeline`, use `uv run pytest <affected paths> -m "<selector>"` for focused testing. An explicit `-m` is necessary to include inference or workflow tests because the default selection excludes them. The Bun `test` wrapper always includes all of `tests/`; use it for a whole concern suite, not a file-scoped run.
-
-- Before committing, run `bun run --cwd apps/data-pipeline lint`.
-
 - Represent structural assumptions as DAGs with explicit latent confounders. ADMGs are only for internal projection into y0's identification algorithm, never user-facing.
 
 - The latent SSM is continuous-time **nonlinear**. Linearization and Gaussian approximations are allowed **only for particle-sampler initialization**: parameter positions, proposal preconditioner, and cSMC reference trajectory.
-- Production posteriors, all diagnostics, posterior-predictive checks, and counterfactual/predictive outputs must use the exact engines: particle/SMC with the true emission density, Euler-Maruyama with the true nonlinear drift, and Diffrax for forward simulation.
-- Exactly corrected proposals (`amala_exact`) are allowed. Uncorrected `amala` and `amala_plus` must remain non-default and never gate reported results.
+- Production posteriors, all diagnostics, posterior-predictive checks, and counterfactual/predictive outputs must use the exact engines in [docs/assumptions.md](docs/assumptions.md#model-class).
 - Before reintroducing linearization, run [test_linearization_init_only.py](apps/data-pipeline/tests/models/ssm/test_linearization_init_only.py), which restricts Laplace imports to warmup/init.

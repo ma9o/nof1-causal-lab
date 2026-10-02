@@ -78,7 +78,6 @@ MODULE_ROLES: dict[str, ModuleRole] = {
     "models/ssm/inference/methods/marginal_particle_gibbs/_context": "compiler",
     "models/ssm/inference/persistence": "edge",
     "models/ssm/joint_layout": "compiler",
-    "models/ssm/likelihood_extra_params": "domain",
     "models/ssm/numerics": "compiler",
     "models/ssm/observation_support": "compiler",
     "models/ssm/parameter_layout": "compiler",

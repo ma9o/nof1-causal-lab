@@ -71,12 +71,9 @@ Turbo across the workspaces; generators and maintenance commands run in their
 owning package.
 
 ```bash
-bun run lint          # Lint (ruff, eslint, biome)
-bun run lint:fix      # Auto-fix lint issues
-bun run format        # Format (ruff, biome)
-bun run format:check  # Check formatting without writing
+bun run lint          # Every static check, including types and generated-artifact drift
+bun run lint:fix      # Apply lint and formatting fixes
 bun run test          # Lightweight backend tests (one worker) and Vitest
-bun run type-check    # Python and TypeScript type checks
 bun run codegen:check # Generated API artifact drift
 bun run docs:check    # Generated documentation drift and markdown
 ```
@@ -91,7 +88,7 @@ subcommands. Related commands share a colon namespace; artifact checks end in
 | Workflow | Root commands |
 |----------|---------------|
 | Development | `dev`, `build`, `storybook`, `integration:start` |
-| Quality | `check`, `lint`, `lint:fix`, `format`, `format:check`, `type-check`, `test`, `test:all`, `test:fixture-promotion`, `knip`, `duplicates` |
+| Quality | `lint`, `lint:fix`, `test`, `test:all`, `test:fixture-promotion`, `knip`, `complexity` |
 | API generation | `codegen`, `codegen:check` |
 | Documentation | `docs:codegen`, `docs:check`; individual tasks under `docs:distribution`, `docs:latex`, `docs:markdown:check`, `docs:spell:check` |
 | Fixtures | `fixture:promote`, `fixture:build`, `fixture:check` |

@@ -5,6 +5,9 @@
     "//#docs:check": {
       "cache": false
     },
+    "//#fixture:check": {
+      "cache": false
+    },
     "//#knip": {
       "inputs": [
         "knip.json",
@@ -26,14 +29,12 @@
       "outputs": [".next/**", "!.next/cache/**"],
       "env": ["NEXT_PUBLIC_*"]
     },
-    "lint": {},
+    "lint": {
+      "cache": false
+    },
     "lint:fix": {
       "cache": false
     },
-    "format": {
-      "cache": false
-    },
-    "format:check": {},
     "test": {
       "cache": false,
       "env": ["OPENROUTER_API_KEY", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION"]
@@ -42,17 +43,8 @@
       "cache": false,
       "env": ["OPENROUTER_API_KEY", "GOOGLE_CLOUD_PROJECT", "GOOGLE_CLOUD_LOCATION"]
     },
-    "type-check": {
-      "dependsOn": ["^build"]
-    },
     "codegen": {
       "dependsOn": ["^codegen"],
-      "cache": false
-    },
-    "codegen:check": {
-      "cache": false
-    },
-    "check": {
       "cache": false
     },
     "storybook": {

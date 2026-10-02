@@ -4,15 +4,20 @@ The audit is deliberately advisory. By default it compares definitions touched
 since the merge base with ``origin/master`` against the entire source tree. A
 token-clone pass catches copied blocks in Python and TypeScript, while a Python
 AST pass catches short alpha-equivalent functions and data models with strongly
-overlapping fields.
+overlapping fields. Source-only Python passes also report identical declared
+field signatures, repeated rows ranked by distinct conversion sites, generic
+families, presence-dependency evidence grouped by its validator owner, and
+repeated closed vocabularies. No production package is imported. Matching
+syntax is evidence for review, not full contract or semantic equivalence.
 
+``bun run lint`` runs the default diff-aware audit.
 Usage from the repository root::
 
-    bun run duplicates
-    bun run duplicates --deep
-    bun run duplicates --all
-    bun run duplicates --include-reviewed
-    bun run duplicates apps/data-pipeline/src/nof1_causal_lab/models/ssm
+    bun run --cwd apps/data-pipeline lint:duplicates
+    bun run --cwd apps/data-pipeline lint:duplicates --deep
+    bun run --cwd apps/data-pipeline lint:duplicates --all
+    bun run --cwd apps/data-pipeline lint:duplicates --include-reviewed
+    bun run --cwd apps/data-pipeline lint:duplicates apps/data-pipeline/src/nof1_causal_lab/models/ssm
 
 Candidates are retrieval results, not claims of semantic equivalence. The
 reviewing agent decides whether to consolidate the pair, preserve an intentional
@@ -31,7 +36,8 @@ import subprocess
 import sys
 import tempfile
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
+from itertools import combinations
 from pathlib import Path
 from typing import TYPE_CHECKING, cast, override
 
@@ -58,6 +64,13 @@ DEEP_FUNCTION_THRESHOLD = 0.72
 DEFAULT_MIN_FUNCTION_NODES = 35
 DEEP_MIN_FUNCTION_NODES = 25
 REVIEWED_PAIRS_PATH = REPO_ROOT / "apps/data-pipeline/scripts/checks/duplicate_reviews.json"
+TYPE_CATEGORIES = (
+    "identical fields",
+    "repeated row",
+    "generic family",
+    "presence dependency",
+    "closed vocabulary",
+)
 
 _HUNK_HEADER = re.compile(r"^@@ -\d+(?:,\d+)? \+(?P<start>\d+)(?:,(?P<count>\d+))? @@")
 _WORD_BOUNDARY = re.compile(r"([a-z0-9])([A-Z])")
@@ -186,6 +199,8 @@ class FieldSpec:
     name: str
     annotation: str
     default: str
+    optional: bool = False
+    singleton_tag: bool = False
 
 
 @dataclass(frozen=True)
@@ -207,6 +222,12 @@ class PythonDefinition:
     node_count: int = 0
     is_method: bool = False
     parent_class: str | None = None
+    declared_fields: tuple[FieldSpec, ...] = ()
+    node: ast.AST | None = None
+    module: str = ""
+    imports: tuple[tuple[str, str], ...] = ()
+    vocabulary: frozenset[tuple[str, str]] = frozenset()
+    vocabulary_kind: str = ""
 
     @property
     def identity(self) -> tuple[str, int, str]:
@@ -235,6 +256,7 @@ class Candidate:
     first_selected: bool
     second_selected: bool
     review_fingerprint: str = ""
+    evidence_locations: tuple[Location, ...] = ()
 
     @property
     def level(self) -> str:
@@ -244,6 +266,15 @@ class Candidate:
     def identity(self) -> tuple[str, tuple[str, int, int, str], tuple[str, int, int, str]]:
         first, second = sorted((self.first.identity, self.second.identity))
         return (self.category, first, second)
+
+
+@dataclass(frozen=True)
+class ConversionWitness:
+    target: PythonDefinition
+    fields: frozenset[str]
+    location: Location
+    fingerprint: str
+    position: tuple[str, int, int]
 
 
 @dataclass(frozen=True, slots=True)
@@ -622,6 +653,94 @@ def _field_default(value: ast.expr | None) -> str:
     return ast.dump(value, include_attributes=False) if value is not None else ""
 
 
+def _literal_values(node: ast.AST) -> frozenset[tuple[str, str]]:
+    if not isinstance(node, ast.Subscript) or _terminal_name(node.value) != "Literal":
+        return frozenset()
+    items = node.slice.elts if isinstance(node.slice, ast.Tuple) else (node.slice,)
+    if not all(isinstance(item, ast.Constant) for item in items):
+        return frozenset()
+    return frozenset(
+        (type(item.value).__name__, repr(item.value))
+        for item in items
+        if isinstance(item, ast.Constant)
+    )
+
+
+def _annotation_ast(annotation: str) -> ast.expr:
+    node = ast.parse(annotation, mode="eval").body
+    if isinstance(node, ast.Constant) and isinstance(node.value, str):
+        node = ast.parse(node.value, mode="eval").body
+    return node
+
+
+def _field_spec(name: str, annotation: ast.expr, value: ast.expr | None) -> FieldSpec:
+    expression = _annotation_ast(ast.unparse(annotation))
+    optional = _annotation_admits_none(expression)
+    if isinstance(value, ast.Constant) and value.value is None:
+        optional = True
+    if isinstance(value, ast.Call) and _terminal_name(value.func) in {"Field", "field"}:
+        defaults = [kw.value for kw in value.keywords if kw.arg == "default"]
+        if value.args:
+            defaults.append(value.args[0])
+        optional |= any(isinstance(item, ast.Constant) and item.value is None for item in defaults)
+    tag = expression
+    if isinstance(tag, ast.Subscript) and _terminal_name(tag.value) == "Annotated":
+        tag = tag.slice.elts[0] if isinstance(tag.slice, ast.Tuple) else tag.slice
+    return FieldSpec(
+        name,
+        ast.unparse(annotation),
+        _field_default(value),
+        optional=optional,
+        singleton_tag=(
+            isinstance(tag, ast.Subscript)
+            and _terminal_name(tag.value) == "Literal"
+            and (not isinstance(tag.slice, ast.Tuple) or len(tag.slice.elts) == 1)
+        ),
+    )
+
+
+def _annotation_admits_none(node: ast.expr) -> bool:
+    if isinstance(node, ast.Constant):
+        return node.value is None
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        return _annotation_admits_none(node.left) or _annotation_admits_none(node.right)
+    if isinstance(node, ast.Subscript):
+        name = _terminal_name(node.value)
+        items = node.slice.elts if isinstance(node.slice, ast.Tuple) else [node.slice]
+        if name == "Optional":
+            return True
+        if name == "Annotated":
+            return _annotation_admits_none(items[0])
+        if name in {"Union", "Literal"}:
+            return any(_annotation_admits_none(item) for item in items)
+    return False
+
+
+def _module_name(path: str) -> str:
+    relative = Path(path).relative_to(PYTHON_SOURCE_ROOT).with_suffix("")
+    parts = relative.parts[:-1] if relative.name == "__init__" else relative.parts
+    return ".".join(parts)
+
+
+def _module_imports(tree: ast.Module, path: str) -> tuple[tuple[str, str], ...]:
+    module = _module_name(path)
+    package = module.split(".") if Path(path).stem == "__init__" else module.split(".")[:-1]
+    bindings: dict[str, str] = {}
+    for node in _scope_nodes(tree):
+        if isinstance(node, ast.Import):
+            for alias in node.names:
+                bindings[alias.asname or alias.name.split(".")[0]] = (
+                    alias.name if alias.asname else alias.name.split(".")[0]
+                )
+        elif isinstance(node, ast.ImportFrom):
+            prefix = node.module or ""
+            if node.level:
+                prefix = ".".join((*package[: len(package) - node.level + 1], prefix)).rstrip(".")
+            for alias in node.names:
+                bindings[alias.asname or alias.name] = f"{prefix}.{alias.name}"
+    return tuple(sorted(bindings.items()))
+
+
 def _self_fields(node: ast.FunctionDef | ast.AsyncFunctionDef) -> Iterator[FieldSpec]:
     for child in _scope_nodes(node):
         targets: Sequence[ast.expr]
@@ -652,14 +771,12 @@ def _class_definition(
     qualname: str,
 ) -> PythonDefinition:
     fields: dict[str, FieldSpec] = {}
+    declared: dict[str, FieldSpec] = {}
     methods: set[str] = set()
     for statement in node.body:
         if isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name):
-            fields[statement.target.id] = FieldSpec(
-                statement.target.id,
-                ast.unparse(statement.annotation),
-                _field_default(statement.value),
-            )
+            field = _field_spec(statement.target.id, statement.annotation, statement.value)
+            fields[field.name] = declared[field.name] = field
         elif isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)):
             methods.add(statement.name)
             if statement.name == "__init__":
@@ -675,6 +792,9 @@ def _class_definition(
         fields=tuple(sorted(fields.values(), key=lambda field: field.name)),
         methods=frozenset(methods),
         bases=frozenset(_terminal_name(base) for base in node.bases),
+        declared_fields=tuple(sorted(declared.values(), key=lambda field: field.name)),
+        node=node,
+        module=_module_name(path),
     )
 
 
@@ -713,22 +833,40 @@ def _function_definition(
         node_count=len(nodes),
         is_method=is_method,
         parent_class=parent_class,
+        node=node,
+        module=_module_name(path),
     )
 
 
 class _DefinitionCollector(ast.NodeVisitor):
-    def __init__(self, *, path: str) -> None:
+    def __init__(self, *, path: str, imports: tuple[tuple[str, str], ...]) -> None:
         self.path = path
         self.scope: list[tuple[str, str]] = []
         self.definitions: list[PythonDefinition] = []
+        self.imports = imports
 
     def _qualname(self, name: str) -> str:
         return ".".join((*[scope_name for _, scope_name in self.scope], name))
 
     @override
     def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        definition = _class_definition(node, path=self.path, qualname=self._qualname(node.name))
+        vocabulary: frozenset[tuple[str, str]] = frozenset()
+        is_enum = any(_terminal_name(base) in {"Enum", "StrEnum", "IntEnum"} for base in node.bases)
+        if is_enum:
+            vocabulary = frozenset(
+                (type(statement.value.value).__name__, repr(statement.value.value))
+                for statement in node.body
+                if isinstance(statement, (ast.Assign, ast.AnnAssign))
+                and isinstance(statement.value, ast.Constant)
+            )
         self.definitions.append(
-            _class_definition(node, path=self.path, qualname=self._qualname(node.name))
+            replace(
+                definition,
+                imports=self.imports,
+                vocabulary=vocabulary,
+                vocabulary_kind="enum" if is_enum else "",
+            )
         )
         self.scope.append(("class", node.name))
         self.generic_visit(node)
@@ -739,15 +877,25 @@ class _DefinitionCollector(ast.NodeVisitor):
         parent_class = self.scope[-1][1] if is_method else None
         if not _is_function_stub(node):
             self.definitions.append(
-                _function_definition(
-                    node,
-                    path=self.path,
-                    qualname=self._qualname(node.name),
-                    is_method=is_method,
-                    parent_class=parent_class,
+                replace(
+                    _function_definition(
+                        node,
+                        path=self.path,
+                        qualname=self._qualname(node.name),
+                        is_method=is_method,
+                        parent_class=parent_class,
+                    ),
+                    imports=self.imports,
                 )
             )
         self.scope.append(("function", node.name))
+        arguments = [*node.args.posonlyargs, *node.args.args, *node.args.kwonlyargs]
+        arguments.extend(arg for arg in (node.args.vararg, node.args.kwarg) if arg is not None)
+        for arg in arguments:
+            if arg.annotation is not None:
+                self._annotation_vocabularies(arg.annotation, self._qualname(arg.arg))
+        if node.returns is not None:
+            self._annotation_vocabularies(node.returns, self._qualname("return"))
         self.generic_visit(node)
         self.scope.pop()
 
@@ -759,20 +907,81 @@ class _DefinitionCollector(ast.NodeVisitor):
     def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
         self._visit_function(node)
 
+    def _vocabulary(self, node: ast.expr, *, name: str, kind: str) -> None:
+        values = _literal_values(node)
+        if not values or (kind == "inline" and len(values) < 2):
+            return
+        self.definitions.append(
+            PythonDefinition(
+                kind="vocabulary",
+                path=self.path,
+                name=name,
+                qualname=name,
+                start=node.lineno,
+                end=node.end_lineno or node.lineno,
+                node=node,
+                module=_module_name(self.path),
+                imports=self.imports,
+                vocabulary=values,
+                vocabulary_kind=kind,
+            )
+        )
+
+    def _annotation_vocabularies(self, node: ast.expr, label: str) -> None:
+        literals = [
+            child
+            for child in ast.walk(node)
+            if isinstance(child, ast.Subscript) and len(_literal_values(child)) >= 2
+        ]
+        for index, literal in enumerate(literals):
+            name = label if len(literals) == 1 else f"{label}[{index + 1}]"
+            self._vocabulary(literal, name=name, kind="inline")
+
+    @override  # noqa: V105 -- ast.NodeVisitor dispatches this hook dynamically.
+    def visit_TypeAlias(self, node: ast.TypeAlias) -> None:
+        if _literal_values(node.value):
+            self._vocabulary(node.value, name=self._qualname(node.name.id), kind="alias")
+        else:
+            self._annotation_vocabularies(node.value, self._qualname(node.name.id))
+
+    @override
+    def visit_Assign(self, node: ast.Assign) -> None:
+        if not self.scope and len(node.targets) == 1 and isinstance(node.targets[0], ast.Name):
+            self._vocabulary(node.value, name=node.targets[0].id, kind="alias")
+        self.generic_visit(node)
+
+    @override
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        if isinstance(node.target, ast.Name):
+            label = self._qualname(node.target.id)
+            if (
+                not self.scope
+                and _terminal_name(node.annotation) == "TypeAlias"
+                and node.value is not None
+            ):
+                self._vocabulary(node.value, name=label, kind="alias")
+            else:
+                self._annotation_vocabularies(node.annotation, label)
+        self.generic_visit(node)
+
 
 def collect_python_definitions(
     repo_root: Path,
     paths: Iterable[Path],
 ) -> tuple[PythonDefinition, ...]:
-    """Parse Python classes and executable scopes below ``paths``."""
+    """Parse definitions under the production Python root without importing them."""
     definitions: list[PythonDefinition] = []
-    for relative_path in sorted(path for path in paths if path.suffix == ".py"):
+    for relative_path in sorted(
+        path for path in paths if path.suffix == ".py" and path.is_relative_to(PYTHON_SOURCE_ROOT)
+    ):
         path = repo_root / relative_path
         try:
             tree = ast.parse(path.read_text(encoding="utf-8"), filename=str(relative_path))
         except (SyntaxError, UnicodeDecodeError) as exc:
             raise DuplicateAuditError(f"cannot parse {relative_path}: {exc}") from exc
-        collector = _DefinitionCollector(path=relative_path.as_posix())
+        collector = _DefinitionCollector(
+            path=relative_path.as_posix(), imports=_module_imports(tree, relative_path.as_posix())
+        )
         collector.visit(tree)
         definitions.extend(collector.definitions)
     return tuple(definitions)
@@ -809,6 +1018,758 @@ def _candidate_review_fingerprint(
         (_definition_content_fingerprint(first), _definition_content_fingerprint(second))
     )
     return hashlib.sha256(f"{first.kind}:{content[0]}:{content[1]}".encode()).hexdigest()
+
+
+def _definition_location(definition: PythonDefinition) -> Location:
+    return Location(definition.path, definition.start, definition.end, definition.qualname)
+
+
+def _type_candidate(
+    category: str,
+    members: Sequence[PythonDefinition],
+    *,
+    reason: str,
+    score: float,
+    selection: SourceSelection,
+    sites: Sequence[Location] = (),
+    site_fingerprints: Sequence[str] = (),
+) -> Candidate | None:
+    """Keep group membership and all witness bodies in the existing review scheme."""
+    locations = [_definition_location(member) for member in members]
+    locations.extend(sites)
+    locations = list({location.identity: location for location in locations}.values())
+    if not any(selection.includes(loc.path, loc.start, loc.end) for loc in locations):
+        return None
+    first, second, *evidence = locations
+    content = sorted(
+        (
+            f"{member.path}::{member.qualname}",
+            ast.dump(member.node, include_attributes=False) if member.node is not None else "",
+        )
+        for member in members
+    )
+    fingerprint = hashlib.sha256(
+        repr((category, content, sorted(site_fingerprints))).encode()
+    ).hexdigest()
+    return Candidate(
+        category=category,
+        score=score,
+        first=first,
+        second=second,
+        reason=reason,
+        first_selected=selection.includes(first.path, first.start, first.end),
+        second_selected=selection.includes(second.path, second.start, second.end),
+        review_fingerprint=fingerprint,
+        evidence_locations=tuple(evidence),
+    )
+
+
+def _symbol_index(definitions: Sequence[PythonDefinition]) -> dict[str, PythonDefinition]:
+    return {
+        f"{definition.module}.{definition.qualname}": definition
+        for definition in definitions
+        if definition.kind == "class" or definition.vocabulary_kind == "alias"
+    }
+
+
+def _resolve_symbol(
+    expression: ast.expr,
+    context: PythonDefinition,
+    symbols: dict[str, PythonDefinition],
+) -> PythonDefinition | None:
+    """Resolve declared local/import bindings; do not infer unbound names or run imports."""
+    if isinstance(expression, ast.Subscript):
+        expression = expression.value
+    name = ast.unparse(expression)
+    scope = context.qualname.split(".")[:-1]
+    for depth in range(len(scope), -1, -1):
+        qualified = ".".join((context.module, *scope[:depth], name))
+        if qualified in symbols:
+            return symbols[qualified]
+    head, _, tail = name.partition(".")
+    imported = dict(context.imports).get(head)
+    if imported is not None:
+        return symbols.get(f"{imported}.{tail}" if tail else imported)
+    return None
+
+
+def _class_ancestors(
+    classes: Sequence[PythonDefinition], symbols: dict[str, PythonDefinition]
+) -> dict[tuple[str, int, str], set[tuple[str, int, str]]]:
+    parents = {
+        cls.identity: tuple(
+            parent.identity
+            for base in cast("ast.ClassDef", cls.node).bases
+            if (parent := _resolve_symbol(base, cls, symbols)) is not None
+            and parent.kind == "class"
+        )
+        for cls in classes
+    }
+    ancestors: dict[tuple[str, int, str], set[tuple[str, int, str]]] = {}
+    for cls in classes:
+        visited: set[tuple[str, int, str]] = set()
+        pending = list(parents[cls.identity])
+        while pending:
+            parent = pending.pop()
+            if parent not in visited:
+                visited.add(parent)
+                pending.extend(parents[parent])
+        ancestors[cls.identity] = visited
+    return ancestors
+
+
+def _related_classes(
+    first: PythonDefinition,
+    second: PythonDefinition,
+    ancestors: dict[tuple[str, int, str], set[tuple[str, int, str]]],
+) -> bool:
+    return (
+        first.identity in ancestors[second.identity] or second.identity in ancestors[first.identity]
+    )
+
+
+def _own_methods(members: Sequence[PythonDefinition]) -> str:
+    return "own methods: " + "; ".join(
+        f"{member.qualname} [{', '.join(sorted(member.methods)) or 'none'}]" for member in members
+    )
+
+
+def _conversion_witnesses(
+    definitions: Sequence[PythonDefinition], symbols: dict[str, PythonDefinition]
+) -> tuple[ConversionWitness, ...]:
+    """Walk each lexical scope once; annotate captured names from enclosing functions."""
+    functions = [definition for definition in definitions if definition.kind == "function"]
+    witnesses: dict[tuple[str, int, int, str], ConversionWitness] = {}
+    for function in functions:
+        node = cast("ast.FunctionDef | ast.AsyncFunctionDef", function.node)
+        annotations: dict[str, str] = {}
+        enclosing = sorted(
+            (
+                outer
+                for outer in functions
+                if outer.path == function.path
+                and function.qualname.startswith(f"{outer.qualname}.")
+            ),
+            key=lambda outer: len(outer.qualname),
+        )
+        for scope in (*enclosing, function):
+            scope_node = cast("ast.FunctionDef | ast.AsyncFunctionDef", scope.node)
+            for arg in (
+                *scope_node.args.posonlyargs,
+                *scope_node.args.args,
+                *scope_node.args.kwonlyargs,
+            ):
+                if arg.annotation is not None:
+                    annotations[arg.arg] = ast.unparse(arg.annotation)
+            for child in _scope_nodes(scope_node):
+                if isinstance(child, ast.AnnAssign) and isinstance(child.target, ast.Name):
+                    annotations[child.target.id] = ast.unparse(child.annotation)
+        if function.is_method:
+            annotations["self"] = function.qualname.rsplit(".", 1)[0]
+        for call in _scope_nodes(node):
+            if not isinstance(call, ast.Call):
+                continue
+            target = _resolve_symbol(call.func, function, symbols)
+            if target is None or target.kind != "class":
+                continue
+            by_source: dict[str, set[str]] = {}
+            for kw in call.keywords:
+                if (
+                    kw.arg is not None
+                    and isinstance(kw.value, ast.Attribute)
+                    and isinstance(kw.value.value, ast.Name)
+                    and kw.arg == kw.value.attr
+                ):
+                    by_source.setdefault(kw.value.value.id, set()).add(kw.arg)
+            copied = [(source, fields) for source, fields in by_source.items() if len(fields) >= 3]
+            if not copied:
+                continue
+            # A call can copy several rows; keep its source groups together and
+            # deduplicate the count later by the file/call position.
+            for source, fields in copied:
+                location = Location(
+                    function.path,
+                    call.lineno,
+                    call.end_lineno or call.lineno,
+                    f"{function.qualname}: {annotations.get(source, source)} -> {target.qualname} "
+                    f"[{', '.join(sorted(fields))}]",
+                )
+                witnesses[(function.path, call.lineno, call.col_offset, source)] = (
+                    ConversionWitness(
+                        target,
+                        frozenset(fields),
+                        location,
+                        repr(
+                            (
+                                function.path,
+                                location.label,
+                                ast.dump(call, include_attributes=False),
+                            )
+                        ),
+                        (function.path, call.lineno, call.col_offset),
+                    )
+                )
+    return tuple(witnesses[key] for key in sorted(witnesses))
+
+
+def _field_distinctions(members: Sequence[PythonDefinition]) -> str:
+    """Name syntactic differences which the retrieval category does not equate."""
+    defaults: dict[str, set[str]] = {}
+    tags: list[str] = []
+    contexts: list[str] = []
+    for member in members:
+        for field in member.declared_fields:
+            defaults.setdefault(field.name, set()).add(field.default)
+            if field.singleton_tag:
+                tags.append(f"{member.qualname}.{field.name}: {field.annotation}")
+        node = cast("ast.ClassDef", member.node)
+        configuration = [
+            ast.unparse(statement)
+            for statement in node.body
+            if isinstance(statement, ast.Assign)
+            and any(
+                isinstance(target, ast.Name) and target.id == "model_config"
+                for target in statement.targets
+            )
+        ]
+        context = [
+            *(ast.unparse(base) for base in node.bases),
+            *(f"@{ast.unparse(deco)}" for deco in node.decorator_list),
+            *configuration,
+        ]
+        if context:
+            contexts.append(f"{member.qualname} [{'; '.join(context)}]")
+    parts = [_own_methods(members)]
+    different_defaults = sorted(name for name, values in defaults.items() if len(values) > 1)
+    if different_defaults:
+        parts.append(f"different default/Field expressions: {', '.join(different_defaults)}")
+    if tags:
+        parts.append(f"literal tags: {'; '.join(tags)}")
+    if contexts:
+        parts.append(f"declaration context: {'; '.join(contexts)}")
+    return "; ".join(parts)
+
+
+def _record_type_candidate(candidates: list[Candidate], candidate: Candidate | None) -> bool:
+    if candidate is not None:
+        candidates.append(candidate)
+        return True
+    return False
+
+
+def _annotation_constructor(annotation: str) -> str | None:
+    """A hole must retain a type constructor above it, rather than erase the whole type."""
+    node = _annotation_ast(annotation)
+    if isinstance(node, ast.Subscript):
+        return f"subscript {ast.unparse(node.value)}"
+    if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
+        return "union |"
+    return None
+
+
+def _field_candidates(
+    classes: Sequence[PythonDefinition],
+    definitions: Sequence[PythonDefinition],
+    *,
+    symbols: dict[str, PythonDefinition],
+    ancestors: dict[tuple[str, int, str], set[tuple[str, int, str]]],
+    selection: SourceSelection,
+) -> tuple[list[Candidate], set[frozenset[tuple[str, int, str]]]]:
+    """Stronger field categories claim pairs before the percentage heuristic."""
+    candidates: list[Candidate] = []
+    represented: set[frozenset[tuple[str, int, str]]] = set()
+    exact: dict[tuple[tuple[str, str, str], ...], list[PythonDefinition]] = {}
+    rows: dict[frozenset[tuple[str, str]], list[PythonDefinition]] = {}
+    payloads: dict[tuple[str, ...], list[PythonDefinition]] = {}
+    for cls in classes:
+        fields = cls.declared_fields
+        if len(fields) >= 2:
+            exact.setdefault(tuple((f.name, f.annotation, f.default) for f in fields), []).append(
+                cls
+            )
+        if len(fields) >= 3:
+            rows.setdefault(frozenset((f.name, f.annotation) for f in fields), []).append(cls)
+        payload = tuple(f.name for f in fields if not f.singleton_tag)
+        if payload:
+            payloads.setdefault(payload, []).append(cls)
+    for fields, group in exact.items():
+        for first, second in combinations(group, 2):
+            if _related_classes(first, second, ancestors):
+                continue
+            if _record_type_candidate(
+                candidates,
+                _type_candidate(
+                    "identical fields",
+                    (first, second),
+                    selection=selection,
+                    score=1.0,
+                    reason=f"{len(fields)} identical declared field signatures [{', '.join(f[0] for f in fields)}]; {_field_distinctions((first, second))}",
+                ),
+            ):
+                represented.add(frozenset((first.identity, second.identity)))
+
+    witnesses = _conversion_witnesses(definitions, symbols)
+    # Small rows claim their inclusion edges first; larger rows can still carry
+    # different evidence, but do not repeat an already represented pair.
+    for row, owners in sorted(rows.items(), key=lambda item: (len(item[0]), item[1][0].identity)):
+        owner = owners[0]
+        members = [owner]
+        for cls in classes:
+            pair = frozenset((owner.identity, cls.identity))
+            if (
+                cls.identity != owner.identity
+                and pair not in represented
+                and not _related_classes(owner, cls, ancestors)
+                and row <= frozenset((f.name, f.annotation) for f in cls.declared_fields)
+            ):
+                members.append(cls)
+        if len(members) < 2:
+            continue
+        member_ids = {member.identity for member in members}
+        field_names = {name for name, _ in row}
+        copies = {
+            witness.position: witness
+            for witness in witnesses
+            if witness.target.identity in member_ids and len(witness.fields & field_names) >= 3
+        }
+        sites = tuple(witness.location for witness in copies.values())
+        additions = "; ".join(
+            f"{member.qualname} +[{', '.join(f.name for f in member.declared_fields if f.name not in field_names) or 'none'}]"
+            for member in members[1:]
+        )
+        if _record_type_candidate(
+            candidates,
+            _type_candidate(
+                "repeated row",
+                members,
+                selection=selection,
+                score=0.90 + 0.08 * len(copies) / (len(copies) + 1),
+                reason=f"whole {len(row)}-field row [{'; '.join(f'{name}: {annotation}' for name, annotation in sorted(row))}] in {len(members)} declarations; {len(copies)} distinct conversion site(s); extra fields: {additions}; {_field_distinctions(members)}",
+                sites=sites,
+                site_fingerprints=tuple(witness.fingerprint for witness in copies.values()),
+            ),
+        ):
+            represented.update(
+                frozenset((owner.identity, member.identity)) for member in members[1:]
+            )
+
+    for names, group in payloads.items():
+        annotations = {
+            cls.identity: {f.name: f.annotation for f in cls.declared_fields if not f.singleton_tag}
+            for cls in group
+        }
+        constructors = {
+            identity: {
+                name: _annotation_constructor(annotation) for name, annotation in fields.items()
+            }
+            for identity, fields in annotations.items()
+        }
+        for anchor in group:
+            family = [anchor]
+            holes: set[str] = set()
+            for cls in group:
+                if cls.identity == anchor.identity:
+                    continue
+                if any(
+                    frozenset((member.identity, cls.identity)) in represented
+                    or _related_classes(member, cls, ancestors)
+                    or annotations[member.identity] == annotations[cls.identity]
+                    for member in family
+                ):
+                    continue
+                differing = {
+                    name
+                    for name in names
+                    if annotations[anchor.identity][name] != annotations[cls.identity][name]
+                }
+                combined_holes = holes | differing
+                shared_fields = set(names) - combined_holes
+                shared_roots = all(
+                    constructors[anchor.identity][name] is not None
+                    and all(
+                        constructors[member.identity][name] == constructors[anchor.identity][name]
+                        for member in (*family, cls)
+                    )
+                    for name in combined_holes
+                )
+                if 1 <= len(combined_holes) <= 2 and (shared_fields or shared_roots):
+                    holes = combined_holes
+                    family.append(cls)
+            if len(family) < 2:
+                continue
+            details = "; ".join(
+                f"{member.qualname} [{'; '.join(f'{name}: {annotations[member.identity][name]}' for name in sorted(holes))}]"
+                for member in family
+            )
+            common = set(names) - holes
+            skeleton = (
+                f"identical payload fields [{', '.join(sorted(common))}]"
+                if common
+                else "roots above every hole ["
+                + "; ".join(
+                    f"{name}: {constructors[anchor.identity][name]}" for name in sorted(holes)
+                )
+                + "]"
+            )
+            if _record_type_candidate(
+                candidates,
+                _type_candidate(
+                    "generic family",
+                    family,
+                    selection=selection,
+                    score=0.88,
+                    reason=f"{len(family)} declarations share payload names [{', '.join(names)}]; shared skeleton: {skeleton}; {len(holes)} annotation hole(s) [{', '.join(sorted(holes))}]: {details}; {_field_distinctions(family)}",
+                ),
+            ):
+                represented.update(
+                    frozenset((a.identity, b.identity)) for a, b in combinations(family, 2)
+                )
+    return candidates, represented
+
+
+def _validator_methods(cls: PythonDefinition) -> Iterator[ast.FunctionDef | ast.AsyncFunctionDef]:
+    for statement in cast("ast.ClassDef", cls.node).body:
+        if isinstance(statement, (ast.FunctionDef, ast.AsyncFunctionDef)) and (
+            statement.name == "__post_init__"
+            or any(
+                _terminal_name(deco.func if isinstance(deco, ast.Call) else deco)
+                in {"model_validator", "field_validator"}
+                for deco in statement.decorator_list
+            )
+        ):
+            yield statement
+
+
+def _raising_conditions(
+    body: Sequence[ast.stmt],
+    *,
+    context: tuple[ast.expr, ...] = (),
+    aliases: dict[str, ast.expr] | None = None,
+) -> Iterator[tuple[tuple[ast.expr, ...], dict[str, ast.expr]]]:
+    """Carry enclosing branches and the preceding local bindings to each raise."""
+    local = dict(aliases or {})
+    for statement in body:
+        if isinstance(statement, ast.Assign):
+            for target in statement.targets:
+                if isinstance(target, ast.Name):
+                    local[target.id] = statement.value
+        elif isinstance(statement, ast.AnnAssign) and isinstance(statement.target, ast.Name):
+            if statement.value is not None:
+                local[statement.target.id] = statement.value
+        elif isinstance(statement, ast.Raise):
+            yield context, local.copy()
+        elif isinstance(statement, ast.If):
+            yield from _raising_conditions(
+                statement.body, context=(*context, statement.test), aliases=local
+            )
+            yield from _raising_conditions(
+                statement.orelse,
+                context=(*context, ast.UnaryOp(op=ast.Not(), operand=statement.test)),
+                aliases=local,
+            )
+        elif isinstance(statement, ast.While):
+            yield from _raising_conditions(
+                statement.body, context=(*context, statement.test), aliases=local
+            )
+            yield from _raising_conditions(statement.orelse, context=context, aliases=local)
+        elif isinstance(
+            statement, (ast.For, ast.AsyncFor, ast.With, ast.AsyncWith, ast.Try, ast.TryStar)
+        ):
+            yield from _raising_conditions(statement.body, context=context, aliases=local)
+            if isinstance(statement, (ast.For, ast.AsyncFor, ast.Try, ast.TryStar)):
+                yield from _raising_conditions(statement.orelse, context=context, aliases=local)
+            if isinstance(statement, (ast.Try, ast.TryStar)):
+                for handler in statement.handlers:
+                    yield from _raising_conditions(handler.body, context=context, aliases=local)
+                yield from _raising_conditions(statement.finalbody, context=context, aliases=local)
+
+
+def _condition_field(node: ast.AST) -> str | None:
+    owners = {"self", "cls", "values", "data", "model"}
+    if (
+        isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id in owners
+    ):
+        return node.attr
+    if (
+        isinstance(node, ast.Subscript)
+        and isinstance(node.value, ast.Name)
+        and node.value.id in owners
+        and isinstance(node.slice, ast.Constant)
+        and isinstance(node.slice.value, str)
+    ):
+        return node.slice.value
+    if (
+        isinstance(node, ast.Call)
+        and isinstance(node.func, ast.Attribute)
+        and node.func.attr == "get"
+        and isinstance(node.func.value, ast.Name)
+        and node.func.value.id in owners
+        and node.args
+        and isinstance(node.args[0], ast.Constant)
+        and isinstance(node.args[0].value, str)
+    ):
+        return node.args[0].value
+    return None
+
+
+def _presence_atoms(
+    conditions: Sequence[ast.expr], aliases: dict[str, ast.expr]
+) -> tuple[set[str], set[str], bool]:
+    """Separate presence tests from value comparisons, expanding one local alias level."""
+    presence: set[str] = set()
+    values: set[str] = set()
+    positive_guards = True
+
+    def value_fields(node: ast.expr, *, expand: bool) -> None:
+        for child in ast.walk(node):
+            if (field := _condition_field(child)) is not None:
+                values.add(field)
+            elif expand and isinstance(child, ast.Name) and child.id in aliases:
+                value_fields(aliases[child.id], expand=False)
+
+    def collect(node: ast.expr, *, expand: bool = True) -> None:
+        nonlocal positive_guards
+        if expand and isinstance(node, ast.Name) and node.id in aliases:
+            collect(aliases[node.id], expand=False)
+        elif isinstance(node, ast.IfExp):
+            positive_guards = False
+            collect(node.test, expand=expand)
+            collect(node.body, expand=expand)
+            collect(node.orelse, expand=expand)
+        elif isinstance(node, ast.BoolOp):
+            positive_guards &= isinstance(node.op, ast.And)
+            for child in node.values:
+                collect(child, expand=expand)
+        elif isinstance(node, ast.UnaryOp) and isinstance(node.op, ast.Not):
+            positive_guards = False
+            collect(node.operand, expand=expand)
+        elif isinstance(node, ast.Compare):
+            sides = [node.left, *node.comparators]
+            if any(isinstance(op, (ast.Is, ast.IsNot)) for op in node.ops) and any(
+                isinstance(side, ast.Constant) and side.value is None for side in sides
+            ):
+                positive_guards &= all(isinstance(op, ast.IsNot) for op in node.ops)
+                for side in sides:
+                    collect(side, expand=expand)
+            else:
+                for side in sides:
+                    resolved = (
+                        aliases.get(side.id, side)
+                        if expand and isinstance(side, ast.Name)
+                        else side
+                    )
+                    if (
+                        isinstance(resolved, (ast.Compare, ast.BoolOp))
+                        or (
+                            isinstance(resolved, ast.Call)
+                            and _terminal_name(resolved.func) == "bool"
+                        )
+                        or (
+                            isinstance(resolved, ast.Call)
+                            and _terminal_name(resolved.func) == "len"
+                            and len(sides) == 2
+                            and any(
+                                isinstance(other, ast.Constant) and other.value == 0
+                                for other in sides
+                            )
+                        )
+                    ):
+                        positive_guards = False
+                        collect(resolved, expand=False)
+                    else:
+                        value_fields(side, expand=expand)
+        elif (
+            isinstance(node, ast.Call)
+            and _terminal_name(node.func) in {"bool", "len"}
+            and node.args
+        ):
+            collect(node.args[0], expand=expand)
+        elif (field := _condition_field(node)) is not None:
+            presence.add(field)
+
+    for condition in conditions:
+        collect(condition)
+    return presence, values, positive_guards
+
+
+def _tag_like_field(
+    field: FieldSpec, owner: PythonDefinition, symbols: dict[str, PythonDefinition]
+) -> bool:
+    for node in ast.walk(_annotation_ast(field.annotation)):
+        if isinstance(node, ast.Subscript) and _terminal_name(node.value) == "Literal":
+            return True
+        if isinstance(node, ast.Name) and node.id == "bool":
+            return True
+        if isinstance(node, (ast.Name, ast.Attribute)):
+            resolved = _resolve_symbol(node, owner, symbols)
+            if resolved is not None and resolved.vocabulary_kind in {"alias", "enum"}:
+                return True
+    return False
+
+
+def _presence_candidates(
+    classes: Sequence[PythonDefinition],
+    *,
+    symbols: dict[str, PythonDefinition],
+    ancestors: dict[tuple[str, int, str], set[tuple[str, int, str]]],
+    selection: SourceSelection,
+) -> list[Candidate]:
+    candidates: list[Candidate] = []
+    for owner in classes:
+        inherited = [cls for cls in classes if cls.identity in ancestors[owner.identity]]
+        fields: dict[str, FieldSpec] = {}
+        field_owners: dict[str, PythonDefinition] = {}
+        for cls in sorted(inherited, key=lambda cls: len(ancestors[cls.identity])):
+            fields.update((field.name, field) for field in cls.declared_fields)
+            field_owners.update((field.name, cls) for field in cls.declared_fields)
+        fields.update((field.name, field) for field in owner.declared_fields)
+        field_owners.update((field.name, owner) for field in owner.declared_fields)
+        optional = {name for name, field in fields.items() if field.optional}
+        tags = {
+            name
+            for name, field in fields.items()
+            if _tag_like_field(field, field_owners[name], symbols)
+        }
+        findings: list[str] = []
+        methods: list[ast.FunctionDef | ast.AsyncFunctionDef] = []
+        for method in _validator_methods(owner):
+            aliases: dict[str, ast.expr] = {}
+            for decorator in method.decorator_list:
+                if (
+                    isinstance(decorator, ast.Call)
+                    and _terminal_name(decorator.func) == "field_validator"
+                ):
+                    targets = [
+                        arg.value
+                        for arg in decorator.args
+                        if isinstance(arg, ast.Constant) and isinstance(arg.value, str)
+                    ]
+                    arguments = [arg for arg in method.args.args if arg.arg not in {"self", "cls"}]
+                    if len(targets) == 1 and arguments:
+                        aliases[arguments[0].arg] = ast.Attribute(
+                            value=ast.Name(id="self", ctx=ast.Load()),
+                            attr=targets[0],
+                            ctx=ast.Load(),
+                        )
+            reasons: set[str] = set()
+            for conditions, local in _raising_conditions(method.body, aliases=aliases):
+                presence, values, guarded = _presence_atoms(conditions, local)
+                tested = presence & optional
+                tested_tags = values & tags
+                if not tested or (len(tested) < 2 and not tested_tags):
+                    continue
+                if guarded and presence <= values:
+                    continue
+                reasons.add(
+                    f"optional presence [{', '.join(sorted(tested))}]"
+                    + (
+                        f" with tag values [{', '.join(sorted(tested_tags))}]"
+                        if tested_tags
+                        else ""
+                    )
+                )
+            if reasons:
+                methods.append(method)
+                findings.append(f"{method.name}: {'; '.join(sorted(reasons))}")
+        if not methods:
+            continue
+        descendants: list[PythonDefinition] = []
+        inheritance: list[str] = []
+        for cls in classes:
+            if owner.identity not in ancestors[cls.identity]:
+                continue
+            inherited_methods = [
+                method.name
+                for method in methods
+                if method.name not in cls.methods
+                and not any(
+                    method.name in between.methods
+                    and between.identity in ancestors[cls.identity]
+                    and owner.identity in ancestors[between.identity]
+                    for between in classes
+                )
+            ]
+            if inherited_methods:
+                descendants.append(cls)
+                inheritance.append(f"{cls.qualname} [{', '.join(inherited_methods)}]")
+        sites = [
+            Location(
+                owner.path,
+                method.lineno,
+                method.end_lineno or method.lineno,
+                f"{owner.qualname}.{method.name} (validator owner)",
+            )
+            for method in methods
+        ]
+        sites.extend(
+            replace(_definition_location(cls), label=f"{cls.qualname} (inherited fields)")
+            for cls in inherited
+        )
+        _record_type_candidate(
+            candidates,
+            _type_candidate(
+                "presence dependency",
+                (owner, *descendants),
+                selection=selection,
+                score=0.91,
+                reason=f"{owner.qualname} owns raising presence-dependency evidence: {'; '.join(findings)}; inherited by: {'; '.join(inheritance) or 'none'}; relational/value checks remain review distinctions",
+                sites=sites,
+                site_fingerprints=tuple(
+                    ast.dump(cast("ast.AST", cls.node), include_attributes=False)
+                    for cls in inherited
+                ),
+            ),
+        )
+    return candidates
+
+
+def _vocabulary_candidates(
+    definitions: Sequence[PythonDefinition], *, selection: SourceSelection
+) -> list[Candidate]:
+    groups: dict[frozenset[tuple[str, str]], list[PythonDefinition]] = {}
+    for definition in definitions:
+        if len(definition.vocabulary) >= 2:
+            groups.setdefault(definition.vocabulary, []).append(definition)
+    candidates: list[Candidate] = []
+    for values, members in groups.items():
+        if len(members) < 2 or all(member.vocabulary_kind == "enum" for member in members):
+            continue
+        kinds = Counter(member.vocabulary_kind for member in members)
+        alias_copy = bool(kinds["alias"] and kinds["inline"])
+        _record_type_candidate(
+            candidates,
+            _type_candidate(
+                "closed vocabulary",
+                members,
+                selection=selection,
+                score=0.99 if alias_copy else 0.89,
+                reason=f"exact {'inline copy of named alias' if alias_copy else 'repeated value set'} [{', '.join(value for _, value in sorted(values))}] in {len(members)} places ({', '.join(f'{kind}: {count}' for kind, count in sorted(kinds.items()))}); equal values do not establish a shared semantic owner"
+                + ("; enum declarations retain nominal behavior" if kinds["enum"] else ""),
+            ),
+        )
+    named = {
+        values: [member for member in members if member.vocabulary_kind in {"alias", "enum"}]
+        for values, members in groups.items()
+    }
+    for smaller, smaller_members in named.items():
+        if not smaller_members:
+            continue
+        for larger, larger_members in named.items():
+            if not larger_members or not smaller < larger:
+                continue
+            _record_type_candidate(
+                candidates,
+                _type_candidate(
+                    "closed vocabulary",
+                    (*smaller_members, *larger_members),
+                    selection=selection,
+                    score=0.93,
+                    reason=f"named proper subset: {', '.join(member.qualname for member in smaller_members)} [{', '.join(value for _, value in sorted(smaller))}] < {', '.join(member.qualname for member in larger_members)}; extra values [{', '.join(value for _, value in sorted(larger - smaller))}]; ownership/dependency direction requires review",
+                ),
+            )
+    return candidates
 
 
 def _class_candidate(
@@ -975,12 +1936,23 @@ def ast_candidates(
     selected = [
         definition
         for definition in definitions
-        if selection.includes(definition.path, definition.start, definition.end)
+        if definition.kind in {"class", "function"}
+        and selection.includes(definition.path, definition.start, definition.end)
     ]
     by_kind = {
         "class": [definition for definition in definitions if definition.kind == "class"],
         "function": [definition for definition in definitions if definition.kind == "function"],
     }
+    classes = sorted(by_kind["class"], key=lambda cls: cls.identity)
+    symbols = _symbol_index(definitions)
+    ancestors = _class_ancestors(classes, symbols)
+    type_candidates, represented = _field_candidates(
+        classes, definitions, symbols=symbols, ancestors=ancestors, selection=selection
+    )
+    type_candidates.extend(
+        _presence_candidates(classes, symbols=symbols, ancestors=ancestors, selection=selection)
+    )
+    type_candidates.extend(_vocabulary_candidates(definitions, selection=selection))
     exact_function_anchors: dict[str, tuple[str, int, str]] = {}
     for definition in by_kind["function"]:
         anchor = exact_function_anchors.get(definition.fingerprint)
@@ -988,7 +1960,7 @@ def ast_candidates(
             exact_function_anchors[definition.fingerprint] = definition.identity
     candidates: dict[
         tuple[str, tuple[str, int, int, str], tuple[str, int, int, str]], Candidate
-    ] = {}
+    ] = {candidate.identity: candidate for candidate in type_candidates}
     seen_pairs: set[tuple[tuple[str, int, str], tuple[str, int, str]]] = set()
     for first in selected:
         for second in by_kind[first.kind]:
@@ -1012,6 +1984,10 @@ def ast_candidates(
                 continue
             seen_pairs.add(typed_pair)
             if first.kind == "class":
+                if frozenset(typed_pair) in represented or _related_classes(
+                    first, second, ancestors
+                ):
+                    continue
                 candidate = _class_candidate(
                     first,
                     second,
@@ -1223,6 +2199,38 @@ def _covered_by_token_clone(candidate: Candidate, token_clones: Sequence[Candida
     return False
 
 
+def _covered_by_type_candidate(
+    clone: Candidate,
+    type_candidates: Sequence[Candidate],
+    definitions: Sequence[PythonDefinition],
+) -> bool:
+    """A class pair already represented by field evidence needs no weaker clone report."""
+    class_locations = {
+        _definition_location(definition).identity
+        for definition in definitions
+        if definition.kind == "class"
+    }
+    for candidate in type_candidates:
+        if candidate.category not in {"identical fields", "repeated row", "generic family"}:
+            continue
+        members = [
+            location
+            for location in (candidate.first, candidate.second, *candidate.evidence_locations)
+            if location.identity in class_locations
+        ]
+        pairs = (
+            ((members[0], member) for member in members[1:])
+            if candidate.category == "repeated row"
+            else combinations(members, 2)
+        )
+        for first, second in pairs:
+            if (_ranges_overlap(clone.first, first) and _ranges_overlap(clone.second, second)) or (
+                _ranges_overlap(clone.first, second) and _ranges_overlap(clone.second, first)
+            ):
+                return True
+    return False
+
+
 def _candidate_sort_key(candidate: Candidate) -> tuple[float, str, tuple[str, int, int, str]]:
     return (-candidate.score, candidate.category, candidate.first.identity)
 
@@ -1360,19 +2368,32 @@ def render_report(
 
     lines.append(f"Showing {len(shown)} of {len(candidates)} candidate pair(s).")
     if not selection.is_all:
-        lines.append("* marks a definition or clone range in the selected code.")
+        lines.append("* marks a definition, evidence site or clone range in the selected code.")
+    lines.append("Type categories show syntactic evidence, not contract or semantic equivalence.")
     category_titles = {
+        "identical fields": "Identical declared field signatures",
+        "repeated row": "Repeated rows with conversion witnesses",
+        "generic family": "Generic families (annotation holes)",
+        "presence dependency": "Presence-dependency evidence by owning declaration",
+        "closed vocabulary": "Repeated closed vocabularies / named subsets",
         "token clone": "Token/near-copy clones",
         "class schema": "Class/schema overlaps",
         "function behavior": "Function behavior overlaps",
     }
-    for category in ("token clone", "class schema", "function behavior"):
+    for category in (*TYPE_CATEGORIES, "token clone", "class schema", "function behavior"):
         group = [candidate for candidate in shown if candidate.category == category]
-        if not group:
+        total = sum(candidate.category == category for candidate in candidates)
+        if not total:
             continue
-        lines.extend(("", category_titles[category]))
+        lines.extend(
+            ("", f"{category_titles[category]} ({len(group)} shown / {total} candidate(s))")
+        )
         for candidate in group:
-            lines.append(f"{candidate.level} {candidate.score:.0%} — {candidate.reason}")
+            lines.append(
+                candidate.reason
+                if category in TYPE_CATEGORIES
+                else f"{candidate.level} {candidate.score:.0%} — {candidate.reason}"
+            )
             lines.append(
                 _format_location(
                     candidate.first,
@@ -1387,6 +2408,14 @@ def render_report(
                     mark_selected=not selection.is_all,
                 )
             )
+            for location in candidate.evidence_locations:
+                lines.append(
+                    _format_location(
+                        location,
+                        selected=selection.includes(location.path, location.start, location.end),
+                        mark_selected=not selection.is_all,
+                    )
+                )
     lines.extend(
         (
             "",
@@ -1458,6 +2487,11 @@ def main(argv: Sequence[str] | None = None) -> int:
         definitions = collect_python_definitions(REPO_ROOT, paths)
         token_clones = run_jscpd(REPO_ROOT, selection=selection, deep=bool(args.deep))
         semantic = ast_candidates(definitions, selection=selection, deep=bool(args.deep))
+        token_clones = tuple(
+            clone
+            for clone in token_clones
+            if not _covered_by_type_candidate(clone, semantic, definitions)
+        )
         semantic = tuple(
             candidate
             for candidate in semantic

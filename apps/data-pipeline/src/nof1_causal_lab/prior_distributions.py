@@ -7,7 +7,7 @@ sampling, moments, and transformed-distribution Jacobians.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
@@ -57,7 +57,7 @@ def authored_argument_names(family: PriorDistributionFamily) -> dict[str, str]:
 
 def distribution_from_params(
     family: PriorDistributionFamily,
-    params: Mapping[str, Any],
+    params: Mapping[str, ArrayLike | Sequence[float]],
 ) -> dist.Distribution:
     """Validate a complete authored parameter mapping and construct its law."""
     arguments = authored_argument_names(family)
@@ -77,7 +77,7 @@ def distribution_from_params(
     return getattr(dist, family.value)(**native, validate_args=True)
 
 
-def distribution_support_bounds(distribution: dist.Distribution) -> tuple[Any, Any]:
+def distribution_support_bounds(distribution: dist.Distribution) -> tuple[ArrayLike, ArrayLike]:
     """Resolve scalar interval constraints, including transformed supports."""
     support = distribution.support
     if support is constraints.real:

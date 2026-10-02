@@ -33,7 +33,7 @@ Usage::
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, overload, override
+from typing import TYPE_CHECKING, overload, override
 
 import numpyro
 import numpyro.distributions as dist
@@ -91,8 +91,8 @@ class Strategy(ABC):
 
     def __call__(
         self,
-        msg_or_fn: Message | Callable[..., Any],
-    ) -> Any:
+        msg_or_fn: Message | Callable[..., object],
+    ) -> Reparam | Callable[..., object] | None:
         """Use as config callable or model decorator.
 
         When called with a dict (by handlers.reparam internally),

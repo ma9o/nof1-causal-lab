@@ -10,7 +10,7 @@ import inspect
 import re
 from collections.abc import Callable
 from functools import cached_property
-from typing import TYPE_CHECKING, Annotated, Any, cast, overload
+from typing import TYPE_CHECKING, Annotated, cast, overload
 
 import jax
 import jax.numpy as jnp
@@ -23,7 +23,7 @@ from pydantic_core import core_schema
 from nof1_causal_lab.json_types import JsonValue
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Sequence
 
     from jax.typing import ArrayLike
 
@@ -65,7 +65,7 @@ class _StoredDistribution(dist.Distribution):
     def sample(self, key: jax.Array | None, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         return self.native.sample(key, sample_shape)
 
-    def log_prob(self, value: ArrayLike, intermediates: list[Any] | None = None) -> ArrayLike:
+    def log_prob(self, value: ArrayLike, intermediates: list[object] | None = None) -> ArrayLike:
         return self.native.log_prob(value, intermediates)
 
     @property
@@ -88,26 +88,30 @@ def materialize_distribution(value: dist.Distribution) -> dist.Distribution:
 
 def distribution_shape(value: dist.Distribution) -> tuple[tuple[int, ...], tuple[int, ...]]:
     """Derive native shapes, reading only array metadata for stored empirical laws."""
-    if (
-        isinstance(value, _StoredDistribution)
-        and value.constructor["distribution"] == "MixtureSameFamily"
-    ):
-        params = cast("Mapping[str, Any]", value.constructor["params"])
-        component = params["component_distribution"]
-        atoms = component["params"].get("v")
-        if (
-            component["distribution"] == "Delta"
-            and isinstance(atoms, dict)
-            and "array_ref" in atoms
+    match value:
+        case _StoredDistribution(
+            constructor={
+                "distribution": "MixtureSameFamily",
+                "params": {
+                    "component_distribution": {
+                        "distribution": "Delta",
+                        "params": {"v": {"array_ref": _, "shape": stored, "index": index}} as delta,
+                    },
+                },
+            }
         ):
-            shape = tuple(int(n) for n in atoms["shape"])[len(atoms["index"]) :]
-            event_dim = component["params"]["event_dim"]
+            # Decoding validated every array reference's shape and index.
+            shape = tuple(cast("Sequence[int]", stored))[len(cast("Sequence[int]", index)) :]
+            event_dim = delta["event_dim"]
             if not isinstance(event_dim, int) or event_dim < 0 or event_dim >= len(shape):
                 raise ValueError("Invalid native Delta event dimensions")
             # The component's rightmost batch axis enumerates the mixture's atoms.
             return shape[: len(shape) - event_dim - 1], shape[len(shape) - event_dim :]
-    native = materialize_distribution(value)
-    return tuple(int(n) for n in native.batch_shape), tuple(int(n) for n in native.event_shape)
+        case _:
+            native = materialize_distribution(value)
+            return tuple(int(n) for n in native.batch_shape), tuple(
+                int(n) for n in native.event_shape
+            )
 
 
 def empirical_distribution(
