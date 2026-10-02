@@ -6,8 +6,8 @@ from collections.abc import Iterator, Mapping, Sequence
 from itertools import islice
 from typing import TYPE_CHECKING
 
-import jax.numpy as jnp
 import numpy as np
+from arviz_stats.base.array import array_stats
 
 from nof1_causal_lab.artifacts.identity import ParameterRef
 from nof1_causal_lab.artifacts.parameter import ParameterCoordinate
@@ -22,6 +22,9 @@ from nof1_causal_lab.artifacts.posterior_diagnostics import (
 )
 
 if TYPE_CHECKING:
+    import jax.numpy as jnp
+    from numpy.typing import NDArray
+
     from nof1_causal_lab.models.ssm.inference.mcmc_state import TrajectoryMCMCResult
 
 type ParameterReferences = Mapping[ParameterCoordinate, tuple[str, ParameterRef] | None]
@@ -69,10 +72,11 @@ def build_rank_histograms(
         label, subject = reference
         n_chains, n_samples = values.shape
         total = n_chains * n_samples
-        ranks = (jnp.argsort(jnp.argsort(values.reshape(-1))) + 1).reshape(values.shape)
-        chains = tuple(
-            tuple(int(v) for v in jnp.histogram(ranks[chain], bins=n_bins, range=(1, total + 1))[0])
-            for chain in range(n_chains)
+        ranks = np.asarray(
+            array_stats.compute_ranks(np.asarray(values).reshape(-1), axis=-1)
+        ).reshape(values.shape)
+        counts, _ = array_stats.histogram(
+            ranks, bins=n_bins, range=(1, total + 1), axis=1, density=False
         )
         histograms.append(
             RankHistogram(
@@ -80,71 +84,54 @@ def build_rank_histograms(
                 subject=subject,
                 n_bins=n_bins,
                 expected_per_bin=float(n_samples / n_bins),
-                chains=chains,
+                chains=tuple(
+                    tuple(int(v) for v in chain)
+                    for chain in np.asarray(counts).reshape(n_chains, n_bins)
+                ),
             )
         )
     return tuple(histograms)
 
 
+def _density_histogram(values: NDArray, n_bins: int) -> DensityHistogram:
+    v_min, v_max = float(np.min(values)), float(np.max(values))
+    padding = (v_max - v_min) * HIST_PADDING_RATIO if v_max > v_min else HIST_PADDING_DEFAULT
+    density, edges = array_stats.histogram(
+        values, bins=n_bins, range=(v_min - padding, v_max + padding), axis=-1, density=True
+    )
+    centers = (edges[:-1] + edges[1:]) / 2.0
+    return DensityHistogram(
+        bin_centers=tuple(float(v) for v in centers), density=tuple(float(v) for v in density)
+    )
+
+
 def param_marginal(
     parameter: str, subject: ParameterRef, values: jnp.ndarray, n_bins: int = 50
 ) -> PosteriorMarginal:
-    v_min, v_max = float(jnp.min(values)), float(jnp.max(values))
-    padding = (v_max - v_min) * HIST_PADDING_RATIO if v_max > v_min else HIST_PADDING_DEFAULT
-    counts, edges = jnp.histogram(values, bins=n_bins, range=(v_min - padding, v_max + padding))
-    bin_width = float(edges[1] - edges[0])
-    density = counts / (float(jnp.sum(counts)) * bin_width)
-    centers = (edges[:-1] + edges[1:]) / 2.0
-    sorted_vals = jnp.sort(values)
-    n = len(sorted_vals)
-    ci_size = int(jnp.ceil(0.94 * n))
-    if ci_size < n:
-        widths = sorted_vals[ci_size:] - sorted_vals[: n - ci_size]
-        best = int(jnp.argmin(widths))
-        low, high = float(sorted_vals[best]), float(sorted_vals[best + ci_size])
-    else:
-        low, high = v_min, v_max
+    draws = np.asarray(values)
+    histogram = _density_histogram(draws, n_bins)
+    low, high = array_stats.hdi(draws, prob=0.94, axis=-1)
     return PosteriorMarginal(
         parameter=parameter,
         subject=subject,
-        x_values=tuple(float(v) for v in centers),
-        density=tuple(float(v) for v in density),
-        mean=float(jnp.mean(values)),
-        sd=float(jnp.std(values)),
+        x_values=histogram.bin_centers,
+        density=histogram.density,
+        mean=float(np.mean(draws)),
+        sd=float(np.std(draws)),
         interval_kind="hdi",
         interval_mass=0.94,
-        lower=low,
-        upper=high,
+        lower=float(low),
+        upper=float(high),
     )
 
 
 def build_energy_diagnostics(energy: jnp.ndarray, n_bins: int = 40) -> EnergyDiagnostics:
-    e_flat = energy.reshape(-1)
-    if energy.ndim == 2:
-        de = jnp.diff(energy, axis=1)
-        de_flat = de.reshape(-1)
-        bfmi = tuple(
-            float(jnp.var(de[c]) / jnp.var(energy[c])) if float(jnp.var(energy[c])) > 0 else 0.0
-            for c in range(energy.shape[0])
-        )
-    else:
-        de_flat = jnp.diff(e_flat)
-        var = float(jnp.var(e_flat))
-        bfmi = (float(jnp.var(de_flat) / var) if var > 0 else 0.0,)
-
-    def _hist(values: jnp.ndarray) -> DensityHistogram:
-        lo, hi = float(jnp.min(values)), float(jnp.max(values))
-        pad = (hi - lo) * HIST_PADDING_RATIO if hi > lo else HIST_PADDING_DEFAULT
-        counts, edges = jnp.histogram(values, bins=n_bins, range=(lo - pad, hi + pad))
-        bw, total = float(edges[1] - edges[0]), float(jnp.sum(counts))
-        density = counts / (total * bw) if total > 0 else counts
-        centers = (edges[:-1] + edges[1:]) / 2.0
-        return DensityHistogram(
-            bin_centers=tuple(float(v) for v in centers), density=tuple(float(v) for v in density)
-        )
-
+    chains = np.atleast_2d(np.asarray(energy))
+    transitions = np.diff(chains, axis=1)
     return EnergyDiagnostics(
-        energy_hist=_hist(e_flat), energy_transition_hist=_hist(de_flat), bfmi=bfmi
+        energy_hist=_density_histogram(chains.reshape(-1), n_bins),
+        energy_transition_hist=_density_histogram(transitions.reshape(-1), n_bins),
+        bfmi=tuple(float(v) for v in array_stats.bfmi(chains, chain_axis=0, draw_axis=1)),
     )
 
 

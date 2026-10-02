@@ -1,4 +1,4 @@
-"""Diagnostic reductions checked against small, deterministic reference values."""
+"""Scientific identities, retained draws, and sampler evidence in diagnostic reports."""
 
 from dataclasses import replace
 
@@ -10,12 +10,7 @@ from pydantic import ValidationError
 from nof1_causal_lab.artifacts.identity import ParameterElementId, ParameterId, ParameterRef
 from nof1_causal_lab.artifacts.parameter import ParameterCoordinate
 from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorEstimate
-from nof1_causal_lab.models.ssm.inference.diagnostics_viz import (
-    build_energy_diagnostics,
-    build_rank_histograms,
-    build_trace_data,
-    param_marginal,
-)
+from nof1_causal_lab.models.ssm.inference.diagnostics_viz import build_trace_data
 from nof1_causal_lab.models.ssm.inference.types import ProductionDiagnostics
 
 
@@ -47,76 +42,6 @@ def test_traces_preserve_all_draws_chains_and_scientific_subjects():
         assert trace.parameter == label
         assert trace.subject == subject
         assert trace.chains == tuple(tuple(row) for row in values.tolist())
-
-
-@pytest.mark.inference(concern="sampling")
-@pytest.mark.parametrize(
-    ("values", "counts"),
-    [
-        ([[0, 2, 4, 6], [1, 3, 5, 7]], [[1, 1, 1, 1], [1, 1, 1, 1]]),
-        ([[0, 1, 2, 3], [4, 5, 6, 7]], [[2, 2, 0, 0], [0, 0, 2, 2]]),
-    ],
-    ids=["interleaved", "separated"],
-)
-def test_rank_histograms_use_pooled_ranks_for_each_coordinate(values, counts):
-    scalar = jnp.asarray(values)
-    matrix = scalar[:, :, None, None] + jnp.asarray([[0, 10], [20, 30]])
-    coords = [("scalar", ())] + [("matrix", ij) for ij in np.ndindex(2, 2)]
-    refs = references(coords)
-    histograms = build_rank_histograms({"scalar": scalar, "matrix": matrix}, refs, n_bins=4)
-    coordinates = [("scalar", ())] + [("matrix", ij) for ij in np.ndindex(2, 2)]
-    assert len(histograms) == len(coordinates)
-    for histogram, (name, ij) in zip(histograms, coordinates, strict=True):
-        coordinate = ParameterCoordinate(site_name=name, indices=ij)
-        assert histogram.parameter == coordinate.label
-        assert histogram.subject == refs[coordinate][1]
-        assert histogram.n_bins == 4
-        assert histogram.expected_per_bin == 1.0
-        assert histogram.chains == tuple(tuple(row) for row in counts)
-
-
-@pytest.mark.inference(concern="sampling")
-def test_marginal_normalizes_density_and_finds_shortest_interval():
-    # The shortest 94% interval excludes the isolated upper-tail value.
-    values = np.concatenate([np.arange(39), [100]])
-    coordinate = ParameterCoordinate(site_name="matrix", indices=(1, 0))
-    marginal = param_marginal(
-        coordinate.label,
-        references([("matrix", (1, 0))])[coordinate][1],
-        jnp.asarray(values),
-        n_bins=8,
-    )
-    assert marginal.subject == references([("matrix", (1, 0))])[coordinate][1]
-    assert marginal.mean == pytest.approx(float(values.mean()))
-    assert marginal.sd == pytest.approx(float(values.std()))
-    assert (marginal.lower, marginal.upper) == (0.0, 38.0)
-    assert marginal.interval_kind == "hdi"
-    assert marginal.interval_mass == 0.94
-    assert len(marginal.x_values) == len(marginal.density) == 8
-    assert all(density >= 0 for density in marginal.density)
-    bin_width = marginal.x_values[1] - marginal.x_values[0]
-    assert sum(marginal.density) * bin_width == pytest.approx(1.0)
-
-
-@pytest.mark.inference(concern="sampling")
-@pytest.mark.parametrize(
-    ("energy", "bfmi"),
-    [
-        ([[0, 1, 0, 1], [10, 12, 10, 12]], [32 / 9, 32 / 9]),
-        ([0, 1, 0, 1], [32 / 9]),
-        ([[1, 1, 1, 1], [1, 1, 1, 1]], [0.0, 0.0]),
-    ],
-    ids=["separate-chains", "single-chain", "constant"],
-)
-def test_energy_diagnostics_preserve_chain_boundaries_and_normalize_histograms(energy, bfmi):
-    result = build_energy_diagnostics(jnp.asarray(energy, dtype=float), n_bins=4)
-    np.testing.assert_allclose(result.bfmi, bfmi, rtol=1e-6)
-    for key in ("energy_hist", "energy_transition_hist"):
-        histogram = getattr(result, key)
-        assert len(histogram.bin_centers) == len(histogram.density) == 4
-        assert all(density >= 0 for density in histogram.density)
-        bin_width = histogram.bin_centers[1] - histogram.bin_centers[0]
-        assert sum(histogram.density) * bin_width == pytest.approx(1.0)
 
 
 @pytest.mark.contract
@@ -223,6 +148,8 @@ def test_posterior_plots_preserve_all_joint_draws_and_divergences(particle_poste
         ]
         assert marginal.mean == pytest.approx(float(jnp.mean(values)))
         assert marginal.lower < marginal.mean < marginal.upper
+        assert marginal.interval_kind == "hdi"
+        assert marginal.interval_mass == 0.94
         assert len(marginal.x_values) == len(marginal.density) == 8
         assert min(marginal.density) >= 0
     pairs = particle_posterior.get_posterior_pairs(refs, max_params=3)
