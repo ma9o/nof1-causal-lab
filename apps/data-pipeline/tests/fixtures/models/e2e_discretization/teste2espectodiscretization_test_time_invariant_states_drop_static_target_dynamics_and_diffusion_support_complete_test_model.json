@@ -29,15 +29,6 @@
         "description": "baseline",
         "indicators": [
           {
-            "id": "indicator:ad225657fd3c2b492013",
-            "name": "baseline_obs",
-            "measurement_dtype": "continuous",
-            "aggregation": "mean",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "Normal",
@@ -76,7 +67,16 @@
               "reasoning": "Test Gaussian emission",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": null,
+              "id": "indicator:ad225657fd3c2b492013",
+              "aggregation": "mean",
+              "name": "baseline_obs",
+              "ordinal_levels": null,
+              "measurement_dtype": "continuous",
+              "observation_window": null
+            }
           }
         ],
         "dynamics": [],
@@ -105,15 +105,6 @@
         "description": "mood",
         "indicators": [
           {
-            "id": "indicator:0c9fc43814d6d3d15926",
-            "name": "mood_obs",
-            "measurement_dtype": "continuous",
-            "aggregation": "mean",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "Normal",
@@ -152,7 +143,16 @@
               "reasoning": "Test Gaussian emission",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": null,
+              "id": "indicator:0c9fc43814d6d3d15926",
+              "aggregation": "mean",
+              "name": "mood_obs",
+              "ordinal_levels": null,
+              "measurement_dtype": "continuous",
+              "observation_window": null
+            }
           }
         ],
         "dynamics": [

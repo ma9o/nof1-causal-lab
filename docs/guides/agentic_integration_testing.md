@@ -129,12 +129,12 @@ New studies initialize their local bare repository on first use. On a fresh chec
 
 ```bash
 git clone --mirror data/DEMO/study/history.bundle data/DEMO/study/history.git
-git --git-dir=data/DEMO/study/history.git config nof1.format 12
+git --git-dir=data/DEMO/study/history.git config nof1.format 13
 ```
 
 #### Migrating a local study
 
-The current runtime requires format 12. To convert a format-11 study:
+The current runtime requires format 13. To convert a format-12 study:
 
 1. Stop work on the study and close its workflow:
 
@@ -142,27 +142,25 @@ The current runtime requires format 12. To convert a format-11 study:
    temporal workflow signal --workflow-id study-STUDY --name close
    ```
 
-2. Run the [format-12 converter](../../apps/data-pipeline/scripts/migrations/migrate_format_12.py). The destination must be new and outside the source, and the source is left untouched.
+2. Run the [format-13 converter](../../apps/data-pipeline/scripts/migrations/migrate_format_13.py). The destination must be new and outside the source, and the source is left untouched.
 
    ```bash
-   uv run --directory apps/data-pipeline python -m scripts.migrations.migrate_format_12 \
-     ../../data/STUDY /tmp/format12/STUDY
+   uv run --directory apps/data-pipeline python -m scripts.migrations.migrate_format_13 \
+     ../../data/STUDY /tmp/format13/STUDY
    ```
 
-   Format 12 converts scientific schema alternatives: per-family observation fields,
-   drift/potential mechanisms, interval-owning transforms, completed/failed extraction
-   results, panel/simulation references, provenance and typed comparison changes.
-   It preserves scientific IDs, laws, expressions and external numerical bytes.
-   Explicit durations stay exact; legitimate model-clock defaults become explicit.
-   Git references follow changed identities atomically, and matching consumed model
-   fingerprints are translated without refreshing stale findings. The runtime accepts
-   only format 12. The [schema owners](codegen.md#type-naming-conventions) define the fields.
+   Format 13 composes observation definitions with model bindings or typed
+   extraction recipes, and data profiles with validation preflight reports.
+   The [converter](../../apps/data-pipeline/scripts/migrations/migrate_format_13.py)
+   preserves retained numerical payloads and rewrites revision references. Convert
+   format-11 studies with the [format-12 converter](../../apps/data-pipeline/scripts/migrations/migrate_format_12.py)
+   before this step.
 
-3. Review the migrated snapshots and ref mapping before a live cutover. Then, while offline, back up each whole original under `.local/format11-backup-<date>/STUDY`, including `store/`, and replace `data/STUDY` with the migrated repository, keeping one study per ID. Keep backups outside `data/` in durable storage; temporary directories are only converter destinations.
+3. Review the migrated snapshots and ref mapping before a live cutover. Then, while offline, back up each whole original under `.local/format12-backup-<date>/STUDY`, including `store/`, and replace `data/STUDY` with the migrated repository, keeping one study per ID. Keep backups outside `data/` in durable storage; temporary directories are only converter destinations.
 
 4. Restart the workers with the new code and start a fresh `study-STUDY` workflow from the migrated Git state; don't replay the previous workflow. Export any fixture bundle from the migrated repository, then run `bun run fixture:build` and `bun run fixture:check`.
 
-Earlier formats have no route to the current runtime.
+Formats before 11 have no route to the current runtime.
 
 #### Squashing a local study's action history
 

@@ -126,7 +126,6 @@ describe("edit change summaries after history compaction", () => {
         },
         parameters: [{ parameter_id: parameter.id, change: { kind: "added", after: parameter } }],
         changed_inputs: ["compilation", "belief"],
-        definition_changes: [{ path: "/internal/definition/path" }],
       },
       error: null,
     });
@@ -154,7 +153,7 @@ describe("edit change summaries after history compaction", () => {
               kind: "evaluated",
               subject: "model_execution",
               outcome: "failed",
-              evidence: `${indicator.id} requires a likelihood.`,
+              evidence: `${indicator.observation.id} requires a likelihood.`,
             },
             {
               kind: "evaluated",
@@ -169,7 +168,7 @@ describe("edit change summaries after history compaction", () => {
     const html = renderToStaticMarkup(
       createElement(ActionFindings, { context, result: checkedResult }),
     );
-    expect(html).toContain(indicator.id);
+    expect(html).toContain(indicator.observation.id);
     expect(html).toContain("requires a likelihood.");
     expect(html).not.toContain("Do not list passing checks.");
   });

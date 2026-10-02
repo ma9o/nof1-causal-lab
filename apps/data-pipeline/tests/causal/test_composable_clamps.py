@@ -77,7 +77,7 @@ def test_given_inputs_replay_windows_hold_and_override_later_records(monkeypatch
     )
     dose = model.constructs[0]
     indicator = dose.indicators[0].revised(
-        aggregation="sum",
+        observation=dose.indicators[0].observation.revised(aggregation="sum"),
         likelihood=LikelihoodSpec(
             law=DeltaLawSpec(v=state(dose.id)),
             reasoning="Given dose total",
@@ -107,7 +107,7 @@ def test_given_inputs_replay_windows_hold_and_override_later_records(monkeypatch
     origin = datetime(2026, 1, 1, tzinfo=UTC)
     panel = pl.DataFrame(
         {
-            "indicator_id": [indicator.id] * 3,
+            "indicator_id": [indicator.observation.id] * 3,
             "value": [20.0, 16.0, 24.0],
             "anchor_time": [origin + timedelta(days=day) for day in (0, 4, 6)],
             "support_start": [origin + timedelta(days=day) for day in (-2, 2, 4)],

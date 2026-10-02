@@ -20,12 +20,15 @@ from nof1_causal_lab.actions.temporal.messages import (
     MeasurementsWorkflowInput,
 )
 from nof1_causal_lab.artifacts.data_preparation import (
+    ComputedExtractionSpec,
     DataPreparationSpec,
     DataVariableSpec,
     FilePreparationSpec,
     FileSourceRef,
     PreparedDataMetadata,
+    SemanticExtractionSpec,
 )
+from nof1_causal_lab.artifacts.observations import ObservationSpec
 from nof1_causal_lab.artifacts.validation_report import DataProfileArtifact
 from nof1_causal_lab.study.state import StudyState
 from nof1_causal_lab.study.store import ArtifactStore
@@ -51,23 +54,25 @@ def test_preparation_without_model_combines_computed_and_semantic_workers(monkey
         context="Daily diary scoring",
         variables=(
             DataVariableSpec(
-                id="indicator:steps",
-                name="steps",
-                measurement_dtype="count",
-                aggregation="sum",
-                how_to_measure="Total recorded steps",
-                extraction_mode="computed",
-                source_columns=("steps",),
-                fill_null=0,
+                observation=ObservationSpec(
+                    id="indicator:steps", name="steps", measurement_dtype="count", aggregation="sum"
+                ),
+                extraction=ComputedExtractionSpec(
+                    how_to_measure="Total recorded steps", source_columns=("steps",), fill_null=0
+                ),
             ),
             DataVariableSpec(
-                id="indicator:stress",
-                name="stress",
-                measurement_dtype="ordinal",
-                aggregation="last",
-                how_to_measure="Score the diary as low, medium or high stress",
-                ordinal_levels=("low", "medium", "high"),
-                source_columns=("diary",),
+                observation=ObservationSpec(
+                    id="indicator:stress",
+                    name="stress",
+                    measurement_dtype="ordinal",
+                    aggregation="last",
+                    ordinal_levels=("low", "medium", "high"),
+                ),
+                extraction=SemanticExtractionSpec(
+                    how_to_measure="Score the diary as low, medium or high stress",
+                    source_columns=("diary",),
+                ),
             ),
         ),
     )
@@ -110,7 +115,7 @@ def test_preparation_without_model_combines_computed_and_semantic_workers(monkey
         assert chunk.n_windows == 1
         (window_start,) = spec["window_starts"]
         (indicator,) = spec["measurement_structure"]["indicators"]
-        assert indicator["id"] == "indicator:stress"
+        assert indicator["observation"]["id"] == "indicator:stress"
         result_path = str(tmp_path / f"worker-{chunk.worker_id}-result.json")
         storage.write_text(
             result_path,
@@ -118,7 +123,7 @@ def test_preparation_without_model_combines_computed_and_semantic_workers(monkey
                 {
                     "dataframe": [
                         {
-                            "indicator_id": indicator["id"],
+                            "indicator_id": indicator["observation"]["id"],
                             "value": scores[window_start],
                             "timestamp": window_start,
                         },
@@ -163,7 +168,8 @@ def test_preparation_without_model_combines_computed_and_semantic_workers(monkey
     metadata = store.read_value("panel", panel.revision, "metadata.json", PreparedDataMetadata)
     assert metadata.preparation is not None
     assert (
-        metadata.preparation.variables[1].how_to_measure == preparation.variables[1].how_to_measure
+        metadata.preparation.variables[1].extraction.how_to_measure
+        == preparation.variables[1].extraction.how_to_measure
     )
     assert metadata.variables[1].ordinal_levels == ("low", "medium", "high")
     profile_ref = next(item for item in effects.produced if item.artifact_id == "data_profile")
@@ -193,12 +199,14 @@ def test_declared_categorical_codebook_validates_and_encodes_normalized_labels(
         default_window="1d",
         variables=(
             DataVariableSpec(
-                id="indicator:place",
-                name="place",
-                measurement_dtype="categorical",
-                aggregation="last",
-                categorical_levels=("home", "work", " Outside "),
-                how_to_measure="Last stated location",
+                observation=ObservationSpec(
+                    id="indicator:place",
+                    name="place",
+                    measurement_dtype="categorical",
+                    aggregation="last",
+                    categorical_levels=("home", "work", " Outside "),
+                ),
+                extraction=SemanticExtractionSpec(how_to_measure="Last stated location"),
             ),
         ),
     )

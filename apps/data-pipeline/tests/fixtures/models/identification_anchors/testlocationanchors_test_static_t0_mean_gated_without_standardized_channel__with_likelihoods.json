@@ -10,15 +10,6 @@
         "description": "mood",
         "indicators": [
           {
-            "id": "indicator:e05e217de7f4442abdc5",
-            "name": "mood_rating",
-            "measurement_dtype": "continuous",
-            "aggregation": "mean",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "Normal",
@@ -57,7 +48,16 @@
               "reasoning": "test",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": null,
+              "id": "indicator:e05e217de7f4442abdc5",
+              "aggregation": "mean",
+              "name": "mood_rating",
+              "ordinal_levels": null,
+              "measurement_dtype": "continuous",
+              "observation_window": null
+            }
           }
         ],
         "dynamics": [
@@ -199,15 +199,6 @@
         "description": "trait",
         "indicators": [
           {
-            "id": "indicator:2af50d06b16a559dee9e",
-            "name": "trait_flag",
-            "measurement_dtype": "binary",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "BernoulliLogits",
@@ -240,7 +231,16 @@
               "reasoning": "test",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": null,
+              "id": "indicator:2af50d06b16a559dee9e",
+              "aggregation": "last",
+              "name": "trait_flag",
+              "ordinal_levels": null,
+              "measurement_dtype": "binary",
+              "observation_window": null
+            }
           }
         ],
         "dynamics": [],

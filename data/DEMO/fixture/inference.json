@@ -5,12 +5,12 @@
   "action": "fit",
   "model": {
     "workspace_id": "DEMO",
-    "revision": "5794ad0b7c29a14a2f2341ecffcfce85a6ed0a34",
+    "revision": "75da6afa189a292b20245c1ec0621e72c2d50466",
     "path": "model.json"
   },
   "panel": {
     "workspace_id": "DEMO",
-    "revision": "fa2e33d102c2ba45d099503b0a52a32b74694d7b",
+    "revision": "d855bf4176bc0a21d38433b0403e166d3c768363",
     "path": "panel.parquet"
   },
   "report": {

@@ -10,15 +10,6 @@
         "description": "Test state",
         "indicators": [
           {
-            "id": "indicator:cf19859de758099260bf",
-            "name": "stress_cont",
-            "measurement_dtype": "continuous",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "Normal",
@@ -57,7 +48,16 @@
               "reasoning": "Test likelihood",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": null,
+              "id": "indicator:cf19859de758099260bf",
+              "aggregation": "last",
+              "name": "stress_cont",
+              "ordinal_levels": null,
+              "measurement_dtype": "continuous",
+              "observation_window": null
+            }
           }
         ],
         "dynamics": [
@@ -183,15 +183,6 @@
         "description": "Test state",
         "indicators": [
           {
-            "id": "indicator:fcd660947676f0606ef0",
-            "name": "adherence_flag",
-            "measurement_dtype": "binary",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "BernoulliLogits",
@@ -242,18 +233,18 @@
               "reasoning": "Test likelihood",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": null,
+              "id": "indicator:fcd660947676f0606ef0",
+              "aggregation": "last",
+              "name": "adherence_flag",
+              "ordinal_levels": null,
+              "measurement_dtype": "binary",
+              "observation_window": null
+            }
           },
           {
-            "id": "indicator:82010170cc898554ef9a",
-            "name": "steps_count",
-            "measurement_dtype": "count",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "Poisson",
@@ -292,18 +283,18 @@
               "reasoning": "Test likelihood",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": null,
+              "id": "indicator:82010170cc898554ef9a",
+              "aggregation": "last",
+              "name": "steps_count",
+              "ordinal_levels": null,
+              "measurement_dtype": "count",
+              "observation_window": null
+            }
           },
           {
-            "id": "indicator:ba313361a371e24030f0",
-            "name": "fatigue_t",
-            "measurement_dtype": "continuous",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "StudentT",
@@ -366,7 +357,16 @@
               "reasoning": "Test likelihood",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": null,
+              "id": "indicator:ba313361a371e24030f0",
+              "aggregation": "last",
+              "name": "fatigue_t",
+              "ordinal_levels": null,
+              "measurement_dtype": "continuous",
+              "observation_window": null
+            }
           }
         ],
         "dynamics": [
@@ -500,15 +500,6 @@
         "description": "Test state",
         "indicators": [
           {
-            "id": "indicator:cbb3ae60fb004e37d3c6",
-            "name": "screen_gap",
-            "measurement_dtype": "continuous",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "Gamma",
@@ -563,18 +554,18 @@
               "reasoning": "Test likelihood",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": null,
+              "id": "indicator:cbb3ae60fb004e37d3c6",
+              "aggregation": "last",
+              "name": "screen_gap",
+              "ordinal_levels": null,
+              "measurement_dtype": "continuous",
+              "observation_window": null
+            }
           },
           {
-            "id": "indicator:ebfa012c0de3a85de5a1",
-            "name": "sleep_efficiency",
-            "measurement_dtype": "continuous",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "Beta",
@@ -707,23 +698,18 @@
               "reasoning": "Test likelihood",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": null,
+              "id": "indicator:ebfa012c0de3a85de5a1",
+              "aggregation": "last",
+              "name": "sleep_efficiency",
+              "ordinal_levels": null,
+              "measurement_dtype": "continuous",
+              "observation_window": null
+            }
           },
           {
-            "id": "indicator:a14f62b85ab2925b63b6",
-            "name": "symptom_severity",
-            "measurement_dtype": "ordinal",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": [
-              "0",
-              "1",
-              "2",
-              "3"
-            ],
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "OrderedLogistic",
@@ -774,23 +760,23 @@
               "reasoning": "Test likelihood",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": null,
+              "id": "indicator:a14f62b85ab2925b63b6",
+              "aggregation": "last",
+              "name": "symptom_severity",
+              "ordinal_levels": [
+                "0",
+                "1",
+                "2",
+                "3"
+              ],
+              "measurement_dtype": "ordinal",
+              "observation_window": null
+            }
           },
           {
-            "id": "indicator:30475b0e25192ce65a54",
-            "name": "coping_style",
-            "measurement_dtype": "categorical",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": [
-              "0",
-              "1",
-              "2",
-              "3"
-            ],
             "likelihood": {
               "law": {
                 "distribution": "Categorical",
@@ -859,7 +845,21 @@
               "reasoning": "Test likelihood",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": [
+                "0",
+                "1",
+                "2",
+                "3"
+              ],
+              "id": "indicator:30475b0e25192ce65a54",
+              "aggregation": "last",
+              "name": "coping_style",
+              "ordinal_levels": null,
+              "measurement_dtype": "categorical",
+              "observation_window": null
+            }
           }
         ],
         "dynamics": [
@@ -1009,15 +1009,6 @@
         "description": "Test state",
         "indicators": [
           {
-            "id": "indicator:789c74a5767762021b12",
-            "name": "rumination_count",
-            "measurement_dtype": "count",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "NegativeBinomial2",
@@ -1062,18 +1053,18 @@
               "reasoning": "Test likelihood",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": null,
+              "id": "indicator:789c74a5767762021b12",
+              "aggregation": "last",
+              "name": "rumination_count",
+              "ordinal_levels": null,
+              "measurement_dtype": "count",
+              "observation_window": null
+            }
           },
           {
-            "id": "indicator:1a52f89287fd227f65c0",
-            "name": "focus_cont",
-            "measurement_dtype": "continuous",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "Normal",
@@ -1148,7 +1139,16 @@
               "reasoning": "Test likelihood",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": null,
+              "id": "indicator:1a52f89287fd227f65c0",
+              "aggregation": "last",
+              "name": "focus_cont",
+              "ordinal_levels": null,
+              "measurement_dtype": "continuous",
+              "observation_window": null
+            }
           }
         ],
         "dynamics": [

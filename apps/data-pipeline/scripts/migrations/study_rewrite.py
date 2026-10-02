@@ -29,6 +29,7 @@ def rewrite_study(
     source_format: int,
     target_format: int,
     preserve_model_meaning: bool = False,
+    model_definition: Callable[[Any], Any] | None = None,
     update_file: Callable[[str, str, Any], Any] | None = None,
     rename_entry: Callable[[str], str | None] | None = None,
     additional_files: Callable[[str], JsonObject] | None = None,
@@ -46,6 +47,8 @@ def rewrite_study(
     publishes retained metadata not represented by the target record. `check_preimages`
     names recognized check hashes whose retained inputs need representation translation.
     Unrecognized (including stale or older-policy) hashes stay unchanged.
+    `model_definition` translates a historical destination's model into the current
+    owner solely for fingerprint calculation, without changing its stored format.
     """
     source_layout, destination_layout = layout
     if destination.exists() or destination.resolve().is_relative_to(source.resolve()):
@@ -75,8 +78,11 @@ def rewrite_study(
     original_inputs: dict[str, dict[str, str]] = {}
     for oid in models:
         tree = repo[pygit2.Oid(hex=oid)].peel(pygit2.Tree)
+        definition = update(json.loads(tree["model.json"].peel(pygit2.Blob).data))
+        if model_definition is not None:
+            definition = model_definition(definition)
         model = ModelSpec.model_validate(
-            update(json.loads(tree["model.json"].peel(pygit2.Blob).data)),
+            definition,
             context={
                 "distribution_array_loader": lambda ref: read_array(
                     str(destination / "store/arrays"), ref

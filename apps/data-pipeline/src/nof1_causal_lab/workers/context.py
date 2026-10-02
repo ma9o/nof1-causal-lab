@@ -17,7 +17,7 @@ class MeasurementContext(Value):
     indicators: tuple[DataVariableSpec, ...] = Field(min_length=1)
 
     def window(self, indicator: DataVariableSpec) -> Duration:
-        return indicator.observation_window or self.model_clock
+        return indicator.observation.observation_window or self.model_clock
 
     def select(self, indicator: DataVariableSpec) -> MeasurementContext:
         """A chunk carries the same source and one actual observation definition."""

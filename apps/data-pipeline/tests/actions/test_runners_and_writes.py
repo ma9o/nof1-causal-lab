@@ -151,7 +151,7 @@ def test_extraction_requires_some_observations(workspace, tmp_path, nonempty):
                 },
                 "computed_dicts": [
                     {
-                        "indicator_id": model.indicators[0].id,
+                        "indicator_id": model.indicators[0].observation.id,
                         "value": "3.0",
                         "timestamp": "2026-01-01",
                     }
@@ -310,7 +310,9 @@ def test_model_edit_reports_stale_extraction(workspace):
     payload = store.read_value(
         "validation_report", report.revision, "validation_report.json", ValidationReportArtifact
     )
-    assert any(issue.issue_type == "measurement_definitions" for issue in payload.dataset_issues)
+    assert any(
+        issue.issue_type == "measurement_definitions" for issue in payload.data.dataset_issues
+    )
     assert "panel" not in {item.artifact_id for item in effects.produced}
 
 

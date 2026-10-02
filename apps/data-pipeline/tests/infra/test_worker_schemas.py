@@ -25,17 +25,23 @@ def _measurement_structure(*indicators):
             "model_clock": "1d",
             "indicators": [
                 {
-                    "name": name,
-                    "id": "indicator:" + name,
-                    "how_to_measure": "Measure " + name,
-                    "measurement_dtype": dtype,
-                    "aggregation": default_aggregations.get(dtype, "last"),
-                    **({"ordinal_levels": ["low", "medium", "high"]} if dtype == "ordinal" else {}),
-                    **(
-                        {"categorical_levels": ["walking", "running"]}
-                        if dtype == "categorical"
-                        else {}
-                    ),
+                    "observation": {
+                        "name": name,
+                        "id": "indicator:" + name,
+                        "measurement_dtype": dtype,
+                        "aggregation": default_aggregations[dtype],
+                        **(
+                            {"ordinal_levels": ["low", "medium", "high"]}
+                            if dtype == "ordinal"
+                            else {}
+                        ),
+                        **(
+                            {"categorical_levels": ["walking", "running"]}
+                            if dtype == "categorical"
+                            else {}
+                        ),
+                    },
+                    "extraction": {"kind": "semantic", "how_to_measure": "Measure " + name},
                 }
                 for name, dtype in indicators
             ],

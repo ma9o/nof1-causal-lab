@@ -119,6 +119,8 @@ def convert_payload(value: JsonValue) -> JsonValue:
 
 
 def convert_study(source: Path, destination: Path) -> dict[str, str]:
+    from scripts.migrations.migrate_format_13 import convert_payload as compose_model
+
     return rewrite_study(
         source,
         destination,
@@ -127,6 +129,7 @@ def convert_study(source: Path, destination: Path) -> dict[str, str]:
         source_format=11,
         target_format=12,
         preserve_model_meaning=True,
+        model_definition=compose_model,
         check_preimages=_check_preimages(source),
     )
 

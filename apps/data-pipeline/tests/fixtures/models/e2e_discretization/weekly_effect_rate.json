@@ -29,15 +29,6 @@
         "description": "Daily stress level",
         "indicators": [
           {
-            "id": "indicator:4ff8be7491bd87d28af4",
-            "name": "stress_self_report",
-            "measurement_dtype": "continuous",
-            "aggregation": "mean",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "Normal",
@@ -76,18 +67,18 @@
               "reasoning": "Test Gaussian emission",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": null,
+              "id": "indicator:4ff8be7491bd87d28af4",
+              "aggregation": "mean",
+              "name": "stress_self_report",
+              "ordinal_levels": null,
+              "measurement_dtype": "continuous",
+              "observation_window": null
+            }
           },
           {
-            "id": "indicator:522342c2385e38d5e750",
-            "name": "stress_cortisol",
-            "measurement_dtype": "continuous",
-            "aggregation": "mean",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "Normal",
@@ -126,7 +117,16 @@
               "reasoning": "Test Gaussian emission",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": null,
+              "id": "indicator:522342c2385e38d5e750",
+              "aggregation": "mean",
+              "name": "stress_cortisol",
+              "ordinal_levels": null,
+              "measurement_dtype": "continuous",
+              "observation_window": null
+            }
           }
         ],
         "dynamics": [
@@ -250,15 +250,6 @@
         "description": "Daily mood state",
         "indicators": [
           {
-            "id": "indicator:e05e217de7f4442abdc5",
-            "name": "mood_rating",
-            "measurement_dtype": "continuous",
-            "aggregation": "mean",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "Normal",
@@ -297,7 +288,16 @@
               "reasoning": "Test Gaussian emission",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": null,
+              "id": "indicator:e05e217de7f4442abdc5",
+              "aggregation": "mean",
+              "name": "mood_rating",
+              "ordinal_levels": null,
+              "measurement_dtype": "continuous",
+              "observation_window": null
+            }
           }
         ],
         "dynamics": [

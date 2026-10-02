@@ -10,19 +10,6 @@
         "description": "mood",
         "indicators": [
           {
-            "id": "indicator:f61e2793334052e6699f",
-            "name": "mood_kind",
-            "measurement_dtype": "categorical",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": [
-              "a",
-              "b",
-              "c"
-            ],
             "likelihood": {
               "law": {
                 "distribution": "Categorical",
@@ -73,7 +60,20 @@
               "reasoning": "test",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": [
+                "a",
+                "b",
+                "c"
+              ],
+              "id": "indicator:f61e2793334052e6699f",
+              "aggregation": "last",
+              "name": "mood_kind",
+              "ordinal_levels": null,
+              "measurement_dtype": "categorical",
+              "observation_window": null
+            }
           }
         ],
         "dynamics": [

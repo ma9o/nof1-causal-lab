@@ -110,8 +110,8 @@ export function PredictiveFindings({
 }) {
   const names = new Map<string, string>([
     ...[...entities.constructs, ...entities.indicators].map((entity): [string, string] => [
-      entity.id,
-      entity.name,
+      "observation" in entity ? entity.observation.id : entity.id,
+      "observation" in entity ? entity.observation.name : entity.name,
     ]),
     ...entities.edges.flatMap((edge): [string, string][] => {
       const entity = resolveEntity(entities, { kind: "edge", id: edge.id });

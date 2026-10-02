@@ -29,15 +29,6 @@
         "description": "X",
         "indicators": [
           {
-            "id": "indicator:a3ee56b69d8d2ab75830",
-            "name": "X_obs",
-            "measurement_dtype": "continuous",
-            "aggregation": "mean",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "Normal",
@@ -76,7 +67,16 @@
               "reasoning": "Partial",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": null,
+              "id": "indicator:a3ee56b69d8d2ab75830",
+              "aggregation": "mean",
+              "name": "X_obs",
+              "ordinal_levels": null,
+              "measurement_dtype": "continuous",
+              "observation_window": null
+            }
           }
         ],
         "dynamics": [
@@ -200,15 +200,6 @@
         "description": "Y",
         "indicators": [
           {
-            "id": "indicator:ac9f22e5539367d664a0",
-            "name": "Y_obs",
-            "measurement_dtype": "continuous",
-            "aggregation": "mean",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "Normal",
@@ -247,7 +238,16 @@
               "reasoning": "Test Gaussian emission",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": null,
+              "id": "indicator:ac9f22e5539367d664a0",
+              "aggregation": "mean",
+              "name": "Y_obs",
+              "ordinal_levels": null,
+              "measurement_dtype": "continuous",
+              "observation_window": null
+            }
           }
         ],
         "dynamics": [

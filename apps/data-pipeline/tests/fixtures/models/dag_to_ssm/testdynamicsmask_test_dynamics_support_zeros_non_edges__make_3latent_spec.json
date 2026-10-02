@@ -10,15 +10,6 @@
         "description": "Test state",
         "indicators": [
           {
-            "id": "indicator:0f93ce57e1f1d1c96f5c",
-            "name": "x1",
-            "measurement_dtype": "continuous",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "Normal",
@@ -57,18 +48,18 @@
               "reasoning": "Test likelihood",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": null,
+              "id": "indicator:0f93ce57e1f1d1c96f5c",
+              "aggregation": "last",
+              "name": "x1",
+              "ordinal_levels": null,
+              "measurement_dtype": "continuous",
+              "observation_window": null
+            }
           },
           {
-            "id": "indicator:c26d752dbca8b5a287ac",
-            "name": "z1",
-            "measurement_dtype": "continuous",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "Normal",
@@ -107,7 +98,16 @@
               "reasoning": "Test likelihood",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": null,
+              "id": "indicator:c26d752dbca8b5a287ac",
+              "aggregation": "last",
+              "name": "z1",
+              "ordinal_levels": null,
+              "measurement_dtype": "continuous",
+              "observation_window": null
+            }
           }
         ],
         "dynamics": [
@@ -233,15 +233,6 @@
         "description": "Test state",
         "indicators": [
           {
-            "id": "indicator:27a6125b251378d8dd23",
-            "name": "x2",
-            "measurement_dtype": "continuous",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "Normal",
@@ -280,7 +271,16 @@
               "reasoning": "Test likelihood",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": null,
+              "id": "indicator:27a6125b251378d8dd23",
+              "aggregation": "last",
+              "name": "x2",
+              "ordinal_levels": null,
+              "measurement_dtype": "continuous",
+              "observation_window": null
+            }
           }
         ],
         "dynamics": [
@@ -414,15 +414,6 @@
         "description": "Test state",
         "indicators": [
           {
-            "id": "indicator:dec7b4916899d2109674",
-            "name": "y1",
-            "measurement_dtype": "continuous",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "Normal",
@@ -461,7 +452,16 @@
               "reasoning": "Test likelihood",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": null,
+              "id": "indicator:dec7b4916899d2109674",
+              "aggregation": "last",
+              "name": "y1",
+              "ordinal_levels": null,
+              "measurement_dtype": "continuous",
+              "observation_window": null
+            }
           }
         ],
         "dynamics": [

@@ -25,7 +25,7 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
   if (!scope) return null;
   const { indicator, disposition, audit, counts, likelihood, predictive, checks, issues } = scope;
   const preparation = context.model.data.metadata?.value.preparation?.variables.find(
-    (variable) => variable.id === id,
+    (variable) => variable.observation.id === id,
   );
   const equation = context.model.findings.diagnostics?.observation_equations[id];
   const empirical = context.model.data.profile?.value.indicators[id]?.profile;
@@ -45,12 +45,12 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
           <div className="mt-2">
             <KeyValue
               rows={[
-                ["Type", indicator.measurement_dtype],
-                ["Aggregation", indicator.aggregation],
-                ["Null filling", formatFillNull(indicator)],
+                ["Type", indicator.observation.measurement_dtype],
+                ["Aggregation", indicator.observation.aggregation],
                 [
                   "Window",
-                  indicator.observation_window ?? context.model.model?.value.measurement_clock,
+                  indicator.observation.observation_window ??
+                    context.model.model?.value.measurement_clock,
                 ],
                 ["Polarity", indicator.construct_polarity],
                 ...(likelihood
@@ -77,11 +77,14 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
             ? {}
             : { source: context.model.data.metadata.source })}
         >
-          <Hint>{preparation.how_to_measure}</Hint>
+          <Hint>{preparation.extraction.how_to_measure}</Hint>
           <KeyValue
             rows={[
-              ["Extraction", preparation.extraction_mode],
-              ["Source columns", preparation.source_columns.join(", ")],
+              ["Extraction", preparation.extraction.kind],
+              ["Source columns", preparation.extraction.source_columns.join(", ")],
+              ...(preparation.extraction.kind === "computed"
+                ? [["Null filling", formatFillNull(preparation.extraction)] as [string, string]]
+                : []),
             ]}
           />
         </Section>

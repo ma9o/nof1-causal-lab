@@ -57,11 +57,13 @@ def make_model(state_names: list[str], edges: Sequence[tuple[str, str]] = ()):
                 "temporal_status": "time_varying",
                 "indicators": [
                     {
-                        "id": fixture_entity_id("indicator", name + "_obs"),
-                        "name": name + "_obs",
+                        "observation": {
+                            "id": fixture_entity_id("indicator", name + "_obs"),
+                            "name": name + "_obs",
+                            "measurement_dtype": "continuous",
+                            "aggregation": "mean",
+                        },
                         "construct_polarity": "positive",
-                        "measurement_dtype": "continuous",
-                        "aggregation": "mean",
                     }
                 ],
             }

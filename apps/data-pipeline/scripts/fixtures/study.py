@@ -24,7 +24,6 @@ from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorPredictiveChecks
 from nof1_causal_lab.models.model_inputs import input_fingerprints
 from nof1_causal_lab.models.model_structure import (
-    compare_model_definitions,
     compare_model_graph,
     compare_parameters,
 )
@@ -175,9 +174,9 @@ def workbench_comparisons(snapshot, history):
         },
     )
     models = {
-        history[str(seq)]["context"]["state"]["current"]["model"][
-            "revision"
-        ]: ModelSpec.model_validate(history[str(seq)]["model"]["value"])
+        history[str(seq)]["context"]["current"]["model"]["revision"]: ModelSpec.model_validate(
+            history[str(seq)]["model"]["value"]
+        )
         for seq in (2, 3, 4, 7)
     }
     models.update(
@@ -189,9 +188,6 @@ def workbench_comparisons(snapshot, history):
             parameters = compare_parameters(left, right)
             before = input_fingerprints(left)
             comparisons[f"{before_version}:{after_version}"] = {
-                "definition_changes": [
-                    item.model_dump(mode="json") for item in compare_model_definitions(left, right)
-                ],
                 "parameters": [item.model_dump(mode="json") for item in parameters],
                 "graph": compare_model_graph(left, right).model_dump(mode="json"),
                 "changed_inputs": [
@@ -221,7 +217,7 @@ def build_outputs():
             capture_output=True,
         )
         subprocess.run(
-            ["git", "--git-dir", str(history), "config", "nof1.format", "12"],
+            ["git", "--git-dir", str(history), "config", "nof1.format", "13"],
             check=True,
             capture_output=True,
         )
@@ -279,7 +275,7 @@ def rendered_fixtures(outputs):
         WORKBENCH_OUTPUT: """Readonly<{
   pinned_model: Domain.ModelSpec;
   pinned_inputs: Domain.ArtifactRecord["model_inputs"];
-  comparisons: Readonly<Partial<Record<string, Pick<Domain.ModelDiffReport, "graph" | "parameters" | "changed_inputs" | "definition_changes">>>>;
+  comparisons: Readonly<Partial<Record<string, Pick<Domain.ModelDiffReport, "graph" | "parameters" | "changed_inputs">>>>;
 }>""",
         WORKBENCH_OUTPUT.with_name("workbench-visuals.json"): """Readonly<{
   note: string;

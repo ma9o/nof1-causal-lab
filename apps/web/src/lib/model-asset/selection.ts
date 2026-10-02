@@ -2,7 +2,7 @@ import {
   type ConstructId,
   type EdgeId,
   type IndicatorId,
-  type ObservationSpec,
+  type ComputedExtractionSpec,
 } from "@nof1-causal-lab/api-types";
 
 /** The graph entity shown in the details pane. */
@@ -16,13 +16,13 @@ export function humanize(value: string): string {
 }
 
 export function formatFillNull(
-  observation: Pick<ObservationSpec, "fill_null" | "fill_null_limit">,
+  extraction: Pick<ComputedExtractionSpec, "fill_null" | "fill_null_limit">,
 ): string {
-  if (observation.fill_null == null) return "None";
-  const method = String(observation.fill_null);
-  return observation.fill_null_limit == null
+  if (extraction.fill_null == null) return "None";
+  const method = String(extraction.fill_null);
+  return extraction.fill_null_limit == null
     ? method
-    : `${method} (limit ${observation.fill_null_limit})`;
+    : `${method} (limit ${extraction.fill_null_limit})`;
 }
 
 export function formatSigned(value: number, digits = 2): string {

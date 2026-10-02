@@ -69,7 +69,7 @@ def simulate(
     state_ids = tuple(numeric.state_ids(compiled))
     indicator_ids = tuple(numeric.observation_ids(compiled))
     variables = tuple(
-        model.indicator(identity).resolved(support.observation_windows[index])
+        model.indicator(identity).observation.resolved(support.observation_windows[index])
         for index, identity in enumerate(indicator_ids)
     )
     return SimulationReport(

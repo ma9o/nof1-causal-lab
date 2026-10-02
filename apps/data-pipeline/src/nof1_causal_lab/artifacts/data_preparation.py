@@ -4,18 +4,19 @@ from __future__ import annotations
 
 import re
 from datetime import date
-from typing import TYPE_CHECKING, Annotated, Literal, Self, override
+from typing import TYPE_CHECKING, Annotated, Literal, Self
 
+from polars._typing import FillNullStrategy
 from pydantic import (
     AwareDatetime,
     Field,
+    FiniteFloat,
     field_validator,
     model_validator,
 )
 
 from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.utils.observation_semantics import (
-    IndicatorObservationSemantics,
     SummaryOperator,
     derive_indicator_observation_semantics,
 )
@@ -77,87 +78,88 @@ def check_semantic_collisions(
     return warnings
 
 
-class DataVariableSpec(ObservationSpec):
-    """How to produce one observed variable, without any causal or latent model."""
+class SemanticExtractionSpec(Value):
+    """Interpret source records using an explicit measurement rubric."""
 
+    kind: Literal["semantic"] = "semantic"
     how_to_measure: str = Field(
         min_length=1, description="Scoring rubric and extraction instructions."
     )
     source_columns: tuple[str, ...] = Field(
-        default_factory=tuple,
-        description=(
-            "Raw data column names referenced by how_to_measure. "
-            "Used to project chunks to only relevant columns before extraction."
-        ),
+        default=(), description="Source columns exposed to the extraction worker."
     )
+
+
+class ComputedExtractionSpec(Value):
+    """Compute a deterministic support-window measurement from source columns."""
+
+    kind: Literal["computed"] = "computed"
+    how_to_measure: str = Field(
+        min_length=1, description="Description of the deterministic measurement."
+    )
+    source_columns: tuple[str, ...] = Field(min_length=1)
     computed_rule: WindowExpression | None = Field(
         default=None,
         description=(
-            "Optional deterministic support-window expression for extraction_mode='computed'. "
-            "Use this when a computed indicator needs formulas, thresholds, or multiple "
-            "source columns instead of a direct single-column aggregation. "
-            "The expression must return one scalar per support window."
+            "Optional deterministic support-window expression over the declared source columns. "
+            "It must return one scalar per window with the observation's declared summary operator. "
+            "Omitted uses a direct single-column aggregation."
         ),
     )
-    extraction_mode: Literal["computed", "semantic"] = Field(
-        default="semantic",
+    fill_null: FillNullStrategy | Annotated[FiniteFloat, Field(strict=True)] | None = Field(
+        default=None,
         description=(
-            "'computed' (deterministic pipeline extraction) or 'semantic' (LLM extraction). "
-            "Use 'computed' when the indicator can be derived deterministically either from "
-            "a direct source-column aggregation or from a computed_rule support-window "
-            "expression over the declared source_columns."
+            "Optional Polars null filling after aggregation on the sorted time grid within the "
+            "selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric "
+            "constant. Fills every null, including explicit unknown readings. Omitted leaves "
+            "nulls unknown. Forward carries the last value and leaves leading nulls unknown."
+        ),
+    )
+    fill_null_limit: int | None = Field(
+        default=None,
+        ge=0,
+        description=(
+            "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. "
+            "Only valid when fill_null is forward or backward."
         ),
     )
 
     @model_validator(mode="after")
-    def validate_fill_null(self) -> DataVariableSpec:
-        if self.fill_null is not None and self.extraction_mode != "computed":
-            raise ValueError("fill_null requires computed extraction")
-        return self
-
-    @model_validator(mode="after")
-    def validate_computed_mode(self) -> DataVariableSpec:
-        """Enforce constraints when extraction_mode='computed'."""
-        if self.computed_rule is not None and self.extraction_mode != "computed":
-            raise ValueError(
-                f"Indicator '{self.name}' sets computed_rule but extraction_mode is "
-                f"'{self.extraction_mode}'. computed_rule is only valid for "
-                "extraction_mode='computed'."
-            )
-        if self.extraction_mode != "computed":
-            return self
-        if self.computed_rule is None and len(self.source_columns) != 1:
-            raise ValueError(
-                f"Computed indicator '{self.name}' currently requires exactly 1 direct "
-                f"source_column, got {len(self.source_columns)}: {self.source_columns}"
-            )
-        if self.computed_rule is not None:
-            if not self.source_columns:
-                raise ValueError(
-                    f"Computed indicator '{self.name}' with computed_rule must declare "
-                    "at least 1 source_column."
-                )
+    def validate_computation(self) -> Self:
+        if self.fill_null_limit is not None and self.fill_null not in {"forward", "backward"}:
+            raise ValueError("fill_null_limit requires fill_null='forward' or 'backward'")
+        if self.computed_rule is None:
+            if len(self.source_columns) != 1:
+                raise ValueError("Direct computed extraction requires exactly 1 source_column")
+        else:
             referenced = self.computed_rule.dependencies
             if not referenced:
-                raise ValueError(
-                    f"Computed indicator '{self.name}' has computed_rule "
-                    "that does not reference any source_columns."
-                )
-            unknown = sorted(referenced - set(self.source_columns))
-            if unknown:
-                raise ValueError(
-                    f"Computed indicator '{self.name}' computed_rule "
-                    f"references undeclared source_columns: {unknown}. "
-                    f"Declared source_columns: {self.source_columns}"
-                )
-        self._observation_semantics()
+                raise ValueError("computed_rule must reference at least 1 source_column")
+            if unknown := sorted(referenced - set(self.source_columns)):
+                raise ValueError(f"computed_rule references undeclared source_columns: {unknown}")
         return self
 
-    @override
-    def _observation_semantics(self) -> IndicatorObservationSemantics:
-        return derive_indicator_observation_semantics(
-            self.aggregation, self.measurement_dtype, self.computed_rule
-        )
+
+type ExtractionSpec = Annotated[
+    ComputedExtractionSpec | SemanticExtractionSpec, Field(discriminator="kind")
+]
+
+
+class DataVariableSpec(Value):
+    """Compose an observed variable with its data-owned extraction instructions."""
+
+    observation: ObservationSpec
+    extraction: ExtractionSpec
+
+    @model_validator(mode="after")
+    def validate_computed_summary(self) -> Self:
+        if isinstance(self.extraction, ComputedExtractionSpec):
+            derive_indicator_observation_semantics(
+                self.observation.aggregation,
+                self.observation.measurement_dtype,
+                self.extraction.computed_rule,
+            )
+        return self
 
 
 def _validate_uploaded_filename(value: str) -> str:
@@ -211,12 +213,17 @@ class DataPreparationSpec(Value):
 
     @model_validator(mode="after")
     def unique_variables(self) -> Self:
-        if len({item.id for item in self.variables}) != len(self.variables):
+        if len({item.observation.id for item in self.variables}) != len(self.variables):
             raise ValueError("Prepared variables must have unique IDs")
         return self
 
     def observation_schema(self) -> tuple[ObservationSpec, ...]:
-        return tuple(item.observation(self.default_window) for item in self.variables)
+        return tuple(
+            item.observation.resolved(
+                (item.observation.observation_window or self.default_window).source
+            )
+            for item in self.variables
+        )
 
 
 class FilePreparationSpec(Value):

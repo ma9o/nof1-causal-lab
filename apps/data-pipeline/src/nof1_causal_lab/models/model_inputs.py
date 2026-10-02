@@ -103,22 +103,32 @@ def data_binding_issues(model: ModelSpec, metadata: PreparedDataMetadata) -> lis
     variables = {item.id: item for item in metadata.variables}
     issues = []
     for indicator in model.indicators:
-        variable = variables.get(indicator.id)
+        variable = variables.get(indicator.observation.id)
         if variable is None:
-            issues.append(f"No prepared variable for model indicator {indicator.id}")
+            issues.append(f"No prepared variable for model indicator {indicator.observation.id}")
             continue
         for field, expected, actual in (
-            ("measurement_dtype", indicator.measurement_dtype, variable.measurement_dtype),
-            ("aggregation", indicator.aggregation, variable.aggregation),
-            ("ordinal_levels", indicator.ordinal_levels, variable.ordinal_levels),
-            ("categorical_levels", indicator.categorical_levels, variable.categorical_levels),
+            (
+                "measurement_dtype",
+                indicator.observation.measurement_dtype,
+                variable.measurement_dtype,
+            ),
+            ("aggregation", indicator.observation.aggregation, variable.aggregation),
+            ("ordinal_levels", indicator.observation.ordinal_levels, variable.ordinal_levels),
+            (
+                "categorical_levels",
+                indicator.observation.categorical_levels,
+                variable.categorical_levels,
+            ),
         ):
             if expected != actual:
-                issues.append(f"Observation {indicator.id} has incompatible {field}")
-        window = indicator.observation_window or model.measurement_clock
+                issues.append(f"Observation {indicator.observation.id} has incompatible {field}")
+        window = indicator.observation.observation_window or model.measurement_clock
         assert (
             variable.observation_window is not None
         )  # PreparedDataMetadata resolves every window.
         if window is None or window.seconds != variable.observation_window.seconds:
-            issues.append(f"Observation {indicator.id} has an incompatible observation window")
+            issues.append(
+                f"Observation {indicator.observation.id} has an incompatible observation window"
+            )
     return issues

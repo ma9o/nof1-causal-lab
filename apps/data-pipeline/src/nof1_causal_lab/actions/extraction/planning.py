@@ -24,7 +24,7 @@ def project_to_source_columns(
     """Project DataFrame to only the columns referenced by indicators."""
     source_cols: set[str] = set()
     for indicator in indicators:
-        source_cols.update(indicator.source_columns)
+        source_cols.update(indicator.extraction.source_columns)
 
     if not source_cols:
         return df
@@ -68,7 +68,7 @@ def prepare_semantic_chunks(
     empty_extractions: list[WindowExtraction] = []
 
     semantic_inds = (
-        ind for ind in measurement_structure.indicators if ind.extraction_mode == "semantic"
+        ind for ind in measurement_structure.indicators if ind.extraction.kind == "semantic"
     )
     for indicator in semantic_inds:
         observation_window = measurement_structure.window(indicator)
@@ -98,13 +98,13 @@ def prepare_semantic_chunks(
             continue
 
         display_cols = [column for column in projected.columns if column != time_col]
-        value_cols = indicator.source_columns or display_cols
+        value_cols = indicator.extraction.source_columns or display_cols
         for window in windows:
             window_start, events = window
             if not any(events[column].count() for column in value_cols if column in events.columns):
                 empty_extractions.append(
                     WindowExtraction(
-                        indicator_id=indicator.id, window_start=window_start, value=None
+                        indicator_id=indicator.observation.id, window_start=window_start, value=None
                     )
                 )
                 continue

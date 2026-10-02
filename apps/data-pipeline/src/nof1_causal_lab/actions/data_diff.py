@@ -59,7 +59,7 @@ def read_data_diff(workspace_id: str, request: DataDiffRequest) -> DataDiffRepor
             raise StudyLookupError("The simulation must belong to the selected study")
         model = read_model(store, report.model.revision)
         input_indicators.update(
-            indicator.id
+            indicator.observation.id
             for construct in model.constructs
             if construct.role == "exogenous"
             for indicator in construct.indicators

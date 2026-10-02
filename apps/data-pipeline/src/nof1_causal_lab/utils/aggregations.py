@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, assert_never
 
 import polars as pl
 
+from nof1_causal_lab.artifacts.data_preparation import ComputedExtractionSpec
 from nof1_causal_lab.utils.observation_rows import ensure_datetime_column, support_window_tick_frame
 from nof1_causal_lab.utils.observation_semantics import (
     SummaryOperator,
@@ -164,7 +165,7 @@ def compute_indicators(
 ) -> pl.DataFrame:
     """Compute indicator values directly via Polars aggregation.
 
-    For indicators with extraction_mode='computed', applies a deterministic
+    For variables with a computed extraction recipe, applies a deterministic
     support-window computation grouped by each indicator's effective
     observation window (explicit observation_window or fallback model_clock).
     Direct single-column aggregations are supported, along with computed_rule
@@ -184,19 +185,21 @@ def compute_indicators(
     """
     start, end = measurement_structure.source.start, measurement_structure.source.end
     output_schema = {"indicator_id": pl.Utf8, "value": pl.Utf8, "timestamp": pl.Utf8}
-    indicators = tuple(
-        ind for ind in measurement_structure.indicators if ind.extraction_mode == "computed"
+    computed = tuple(
+        (ind, extraction)
+        for ind in measurement_structure.indicators
+        if isinstance(extraction := ind.extraction, ComputedExtractionSpec)
     )
-    if not indicators:
+    if not computed:
         return pl.DataFrame(schema=output_schema)
 
     df = ensure_datetime_column(raw_df, time_col).sort(time_col)
 
     frames: list[pl.DataFrame] = []
-    for ind in indicators:
-        name = ind.id
-        agg_name = ind.aggregation
-        measurement_dtype = ind.measurement_dtype
+    for ind, extraction in computed:
+        name = ind.observation.id
+        agg_name = ind.observation.aggregation
+        measurement_dtype = ind.observation.measurement_dtype
         observation_window = measurement_structure.window(ind).source
         tick_frame = support_window_tick_frame(
             df, observation_window, time_col, start=start, end=end
@@ -206,9 +209,9 @@ def compute_indicators(
             .join(tick_frame, on="__tick__", how="semi")
             .drop("__tick__")
         )
-        source_columns = list(ind.source_columns)
-        computed_rule = ind.computed_rule
-        fill_null = ind.fill_null
+        source_columns = list(extraction.source_columns)
+        computed_rule = extraction.computed_rule
+        fill_null = extraction.fill_null
 
         missing_source_cols = [column for column in source_columns if column not in df.columns]
         if missing_source_cols:
@@ -239,7 +242,7 @@ def compute_indicators(
                 source_col=source_col,
                 observation_window=observation_window,
                 measurement_dtype=measurement_dtype,
-                ordinal_levels=ind.ordinal_levels,
+                ordinal_levels=ind.observation.ordinal_levels,
             )
             prepared = _with_dense_support_rows(prepared, tick_frame)
 
@@ -248,10 +251,10 @@ def compute_indicators(
 
         if fill_null is not None:
             agg_df = agg_df.sort("__tick__").with_columns(
-                fill_null_expression(pl.col("value"), fill_null, limit=ind.fill_null_limit)
+                fill_null_expression(pl.col("value"), fill_null, limit=extraction.fill_null_limit)
             )
         agg_df = agg_df.select(
-            pl.lit(ind.id).alias("indicator_id"),
+            pl.lit(ind.observation.id).alias("indicator_id"),
             pl.col("value").cast(pl.Utf8).alias("value"),
             pl.col("__tick__").dt.to_string("%Y-%m-%dT%H:%M:%S").alias("timestamp"),
         )

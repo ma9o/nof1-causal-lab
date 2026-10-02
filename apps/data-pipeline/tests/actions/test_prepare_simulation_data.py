@@ -36,7 +36,7 @@ from tests.model_fixtures import compile_model_fixture
 pytestmark = pytest.mark.contract
 
 
-def _model(**indicator_changes):
+def _model(**observation_changes):
     model = make_model(["X", "Y"], [("X", "Y")])
     return model.revised(
         edges=replace_constructs(
@@ -44,7 +44,10 @@ def _model(**indicator_changes):
             tuple(
                 construct.revised(
                     indicators=tuple(
-                        indicator.revised(**indicator_changes) for indicator in construct.indicators
+                        indicator.revised(
+                            observation=indicator.observation.revised(**observation_changes)
+                        )
+                        for indicator in construct.indicators
                     )
                 )
                 for construct in model.constructs

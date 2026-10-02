@@ -2,12 +2,7 @@
 
 from __future__ import annotations
 
-from typing import Annotated
-
-from polars._typing import (
-    FillNullStrategy,
-)
-from pydantic import ConfigDict, Field, FiniteFloat, model_validator
+from pydantic import ConfigDict, Field, model_validator
 
 from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.measurement_types import MeasurementDtype
@@ -49,24 +44,6 @@ class ObservationSpec(Value):
             "Resolved by the preparation window or the generative model clock."
         ),
     )
-    fill_null: FillNullStrategy | Annotated[FiniteFloat, Field(strict=True)] | None = Field(
-        default=None,
-        description=(
-            "Optional Polars null filling during preparation, after aggregation on the sorted "
-            "time grid within the selected data span. Use forward, backward, min, max, mean, "
-            "zero, one, or a numeric constant. Fills every null, including explicit unknown "
-            "readings. Omitted leaves nulls unknown. Forward carries the last value and leaves "
-            "leading nulls unknown."
-        ),
-    )
-    fill_null_limit: int | None = Field(
-        default=None,
-        ge=0,
-        description=(
-            "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. "
-            "Only valid when fill_null is forward or backward."
-        ),
-    )
     ordinal_levels: tuple[str, ...] | None = Field(
         default=None,
         description=(
@@ -85,23 +62,10 @@ class ObservationSpec(Value):
     )
 
     def resolved(self, window: str | None) -> ObservationSpec:
-        return ObservationSpec(
-            id=self.id,
-            name=self.name,
-            measurement_dtype=self.measurement_dtype,
-            aggregation=self.aggregation,
-            observation_window=Duration(window) if window is not None else None,
-            fill_null=self.fill_null,
-            fill_null_limit=self.fill_null_limit,
-            ordinal_levels=self.ordinal_levels,
-            categorical_levels=self.categorical_levels,
+        """Retain the observation definition with an explicitly resolved window."""
+        return self.model_copy(
+            update={"observation_window": Duration(window) if window is not None else None}
         )
-
-    @model_validator(mode="after")
-    def validate_fill_null_limit(self) -> ObservationSpec:
-        if self.fill_null_limit is not None and self.fill_null not in {"forward", "backward"}:
-            raise ValueError("fill_null_limit requires fill_null='forward' or 'backward'")
-        return self
 
     @model_validator(mode="after")
     def validate_discrete_levels(self) -> ObservationSpec:
@@ -135,20 +99,6 @@ class ObservationSpec(Value):
 
     def _observation_semantics(self) -> IndicatorObservationSemantics:
         return derive_indicator_observation_semantics(self.aggregation, self.measurement_dtype)
-
-    def observation(self, default_window: Duration) -> ObservationSpec:
-        """Resolve the prepared schema from owned fields without dumping and reparsing."""
-        return ObservationSpec(
-            id=self.id,
-            name=self.name,
-            measurement_dtype=self.measurement_dtype,
-            aggregation=self.aggregation,
-            observation_window=self.observation_window or default_window,
-            fill_null=self.fill_null,
-            fill_null_limit=self.fill_null_limit,
-            ordinal_levels=self.ordinal_levels,
-            categorical_levels=self.categorical_levels,
-        )
 
     @property
     def support_kind(self) -> SupportKind:

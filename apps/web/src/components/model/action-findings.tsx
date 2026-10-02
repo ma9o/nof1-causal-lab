@@ -24,7 +24,8 @@ export function ActionFindings({
     produced.has("validation_report") && !reused.includes("compatibility")
       ? model.findings.validation_report?.value
       : null;
-  const data = validation ?? (produced.has("data_profile") ? model.data.profile?.value : null);
+  const data =
+    validation?.data ?? (produced.has("data_profile") ? model.data.profile?.value : null);
   const predictive = !reused.includes("predictive") ? result.checks?.predictive : null;
   const findings: Array<{
     label: string;
@@ -50,15 +51,17 @@ export function ActionFindings({
     ),
   ]) {
     if (issue.severity === "info") continue;
-    const indicator = entities.indicators.find((item) => item.id === issue.indicator_id);
+    const indicator = entities.indicators.find(
+      (item) => item.observation.id === issue.indicator_id,
+    );
     const variable = model.data.metadata?.value.variables.find(
       (item) => item.id === issue.indicator_id,
     );
     findings.push({
-      label: humanize(indicator?.name ?? variable?.name ?? "Dataset"),
+      label: humanize(indicator?.observation.name ?? variable?.name ?? "Dataset"),
       reason: issue.message,
       status: issue.severity,
-      ...(indicator ? { owner: { kind: "indicator" as const, id: indicator.id } } : {}),
+      ...(indicator ? { owner: { kind: "indicator" as const, id: indicator.observation.id } } : {}),
     });
   }
   for (const construct of entities.constructs) {
@@ -85,11 +88,11 @@ export function ActionFindings({
   for (const finding of predictive?.findings ?? []) {
     if (finding.kind === "evaluated" && finding.outcome === "passed") continue;
     const target = typeof finding.subject.target === "string" ? null : finding.subject.target.id;
-    const indicator = entities.indicators.find((item) => item.id === target);
+    const indicator = entities.indicators.find((item) => item.observation.id === target);
     const edge = entities.edges.find((item) => item.id === target);
     const construct = entities.constructs.find((item) => item.id === finding.subject.construct_id);
     const owner: EntitySelection | undefined = indicator
-      ? { kind: "indicator", id: indicator.id }
+      ? { kind: "indicator", id: indicator.observation.id }
       : edge
         ? { kind: "edge", id: edge.id }
         : construct
@@ -112,13 +115,13 @@ export function ActionFindings({
     const indicator =
       typeof target === "string"
         ? undefined
-        : entities.indicators.find((item) => item.id === target.id);
+        : entities.indicators.find((item) => item.observation.id === target.id);
     if (!indicator) continue;
     findings.push({
-      label: `${humanize(check.subject.check)} · ${humanize(indicator.name)}`,
+      label: `${humanize(check.subject.check)} · ${humanize(indicator.observation.name)}`,
       reason: check.kind === "evaluated" ? check.evidence.note : check.detail,
       status: check.kind === "evaluated" ? check.outcome : "not_evaluated",
-      owner: { kind: "indicator", id: indicator.id },
+      owner: { kind: "indicator", id: indicator.observation.id },
     });
   }
   if (predictive?.status === "not_evaluated")

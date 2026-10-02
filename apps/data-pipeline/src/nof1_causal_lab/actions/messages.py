@@ -59,9 +59,10 @@ def completion_messages(
             if report.non_identifiable:
                 labels["TARGET_NOT_IDENTIFIED"] = "warn"
         else:
+            data = report.data if isinstance(report, ValidationReportArtifact) else report
             issues = (
-                *report.dataset_issues,
-                *(issue for audit in report.indicators.values() for issue in audit.issues),
+                *data.dataset_issues,
+                *(issue for audit in data.indicators.values() for issue in audit.issues),
             )
             if any(issue.severity in {"error", "warning"} for issue in issues):
                 labels["DATA_QUALITY_FINDINGS"] = "warn"

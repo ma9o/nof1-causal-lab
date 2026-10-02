@@ -10,20 +10,6 @@
         "description": "Test state",
         "indicators": [
           {
-            "id": "indicator:d50004e46a2ff28d2af2",
-            "name": "short_scale",
-            "measurement_dtype": "ordinal",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": [
-              "0",
-              "1",
-              "2",
-              "3"
-            ],
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "OrderedLogistic",
@@ -74,29 +60,23 @@
               "reasoning": "Test likelihood",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": null,
+              "id": "indicator:d50004e46a2ff28d2af2",
+              "aggregation": "last",
+              "name": "short_scale",
+              "ordinal_levels": [
+                "0",
+                "1",
+                "2",
+                "3"
+              ],
+              "measurement_dtype": "ordinal",
+              "observation_window": null
+            }
           },
           {
-            "id": "indicator:153ac0200cf2403b6774",
-            "name": "long_scale",
-            "measurement_dtype": "ordinal",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": [
-              "0",
-              "1",
-              "2",
-              "3",
-              "4",
-              "5",
-              "6",
-              "7",
-              "8",
-              "9"
-            ],
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "OrderedLogistic",
@@ -147,7 +127,27 @@
               "reasoning": "Test likelihood",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": null,
+              "id": "indicator:153ac0200cf2403b6774",
+              "aggregation": "last",
+              "name": "long_scale",
+              "ordinal_levels": [
+                "0",
+                "1",
+                "2",
+                "3",
+                "4",
+                "5",
+                "6",
+                "7",
+                "8",
+                "9"
+              ],
+              "measurement_dtype": "ordinal",
+              "observation_window": null
+            }
           }
         ],
         "dynamics": [

@@ -19,9 +19,9 @@ from nof1_causal_lab.actions.validation.flow import (
 )
 from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec, replace_constructs
 from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata, SimulationReplicateRef
+from nof1_causal_lab.artifacts.duration import Duration
 from nof1_causal_lab.artifacts.identity import GitOid, IndicatorId
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.artifacts.observations import ObservationSpec
 from nof1_causal_lab.artifacts.validation_report import DataProfileArtifact, ValidationIssue
 from tests.helpers import fixture_entity_id, make_model
 
@@ -61,14 +61,10 @@ def validate_extraction(model: ModelSpec, dataframes: list[pl.DataFrame]) -> Dat
     metadata = PreparedDataMetadata(
         source=SimulationReplicateRef(revision=GitOid("a" * 40), replicate=0),
         variables=tuple(
-            ObservationSpec(
-                id=item.id,
-                name=item.name,
-                measurement_dtype=item.measurement_dtype,
-                aggregation=item.aggregation,
-                observation_window=item.observation_window or model.measurement_clock or "1d",
-                ordinal_levels=item.ordinal_levels,
-                categorical_levels=item.categorical_levels,
+            item.observation.resolved(
+                (
+                    item.observation.observation_window or model.measurement_clock or Duration("1d")
+                ).source
             )
             for item in model.indicators
         ),
@@ -113,11 +109,15 @@ def _make_spec(
     if extra_indicators:
         indicators.extend(extra_indicators)
 
+    definitions = []
     for indicator in indicators:
         assert indicator.pop("construct_id") == fixture_entity_id("construct", construct_name)
         indicator.setdefault("construct_polarity", "positive")
         indicator.setdefault("measurement_dtype", "continuous")
         indicator.setdefault("aggregation", "last")
+        definitions.append(
+            {"observation": indicator, "construct_polarity": indicator.pop("construct_polarity")}
+        )
     model = make_model([construct_name])
     construct = ConstructSpec.model_validate(
         {
@@ -126,7 +126,7 @@ def _make_spec(
             "description": "Validation fixture",
             "role": "endogenous",
             "temporal_status": temporal_status,
-            "indicators": indicators,
+            "indicators": definitions,
         }
     )
     return model.revised(
@@ -148,14 +148,16 @@ class TestValidateExtraction:
 
         report = ValidationReportArtifact.model_validate(
             {
-                "indicators": {},
-                "dataset_issues": [
-                    {
-                        "issue_type": "sample_size",
-                        "severity": severity,
-                        "message": "Sample size finding",
-                    }
-                ],
+                "data": {
+                    "indicators": {},
+                    "dataset_issues": [
+                        {
+                            "issue_type": "sample_size",
+                            "severity": severity,
+                            "message": "Sample size finding",
+                        }
+                    ],
+                },
             }
         )
         assert report.is_valid is expected
@@ -164,14 +166,17 @@ class TestValidateExtraction:
         assert ValidationReportArtifact.model_validate(serialized) == report
         with pytest.raises(ValueError, match="is_valid must match"):
             ValidationReportArtifact.model_validate({**serialized, "is_valid": not expected})
+        with pytest.raises(ValueError, match="is_valid must match"):
+            ValidationReportArtifact.model_validate(
+                {**serialized, "data": {**serialized["data"], "is_valid": not expected}}
+            )
 
     def test_verdict_includes_indicator_checks_and_preflight(self):
         from nof1_causal_lab.artifacts.validation_report import ValidationReportArtifact
 
         report = ValidationReportArtifact.model_validate(
             {
-                "indicators": {},
-                "dataset_issues": [],
+                "data": {"indicators": {}, "dataset_issues": []},
                 "preflight": {
                     "findings": [
                         {
@@ -185,13 +190,16 @@ class TestValidateExtraction:
             }
         )
         assert report.is_valid is False
+        assert report.data.is_valid is True
         assert (
             ValidationReportArtifact.model_validate_json(report.model_dump_json()).is_valid is False
         )
         report = ValidationReportArtifact.model_validate(
             {
-                "indicators": {"indicator:x": {"issues": [], "checks": {"dtype": "error"}}},
-                "dataset_issues": [],
+                "data": {
+                    "indicators": {"indicator:x": {"issues": [], "checks": {"dtype": "error"}}},
+                    "dataset_issues": [],
+                },
             }
         )
         assert report.is_valid is False

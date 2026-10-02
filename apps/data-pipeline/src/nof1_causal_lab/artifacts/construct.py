@@ -126,7 +126,7 @@ class ConstructSpec(Value):
                     raise ValueError(
                         "Exogenous readings require Delta(v=state(the owning construct)) in recorded units"
                     )
-                if indicator.summary_operator == "std":
+                if indicator.observation.summary_operator == "std":
                     raise ValueError(
                         "A constant input cannot reproduce a standard-deviation reading"
                     )

@@ -131,15 +131,6 @@
         "description": "Y",
         "indicators": [
           {
-            "id": "indicator:y",
-            "name": "measured_y",
-            "measurement_dtype": "continuous",
-            "aggregation": "mean",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "Normal",
@@ -178,7 +169,16 @@
               "reasoning": "Continuous measurement",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": null,
+              "id": "indicator:y",
+              "aggregation": "mean",
+              "name": "measured_y",
+              "ordinal_levels": null,
+              "measurement_dtype": "continuous",
+              "observation_window": null
+            }
           }
         ],
         "dynamics": [],

@@ -44,8 +44,8 @@ function ModelScope({ context, tick }: { context: ScopeContext; tick: StudyRevis
           (equation) => [equation.label, equation.latex] as const,
         ),
         ...context.entities.indicators.flatMap((indicator) => {
-          const latex = diagnostics.observation_equations[indicator.id];
-          return latex === undefined ? [] : [[indicator.name, latex] as const];
+          const latex = diagnostics.observation_equations[indicator.observation.id];
+          return latex === undefined ? [] : [[indicator.observation.name, latex] as const];
         }),
       ]
     : [];
@@ -55,7 +55,7 @@ function ModelScope({ context, tick }: { context: ScopeContext; tick: StudyRevis
         <Section title="Predictive checks" wide>
           {predictive.predictive_checks ? (
             <PPCWarningsTable
-              indicators={context.entities.indicators}
+              indicators={context.entities.indicators.map((indicator) => indicator.observation)}
               warnings={predictive.predictive_checks.per_variable_warnings}
               testStats={predictive.predictive_checks.test_stats}
               overlays={predictive.predictive_checks.overlays}

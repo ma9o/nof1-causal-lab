@@ -13,6 +13,7 @@ pytestmark = pytest.mark.contract
 
 def test_dependent_alternatives_reject_impossible_fields_at_the_schema_boundary():
     from nof1_causal_lab.actions.temporal.messages import ExtractionChunkResult
+    from nof1_causal_lab.artifacts.data_preparation import ExtractionSpec
     from nof1_causal_lab.artifacts.likelihood import ObservationLawSpec
     from nof1_causal_lab.artifacts.parameter_spec import ParameterTransformSpec
     from nof1_causal_lab.artifacts.predictive_provenance import PredictiveLawProvenance
@@ -31,6 +32,24 @@ def test_dependent_alternatives_reject_impossible_fields_at_the_schema_boundary(
                 {"distribution": tag, argument: expression, excluded: expression}
             )
     for adapter, payload in (
+        (
+            TypeAdapter(ExtractionSpec),
+            {"kind": "semantic", "how_to_measure": "Read", "computed_rule": None},
+        ),
+        (
+            TypeAdapter(ExtractionSpec),
+            {"kind": "semantic", "how_to_measure": "Read", "fill_null": "forward"},
+        ),
+        (
+            TypeAdapter(ExtractionSpec),
+            {
+                "kind": "computed",
+                "how_to_measure": "Read",
+                "source_columns": ["value"],
+                "fill_null": "mean",
+                "fill_null_limit": 2,
+            },
+        ),
         (TypeAdapter(ParameterTransformSpec), {"kind": "identity", "interval_days": 7}),
         (TypeAdapter(ParameterTransformSpec), {"kind": "dt_effect_to_ct_rate"}),
         (
@@ -115,7 +134,7 @@ def test_duplicate_names_with_distinct_identities_are_rejected():
     with pytest.raises(ValidationError, match="Duplicate construct names"):
         ModelSpec.model_validate(data)
     data = make_model(["stress", "sleep"], [("stress", "sleep")]).model_dump(mode="json")
-    graph_constructs(data)[1]["indicators"][0]["name"] = "stress_obs"
+    graph_constructs(data)[1]["indicators"][0]["observation"]["name"] = "stress_obs"
     with pytest.raises(ValidationError, match="Duplicate indicator names"):
         ModelSpec.model_validate(data)
 

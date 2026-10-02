@@ -26,7 +26,7 @@ def get_constructs(model: ModelSpec) -> list[ConstructSpec]:
 def get_reference_indicator_lookup(model: ModelSpec) -> dict[str, str]:
     """Return retained construct name to its planned reference indicator name."""
     return {
-        model._constructs[construct_id].name: (model._indicators[indicator_id].name)
+        model._constructs[construct_id].name: (model._indicators[indicator_id].observation.name)
         for construct_id, indicator_id in reference_indicators(model).items()
     }
 

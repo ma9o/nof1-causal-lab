@@ -7,8 +7,6 @@ from typing import TYPE_CHECKING
 
 from nof1_causal_lab.artifacts.construct import CausalEdgeSpec
 from nof1_causal_lab.artifacts.expressions import fold_expression
-from nof1_causal_lab.artifacts.identity import ParameterId
-from nof1_causal_lab.artifacts.likelihood import observation_expressions
 from nof1_causal_lab.artifacts.parameter import PriorAuthoringTransform
 from nof1_causal_lab.models.model_structure import selected_state_ids
 from nof1_causal_lab.study.expression_latex import (
@@ -84,14 +82,14 @@ def _expression_latex(model: ModelSpec, expression: Expression) -> str:
 def observation_equations(model: ModelSpec) -> dict[IndicatorId, str]:
     """Render each declared native conditional law, including incomplete operands."""
     return {
-        indicator.id: "y_{"
-        + _text(indicator.name)
+        indicator.observation.id: "y_{"
+        + _text(indicator.observation.name)
         + r"}(t) \sim \operatorname{"
         + likelihood.law.distribution
         + r"}\left("
         + r",\; ".join(
             r"\mathrm{" + name + "}=" + _expression_latex(model, argument)
-            for name, argument in observation_expressions(likelihood.law)
+            for name, argument in likelihood.law.operands()
         )
         + r"\right)"
         for indicator, likelihood in model.iter_likelihoods()

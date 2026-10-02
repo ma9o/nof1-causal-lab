@@ -15,11 +15,11 @@ def _format_indicators(measurement_structure: MeasurementContext) -> str:
     """Format indicators and their observation semantics for a worker prompt."""
     lines = []
     for indicator in measurement_structure.indicators:
-        name = indicator.name
-        how_to_measure = indicator.how_to_measure
-        dtype = indicator.measurement_dtype
-        support_kind = indicator.support_kind.value
-        summary_operator = indicator.summary_operator.value
+        name = indicator.observation.name
+        how_to_measure = indicator.extraction.how_to_measure
+        dtype = indicator.observation.measurement_dtype
+        support_kind = indicator.observation.support_kind.value
+        summary_operator = indicator.observation.summary_operator.value
         window = measurement_structure.window(indicator)
         details = [
             dtype,
@@ -27,12 +27,18 @@ def _format_indicators(measurement_structure: MeasurementContext) -> str:
             f"support={support_kind}",
             f"window={window}",
         ]
-        levels = indicator.ordinal_levels if dtype == "ordinal" else indicator.categorical_levels
+        levels = (
+            indicator.observation.ordinal_levels
+            if dtype == "ordinal"
+            else indicator.observation.categorical_levels
+        )
         if dtype in {"ordinal", "categorical"} and levels:
             codebook = ", ".join(f"{index}={level}" for index, level in enumerate(levels))
             details.append(f"{dtype}_codes={codebook}")
 
-        lines.append(f"- {name} [{indicator.id}] ({', '.join(details)}): {how_to_measure}")
+        lines.append(
+            f"- {name} [{indicator.observation.id}] ({', '.join(details)}): {how_to_measure}"
+        )
     return "\n".join(lines)
 
 

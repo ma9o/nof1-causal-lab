@@ -26,18 +26,18 @@ def materialize_panel(
 
     if len(data_for_model) > 0:
         dtype_lookup: dict[str, str] = {
-            indicator.id: indicator.measurement_dtype
+            indicator.observation.id: indicator.observation.measurement_dtype
             for indicator in measurement_structure.indicators
         }
         ordinal_levels_lookup: dict[str, tuple[str, ...]] = {
-            ind.id: levels
+            ind.observation.id: levels
             for ind in measurement_structure.indicators
-            if (levels := ind.ordinal_levels)
+            if (levels := ind.observation.ordinal_levels)
         }
         categorical_levels_lookup: dict[str, tuple[str, ...]] = {
-            ind.id: levels
+            ind.observation.id: levels
             for ind in measurement_structure.indicators
-            if (levels := ind.categorical_levels)
+            if (levels := ind.observation.categorical_levels)
         }
         data_for_model = _encode_non_continuous(
             data_for_model, dtype_lookup, ordinal_levels_lookup, categorical_levels_lookup

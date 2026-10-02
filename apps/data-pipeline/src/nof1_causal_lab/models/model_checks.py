@@ -72,7 +72,7 @@ def validate_parameter_anchors(model: ModelSpec) -> None:
             if categorical and value is None:
                 raise ValueError(
                     f"Construct {construct.name!r} has a free categorical loading on "
-                    f"indicator {indicator.name!r}"
+                    f"indicator {indicator.observation.name!r}"
                 )
             all_categorical &= categorical
             fixed_scale |= not categorical and value is not None and value != 0.0
@@ -80,5 +80,5 @@ def validate_parameter_anchors(model: ModelSpec) -> None:
             reference = model.indicator(reference_indicators(model)[identity])
             raise ValueError(
                 f"Construct {construct.name!r} has no scale anchor "
-                f"(reference indicator {reference.name!r})"
+                f"(reference indicator {reference.observation.name!r})"
             )

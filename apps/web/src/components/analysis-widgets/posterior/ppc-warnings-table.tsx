@@ -1,7 +1,7 @@
 "use client";
 
 import type {
-  IndicatorSpec,
+  ObservationSpec,
   HistogramBin,
   PPCOverlay,
   PPCTestStat,
@@ -49,7 +49,7 @@ function buildRows(
   warnings: readonly PPCWarning[],
   testStats: readonly PPCTestStat[],
   overlays: readonly PPCOverlay[],
-  indicators: Pick<IndicatorSpec, "id" | "name">[],
+  indicators: Pick<ObservationSpec, "id" | "name">[],
 ): PPCVariableRow[] {
   const map = new Map<string, PPCVariableRow>();
   for (const w of warnings) {
@@ -61,7 +61,7 @@ function buildRows(
   for (const ov of overlays) {
     getOrCreate(map, ov.indicator_id).overlay = ov;
   }
-  const definitions = new Map<string, Pick<IndicatorSpec, "id" | "name">>(
+  const definitions = new Map<string, Pick<ObservationSpec, "id" | "name">>(
     indicators.map((indicator) => [indicator.id, indicator]),
   );
   return Array.from(map.values()).map((row) => ({
@@ -270,7 +270,7 @@ export function PPCWarningsTable({
   warnings: readonly PPCWarning[];
   testStats: readonly PPCTestStat[];
   overlays: readonly PPCOverlay[];
-  indicators: Pick<IndicatorSpec, "id" | "name">[];
+  indicators: Pick<ObservationSpec, "id" | "name">[];
 }) {
   const rows = buildRows(warnings, testStats, overlays, indicators);
   if (rows.length === 0) return null;

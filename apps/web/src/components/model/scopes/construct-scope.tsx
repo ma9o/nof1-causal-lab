@@ -30,7 +30,7 @@ export function ConstructScope({ context, id }: { context: ScopeContext; id: Con
         !indicators.some(
           (indicator) =>
             typeof finding.subject.target !== "string" &&
-            indicator.id === finding.subject.target.id,
+            indicator.observation.id === finding.subject.target.id,
         ),
     ) ?? [];
   return (
@@ -53,9 +53,13 @@ export function ConstructScope({ context, id }: { context: ScopeContext; id: Con
         <Section title="Indicators">
           <ul className="m-0 flex list-none flex-col gap-2 p-0">
             {indicators.map((indicator) => (
-              <li key={indicator.id}>
-                <OwnerLink onClick={() => context.select({ kind: "indicator", id: indicator.id })}>
-                  {humanize(indicator.name)}
+              <li key={indicator.observation.id}>
+                <OwnerLink
+                  onClick={() =>
+                    context.select({ kind: "indicator", id: indicator.observation.id })
+                  }
+                >
+                  {humanize(indicator.observation.name)}
                 </OwnerLink>
               </li>
             ))}

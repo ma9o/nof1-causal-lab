@@ -16,7 +16,9 @@ from nof1_causal_lab.artifacts.construct import (
     replace_constructs,
 )
 from nof1_causal_lab.artifacts.data_preparation import (
+    ComputedExtractionSpec,
     DataVariableSpec,
+    SemanticExtractionSpec,
     WindowExpression,
     check_semantic_collisions,
 )
@@ -31,6 +33,7 @@ from nof1_causal_lab.artifacts.identity import (
     ParameterId,
 )
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.observations import ObservationSpec
 from nof1_causal_lab.utils.observation_semantics import (
     AnchorPolicy,
     SummaryOperator,
@@ -137,11 +140,13 @@ class TestDataVariable:
         with pytest.raises(ValueError, match="aggregation"):
             DataVariableSpec.model_validate(
                 {
-                    "id": "indicator:e05e217de7f4442abdc5",
-                    "name": "mood_rating",
-                    "how_to_measure": "Extract mood",
-                    "measurement_dtype": "continuous",
-                    "aggregation": "invalid_agg",
+                    "observation": {
+                        "id": "indicator:e05e217de7f4442abdc5",
+                        "name": "mood_rating",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "invalid_agg",
+                    },
+                    "extraction": {"kind": "semantic", "how_to_measure": "Extract mood"},
                 }
             )
 
@@ -150,11 +155,13 @@ class TestDataVariable:
         with pytest.raises(ValueError, match="measurement_dtype"):
             DataVariableSpec.model_validate(
                 {
-                    "id": "indicator:e05e217de7f4442abdc5",
-                    "name": "mood_rating",
-                    "how_to_measure": "Extract mood",
-                    "measurement_dtype": "invalid_type",
-                    "aggregation": "mean",
+                    "observation": {
+                        "id": "indicator:e05e217de7f4442abdc5",
+                        "name": "mood_rating",
+                        "measurement_dtype": "invalid_type",
+                        "aggregation": "mean",
+                    },
+                    "extraction": {"kind": "semantic", "how_to_measure": "Extract mood"},
                 }
             )
 
@@ -162,266 +169,317 @@ class TestDataVariable:
         """Ordinal dtype without ordinal_levels is rejected."""
         with pytest.raises(ValueError, match="ordinal_levels is required"):
             DataVariableSpec(
-                id="indicator:036fd134b9ad32d7a2ca",
-                name="pain",
-                how_to_measure="Extract pain level",
-                measurement_dtype="ordinal",
-                aggregation="last",
+                observation=ObservationSpec(
+                    id="indicator:036fd134b9ad32d7a2ca",
+                    name="pain",
+                    measurement_dtype="ordinal",
+                    aggregation="last",
+                ),
+                extraction=SemanticExtractionSpec(how_to_measure="Extract pain level"),
             )
 
     def test_ordinal_needs_at_least_two_levels(self):
         """Ordinal with only one level is rejected."""
         with pytest.raises(ValueError, match="at least 2 items"):
             DataVariableSpec(
-                id="indicator:036fd134b9ad32d7a2ca",
-                name="pain",
-                how_to_measure="Extract pain level",
-                measurement_dtype="ordinal",
-                aggregation="last",
-                ordinal_levels=["only_one"],
+                observation=ObservationSpec(
+                    id="indicator:036fd134b9ad32d7a2ca",
+                    name="pain",
+                    measurement_dtype="ordinal",
+                    aggregation="last",
+                    ordinal_levels=["only_one"],
+                ),
+                extraction=SemanticExtractionSpec(how_to_measure="Extract pain level"),
             )
 
     def test_ordinal_no_duplicate_levels(self):
         """Ordinal with duplicate levels is rejected."""
         with pytest.raises(ValueError, match="duplicate labels"):
             DataVariableSpec(
-                id="indicator:036fd134b9ad32d7a2ca",
-                name="pain",
-                how_to_measure="Extract pain level",
-                measurement_dtype="ordinal",
-                aggregation="last",
-                ordinal_levels=["low", "low", "high"],
+                observation=ObservationSpec(
+                    id="indicator:036fd134b9ad32d7a2ca",
+                    name="pain",
+                    measurement_dtype="ordinal",
+                    aggregation="last",
+                    ordinal_levels=["low", "low", "high"],
+                ),
+                extraction=SemanticExtractionSpec(how_to_measure="Extract pain level"),
             )
 
     def test_ordinal_valid_levels(self):
         """Ordinal with valid levels passes."""
         ind = DataVariableSpec(
-            id="indicator:036fd134b9ad32d7a2ca",
-            name="pain",
-            how_to_measure="Extract pain level",
-            measurement_dtype="ordinal",
-            aggregation="last",
-            ordinal_levels=["low", "medium", "high"],
+            observation=ObservationSpec(
+                id="indicator:036fd134b9ad32d7a2ca",
+                name="pain",
+                measurement_dtype="ordinal",
+                aggregation="last",
+                ordinal_levels=["low", "medium", "high"],
+            ),
+            extraction=SemanticExtractionSpec(how_to_measure="Extract pain level"),
         )
-        assert ind.ordinal_levels == ("low", "medium", "high")
+        assert ind.observation.ordinal_levels == ("low", "medium", "high")
 
     def test_categorical_requires_levels(self):
         with pytest.raises(ValueError, match="categorical_levels is required"):
             DataVariableSpec(
-                id="indicator:73fed6c52a41057ef02f",
-                name="location",
-                how_to_measure="Extract location",
-                measurement_dtype="categorical",
-                aggregation="last",
+                observation=ObservationSpec(
+                    id="indicator:73fed6c52a41057ef02f",
+                    name="location",
+                    measurement_dtype="categorical",
+                    aggregation="last",
+                ),
+                extraction=SemanticExtractionSpec(how_to_measure="Extract location"),
             )
 
     def test_categorical_needs_at_least_two_levels(self):
         with pytest.raises(ValueError, match="at least 2 items"):
             DataVariableSpec(
-                id="indicator:73fed6c52a41057ef02f",
-                name="location",
-                how_to_measure="Extract location",
-                measurement_dtype="categorical",
-                aggregation="last",
-                categorical_levels=["home"],
+                observation=ObservationSpec(
+                    id="indicator:73fed6c52a41057ef02f",
+                    name="location",
+                    measurement_dtype="categorical",
+                    aggregation="last",
+                    categorical_levels=["home"],
+                ),
+                extraction=SemanticExtractionSpec(how_to_measure="Extract location"),
             )
 
     def test_categorical_rejects_duplicate_levels(self):
         with pytest.raises(ValueError, match="duplicate labels"):
             DataVariableSpec(
-                id="indicator:73fed6c52a41057ef02f",
-                name="location",
-                how_to_measure="Extract location",
-                measurement_dtype="categorical",
-                aggregation="last",
-                categorical_levels=["home", "home"],
+                observation=ObservationSpec(
+                    id="indicator:73fed6c52a41057ef02f",
+                    name="location",
+                    measurement_dtype="categorical",
+                    aggregation="last",
+                    categorical_levels=["home", "home"],
+                ),
+                extraction=SemanticExtractionSpec(how_to_measure="Extract location"),
             )
 
     def test_non_ordinal_ignores_levels(self):
         """Non-ordinal dtype doesn't require ordinal_levels."""
         ind = DataVariableSpec(
-            id="indicator:c5b118ae552981435d7b",
-            name="weight",
-            how_to_measure="Extract weight",
-            measurement_dtype="continuous",
-            aggregation="mean",
+            observation=ObservationSpec(
+                id="indicator:c5b118ae552981435d7b",
+                name="weight",
+                measurement_dtype="continuous",
+                aggregation="mean",
+            ),
+            extraction=SemanticExtractionSpec(how_to_measure="Extract weight"),
         )
-        assert ind.ordinal_levels is None
+        assert ind.observation.ordinal_levels is None
 
     def test_semantic_default(self):
         """Extraction mode defaults to 'semantic'."""
         ind = DataVariableSpec(
-            id="indicator:e05e217de7f4442abdc5",
-            name="mood_rating",
-            how_to_measure="Extract mood",
-            measurement_dtype="continuous",
-            aggregation="mean",
+            observation=ObservationSpec(
+                id="indicator:e05e217de7f4442abdc5",
+                name="mood_rating",
+                measurement_dtype="continuous",
+                aggregation="mean",
+            ),
+            extraction=SemanticExtractionSpec(how_to_measure="Extract mood"),
         )
-        assert ind.extraction_mode == "semantic"
+        assert ind.extraction.kind == "semantic"
 
     def test_invalid_extraction_mode(self):
         """Invalid extraction_mode is rejected."""
-        with pytest.raises(ValueError, match="extraction_mode"):
+        with pytest.raises(ValueError, match="extraction"):
             DataVariableSpec.model_validate(
                 {
-                    "id": "indicator:e05e217de7f4442abdc5",
-                    "name": "mood_rating",
-                    "how_to_measure": "Extract mood",
-                    "measurement_dtype": "continuous",
-                    "aggregation": "mean",
-                    "extraction_mode": "invalid",
+                    "observation": {
+                        "id": "indicator:e05e217de7f4442abdc5",
+                        "name": "mood_rating",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                    },
+                    "extraction": {"kind": "invalid", "how_to_measure": "Extract mood"},
                 }
             )
 
     def test_computed_valid(self):
         """Computed indicator with single source column and continuous dtype passes."""
         ind = DataVariableSpec(
-            id="indicator:aa573b5cc0c0a1837e05",
-            name="avg_heart_rate",
-            how_to_measure="Use heart_rate column directly",
-            measurement_dtype="continuous",
-            aggregation="mean",
-            source_columns=["heart_rate"],
-            extraction_mode="computed",
+            observation=ObservationSpec(
+                id="indicator:aa573b5cc0c0a1837e05",
+                name="avg_heart_rate",
+                measurement_dtype="continuous",
+                aggregation="mean",
+            ),
+            extraction=ComputedExtractionSpec(
+                how_to_measure="Use heart_rate column directly", source_columns=["heart_rate"]
+            ),
         )
-        assert ind.extraction_mode == "computed"
+        assert ind.extraction.kind == "computed"
 
     def test_computed_count_dtype(self):
         """Computed indicator with count dtype passes."""
         ind = DataVariableSpec(
-            id="indicator:a0ce08437c19d06aafd1",
-            name="total_steps",
-            how_to_measure="Use steps column directly",
-            measurement_dtype="count",
-            aggregation="sum",
-            source_columns=["steps"],
-            extraction_mode="computed",
+            observation=ObservationSpec(
+                id="indicator:a0ce08437c19d06aafd1",
+                name="total_steps",
+                measurement_dtype="count",
+                aggregation="sum",
+            ),
+            extraction=ComputedExtractionSpec(
+                how_to_measure="Use steps column directly", source_columns=["steps"]
+            ),
         )
-        assert ind.extraction_mode == "computed"
+        assert ind.extraction.kind == "computed"
 
     def test_computed_binary_point_dtype(self):
         """Computed indicator with binary dtype passes for direct point aggregation."""
         ind = DataVariableSpec(
-            id="indicator:58ba7e8b022133d4764f",
-            name="alarm_state",
-            how_to_measure="Use the last observed alarm_state value directly",
-            measurement_dtype="binary",
-            aggregation="last",
-            source_columns=["alarm_state"],
-            extraction_mode="computed",
+            observation=ObservationSpec(
+                id="indicator:58ba7e8b022133d4764f",
+                name="alarm_state",
+                measurement_dtype="binary",
+                aggregation="last",
+            ),
+            extraction=ComputedExtractionSpec(
+                how_to_measure="Use the last observed alarm_state value directly",
+                source_columns=["alarm_state"],
+            ),
         )
-        assert ind.extraction_mode == "computed"
+        assert ind.extraction.kind == "computed"
 
     def test_computed_ordinal_point_dtype(self):
         """Computed indicator with ordinal dtype passes for direct point aggregation."""
         ind = DataVariableSpec(
-            id="indicator:745132edf4775f59f221",
-            name="mood_label",
-            how_to_measure="Use the last observed mood_label value directly",
-            measurement_dtype="ordinal",
-            aggregation="last",
-            ordinal_levels=["bad", "ok", "good"],
-            source_columns=["mood_label"],
-            extraction_mode="computed",
+            observation=ObservationSpec(
+                id="indicator:745132edf4775f59f221",
+                name="mood_label",
+                measurement_dtype="ordinal",
+                aggregation="last",
+                ordinal_levels=["bad", "ok", "good"],
+            ),
+            extraction=ComputedExtractionSpec(
+                how_to_measure="Use the last observed mood_label value directly",
+                source_columns=["mood_label"],
+            ),
         )
-        assert ind.extraction_mode == "computed"
+        assert ind.extraction.kind == "computed"
 
     def test_computed_categorical_point_dtype(self):
         """Computed indicator with categorical dtype passes for direct point aggregation."""
         ind = DataVariableSpec(
-            id="indicator:42f1f2a7a4c92ee606b6",
-            name="care_setting",
-            how_to_measure="Use the first observed care_setting value directly",
-            measurement_dtype="categorical",
-            aggregation="first",
-            categorical_levels=["home", "clinic"],
-            source_columns=["care_setting"],
-            extraction_mode="computed",
+            observation=ObservationSpec(
+                id="indicator:42f1f2a7a4c92ee606b6",
+                name="care_setting",
+                measurement_dtype="categorical",
+                aggregation="first",
+                categorical_levels=["home", "clinic"],
+            ),
+            extraction=ComputedExtractionSpec(
+                how_to_measure="Use the first observed care_setting value directly",
+                source_columns=["care_setting"],
+            ),
         )
-        assert ind.extraction_mode == "computed"
+        assert ind.extraction.kind == "computed"
 
     def test_computed_requires_single_source_column(self):
         """Direct computed indicators with 0 or 2+ source_columns are rejected."""
-        with pytest.raises(ValueError, match="exactly 1 direct source_column"):
+        with pytest.raises(ValueError, match="source_column"):
             DataVariableSpec(
-                id="indicator:c21b43949b3712e734c8",
-                name="avg_hr",
-                how_to_measure="Use heart_rate",
-                measurement_dtype="continuous",
-                aggregation="mean",
-                source_columns=[],
-                extraction_mode="computed",
+                observation=ObservationSpec(
+                    id="indicator:c21b43949b3712e734c8",
+                    name="avg_hr",
+                    measurement_dtype="continuous",
+                    aggregation="mean",
+                ),
+                extraction=ComputedExtractionSpec(
+                    how_to_measure="Use heart_rate", source_columns=[]
+                ),
             )
-        with pytest.raises(ValueError, match="exactly 1 direct source_column"):
+        with pytest.raises(ValueError, match="source_column"):
             DataVariableSpec(
-                id="indicator:c21b43949b3712e734c8",
-                name="avg_hr",
-                how_to_measure="Compute from systolic and diastolic",
-                measurement_dtype="continuous",
-                aggregation="mean",
-                source_columns=["systolic_bp", "diastolic_bp"],
-                extraction_mode="computed",
+                observation=ObservationSpec(
+                    id="indicator:c21b43949b3712e734c8",
+                    name="avg_hr",
+                    measurement_dtype="continuous",
+                    aggregation="mean",
+                ),
+                extraction=ComputedExtractionSpec(
+                    how_to_measure="Compute from systolic and diastolic",
+                    source_columns=["systolic_bp", "diastolic_bp"],
+                ),
             )
 
     def test_computed_rule_allows_multi_source_deterministic_formula(self):
         """Computed rules can reference multiple source columns deterministically."""
         ind = DataVariableSpec(
-            id="indicator:e33fbf156ca312595e47",
-            name="mean_arterial_pressure",
-            how_to_measure="Compute deterministically from systolic and diastolic blood pressure",
-            measurement_dtype="continuous",
-            aggregation="mean",
-            source_columns=["systolic_bp", "diastolic_bp"],
-            computed_rule="mean(diastolic_bp + (systolic_bp - diastolic_bp) / 3)",
-            extraction_mode="computed",
+            observation=ObservationSpec(
+                id="indicator:e33fbf156ca312595e47",
+                name="mean_arterial_pressure",
+                measurement_dtype="continuous",
+                aggregation="mean",
+            ),
+            extraction=ComputedExtractionSpec(
+                how_to_measure="Compute deterministically from systolic and diastolic blood pressure",
+                source_columns=["systolic_bp", "diastolic_bp"],
+                computed_rule="mean(diastolic_bp + (systolic_bp - diastolic_bp) / 3)",
+            ),
         )
-        assert ind.extraction_mode == "computed"
-        assert ind.computed_rule is not None
-        assert ind.computed_rule.dependencies == frozenset({"systolic_bp", "diastolic_bp"})
-        assert ind.computed_rule.summary_operator == SummaryOperator.MEAN
-        assert TypeAdapter(WindowExpression).validate_python(ind.computed_rule) is ind.computed_rule
-        assert ind.model_dump(mode="json")["computed_rule"] == ind.computed_rule.source
+        assert ind.extraction.kind == "computed"
+        assert ind.extraction.computed_rule is not None
+        assert ind.extraction.computed_rule.dependencies == frozenset(
+            {"systolic_bp", "diastolic_bp"}
+        )
+        assert ind.extraction.computed_rule.summary_operator == SummaryOperator.MEAN
+        assert (
+            TypeAdapter(WindowExpression).validate_python(ind.extraction.computed_rule)
+            is ind.extraction.computed_rule
+        )
+        assert (
+            ind.model_dump(mode="json")["extraction"]["computed_rule"]
+            == ind.extraction.computed_rule.source
+        )
 
     def test_computed_rule_rejects_semantic_mode(self):
-        """computed_rule is only valid when extraction_mode='computed'."""
-        with pytest.raises(ValueError, match="computed_rule but extraction_mode is 'semantic'"):
-            DataVariableSpec(
-                id="indicator:86e4453f8f098e1007ef",
-                name="low_spo2",
-                how_to_measure="Deterministically compute low SpO2 from spo2_pct",
-                measurement_dtype="binary",
-                aggregation="last",
-                source_columns=["spo2_pct"],
-                computed_rule="last(spo2_pct)",
-                extraction_mode="semantic",
+        """Semantic extraction cannot carry a deterministic computation."""
+        with pytest.raises(ValueError, match="computed_rule"):
+            SemanticExtractionSpec.model_validate(
+                {
+                    "how_to_measure": "Read SpO2",
+                    "source_columns": ["spo2_pct"],
+                    "computed_rule": "last(spo2_pct)",
+                }
             )
 
     def test_computed_rule_rejects_undeclared_source_column(self):
         """computed_rule must reference only declared source_columns."""
         with pytest.raises(ValueError, match="references undeclared source_columns"):
             DataVariableSpec(
-                id="indicator:0c111e9b74f243fbc086",
-                name="glucose_out_of_range",
-                how_to_measure="Count out-of-range glucose values deterministically",
-                measurement_dtype="count",
-                aggregation="sum",
-                source_columns=["glucose_mg_dl"],
-                computed_rule="None if count_non_null(glucose_mg_dl) == 0 else sum(1 if (glucose_mg_dl < 70 or serum_glucose > 180) else 0)",
-                extraction_mode="computed",
+                observation=ObservationSpec(
+                    id="indicator:0c111e9b74f243fbc086",
+                    name="glucose_out_of_range",
+                    measurement_dtype="count",
+                    aggregation="sum",
+                ),
+                extraction=ComputedExtractionSpec(
+                    how_to_measure="Count out-of-range glucose values deterministically",
+                    source_columns=["glucose_mg_dl"],
+                    computed_rule="None if count_non_null(glucose_mg_dl) == 0 else sum(1 if (glucose_mg_dl < 70 or serum_glucose > 180) else 0)",
+                ),
             )
 
     def test_computed_rule_requires_source_reference(self):
         """computed_rule must actually use at least one declared source column."""
-        with pytest.raises(ValueError, match="does not reference any source_columns"):
+        with pytest.raises(ValueError, match="must reference at least 1 source_column"):
             DataVariableSpec(
-                id="indicator:4aa7a5f09fd3489f4f2e",
-                name="constant_flag",
-                how_to_measure="Always emit a constant flag",
-                measurement_dtype="binary",
-                aggregation="last",
-                source_columns=["spo2_pct"],
-                computed_rule="last(1)",
-                extraction_mode="computed",
+                observation=ObservationSpec(
+                    id="indicator:4aa7a5f09fd3489f4f2e",
+                    name="constant_flag",
+                    measurement_dtype="binary",
+                    aggregation="last",
+                ),
+                extraction=ComputedExtractionSpec(
+                    how_to_measure="Always emit a constant flag",
+                    source_columns=["spo2_pct"],
+                    computed_rule="last(1)",
+                ),
             )
 
     def test_computed_still_rejects_invalid_semantics(self):
@@ -430,13 +488,15 @@ class TestDataVariable:
             ValueError, match="aggregation 'mean' requires measurement_dtype='continuous'"
         ):
             DataVariableSpec(
-                id="indicator:58ba7e8b022133d4764f",
-                name="alarm_state",
-                how_to_measure="Use alarm_state directly",
-                measurement_dtype="binary",
-                aggregation="mean",
-                source_columns=["alarm_state"],
-                extraction_mode="computed",
+                observation=ObservationSpec(
+                    id="indicator:58ba7e8b022133d4764f",
+                    name="alarm_state",
+                    measurement_dtype="binary",
+                    aggregation="mean",
+                ),
+                extraction=ComputedExtractionSpec(
+                    how_to_measure="Use alarm_state directly", source_columns=["alarm_state"]
+                ),
             )
 
 
@@ -445,8 +505,8 @@ class TestModelContainment:
         model = make_model(["mood", "stress"], [("mood", "stress")])
         mood, stress = model.constructs
         assert model.get_construct(mood.id).indicators == mood.indicators
-        assert model.indicator_owner(mood.indicators[0].id) is mood
-        assert model.indicator_owner(stress.indicators[0].id) is stress
+        assert model.indicator_owner(mood.indicators[0].observation.id) is mood
+        assert model.indicator_owner(stress.indicators[0].observation.id) is stress
         assert "construct_id" not in mood.indicators[0].model_dump()
 
     def test_indicator_cannot_have_an_independent_unknown_owner(self):
@@ -472,7 +532,7 @@ class TestModelContainment:
         data = model.model_dump(mode="json")
         graph_constructs(data)[0]["usage"] = {
             "kind": "known_input",
-            "source_indicator_id": model.constructs[1].indicators[0].id,
+            "source_indicator_id": model.constructs[1].indicators[0].observation.id,
         }
         with pytest.raises(ValueError, match="Extra inputs are not permitted"):
             ModelSpec.model_validate(data)
@@ -594,11 +654,13 @@ class TestDeriveObservationSemantics:
         with pytest.raises(ValueError, match="aggregation"):
             DataVariableSpec.model_validate(
                 {
-                    "id": "indicator:mood",
-                    "name": "mood",
-                    "how_to_measure": "Median score",
-                    "measurement_dtype": "continuous",
-                    "aggregation": "median",
+                    "observation": {
+                        "id": "indicator:mood",
+                        "name": "mood",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "median",
+                    },
+                    "extraction": {"kind": "semantic", "how_to_measure": "Median score"},
                 }
             )
 
@@ -639,23 +701,23 @@ class TestIndicatorObservationSemantics:
 
     def test_interval_indicator_serializes_semantics(self, indicator_factory):
         ind = indicator_factory("steps", aggregation="sum", dtype="count")
-        assert ind.support_kind == SupportKind.INTERVAL
-        assert ind.summary_operator == SummaryOperator.SUM
-        assert ind.anchor_policy == AnchorPolicy.SUPPORT_END
-        assert ind.requires_interval_summary_measurement is True
+        assert ind.observation.support_kind == SupportKind.INTERVAL
+        assert ind.observation.summary_operator == SummaryOperator.SUM
+        assert ind.observation.anchor_policy == AnchorPolicy.SUPPORT_END
+        assert ind.observation.requires_interval_summary_measurement is True
 
     def test_point_indicator_serializes_semantics(self, indicator_factory):
         ind = indicator_factory("last_bp", aggregation="last", dtype="continuous")
-        assert ind.support_kind == SupportKind.POINT
-        assert ind.summary_operator == SummaryOperator.LAST
-        assert ind.anchor_policy == AnchorPolicy.SUPPORT_END
-        assert ind.requires_interval_summary_measurement is False
+        assert ind.observation.support_kind == SupportKind.POINT
+        assert ind.observation.summary_operator == SummaryOperator.LAST
+        assert ind.observation.anchor_policy == AnchorPolicy.SUPPORT_END
+        assert ind.observation.requires_interval_summary_measurement is False
 
     def test_ordinal_indicator_uses_point_semantics(self, indicator_factory):
         ind = indicator_factory("pain_level", aggregation="last", dtype="ordinal")
-        assert ind.support_kind == SupportKind.POINT
-        assert ind.summary_operator == SummaryOperator.LAST
-        assert ind.anchor_policy == AnchorPolicy.SUPPORT_END
+        assert ind.observation.support_kind == SupportKind.POINT
+        assert ind.observation.summary_operator == SummaryOperator.LAST
+        assert ind.observation.anchor_policy == AnchorPolicy.SUPPORT_END
 
     def test_unsupported_aggregation_is_rejected_on_indicator(self, indicator_factory):
         with pytest.raises(ValueError, match="aggregation"):
@@ -671,26 +733,30 @@ class TestIndicatorObservationSemantics:
 class TestIndicatorObservationWindow:
     def test_valid_observation_window(self):
         indicator = DataVariableSpec(
-            id="indicator:b41c85c254676b4bc588",
-            name="fortnightly_mood",
-            how_to_measure="Average mood over two weeks",
-            measurement_dtype="continuous",
-            aggregation="mean",
-            observation_window="2w",
+            observation=ObservationSpec(
+                id="indicator:b41c85c254676b4bc588",
+                name="fortnightly_mood",
+                measurement_dtype="continuous",
+                aggregation="mean",
+                observation_window="2w",
+            ),
+            extraction=SemanticExtractionSpec(how_to_measure="Average mood over two weeks"),
         )
 
-        assert indicator.observation_window is not None
-        assert indicator.observation_window.source == "2w"
+        assert indicator.observation.observation_window is not None
+        assert indicator.observation.observation_window.source == "2w"
 
     def test_invalid_observation_window(self):
         with pytest.raises(ValueError, match="Invalid duration"):
             DataVariableSpec(
-                id="indicator:b41c85c254676b4bc588",
-                name="fortnightly_mood",
-                how_to_measure="Average mood over two weeks",
-                measurement_dtype="continuous",
-                aggregation="mean",
-                observation_window="monthly",
+                observation=ObservationSpec(
+                    id="indicator:b41c85c254676b4bc588",
+                    name="fortnightly_mood",
+                    measurement_dtype="continuous",
+                    aggregation="mean",
+                    observation_window="monthly",
+                ),
+                extraction=SemanticExtractionSpec(how_to_measure="Average mood over two weeks"),
             )
 
 
@@ -724,14 +790,17 @@ def test_window_expression_serializes_without_a_wrapper():
 def test_computed_measurement_cannot_claim_different_summary_semantics(expression, aggregation):
     with pytest.raises(ValidationError, match="computed_rule"):
         DataVariableSpec(
-            id="indicator:reading",
-            name="reading",
-            how_to_measure="Read the signal",
-            measurement_dtype="continuous",
-            aggregation=aggregation,
-            source_columns=("reading",),
-            computed_rule=expression,
-            extraction_mode="computed",
+            observation=ObservationSpec(
+                id="indicator:reading",
+                name="reading",
+                measurement_dtype="continuous",
+                aggregation=aggregation,
+            ),
+            extraction=ComputedExtractionSpec(
+                how_to_measure="Read the signal",
+                source_columns=("reading",),
+                computed_rule=expression,
+            ),
         )
 
 

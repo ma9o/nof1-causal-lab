@@ -21,6 +21,7 @@ from __future__ import annotations
 from fastapi import FastAPI
 
 from nof1_causal_lab.study_api import (
+    TemporalClientProvider,
     capabilities_router,
     uploads_router,
     workspaces_router,
@@ -30,6 +31,7 @@ from nof1_causal_lab.study_api import router as study_router
 
 def create_read_facade_app() -> FastAPI:
     app = FastAPI(title="Study Read Facade")
+    app.state.study_clients = TemporalClientProvider()
     app.include_router(study_router)
     app.include_router(capabilities_router)
     app.include_router(workspaces_router)

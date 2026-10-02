@@ -21,45 +21,47 @@ def valid_artifact_payloads() -> dict[str, dict[str, Any]]:
     return {
         "validation_report": {
             "is_valid": True,
-            "indicators": {
-                "indicator:3696aef3ff6f446744e5": {
-                    "profile": {
-                        "measurement_dtype": "continuous",
-                        "n_obs": 10,
-                        "mean": 3.2,
-                        "std": 1.1,
-                        "min": 1.0,
-                        "max": 5.0,
-                        "q25": 2.0,
-                        "q50": 3.0,
-                        "q75": 4.0,
-                        "variance": 1.2,
-                        "time_coverage_ratio": 1.0,
-                        "max_gap_ratio": 0.2,
-                        "dtype_violations": 0,
-                        "duplicate_pct": 0.1,
-                        "arithmetic_sequence_detected": False,
-                        "n_unparseable_timestamps": 0,
-                        "zero_fraction": 0.0,
-                        "is_nonnegative": True,
-                        "is_unit_interval": False,
-                        "looks_integer_valued": True,
-                        "variance_to_mean_ratio": 0.375,
-                    },
-                    "issues": [],
-                    "checks": {
-                        "n_obs": "ok",
-                        "variance": "ok",
-                        "n_unparseable_timestamps": "ok",
-                        "time_coverage_ratio": "ok",
-                        "max_gap_ratio": "ok",
-                        "dtype_violations": "ok",
-                        "duplicate_pct": "ok",
-                        "arithmetic_sequence_detected": "ok",
-                    },
-                }
+            "data": {
+                "indicators": {
+                    "indicator:3696aef3ff6f446744e5": {
+                        "profile": {
+                            "measurement_dtype": "continuous",
+                            "n_obs": 10,
+                            "mean": 3.2,
+                            "std": 1.1,
+                            "min": 1.0,
+                            "max": 5.0,
+                            "q25": 2.0,
+                            "q50": 3.0,
+                            "q75": 4.0,
+                            "variance": 1.2,
+                            "time_coverage_ratio": 1.0,
+                            "max_gap_ratio": 0.2,
+                            "dtype_violations": 0,
+                            "duplicate_pct": 0.1,
+                            "arithmetic_sequence_detected": False,
+                            "n_unparseable_timestamps": 0,
+                            "zero_fraction": 0.0,
+                            "is_nonnegative": True,
+                            "is_unit_interval": False,
+                            "looks_integer_valued": True,
+                            "variance_to_mean_ratio": 0.375,
+                        },
+                        "issues": [],
+                        "checks": {
+                            "n_obs": "ok",
+                            "variance": "ok",
+                            "n_unparseable_timestamps": "ok",
+                            "time_coverage_ratio": "ok",
+                            "max_gap_ratio": "ok",
+                            "dtype_violations": "ok",
+                            "duplicate_pct": "ok",
+                            "arithmetic_sequence_detected": "ok",
+                        },
+                    }
+                },
+                "dataset_issues": [],
             },
-            "dataset_issues": [],
         },
         "model": make_model(["Stress", "Perf"], [("Stress", "Perf")]).model_dump(mode="json"),
     }
@@ -96,7 +98,7 @@ def test_validate_artifact_payload_rejects_missing_required_fields(
 ):
     """Artifact contract validation should fail on contract violations."""
     bad = deepcopy(valid_artifact_payloads["validation_report"])
-    bad.pop("indicators")
+    bad.pop("data")
     with pytest.raises(ValidationError):
         validate_artifact_payload("validation_report", bad)
 

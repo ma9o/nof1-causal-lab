@@ -10,15 +10,6 @@
         "description": "Test state",
         "indicators": [
           {
-            "id": "indicator:a6c99a629d09c47f8b69",
-            "name": "manifest_0",
-            "measurement_dtype": "continuous",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "Normal",
@@ -57,7 +48,16 @@
               "reasoning": "Test likelihood",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": null,
+              "id": "indicator:a6c99a629d09c47f8b69",
+              "aggregation": "last",
+              "name": "manifest_0",
+              "ordinal_levels": null,
+              "measurement_dtype": "continuous",
+              "observation_window": null
+            }
           }
         ],
         "dynamics": [
@@ -193,15 +193,6 @@
         "description": "Test state",
         "indicators": [
           {
-            "id": "indicator:c0bf518a25306a72d19b",
-            "name": "manifest_1",
-            "measurement_dtype": "continuous",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "Normal",
@@ -240,7 +231,16 @@
               "reasoning": "Test likelihood",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": null,
+              "id": "indicator:c0bf518a25306a72d19b",
+              "aggregation": "last",
+              "name": "manifest_1",
+              "ordinal_levels": null,
+              "measurement_dtype": "continuous",
+              "observation_window": null
+            }
           }
         ],
         "dynamics": [
@@ -384,15 +384,6 @@
         "description": "Test state",
         "indicators": [
           {
-            "id": "indicator:e42731c67d0a8f200d15",
-            "name": "manifest_2",
-            "measurement_dtype": "continuous",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "Normal",
@@ -431,7 +422,16 @@
               "reasoning": "Test likelihood",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": null,
+              "id": "indicator:e42731c67d0a8f200d15",
+              "aggregation": "last",
+              "name": "manifest_2",
+              "ordinal_levels": null,
+              "measurement_dtype": "continuous",
+              "observation_window": null
+            }
           }
         ],
         "dynamics": [

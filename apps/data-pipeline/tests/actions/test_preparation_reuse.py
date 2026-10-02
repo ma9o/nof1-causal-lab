@@ -28,11 +28,14 @@ from nof1_causal_lab.actions.temporal.messages import (
     MeasurementsWorkflowInput,
 )
 from nof1_causal_lab.artifacts.data_preparation import (
+    ComputedExtractionSpec,
     DataPreparationSpec,
     DataVariableSpec,
     FilePreparationSpec,
     FileSourceRef,
+    SemanticExtractionSpec,
 )
+from nof1_causal_lab.artifacts.observations import ObservationSpec
 from nof1_causal_lab.study.store import ArtifactStore
 from nof1_causal_lab.utils import data, storage
 from nof1_causal_lab.utils.aggregations import compute_indicators
@@ -66,12 +69,12 @@ def test_remote_cache_uses_the_conditional_write_winner_only(code, monkeypatch):
 
 def _variable(name):
     return DataVariableSpec(
-        id=f"indicator:{name}",
-        name=name,
-        measurement_dtype="continuous",
-        aggregation="last",
-        source_columns=(name,),
-        how_to_measure="Read the daily score",
+        observation=ObservationSpec(
+            id=f"indicator:{name}", name=name, measurement_dtype="continuous", aggregation="last"
+        ),
+        extraction=SemanticExtractionSpec(
+            source_columns=(name,), how_to_measure="Read the daily score"
+        ),
     )
 
 
@@ -270,7 +273,11 @@ def test_ingestion_reuse_preserves_arrow_metadata_and_source_order(tmp_path, mon
 
 def test_span_keeps_complete_windows_and_never_fills_from_excluded_history():
     raw = pl.DataFrame({"timestamp": [datetime(2026, 1, 1), datetime(2026, 1, 3)], "x": [9, 2]})
-    variable = _variable("x").revised(extraction_mode="computed", fill_null="forward")
+    variable = _variable("x").revised(
+        extraction=ComputedExtractionSpec(
+            how_to_measure="Read the daily score", source_columns=("x",), fill_null="forward"
+        )
+    )
     context = FilePreparationSpec(
         source=FileSourceRef(files=("source.csv",), start=date(2026, 1, 2), end=date(2026, 1, 4)),
         definition=DataPreparationSpec(default_window="1d", variables=(variable,)),
@@ -324,7 +331,9 @@ def test_multiday_span_and_empty_semantic_windows_materialize_without_requests(
     artifact = store.write_artifact(
         "raw_data", derived_from={}, produced_by="prepare_data", parquet_files={"raw.parquet": raw}
     )
-    variable = _variable("x").revised(aggregation=aggregation)
+    variable = _variable("x").revised(
+        observation=_variable("x").observation.revised(aggregation=aggregation)
+    )
     preparation = FilePreparationSpec(
         source={"files": ["scores.csv"], "start": "2026-01-02", "end": "2026-01-10"},
         definition=DataPreparationSpec(default_window="2d", variables=(variable,)),
@@ -395,14 +404,11 @@ def test_multiday_span_and_empty_semantic_windows_materialize_without_requests(
     assert len(list((tmp_path / ".preparation-cache/measurement_extraction").iterdir())) == 1
 
     computed_variable = DataVariableSpec(
-        id=variable.id,
-        name=variable.name,
-        measurement_dtype=variable.measurement_dtype,
-        aggregation=variable.aggregation,
-        observation_window=variable.observation_window,
-        how_to_measure=variable.how_to_measure,
-        source_columns=variable.source_columns,
-        extraction_mode="computed",
+        observation=variable.observation,
+        extraction=ComputedExtractionSpec(
+            how_to_measure=variable.extraction.how_to_measure,
+            source_columns=variable.extraction.source_columns,
+        ),
     )
     computed_context = FilePreparationSpec(
         source=preparation.source,

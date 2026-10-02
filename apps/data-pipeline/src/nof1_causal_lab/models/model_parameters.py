@@ -100,18 +100,18 @@ def iter_coefficient_uses(model: ModelSpec) -> Iterator[CoefficientUse]:
                 if operand.value is not None:
                     yield CoefficientUse(
                         operand.meaning.quantity,
-                        (ConstructRef(id=identity), IndicatorRef(id=indicator.id)),
+                        (ConstructRef(id=identity), IndicatorRef(id=indicator.observation.id)),
                         operand.value,
-                        f"{indicator.id}.likelihood.loading.{identity}",
+                        f"{indicator.observation.id}.likelihood.loading.{identity}",
                     )
-            observation_refs = (ref, IndicatorRef(id=indicator.id))
+            observation_refs = (ref, IndicatorRef(id=indicator.observation.id))
             for operand in (terms.intercept, *terms.auxiliary):
                 if operand.value is not None:
                     yield CoefficientUse(
                         operand.meaning.quantity,
                         observation_refs,
                         operand.value,
-                        f"{indicator.id}.likelihood.{operand.role}",
+                        f"{indicator.observation.id}.likelihood.{operand.role}",
                     )
 
 
@@ -139,7 +139,7 @@ def execution_coefficient_uses(model: ModelSpec) -> Iterator[CoefficientUse]:
     active = {
         "construct": states | roots,
         "edge": edges,
-        "indicator": {indicator.id for indicator in selected_indicators(model)},
+        "indicator": {indicator.observation.id for indicator in selected_indicators(model)},
     }
     for use in iter_coefficient_uses(model):
         if all(owner.kind == "mechanism" or owner.id in active[owner.kind] for owner in use.owners):

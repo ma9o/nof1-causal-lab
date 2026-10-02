@@ -103,7 +103,7 @@ export function useLayeredGraph({
   const likelihoodByVariable = new Map(
     specificationVisible
       ? entities.indicators.flatMap((indicator) =>
-          indicator.likelihood ? [[indicator.id, indicator.likelihood] as const] : [],
+          indicator.likelihood ? [[indicator.observation.id, indicator.likelihood] as const] : [],
         )
       : [],
   );

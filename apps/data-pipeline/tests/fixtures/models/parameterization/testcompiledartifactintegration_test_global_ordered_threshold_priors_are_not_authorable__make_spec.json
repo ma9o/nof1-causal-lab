@@ -10,20 +10,6 @@
         "description": "Test state",
         "indicators": [
           {
-            "id": "indicator:629caa38759753c3b1e8",
-            "name": "scale",
-            "measurement_dtype": "ordinal",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": [
-              "0",
-              "1",
-              "2",
-              "3"
-            ],
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "OrderedLogistic",
@@ -74,7 +60,21 @@
               "reasoning": "Test likelihood",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": null,
+              "id": "indicator:629caa38759753c3b1e8",
+              "aggregation": "last",
+              "name": "scale",
+              "ordinal_levels": [
+                "0",
+                "1",
+                "2",
+                "3"
+              ],
+              "measurement_dtype": "ordinal",
+              "observation_window": null
+            }
           }
         ],
         "dynamics": [

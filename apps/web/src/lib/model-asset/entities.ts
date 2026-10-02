@@ -18,10 +18,10 @@ export function indexModel(model: ModelSpec | undefined) {
     edgeById: new Map(edges.map((entity) => [entity.id, entity])),
     indicatorOwnerById: new Map(
       constructs.flatMap((construct) =>
-        construct.indicators.map((indicator) => [indicator.id, construct] as const),
+        construct.indicators.map((indicator) => [indicator.observation.id, construct] as const),
       ),
     ),
-    indicatorById: new Map(indicators.map((entity) => [entity.id, entity])),
+    indicatorById: new Map(indicators.map((entity) => [entity.observation.id, entity])),
     parameterById: new Map(parameters.map((entity) => [entity.id, entity])),
   };
 }
@@ -66,7 +66,7 @@ export function resolveEntity(
       return indicator && owner
         ? {
             selection,
-            label: humanize(indicator.name),
+            label: humanize(indicator.observation.name),
             relationships: [constructLink(owner)],
           }
         : undefined;
@@ -87,7 +87,7 @@ export function parameterOwner(entities: ModelEntities, id: ParameterId) {
     })),
     ...entities.indicators.map((entity) => ({
       entity,
-      selection: { kind: "indicator", id: entity.id } as const,
+      selection: { kind: "indicator", id: entity.observation.id } as const,
     })),
     ...entities.constructs.map((entity) => ({
       entity,

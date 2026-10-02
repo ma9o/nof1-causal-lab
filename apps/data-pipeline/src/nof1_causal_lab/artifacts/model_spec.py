@@ -125,11 +125,11 @@ class ModelSpec(Value):
 
     @cached_property
     def _indicators(self) -> dict[IndicatorId, IndicatorSpec]:
-        return {item.id: item for _, item in self.iter_indicators()}
+        return {item.observation.id: item for _, item in self.iter_indicators()}
 
     @cached_property
     def _indicator_owners(self) -> dict[IndicatorId, ConstructSpec]:
-        return {item.id: owner for owner, item in self.iter_indicators()}
+        return {item.observation.id: owner for owner, item in self.iter_indicators()}
 
     @cached_property
     def _parameters(self) -> dict[ParameterId, ParameterSpec]:
@@ -241,16 +241,17 @@ class ModelSpec(Value):
             raise ValueError("Trajectory time points must be strictly increasing")
         if any(item.distribution is not None for item in self.constructs) and not self.time_points:
             raise ValueError("Construct trajectory distributions require time points")
+        observations = tuple(item.observation for item in self.indicators)
         for label, items in (
             ("edge", self.edges),
-            ("indicator", self.indicators),
+            ("indicator", observations),
             ("parameter", self.parameters),
             ("mechanism", tuple(item for _, item in self.iter_mechanisms())),
         ):
             ids = [item.id for item in items]
             if len(ids) != len(set(ids)):
                 raise ValueError(f"Duplicate {label} IDs")
-        for label, items in (("construct", self.constructs), ("indicator", self.indicators)):
+        for label, items in (("construct", self.constructs), ("indicator", observations)):
             if len({item.name for item in items}) != len(items):
                 raise ValueError(f"Duplicate {label} names")
         if self.default_outcome is not None:
@@ -291,8 +292,10 @@ class ModelSpec(Value):
             unknown = owners - self._constructs.keys()
             if unknown:
                 raise ValueError(f"Likelihood references unknown constructs: {sorted(unknown)}")
-            if self.indicator_owner(indicator.id).id not in owners:
-                raise ValueError(f"Likelihood {indicator.id!r} must include its measured construct")
+            if self.indicator_owner(indicator.observation.id).id not in owners:
+                raise ValueError(
+                    f"Likelihood {indicator.observation.id!r} must include its measured construct"
+                )
 
         from nof1_causal_lab.models.model_parameters import iter_coefficient_uses
 

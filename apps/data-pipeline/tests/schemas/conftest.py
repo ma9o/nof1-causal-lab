@@ -10,6 +10,7 @@ from nof1_causal_lab.artifacts.construct import ConstructSpec, Role, TemporalSta
 from nof1_causal_lab.artifacts.expressions import state
 from nof1_causal_lab.artifacts.indicator import IndicatorPolarity, IndicatorSpec
 from nof1_causal_lab.artifacts.likelihood import DeltaLawSpec, LikelihoodSpec
+from nof1_causal_lab.artifacts.observations import ObservationSpec
 from nof1_causal_lab.utils.observation_semantics import SummaryOperator
 from tests.helpers import fixture_entity_id
 
@@ -41,10 +42,12 @@ def construct_factory():
             temporal_status=temporal_status,
             indicators=(
                 IndicatorSpec(
-                    id=fixture_entity_id("indicator", name),
-                    name=name + "_reading",
-                    measurement_dtype="continuous",
-                    aggregation="last",
+                    observation=ObservationSpec(
+                        id=fixture_entity_id("indicator", name),
+                        name=name + "_reading",
+                        measurement_dtype="continuous",
+                        aggregation="last",
+                    ),
                     construct_polarity="positive",
                     likelihood=LikelihoodSpec(
                         law=DeltaLawSpec(v=state(identity)),
@@ -79,12 +82,14 @@ def indicator_factory():
         if dtype == "ordinal" and ordinal_levels is None:
             ordinal_levels = ["low", "medium", "high"]
         return IndicatorSpec(
-            id=fixture_entity_id("indicator", name),
-            name=name,
+            observation=ObservationSpec(
+                id=fixture_entity_id("indicator", name),
+                name=name,
+                measurement_dtype=dtype,
+                aggregation=aggregation,
+                ordinal_levels=ordinal_levels,
+            ),
             construct_polarity=construct_polarity,
-            measurement_dtype=dtype,
-            aggregation=aggregation,
-            ordinal_levels=ordinal_levels,
         )
 
     return _make

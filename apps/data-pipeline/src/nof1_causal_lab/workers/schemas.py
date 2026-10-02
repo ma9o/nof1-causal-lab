@@ -133,7 +133,9 @@ def validate_worker_output(
         extractions = []
 
     # Keep the pinned observation definitions indexed by identity.
-    indicator_info = {indicator.id: indicator for indicator in measurement_structure.indicators}
+    indicator_info = {
+        indicator.observation.id: indicator for indicator in measurement_structure.indicators
+    }
     expected_window_start_set = set(expected_window_starts) if expected_window_starts else None
 
     # Validate each extraction
@@ -188,7 +190,7 @@ def validate_worker_output(
         seen_pairs.add(pair)
 
         # Check dtype match
-        expected_dtype = indicator_info[ind_name].measurement_dtype
+        expected_dtype = indicator_info[ind_name].observation.measurement_dtype
         if not _check_dtype_match(value, expected_dtype):
             errors.append(
                 f"extractions[{i}]: value {value!r} for '{ind_name}' doesn't match "
@@ -197,7 +199,7 @@ def validate_worker_output(
             continue
 
         if expected_dtype == "categorical" and isinstance(value, str):
-            levels = indicator_info[ind_name].categorical_levels
+            levels = indicator_info[ind_name].observation.categorical_levels
             if levels is not None and normalize_level_label(value) not in {
                 normalize_level_label(label) for label in levels
             }:
@@ -207,7 +209,7 @@ def validate_worker_output(
                 continue
 
         if expected_dtype == "ordinal" and value is not None:
-            ordinal_levels = indicator_info[ind_name].ordinal_levels
+            ordinal_levels = indicator_info[ind_name].observation.ordinal_levels
             ordinal_code = int(value)
             if ordinal_code < 0:
                 errors.append(

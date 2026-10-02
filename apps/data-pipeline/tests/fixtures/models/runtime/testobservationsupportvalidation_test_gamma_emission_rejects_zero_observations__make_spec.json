@@ -10,15 +10,6 @@
         "description": "Test state",
         "indicators": [
           {
-            "id": "indicator:cbb3ae60fb004e37d3c6",
-            "name": "screen_gap",
-            "measurement_dtype": "continuous",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "Gamma",
@@ -73,7 +64,16 @@
               "reasoning": "Test likelihood",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": null,
+              "id": "indicator:cbb3ae60fb004e37d3c6",
+              "aggregation": "last",
+              "name": "screen_gap",
+              "ordinal_levels": null,
+              "measurement_dtype": "continuous",
+              "observation_window": null
+            }
           }
         ],
         "dynamics": [

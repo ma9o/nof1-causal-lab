@@ -101,15 +101,6 @@
         "description": "Synthetic latent state",
         "indicators": [
           {
-            "id": "indicator:state_of_mind_valence",
-            "name": "state_of_mind_valence",
-            "measurement_dtype": "continuous",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "Normal",
@@ -148,18 +139,18 @@
               "reasoning": "Synthetic measurement law",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "aggregation": "last",
+              "measurement_dtype": "continuous",
+              "observation_window": null,
+              "categorical_levels": null,
+              "ordinal_levels": null,
+              "id": "indicator:state_of_mind_valence",
+              "name": "state_of_mind_valence"
+            }
           },
           {
-            "id": "indicator:late_night_message_count",
-            "name": "late_night_message_count",
-            "measurement_dtype": "count",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "NegativeBinomial2",
@@ -204,18 +195,18 @@
               "reasoning": "Synthetic measurement law",
               "sources": []
             },
-            "construct_polarity": "negative"
+            "construct_polarity": "negative",
+            "observation": {
+              "aggregation": "last",
+              "measurement_dtype": "count",
+              "observation_window": null,
+              "categorical_levels": null,
+              "ordinal_levels": null,
+              "id": "indicator:late_night_message_count",
+              "name": "late_night_message_count"
+            }
           },
           {
-            "id": "indicator:journal_affect_severity",
-            "name": "journal_affect_severity",
-            "measurement_dtype": "continuous",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "Normal",
@@ -254,18 +245,18 @@
               "reasoning": "Synthetic measurement law",
               "sources": []
             },
-            "construct_polarity": "negative"
+            "construct_polarity": "negative",
+            "observation": {
+              "aggregation": "last",
+              "measurement_dtype": "continuous",
+              "observation_window": null,
+              "categorical_levels": null,
+              "ordinal_levels": null,
+              "id": "indicator:journal_affect_severity",
+              "name": "journal_affect_severity"
+            }
           },
           {
-            "id": "indicator:journal_rumination_intensity",
-            "name": "journal_rumination_intensity",
-            "measurement_dtype": "continuous",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "Normal",
@@ -304,18 +295,18 @@
               "reasoning": "Synthetic measurement law",
               "sources": []
             },
-            "construct_polarity": "negative"
+            "construct_polarity": "negative",
+            "observation": {
+              "aggregation": "last",
+              "measurement_dtype": "continuous",
+              "observation_window": null,
+              "categorical_levels": null,
+              "ordinal_levels": null,
+              "id": "indicator:journal_rumination_intensity",
+              "name": "journal_rumination_intensity"
+            }
           },
           {
-            "id": "indicator:gp_clinical_severity",
-            "name": "gp_clinical_severity",
-            "measurement_dtype": "continuous",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "Normal",
@@ -354,7 +345,16 @@
               "reasoning": "Synthetic measurement law",
               "sources": []
             },
-            "construct_polarity": "negative"
+            "construct_polarity": "negative",
+            "observation": {
+              "aggregation": "last",
+              "measurement_dtype": "continuous",
+              "observation_window": null,
+              "categorical_levels": null,
+              "ordinal_levels": null,
+              "id": "indicator:gp_clinical_severity",
+              "name": "gp_clinical_severity"
+            }
           }
         ],
         "dynamics": [
@@ -462,15 +462,6 @@
         "description": "Synthetic latent state",
         "indicators": [
           {
-            "id": "indicator:total_sleep_hours",
-            "name": "total_sleep_hours",
-            "measurement_dtype": "continuous",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "Normal",
@@ -509,18 +500,18 @@
               "reasoning": "Synthetic measurement law",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "aggregation": "last",
+              "measurement_dtype": "continuous",
+              "observation_window": null,
+              "categorical_levels": null,
+              "ordinal_levels": null,
+              "id": "indicator:total_sleep_hours",
+              "name": "total_sleep_hours"
+            }
           },
           {
-            "id": "indicator:sleep_efficiency_pct",
-            "name": "sleep_efficiency_pct",
-            "measurement_dtype": "continuous",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "Normal",
@@ -559,18 +550,18 @@
               "reasoning": "Synthetic measurement law",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "aggregation": "last",
+              "measurement_dtype": "continuous",
+              "observation_window": null,
+              "categorical_levels": null,
+              "ordinal_levels": null,
+              "id": "indicator:sleep_efficiency_pct",
+              "name": "sleep_efficiency_pct"
+            }
           },
           {
-            "id": "indicator:sleep_onset_latency_min",
-            "name": "sleep_onset_latency_min",
-            "measurement_dtype": "continuous",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "Gamma",
@@ -625,18 +616,18 @@
               "reasoning": "Synthetic measurement law",
               "sources": []
             },
-            "construct_polarity": "negative"
+            "construct_polarity": "negative",
+            "observation": {
+              "aggregation": "last",
+              "measurement_dtype": "continuous",
+              "observation_window": null,
+              "categorical_levels": null,
+              "ordinal_levels": null,
+              "id": "indicator:sleep_onset_latency_min",
+              "name": "sleep_onset_latency_min"
+            }
           },
           {
-            "id": "indicator:nightly_hrv_ms",
-            "name": "nightly_hrv_ms",
-            "measurement_dtype": "continuous",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "Normal",
@@ -675,7 +666,16 @@
               "reasoning": "Synthetic measurement law",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "aggregation": "last",
+              "measurement_dtype": "continuous",
+              "observation_window": null,
+              "categorical_levels": null,
+              "ordinal_levels": null,
+              "id": "indicator:nightly_hrv_ms",
+              "name": "nightly_hrv_ms"
+            }
           }
         ],
         "dynamics": [
@@ -910,15 +910,6 @@
         "description": "Synthetic latent state",
         "indicators": [
           {
-            "id": "indicator:daily_step_count",
-            "name": "daily_step_count",
-            "measurement_dtype": "count",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "NegativeBinomial2",
@@ -963,18 +954,18 @@
               "reasoning": "Synthetic measurement law",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "aggregation": "last",
+              "measurement_dtype": "count",
+              "observation_window": null,
+              "categorical_levels": null,
+              "ordinal_levels": null,
+              "id": "indicator:daily_step_count",
+              "name": "daily_step_count"
+            }
           },
           {
-            "id": "indicator:exercise_minutes",
-            "name": "exercise_minutes",
-            "measurement_dtype": "continuous",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "Normal",
@@ -1013,7 +1004,16 @@
               "reasoning": "Synthetic measurement law",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "aggregation": "last",
+              "measurement_dtype": "continuous",
+              "observation_window": null,
+              "categorical_levels": null,
+              "ordinal_levels": null,
+              "id": "indicator:exercise_minutes",
+              "name": "exercise_minutes"
+            }
           }
         ],
         "dynamics": [
@@ -1396,15 +1396,6 @@
         "description": "Known synthetic input",
         "indicators": [
           {
-            "id": "indicator:serotonergic_exposure",
-            "name": "serotonergic_exposure",
-            "measurement_dtype": "continuous",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "Delta",
@@ -1417,7 +1408,16 @@
               "reasoning": "Synthetic driver values are observed exactly at each anchor.",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "aggregation": "last",
+              "measurement_dtype": "continuous",
+              "observation_window": null,
+              "categorical_levels": null,
+              "ordinal_levels": null,
+              "id": "indicator:serotonergic_exposure",
+              "name": "serotonergic_exposure"
+            }
           }
         ],
         "dynamics": [],
@@ -1528,15 +1528,6 @@
         "description": "Known synthetic input",
         "indicators": [
           {
-            "id": "indicator:seasonal_load",
-            "name": "seasonal_load",
-            "measurement_dtype": "continuous",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "Delta",
@@ -1549,7 +1540,16 @@
               "reasoning": "Synthetic driver values are observed exactly at each anchor.",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "aggregation": "last",
+              "measurement_dtype": "continuous",
+              "observation_window": null,
+              "categorical_levels": null,
+              "ordinal_levels": null,
+              "id": "indicator:seasonal_load",
+              "name": "seasonal_load"
+            }
           }
         ],
         "dynamics": [],

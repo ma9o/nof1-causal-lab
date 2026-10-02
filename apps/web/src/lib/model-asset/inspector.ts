@@ -49,8 +49,9 @@ export function indicatorPresentation(context: ScopeContext, id: IndicatorId) {
   const disposition = context.model.findings.dispositions?.value.find(
     (item) => item.target.id === id,
   );
-  const audit = (context.model.findings.validation_report ?? context.model.data.profile)?.value
-    .indicators[id];
+  const data =
+    context.model.findings.validation_report?.value.data ?? context.model.data.profile?.value;
+  const audit = data?.indicators[id];
   const counts = context.model.data.measurements?.value.per_indicator_counts[id];
   const likelihood = indicator.likelihood;
   const predictive = context.model.findings.predictive;
@@ -77,5 +78,9 @@ export function entityFailures(
   model: ModelSnapshot,
   entity: ConstructSpec | CausalEdgeSpec | IndicatorSpec,
 ): string[] {
-  return [...(model.findings.entity_failures[entity.id] ?? [])];
+  return [
+    ...(model.findings.entity_failures[
+      "observation" in entity ? entity.observation.id : entity.id
+    ] ?? []),
+  ];
 }

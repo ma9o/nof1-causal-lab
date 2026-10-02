@@ -10,15 +10,6 @@
         "description": "Test state",
         "indicators": [
           {
-            "id": "indicator:4d36fecb6cde50faec7f",
-            "name": "raw_channel",
-            "measurement_dtype": "count",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "NegativeBinomial2",
@@ -63,18 +54,18 @@
               "reasoning": "Test likelihood",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": null,
+              "id": "indicator:4d36fecb6cde50faec7f",
+              "aggregation": "last",
+              "name": "raw_channel",
+              "ordinal_levels": null,
+              "measurement_dtype": "count",
+              "observation_window": null
+            }
           },
           {
-            "id": "indicator:c807160d222559f3af82",
-            "name": "small_channel",
-            "measurement_dtype": "continuous",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "Normal",
@@ -113,7 +104,16 @@
               "reasoning": "Test likelihood",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": null,
+              "id": "indicator:c807160d222559f3af82",
+              "aggregation": "last",
+              "name": "small_channel",
+              "ordinal_levels": null,
+              "measurement_dtype": "continuous",
+              "observation_window": null
+            }
           }
         ],
         "dynamics": [

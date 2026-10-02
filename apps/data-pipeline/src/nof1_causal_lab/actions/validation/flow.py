@@ -60,7 +60,7 @@ def validate_extraction(
     if combined.is_empty():
         return no_data_validation_result()
 
-    indicators = model.indicators
+    indicators = tuple(item.observation for item in model.indicators)
     indicator_ids: set[IndicatorId] = {ind.id for ind in indicators}
     indicator_lookup: dict[IndicatorId, ObservationSpec] = {ind.id: ind for ind in indicators}
     combined = combined.filter(pl.col("indicator_id").is_in(list(indicator_ids)))
@@ -68,7 +68,7 @@ def validate_extraction(
         return no_data_validation_result()
 
     construct_lookup: dict[str, ConstructSpec] = {
-        indicator.id: construct for construct, indicator in model.iter_indicators()
+        indicator.observation.id: construct for construct, indicator in model.iter_indicators()
     }
 
     model_clock = model.measurement_clock
@@ -171,10 +171,12 @@ def profile_data(
         from nof1_causal_lab.artifacts.data_preparation import check_semantic_collisions
 
         for variable in metadata.preparation.variables:
-            for message in check_semantic_collisions(variable.how_to_measure, variable.aggregation):
-                audits[variable.id] = audits[variable.id].with_issue(
+            for message in check_semantic_collisions(
+                variable.extraction.how_to_measure, variable.observation.aggregation
+            ):
+                audits[variable.observation.id] = audits[variable.observation.id].with_issue(
                     ValidationIssue(
-                        indicator_id=variable.id,
+                        indicator_id=variable.observation.id,
                         issue_type="scoring_semantics",
                         severity="warning",
                         message=message,

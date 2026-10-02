@@ -51,10 +51,12 @@ def test_all_summary_types_and_paired_intervals_are_persisted_before_reads(tmp_p
         c.revised(
             indicators=tuple(
                 i.revised(
-                    aggregation="last",
-                    measurement_dtype=dtypes[c.name],
-                    ordinal_levels=("low", "medium", "high") if c.name == "ordinal" else None,
-                    categorical_levels=("a", "b") if c.name == "category" else None,
+                    observation=i.observation.revised(
+                        aggregation="last",
+                        measurement_dtype=dtypes[c.name],
+                        ordinal_levels=("low", "medium", "high") if c.name == "ordinal" else None,
+                        categorical_levels=("a", "b") if c.name == "category" else None,
+                    )
                 )
                 for i in c.indicators
             )
@@ -82,8 +84,8 @@ def test_all_summary_types_and_paired_intervals_are_persisted_before_reads(tmp_p
     }
     observations = np.stack(
         [
-            np.tile(by_type[model.indicator(i).measurement_dtype], (2, 1)).T
-            for i in (indicator.id for indicator in model.indicators)
+            np.tile(by_type[model.indicator(i).observation.measurement_dtype], (2, 1)).T
+            for i in (indicator.observation.id for indicator in model.indicators)
         ],
         axis=-1,
     )

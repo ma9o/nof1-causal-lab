@@ -157,7 +157,7 @@ def check_model_predictive(
                         subject=PredictiveSubject(
                             check="C1a finiteness",
                             construct_id=construct.id,
-                            target=IndicatorRef(id=indicator.id),
+                            target=IndicatorRef(id=indicator.observation.id),
                         ),
                         outcome="failed",
                         evidence=(
@@ -173,7 +173,7 @@ def check_model_predictive(
                     )
                     for construct in model.constructs
                     for indicator in construct.indicators
-                    if indicator.name in exc.bad_manifest_names
+                    if indicator.observation.name in exc.bad_manifest_names
                 ),
                 NotEvaluated(
                     subject=PredictiveSubject(

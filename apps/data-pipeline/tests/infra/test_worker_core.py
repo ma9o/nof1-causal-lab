@@ -17,18 +17,28 @@ def _measurement_structure():
             "model_clock": "1d",
             "indicators": [
                 {
-                    "id": IndicatorId("indicator:6bde869aba53fb51e0f4"),
-                    "name": "pss_score",
-                    "measurement_dtype": "continuous",
-                    "how_to_measure": "Perceived Stress Scale score",
-                    "aggregation": "mean",
+                    "observation": {
+                        "id": IndicatorId("indicator:6bde869aba53fb51e0f4"),
+                        "name": "pss_score",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                    },
+                    "extraction": {
+                        "kind": "semantic",
+                        "how_to_measure": "Perceived Stress Scale score",
+                    },
                 },
                 {
-                    "id": IndicatorId("indicator:9866c549bd1c25f0a5d7"),
-                    "name": "sleep_hours",
-                    "measurement_dtype": "continuous",
-                    "how_to_measure": "Self-reported hours of sleep",
-                    "aggregation": "mean",
+                    "observation": {
+                        "id": IndicatorId("indicator:9866c549bd1c25f0a5d7"),
+                        "name": "sleep_hours",
+                        "measurement_dtype": "continuous",
+                        "aggregation": "mean",
+                    },
+                    "extraction": {
+                        "kind": "semantic",
+                        "how_to_measure": "Self-reported hours of sleep",
+                    },
                 },
             ],
         }
@@ -65,10 +75,13 @@ class TestFormatIndicators:
                     "model_clock": "1d",
                     "indicators": [
                         {
-                            "id": "indicator:x",
-                            "name": "x",
-                            "measurement_dtype": "continuous",
-                            "aggregation": "mean",
+                            "observation": {
+                                "id": "indicator:x",
+                                "name": "x",
+                                "measurement_dtype": "continuous",
+                                "aggregation": "mean",
+                            },
+                            "extraction": {"kind": "semantic"},
                         }
                     ],
                 }
@@ -81,12 +94,17 @@ class TestFormatIndicators:
                 "model_clock": "1d",
                 "indicators": [
                     {
-                        "id": IndicatorId("indicator:fortnightly_pss_score"),
-                        "name": "fortnightly_pss_score",
-                        "measurement_dtype": "continuous",
-                        "how_to_measure": "Average perceived stress over two weeks",
-                        "aggregation": "mean",
-                        "observation_window": "2w",
+                        "observation": {
+                            "id": IndicatorId("indicator:fortnightly_pss_score"),
+                            "name": "fortnightly_pss_score",
+                            "measurement_dtype": "continuous",
+                            "aggregation": "mean",
+                            "observation_window": "2w",
+                        },
+                        "extraction": {
+                            "kind": "semantic",
+                            "how_to_measure": "Average perceived stress over two weeks",
+                        },
                     }
                 ],
             }

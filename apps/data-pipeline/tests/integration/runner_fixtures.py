@@ -5,7 +5,9 @@ from pathlib import Path
 
 import polars as pl
 
+from nof1_causal_lab.artifacts.data_preparation import SemanticExtractionSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.observations import ObservationSpec
 from nof1_causal_lab.study.state import StudyState
 from tests.helpers import fixture_entity_id
 
@@ -77,11 +79,13 @@ def panel_metadata():
         default_window="1d",
         variables=tuple(
             DataVariableSpec(
-                id=fixture_entity_id("indicator", name),
-                name=name,
-                measurement_dtype="continuous",
-                aggregation="mean",
-                how_to_measure="Read " + name,
+                observation=ObservationSpec(
+                    id=fixture_entity_id("indicator", name),
+                    name=name,
+                    measurement_dtype="continuous",
+                    aggregation="mean",
+                ),
+                extraction=SemanticExtractionSpec(how_to_measure="Read " + name),
             )
             for name in ("stress_score", "sleep_score")
         ),

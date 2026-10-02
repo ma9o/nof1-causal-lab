@@ -32,7 +32,10 @@ describe("scoped model inspection", () => {
       ...demoModel.edges.map((item) => ({ kind: "edge" as const, id: item.id })),
       ...constructs.map((item) => ({ kind: "construct" as const, id: item.id })),
       ...constructs.flatMap((item) =>
-        item.indicators.map((indicator) => ({ kind: "indicator" as const, id: indicator.id })),
+        item.indicators.map((indicator) => ({
+          kind: "indicator" as const,
+          id: indicator.observation.id,
+        })),
       ),
     ];
     for (const selection of selections) {

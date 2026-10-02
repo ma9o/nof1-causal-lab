@@ -9,10 +9,21 @@ import os
 import pathlib
 import re
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Annotated, Any
+from typing import TYPE_CHECKING, Annotated, cast
 from uuid import UUID, uuid4
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Path, Query, Response, UploadFile
+from fastapi import (
+    APIRouter,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Path,
+    Query,
+    Request,
+    Response,
+    UploadFile,
+)
 from pydantic import Field, TypeAdapter
 
 from nof1_causal_lab.actions.contracts import ScientificActionRequest
@@ -86,8 +97,8 @@ _CODE_DIGEST = hashlib.sha256(
 ).hexdigest()
 
 
-def _cached_read(
-    workspace_id: str, key: tuple[str, ...], adapter: TypeAdapter[Any], render: Callable[[], Any]
+def _cached_read[T](
+    workspace_id: str, key: tuple[str, ...], adapter: TypeAdapter[T], render: Callable[[], T]
 ) -> Response:
     """Serve a read pinned to immutable Git objects from the workspace cache tier.
 
@@ -261,21 +272,31 @@ async def upload_file(
 # Temporal client plumbing (actions and the running attempt; other reads never touch Temporal)
 # ---------------------------------------------------------------------------
 
-_client_lock = asyncio.Lock()
-_client: Client | None = None
+
+class TemporalClientProvider:
+    """One lazily connected Temporal client owned by a facade application."""
+
+    def __init__(self) -> None:
+        self._lock = asyncio.Lock()
+        self._client: Client | None = None
+
+    async def get(self) -> Client:
+        async with self._lock:
+            if self._client is None:
+                from nof1_causal_lab.actions.temporal.client import connect_client
+
+                self._client = await connect_client()
+            return self._client
 
 
-async def _get_client() -> Client:
-    global _client
-    async with _client_lock:
-        if _client is None:
-            from nof1_causal_lab.actions.temporal.client import connect_client
-
-            _client = await connect_client()
-        return _client
+def study_clients(request: Request) -> TemporalClientProvider:
+    """Resolve the request application's connection owner."""
+    return cast("TemporalClientProvider", request.app.state.study_clients)
 
 
-async def _study_handle(workspace_id: str) -> WorkflowHandle[StudyWorkflow, None]:
+async def _study_handle(
+    workspace_id: str, clients: TemporalClientProvider
+) -> WorkflowHandle[StudyWorkflow, None]:
     """Start-or-attach the study workflow for a workspace."""
     from temporalio.common import WorkflowIDConflictPolicy
 
@@ -286,7 +307,7 @@ async def _study_handle(workspace_id: str) -> WorkflowHandle[StudyWorkflow, None
     from nof1_causal_lab.actions.temporal.messages import StudyInit
     from nof1_causal_lab.actions.temporal.workflow import StudyWorkflow
 
-    client = await _get_client()
+    client = await clients.get()
     # Each action captures its branch head inside the workflow before validation and execution.
     return await client.start_workflow(
         StudyWorkflow.run,
@@ -299,14 +320,16 @@ async def _study_handle(workspace_id: str) -> WorkflowHandle[StudyWorkflow, None
     )
 
 
-async def _running_action(workspace_id: str) -> RunningAction | None:
+async def _running_action(
+    workspace_id: str, clients: TemporalClientProvider
+) -> RunningAction | None:
     """The attempt the study workflow is executing, read from its memo without a worker."""
     from temporalio.client import WorkflowExecutionStatus
     from temporalio.service import RPCError, RPCStatusCode
 
     from nof1_causal_lab.actions.temporal.client import RUNNING_ACTION_MEMO, study_workflow_id
 
-    client = await _get_client()
+    client = await clients.get()
     try:
         description = await client.get_workflow_handle(study_workflow_id(workspace_id)).describe()
     except RPCError as exc:
@@ -328,16 +351,18 @@ async def _running_action(workspace_id: str) -> RunningAction | None:
 async def execute_scientific_action(
     workspace_id: str,
     body: ScientificActionRequest,
+    clients: Annotated[TemporalClientProvider, Depends(study_clients)],
     branch: str = "main",
     expected_head: GitOid | None = None,
 ) -> ActionReceipt:
     """Accept durable work and return its receipt; retrieve results by polling the attempt."""
-    return await _dispatch_action(workspace_id, body, branch, expected_head)
+    return await _dispatch_action(workspace_id, body, clients, branch, expected_head)
 
 
 async def _dispatch_action(
     workspace_id: str,
     body: ScientificActionRequest | DataDiffRequest,
+    clients: TemporalClientProvider,
     branch: str,
     expected_head: GitOid | None = None,
 ) -> ActionReceipt:
@@ -352,7 +377,7 @@ async def _dispatch_action(
     except StudyLookupError as exc:
         raise HTTPException(404, str(exc)) from exc
     attempt_id = uuid4()
-    handle = await _study_handle(workspace_id)
+    handle = await _study_handle(workspace_id, clients)
     update = await handle.start_update(
         "execute_action",
         ActionRequest(
@@ -382,7 +407,11 @@ async def _dispatch_action(
 
 
 @router.get("/{workspace_id}/actions/{attempt_id}", response_model=ActionPoll)
-async def poll_scientific_action(workspace_id: str, attempt_id: UUID) -> ActionPoll | Response:
+async def poll_scientific_action(
+    workspace_id: str,
+    attempt_id: UUID,
+    clients: Annotated[TemporalClientProvider, Depends(study_clients)],
+) -> ActionPoll | Response:
     """Read progress or the completed attempt's typed outcome without dispatching work."""
     from temporalio.service import RPCError, RPCStatusCode
 
@@ -407,7 +436,7 @@ async def poll_scientific_action(workspace_id: str, attempt_id: UUID) -> ActionP
         )
     if not actions_enabled():
         raise HTTPException(404, "Unknown action attempt")
-    client = await _get_client()
+    client = await clients.get()
     handle = client.get_workflow_handle(study_workflow_id(workspace_id))
     try:
         progress = await handle.query(StudyWorkflow.action_progress, attempt_id)
@@ -420,9 +449,11 @@ async def poll_scientific_action(workspace_id: str, attempt_id: UUID) -> ActionP
     return progress
 
 
-async def read_action_poll(workspace_id: str, attempt_id: UUID) -> ActionPoll:
+async def read_action_poll(
+    workspace_id: str, attempt_id: UUID, clients: TemporalClientProvider
+) -> ActionPoll:
     """Read the typed action result for in-process callers, including cached completions."""
-    result = await poll_scientific_action(workspace_id, attempt_id)
+    result = await poll_scientific_action(workspace_id, attempt_id, clients)
     if isinstance(result, Response):
         return _ACTION_POLL_JSON.validate_json(bytes(result.body))
     return result
@@ -452,14 +483,18 @@ def _study_status(
 
 
 @router.get("/{workspace_id}", response_model=StudyStatus)
-async def get_study(workspace_id: str, branch: str = "main") -> StudyStatus:
+async def get_study(
+    workspace_id: str,
+    clients: Annotated[TemporalClientProvider, Depends(study_clients)],
+    branch: str = "main",
+) -> StudyStatus:
     """Current study state: the single read to poll while navigating.
 
     Returns the four scientific action names and per-artifact existence,
     freshness and revision from the selected Git branch snapshot, and the
     attempt the study's Temporal workflow is executing on any branch, if any.
     """
-    running = await _running_action(workspace_id) if actions_enabled() else None
+    running = await _running_action(workspace_id, clients) if actions_enabled() else None
     return await asyncio.to_thread(_study_status, workspace_id, branch=branch, running=running)
 
 
@@ -559,7 +594,10 @@ def get_model_diff(
     operation_id="data_diff",
 )
 async def post_data_diff(
-    workspace_id: str, request: DataDiffRequest, branch: str = "main"
+    workspace_id: str,
+    request: DataDiffRequest,
+    clients: Annotated[TemporalClientProvider, Depends(study_clients)],
+    branch: str = "main",
 ) -> ActionReceipt:
     """Record a comparison as a read-only leaf off the branch head captured at dispatch.
 
@@ -574,7 +612,7 @@ async def post_data_diff(
     the branch or changes scientific state. Failed comparisons also leave a leaf.
     GET /data-diff/{commit_id} reads a saved report without running the comparison.
     """
-    return await _dispatch_action(workspace_id, request, branch)
+    return await _dispatch_action(workspace_id, request, clients, branch)
 
 
 @router.get("/{workspace_id}/data-diff/{commit_id}", response_model=DataDiffReport)

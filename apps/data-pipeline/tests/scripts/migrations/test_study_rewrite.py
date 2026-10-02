@@ -9,9 +9,12 @@ import pytest
 from scripts.migrations.migrate_format_11 import convert_attempt, convert_study
 from scripts.migrations.migrate_format_12 import convert_payload
 from scripts.migrations.migrate_format_12 import convert_study as convert_format_12
+from scripts.migrations.migrate_format_13 import convert_payload as compose_payload
+from scripts.migrations.migrate_format_13 import convert_study as convert_format_13
 
 from nof1_causal_lab.artifacts.identity import GitOid, scientific_id
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.validation_report import ValidationReportArtifact
 from nof1_causal_lab.study.git_objects import read_file, write_tree
 from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.store import ArtifactStore
@@ -21,8 +24,11 @@ from nof1_causal_lab.utils import data
 pytestmark = pytest.mark.contract
 
 
+@pytest.mark.parametrize(
+    ("source_format", "converter"), [(11, convert_format_12), (12, convert_format_13)]
+)
 def test_representation_rewrite_preserves_fresh_and_stale_consumers_refs_and_bytes(
-    tmp_path, monkeypatch
+    tmp_path, monkeypatch, source_format, converter
 ):
     monkeypatch.setattr(data, "_DATA_URI", str(tmp_path / "source"))
     store = ArtifactStore("study")
@@ -57,7 +63,9 @@ def test_representation_rewrite_preserves_fresh_and_stale_consumers_refs_and_byt
     old_owner = write_tree(
         store.repo,
         {
-            "model.json": (Path(__file__).parent / "fixtures/model_format_11.json").read_bytes(),
+            "model.json": (
+                Path(__file__).parent / f"fixtures/model_format_{source_format}.json"
+            ).read_bytes(),
             "meta.json": json.dumps(old_meta).encode(),
         },
     )
@@ -66,16 +74,24 @@ def test_representation_rewrite_preserves_fresh_and_stale_consumers_refs_and_byt
         "validation_report",
         derived_from={"model": GitOid(str(old_owner))},
         produced_by="check",
-        json_files={"validation_report.json": {}},
+        json_files={"validation_report.json": {"indicators": {}, "dataset_issues": []}},
     )
     fresh_meta = json.loads(read_file(store.repo, fresh.revision, "meta.json"))
     fresh_meta["consumed_model_inputs"] = {"belief": "old-representation"}
     fresh_oid = write_tree(
-        store.repo, {"meta.json": json.dumps(fresh_meta).encode(), "validation_report.json": b"{}"}
+        store.repo,
+        {
+            "meta.json": json.dumps(fresh_meta).encode(),
+            "validation_report.json": b'{"indicators": {}, "dataset_issues": []}',
+        },
     )
     stale_meta = {**fresh_meta, "consumed_model_inputs": {"belief": "already-stale"}}
     stale_oid = write_tree(
-        store.repo, {"meta.json": json.dumps(stale_meta).encode(), "validation_report.json": b"{}"}
+        store.repo,
+        {
+            "meta.json": json.dumps(stale_meta).encode(),
+            "validation_report.json": b'{"indicators": {}, "dataset_issues": []}',
+        },
     )
     signature = pygit2.Signature("scientist", "study@local", 123, 0)
     root = history.head()
@@ -108,7 +124,7 @@ def test_representation_rewrite_preserves_fresh_and_stale_consumers_refs_and_byt
     store.repo.references.create("refs/heads/main", second, force=True)
     store.repo.references.create("refs/heads/review", first)
     store.repo.references.create("refs/attempts/00000001", second)
-    store.repo.config["nof1.format"] = 11
+    store.repo.config["nof1.format"] = source_format
     arrays = tmp_path / "source/study/store/arrays"
     arrays.mkdir(parents=True)
     retained = arrays / "retained.bin"
@@ -116,9 +132,9 @@ def test_representation_rewrite_preserves_fresh_and_stale_consumers_refs_and_byt
     source_refs = {name: str(store.repo.references[name].target) for name in store.repo.references}
     before = hashlib.sha256(retained.read_bytes()).hexdigest()
     dest = tmp_path / "target/study"
-    mapping = convert_format_12(tmp_path / "source/study", dest)
+    mapping = converter(tmp_path / "source/study", dest)
     converted = pygit2.Repository(str(dest / "study/history.git"))
-    assert converted.config.get_int("nof1.format") == 12
+    assert converted.config.get_int("nof1.format") == source_format + 1
     for name, oid in source_refs.items():
         target = (
             name.rsplit("/", 1)[0] + "/" + mapping[oid]
@@ -126,10 +142,17 @@ def test_representation_rewrite_preserves_fresh_and_stale_consumers_refs_and_byt
             else name
         )
         assert str(converted.references[target].target) == mapping[oid]
-    converted_model = ModelSpec.model_validate_json(
-        read_file(converted, mapping[str(old_owner)], "model.json")
+    converted_model = ModelSpec.model_validate(
+        compose_payload(json.loads(read_file(converted, mapping[str(old_owner)], "model.json")))
     )
     assert converted_model.model_dump(mode="json") == model.model_dump(mode="json")
+    if source_format == 12:
+        report = ValidationReportArtifact.model_validate_json(
+            read_file(converted, mapping[str(fresh_oid)], "validation_report.json")
+        )
+        assert report.data.is_valid
+        assert report.is_valid
+        assert report.preflight.findings == ()
     new_owner = json.loads(read_file(converted, mapping[str(old_owner)], "meta.json"))
     publication = json.loads(read_file(converted, mapping[str(first)], "publication.json"))
     assert publication["revision"] == mapping[str(old_owner)]
@@ -164,7 +187,7 @@ def test_representation_rewrite_preserves_fresh_and_stale_consumers_refs_and_byt
     assert {
         name: str(store.repo.references[name].target) for name in store.repo.references
     } == source_refs
-    assert store.repo.config.get_int("nof1.format") == 11
+    assert store.repo.config.get_int("nof1.format") == source_format
     assert retained.read_bytes() == (dest / "store/arrays/retained.bin").read_bytes()
 
 
@@ -295,10 +318,14 @@ def test_comparison_conversion_has_one_report_owner_and_preserves_leaf_identity(
 
 
 def test_format_12_preserves_null_changes_and_independent_dispositions():
-    from nof1_causal_lab.study.view_models import ModelDefinitionChange
+    from pydantic import TypeAdapter
+
+    from nof1_causal_lab.json_types import JsonValue
+    from nof1_causal_lab.study.view_models import Change
 
     added = convert_payload({"path": "/question", "change": "added", "before": None, "after": None})
-    change = ModelDefinitionChange.model_validate(added).change
+    assert isinstance(added, dict)
+    change = TypeAdapter(Change[JsonValue]).validate_python(added["change"])
     assert change.kind == "added"
     assert change.after is None
     assert "before" not in change.model_dump()

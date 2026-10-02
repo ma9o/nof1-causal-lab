@@ -20,9 +20,9 @@ from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import cached_property, lru_cache, partial
-from typing import TYPE_CHECKING, NotRequired, TypedDict, cast
+from typing import TYPE_CHECKING, NotRequired, TypedDict
 
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, TypeAdapter, ValidationError
 from pydantic.json_schema import JsonSchemaValue
@@ -41,7 +41,9 @@ from nof1_causal_lab.models.ssm.dynamics import (
 from nof1_causal_lab.models.ssm.runtime import project_observation_data
 from nof1_causal_lab.study.artifact_files import json_filename, parquet_filename
 from nof1_causal_lab.study_api import (
+    TemporalClientProvider,
     capabilities_router,
+    study_clients,
     uploads_router,
     workspaces_router,
 )
@@ -115,8 +117,6 @@ def _parse_tool_call[Input: BaseModel, Context: ToolContext](
 
 
 if TYPE_CHECKING:
-    from typing import Any
-
     import polars as pl
 
     from nof1_causal_lab.actions.tool_definition import ToolDefinition
@@ -242,9 +242,10 @@ app = FastAPI(
     description=_API_DESCRIPTION,
     docs_url="/api/tools/docs",
 )
+app.state.study_clients = TemporalClientProvider()
 
 app.add_middleware(
-    cast("Any", CORSMiddleware),
+    CORSMiddleware,
     allow_origins=["http://localhost:3000"],
     allow_methods=["GET", "POST"],
     allow_headers=["*"],
@@ -449,7 +450,7 @@ def _build_model_info_payload(ctx: AnalysisToolContext, args: GetModelInfoInput)
         indicators = [
             (construct, indicator)
             for construct, indicator in indicators
-            if indicator.name in focused or construct.name in focused
+            if indicator.observation.name in focused or construct.name in focused
         ]
 
     payload: dict[str, JsonValue] = {}
@@ -483,15 +484,15 @@ def _build_model_info_payload(ctx: AnalysisToolContext, args: GetModelInfoInput)
             ],
             "indicators": [
                 {
-                    "id": item.id,
-                    "name": item.name,
+                    "id": item.observation.id,
+                    "name": item.observation.name,
                     "construct_id": construct.id,
                     "construct_name": construct.name,
-                    "measurement_dtype": item.measurement_dtype,
-                    "support_kind": item.support_kind.value,
-                    "summary_operator": item.summary_operator.value,
-                    "observation_window": item.observation_window.source
-                    if item.observation_window is not None
+                    "measurement_dtype": item.observation.measurement_dtype,
+                    "support_kind": item.observation.support_kind.value,
+                    "summary_operator": item.observation.summary_operator.value,
+                    "observation_window": item.observation.observation_window.source
+                    if item.observation.observation_window is not None
                     else None,
                 }
                 for construct, item in indicators
@@ -587,7 +588,9 @@ def get_tool_schemas(context_id: str) -> list[ToolSchema]:
 
 
 @app.post("/api/tools/{context_id}/{tool_name}")
-async def execute_tool(context_id: str, tool_name: str, request: ToolCallRequest) -> ToolResult:
+async def execute_tool(
+    context_id: str, tool_name: str, request: ToolCallRequest, http_request: Request
+) -> ToolResult:
     """Execute a context tool against the workspace's current artifact-store versions.
 
     Body is `{"workspace_id": "...", "input": {...}}` where `input` matches the
@@ -610,7 +613,9 @@ async def execute_tool(context_id: str, tool_name: str, request: ToolCallRequest
                 query = PollActionRequest.model_validate(request.input)
             except ValidationError as exc:
                 raise HTTPException(422, detail=exc.errors(include_context=False)) from exc
-            result = await read_action_poll(request.workspace_id, query.attempt_id)
+            result = await read_action_poll(
+                request.workspace_id, query.attempt_id, study_clients(http_request)
+            )
             return {"result": result.model_dump(mode="json")}
 
         from nof1_causal_lab.actions.contracts import ScientificActionRequest
@@ -623,7 +628,11 @@ async def execute_tool(context_id: str, tool_name: str, request: ToolCallRequest
         except ValidationError as exc:
             raise HTTPException(422, detail=exc.errors(include_context=False)) from exc
         outcome = await execute_scientific_action(
-            request.workspace_id, action, branch=request.branch, expected_head=request.expected_head
+            request.workspace_id,
+            action,
+            study_clients(http_request),
+            branch=request.branch,
+            expected_head=request.expected_head,
         )
         return {"result": outcome.model_dump(mode="json")}
 

@@ -29,15 +29,6 @@
         "description": "treatment",
         "indicators": [
           {
-            "id": "indicator:596a220d972b1cfabd49",
-            "name": "treatment_obs",
-            "measurement_dtype": "continuous",
-            "aggregation": "mean",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "Normal",
@@ -76,7 +67,16 @@
               "reasoning": "Test Gaussian emission",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": null,
+              "id": "indicator:596a220d972b1cfabd49",
+              "aggregation": "mean",
+              "name": "treatment_obs",
+              "ordinal_levels": null,
+              "measurement_dtype": "continuous",
+              "observation_window": null
+            }
           }
         ],
         "dynamics": [
@@ -200,15 +200,6 @@
         "description": "outcome",
         "indicators": [
           {
-            "id": "indicator:b0d166cefc38804306fa",
-            "name": "outcome_obs",
-            "measurement_dtype": "continuous",
-            "aggregation": "mean",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "Normal",
@@ -247,7 +238,16 @@
               "reasoning": "Test Gaussian emission",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": null,
+              "id": "indicator:b0d166cefc38804306fa",
+              "aggregation": "mean",
+              "name": "outcome_obs",
+              "ordinal_levels": null,
+              "measurement_dtype": "continuous",
+              "observation_window": null
+            }
           }
         ],
         "dynamics": [

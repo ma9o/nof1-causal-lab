@@ -1,786 +1,792 @@
 {
-  "dataset_issues": [],
-  "indicators": {
-    "indicator:0b02f0d32a40caec29ef": {
-      "checks": {
-        "arithmetic_sequence_detected": "ok",
-        "dtype_violations": "ok",
-        "duplicate_pct": "ok",
-        "max_gap_ratio": "ok",
-        "n_obs": "ok",
-        "n_unparseable_timestamps": "ok",
-        "time_coverage_ratio": "ok",
-        "variance": "ok"
-      },
-      "issues": [],
-      "profile": {
-        "arithmetic_sequence_detected": false,
-        "dtype_violations": 0,
-        "duplicate_pct": 0.9543446244477173,
-        "is_nonnegative": true,
-        "is_unit_interval": false,
-        "looks_integer_valued": true,
-        "max": 4.0,
-        "max_gap_ratio": 0.6,
-        "mean": 0.053019145802650956,
-        "measurement_dtype": "count",
-        "min": 0.0,
-        "n_obs": 679,
-        "n_unparseable_timestamps": 0,
-        "q25": 0.0,
-        "q50": 0.0,
-        "q75": 0.0,
-        "std": 0.27181057615261,
-        "time_coverage_ratio": 1.0,
-        "variance": 0.07388098930841382,
-        "variance_to_mean_ratio": 1.393477548344805,
-        "zero_fraction": 0.9543446244477173
-      }
-    },
-    "indicator:1f8878c9ba1ad571b89e": {
-      "checks": {
-        "arithmetic_sequence_detected": "ok",
-        "dtype_violations": "ok",
-        "duplicate_pct": "warning",
-        "max_gap_ratio": "ok",
-        "n_obs": "ok",
-        "n_unparseable_timestamps": "ok",
-        "time_coverage_ratio": "ok",
-        "variance": "ok"
-      },
-      "issues": [
-        {
-          "indicator_id": "indicator:1f8878c9ba1ad571b89e",
-          "issue_type": "suspicious_pattern",
-          "message": ">50% of values are 2.0 (58/61)",
-          "severity": "warning"
-        }
-      ],
-      "profile": {
-        "arithmetic_sequence_detected": false,
-        "dtype_violations": 0,
-        "duplicate_pct": 0.9508196721311475,
-        "is_nonnegative": true,
-        "is_unit_interval": false,
-        "looks_integer_valued": true,
-        "max": 2.0,
-        "max_gap_ratio": 0.6,
-        "mean": 1.9508196721311475,
-        "measurement_dtype": "ordinal",
-        "min": 1.0,
-        "n_obs": 61,
-        "n_unparseable_timestamps": 0,
-        "q25": 2.0,
-        "q50": 2.0,
-        "q75": 2.0,
-        "std": 0.21803894974650143,
-        "time_coverage_ratio": 1.0,
-        "variance": 0.047540983606557376,
-        "variance_to_mean_ratio": 0.024369747899159664,
-        "zero_fraction": 0.0
-      }
-    },
-    "indicator:21069529417a9a99ee50": {
-      "checks": {
-        "arithmetic_sequence_detected": "ok",
-        "dtype_violations": "ok",
-        "duplicate_pct": "ok",
-        "max_gap_ratio": "ok",
-        "n_obs": "ok",
-        "n_unparseable_timestamps": "ok",
-        "time_coverage_ratio": "ok",
-        "variance": "ok"
-      },
-      "issues": [],
-      "profile": {
-        "arithmetic_sequence_detected": false,
-        "dtype_violations": 0,
-        "duplicate_pct": 0.0025173064820641915,
-        "is_nonnegative": true,
-        "is_unit_interval": false,
-        "looks_integer_valued": true,
-        "max": 11971.0,
-        "max_gap_ratio": 0.2,
-        "mean": 8051.470736312146,
-        "measurement_dtype": "count",
-        "min": 2076.0,
-        "n_obs": 1589,
-        "n_unparseable_timestamps": 0,
-        "q25": 6957.0,
-        "q50": 7974.0,
-        "q75": 9314.0,
-        "std": 1605.0118187158014,
-        "time_coverage_ratio": 1.0,
-        "variance": 2576062.9382174043,
-        "variance_to_mean_ratio": 319.94936361121654,
-        "zero_fraction": 0.0
-      }
-    },
-    "indicator:7a4890fc254d4a508b7c": {
-      "checks": {
-        "arithmetic_sequence_detected": "ok",
-        "dtype_violations": "warning",
-        "duplicate_pct": "ok",
-        "max_gap_ratio": "ok",
-        "n_obs": "ok",
-        "n_unparseable_timestamps": "ok",
-        "time_coverage_ratio": "ok",
-        "variance": "ok"
-      },
-      "issues": [
-        {
-          "indicator_id": "indicator:7a4890fc254d4a508b7c",
-          "issue_type": "dtype_violation",
-          "message": "12 outlier(s) outside [73.00, 101.00]",
-          "severity": "warning"
-        }
-      ],
-      "profile": {
-        "arithmetic_sequence_detected": false,
-        "dtype_violations": 12,
-        "duplicate_pct": 0.12845303867403315,
-        "is_nonnegative": true,
-        "is_unit_interval": false,
-        "looks_integer_valued": true,
-        "max": 93.0,
-        "max_gap_ratio": 0.2,
-        "mean": 86.72306629834254,
-        "measurement_dtype": "continuous",
-        "min": 70.0,
-        "n_obs": 1448,
-        "n_unparseable_timestamps": 0,
-        "q25": 85.0,
-        "q50": 87.0,
-        "q75": 89.0,
-        "std": 3.858766984911013,
-        "time_coverage_ratio": 1.0,
-        "variance": 14.890082643839229,
-        "variance_to_mean_ratio": 0.17169691155308942,
-        "zero_fraction": 0.0
-      }
-    },
-    "indicator:7f51bc663e8e0bbea95f": {
-      "checks": {
-        "arithmetic_sequence_detected": "ok",
-        "dtype_violations": "ok",
-        "duplicate_pct": "ok",
-        "max_gap_ratio": "ok",
-        "n_obs": "ok",
-        "n_unparseable_timestamps": "ok",
-        "time_coverage_ratio": "ok",
-        "variance": "ok"
-      },
-      "issues": [],
-      "profile": {
-        "arithmetic_sequence_detected": false,
-        "dtype_violations": 0,
-        "duplicate_pct": 0.972972972972973,
-        "is_nonnegative": true,
-        "is_unit_interval": true,
-        "looks_integer_valued": true,
-        "max": 1.0,
-        "max_gap_ratio": 0.6,
-        "mean": 0.02702702702702703,
-        "measurement_dtype": "count",
-        "min": 0.0,
-        "n_obs": 74,
-        "n_unparseable_timestamps": 0,
-        "q25": 0.0,
-        "q50": 0.0,
-        "q75": 0.0,
-        "std": 0.16326908396901554,
-        "time_coverage_ratio": 1.0,
-        "variance": 0.026656793780081445,
-        "variance_to_mean_ratio": 0.9863013698630134,
-        "zero_fraction": 0.972972972972973
-      }
-    },
-    "indicator:80833c21d9dd9f2ce5d5": {
-      "checks": {
-        "arithmetic_sequence_detected": "ok",
-        "dtype_violations": "ok",
-        "duplicate_pct": "ok",
-        "max_gap_ratio": "ok",
-        "n_obs": "ok",
-        "n_unparseable_timestamps": "ok",
-        "time_coverage_ratio": "ok",
-        "variance": "ok"
-      },
-      "issues": [],
-      "profile": {
-        "arithmetic_sequence_detected": false,
-        "dtype_violations": 0,
-        "duplicate_pct": 0.9968691296180339,
-        "is_nonnegative": true,
-        "is_unit_interval": true,
-        "looks_integer_valued": true,
-        "max": 1.0,
-        "max_gap_ratio": 0.2,
-        "mean": 0.0031308703819661866,
-        "measurement_dtype": "count",
-        "min": 0.0,
-        "n_obs": 1597,
-        "n_unparseable_timestamps": 0,
-        "q25": 0.0,
-        "q50": 0.0,
-        "q75": 0.0,
-        "std": 0.05588401908442992,
-        "time_coverage_ratio": 1.0,
-        "variance": 0.003123023589028928,
-        "variance_to_mean_ratio": 0.9974937343358397,
-        "zero_fraction": 0.9968691296180339
-      }
-    },
-    "indicator:8e1b73dd3c754b48e92c": {
-      "checks": {
-        "arithmetic_sequence_detected": "ok",
-        "dtype_violations": "ok",
-        "duplicate_pct": "warning",
-        "max_gap_ratio": "ok",
-        "n_obs": "ok",
-        "n_unparseable_timestamps": "ok",
-        "time_coverage_ratio": "ok",
-        "variance": "ok"
-      },
-      "issues": [
-        {
-          "indicator_id": "indicator:8e1b73dd3c754b48e92c",
-          "issue_type": "suspicious_pattern",
-          "message": ">50% of values are 1.0 (49/74)",
-          "severity": "warning"
-        }
-      ],
-      "profile": {
-        "arithmetic_sequence_detected": false,
-        "dtype_violations": 0,
-        "duplicate_pct": 0.6621621621621622,
-        "is_nonnegative": true,
-        "is_unit_interval": false,
-        "looks_integer_valued": true,
-        "max": 2.0,
-        "max_gap_ratio": 0.6,
-        "mean": 0.9594594594594594,
-        "measurement_dtype": "ordinal",
-        "min": 0.0,
-        "n_obs": 74,
-        "n_unparseable_timestamps": 0,
-        "q25": 1.0,
-        "q50": 1.0,
-        "q75": 1.0,
-        "std": 0.5837805270933611,
-        "time_coverage_ratio": 1.0,
-        "variance": 0.3407997038134025,
-        "variance_to_mean_ratio": 0.3551996912984759,
-        "zero_fraction": 0.1891891891891892
-      }
-    },
-    "indicator:93c7007ff8e5a6565b25": {
-      "checks": {
-        "arithmetic_sequence_detected": "ok",
-        "dtype_violations": "ok",
-        "duplicate_pct": "ok",
-        "max_gap_ratio": "warning",
-        "n_obs": "warning",
-        "n_unparseable_timestamps": "ok",
-        "time_coverage_ratio": "ok",
-        "variance": "ok"
-      },
-      "issues": [
-        {
-          "indicator_id": "indicator:93c7007ff8e5a6565b25",
-          "issue_type": "low_n",
-          "message": "Only 5 observations (recommend >= 10)",
-          "severity": "warning"
+  "data": {
+    "dataset_issues": [],
+    "indicators": {
+      "indicator:0b02f0d32a40caec29ef": {
+        "checks": {
+          "arithmetic_sequence_detected": "ok",
+          "dtype_violations": "ok",
+          "duplicate_pct": "ok",
+          "max_gap_ratio": "ok",
+          "n_obs": "ok",
+          "n_unparseable_timestamps": "ok",
+          "time_coverage_ratio": "ok",
+          "variance": "ok"
         },
-        {
-          "indicator_id": "indicator:93c7007ff8e5a6565b25",
-          "issue_type": "large_timestamp_gap",
-          "message": "Max consecutive gap 336h > 5x 24.0h (120.0h)",
-          "severity": "warning"
+        "issues": [],
+        "profile": {
+          "arithmetic_sequence_detected": false,
+          "dtype_violations": 0,
+          "duplicate_pct": 0.9543446244477173,
+          "is_nonnegative": true,
+          "is_unit_interval": false,
+          "looks_integer_valued": true,
+          "max": 4.0,
+          "max_gap_ratio": 0.6,
+          "mean": 0.053019145802650956,
+          "measurement_dtype": "count",
+          "min": 0.0,
+          "n_obs": 679,
+          "n_unparseable_timestamps": 0,
+          "q25": 0.0,
+          "q50": 0.0,
+          "q75": 0.0,
+          "std": 0.27181057615261,
+          "time_coverage_ratio": 1.0,
+          "variance": 0.07388098930841382,
+          "variance_to_mean_ratio": 1.393477548344805,
+          "zero_fraction": 0.9543446244477173
         }
-      ],
-      "profile": {
-        "arithmetic_sequence_detected": false,
-        "dtype_violations": 0,
-        "duplicate_pct": 0.2,
-        "is_nonnegative": true,
-        "is_unit_interval": false,
-        "looks_integer_valued": true,
-        "max": 16.0,
-        "max_gap_ratio": 2.8,
-        "mean": 8.8,
-        "measurement_dtype": "ordinal",
-        "min": 3.0,
-        "n_obs": 5,
-        "n_unparseable_timestamps": 0,
-        "q25": 4.0,
-        "q50": 8.0,
-        "q75": 13.0,
-        "std": 5.630275304103699,
-        "time_coverage_ratio": 1.0,
-        "variance": 31.700000000000003,
-        "variance_to_mean_ratio": 3.6022727272727275,
-        "zero_fraction": 0.0
-      }
-    },
-    "indicator:9becfedce394873f8c0c": {
-      "checks": {
-        "arithmetic_sequence_detected": "ok",
-        "dtype_violations": "ok",
-        "duplicate_pct": "warning",
-        "max_gap_ratio": "ok",
-        "n_obs": "ok",
-        "n_unparseable_timestamps": "ok",
-        "time_coverage_ratio": "ok",
-        "variance": "ok"
       },
-      "issues": [
-        {
-          "indicator_id": "indicator:9becfedce394873f8c0c",
-          "issue_type": "suspicious_pattern",
-          "message": ">50% of values are 1.0 (39/72)",
-          "severity": "warning"
-        }
-      ],
-      "profile": {
-        "arithmetic_sequence_detected": false,
-        "dtype_violations": 0,
-        "duplicate_pct": 0.5416666666666666,
-        "is_nonnegative": true,
-        "is_unit_interval": false,
-        "looks_integer_valued": true,
-        "max": 3.0,
-        "max_gap_ratio": 0.6,
-        "mean": 0.9444444444444444,
-        "measurement_dtype": "ordinal",
-        "min": 0.0,
-        "n_obs": 72,
-        "n_unparseable_timestamps": 0,
-        "q25": 0.0,
-        "q50": 1.0,
-        "q75": 1.0,
-        "std": 0.709867849016486,
-        "time_coverage_ratio": 1.0,
-        "variance": 0.5039123630672926,
-        "variance_to_mean_ratio": 0.5335542667771334,
-        "zero_fraction": 0.2638888888888889
-      }
-    },
-    "indicator:a1c5e49b6b167636f7a0": {
-      "checks": {
-        "arithmetic_sequence_detected": "ok",
-        "dtype_violations": "ok",
-        "duplicate_pct": "warning",
-        "max_gap_ratio": "ok",
-        "n_obs": "ok",
-        "n_unparseable_timestamps": "ok",
-        "time_coverage_ratio": "ok",
-        "variance": "ok"
-      },
-      "issues": [
-        {
-          "indicator_id": "indicator:a1c5e49b6b167636f7a0",
-          "issue_type": "suspicious_pattern",
-          "message": ">50% of values are 0.0 (10/15)",
-          "severity": "warning"
-        }
-      ],
-      "profile": {
-        "arithmetic_sequence_detected": false,
-        "dtype_violations": 0,
-        "duplicate_pct": 0.6666666666666666,
-        "is_nonnegative": true,
-        "is_unit_interval": true,
-        "looks_integer_valued": true,
-        "max": 1.0,
-        "max_gap_ratio": null,
-        "mean": 0.3333333333333333,
-        "measurement_dtype": "ordinal",
-        "min": 0.0,
-        "n_obs": 15,
-        "n_unparseable_timestamps": 0,
-        "q25": 0.0,
-        "q50": 0.0,
-        "q75": 1.0,
-        "std": 0.48795003647426666,
-        "time_coverage_ratio": null,
-        "variance": 0.23809523809523814,
-        "variance_to_mean_ratio": 0.7142857142857144,
-        "zero_fraction": 0.6666666666666666
-      }
-    },
-    "indicator:a7234127c37d7ce4a0c2": {
-      "checks": {
-        "arithmetic_sequence_detected": "ok",
-        "dtype_violations": "ok",
-        "duplicate_pct": "ok",
-        "max_gap_ratio": "ok",
-        "n_obs": "ok",
-        "n_unparseable_timestamps": "ok",
-        "time_coverage_ratio": "ok",
-        "variance": "ok"
-      },
-      "issues": [],
-      "profile": {
-        "arithmetic_sequence_detected": false,
-        "dtype_violations": 0,
-        "duplicate_pct": 0.8536585365853658,
-        "is_nonnegative": true,
-        "is_unit_interval": true,
-        "looks_integer_valued": true,
-        "max": 1.0,
-        "max_gap_ratio": 0.6,
-        "mean": 0.8536585365853658,
-        "measurement_dtype": "binary",
-        "min": 0.0,
-        "n_obs": 82,
-        "n_unparseable_timestamps": 0,
-        "q25": 1.0,
-        "q50": 1.0,
-        "q75": 1.0,
-        "std": 0.3556232997793875,
-        "time_coverage_ratio": 1.0,
-        "variance": 0.1264679313459801,
-        "variance_to_mean_ratio": 0.14814814814814814,
-        "zero_fraction": 0.14634146341463414
-      }
-    },
-    "indicator:b20fa3887689d5616a60": {
-      "checks": {
-        "arithmetic_sequence_detected": "ok",
-        "dtype_violations": "ok",
-        "duplicate_pct": "ok",
-        "max_gap_ratio": "ok",
-        "n_obs": "ok",
-        "n_unparseable_timestamps": "ok",
-        "time_coverage_ratio": "ok",
-        "variance": "ok"
-      },
-      "issues": [],
-      "profile": {
-        "arithmetic_sequence_detected": false,
-        "dtype_violations": 0,
-        "duplicate_pct": 0.05517241379310345,
-        "is_nonnegative": false,
-        "is_unit_interval": false,
-        "looks_integer_valued": false,
-        "max": 0.69,
-        "max_gap_ratio": 0.2,
-        "mean": 0.27420689655172414,
-        "measurement_dtype": "continuous",
-        "min": -0.49,
-        "n_obs": 145,
-        "n_unparseable_timestamps": 0,
-        "q25": 0.05,
-        "q50": 0.36,
-        "q75": 0.51,
-        "std": 0.30548156192204057,
-        "time_coverage_ratio": 1.0,
-        "variance": 0.09331898467432949,
-        "variance_to_mean_ratio": 0.340323258998435,
-        "zero_fraction": 0.0
-      }
-    },
-    "indicator:b3eb347f05220d9f4130": {
-      "checks": {
-        "arithmetic_sequence_detected": "ok",
-        "dtype_violations": "ok",
-        "duplicate_pct": "ok",
-        "max_gap_ratio": "warning",
-        "n_obs": "warning",
-        "n_unparseable_timestamps": "ok",
-        "time_coverage_ratio": "ok",
-        "variance": "ok"
-      },
-      "issues": [
-        {
-          "indicator_id": "indicator:b3eb347f05220d9f4130",
-          "issue_type": "low_n",
-          "message": "Only 5 observations (recommend >= 10)",
-          "severity": "warning"
+      "indicator:1f8878c9ba1ad571b89e": {
+        "checks": {
+          "arithmetic_sequence_detected": "ok",
+          "dtype_violations": "ok",
+          "duplicate_pct": "warning",
+          "max_gap_ratio": "ok",
+          "n_obs": "ok",
+          "n_unparseable_timestamps": "ok",
+          "time_coverage_ratio": "ok",
+          "variance": "ok"
         },
-        {
-          "indicator_id": "indicator:b3eb347f05220d9f4130",
-          "issue_type": "large_timestamp_gap",
-          "message": "Max consecutive gap 336h > 5x 24.0h (120.0h)",
-          "severity": "warning"
+        "issues": [
+          {
+            "indicator_id": "indicator:1f8878c9ba1ad571b89e",
+            "issue_type": "suspicious_pattern",
+            "message": ">50% of values are 2.0 (58/61)",
+            "severity": "warning"
+          }
+        ],
+        "profile": {
+          "arithmetic_sequence_detected": false,
+          "dtype_violations": 0,
+          "duplicate_pct": 0.9508196721311475,
+          "is_nonnegative": true,
+          "is_unit_interval": false,
+          "looks_integer_valued": true,
+          "max": 2.0,
+          "max_gap_ratio": 0.6,
+          "mean": 1.9508196721311475,
+          "measurement_dtype": "ordinal",
+          "min": 1.0,
+          "n_obs": 61,
+          "n_unparseable_timestamps": 0,
+          "q25": 2.0,
+          "q50": 2.0,
+          "q75": 2.0,
+          "std": 0.21803894974650143,
+          "time_coverage_ratio": 1.0,
+          "variance": 0.047540983606557376,
+          "variance_to_mean_ratio": 0.024369747899159664,
+          "zero_fraction": 0.0
         }
-      ],
-      "profile": {
-        "arithmetic_sequence_detected": false,
-        "dtype_violations": 0,
-        "duplicate_pct": 0.2,
-        "is_nonnegative": true,
-        "is_unit_interval": false,
-        "looks_integer_valued": true,
-        "max": 11.0,
-        "max_gap_ratio": 2.8,
-        "mean": 6.2,
-        "measurement_dtype": "ordinal",
-        "min": 2.0,
-        "n_obs": 5,
-        "n_unparseable_timestamps": 0,
-        "q25": 3.0,
-        "q50": 6.0,
-        "q75": 9.0,
-        "std": 3.8340579025361627,
-        "time_coverage_ratio": 1.0,
-        "variance": 14.7,
-        "variance_to_mean_ratio": 2.3709677419354835,
-        "zero_fraction": 0.0
+      },
+      "indicator:21069529417a9a99ee50": {
+        "checks": {
+          "arithmetic_sequence_detected": "ok",
+          "dtype_violations": "ok",
+          "duplicate_pct": "ok",
+          "max_gap_ratio": "ok",
+          "n_obs": "ok",
+          "n_unparseable_timestamps": "ok",
+          "time_coverage_ratio": "ok",
+          "variance": "ok"
+        },
+        "issues": [],
+        "profile": {
+          "arithmetic_sequence_detected": false,
+          "dtype_violations": 0,
+          "duplicate_pct": 0.0025173064820641915,
+          "is_nonnegative": true,
+          "is_unit_interval": false,
+          "looks_integer_valued": true,
+          "max": 11971.0,
+          "max_gap_ratio": 0.2,
+          "mean": 8051.470736312146,
+          "measurement_dtype": "count",
+          "min": 2076.0,
+          "n_obs": 1589,
+          "n_unparseable_timestamps": 0,
+          "q25": 6957.0,
+          "q50": 7974.0,
+          "q75": 9314.0,
+          "std": 1605.0118187158014,
+          "time_coverage_ratio": 1.0,
+          "variance": 2576062.9382174043,
+          "variance_to_mean_ratio": 319.94936361121654,
+          "zero_fraction": 0.0
+        }
+      },
+      "indicator:7a4890fc254d4a508b7c": {
+        "checks": {
+          "arithmetic_sequence_detected": "ok",
+          "dtype_violations": "warning",
+          "duplicate_pct": "ok",
+          "max_gap_ratio": "ok",
+          "n_obs": "ok",
+          "n_unparseable_timestamps": "ok",
+          "time_coverage_ratio": "ok",
+          "variance": "ok"
+        },
+        "issues": [
+          {
+            "indicator_id": "indicator:7a4890fc254d4a508b7c",
+            "issue_type": "dtype_violation",
+            "message": "12 outlier(s) outside [73.00, 101.00]",
+            "severity": "warning"
+          }
+        ],
+        "profile": {
+          "arithmetic_sequence_detected": false,
+          "dtype_violations": 12,
+          "duplicate_pct": 0.12845303867403315,
+          "is_nonnegative": true,
+          "is_unit_interval": false,
+          "looks_integer_valued": true,
+          "max": 93.0,
+          "max_gap_ratio": 0.2,
+          "mean": 86.72306629834254,
+          "measurement_dtype": "continuous",
+          "min": 70.0,
+          "n_obs": 1448,
+          "n_unparseable_timestamps": 0,
+          "q25": 85.0,
+          "q50": 87.0,
+          "q75": 89.0,
+          "std": 3.858766984911013,
+          "time_coverage_ratio": 1.0,
+          "variance": 14.890082643839229,
+          "variance_to_mean_ratio": 0.17169691155308942,
+          "zero_fraction": 0.0
+        }
+      },
+      "indicator:7f51bc663e8e0bbea95f": {
+        "checks": {
+          "arithmetic_sequence_detected": "ok",
+          "dtype_violations": "ok",
+          "duplicate_pct": "ok",
+          "max_gap_ratio": "ok",
+          "n_obs": "ok",
+          "n_unparseable_timestamps": "ok",
+          "time_coverage_ratio": "ok",
+          "variance": "ok"
+        },
+        "issues": [],
+        "profile": {
+          "arithmetic_sequence_detected": false,
+          "dtype_violations": 0,
+          "duplicate_pct": 0.972972972972973,
+          "is_nonnegative": true,
+          "is_unit_interval": true,
+          "looks_integer_valued": true,
+          "max": 1.0,
+          "max_gap_ratio": 0.6,
+          "mean": 0.02702702702702703,
+          "measurement_dtype": "count",
+          "min": 0.0,
+          "n_obs": 74,
+          "n_unparseable_timestamps": 0,
+          "q25": 0.0,
+          "q50": 0.0,
+          "q75": 0.0,
+          "std": 0.16326908396901554,
+          "time_coverage_ratio": 1.0,
+          "variance": 0.026656793780081445,
+          "variance_to_mean_ratio": 0.9863013698630134,
+          "zero_fraction": 0.972972972972973
+        }
+      },
+      "indicator:80833c21d9dd9f2ce5d5": {
+        "checks": {
+          "arithmetic_sequence_detected": "ok",
+          "dtype_violations": "ok",
+          "duplicate_pct": "ok",
+          "max_gap_ratio": "ok",
+          "n_obs": "ok",
+          "n_unparseable_timestamps": "ok",
+          "time_coverage_ratio": "ok",
+          "variance": "ok"
+        },
+        "issues": [],
+        "profile": {
+          "arithmetic_sequence_detected": false,
+          "dtype_violations": 0,
+          "duplicate_pct": 0.9968691296180339,
+          "is_nonnegative": true,
+          "is_unit_interval": true,
+          "looks_integer_valued": true,
+          "max": 1.0,
+          "max_gap_ratio": 0.2,
+          "mean": 0.0031308703819661866,
+          "measurement_dtype": "count",
+          "min": 0.0,
+          "n_obs": 1597,
+          "n_unparseable_timestamps": 0,
+          "q25": 0.0,
+          "q50": 0.0,
+          "q75": 0.0,
+          "std": 0.05588401908442992,
+          "time_coverage_ratio": 1.0,
+          "variance": 0.003123023589028928,
+          "variance_to_mean_ratio": 0.9974937343358397,
+          "zero_fraction": 0.9968691296180339
+        }
+      },
+      "indicator:8e1b73dd3c754b48e92c": {
+        "checks": {
+          "arithmetic_sequence_detected": "ok",
+          "dtype_violations": "ok",
+          "duplicate_pct": "warning",
+          "max_gap_ratio": "ok",
+          "n_obs": "ok",
+          "n_unparseable_timestamps": "ok",
+          "time_coverage_ratio": "ok",
+          "variance": "ok"
+        },
+        "issues": [
+          {
+            "indicator_id": "indicator:8e1b73dd3c754b48e92c",
+            "issue_type": "suspicious_pattern",
+            "message": ">50% of values are 1.0 (49/74)",
+            "severity": "warning"
+          }
+        ],
+        "profile": {
+          "arithmetic_sequence_detected": false,
+          "dtype_violations": 0,
+          "duplicate_pct": 0.6621621621621622,
+          "is_nonnegative": true,
+          "is_unit_interval": false,
+          "looks_integer_valued": true,
+          "max": 2.0,
+          "max_gap_ratio": 0.6,
+          "mean": 0.9594594594594594,
+          "measurement_dtype": "ordinal",
+          "min": 0.0,
+          "n_obs": 74,
+          "n_unparseable_timestamps": 0,
+          "q25": 1.0,
+          "q50": 1.0,
+          "q75": 1.0,
+          "std": 0.5837805270933611,
+          "time_coverage_ratio": 1.0,
+          "variance": 0.3407997038134025,
+          "variance_to_mean_ratio": 0.3551996912984759,
+          "zero_fraction": 0.1891891891891892
+        }
+      },
+      "indicator:93c7007ff8e5a6565b25": {
+        "checks": {
+          "arithmetic_sequence_detected": "ok",
+          "dtype_violations": "ok",
+          "duplicate_pct": "ok",
+          "max_gap_ratio": "warning",
+          "n_obs": "warning",
+          "n_unparseable_timestamps": "ok",
+          "time_coverage_ratio": "ok",
+          "variance": "ok"
+        },
+        "issues": [
+          {
+            "indicator_id": "indicator:93c7007ff8e5a6565b25",
+            "issue_type": "low_n",
+            "message": "Only 5 observations (recommend >= 10)",
+            "severity": "warning"
+          },
+          {
+            "indicator_id": "indicator:93c7007ff8e5a6565b25",
+            "issue_type": "large_timestamp_gap",
+            "message": "Max consecutive gap 336h > 5x 24.0h (120.0h)",
+            "severity": "warning"
+          }
+        ],
+        "profile": {
+          "arithmetic_sequence_detected": false,
+          "dtype_violations": 0,
+          "duplicate_pct": 0.2,
+          "is_nonnegative": true,
+          "is_unit_interval": false,
+          "looks_integer_valued": true,
+          "max": 16.0,
+          "max_gap_ratio": 2.8,
+          "mean": 8.8,
+          "measurement_dtype": "ordinal",
+          "min": 3.0,
+          "n_obs": 5,
+          "n_unparseable_timestamps": 0,
+          "q25": 4.0,
+          "q50": 8.0,
+          "q75": 13.0,
+          "std": 5.630275304103699,
+          "time_coverage_ratio": 1.0,
+          "variance": 31.700000000000003,
+          "variance_to_mean_ratio": 3.6022727272727275,
+          "zero_fraction": 0.0
+        }
+      },
+      "indicator:9becfedce394873f8c0c": {
+        "checks": {
+          "arithmetic_sequence_detected": "ok",
+          "dtype_violations": "ok",
+          "duplicate_pct": "warning",
+          "max_gap_ratio": "ok",
+          "n_obs": "ok",
+          "n_unparseable_timestamps": "ok",
+          "time_coverage_ratio": "ok",
+          "variance": "ok"
+        },
+        "issues": [
+          {
+            "indicator_id": "indicator:9becfedce394873f8c0c",
+            "issue_type": "suspicious_pattern",
+            "message": ">50% of values are 1.0 (39/72)",
+            "severity": "warning"
+          }
+        ],
+        "profile": {
+          "arithmetic_sequence_detected": false,
+          "dtype_violations": 0,
+          "duplicate_pct": 0.5416666666666666,
+          "is_nonnegative": true,
+          "is_unit_interval": false,
+          "looks_integer_valued": true,
+          "max": 3.0,
+          "max_gap_ratio": 0.6,
+          "mean": 0.9444444444444444,
+          "measurement_dtype": "ordinal",
+          "min": 0.0,
+          "n_obs": 72,
+          "n_unparseable_timestamps": 0,
+          "q25": 0.0,
+          "q50": 1.0,
+          "q75": 1.0,
+          "std": 0.709867849016486,
+          "time_coverage_ratio": 1.0,
+          "variance": 0.5039123630672926,
+          "variance_to_mean_ratio": 0.5335542667771334,
+          "zero_fraction": 0.2638888888888889
+        }
+      },
+      "indicator:a1c5e49b6b167636f7a0": {
+        "checks": {
+          "arithmetic_sequence_detected": "ok",
+          "dtype_violations": "ok",
+          "duplicate_pct": "warning",
+          "max_gap_ratio": "ok",
+          "n_obs": "ok",
+          "n_unparseable_timestamps": "ok",
+          "time_coverage_ratio": "ok",
+          "variance": "ok"
+        },
+        "issues": [
+          {
+            "indicator_id": "indicator:a1c5e49b6b167636f7a0",
+            "issue_type": "suspicious_pattern",
+            "message": ">50% of values are 0.0 (10/15)",
+            "severity": "warning"
+          }
+        ],
+        "profile": {
+          "arithmetic_sequence_detected": false,
+          "dtype_violations": 0,
+          "duplicate_pct": 0.6666666666666666,
+          "is_nonnegative": true,
+          "is_unit_interval": true,
+          "looks_integer_valued": true,
+          "max": 1.0,
+          "max_gap_ratio": null,
+          "mean": 0.3333333333333333,
+          "measurement_dtype": "ordinal",
+          "min": 0.0,
+          "n_obs": 15,
+          "n_unparseable_timestamps": 0,
+          "q25": 0.0,
+          "q50": 0.0,
+          "q75": 1.0,
+          "std": 0.48795003647426666,
+          "time_coverage_ratio": null,
+          "variance": 0.23809523809523814,
+          "variance_to_mean_ratio": 0.7142857142857144,
+          "zero_fraction": 0.6666666666666666
+        }
+      },
+      "indicator:a7234127c37d7ce4a0c2": {
+        "checks": {
+          "arithmetic_sequence_detected": "ok",
+          "dtype_violations": "ok",
+          "duplicate_pct": "ok",
+          "max_gap_ratio": "ok",
+          "n_obs": "ok",
+          "n_unparseable_timestamps": "ok",
+          "time_coverage_ratio": "ok",
+          "variance": "ok"
+        },
+        "issues": [],
+        "profile": {
+          "arithmetic_sequence_detected": false,
+          "dtype_violations": 0,
+          "duplicate_pct": 0.8536585365853658,
+          "is_nonnegative": true,
+          "is_unit_interval": true,
+          "looks_integer_valued": true,
+          "max": 1.0,
+          "max_gap_ratio": 0.6,
+          "mean": 0.8536585365853658,
+          "measurement_dtype": "binary",
+          "min": 0.0,
+          "n_obs": 82,
+          "n_unparseable_timestamps": 0,
+          "q25": 1.0,
+          "q50": 1.0,
+          "q75": 1.0,
+          "std": 0.3556232997793875,
+          "time_coverage_ratio": 1.0,
+          "variance": 0.1264679313459801,
+          "variance_to_mean_ratio": 0.14814814814814814,
+          "zero_fraction": 0.14634146341463414
+        }
+      },
+      "indicator:b20fa3887689d5616a60": {
+        "checks": {
+          "arithmetic_sequence_detected": "ok",
+          "dtype_violations": "ok",
+          "duplicate_pct": "ok",
+          "max_gap_ratio": "ok",
+          "n_obs": "ok",
+          "n_unparseable_timestamps": "ok",
+          "time_coverage_ratio": "ok",
+          "variance": "ok"
+        },
+        "issues": [],
+        "profile": {
+          "arithmetic_sequence_detected": false,
+          "dtype_violations": 0,
+          "duplicate_pct": 0.05517241379310345,
+          "is_nonnegative": false,
+          "is_unit_interval": false,
+          "looks_integer_valued": false,
+          "max": 0.69,
+          "max_gap_ratio": 0.2,
+          "mean": 0.27420689655172414,
+          "measurement_dtype": "continuous",
+          "min": -0.49,
+          "n_obs": 145,
+          "n_unparseable_timestamps": 0,
+          "q25": 0.05,
+          "q50": 0.36,
+          "q75": 0.51,
+          "std": 0.30548156192204057,
+          "time_coverage_ratio": 1.0,
+          "variance": 0.09331898467432949,
+          "variance_to_mean_ratio": 0.340323258998435,
+          "zero_fraction": 0.0
+        }
+      },
+      "indicator:b3eb347f05220d9f4130": {
+        "checks": {
+          "arithmetic_sequence_detected": "ok",
+          "dtype_violations": "ok",
+          "duplicate_pct": "ok",
+          "max_gap_ratio": "warning",
+          "n_obs": "warning",
+          "n_unparseable_timestamps": "ok",
+          "time_coverage_ratio": "ok",
+          "variance": "ok"
+        },
+        "issues": [
+          {
+            "indicator_id": "indicator:b3eb347f05220d9f4130",
+            "issue_type": "low_n",
+            "message": "Only 5 observations (recommend >= 10)",
+            "severity": "warning"
+          },
+          {
+            "indicator_id": "indicator:b3eb347f05220d9f4130",
+            "issue_type": "large_timestamp_gap",
+            "message": "Max consecutive gap 336h > 5x 24.0h (120.0h)",
+            "severity": "warning"
+          }
+        ],
+        "profile": {
+          "arithmetic_sequence_detected": false,
+          "dtype_violations": 0,
+          "duplicate_pct": 0.2,
+          "is_nonnegative": true,
+          "is_unit_interval": false,
+          "looks_integer_valued": true,
+          "max": 11.0,
+          "max_gap_ratio": 2.8,
+          "mean": 6.2,
+          "measurement_dtype": "ordinal",
+          "min": 2.0,
+          "n_obs": 5,
+          "n_unparseable_timestamps": 0,
+          "q25": 3.0,
+          "q50": 6.0,
+          "q75": 9.0,
+          "std": 3.8340579025361627,
+          "time_coverage_ratio": 1.0,
+          "variance": 14.7,
+          "variance_to_mean_ratio": 2.3709677419354835,
+          "zero_fraction": 0.0
+        }
+      },
+      "indicator:c9a9156464b8dce5ba14": {
+        "checks": {
+          "arithmetic_sequence_detected": "ok",
+          "dtype_violations": "ok",
+          "duplicate_pct": "warning",
+          "max_gap_ratio": "ok",
+          "n_obs": "ok",
+          "n_unparseable_timestamps": "ok",
+          "time_coverage_ratio": "ok",
+          "variance": "ok"
+        },
+        "issues": [
+          {
+            "indicator_id": "indicator:c9a9156464b8dce5ba14",
+            "issue_type": "suspicious_pattern",
+            "message": ">50% of values are 2.0 (36/61)",
+            "severity": "warning"
+          }
+        ],
+        "profile": {
+          "arithmetic_sequence_detected": false,
+          "dtype_violations": 0,
+          "duplicate_pct": 0.5901639344262295,
+          "is_nonnegative": true,
+          "is_unit_interval": false,
+          "looks_integer_valued": true,
+          "max": 3.0,
+          "max_gap_ratio": 0.6,
+          "mean": 1.5573770491803278,
+          "measurement_dtype": "ordinal",
+          "min": 0.0,
+          "n_obs": 61,
+          "n_unparseable_timestamps": 0,
+          "q25": 1.0,
+          "q50": 2.0,
+          "q75": 2.0,
+          "std": 0.6461318277238897,
+          "time_coverage_ratio": 1.0,
+          "variance": 0.4174863387978142,
+          "variance_to_mean_ratio": 0.2680701754385965,
+          "zero_fraction": 0.06557377049180328
+        }
+      },
+      "indicator:cd5618fdf5311bf6e90d": {
+        "checks": {
+          "arithmetic_sequence_detected": "ok",
+          "dtype_violations": "ok",
+          "duplicate_pct": "warning",
+          "max_gap_ratio": "ok",
+          "n_obs": "ok",
+          "n_unparseable_timestamps": "ok",
+          "time_coverage_ratio": "ok",
+          "variance": "ok"
+        },
+        "issues": [
+          {
+            "indicator_id": "indicator:cd5618fdf5311bf6e90d",
+            "issue_type": "suspicious_pattern",
+            "message": ">50% of values are 3.0 (54/67)",
+            "severity": "warning"
+          }
+        ],
+        "profile": {
+          "arithmetic_sequence_detected": false,
+          "dtype_violations": 0,
+          "duplicate_pct": 0.8059701492537313,
+          "is_nonnegative": true,
+          "is_unit_interval": false,
+          "looks_integer_valued": true,
+          "max": 3.0,
+          "max_gap_ratio": null,
+          "mean": 2.6865671641791047,
+          "measurement_dtype": "ordinal",
+          "min": 1.0,
+          "n_obs": 67,
+          "n_unparseable_timestamps": 0,
+          "q25": 3.0,
+          "q50": 3.0,
+          "q75": 3.0,
+          "std": 0.6788795408809172,
+          "time_coverage_ratio": null,
+          "variance": 0.4608774310266848,
+          "variance_to_mean_ratio": 0.17154882154882156,
+          "zero_fraction": 0.0
+        }
+      },
+      "indicator:d14078f40ae3b26ae799": {
+        "checks": {
+          "arithmetic_sequence_detected": "ok",
+          "dtype_violations": "ok",
+          "duplicate_pct": "warning",
+          "max_gap_ratio": "ok",
+          "n_obs": "ok",
+          "n_unparseable_timestamps": "ok",
+          "time_coverage_ratio": "ok",
+          "variance": "ok"
+        },
+        "issues": [
+          {
+            "indicator_id": "indicator:d14078f40ae3b26ae799",
+            "issue_type": "suspicious_pattern",
+            "message": ">50% of values are 3.0 (46/86)",
+            "severity": "warning"
+          }
+        ],
+        "profile": {
+          "arithmetic_sequence_detected": false,
+          "dtype_violations": 0,
+          "duplicate_pct": 0.5348837209302325,
+          "is_nonnegative": true,
+          "is_unit_interval": false,
+          "looks_integer_valued": true,
+          "max": 3.0,
+          "max_gap_ratio": 0.6,
+          "mean": 2.488372093023256,
+          "measurement_dtype": "ordinal",
+          "min": 1.0,
+          "n_obs": 86,
+          "n_unparseable_timestamps": 0,
+          "q25": 2.0,
+          "q50": 3.0,
+          "q75": 3.0,
+          "std": 0.589000869798851,
+          "time_coverage_ratio": 1.0,
+          "variance": 0.34692202462380306,
+          "variance_to_mean_ratio": 0.13941726223199563,
+          "zero_fraction": 0.0
+        }
+      },
+      "indicator:ea0f209a3393fba5194e": {
+        "checks": {
+          "arithmetic_sequence_detected": "ok",
+          "dtype_violations": "ok",
+          "duplicate_pct": "ok",
+          "max_gap_ratio": "ok",
+          "n_obs": "ok",
+          "n_unparseable_timestamps": "ok",
+          "time_coverage_ratio": "ok",
+          "variance": "ok"
+        },
+        "issues": [],
+        "profile": {
+          "arithmetic_sequence_detected": false,
+          "dtype_violations": 0,
+          "duplicate_pct": 0.35714285714285715,
+          "is_nonnegative": true,
+          "is_unit_interval": false,
+          "looks_integer_valued": true,
+          "max": 913.0,
+          "max_gap_ratio": null,
+          "mean": 676.8928571428571,
+          "measurement_dtype": "continuous",
+          "min": 0.0,
+          "n_obs": 56,
+          "n_unparseable_timestamps": 0,
+          "q25": 656.0,
+          "q50": 730.0,
+          "q75": 913.0,
+          "std": 307.50306301927105,
+          "time_coverage_ratio": null,
+          "variance": 94558.13376623378,
+          "variance_to_mean_ratio": 139.6943885112935,
+          "zero_fraction": 0.03571428571428571
+        }
+      },
+      "indicator:eb0949a188790298c25d": {
+        "checks": {
+          "arithmetic_sequence_detected": "ok",
+          "dtype_violations": "ok",
+          "duplicate_pct": "warning",
+          "max_gap_ratio": "ok",
+          "n_obs": "ok",
+          "n_unparseable_timestamps": "ok",
+          "time_coverage_ratio": "ok",
+          "variance": "ok"
+        },
+        "issues": [
+          {
+            "indicator_id": "indicator:eb0949a188790298c25d",
+            "issue_type": "suspicious_pattern",
+            "message": ">50% of values are 20.0 (13/19)",
+            "severity": "warning"
+          }
+        ],
+        "profile": {
+          "arithmetic_sequence_detected": false,
+          "dtype_violations": 0,
+          "duplicate_pct": 0.6842105263157895,
+          "is_nonnegative": true,
+          "is_unit_interval": false,
+          "looks_integer_valued": true,
+          "max": 20.0,
+          "max_gap_ratio": 0.2,
+          "mean": 16.842105263157894,
+          "measurement_dtype": "continuous",
+          "min": 10.0,
+          "n_obs": 19,
+          "n_unparseable_timestamps": 0,
+          "q25": 10.0,
+          "q50": 20.0,
+          "q75": 20.0,
+          "std": 4.775669329409194,
+          "time_coverage_ratio": 1.0,
+          "variance": 22.807017543859658,
+          "variance_to_mean_ratio": 1.3541666666666672,
+          "zero_fraction": 0.0
+        }
+      },
+      "indicator:eca6b8b2c4379267b6c8": {
+        "checks": {
+          "arithmetic_sequence_detected": "ok",
+          "dtype_violations": "ok",
+          "duplicate_pct": "warning",
+          "max_gap_ratio": "ok",
+          "n_obs": "ok",
+          "n_unparseable_timestamps": "ok",
+          "time_coverage_ratio": "ok",
+          "variance": "ok"
+        },
+        "issues": [
+          {
+            "indicator_id": "indicator:eca6b8b2c4379267b6c8",
+            "issue_type": "suspicious_pattern",
+            "message": ">50% of values are 0.0 (48/79)",
+            "severity": "warning"
+          }
+        ],
+        "profile": {
+          "arithmetic_sequence_detected": false,
+          "dtype_violations": 0,
+          "duplicate_pct": 0.6075949367088608,
+          "is_nonnegative": true,
+          "is_unit_interval": false,
+          "looks_integer_valued": true,
+          "max": 2.0,
+          "max_gap_ratio": 0.6,
+          "mean": 0.4810126582278481,
+          "measurement_dtype": "ordinal",
+          "min": 0.0,
+          "n_obs": 79,
+          "n_unparseable_timestamps": 0,
+          "q25": 0.0,
+          "q50": 0.0,
+          "q75": 1.0,
+          "std": 0.6575159058945885,
+          "time_coverage_ratio": 1.0,
+          "variance": 0.43232716650438147,
+          "variance_to_mean_ratio": 0.8987854251012141,
+          "zero_fraction": 0.6075949367088608
+        }
       }
     },
-    "indicator:c9a9156464b8dce5ba14": {
-      "checks": {
-        "arithmetic_sequence_detected": "ok",
-        "dtype_violations": "ok",
-        "duplicate_pct": "warning",
-        "max_gap_ratio": "ok",
-        "n_obs": "ok",
-        "n_unparseable_timestamps": "ok",
-        "time_coverage_ratio": "ok",
-        "variance": "ok"
-      },
-      "issues": [
-        {
-          "indicator_id": "indicator:c9a9156464b8dce5ba14",
-          "issue_type": "suspicious_pattern",
-          "message": ">50% of values are 2.0 (36/61)",
-          "severity": "warning"
-        }
-      ],
-      "profile": {
-        "arithmetic_sequence_detected": false,
-        "dtype_violations": 0,
-        "duplicate_pct": 0.5901639344262295,
-        "is_nonnegative": true,
-        "is_unit_interval": false,
-        "looks_integer_valued": true,
-        "max": 3.0,
-        "max_gap_ratio": 0.6,
-        "mean": 1.5573770491803278,
-        "measurement_dtype": "ordinal",
-        "min": 0.0,
-        "n_obs": 61,
-        "n_unparseable_timestamps": 0,
-        "q25": 1.0,
-        "q50": 2.0,
-        "q75": 2.0,
-        "std": 0.6461318277238897,
-        "time_coverage_ratio": 1.0,
-        "variance": 0.4174863387978142,
-        "variance_to_mean_ratio": 0.2680701754385965,
-        "zero_fraction": 0.06557377049180328
-      }
-    },
-    "indicator:cd5618fdf5311bf6e90d": {
-      "checks": {
-        "arithmetic_sequence_detected": "ok",
-        "dtype_violations": "ok",
-        "duplicate_pct": "warning",
-        "max_gap_ratio": "ok",
-        "n_obs": "ok",
-        "n_unparseable_timestamps": "ok",
-        "time_coverage_ratio": "ok",
-        "variance": "ok"
-      },
-      "issues": [
-        {
-          "indicator_id": "indicator:cd5618fdf5311bf6e90d",
-          "issue_type": "suspicious_pattern",
-          "message": ">50% of values are 3.0 (54/67)",
-          "severity": "warning"
-        }
-      ],
-      "profile": {
-        "arithmetic_sequence_detected": false,
-        "dtype_violations": 0,
-        "duplicate_pct": 0.8059701492537313,
-        "is_nonnegative": true,
-        "is_unit_interval": false,
-        "looks_integer_valued": true,
-        "max": 3.0,
-        "max_gap_ratio": null,
-        "mean": 2.6865671641791047,
-        "measurement_dtype": "ordinal",
-        "min": 1.0,
-        "n_obs": 67,
-        "n_unparseable_timestamps": 0,
-        "q25": 3.0,
-        "q50": 3.0,
-        "q75": 3.0,
-        "std": 0.6788795408809172,
-        "time_coverage_ratio": null,
-        "variance": 0.4608774310266848,
-        "variance_to_mean_ratio": 0.17154882154882156,
-        "zero_fraction": 0.0
-      }
-    },
-    "indicator:d14078f40ae3b26ae799": {
-      "checks": {
-        "arithmetic_sequence_detected": "ok",
-        "dtype_violations": "ok",
-        "duplicate_pct": "warning",
-        "max_gap_ratio": "ok",
-        "n_obs": "ok",
-        "n_unparseable_timestamps": "ok",
-        "time_coverage_ratio": "ok",
-        "variance": "ok"
-      },
-      "issues": [
-        {
-          "indicator_id": "indicator:d14078f40ae3b26ae799",
-          "issue_type": "suspicious_pattern",
-          "message": ">50% of values are 3.0 (46/86)",
-          "severity": "warning"
-        }
-      ],
-      "profile": {
-        "arithmetic_sequence_detected": false,
-        "dtype_violations": 0,
-        "duplicate_pct": 0.5348837209302325,
-        "is_nonnegative": true,
-        "is_unit_interval": false,
-        "looks_integer_valued": true,
-        "max": 3.0,
-        "max_gap_ratio": 0.6,
-        "mean": 2.488372093023256,
-        "measurement_dtype": "ordinal",
-        "min": 1.0,
-        "n_obs": 86,
-        "n_unparseable_timestamps": 0,
-        "q25": 2.0,
-        "q50": 3.0,
-        "q75": 3.0,
-        "std": 0.589000869798851,
-        "time_coverage_ratio": 1.0,
-        "variance": 0.34692202462380306,
-        "variance_to_mean_ratio": 0.13941726223199563,
-        "zero_fraction": 0.0
-      }
-    },
-    "indicator:ea0f209a3393fba5194e": {
-      "checks": {
-        "arithmetic_sequence_detected": "ok",
-        "dtype_violations": "ok",
-        "duplicate_pct": "ok",
-        "max_gap_ratio": "ok",
-        "n_obs": "ok",
-        "n_unparseable_timestamps": "ok",
-        "time_coverage_ratio": "ok",
-        "variance": "ok"
-      },
-      "issues": [],
-      "profile": {
-        "arithmetic_sequence_detected": false,
-        "dtype_violations": 0,
-        "duplicate_pct": 0.35714285714285715,
-        "is_nonnegative": true,
-        "is_unit_interval": false,
-        "looks_integer_valued": true,
-        "max": 913.0,
-        "max_gap_ratio": null,
-        "mean": 676.8928571428571,
-        "measurement_dtype": "continuous",
-        "min": 0.0,
-        "n_obs": 56,
-        "n_unparseable_timestamps": 0,
-        "q25": 656.0,
-        "q50": 730.0,
-        "q75": 913.0,
-        "std": 307.50306301927105,
-        "time_coverage_ratio": null,
-        "variance": 94558.13376623378,
-        "variance_to_mean_ratio": 139.6943885112935,
-        "zero_fraction": 0.03571428571428571
-      }
-    },
-    "indicator:eb0949a188790298c25d": {
-      "checks": {
-        "arithmetic_sequence_detected": "ok",
-        "dtype_violations": "ok",
-        "duplicate_pct": "warning",
-        "max_gap_ratio": "ok",
-        "n_obs": "ok",
-        "n_unparseable_timestamps": "ok",
-        "time_coverage_ratio": "ok",
-        "variance": "ok"
-      },
-      "issues": [
-        {
-          "indicator_id": "indicator:eb0949a188790298c25d",
-          "issue_type": "suspicious_pattern",
-          "message": ">50% of values are 20.0 (13/19)",
-          "severity": "warning"
-        }
-      ],
-      "profile": {
-        "arithmetic_sequence_detected": false,
-        "dtype_violations": 0,
-        "duplicate_pct": 0.6842105263157895,
-        "is_nonnegative": true,
-        "is_unit_interval": false,
-        "looks_integer_valued": true,
-        "max": 20.0,
-        "max_gap_ratio": 0.2,
-        "mean": 16.842105263157894,
-        "measurement_dtype": "continuous",
-        "min": 10.0,
-        "n_obs": 19,
-        "n_unparseable_timestamps": 0,
-        "q25": 10.0,
-        "q50": 20.0,
-        "q75": 20.0,
-        "std": 4.775669329409194,
-        "time_coverage_ratio": 1.0,
-        "variance": 22.807017543859658,
-        "variance_to_mean_ratio": 1.3541666666666672,
-        "zero_fraction": 0.0
-      }
-    },
-    "indicator:eca6b8b2c4379267b6c8": {
-      "checks": {
-        "arithmetic_sequence_detected": "ok",
-        "dtype_violations": "ok",
-        "duplicate_pct": "warning",
-        "max_gap_ratio": "ok",
-        "n_obs": "ok",
-        "n_unparseable_timestamps": "ok",
-        "time_coverage_ratio": "ok",
-        "variance": "ok"
-      },
-      "issues": [
-        {
-          "indicator_id": "indicator:eca6b8b2c4379267b6c8",
-          "issue_type": "suspicious_pattern",
-          "message": ">50% of values are 0.0 (48/79)",
-          "severity": "warning"
-        }
-      ],
-      "profile": {
-        "arithmetic_sequence_detected": false,
-        "dtype_violations": 0,
-        "duplicate_pct": 0.6075949367088608,
-        "is_nonnegative": true,
-        "is_unit_interval": false,
-        "looks_integer_valued": true,
-        "max": 2.0,
-        "max_gap_ratio": 0.6,
-        "mean": 0.4810126582278481,
-        "measurement_dtype": "ordinal",
-        "min": 0.0,
-        "n_obs": 79,
-        "n_unparseable_timestamps": 0,
-        "q25": 0.0,
-        "q50": 0.0,
-        "q75": 1.0,
-        "std": 0.6575159058945885,
-        "time_coverage_ratio": 1.0,
-        "variance": 0.43232716650438147,
-        "variance_to_mean_ratio": 0.8987854251012141,
-        "zero_fraction": 0.6075949367088608
-      }
-    }
+    "is_valid": true
   },
-  "is_valid": true
+  "is_valid": true,
+  "preflight": {
+    "findings": []
+  }
 }

@@ -9,6 +9,7 @@ from nof1_causal_lab.artifacts.data_preparation import (
     DataVariableSpec,
     FileSourceRef,
     PreparedDataMetadata,
+    SemanticExtractionSpec,
 )
 from nof1_causal_lab.artifacts.simulation import SimulationObservationLayout
 from tests.model_fixtures import compile_model_fixture
@@ -19,16 +20,10 @@ def metadata_for_model(model):
         default_window=model.measurement_clock,
         variables=tuple(
             DataVariableSpec(
-                id=indicator.id,
-                name=indicator.name,
-                measurement_dtype=indicator.measurement_dtype,
-                aggregation=indicator.aggregation,
-                observation_window=indicator.observation_window,
-                fill_null=indicator.fill_null,
-                fill_null_limit=indicator.fill_null_limit,
-                ordinal_levels=indicator.ordinal_levels,
-                categorical_levels=indicator.categorical_levels,
-                how_to_measure="Read " + indicator.name,
+                observation=indicator.observation,
+                extraction=SemanticExtractionSpec(
+                    how_to_measure="Read " + indicator.observation.name
+                ),
             )
             for indicator in model.indicators
         ),
@@ -48,7 +43,12 @@ def simulation_layout(model, times, mask, write_array):
     support = simulation_observation_support(compile_model_fixture(model), np.asarray(times))
     return SimulationObservationLayout(
         variables=tuple(
-            model.indicator(identity).observation(model.measurement_clock)
+            model.indicator(identity).observation.resolved(
+                (
+                    model.indicator(identity).observation.observation_window
+                    or model.measurement_clock
+                ).source
+            )
             for identity in numeric.observation_ids(compile_model_fixture(model))
         ),
         support_start_times=write_array(support.support_start_times),

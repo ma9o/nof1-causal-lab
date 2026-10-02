@@ -10,15 +10,6 @@
         "description": "mood",
         "indicators": [
           {
-            "id": "indicator:f6e3cfa37e27221c32d7",
-            "name": "mood_flag",
-            "measurement_dtype": "binary",
-            "aggregation": "last",
-            "observation_window": null,
-            "fill_null": null,
-            "fill_null_limit": null,
-            "ordinal_levels": null,
-            "categorical_levels": null,
             "likelihood": {
               "law": {
                 "distribution": "BernoulliLogits",
@@ -51,7 +42,16 @@
               "reasoning": "test",
               "sources": []
             },
-            "construct_polarity": "positive"
+            "construct_polarity": "positive",
+            "observation": {
+              "categorical_levels": null,
+              "id": "indicator:f6e3cfa37e27221c32d7",
+              "aggregation": "last",
+              "name": "mood_flag",
+              "ordinal_levels": null,
+              "measurement_dtype": "binary",
+              "observation_window": null
+            }
           }
         ],
         "dynamics": [

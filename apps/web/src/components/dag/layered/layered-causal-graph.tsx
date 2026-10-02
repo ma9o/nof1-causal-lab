@@ -277,7 +277,7 @@ function DataStrip({
           min != null && q25 != null && q50 != null && q75 != null && max != null
             ? { min, q25, q50, q75, max }
             : null;
-        const name = humanize(indicator.name);
+        const name = humanize(indicator.observation.name);
         const counted = `${name} · ${profile.n_obs.toLocaleString()} observations`;
         const sx = scaleLinear()
           .domain(
@@ -289,7 +289,7 @@ function DataStrip({
         const mid = rowTop(index) + 8.5;
         return (
           <StripRow
-            key={indicator.id}
+            key={indicator.observation.id}
             index={index}
             title={
               quartiles
@@ -810,7 +810,9 @@ export function LayeredCausalGraph({
                 (dataDiff !== null &&
                   (meta.kind === "history" ||
                     !construct.indicators.some((indicator) =>
-                      dataDiff.variables.some((variable) => variable.indicator_id === indicator.id),
+                      dataDiff.variables.some(
+                        (variable) => variable.indicator_id === indicator.observation.id,
+                      ),
                     )));
               const selected = selectedNode === construct.id;
               const select = () =>
@@ -840,7 +842,8 @@ export function LayeredCausalGraph({
               const prepared =
                 step === "prepare_data"
                   ? nodeIndicators.flatMap((indicator) => {
-                      const profile = model.data.profile?.value.indicators[indicator.id]?.profile;
+                      const profile =
+                        model.data.profile?.value.indicators[indicator.observation.id]?.profile;
                       return profile ? [{ indicator, profile }] : [];
                     })
                   : [];
@@ -873,7 +876,7 @@ export function LayeredCausalGraph({
                       <>
                         {nodeIndicators.slice(0, STRIP_ROWS).map((indicator, index) => {
                           const variable = dataDiff.variables.find(
-                            (item) => item.indicator_id === indicator.id,
+                            (item) => item.indicator_id === indicator.observation.id,
                           );
                           const failures =
                             variable?.predictive_checks?.per_variable_warnings.filter(
@@ -881,13 +884,13 @@ export function LayeredCausalGraph({
                                 finding.kind !== "evaluated" || finding.outcome !== "passed",
                             ) ?? [];
                           const selectIndicator = () =>
-                            onSelect({ kind: "indicator", id: indicator.id });
+                            onSelect({ kind: "indicator", id: indicator.observation.id });
                           return (
                             <g
-                              key={indicator.id}
+                              key={indicator.observation.id}
                               role="button"
                               tabIndex={0}
-                              aria-label={`${humanize(indicator.name)} comparison`}
+                              aria-label={`${humanize(indicator.observation.name)} comparison`}
                               onClick={(event) => {
                                 event.stopPropagation();
                                 selectIndicator();
@@ -906,9 +909,9 @@ export function LayeredCausalGraph({
                                         ? finding.evidence.note
                                         : finding.detail,
                                     )
-                                    .join("; ") || humanize(indicator.name)
+                                    .join("; ") || humanize(indicator.observation.name)
                                 }
-                                label={humanize(indicator.name)}
+                                label={humanize(indicator.observation.name)}
                                 value={failures.length ? "⚠" : ""}
                                 valueTone="var(--warning-foreground)"
                               >

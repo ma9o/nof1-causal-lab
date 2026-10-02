@@ -1,5 +1,6 @@
 """Scientific edits are the sole model mutation contract; history remains inspectable."""
 
+import asyncio
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock, Mock
 from uuid import UUID, uuid4
@@ -37,6 +38,27 @@ from tests.helpers import make_model
 pytestmark = pytest.mark.contract
 
 
+def test_facade_clients_share_connections_only_within_their_application(monkeypatch):
+    from nof1_causal_lab.actions.temporal import client as temporal_client
+
+    first_connection, second_connection = object(), object()
+    connect = AsyncMock(side_effect=[RuntimeError("offline"), first_connection, second_connection])
+    monkeypatch.setattr(temporal_client, "connect_client", connect)
+    first_app, second_app = create_read_facade_app(), create_read_facade_app()
+
+    async def scenario():
+        with pytest.raises(RuntimeError, match="offline"):
+            await first_app.state.study_clients.get()
+        connections = await asyncio.gather(
+            first_app.state.study_clients.get(), first_app.state.study_clients.get()
+        )
+        assert all(connection is first_connection for connection in connections)
+        assert await second_app.state.study_clients.get() is second_connection
+
+    asyncio.run(scenario())
+    assert connect.await_count == 3
+
+
 @pytest.fixture
 def model_api(monkeypatch, tmp_path):
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
@@ -48,7 +70,7 @@ def model_api(monkeypatch, tmp_path):
         def __init__(self, workspace):
             self.workspace = workspace
 
-        async def start_update(self, method, envelope, *, id, wait_for_stage, result_type):
+        async def start_update(self, method, envelope, *, id, wait_for_stage, result_type):  # noqa: A002 -- Temporal's SDK names this keyword id.
             assert id == str(envelope.attempt_id)
             assert wait_for_stage == WorkflowUpdateStage.ACCEPTED
             calls.append(envelope)
@@ -115,7 +137,7 @@ def model_api(monkeypatch, tmp_path):
             )
             journal.append(record)
 
-    async def handle(workspace):
+    async def handle(workspace, clients):
         return Handle(workspace)
 
     monkeypatch.setattr(study_api, "_study_handle", handle)
@@ -124,10 +146,10 @@ def model_api(monkeypatch, tmp_path):
         def get_workflow_handle(self, workflow_id):
             return Handle(workflow_id.removeprefix("episode-"))
 
-    async def get_client():
+    async def get_client(self):
         return Client()
 
-    monkeypatch.setattr(study_api, "_get_client", get_client)
+    monkeypatch.setattr(study_api.TemporalClientProvider, "get", get_client)
     return TestClient(create_read_facade_app()), calls, Handle("API").complete
 
 
