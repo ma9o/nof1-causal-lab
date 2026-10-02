@@ -162,6 +162,7 @@
       ],
       "title": "Added[ComparisonConnection]",
       "type": "object",
+      "x-typescript-type": "Added<ComparisonConnection>",
       "x-python-module": "nof1_causal_lab.study.view_models",
       "x-layer": "read_models",
       "x-concern": "read_models"
@@ -185,6 +186,7 @@
       ],
       "title": "Added[ConstructSpec]",
       "type": "object",
+      "x-typescript-type": "Added<ConstructSpec>",
       "x-python-module": "nof1_causal_lab.study.view_models",
       "x-layer": "read_models",
       "x-concern": "read_models"
@@ -208,29 +210,7 @@
       ],
       "title": "Added[DataPoint]",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.study.view_models",
-      "x-layer": "read_models",
-      "x-concern": "read_models"
-    },
-    "Added_JsonValue_": {
-      "additionalProperties": false,
-      "properties": {
-        "kind": {
-          "const": "added",
-          "default": "added",
-          "title": "Kind",
-          "type": "string"
-        },
-        "after": {
-          "$ref": "#/$defs/JsonValue"
-        }
-      },
-      "required": [
-        "kind",
-        "after"
-      ],
-      "title": "Added[JsonValue]",
-      "type": "object",
+      "x-typescript-type": "Added<DataPoint>",
       "x-python-module": "nof1_causal_lab.study.view_models",
       "x-layer": "read_models",
       "x-concern": "read_models"
@@ -254,6 +234,7 @@
       ],
       "title": "Added[ParameterSpec]",
       "type": "object",
+      "x-typescript-type": "Added<ParameterSpec>",
       "x-python-module": "nof1_causal_lab.study.view_models",
       "x-layer": "read_models",
       "x-concern": "read_models"
@@ -277,6 +258,7 @@
       ],
       "title": "Applied[DataComparisonResult]",
       "type": "object",
+      "x-typescript-type": "Applied<DataComparisonResult>",
       "x-python-module": "nof1_causal_lab.study.records",
       "x-layer": "study",
       "x-concern": "execution_history"
@@ -300,6 +282,7 @@
       ],
       "title": "Applied[DataPreparationResult]",
       "type": "object",
+      "x-typescript-type": "Applied<DataPreparationResult>",
       "x-python-module": "nof1_causal_lab.study.records",
       "x-layer": "study",
       "x-concern": "execution_history"
@@ -323,6 +306,7 @@
       ],
       "title": "Applied[ModelEditResult]",
       "type": "object",
+      "x-typescript-type": "Applied<ModelEditResult>",
       "x-python-module": "nof1_causal_lab.study.records",
       "x-layer": "study",
       "x-concern": "execution_history"
@@ -346,6 +330,7 @@
       ],
       "title": "Applied[ModelFitResult]",
       "type": "object",
+      "x-typescript-type": "Applied<ModelFitResult>",
       "x-python-module": "nof1_causal_lab.study.records",
       "x-layer": "study",
       "x-concern": "execution_history"
@@ -369,6 +354,7 @@
       ],
       "title": "Applied[ModelSimulationResult]",
       "type": "object",
+      "x-typescript-type": "Applied<ModelSimulationResult>",
       "x-python-module": "nof1_causal_lab.study.records",
       "x-layer": "study",
       "x-concern": "execution_history"
@@ -580,6 +566,27 @@
       "x-layer": "read_models",
       "x-concern": "read_models"
     },
+    "Assessment_ConvergenceAssessmentSubject_NumericCriterionEvidence_": {
+      "discriminator": {
+        "mapping": {
+          "evaluated": "#/$defs/Evaluated_ConvergenceAssessmentSubject_NumericCriterionEvidence_",
+          "not_evaluated": "#/$defs/NotEvaluated_ConvergenceAssessmentSubject_"
+        },
+        "propertyName": "kind"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/Evaluated_ConvergenceAssessmentSubject_NumericCriterionEvidence_"
+        },
+        {
+          "$ref": "#/$defs/NotEvaluated_ConvergenceAssessmentSubject_"
+        }
+      ],
+      "x-typescript-type": "Assessment<ConvergenceAssessmentSubject, NumericCriterionEvidence>",
+      "x-python-module": "nof1_causal_lab.artifacts.checks",
+      "x-layer": "findings",
+      "x-concern": "scientific_model"
+    },
     "Assessment_IndicatorCheckSubject_NumericCriterionEvidence_": {
       "discriminator": {
         "mapping": {
@@ -596,26 +603,7 @@
           "$ref": "#/$defs/NotEvaluated_IndicatorCheckSubject_"
         }
       ],
-      "x-python-module": "nof1_causal_lab.artifacts.checks",
-      "x-layer": "findings",
-      "x-concern": "scientific_model"
-    },
-    "Assessment_Union_ConvergenceSubject__Literal__recorded_parameter_chains____NumericCriterionEvidence_": {
-      "discriminator": {
-        "mapping": {
-          "evaluated": "#/$defs/Evaluated_Union_ConvergenceSubject__Literal__recorded_parameter_chains____NumericCriterionEvidence_",
-          "not_evaluated": "#/$defs/NotEvaluated_Union_ConvergenceSubject__Literal__recorded_parameter_chains____"
-        },
-        "propertyName": "kind"
-      },
-      "oneOf": [
-        {
-          "$ref": "#/$defs/Evaluated_Union_ConvergenceSubject__Literal__recorded_parameter_chains____NumericCriterionEvidence_"
-        },
-        {
-          "$ref": "#/$defs/NotEvaluated_Union_ConvergenceSubject__Literal__recorded_parameter_chains____"
-        }
-      ],
+      "x-typescript-type": "Assessment<IndicatorCheckSubject, NumericCriterionEvidence>",
       "x-python-module": "nof1_causal_lab.artifacts.checks",
       "x-layer": "findings",
       "x-concern": "scientific_model"
@@ -636,6 +624,7 @@
           "$ref": "#/$defs/NotEvaluated_str_"
         }
       ],
+      "x-typescript-type": "Assessment<string, ParticleMCMCEvidence>",
       "x-python-module": "nof1_causal_lab.artifacts.checks",
       "x-layer": "findings",
       "x-concern": "scientific_model"
@@ -762,9 +751,8 @@
       "x-layer": "authored",
       "x-concern": "scientific_model"
     },
-    "BernoulliLogitsLawSpec": {
+    "BernoulliLogitsLawSpec_Expression_": {
       "additionalProperties": false,
-      "description": "The BernoulliLogits conditional law.",
       "properties": {
         "distribution": {
           "const": "BernoulliLogits",
@@ -780,15 +768,15 @@
         "distribution",
         "logits"
       ],
-      "title": "BernoulliLogitsLawSpec",
+      "title": "BernoulliLogitsLawSpec[Expression]",
       "type": "object",
+      "x-typescript-type": "BernoulliLogitsLawSpec<Expression>",
       "x-python-module": "nof1_causal_lab.artifacts.likelihood",
       "x-layer": "authored",
       "x-concern": "scientific_model"
     },
-    "BernoulliProbsLawSpec": {
+    "BernoulliProbsLawSpec_Expression_": {
       "additionalProperties": false,
-      "description": "The BernoulliProbs conditional law.",
       "properties": {
         "distribution": {
           "const": "BernoulliProbs",
@@ -804,15 +792,15 @@
         "distribution",
         "probs"
       ],
-      "title": "BernoulliProbsLawSpec",
+      "title": "BernoulliProbsLawSpec[Expression]",
       "type": "object",
+      "x-typescript-type": "BernoulliProbsLawSpec<Expression>",
       "x-python-module": "nof1_causal_lab.artifacts.likelihood",
       "x-layer": "authored",
       "x-concern": "scientific_model"
     },
-    "BetaLawSpec": {
+    "BetaLawSpec_Expression_": {
       "additionalProperties": false,
-      "description": "The Beta conditional law.",
       "properties": {
         "distribution": {
           "const": "Beta",
@@ -832,8 +820,9 @@
         "concentration1",
         "concentration0"
       ],
-      "title": "BetaLawSpec",
+      "title": "BetaLawSpec[Expression]",
       "type": "object",
+      "x-typescript-type": "BetaLawSpec<Expression>",
       "x-python-module": "nof1_causal_lab.artifacts.likelihood",
       "x-layer": "authored",
       "x-concern": "scientific_model"
@@ -935,9 +924,8 @@
       "x-layer": "transport",
       "x-concern": "api_tools"
     },
-    "CategoricalLawSpec": {
+    "CategoricalLawSpec_Expression_": {
       "additionalProperties": false,
-      "description": "The Categorical conditional law.",
       "properties": {
         "distribution": {
           "const": "Categorical",
@@ -953,8 +941,9 @@
         "distribution",
         "logits"
       ],
-      "title": "CategoricalLawSpec",
+      "title": "CategoricalLawSpec[Expression]",
       "type": "object",
+      "x-typescript-type": "CategoricalLawSpec<Expression>",
       "x-python-module": "nof1_causal_lab.artifacts.likelihood",
       "x-layer": "authored",
       "x-concern": "scientific_model"
@@ -1306,6 +1295,7 @@
           "$ref": "#/$defs/Revised_ComparisonConnection_"
         }
       ],
+      "x-typescript-type": "Change<ComparisonConnection>",
       "x-python-module": "nof1_causal_lab.study.view_models",
       "x-layer": "read_models",
       "x-concern": "read_models"
@@ -1330,6 +1320,7 @@
           "$ref": "#/$defs/Revised_ConstructSpec_"
         }
       ],
+      "x-typescript-type": "Change<ConstructSpec>",
       "x-python-module": "nof1_causal_lab.study.view_models",
       "x-layer": "read_models",
       "x-concern": "read_models"
@@ -1354,30 +1345,7 @@
           "$ref": "#/$defs/Revised_DataPoint_"
         }
       ],
-      "x-python-module": "nof1_causal_lab.study.view_models",
-      "x-layer": "read_models",
-      "x-concern": "read_models"
-    },
-    "Change_JsonValue_": {
-      "discriminator": {
-        "mapping": {
-          "added": "#/$defs/Added_JsonValue_",
-          "removed": "#/$defs/Removed_JsonValue_",
-          "revised": "#/$defs/Revised_JsonValue_"
-        },
-        "propertyName": "kind"
-      },
-      "oneOf": [
-        {
-          "$ref": "#/$defs/Added_JsonValue_"
-        },
-        {
-          "$ref": "#/$defs/Removed_JsonValue_"
-        },
-        {
-          "$ref": "#/$defs/Revised_JsonValue_"
-        }
-      ],
+      "x-typescript-type": "Change<DataPoint>",
       "x-python-module": "nof1_causal_lab.study.view_models",
       "x-layer": "read_models",
       "x-concern": "read_models"
@@ -1402,6 +1370,7 @@
           "$ref": "#/$defs/Revised_ParameterSpec_"
         }
       ],
+      "x-typescript-type": "Change<ParameterSpec>",
       "x-python-module": "nof1_causal_lab.study.view_models",
       "x-layer": "read_models",
       "x-concern": "read_models"
@@ -1633,6 +1602,96 @@
       "x-layer": "transport",
       "x-concern": "api_tools"
     },
+    "ComputedExtractionSpec": {
+      "additionalProperties": false,
+      "description": "Compute a deterministic support-window measurement from source columns.",
+      "properties": {
+        "kind": {
+          "const": "computed",
+          "default": "computed",
+          "title": "Kind",
+          "type": "string"
+        },
+        "how_to_measure": {
+          "description": "Description of the deterministic measurement.",
+          "minLength": 1,
+          "title": "How To Measure",
+          "type": "string"
+        },
+        "source_columns": {
+          "items": {
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Source Columns",
+          "type": "array"
+        },
+        "computed_rule": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WindowExpression"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional deterministic support-window expression over the declared source columns. It must return one scalar per window with the observation's declared summary operator. Omitted uses a direct single-column aggregation."
+        },
+        "fill_null": {
+          "anyOf": [
+            {
+              "enum": [
+                "forward",
+                "backward",
+                "min",
+                "max",
+                "mean",
+                "zero",
+                "one"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional Polars null filling after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown.",
+          "title": "Fill Null"
+        },
+        "fill_null_limit": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward.",
+          "title": "Fill Null Limit"
+        }
+      },
+      "required": [
+        "kind",
+        "how_to_measure",
+        "source_columns",
+        "computed_rule",
+        "fill_null",
+        "fill_null_limit"
+      ],
+      "title": "ComputedExtractionSpec",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.artifacts.data_preparation",
+      "x-layer": "authored",
+      "x-concern": "scientific_model"
+    },
     "ConstructComparison": {
       "additionalProperties": false,
       "description": "A construct's presence and time-slice topology in two model revisions.",
@@ -1806,6 +1865,20 @@
       "x-layer": "authored",
       "x-concern": "scientific_model"
     },
+    "ConvergenceAssessmentSubject": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ConvergenceSubject"
+        },
+        {
+          "const": "recorded_parameter_chains",
+          "type": "string"
+        }
+      ],
+      "x-python-module": "nof1_causal_lab.artifacts.posterior_diagnostics",
+      "x-layer": "findings",
+      "x-concern": "scientific_model"
+    },
     "ConvergenceCriterion": {
       "enum": [
         "r_hat",
@@ -1920,7 +1993,7 @@
             "mapping": {
               "applied": "#/$defs/Applied_DataComparisonResult_",
               "raised": "#/$defs/Raised",
-              "rejected": "#/$defs/Rejected_RejectionReason_"
+              "rejected": "#/$defs/Rejected"
             },
             "propertyName": "status"
           },
@@ -1929,7 +2002,7 @@
               "$ref": "#/$defs/Applied_DataComparisonResult_"
             },
             {
-              "$ref": "#/$defs/Rejected_RejectionReason_"
+              "$ref": "#/$defs/Rejected"
             },
             {
               "$ref": "#/$defs/Raised"
@@ -1945,6 +2018,7 @@
       ],
       "title": "DataDiffAttempt",
       "type": "object",
+      "x-typescript-type": "Attempt<\"data_diff\", DataDiffRequest, DataComparisonResult>",
       "x-python-module": "nof1_causal_lab.study.records",
       "x-layer": "study",
       "x-concern": "execution_history"
@@ -2282,7 +2356,7 @@
           "type": "array"
         },
         "is_valid": {
-          "description": "Read-only verdict derived from the report's current findings.",
+          "description": "Whether the data findings contain no errors, independent of any model.",
           "readOnly": true,
           "title": "Is Valid",
           "type": "boolean"
@@ -2586,160 +2660,18 @@
     },
     "DataVariableSpec": {
       "additionalProperties": false,
-      "description": "How to produce one observed variable, without any causal or latent model.",
+      "description": "Compose an observed variable with its data-owned extraction instructions.",
       "properties": {
-        "id": {
-          "$ref": "#/$defs/IndicatorId",
-          "description": "Persistent identity. Preserve when revising or renaming."
+        "observation": {
+          "$ref": "#/$defs/ObservationSpec"
         },
-        "name": {
-          "description": "Indicator name (e.g., 'hrv', 'self_reported_stress')",
-          "title": "Name",
-          "type": "string"
-        },
-        "measurement_dtype": {
-          "$ref": "#/$defs/MeasurementDtype",
-          "description": "'continuous', 'binary', 'count', 'ordinal', 'categorical'"
-        },
-        "aggregation": {
-          "$ref": "#/$defs/SummaryOperator",
-          "description": "Aggregation function applied when bucketing raw extractions within the indicator support window. Supported operators: first, last, sum, count, mean, std. A computed_rule must produce this same summary."
-        },
-        "observation_window": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Optional duration string describing the support window summarized by this indicator, in positive fixed units s, m, h, d or w (for example '2w'). Resolved by the preparation window or the generative model clock.",
-          "title": "Observation Window"
-        },
-        "fill_null": {
-          "anyOf": [
-            {
-              "enum": [
-                "forward",
-                "backward",
-                "min",
-                "max",
-                "mean",
-                "zero",
-                "one"
-              ],
-              "type": "string"
-            },
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown.",
-          "title": "Fill Null"
-        },
-        "fill_null_limit": {
-          "anyOf": [
-            {
-              "minimum": 0,
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward.",
-          "title": "Fill Null Limit"
-        },
-        "ordinal_levels": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding.",
-          "title": "Ordinal Levels"
-        },
-        "categorical_levels": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding.",
-          "title": "Categorical Levels"
-        },
-        "how_to_measure": {
-          "description": "Scoring rubric and extraction instructions.",
-          "minLength": 1,
-          "title": "How To Measure",
-          "type": "string"
-        },
-        "source_columns": {
-          "description": "Raw data column names referenced by how_to_measure. Used to project chunks to only relevant columns before extraction.",
-          "items": {
-            "type": "string"
-          },
-          "title": "Source Columns",
-          "type": "array"
-        },
-        "computed_rule": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/WindowExpression"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Optional deterministic support-window expression for extraction_mode='computed'. Use this when a computed indicator needs formulas, thresholds, or multiple source columns instead of a direct single-column aggregation. The expression must return one scalar per support window."
-        },
-        "extraction_mode": {
-          "default": "semantic",
-          "description": "'computed' (deterministic pipeline extraction) or 'semantic' (LLM extraction). Use 'computed' when the indicator can be derived deterministically either from a direct source-column aggregation or from a computed_rule support-window expression over the declared source_columns.",
-          "enum": [
-            "computed",
-            "semantic"
-          ],
-          "title": "Extraction Mode",
-          "type": "string"
+        "extraction": {
+          "$ref": "#/$defs/ExtractionSpec"
         }
       },
       "required": [
-        "id",
-        "name",
-        "measurement_dtype",
-        "aggregation",
-        "observation_window",
-        "fill_null",
-        "fill_null_limit",
-        "ordinal_levels",
-        "categorical_levels",
-        "how_to_measure",
-        "source_columns",
-        "computed_rule",
-        "extraction_mode"
+        "observation",
+        "extraction"
       ],
       "title": "DataVariableSpec",
       "type": "object",
@@ -2747,9 +2679,8 @@
       "x-layer": "authored",
       "x-concern": "scientific_model"
     },
-    "DeltaLawSpec": {
+    "DeltaLawSpec_Expression_": {
       "additionalProperties": false,
-      "description": "The Delta conditional law.",
       "properties": {
         "distribution": {
           "const": "Delta",
@@ -2765,8 +2696,9 @@
         "distribution",
         "v"
       ],
-      "title": "DeltaLawSpec",
+      "title": "DeltaLawSpec[Expression]",
       "type": "object",
+      "x-typescript-type": "DeltaLawSpec<Expression>",
       "x-python-module": "nof1_causal_lab.artifacts.likelihood",
       "x-layer": "authored",
       "x-concern": "scientific_model"
@@ -2987,7 +2919,7 @@
             "mapping": {
               "applied": "#/$defs/Applied_ModelEditResult_",
               "raised": "#/$defs/Raised",
-              "rejected": "#/$defs/Rejected_RejectionReason_"
+              "rejected": "#/$defs/Rejected"
             },
             "propertyName": "status"
           },
@@ -2996,7 +2928,7 @@
               "$ref": "#/$defs/Applied_ModelEditResult_"
             },
             {
-              "$ref": "#/$defs/Rejected_RejectionReason_"
+              "$ref": "#/$defs/Rejected"
             },
             {
               "$ref": "#/$defs/Raised"
@@ -3012,6 +2944,7 @@
       ],
       "title": "EditAttempt",
       "type": "object",
+      "x-typescript-type": "Attempt<\"edit_model\", EditModelRequest, ModelEditResult>",
       "x-python-module": "nof1_causal_lab.study.records",
       "x-layer": "study",
       "x-concern": "execution_history"
@@ -3210,6 +3143,45 @@
       "x-concern": "identity",
       "description": "An entity reference identifies a construct, edge, indicator, or mechanism by its persistent identity."
     },
+    "Evaluated_ConvergenceAssessmentSubject_NumericCriterionEvidence_": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "evaluated",
+          "default": "evaluated",
+          "title": "Kind",
+          "type": "string"
+        },
+        "subject": {
+          "$ref": "#/$defs/ConvergenceAssessmentSubject"
+        },
+        "outcome": {
+          "enum": [
+            "passed",
+            "failed",
+            "warning",
+            "error"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "evidence": {
+          "$ref": "#/$defs/NumericCriterionEvidence"
+        }
+      },
+      "required": [
+        "kind",
+        "subject",
+        "outcome",
+        "evidence"
+      ],
+      "title": "Evaluated[ConvergenceAssessmentSubject, NumericCriterionEvidence]",
+      "type": "object",
+      "x-typescript-type": "Evaluated<ConvergenceAssessmentSubject, NumericCriterionEvidence>",
+      "x-python-module": "nof1_causal_lab.artifacts.checks",
+      "x-layer": "findings",
+      "x-concern": "scientific_model"
+    },
     "Evaluated_IndicatorCheckSubject_NumericCriterionEvidence_": {
       "additionalProperties": false,
       "properties": {
@@ -3244,6 +3216,7 @@
       ],
       "title": "Evaluated[IndicatorCheckSubject, NumericCriterionEvidence]",
       "type": "object",
+      "x-typescript-type": "Evaluated<IndicatorCheckSubject, NumericCriterionEvidence>",
       "x-python-module": "nof1_causal_lab.artifacts.checks",
       "x-layer": "findings",
       "x-concern": "scientific_model"
@@ -3286,53 +3259,7 @@
       ],
       "title": "Evaluated[PredictiveSubject, tuple[NumericCriterionEvidence, ...]]",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.artifacts.checks",
-      "x-layer": "findings",
-      "x-concern": "scientific_model"
-    },
-    "Evaluated_Union_ConvergenceSubject__Literal__recorded_parameter_chains____NumericCriterionEvidence_": {
-      "additionalProperties": false,
-      "properties": {
-        "kind": {
-          "const": "evaluated",
-          "default": "evaluated",
-          "title": "Kind",
-          "type": "string"
-        },
-        "subject": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/ConvergenceSubject"
-            },
-            {
-              "const": "recorded_parameter_chains",
-              "type": "string"
-            }
-          ],
-          "title": "Subject"
-        },
-        "outcome": {
-          "enum": [
-            "passed",
-            "failed",
-            "warning",
-            "error"
-          ],
-          "title": "Outcome",
-          "type": "string"
-        },
-        "evidence": {
-          "$ref": "#/$defs/NumericCriterionEvidence"
-        }
-      },
-      "required": [
-        "kind",
-        "subject",
-        "outcome",
-        "evidence"
-      ],
-      "title": "Evaluated[Union[ConvergenceSubject, Literal['recorded_parameter_chains']], NumericCriterionEvidence]",
-      "type": "object",
+      "x-typescript-type": "Evaluated<PredictiveSubject, readonly (NumericCriterionEvidence)[]>",
       "x-python-module": "nof1_causal_lab.artifacts.checks",
       "x-layer": "findings",
       "x-concern": "scientific_model"
@@ -3372,6 +3299,7 @@
       ],
       "title": "Evaluated[str, ParticleMCMCEvidence]",
       "type": "object",
+      "x-typescript-type": "Evaluated<string, ParticleMCMCEvidence>",
       "x-python-module": "nof1_causal_lab.artifacts.checks",
       "x-layer": "findings",
       "x-concern": "scientific_model"
@@ -3412,6 +3340,7 @@
       ],
       "title": "Evaluated[str, str]",
       "type": "object",
+      "x-typescript-type": "Evaluated<string, string>",
       "x-python-module": "nof1_causal_lab.artifacts.checks",
       "x-layer": "findings",
       "x-concern": "scientific_model"
@@ -3602,6 +3531,26 @@
       "x-python-module": "nof1_causal_lab.actions.progress",
       "x-layer": "study",
       "x-concern": "execution_history"
+    },
+    "ExtractionSpec": {
+      "discriminator": {
+        "mapping": {
+          "computed": "#/$defs/ComputedExtractionSpec",
+          "semantic": "#/$defs/SemanticExtractionSpec"
+        },
+        "propertyName": "kind"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/ComputedExtractionSpec"
+        },
+        {
+          "$ref": "#/$defs/SemanticExtractionSpec"
+        }
+      ],
+      "x-python-module": "nof1_causal_lab.artifacts.data_preparation",
+      "x-layer": "authored",
+      "x-concern": "scientific_model"
     },
     "ExtractionWorkerEvent": {
       "additionalProperties": false,
@@ -3909,7 +3858,7 @@
             "mapping": {
               "applied": "#/$defs/Applied_ModelFitResult_",
               "raised": "#/$defs/Raised",
-              "rejected": "#/$defs/Rejected_RejectionReason_"
+              "rejected": "#/$defs/Rejected"
             },
             "propertyName": "status"
           },
@@ -3918,7 +3867,7 @@
               "$ref": "#/$defs/Applied_ModelFitResult_"
             },
             {
-              "$ref": "#/$defs/Rejected_RejectionReason_"
+              "$ref": "#/$defs/Rejected"
             },
             {
               "$ref": "#/$defs/Raised"
@@ -3934,6 +3883,7 @@
       ],
       "title": "FitAttempt",
       "type": "object",
+      "x-typescript-type": "Attempt<\"fit\", FitRequest, ModelFitResult>",
       "x-python-module": "nof1_causal_lab.study.records",
       "x-layer": "study",
       "x-concern": "execution_history"
@@ -4156,9 +4106,8 @@
       "x-layer": "authored",
       "x-concern": "scientific_model"
     },
-    "GammaLawSpec": {
+    "GammaLawSpec_Expression_": {
       "additionalProperties": false,
-      "description": "The Gamma conditional law.",
       "properties": {
         "distribution": {
           "const": "Gamma",
@@ -4178,8 +4127,9 @@
         "concentration",
         "rate"
       ],
-      "title": "GammaLawSpec",
+      "title": "GammaLawSpec[Expression]",
       "type": "object",
+      "x-typescript-type": "GammaLawSpec<Expression>",
       "x-python-module": "nof1_causal_lab.artifacts.likelihood",
       "x-layer": "authored",
       "x-concern": "scientific_model"
@@ -4765,106 +4715,8 @@
       "additionalProperties": false,
       "description": "Bind an observed-variable ID to a construct and an emission likelihood.\n\nExtraction instructions belong to DataPreparationSpec. The shared observation\nschema also permits generative models before any observations have been collected.",
       "properties": {
-        "id": {
-          "$ref": "#/$defs/IndicatorId",
-          "description": "Persistent identity. Preserve when revising or renaming."
-        },
-        "name": {
-          "description": "Indicator name (e.g., 'hrv', 'self_reported_stress')",
-          "title": "Name",
-          "type": "string"
-        },
-        "measurement_dtype": {
-          "$ref": "#/$defs/MeasurementDtype",
-          "description": "'continuous', 'binary', 'count', 'ordinal', 'categorical'"
-        },
-        "aggregation": {
-          "$ref": "#/$defs/SummaryOperator",
-          "description": "Aggregation function applied when bucketing raw extractions within the indicator support window. Supported operators: first, last, sum, count, mean, std. A computed_rule must produce this same summary."
-        },
-        "observation_window": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Optional duration string describing the support window summarized by this indicator, in positive fixed units s, m, h, d or w (for example '2w'). Resolved by the preparation window or the generative model clock.",
-          "title": "Observation Window"
-        },
-        "fill_null": {
-          "anyOf": [
-            {
-              "enum": [
-                "forward",
-                "backward",
-                "min",
-                "max",
-                "mean",
-                "zero",
-                "one"
-              ],
-              "type": "string"
-            },
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown.",
-          "title": "Fill Null"
-        },
-        "fill_null_limit": {
-          "anyOf": [
-            {
-              "minimum": 0,
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward.",
-          "title": "Fill Null Limit"
-        },
-        "ordinal_levels": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding.",
-          "title": "Ordinal Levels"
-        },
-        "categorical_levels": {
-          "anyOf": [
-            {
-              "items": {
-                "type": "string"
-              },
-              "type": "array"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding.",
-          "title": "Categorical Levels"
+        "observation": {
+          "$ref": "#/$defs/ObservationSpec"
         },
         "likelihood": {
           "anyOf": [
@@ -4883,15 +4735,7 @@
         }
       },
       "required": [
-        "id",
-        "name",
-        "measurement_dtype",
-        "aggregation",
-        "observation_window",
-        "fill_null",
-        "fill_null_limit",
-        "ordinal_levels",
-        "categorical_levels",
+        "observation",
         "likelihood",
         "construct_polarity"
       ],
@@ -6106,28 +5950,6 @@
       "x-layer": "read_models",
       "x-concern": "read_models"
     },
-    "ModelDefinitionChange": {
-      "additionalProperties": false,
-      "description": "One changed field in identity-keyed scientific model definitions.",
-      "properties": {
-        "path": {
-          "title": "Path",
-          "type": "string"
-        },
-        "change": {
-          "$ref": "#/$defs/Change_JsonValue_"
-        }
-      },
-      "required": [
-        "path",
-        "change"
-      ],
-      "title": "ModelDefinitionChange",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.study.view_models",
-      "x-layer": "read_models",
-      "x-concern": "read_models"
-    },
     "ModelDiagnostics": {
       "additionalProperties": false,
       "description": "Server-derived equations and comparisons with pinned observations.",
@@ -6195,20 +6017,13 @@
     },
     "ModelDiffReport": {
       "additionalProperties": false,
-      "description": "A model diff joins definition changes and evidence at two model revisions or checkpoints.",
+      "description": "A model diff joins typed entity comparisons and evidence at two model revisions or checkpoints.",
       "properties": {
         "before": {
           "$ref": "#/$defs/GitRef"
         },
         "after": {
           "$ref": "#/$defs/GitRef"
-        },
-        "definition_changes": {
-          "items": {
-            "$ref": "#/$defs/ModelDefinitionChange"
-          },
-          "title": "Definition Changes",
-          "type": "array"
         },
         "parameters": {
           "items": {
@@ -6277,7 +6092,6 @@
       "required": [
         "before",
         "after",
-        "definition_changes",
         "parameters",
         "graph",
         "changed_inputs",
@@ -6958,9 +6772,8 @@
       "x-layer": "authored",
       "x-concern": "scientific_model"
     },
-    "NegativeBinomial2LawSpec": {
+    "NegativeBinomial2LawSpec_Expression_": {
       "additionalProperties": false,
-      "description": "The NegativeBinomial2 conditional law.",
       "properties": {
         "distribution": {
           "const": "NegativeBinomial2",
@@ -6980,8 +6793,9 @@
         "mean",
         "concentration"
       ],
-      "title": "NegativeBinomial2LawSpec",
+      "title": "NegativeBinomial2LawSpec[Expression]",
       "type": "object",
+      "x-typescript-type": "NegativeBinomial2LawSpec<Expression>",
       "x-python-module": "nof1_causal_lab.artifacts.likelihood",
       "x-layer": "authored",
       "x-concern": "scientific_model"
@@ -7029,9 +6843,8 @@
       "x-layer": "findings",
       "x-concern": "scientific_model"
     },
-    "NormalLawSpec": {
+    "NormalLawSpec_Expression_": {
       "additionalProperties": false,
-      "description": "The Normal conditional law.",
       "properties": {
         "distribution": {
           "const": "Normal",
@@ -7051,38 +6864,74 @@
         "loc",
         "scale"
       ],
-      "title": "NormalLawSpec",
+      "title": "NormalLawSpec[Expression]",
       "type": "object",
+      "x-typescript-type": "NormalLawSpec<Expression>",
       "x-python-module": "nof1_causal_lab.artifacts.likelihood",
       "x-layer": "authored",
       "x-concern": "scientific_model"
     },
     "NotEvaluatedReason": {
-      "enum": [
-        "MODEL_INCOMPLETE",
-        "MODEL_NOT_EXECUTABLE",
-        "NO_COMPATIBLE_PANEL",
-        "INSUFFICIENT_OBSERVATION_TIMES",
-        "SIMULATION_UNSUPPORTED",
-        "NONFINITE_EMISSION_MEAN",
-        "INSUFFICIENT_TIMES",
-        "NO_RELAXATION_TERM",
-        "EDGE_CONTRASTS_EXPLICIT",
-        "NO_OBSERVATION_SUPPORT",
-        "NO_OBSERVATIONS",
-        "STATIC_CONSTRUCT",
-        "INSUFFICIENT_OBSERVATIONS",
-        "ZERO_RESIDUAL_VARIANCE",
-        "ZERO_OBSERVED_VARIANCE",
-        "NONFINITE_PATHS",
-        "NONFINITE_SIGNAL",
-        "COMPARISON_INPUTS_MISSING",
-        "INSUFFICIENT_CHAIN_SAMPLES",
-        "NO_RETAINED_CHAINS",
-        "ARCHIVED_MEASUREMENT_NOT_RETAINED",
-        "ARCHIVED_ENGINE_NOT_RETAINED"
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PredictiveCheckReason"
+        },
+        {
+          "enum": [
+            "NONFINITE_EMISSION_MEAN",
+            "INSUFFICIENT_TIMES",
+            "NO_RELAXATION_TERM",
+            "EDGE_CONTRASTS_EXPLICIT",
+            "NO_OBSERVATION_SUPPORT",
+            "NO_OBSERVATIONS",
+            "STATIC_CONSTRUCT",
+            "INSUFFICIENT_OBSERVATIONS",
+            "ZERO_RESIDUAL_VARIANCE",
+            "ZERO_OBSERVED_VARIANCE",
+            "NONFINITE_PATHS",
+            "NONFINITE_SIGNAL",
+            "COMPARISON_INPUTS_MISSING",
+            "INSUFFICIENT_CHAIN_SAMPLES",
+            "NO_RETAINED_CHAINS",
+            "ARCHIVED_ENGINE_NOT_RETAINED"
+          ],
+          "type": "string"
+        }
       ],
-      "type": "string",
+      "x-python-module": "nof1_causal_lab.artifacts.checks",
+      "x-layer": "findings",
+      "x-concern": "scientific_model"
+    },
+    "NotEvaluated_ConvergenceAssessmentSubject_": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "not_evaluated",
+          "default": "not_evaluated",
+          "title": "Kind",
+          "type": "string"
+        },
+        "subject": {
+          "$ref": "#/$defs/ConvergenceAssessmentSubject"
+        },
+        "reason": {
+          "$ref": "#/$defs/NotEvaluatedReason"
+        },
+        "detail": {
+          "default": "",
+          "title": "Detail",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "subject",
+        "reason",
+        "detail"
+      ],
+      "title": "NotEvaluated[ConvergenceAssessmentSubject]",
+      "type": "object",
+      "x-typescript-type": "NotEvaluated<ConvergenceAssessmentSubject>",
       "x-python-module": "nof1_causal_lab.artifacts.checks",
       "x-layer": "findings",
       "x-concern": "scientific_model"
@@ -7116,6 +6965,7 @@
       ],
       "title": "NotEvaluated[IndicatorCheckSubject]",
       "type": "object",
+      "x-typescript-type": "NotEvaluated<IndicatorCheckSubject>",
       "x-python-module": "nof1_causal_lab.artifacts.checks",
       "x-layer": "findings",
       "x-concern": "scientific_model"
@@ -7149,48 +6999,7 @@
       ],
       "title": "NotEvaluated[PredictiveSubject]",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.artifacts.checks",
-      "x-layer": "findings",
-      "x-concern": "scientific_model"
-    },
-    "NotEvaluated_Union_ConvergenceSubject__Literal__recorded_parameter_chains____": {
-      "additionalProperties": false,
-      "properties": {
-        "kind": {
-          "const": "not_evaluated",
-          "default": "not_evaluated",
-          "title": "Kind",
-          "type": "string"
-        },
-        "subject": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/ConvergenceSubject"
-            },
-            {
-              "const": "recorded_parameter_chains",
-              "type": "string"
-            }
-          ],
-          "title": "Subject"
-        },
-        "reason": {
-          "$ref": "#/$defs/NotEvaluatedReason"
-        },
-        "detail": {
-          "default": "",
-          "title": "Detail",
-          "type": "string"
-        }
-      },
-      "required": [
-        "kind",
-        "subject",
-        "reason",
-        "detail"
-      ],
-      "title": "NotEvaluated[Union[ConvergenceSubject, Literal['recorded_parameter_chains']]]",
-      "type": "object",
+      "x-typescript-type": "NotEvaluated<PredictiveSubject>",
       "x-python-module": "nof1_causal_lab.artifacts.checks",
       "x-layer": "findings",
       "x-concern": "scientific_model"
@@ -7225,6 +7034,7 @@
       ],
       "title": "NotEvaluated[str]",
       "type": "object",
+      "x-typescript-type": "NotEvaluated<string>",
       "x-python-module": "nof1_causal_lab.artifacts.checks",
       "x-layer": "findings",
       "x-concern": "scientific_model"
@@ -7447,53 +7257,53 @@
     "ObservationLawSpec": {
       "discriminator": {
         "mapping": {
-          "BernoulliLogits": "#/$defs/BernoulliLogitsLawSpec",
-          "BernoulliProbs": "#/$defs/BernoulliProbsLawSpec",
-          "Beta": "#/$defs/BetaLawSpec",
-          "Categorical": "#/$defs/CategoricalLawSpec",
-          "Delta": "#/$defs/DeltaLawSpec",
-          "Gamma": "#/$defs/GammaLawSpec",
-          "NegativeBinomial2": "#/$defs/NegativeBinomial2LawSpec",
-          "Normal": "#/$defs/NormalLawSpec",
-          "OrderedLogistic": "#/$defs/OrderedLogisticLawSpec",
-          "Poisson": "#/$defs/PoissonLawSpec",
-          "StudentT": "#/$defs/StudentTLawSpec"
+          "BernoulliLogits": "#/$defs/BernoulliLogitsLawSpec_Expression_",
+          "BernoulliProbs": "#/$defs/BernoulliProbsLawSpec_Expression_",
+          "Beta": "#/$defs/BetaLawSpec_Expression_",
+          "Categorical": "#/$defs/CategoricalLawSpec_Expression_",
+          "Delta": "#/$defs/DeltaLawSpec_Expression_",
+          "Gamma": "#/$defs/GammaLawSpec_Expression_",
+          "NegativeBinomial2": "#/$defs/NegativeBinomial2LawSpec_Expression_",
+          "Normal": "#/$defs/NormalLawSpec_Expression_",
+          "OrderedLogistic": "#/$defs/OrderedLogisticLawSpec_Expression_",
+          "Poisson": "#/$defs/PoissonLawSpec_Expression_",
+          "StudentT": "#/$defs/StudentTLawSpec_Expression_"
         },
         "propertyName": "distribution"
       },
       "oneOf": [
         {
-          "$ref": "#/$defs/DeltaLawSpec"
+          "$ref": "#/$defs/DeltaLawSpec_Expression_"
         },
         {
-          "$ref": "#/$defs/NormalLawSpec"
+          "$ref": "#/$defs/NormalLawSpec_Expression_"
         },
         {
-          "$ref": "#/$defs/StudentTLawSpec"
+          "$ref": "#/$defs/StudentTLawSpec_Expression_"
         },
         {
-          "$ref": "#/$defs/PoissonLawSpec"
+          "$ref": "#/$defs/PoissonLawSpec_Expression_"
         },
         {
-          "$ref": "#/$defs/GammaLawSpec"
+          "$ref": "#/$defs/GammaLawSpec_Expression_"
         },
         {
-          "$ref": "#/$defs/BernoulliLogitsLawSpec"
+          "$ref": "#/$defs/BernoulliLogitsLawSpec_Expression_"
         },
         {
-          "$ref": "#/$defs/BernoulliProbsLawSpec"
+          "$ref": "#/$defs/BernoulliProbsLawSpec_Expression_"
         },
         {
-          "$ref": "#/$defs/NegativeBinomial2LawSpec"
+          "$ref": "#/$defs/NegativeBinomial2LawSpec_Expression_"
         },
         {
-          "$ref": "#/$defs/BetaLawSpec"
+          "$ref": "#/$defs/BetaLawSpec_Expression_"
         },
         {
-          "$ref": "#/$defs/OrderedLogisticLawSpec"
+          "$ref": "#/$defs/OrderedLogisticLawSpec_Expression_"
         },
         {
-          "$ref": "#/$defs/CategoricalLawSpec"
+          "$ref": "#/$defs/CategoricalLawSpec_Expression_"
         }
       ],
       "x-python-module": "nof1_causal_lab.artifacts.likelihood",
@@ -7656,45 +7466,6 @@
           "description": "Optional duration string describing the support window summarized by this indicator, in positive fixed units s, m, h, d or w (for example '2w'). Resolved by the preparation window or the generative model clock.",
           "title": "Observation Window"
         },
-        "fill_null": {
-          "anyOf": [
-            {
-              "enum": [
-                "forward",
-                "backward",
-                "min",
-                "max",
-                "mean",
-                "zero",
-                "one"
-              ],
-              "type": "string"
-            },
-            {
-              "type": "number"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown.",
-          "title": "Fill Null"
-        },
-        "fill_null_limit": {
-          "anyOf": [
-            {
-              "minimum": 0,
-              "type": "integer"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "description": "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward.",
-          "title": "Fill Null Limit"
-        },
         "ordinal_levels": {
           "anyOf": [
             {
@@ -7734,8 +7505,6 @@
         "measurement_dtype",
         "aggregation",
         "observation_window",
-        "fill_null",
-        "fill_null_limit",
         "ordinal_levels",
         "categorical_levels"
       ],
@@ -7745,9 +7514,8 @@
       "x-layer": "authored",
       "x-concern": "scientific_model"
     },
-    "OrderedLogisticLawSpec": {
+    "OrderedLogisticLawSpec_Expression_": {
       "additionalProperties": false,
-      "description": "The OrderedLogistic conditional law.",
       "properties": {
         "distribution": {
           "const": "OrderedLogistic",
@@ -7767,8 +7535,9 @@
         "predictor",
         "cutpoints"
       ],
-      "title": "OrderedLogisticLawSpec",
+      "title": "OrderedLogisticLawSpec[Expression]",
       "type": "object",
+      "x-typescript-type": "OrderedLogisticLawSpec<Expression>",
       "x-python-module": "nof1_causal_lab.artifacts.likelihood",
       "x-layer": "authored",
       "x-concern": "scientific_model"
@@ -7977,7 +7746,7 @@
         },
         "assessments": {
           "items": {
-            "$ref": "#/$defs/Assessment_Union_ConvergenceSubject__Literal__recorded_parameter_chains____NumericCriterionEvidence_"
+            "$ref": "#/$defs/Assessment_ConvergenceAssessmentSubject_NumericCriterionEvidence_"
           },
           "title": "Assessments",
           "type": "array"
@@ -9366,9 +9135,8 @@
       "x-layer": "authored",
       "x-concern": "scientific_model"
     },
-    "PoissonLawSpec": {
+    "PoissonLawSpec_Expression_": {
       "additionalProperties": false,
-      "description": "The Poisson conditional law.",
       "properties": {
         "distribution": {
           "const": "Poisson",
@@ -9384,8 +9152,9 @@
         "distribution",
         "rate"
       ],
-      "title": "PoissonLawSpec",
+      "title": "PoissonLawSpec[Expression]",
       "type": "object",
+      "x-typescript-type": "PoissonLawSpec<Expression>",
       "x-python-module": "nof1_causal_lab.artifacts.likelihood",
       "x-layer": "authored",
       "x-concern": "scientific_model"
@@ -9681,7 +9450,7 @@
         "ARCHIVED_MEASUREMENT_NOT_RETAINED"
       ],
       "type": "string",
-      "x-python-module": "nof1_causal_lab.artifacts.model_checks",
+      "x-python-module": "nof1_causal_lab.artifacts.checks",
       "x-layer": "findings",
       "x-concern": "scientific_model",
       "description": "A predictive check reason explains why a battery could not be evaluated for the selected model and observations."
@@ -9847,7 +9616,7 @@
             "mapping": {
               "applied": "#/$defs/Applied_DataPreparationResult_",
               "raised": "#/$defs/Raised",
-              "rejected": "#/$defs/Rejected_RejectionReason_"
+              "rejected": "#/$defs/Rejected"
             },
             "propertyName": "status"
           },
@@ -9856,7 +9625,7 @@
               "$ref": "#/$defs/Applied_DataPreparationResult_"
             },
             {
-              "$ref": "#/$defs/Rejected_RejectionReason_"
+              "$ref": "#/$defs/Rejected"
             },
             {
               "$ref": "#/$defs/Raised"
@@ -9872,6 +9641,7 @@
       ],
       "title": "PrepareAttempt",
       "type": "object",
+      "x-typescript-type": "Attempt<\"prepare_data\", PrepareDataRequest, DataPreparationResult>",
       "x-python-module": "nof1_causal_lab.study.records",
       "x-layer": "study",
       "x-concern": "execution_history"
@@ -10256,7 +10026,7 @@
       "x-layer": "study",
       "x-concern": "read_models"
     },
-    "Rejected_RejectionReason_": {
+    "Rejected": {
       "additionalProperties": false,
       "properties": {
         "status": {
@@ -10278,7 +10048,7 @@
         "reason",
         "detail"
       ],
-      "title": "Rejected[RejectionReason]",
+      "title": "Rejected",
       "type": "object",
       "x-python-module": "nof1_causal_lab.study.records",
       "x-layer": "study",
@@ -10316,6 +10086,7 @@
       ],
       "title": "Removed[ComparisonConnection]",
       "type": "object",
+      "x-typescript-type": "Removed<ComparisonConnection>",
       "x-python-module": "nof1_causal_lab.study.view_models",
       "x-layer": "read_models",
       "x-concern": "read_models"
@@ -10339,6 +10110,7 @@
       ],
       "title": "Removed[ConstructSpec]",
       "type": "object",
+      "x-typescript-type": "Removed<ConstructSpec>",
       "x-python-module": "nof1_causal_lab.study.view_models",
       "x-layer": "read_models",
       "x-concern": "read_models"
@@ -10362,29 +10134,7 @@
       ],
       "title": "Removed[DataPoint]",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.study.view_models",
-      "x-layer": "read_models",
-      "x-concern": "read_models"
-    },
-    "Removed_JsonValue_": {
-      "additionalProperties": false,
-      "properties": {
-        "kind": {
-          "const": "removed",
-          "default": "removed",
-          "title": "Kind",
-          "type": "string"
-        },
-        "before": {
-          "$ref": "#/$defs/JsonValue"
-        }
-      },
-      "required": [
-        "kind",
-        "before"
-      ],
-      "title": "Removed[JsonValue]",
-      "type": "object",
+      "x-typescript-type": "Removed<DataPoint>",
       "x-python-module": "nof1_causal_lab.study.view_models",
       "x-layer": "read_models",
       "x-concern": "read_models"
@@ -10408,6 +10158,7 @@
       ],
       "title": "Removed[ParameterSpec]",
       "type": "object",
+      "x-typescript-type": "Removed<ParameterSpec>",
       "x-python-module": "nof1_causal_lab.study.view_models",
       "x-layer": "read_models",
       "x-concern": "read_models"
@@ -10502,6 +10253,7 @@
       ],
       "title": "Revised[ComparisonConnection]",
       "type": "object",
+      "x-typescript-type": "Revised<ComparisonConnection>",
       "x-python-module": "nof1_causal_lab.study.view_models",
       "x-layer": "read_models",
       "x-concern": "read_models"
@@ -10529,6 +10281,7 @@
       ],
       "title": "Revised[ConstructSpec]",
       "type": "object",
+      "x-typescript-type": "Revised<ConstructSpec>",
       "x-python-module": "nof1_causal_lab.study.view_models",
       "x-layer": "read_models",
       "x-concern": "read_models"
@@ -10556,33 +10309,7 @@
       ],
       "title": "Revised[DataPoint]",
       "type": "object",
-      "x-python-module": "nof1_causal_lab.study.view_models",
-      "x-layer": "read_models",
-      "x-concern": "read_models"
-    },
-    "Revised_JsonValue_": {
-      "additionalProperties": false,
-      "properties": {
-        "kind": {
-          "const": "revised",
-          "default": "revised",
-          "title": "Kind",
-          "type": "string"
-        },
-        "before": {
-          "$ref": "#/$defs/JsonValue"
-        },
-        "after": {
-          "$ref": "#/$defs/JsonValue"
-        }
-      },
-      "required": [
-        "kind",
-        "before",
-        "after"
-      ],
-      "title": "Revised[JsonValue]",
-      "type": "object",
+      "x-typescript-type": "Revised<DataPoint>",
       "x-python-module": "nof1_causal_lab.study.view_models",
       "x-layer": "read_models",
       "x-concern": "read_models"
@@ -10610,6 +10337,7 @@
       ],
       "title": "Revised[ParameterSpec]",
       "type": "object",
+      "x-typescript-type": "Revised<ParameterSpec>",
       "x-python-module": "nof1_causal_lab.study.view_models",
       "x-layer": "read_models",
       "x-concern": "read_models"
@@ -10739,6 +10467,43 @@
       "x-concern": "identity",
       "description": "A scientific action identity selects model editing, data preparation, fitting, or simulation."
     },
+    "SemanticExtractionSpec": {
+      "additionalProperties": false,
+      "description": "Interpret source records using an explicit measurement rubric.",
+      "properties": {
+        "kind": {
+          "const": "semantic",
+          "default": "semantic",
+          "title": "Kind",
+          "type": "string"
+        },
+        "how_to_measure": {
+          "description": "Scoring rubric and extraction instructions.",
+          "minLength": 1,
+          "title": "How To Measure",
+          "type": "string"
+        },
+        "source_columns": {
+          "default": [],
+          "description": "Source columns exposed to the extraction worker.",
+          "items": {
+            "type": "string"
+          },
+          "title": "Source Columns",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "how_to_measure",
+        "source_columns"
+      ],
+      "title": "SemanticExtractionSpec",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.artifacts.data_preparation",
+      "x-layer": "authored",
+      "x-concern": "scientific_model"
+    },
     "SimulateAttempt": {
       "additionalProperties": false,
       "properties": {
@@ -10763,7 +10528,7 @@
             "mapping": {
               "applied": "#/$defs/Applied_ModelSimulationResult_",
               "raised": "#/$defs/Raised",
-              "rejected": "#/$defs/Rejected_RejectionReason_"
+              "rejected": "#/$defs/Rejected"
             },
             "propertyName": "status"
           },
@@ -10772,7 +10537,7 @@
               "$ref": "#/$defs/Applied_ModelSimulationResult_"
             },
             {
-              "$ref": "#/$defs/Rejected_RejectionReason_"
+              "$ref": "#/$defs/Rejected"
             },
             {
               "$ref": "#/$defs/Raised"
@@ -10788,6 +10553,7 @@
       ],
       "title": "SimulateAttempt",
       "type": "object",
+      "x-typescript-type": "Attempt<\"simulate\", SimulateRequest, ModelSimulationResult>",
       "x-python-module": "nof1_causal_lab.study.records",
       "x-layer": "study",
       "x-concern": "execution_history"
@@ -11342,28 +11108,6 @@
           "title": "Can Simulate",
           "type": "boolean"
         },
-        "state": {
-          "$ref": "#/$defs/SnapshotState"
-        }
-      },
-      "required": [
-        "workspace_id",
-        "seq",
-        "commit_id",
-        "branch",
-        "can_simulate",
-        "state"
-      ],
-      "title": "SnapshotContext",
-      "type": "object",
-      "x-python-module": "nof1_causal_lab.study.snapshot_models",
-      "x-layer": "read_models",
-      "x-concern": "read_models"
-    },
-    "SnapshotState": {
-      "additionalProperties": false,
-      "description": "A snapshot state lists the artifact revisions current at the selected commit.\n\nRecorded checks appear once, as the specification and predictive findings.",
-      "properties": {
         "current": {
           "additionalProperties": {
             "$ref": "#/$defs/ArtifactRecord"
@@ -11376,9 +11120,14 @@
         }
       },
       "required": [
+        "workspace_id",
+        "seq",
+        "commit_id",
+        "branch",
+        "can_simulate",
         "current"
       ],
-      "title": "SnapshotState",
+      "title": "SnapshotContext",
       "type": "object",
       "x-python-module": "nof1_causal_lab.study.snapshot_models",
       "x-layer": "read_models",
@@ -11412,6 +11161,7 @@
       ],
       "title": "Sourced[DataProfileArtifact]",
       "type": "object",
+      "x-typescript-type": "Sourced<DataProfileArtifact>",
       "x-python-module": "nof1_causal_lab.study.snapshot_models",
       "x-layer": "read_models",
       "x-concern": "read_models",
@@ -11433,6 +11183,7 @@
       ],
       "title": "Sourced[FitSummary]",
       "type": "object",
+      "x-typescript-type": "Sourced<FitSummary>",
       "x-python-module": "nof1_causal_lab.study.snapshot_models",
       "x-layer": "read_models",
       "x-concern": "read_models",
@@ -11454,6 +11205,7 @@
       ],
       "title": "Sourced[IdentificationReport]",
       "type": "object",
+      "x-typescript-type": "Sourced<IdentificationReport>",
       "x-python-module": "nof1_causal_lab.study.snapshot_models",
       "x-layer": "read_models",
       "x-concern": "read_models",
@@ -11475,6 +11227,7 @@
       ],
       "title": "Sourced[MeasurementsData]",
       "type": "object",
+      "x-typescript-type": "Sourced<MeasurementsData>",
       "x-python-module": "nof1_causal_lab.study.snapshot_models",
       "x-layer": "read_models",
       "x-concern": "read_models",
@@ -11496,6 +11249,7 @@
       ],
       "title": "Sourced[ModelPredictiveReport]",
       "type": "object",
+      "x-typescript-type": "Sourced<ModelPredictiveReport>",
       "x-python-module": "nof1_causal_lab.study.snapshot_models",
       "x-layer": "read_models",
       "x-concern": "read_models",
@@ -11517,6 +11271,7 @@
       ],
       "title": "Sourced[ModelSpec]",
       "type": "object",
+      "x-typescript-type": "Sourced<ModelSpec>",
       "x-python-module": "nof1_causal_lab.study.snapshot_models",
       "x-layer": "read_models",
       "x-concern": "read_models",
@@ -11538,6 +11293,7 @@
       ],
       "title": "Sourced[PreparedDataMetadata]",
       "type": "object",
+      "x-typescript-type": "Sourced<PreparedDataMetadata>",
       "x-python-module": "nof1_causal_lab.study.snapshot_models",
       "x-layer": "read_models",
       "x-concern": "read_models",
@@ -11559,6 +11315,7 @@
       ],
       "title": "Sourced[RawDataData]",
       "type": "object",
+      "x-typescript-type": "Sourced<RawDataData>",
       "x-python-module": "nof1_causal_lab.study.snapshot_models",
       "x-layer": "read_models",
       "x-concern": "read_models",
@@ -11580,6 +11337,7 @@
       ],
       "title": "Sourced[SimulationReport]",
       "type": "object",
+      "x-typescript-type": "Sourced<SimulationReport>",
       "x-python-module": "nof1_causal_lab.study.snapshot_models",
       "x-layer": "read_models",
       "x-concern": "read_models",
@@ -11601,6 +11359,7 @@
       ],
       "title": "Sourced[SpecificationReport]",
       "type": "object",
+      "x-typescript-type": "Sourced<SpecificationReport>",
       "x-python-module": "nof1_causal_lab.study.snapshot_models",
       "x-layer": "read_models",
       "x-concern": "read_models",
@@ -11622,6 +11381,7 @@
       ],
       "title": "Sourced[ValidationReportArtifact]",
       "type": "object",
+      "x-typescript-type": "Sourced<ValidationReportArtifact>",
       "x-python-module": "nof1_causal_lab.study.snapshot_models",
       "x-layer": "read_models",
       "x-concern": "read_models",
@@ -11647,6 +11407,7 @@
       ],
       "title": "Sourced[tuple[StructuralItemDisposition, ...]]",
       "type": "object",
+      "x-typescript-type": "Sourced<readonly (StructuralItemDisposition)[]>",
       "x-python-module": "nof1_causal_lab.study.snapshot_models",
       "x-layer": "read_models",
       "x-concern": "read_models",
@@ -11893,9 +11654,8 @@
       "x-layer": "authored",
       "x-concern": "scientific_model"
     },
-    "StudentTLawSpec": {
+    "StudentTLawSpec_Expression_": {
       "additionalProperties": false,
-      "description": "The StudentT conditional law.",
       "properties": {
         "distribution": {
           "const": "StudentT",
@@ -11919,8 +11679,9 @@
         "loc",
         "scale"
       ],
-      "title": "StudentTLawSpec",
+      "title": "StudentTLawSpec[Expression]",
       "type": "object",
+      "x-typescript-type": "StudentTLawSpec<Expression>",
       "x-python-module": "nof1_causal_lab.artifacts.likelihood",
       "x-layer": "authored",
       "x-concern": "scientific_model"
@@ -12494,6 +12255,7 @@
       ],
       "title": "Unchanged[ComparisonConnection]",
       "type": "object",
+      "x-typescript-type": "Unchanged<ComparisonConnection>",
       "x-python-module": "nof1_causal_lab.study.view_models",
       "x-layer": "read_models",
       "x-concern": "read_models"
@@ -12521,6 +12283,7 @@
       ],
       "title": "Unchanged[ConstructSpec]",
       "type": "object",
+      "x-typescript-type": "Unchanged<ConstructSpec>",
       "x-python-module": "nof1_causal_lab.study.view_models",
       "x-layer": "read_models",
       "x-concern": "read_models"
@@ -12618,38 +12381,23 @@
     },
     "ValidationReportArtifact": {
       "additionalProperties": false,
-      "description": "Measurement findings augmented with model-dependent execution checks.",
+      "description": "Data findings composed with model-dependent execution checks.",
       "properties": {
-        "indicators": {
-          "additionalProperties": {
-            "$ref": "#/$defs/IndicatorAudit"
-          },
-          "propertyNames": {
-            "$ref": "#/$defs/IndicatorId"
-          },
-          "title": "Indicators",
-          "type": "object"
-        },
-        "dataset_issues": {
-          "items": {
-            "$ref": "#/$defs/ValidationIssue"
-          },
-          "title": "Dataset Issues",
-          "type": "array"
+        "data": {
+          "$ref": "#/$defs/DataProfileArtifact"
         },
         "preflight": {
           "$ref": "#/$defs/SpecificationReport"
         },
         "is_valid": {
-          "description": "Read-only verdict derived from the report's current findings.",
+          "description": "Whether both the data findings and model preflight contain no failures.",
           "readOnly": true,
           "title": "Is Valid",
           "type": "boolean"
         }
       },
       "required": [
-        "indicators",
-        "dataset_issues",
+        "data",
         "preflight",
         "is_valid"
       ],
@@ -12722,6 +12470,990 @@
       "x-python-module": "nof1_causal_lab.study_api",
       "x-layer": "transport",
       "x-concern": "api_tools"
+    }
+  },
+  "x-typescript-generics": {
+    "Added": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "added",
+          "default": "added",
+          "title": "Kind",
+          "type": "string"
+        },
+        "after": {
+          "title": "After",
+          "tsType": "PayloadT"
+        }
+      },
+      "required": [
+        "kind",
+        "after"
+      ],
+      "title": "Added",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.study.view_models",
+      "x-typescript-parameters": [
+        "PayloadT"
+      ]
+    },
+    "Applied": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "applied",
+          "default": "applied",
+          "title": "Status",
+          "type": "string"
+        },
+        "result": {
+          "title": "Result",
+          "tsType": "ResultT"
+        }
+      },
+      "required": [
+        "status",
+        "result"
+      ],
+      "title": "Applied",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.study.records",
+      "x-typescript-parameters": [
+        "ResultT"
+      ]
+    },
+    "Evaluated_Annotated_Any__WithJsonSchema__Annotated_Any__WithJsonSchema__": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "evaluated",
+          "default": "evaluated",
+          "title": "Kind",
+          "type": "string"
+        },
+        "subject": {
+          "title": "Subject",
+          "tsType": "Subject"
+        },
+        "outcome": {
+          "enum": [
+            "passed",
+            "failed",
+            "warning",
+            "error"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "evidence": {
+          "title": "Evidence",
+          "tsType": "Evidence"
+        }
+      },
+      "required": [
+        "kind",
+        "subject",
+        "outcome",
+        "evidence"
+      ],
+      "title": "Evaluated[Annotated[Any, WithJsonSchema], Annotated[Any, WithJsonSchema]]",
+      "type": "object",
+      "x-typescript-type": "Evaluated<Subject, Evidence>"
+    },
+    "NotEvaluatedReason": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PredictiveCheckReason"
+        },
+        {
+          "enum": [
+            "NONFINITE_EMISSION_MEAN",
+            "INSUFFICIENT_TIMES",
+            "NO_RELAXATION_TERM",
+            "EDGE_CONTRASTS_EXPLICIT",
+            "NO_OBSERVATION_SUPPORT",
+            "NO_OBSERVATIONS",
+            "STATIC_CONSTRUCT",
+            "INSUFFICIENT_OBSERVATIONS",
+            "ZERO_RESIDUAL_VARIANCE",
+            "ZERO_OBSERVED_VARIANCE",
+            "NONFINITE_PATHS",
+            "NONFINITE_SIGNAL",
+            "COMPARISON_INPUTS_MISSING",
+            "INSUFFICIENT_CHAIN_SAMPLES",
+            "NO_RETAINED_CHAINS",
+            "ARCHIVED_ENGINE_NOT_RETAINED"
+          ],
+          "type": "string"
+        }
+      ]
+    },
+    "NotEvaluated_Annotated_Any__WithJsonSchema__": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "not_evaluated",
+          "default": "not_evaluated",
+          "title": "Kind",
+          "type": "string"
+        },
+        "subject": {
+          "title": "Subject",
+          "tsType": "Subject"
+        },
+        "reason": {
+          "$ref": "#/$defs/NotEvaluatedReason"
+        },
+        "detail": {
+          "default": "",
+          "title": "Detail",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "subject",
+        "reason",
+        "detail"
+      ],
+      "title": "NotEvaluated[Annotated[Any, WithJsonSchema]]",
+      "type": "object",
+      "x-typescript-type": "NotEvaluated<Subject>"
+    },
+    "PredictiveCheckReason": {
+      "enum": [
+        "MODEL_INCOMPLETE",
+        "MODEL_NOT_EXECUTABLE",
+        "NO_COMPATIBLE_PANEL",
+        "INSUFFICIENT_OBSERVATION_TIMES",
+        "SIMULATION_UNSUPPORTED",
+        "ARCHIVED_MEASUREMENT_NOT_RETAINED"
+      ],
+      "type": "string"
+    },
+    "Assessment": {
+      "discriminator": {
+        "mapping": {
+          "evaluated": "#/$defs/Evaluated_Annotated_Any__WithJsonSchema__Annotated_Any__WithJsonSchema__",
+          "not_evaluated": "#/$defs/NotEvaluated_Annotated_Any__WithJsonSchema__"
+        },
+        "propertyName": "kind"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/Evaluated_Annotated_Any__WithJsonSchema__Annotated_Any__WithJsonSchema__"
+        },
+        {
+          "$ref": "#/$defs/NotEvaluated_Annotated_Any__WithJsonSchema__"
+        }
+      ],
+      "title": "Assessment",
+      "x-python-module": "nof1_causal_lab.artifacts.checks",
+      "x-typescript-parameters": [
+        "Subject",
+        "Evidence"
+      ]
+    },
+    "Applied_Annotated_Any__WithJsonSchema__": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "applied",
+          "default": "applied",
+          "title": "Status",
+          "type": "string"
+        },
+        "result": {
+          "title": "Result",
+          "tsType": "ResultT"
+        }
+      },
+      "required": [
+        "status",
+        "result"
+      ],
+      "title": "Applied[Annotated[Any, WithJsonSchema]]",
+      "type": "object",
+      "x-typescript-type": "Applied<ResultT>"
+    },
+    "Raised": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "raised",
+          "default": "raised",
+          "title": "Status",
+          "type": "string"
+        },
+        "error_type": {
+          "title": "Error Type",
+          "type": "string"
+        },
+        "error_message": {
+          "title": "Error Message",
+          "type": "string"
+        },
+        "details": {
+          "default": [],
+          "items": {
+            "type": "string"
+          },
+          "title": "Details",
+          "type": "array"
+        }
+      },
+      "required": [
+        "status",
+        "error_type",
+        "error_message",
+        "details"
+      ],
+      "title": "Raised",
+      "type": "object"
+    },
+    "Rejected": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "const": "rejected",
+          "default": "rejected",
+          "title": "Status",
+          "type": "string"
+        },
+        "reason": {
+          "$ref": "#/$defs/RejectionReason"
+        },
+        "detail": {
+          "title": "Detail",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status",
+        "reason",
+        "detail"
+      ],
+      "title": "Rejected",
+      "type": "object"
+    },
+    "RejectionReason": {
+      "enum": [
+        "revision_conflict",
+        "input_unavailable",
+        "scientific_inputs",
+        "recorded_rejection"
+      ],
+      "type": "string"
+    },
+    "Attempt": {
+      "additionalProperties": false,
+      "properties": {
+        "action": {
+          "title": "Action",
+          "tsType": "ActionT"
+        },
+        "request": {
+          "anyOf": [
+            {
+              "tsType": "RequestT"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Request"
+        },
+        "outcome": {
+          "discriminator": {
+            "mapping": {
+              "applied": "#/$defs/Applied_Annotated_Any__WithJsonSchema__",
+              "raised": "#/$defs/Raised",
+              "rejected": "#/$defs/Rejected"
+            },
+            "propertyName": "status"
+          },
+          "oneOf": [
+            {
+              "$ref": "#/$defs/Applied_Annotated_Any__WithJsonSchema__"
+            },
+            {
+              "$ref": "#/$defs/Rejected"
+            },
+            {
+              "$ref": "#/$defs/Raised"
+            }
+          ],
+          "title": "Outcome"
+        }
+      },
+      "required": [
+        "action",
+        "request",
+        "outcome"
+      ],
+      "title": "Attempt",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.study.records",
+      "x-typescript-parameters": [
+        "ActionT",
+        "RequestT",
+        "ResultT"
+      ]
+    },
+    "BernoulliLogitsLawSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "distribution": {
+          "const": "BernoulliLogits",
+          "default": "BernoulliLogits",
+          "title": "Distribution",
+          "type": "string"
+        },
+        "logits": {
+          "title": "Logits",
+          "tsType": "A"
+        }
+      },
+      "required": [
+        "distribution",
+        "logits"
+      ],
+      "title": "BernoulliLogitsLawSpec",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.artifacts.likelihood",
+      "x-typescript-parameters": [
+        "A"
+      ]
+    },
+    "BernoulliProbsLawSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "distribution": {
+          "const": "BernoulliProbs",
+          "default": "BernoulliProbs",
+          "title": "Distribution",
+          "type": "string"
+        },
+        "probs": {
+          "title": "Probs",
+          "tsType": "A"
+        }
+      },
+      "required": [
+        "distribution",
+        "probs"
+      ],
+      "title": "BernoulliProbsLawSpec",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.artifacts.likelihood",
+      "x-typescript-parameters": [
+        "A"
+      ]
+    },
+    "BetaLawSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "distribution": {
+          "const": "Beta",
+          "default": "Beta",
+          "title": "Distribution",
+          "type": "string"
+        },
+        "concentration1": {
+          "title": "Concentration1",
+          "tsType": "A"
+        },
+        "concentration0": {
+          "title": "Concentration0",
+          "tsType": "A"
+        }
+      },
+      "required": [
+        "distribution",
+        "concentration1",
+        "concentration0"
+      ],
+      "title": "BetaLawSpec",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.artifacts.likelihood",
+      "x-typescript-parameters": [
+        "A"
+      ]
+    },
+    "CategoricalLawSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "distribution": {
+          "const": "Categorical",
+          "default": "Categorical",
+          "title": "Distribution",
+          "type": "string"
+        },
+        "logits": {
+          "title": "Logits",
+          "tsType": "A"
+        }
+      },
+      "required": [
+        "distribution",
+        "logits"
+      ],
+      "title": "CategoricalLawSpec",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.artifacts.likelihood",
+      "x-typescript-parameters": [
+        "A"
+      ]
+    },
+    "Added_Annotated_Any__WithJsonSchema__": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "added",
+          "default": "added",
+          "title": "Kind",
+          "type": "string"
+        },
+        "after": {
+          "title": "After",
+          "tsType": "PayloadT"
+        }
+      },
+      "required": [
+        "kind",
+        "after"
+      ],
+      "title": "Added[Annotated[Any, WithJsonSchema]]",
+      "type": "object",
+      "x-typescript-type": "Added<PayloadT>"
+    },
+    "Removed_Annotated_Any__WithJsonSchema__": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "removed",
+          "default": "removed",
+          "title": "Kind",
+          "type": "string"
+        },
+        "before": {
+          "title": "Before",
+          "tsType": "PayloadT"
+        }
+      },
+      "required": [
+        "kind",
+        "before"
+      ],
+      "title": "Removed[Annotated[Any, WithJsonSchema]]",
+      "type": "object",
+      "x-typescript-type": "Removed<PayloadT>"
+    },
+    "Revised_Annotated_Any__WithJsonSchema__": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "revised",
+          "default": "revised",
+          "title": "Kind",
+          "type": "string"
+        },
+        "before": {
+          "title": "Before",
+          "tsType": "PayloadT"
+        },
+        "after": {
+          "title": "After",
+          "tsType": "PayloadT"
+        }
+      },
+      "required": [
+        "kind",
+        "before",
+        "after"
+      ],
+      "title": "Revised[Annotated[Any, WithJsonSchema]]",
+      "type": "object",
+      "x-typescript-type": "Revised<PayloadT>"
+    },
+    "Change": {
+      "discriminator": {
+        "mapping": {
+          "added": "#/$defs/Added_Annotated_Any__WithJsonSchema__",
+          "removed": "#/$defs/Removed_Annotated_Any__WithJsonSchema__",
+          "revised": "#/$defs/Revised_Annotated_Any__WithJsonSchema__"
+        },
+        "propertyName": "kind"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/Added_Annotated_Any__WithJsonSchema__"
+        },
+        {
+          "$ref": "#/$defs/Removed_Annotated_Any__WithJsonSchema__"
+        },
+        {
+          "$ref": "#/$defs/Revised_Annotated_Any__WithJsonSchema__"
+        }
+      ],
+      "title": "Change",
+      "x-python-module": "nof1_causal_lab.study.view_models",
+      "x-typescript-parameters": [
+        "PayloadT"
+      ]
+    },
+    "DeltaLawSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "distribution": {
+          "const": "Delta",
+          "default": "Delta",
+          "title": "Distribution",
+          "type": "string"
+        },
+        "v": {
+          "title": "V",
+          "tsType": "A"
+        }
+      },
+      "required": [
+        "distribution",
+        "v"
+      ],
+      "title": "DeltaLawSpec",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.artifacts.likelihood",
+      "x-typescript-parameters": [
+        "A"
+      ]
+    },
+    "Evaluated": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "evaluated",
+          "default": "evaluated",
+          "title": "Kind",
+          "type": "string"
+        },
+        "subject": {
+          "title": "Subject",
+          "tsType": "Subject"
+        },
+        "outcome": {
+          "enum": [
+            "passed",
+            "failed",
+            "warning",
+            "error"
+          ],
+          "title": "Outcome",
+          "type": "string"
+        },
+        "evidence": {
+          "title": "Evidence",
+          "tsType": "Evidence"
+        }
+      },
+      "required": [
+        "kind",
+        "subject",
+        "outcome",
+        "evidence"
+      ],
+      "title": "Evaluated",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.artifacts.checks",
+      "x-typescript-parameters": [
+        "Subject",
+        "Evidence"
+      ]
+    },
+    "GammaLawSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "distribution": {
+          "const": "Gamma",
+          "default": "Gamma",
+          "title": "Distribution",
+          "type": "string"
+        },
+        "concentration": {
+          "title": "Concentration",
+          "tsType": "A"
+        },
+        "rate": {
+          "title": "Rate",
+          "tsType": "A"
+        }
+      },
+      "required": [
+        "distribution",
+        "concentration",
+        "rate"
+      ],
+      "title": "GammaLawSpec",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.artifacts.likelihood",
+      "x-typescript-parameters": [
+        "A"
+      ]
+    },
+    "NegativeBinomial2LawSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "distribution": {
+          "const": "NegativeBinomial2",
+          "default": "NegativeBinomial2",
+          "title": "Distribution",
+          "type": "string"
+        },
+        "mean": {
+          "title": "Mean",
+          "tsType": "A"
+        },
+        "concentration": {
+          "title": "Concentration",
+          "tsType": "A"
+        }
+      },
+      "required": [
+        "distribution",
+        "mean",
+        "concentration"
+      ],
+      "title": "NegativeBinomial2LawSpec",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.artifacts.likelihood",
+      "x-typescript-parameters": [
+        "A"
+      ]
+    },
+    "NormalLawSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "distribution": {
+          "const": "Normal",
+          "default": "Normal",
+          "title": "Distribution",
+          "type": "string"
+        },
+        "loc": {
+          "title": "Loc",
+          "tsType": "A"
+        },
+        "scale": {
+          "title": "Scale",
+          "tsType": "A"
+        }
+      },
+      "required": [
+        "distribution",
+        "loc",
+        "scale"
+      ],
+      "title": "NormalLawSpec",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.artifacts.likelihood",
+      "x-typescript-parameters": [
+        "A"
+      ]
+    },
+    "NotEvaluated": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "not_evaluated",
+          "default": "not_evaluated",
+          "title": "Kind",
+          "type": "string"
+        },
+        "subject": {
+          "title": "Subject",
+          "tsType": "Subject"
+        },
+        "reason": {
+          "$ref": "#/$defs/NotEvaluatedReason"
+        },
+        "detail": {
+          "default": "",
+          "title": "Detail",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "subject",
+        "reason",
+        "detail"
+      ],
+      "title": "NotEvaluated",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.artifacts.checks",
+      "x-typescript-parameters": [
+        "Subject"
+      ]
+    },
+    "OrderedLogisticLawSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "distribution": {
+          "const": "OrderedLogistic",
+          "default": "OrderedLogistic",
+          "title": "Distribution",
+          "type": "string"
+        },
+        "predictor": {
+          "title": "Predictor",
+          "tsType": "A"
+        },
+        "cutpoints": {
+          "title": "Cutpoints",
+          "tsType": "A"
+        }
+      },
+      "required": [
+        "distribution",
+        "predictor",
+        "cutpoints"
+      ],
+      "title": "OrderedLogisticLawSpec",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.artifacts.likelihood",
+      "x-typescript-parameters": [
+        "A"
+      ]
+    },
+    "PoissonLawSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "distribution": {
+          "const": "Poisson",
+          "default": "Poisson",
+          "title": "Distribution",
+          "type": "string"
+        },
+        "rate": {
+          "title": "Rate",
+          "tsType": "A"
+        }
+      },
+      "required": [
+        "distribution",
+        "rate"
+      ],
+      "title": "PoissonLawSpec",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.artifacts.likelihood",
+      "x-typescript-parameters": [
+        "A"
+      ]
+    },
+    "Removed": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "removed",
+          "default": "removed",
+          "title": "Kind",
+          "type": "string"
+        },
+        "before": {
+          "title": "Before",
+          "tsType": "PayloadT"
+        }
+      },
+      "required": [
+        "kind",
+        "before"
+      ],
+      "title": "Removed",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.study.view_models",
+      "x-typescript-parameters": [
+        "PayloadT"
+      ]
+    },
+    "Revised": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "revised",
+          "default": "revised",
+          "title": "Kind",
+          "type": "string"
+        },
+        "before": {
+          "title": "Before",
+          "tsType": "PayloadT"
+        },
+        "after": {
+          "title": "After",
+          "tsType": "PayloadT"
+        }
+      },
+      "required": [
+        "kind",
+        "before",
+        "after"
+      ],
+      "title": "Revised",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.study.view_models",
+      "x-typescript-parameters": [
+        "PayloadT"
+      ]
+    },
+    "FactSource": {
+      "additionalProperties": false,
+      "description": "A fact source locates supporting content within an artifact revision and records its freshness.",
+      "properties": {
+        "ref": {
+          "$ref": "#/$defs/GitRef"
+        },
+        "pointer": {
+          "pattern": "^(?:/.*)?$",
+          "title": "Pointer",
+          "type": "string"
+        },
+        "validity": {
+          "$ref": "#/$defs/SourceValidity"
+        }
+      },
+      "required": [
+        "ref",
+        "pointer",
+        "validity"
+      ],
+      "title": "FactSource",
+      "type": "object"
+    },
+    "GitOid": {
+      "type": "string"
+    },
+    "GitRef": {
+      "additionalProperties": false,
+      "description": "An exact file in a study's Git object database: repository, object, and path.",
+      "properties": {
+        "workspace_id": {
+          "minLength": 1,
+          "title": "Workspace Id",
+          "type": "string"
+        },
+        "revision": {
+          "$ref": "#/$defs/GitOid"
+        },
+        "path": {
+          "minLength": 1,
+          "pattern": "^[A-Za-z0-9_][A-Za-z0-9_./-]*$",
+          "title": "Path",
+          "type": "string"
+        }
+      },
+      "required": [
+        "workspace_id",
+        "revision",
+        "path"
+      ],
+      "title": "GitRef",
+      "type": "object"
+    },
+    "SourceValidity": {
+      "description": "Source validity records whether a fact still matches its pinned inputs.",
+      "enum": [
+        "fresh",
+        "stale"
+      ],
+      "title": "SourceValidity",
+      "type": "string"
+    },
+    "Sourced": {
+      "additionalProperties": false,
+      "properties": {
+        "value": {
+          "title": "Value",
+          "tsType": "T"
+        },
+        "source": {
+          "$ref": "#/$defs/FactSource"
+        }
+      },
+      "required": [
+        "value",
+        "source"
+      ],
+      "title": "Sourced",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.study.snapshot_models",
+      "x-typescript-parameters": [
+        "T"
+      ]
+    },
+    "StudentTLawSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "distribution": {
+          "const": "StudentT",
+          "default": "StudentT",
+          "title": "Distribution",
+          "type": "string"
+        },
+        "df": {
+          "title": "Df",
+          "tsType": "A"
+        },
+        "loc": {
+          "title": "Loc",
+          "tsType": "A"
+        },
+        "scale": {
+          "title": "Scale",
+          "tsType": "A"
+        }
+      },
+      "required": [
+        "distribution",
+        "df",
+        "loc",
+        "scale"
+      ],
+      "title": "StudentTLawSpec",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.artifacts.likelihood",
+      "x-typescript-parameters": [
+        "A"
+      ]
+    },
+    "Unchanged": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "unchanged",
+          "default": "unchanged",
+          "title": "Kind",
+          "type": "string"
+        },
+        "before": {
+          "title": "Before",
+          "tsType": "PayloadT"
+        },
+        "after": {
+          "title": "After",
+          "tsType": "PayloadT"
+        }
+      },
+      "required": [
+        "kind",
+        "before",
+        "after"
+      ],
+      "title": "Unchanged",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.study.view_models",
+      "x-typescript-parameters": [
+        "PayloadT"
+      ]
     }
   }
 }

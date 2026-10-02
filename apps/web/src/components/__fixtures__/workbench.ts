@@ -29,7 +29,7 @@ const stamp = "2026-09-16T12:00:00Z";
 const freeModel = structuredClone(fixtureValue(demoModelSnapshot.model).value);
 // Generated and validated by scripts/fixtures/study.py.
 const pinnedModel = comparisonFixture.pinned_model;
-const freeInputs = fixtureValue(demoModelSnapshot.context.state.current.model).model_inputs;
+const freeInputs = fixtureValue(demoModelSnapshot.context.current.model).model_inputs;
 const pinnedInputs = comparisonFixture.pinned_inputs;
 const definitionComparisons = comparisonFixture.comparisons;
 const checks: SpecificationReport = {
@@ -45,11 +45,10 @@ const checks: SpecificationReport = {
 const commitId = (seq: number) => (0xc000000 + seq).toString(16).padEnd(40, "c");
 const modelId = (ordinal: number): string =>
   ordinal <= 4
-    ? fixtureValue(
-        demoSnapshotAt(fixtureValue([2, 3, 4, 7][ordinal - 1])).context.state.current.model,
-      ).revision
+    ? fixtureValue(demoSnapshotAt(fixtureValue([2, 3, 4, 7][ordinal - 1])).context.current.model)
+        .revision
     : ordinal.toString(16).padStart(40, "a");
-const panelId = fixtureValue(demoModelSnapshot.context.state.current.panel).revision;
+const panelId = fixtureValue(demoModelSnapshot.context.current.panel).revision;
 const modelRef = (revision: string) => ({
   workspace_id: WORKBENCH_WORKSPACE,
   revision,
@@ -96,14 +95,14 @@ function simulation(revision: string): SimulationReport {
     modelConstructs(freeModel).find((item) => item.name === "internalizing_symptom_burden"),
   );
   const indicator = fixtureValue(
-    outcome.indicators.find((item) => item.name === "gad7_screening_score"),
+    outcome.indicators.find((item) => item.observation.name === "gad7_screening_score"),
   );
   return {
     ...structuredClone(visualFixture.report),
     model: modelRef(revision),
     findings: [
       { kind: "construct" as const, id: outcome.id },
-      { kind: "indicator" as const, id: indicator.id },
+      { kind: "indicator" as const, id: indicator.observation.id },
     ].map((target) => ({
       kind: "not_evaluated" as const,
       subject: { check: "dispersion", target, construct_id: outcome.id },
@@ -158,10 +157,7 @@ function branchSnapshot(
       ...snapshot.context,
       workspace_id: WORKBENCH_WORKSPACE,
       seq,
-      state: {
-        ...snapshot.context.state,
-        current: { ...snapshot.context.state.current, model: info },
-      },
+      current: { ...snapshot.context.current, model: info },
     },
     model,
     findings: {
@@ -207,10 +203,10 @@ snapshots.set(12, branchSnapshot(12, v7, false, simulations.get(7)));
 const comparisonIndicator = fixtureValue(
   modelConstructs(freeModel)
     .flatMap((construct) => construct.indicators)
-    .find((indicator) => indicator.name === "gad7_screening_score"),
+    .find((indicator) => indicator.observation.name === "gad7_screening_score"),
 );
 const comparedSeries = (values: number[]) => ({
-  variable: comparisonIndicator,
+  variable: comparisonIndicator.observation,
   time_origin: "2026-01-01T00:00:00Z",
   points: values.map((value, index) => ({
     anchor_time: `2026-01-0${index + 1}T00:00:00Z`,
@@ -224,7 +220,7 @@ const dataComparison: DataDiffReport = {
   right: [0, 1, 2].map((replicate) => ({ kind: "simulation", revision: commitId(9), replicate })),
   variables: [
     {
-      indicator_id: comparisonIndicator.id,
+      indicator_id: comparisonIndicator.observation.id,
       left: [comparedSeries([1, 4, 3])],
       right: [comparedSeries([0, 1, 2]), comparedSeries([1, 2, 3]), comparedSeries([2, 3, 4])],
       changes: [],
@@ -253,7 +249,7 @@ const dataComparison: DataDiffReport = {
           {
             kind: "evaluated",
             subject: {
-              target: { kind: "indicator", id: comparisonIndicator.id },
+              target: { kind: "indicator", id: comparisonIndicator.observation.id },
               check: "calibration",
             },
             outcome: "warning",
@@ -272,7 +268,7 @@ const dataComparison: DataDiffReport = {
         ],
         test_stats: [
           {
-            indicator_id: comparisonIndicator.id,
+            indicator_id: comparisonIndicator.observation.id,
             stat_name: "mean",
             observed_value: 2.67,
             rep_values: [1, 2, 3],
@@ -287,7 +283,7 @@ const dataComparison: DataDiffReport = {
         ],
         overlays: [
           {
-            indicator_id: comparisonIndicator.id,
+            indicator_id: comparisonIndicator.observation.id,
             observed: [1, 4, 3],
             median: [1, 2, 3],
             spaghetti_draws: [
@@ -310,7 +306,7 @@ export const workbenchJournal: StudyRevision[] = [
       status: "applied",
       result: {
         action: "prepare_data",
-        produced: [fixtureValue(fixtureValue(snapshots.get(1)).context.state.current.raw_data)],
+        produced: [fixtureValue(fixtureValue(snapshots.get(1)).context.current.raw_data)],
         retracted: [],
         checks: null,
         raw_data: null,
@@ -333,7 +329,7 @@ export const workbenchJournal: StudyRevision[] = [
           status: "applied",
           result: {
             action: "edit_model",
-            produced: [fixtureValue(fixtureValue(snapshots.get(seq)).context.state.current.model)],
+            produced: [fixtureValue(fixtureValue(snapshots.get(seq)).context.current.model)],
             retracted: [],
             checks: null,
             base: seq === 2 ? null : modelRef(modelId(seq - 2)),
@@ -350,7 +346,7 @@ export const workbenchJournal: StudyRevision[] = [
       status: "applied",
       result: {
         action: "prepare_data",
-        produced: [fixtureValue(fixtureValue(snapshots.get(5)).context.state.current.panel)],
+        produced: [fixtureValue(fixtureValue(snapshots.get(5)).context.current.panel)],
         retracted: [],
         checks: null,
         raw_data: null,
@@ -393,7 +389,7 @@ export const workbenchJournal: StudyRevision[] = [
         status: "applied",
         result: {
           action: "edit_model",
-          produced: [fixtureValue(fixtureValue(snapshots.get(7)).context.state.current.model)],
+          produced: [fixtureValue(fixtureValue(snapshots.get(7)).context.current.model)],
           retracted: [],
           checks: null,
           base: modelRef(modelId(3)),
@@ -763,8 +759,8 @@ export function workbenchHandlers() {
       const after = snapshotByModelRef(query.get("after"));
       if (!before?.model || !after?.model)
         return HttpResponse.json({ error: "Unknown story version" }, { status: 404 });
-      const beforeVersion = fixtureValue(before.context.state.current.model).revision;
-      const afterVersion = fixtureValue(after.context.state.current.model).revision;
+      const beforeVersion = fixtureValue(before.context.current.model).revision;
+      const afterVersion = fixtureValue(after.context.current.model).revision;
       return HttpResponse.json({
         ...fixtureValue(definitionComparisons[`${beforeVersion}:${afterVersion}`]),
         before: { ...logRef(before.context.seq), path: "artifacts/model/model.json" },

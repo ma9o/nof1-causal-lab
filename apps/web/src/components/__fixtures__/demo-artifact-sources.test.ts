@@ -26,7 +26,11 @@ describe("promoted DEMO fixture", () => {
       ...constructs.flatMap((c) => c.dynamics),
       ...edges.flatMap((e) => e.mechanisms),
     ];
-    const ids = new Set([...constructs, ...edges, ...indicators, ...mechanisms].map((e) => e.id));
+    const ids = new Set(
+      [...constructs, ...edges, ...indicators, ...mechanisms].map((e) =>
+        "observation" in e ? e.observation.id : e.id,
+      ),
+    );
     expect(constructs).toHaveLength(17);
     expect(edges).toHaveLength(32);
     expect(indicators).toHaveLength(19);
@@ -58,7 +62,9 @@ describe("promoted DEMO fixture", () => {
     expect(posterior.engine.kind).toBe("not_evaluated");
     expect(posterior.inference_diagnostics).toEqual(demoPosterior.inference_diagnostics);
     const indicators = new Set(
-      modelConstructs(demoModel).flatMap((construct) => construct.indicators.map((i) => i.id)),
+      modelConstructs(demoModel).flatMap((construct) =>
+        construct.indicators.map((i) => i.observation.id),
+      ),
     );
     expect(predictiveChecks.overlays.every((o) => indicators.has(o.indicator_id))).toBe(true);
   });

@@ -4,15 +4,7 @@ declare const value: Readonly<{
   pinned_model: Domain.ModelSpec;
   pinned_inputs: Domain.ArtifactRecord["model_inputs"];
   comparisons: Readonly<
-    Partial<
-      Record<
-        string,
-        Pick<
-          Domain.ModelDiffReport,
-          "graph" | "parameters" | "changed_inputs" | "definition_changes"
-        >
-      >
-    >
+    Partial<Record<string, Pick<Domain.ModelDiffReport, "graph" | "parameters" | "changed_inputs">>>
   >;
 }>;
 export default value;

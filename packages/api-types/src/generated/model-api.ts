@@ -770,95 +770,23 @@ export interface components {
         /** ActionReceipt */
         readonly ActionReceipt: Domain.ActionReceipt;
         /** Added[ComparisonConnection] */
-        readonly Added_ComparisonConnection_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "added";
-            readonly after: components["schemas"]["ComparisonConnection"];
-        };
+        readonly Added_ComparisonConnection_: Domain.Added<Domain.ComparisonConnection>;
         /** Added[ConstructSpec] */
-        readonly Added_ConstructSpec_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "added";
-            readonly after: components["schemas"]["ConstructSpec-Output"];
-        };
+        readonly Added_ConstructSpec_: Domain.Added<Domain.ConstructSpec>;
         /** Added[DataPoint] */
-        readonly Added_DataPoint_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "added";
-            readonly after: components["schemas"]["DataPoint"];
-        };
-        /** Added[JsonValue] */
-        readonly Added_JsonValue_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "added";
-            readonly after: components["schemas"]["JsonValue-Output"];
-        };
+        readonly Added_DataPoint_: Domain.Added<Domain.DataPoint>;
         /** Added[ParameterSpec] */
-        readonly Added_ParameterSpec_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "added";
-            readonly after: components["schemas"]["ParameterSpec-Output"];
-        };
+        readonly Added_ParameterSpec_: Domain.Added<Domain.ParameterSpec>;
         /** Applied[DataComparisonResult] */
-        readonly Applied_DataComparisonResult_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly status: "applied";
-            readonly result: components["schemas"]["DataComparisonResult"];
-        };
+        readonly Applied_DataComparisonResult_: Domain.Applied<Domain.DataComparisonResult>;
         /** Applied[DataPreparationResult] */
-        readonly Applied_DataPreparationResult_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly status: "applied";
-            readonly result: components["schemas"]["DataPreparationResult"];
-        };
+        readonly Applied_DataPreparationResult_: Domain.Applied<Domain.DataPreparationResult>;
         /** Applied[ModelEditResult] */
-        readonly Applied_ModelEditResult_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly status: "applied";
-            readonly result: components["schemas"]["ModelEditResult"];
-        };
+        readonly Applied_ModelEditResult_: Domain.Applied<Domain.ModelEditResult>;
         /** Applied[ModelFitResult] */
-        readonly Applied_ModelFitResult_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly status: "applied";
-            readonly result: components["schemas"]["ModelFitResult"];
-        };
+        readonly Applied_ModelFitResult_: Domain.Applied<Domain.ModelFitResult>;
         /** Applied[ModelSimulationResult] */
-        readonly Applied_ModelSimulationResult_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly status: "applied";
-            readonly result: components["schemas"]["ModelSimulationResult"];
-        };
+        readonly Applied_ModelSimulationResult_: Domain.Applied<Domain.ModelSimulationResult>;
         /**
          * ArtifactEnvelope
          * @description An artifact envelope delivers a stored payload with its revision and file
@@ -881,9 +809,9 @@ export interface components {
          */
         readonly ArtifactRecord: Domain.ArtifactRecord;
         readonly ArtifactViewResponse: Domain.ArtifactViewResponse;
-        readonly Assessment_IndicatorCheckSubject_NumericCriterionEvidence_: Domain.Assessment_IndicatorCheckSubject_NumericCriterionEvidence_;
-        readonly Assessment_Union_ConvergenceSubject__Literal__recorded_parameter_chains____NumericCriterionEvidence_: components["schemas"]["Evaluated_Union_ConvergenceSubject__Literal__recorded_parameter_chains____NumericCriterionEvidence_"] | components["schemas"]["NotEvaluated_Union_ConvergenceSubject__Literal__recorded_parameter_chains____"];
-        readonly Assessment_str_ParticleMCMCEvidence_: components["schemas"]["Evaluated_str_ParticleMCMCEvidence_"] | components["schemas"]["NotEvaluated_str_"];
+        readonly Assessment_ConvergenceAssessmentSubject_NumericCriterionEvidence_: Domain.Assessment<Domain.ConvergenceAssessmentSubject, Domain.NumericCriterionEvidence>;
+        readonly Assessment_IndicatorCheckSubject_NumericCriterionEvidence_: Domain.Assessment<Domain.IndicatorCheckSubject, Domain.NumericCriterionEvidence>;
+        readonly Assessment_str_ParticleMCMCEvidence_: Domain.Assessment<string, Domain.ParticleMCMCEvidence>;
         /**
          * AttemptRecord
          * @description Stored inside the Git object, with no self-referential publication ID.
@@ -899,11 +827,8 @@ export interface components {
          * @description The current laws have authored ancestry without retained fitting.
          */
         readonly AuthoredLawProvenance: Domain.AuthoredLawProvenance;
-        /**
-         * BernoulliLogitsLawSpec
-         * @description The BernoulliLogits conditional law.
-         */
-        readonly "BernoulliLogitsLawSpec-Input": {
+        /** BernoulliLogitsLawSpec[Expression] */
+        readonly "BernoulliLogitsLawSpec_Expression_-Input": {
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -911,16 +836,10 @@ export interface components {
             readonly distribution: "BernoulliLogits";
             readonly logits: components["schemas"]["Expression-Input"];
         };
-        /**
-         * BernoulliLogitsLawSpec
-         * @description The BernoulliLogits conditional law.
-         */
-        readonly "BernoulliLogitsLawSpec-Output": Domain.BernoulliLogitsLawSpec;
-        /**
-         * BernoulliProbsLawSpec
-         * @description The BernoulliProbs conditional law.
-         */
-        readonly "BernoulliProbsLawSpec-Input": {
+        /** BernoulliLogitsLawSpec[Expression] */
+        readonly "BernoulliLogitsLawSpec_Expression_-Output": Domain.BernoulliLogitsLawSpec<Domain.Expression>;
+        /** BernoulliProbsLawSpec[Expression] */
+        readonly "BernoulliProbsLawSpec_Expression_-Input": {
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -928,16 +847,10 @@ export interface components {
             readonly distribution: "BernoulliProbs";
             readonly probs: components["schemas"]["Expression-Input"];
         };
-        /**
-         * BernoulliProbsLawSpec
-         * @description The BernoulliProbs conditional law.
-         */
-        readonly "BernoulliProbsLawSpec-Output": Domain.BernoulliProbsLawSpec;
-        /**
-         * BetaLawSpec
-         * @description The Beta conditional law.
-         */
-        readonly "BetaLawSpec-Input": {
+        /** BernoulliProbsLawSpec[Expression] */
+        readonly "BernoulliProbsLawSpec_Expression_-Output": Domain.BernoulliProbsLawSpec<Domain.Expression>;
+        /** BetaLawSpec[Expression] */
+        readonly "BetaLawSpec_Expression_-Input": {
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -946,11 +859,8 @@ export interface components {
             readonly concentration1: components["schemas"]["Expression-Input"];
             readonly concentration0: components["schemas"]["Expression-Input"];
         };
-        /**
-         * BetaLawSpec
-         * @description The Beta conditional law.
-         */
-        readonly "BetaLawSpec-Output": Domain.BetaLawSpec;
+        /** BetaLawSpec[Expression] */
+        readonly "BetaLawSpec_Expression_-Output": Domain.BetaLawSpec<Domain.Expression>;
         /**
          * BinaryExpression
          * @description A supported scalar operation composing two expressions.
@@ -1003,11 +913,8 @@ export interface components {
          * @description This response tells clients whether the study facade supports scientific actions.
          */
         readonly CapabilitiesResponse: Domain.CapabilitiesResponse;
-        /**
-         * CategoricalLawSpec
-         * @description The Categorical conditional law.
-         */
-        readonly "CategoricalLawSpec-Input": {
+        /** CategoricalLawSpec[Expression] */
+        readonly "CategoricalLawSpec_Expression_-Input": {
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -1015,11 +922,8 @@ export interface components {
             readonly distribution: "Categorical";
             readonly logits: components["schemas"]["Expression-Input"];
         };
-        /**
-         * CategoricalLawSpec
-         * @description The Categorical conditional law.
-         */
-        readonly "CategoricalLawSpec-Output": Domain.CategoricalLawSpec;
+        /** CategoricalLawSpec[Expression] */
+        readonly "CategoricalLawSpec_Expression_-Output": Domain.CategoricalLawSpec<Domain.Expression>;
         /**
          * CategoryProbabilitySummary
          * @description Predictive probabilities for each declared level; unobserved anchors are null.
@@ -1067,11 +971,10 @@ export interface components {
          * @description Compact retained-chain measurements; plot series compose the report detail.
          */
         readonly ChainDiagnostics: Domain.ChainDiagnostics;
-        readonly Change_ComparisonConnection_: Domain.Change_ComparisonConnection_;
-        readonly Change_ConstructSpec_: Domain.Change_ConstructSpec_;
-        readonly Change_DataPoint_: Domain.Change_DataPoint_;
-        readonly Change_JsonValue_: Domain.Change_JsonValue_;
-        readonly Change_ParameterSpec_: Domain.Change_ParameterSpec_;
+        readonly Change_ComparisonConnection_: Domain.Change<Domain.ComparisonConnection>;
+        readonly Change_ConstructSpec_: Domain.Change<Domain.ConstructSpec>;
+        readonly Change_DataPoint_: Domain.Change<Domain.DataPoint>;
+        readonly Change_ParameterSpec_: Domain.Change<Domain.ParameterSpec>;
         /** @enum {string} */
         readonly CheckGroup: Domain.CheckGroup;
         /**
@@ -1116,6 +1019,41 @@ export interface components {
         readonly CompletedExtractionWorker: Domain.CompletedExtractionWorker;
         /** CompletedPoll */
         readonly CompletedPoll: Domain.CompletedPoll;
+        /**
+         * ComputedExtractionSpec
+         * @description Compute a deterministic support-window measurement from source columns.
+         */
+        readonly "ComputedExtractionSpec-Input": {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            readonly kind: "computed";
+            /**
+             * How To Measure
+             * @description Description of the deterministic measurement.
+             */
+            readonly how_to_measure: string;
+            /** Source Columns */
+            readonly source_columns: readonly string[];
+            /** @description Optional deterministic support-window expression over the declared source columns. It must return one scalar per window with the observation's declared summary operator. Omitted uses a direct single-column aggregation. */
+            readonly computed_rule?: components["schemas"]["WindowExpression"] | null;
+            /**
+             * Fill Null
+             * @description Optional Polars null filling after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown.
+             */
+            readonly fill_null?: ("forward" | "backward" | "min" | "max" | "mean" | "zero" | "one") | number | null;
+            /**
+             * Fill Null Limit
+             * @description Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward.
+             */
+            readonly fill_null_limit?: number | null;
+        };
+        /**
+         * ComputedExtractionSpec
+         * @description Compute a deterministic support-window measurement from source columns.
+         */
+        readonly "ComputedExtractionSpec-Output": Domain.ComputedExtractionSpec;
         /**
          * ConstructComparison
          * @description A construct's presence and time-slice topology in two model revisions.
@@ -1193,6 +1131,7 @@ export interface components {
          * @description A specification of a theoretical entity in the scientific causal model.
          */
         readonly "ConstructSpec-Output": Domain.ConstructSpec;
+        readonly ConvergenceAssessmentSubject: Domain.ConvergenceAssessmentSubject;
         /**
          * ConvergenceCriterion
          * @enum {string}
@@ -1215,7 +1154,7 @@ export interface components {
          */
         readonly DataComparisonResult: Domain.DataComparisonResult;
         /** DataDiffAttempt */
-        readonly DataDiffAttempt: Domain.DataDiffAttempt;
+        readonly DataDiffAttempt: Domain.Attempt<"data_diff", Domain.DataDiffRequest, Domain.DataComparisonResult>;
         /**
          * DataDiffReport
          * @description Comparisons of existing data, preserving each history's immutable source reference.
@@ -1308,75 +1247,19 @@ export interface components {
         readonly DataVariableDiff: Domain.DataVariableDiff;
         /**
          * DataVariableSpec
-         * @description How to produce one observed variable, without any causal or latent model.
+         * @description Compose an observed variable with its data-owned extraction instructions.
          */
         readonly "DataVariableSpec-Input": {
-            /** @description Persistent identity. Preserve when revising or renaming. */
-            readonly id: components["schemas"]["IndicatorId-Input"];
-            /**
-             * Name
-             * @description Indicator name (e.g., 'hrv', 'self_reported_stress')
-             */
-            readonly name: string;
-            /** @description 'continuous', 'binary', 'count', 'ordinal', 'categorical' */
-            readonly measurement_dtype: components["schemas"]["MeasurementDtype"];
-            /** @description Aggregation function applied when bucketing raw extractions within the indicator support window. Supported operators: first, last, sum, count, mean, std. A computed_rule must produce this same summary. */
-            readonly aggregation: components["schemas"]["SummaryOperator"];
-            /**
-             * Observation Window
-             * @description Optional duration string describing the support window summarized by this indicator, in positive fixed units s, m, h, d or w (for example '2w'). Resolved by the preparation window or the generative model clock.
-             */
-            readonly observation_window?: string | null;
-            /**
-             * Fill Null
-             * @description Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown.
-             */
-            readonly fill_null?: ("forward" | "backward" | "min" | "max" | "mean" | "zero" | "one") | number | null;
-            /**
-             * Fill Null Limit
-             * @description Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward.
-             */
-            readonly fill_null_limit?: number | null;
-            /**
-             * Ordinal Levels
-             * @description Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding.
-             */
-            readonly ordinal_levels?: readonly string[] | null;
-            /**
-             * Categorical Levels
-             * @description Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding.
-             */
-            readonly categorical_levels?: readonly string[] | null;
-            /**
-             * How To Measure
-             * @description Scoring rubric and extraction instructions.
-             */
-            readonly how_to_measure: string;
-            /**
-             * Source Columns
-             * @description Raw data column names referenced by how_to_measure. Used to project chunks to only relevant columns before extraction.
-             */
-            readonly source_columns?: readonly string[];
-            /** @description Optional deterministic support-window expression for extraction_mode='computed'. Use this when a computed indicator needs formulas, thresholds, or multiple source columns instead of a direct single-column aggregation. The expression must return one scalar per support window. */
-            readonly computed_rule?: components["schemas"]["WindowExpression"] | null;
-            /**
-             * Extraction Mode
-             * @description 'computed' (deterministic pipeline extraction) or 'semantic' (LLM extraction). Use 'computed' when the indicator can be derived deterministically either from a direct source-column aggregation or from a computed_rule support-window expression over the declared source_columns.
-             * @default semantic
-             * @enum {string}
-             */
-            readonly extraction_mode?: "computed" | "semantic";
+            readonly observation: components["schemas"]["ObservationSpec-Input"];
+            readonly extraction: components["schemas"]["ExtractionSpec-Input"];
         };
         /**
          * DataVariableSpec
-         * @description How to produce one observed variable, without any causal or latent model.
+         * @description Compose an observed variable with its data-owned extraction instructions.
          */
         readonly "DataVariableSpec-Output": Domain.DataVariableSpec;
-        /**
-         * DeltaLawSpec
-         * @description The Delta conditional law.
-         */
-        readonly "DeltaLawSpec-Input": {
+        /** DeltaLawSpec[Expression] */
+        readonly "DeltaLawSpec_Expression_-Input": {
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -1384,11 +1267,8 @@ export interface components {
             readonly distribution: "Delta";
             readonly v: components["schemas"]["Expression-Input"];
         };
-        /**
-         * DeltaLawSpec
-         * @description The Delta conditional law.
-         */
-        readonly "DeltaLawSpec-Output": Domain.DeltaLawSpec;
+        /** DeltaLawSpec[Expression] */
+        readonly "DeltaLawSpec_Expression_-Output": Domain.DeltaLawSpec<Domain.Expression>;
         /**
          * DensityHistogram
          * @description A normalized energy histogram at its native bin centers.
@@ -1435,7 +1315,7 @@ export interface components {
          */
         readonly EdgeRef: Domain.EdgeRef;
         /** EditAttempt */
-        readonly EditAttempt: Domain.EditAttempt;
+        readonly EditAttempt: Domain.Attempt<"edit_model", Domain.EditModelRequest, Domain.ModelEditResult>;
         /**
          * EditModelRequest
          * @description Replace one named base revision with a validated scientific definition.
@@ -1473,86 +1353,16 @@ export interface components {
          */
         readonly EnergyDiagnostics: Domain.EnergyDiagnostics;
         readonly EntityRef: Domain.EntityRef;
+        /** Evaluated[ConvergenceAssessmentSubject, NumericCriterionEvidence] */
+        readonly Evaluated_ConvergenceAssessmentSubject_NumericCriterionEvidence_: Domain.Evaluated<Domain.ConvergenceAssessmentSubject, Domain.NumericCriterionEvidence>;
         /** Evaluated[IndicatorCheckSubject, NumericCriterionEvidence] */
-        readonly Evaluated_IndicatorCheckSubject_NumericCriterionEvidence_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "evaluated";
-            readonly subject: components["schemas"]["IndicatorCheckSubject"];
-            /**
-             * Outcome
-             * @enum {string}
-             */
-            readonly outcome: "passed" | "failed" | "warning" | "error";
-            readonly evidence: components["schemas"]["NumericCriterionEvidence"];
-        };
+        readonly Evaluated_IndicatorCheckSubject_NumericCriterionEvidence_: Domain.Evaluated<Domain.IndicatorCheckSubject, Domain.NumericCriterionEvidence>;
         /** Evaluated[PredictiveSubject, tuple[NumericCriterionEvidence, ...]] */
-        readonly Evaluated_PredictiveSubject_tuple_NumericCriterionEvidence__________: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "evaluated";
-            readonly subject: components["schemas"]["PredictiveSubject"];
-            /**
-             * Outcome
-             * @enum {string}
-             */
-            readonly outcome: "passed" | "failed" | "warning" | "error";
-            /** Evidence */
-            readonly evidence: readonly components["schemas"]["NumericCriterionEvidence"][];
-        };
-        /** Evaluated[Union[ConvergenceSubject, Literal['recorded_parameter_chains']], NumericCriterionEvidence] */
-        readonly Evaluated_Union_ConvergenceSubject__Literal__recorded_parameter_chains____NumericCriterionEvidence_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "evaluated";
-            /** Subject */
-            readonly subject: components["schemas"]["ConvergenceSubject"] | "recorded_parameter_chains";
-            /**
-             * Outcome
-             * @enum {string}
-             */
-            readonly outcome: "passed" | "failed" | "warning" | "error";
-            readonly evidence: components["schemas"]["NumericCriterionEvidence"];
-        };
+        readonly Evaluated_PredictiveSubject_tuple_NumericCriterionEvidence__________: Domain.Evaluated<Domain.PredictiveSubject, readonly (Domain.NumericCriterionEvidence)[]>;
         /** Evaluated[str, ParticleMCMCEvidence] */
-        readonly Evaluated_str_ParticleMCMCEvidence_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "evaluated";
-            /** Subject */
-            readonly subject: string;
-            /**
-             * Outcome
-             * @enum {string}
-             */
-            readonly outcome: "passed" | "failed" | "warning" | "error";
-            readonly evidence: components["schemas"]["ParticleMCMCEvidence"];
-        };
+        readonly Evaluated_str_ParticleMCMCEvidence_: Domain.Evaluated<string, Domain.ParticleMCMCEvidence>;
         /** Evaluated[str, str] */
-        readonly Evaluated_str_str_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "evaluated";
-            /** Subject */
-            readonly subject: string;
-            /**
-             * Outcome
-             * @enum {string}
-             */
-            readonly outcome: "passed" | "failed" | "warning" | "error";
-            /** Evidence */
-            readonly evidence: string;
-        };
+        readonly Evaluated_str_str_: Domain.Evaluated<string, string>;
         /**
          * EventsResponse
          * @description An events response pages one running attempt's live progress.
@@ -1572,6 +1382,8 @@ export interface components {
          * @description Aggregate extraction worker counts.
          */
         readonly ExtractionSnapshotEvent: Domain.ExtractionSnapshotEvent;
+        readonly "ExtractionSpec-Input": components["schemas"]["ComputedExtractionSpec-Input"] | components["schemas"]["SemanticExtractionSpec-Input"];
+        readonly "ExtractionSpec-Output": Domain.ExtractionSpec;
         /**
          * ExtractionWorkerEvent
          * @description One extraction worker's state; a worker reports its LLM calls when it finishes.
@@ -1625,7 +1437,7 @@ export interface components {
          */
         readonly "FileSourceRef-Output": Domain.FileSourceRef;
         /** FitAttempt */
-        readonly FitAttempt: Domain.FitAttempt;
+        readonly FitAttempt: Domain.Attempt<"fit", Domain.FitRequest, Domain.ModelFitResult>;
         /** @enum {string} */
         readonly FitReliability: Domain.FitReliability;
         /**
@@ -1680,11 +1492,8 @@ export interface components {
          * @description All current laws retain one committed fit's model and observation panel.
          */
         readonly FittedLawProvenance: Domain.FittedLawProvenance;
-        /**
-         * GammaLawSpec
-         * @description The Gamma conditional law.
-         */
-        readonly "GammaLawSpec-Input": {
+        /** GammaLawSpec[Expression] */
+        readonly "GammaLawSpec_Expression_-Input": {
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -1693,11 +1502,8 @@ export interface components {
             readonly concentration: components["schemas"]["Expression-Input"];
             readonly rate: components["schemas"]["Expression-Input"];
         };
-        /**
-         * GammaLawSpec
-         * @description The Gamma conditional law.
-         */
-        readonly "GammaLawSpec-Output": Domain.GammaLawSpec;
+        /** GammaLawSpec[Expression] */
+        readonly "GammaLawSpec_Expression_-Output": Domain.GammaLawSpec<Domain.Expression>;
         readonly "GitOid-Input": string;
         readonly "GitOid-Output": Domain.GitOid;
         /**
@@ -1781,42 +1587,7 @@ export interface components {
          *     schema also permits generative models before any observations have been collected.
          */
         readonly "IndicatorSpec-Input": {
-            /** @description Persistent identity. Preserve when revising or renaming. */
-            readonly id: components["schemas"]["IndicatorId-Input"];
-            /**
-             * Name
-             * @description Indicator name (e.g., 'hrv', 'self_reported_stress')
-             */
-            readonly name: string;
-            /** @description 'continuous', 'binary', 'count', 'ordinal', 'categorical' */
-            readonly measurement_dtype: components["schemas"]["MeasurementDtype"];
-            /** @description Aggregation function applied when bucketing raw extractions within the indicator support window. Supported operators: first, last, sum, count, mean, std. A computed_rule must produce this same summary. */
-            readonly aggregation: components["schemas"]["SummaryOperator"];
-            /**
-             * Observation Window
-             * @description Optional duration string describing the support window summarized by this indicator, in positive fixed units s, m, h, d or w (for example '2w'). Resolved by the preparation window or the generative model clock.
-             */
-            readonly observation_window?: string | null;
-            /**
-             * Fill Null
-             * @description Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown.
-             */
-            readonly fill_null?: ("forward" | "backward" | "min" | "max" | "mean" | "zero" | "one") | number | null;
-            /**
-             * Fill Null Limit
-             * @description Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward.
-             */
-            readonly fill_null_limit?: number | null;
-            /**
-             * Ordinal Levels
-             * @description Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding.
-             */
-            readonly ordinal_levels?: readonly string[] | null;
-            /**
-             * Categorical Levels
-             * @description Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding.
-             */
-            readonly categorical_levels?: readonly string[] | null;
+            readonly observation: components["schemas"]["ObservationSpec-Input"];
             readonly likelihood?: components["schemas"]["LikelihoodSpec-Input"] | null;
             /** @description Whether higher values move with (positive) or against (negative) the construct. */
             readonly construct_polarity: components["schemas"]["IndicatorPolarity"];
@@ -2081,18 +1852,13 @@ export interface components {
          */
         readonly ModelData: Domain.ModelData;
         /**
-         * ModelDefinitionChange
-         * @description One changed field in identity-keyed scientific model definitions.
-         */
-        readonly ModelDefinitionChange: Domain.ModelDefinitionChange;
-        /**
          * ModelDiagnostics
          * @description Server-derived equations and comparisons with pinned observations.
          */
         readonly ModelDiagnostics: Domain.ModelDiagnostics;
         /**
          * ModelDiffReport
-         * @description A model diff joins definition changes and evidence at two model revisions or checkpoints.
+         * @description A model diff joins typed entity comparisons and evidence at two model revisions or checkpoints.
          */
         readonly ModelDiffReport: Domain.ModelDiffReport;
         /**
@@ -2173,11 +1939,8 @@ export interface components {
          * @description An evolving research question and connected causal graph with owned scientific detail.
          */
         readonly "ModelSpec-Output": Domain.ModelSpec;
-        /**
-         * NegativeBinomial2LawSpec
-         * @description The NegativeBinomial2 conditional law.
-         */
-        readonly "NegativeBinomial2LawSpec-Input": {
+        /** NegativeBinomial2LawSpec[Expression] */
+        readonly "NegativeBinomial2LawSpec_Expression_-Input": {
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -2186,21 +1949,15 @@ export interface components {
             readonly mean: components["schemas"]["Expression-Input"];
             readonly concentration: components["schemas"]["Expression-Input"];
         };
-        /**
-         * NegativeBinomial2LawSpec
-         * @description The NegativeBinomial2 conditional law.
-         */
-        readonly "NegativeBinomial2LawSpec-Output": Domain.NegativeBinomial2LawSpec;
+        /** NegativeBinomial2LawSpec[Expression] */
+        readonly "NegativeBinomial2LawSpec_Expression_-Output": Domain.NegativeBinomial2LawSpec<Domain.Expression>;
         /**
          * NonIdentifiableTreatmentStatus
          * @description Context on why a treatment effect is not identifiable.
          */
         readonly NonIdentifiableTreatmentStatus: Domain.NonIdentifiableTreatmentStatus;
-        /**
-         * NormalLawSpec
-         * @description The Normal conditional law.
-         */
-        readonly "NormalLawSpec-Input": {
+        /** NormalLawSpec[Expression] */
+        readonly "NormalLawSpec_Expression_-Input": {
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -2209,75 +1966,17 @@ export interface components {
             readonly loc: components["schemas"]["Expression-Input"];
             readonly scale: components["schemas"]["Expression-Input"];
         };
-        /**
-         * NormalLawSpec
-         * @description The Normal conditional law.
-         */
-        readonly "NormalLawSpec-Output": Domain.NormalLawSpec;
-        /** @enum {string} */
+        /** NormalLawSpec[Expression] */
+        readonly "NormalLawSpec_Expression_-Output": Domain.NormalLawSpec<Domain.Expression>;
         readonly NotEvaluatedReason: Domain.NotEvaluatedReason;
+        /** NotEvaluated[ConvergenceAssessmentSubject] */
+        readonly NotEvaluated_ConvergenceAssessmentSubject_: Domain.NotEvaluated<Domain.ConvergenceAssessmentSubject>;
         /** NotEvaluated[IndicatorCheckSubject] */
-        readonly NotEvaluated_IndicatorCheckSubject_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "not_evaluated";
-            readonly subject: components["schemas"]["IndicatorCheckSubject"];
-            readonly reason: components["schemas"]["NotEvaluatedReason"];
-            /**
-             * Detail
-             * @default
-             */
-            readonly detail: string;
-        };
+        readonly NotEvaluated_IndicatorCheckSubject_: Domain.NotEvaluated<Domain.IndicatorCheckSubject>;
         /** NotEvaluated[PredictiveSubject] */
-        readonly NotEvaluated_PredictiveSubject_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "not_evaluated";
-            readonly subject: components["schemas"]["PredictiveSubject"];
-            readonly reason: components["schemas"]["NotEvaluatedReason"];
-            /**
-             * Detail
-             * @default
-             */
-            readonly detail: string;
-        };
-        /** NotEvaluated[Union[ConvergenceSubject, Literal['recorded_parameter_chains']]] */
-        readonly NotEvaluated_Union_ConvergenceSubject__Literal__recorded_parameter_chains____: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "not_evaluated";
-            /** Subject */
-            readonly subject: components["schemas"]["ConvergenceSubject"] | "recorded_parameter_chains";
-            readonly reason: components["schemas"]["NotEvaluatedReason"];
-            /**
-             * Detail
-             * @default
-             */
-            readonly detail: string;
-        };
+        readonly NotEvaluated_PredictiveSubject_: Domain.NotEvaluated<Domain.PredictiveSubject>;
         /** NotEvaluated[str] */
-        readonly NotEvaluated_str_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "not_evaluated";
-            /** Subject */
-            readonly subject: string;
-            readonly reason: components["schemas"]["NotEvaluatedReason"];
-            /**
-             * Detail
-             * @default
-             */
-            readonly detail: string;
-        };
+        readonly NotEvaluated_str_: Domain.NotEvaluated<string>;
         readonly "NumPyroDistribution-Input": {
             /** Distribution */
             readonly distribution: string;
@@ -2297,7 +1996,7 @@ export interface components {
          * @description All prepared observations, their true anchors and their measurement support.
          */
         readonly ObservationHistory: Domain.ObservationHistory;
-        readonly "ObservationLawSpec-Input": components["schemas"]["DeltaLawSpec-Input"] | components["schemas"]["NormalLawSpec-Input"] | components["schemas"]["StudentTLawSpec-Input"] | components["schemas"]["PoissonLawSpec-Input"] | components["schemas"]["GammaLawSpec-Input"] | components["schemas"]["BernoulliLogitsLawSpec-Input"] | components["schemas"]["BernoulliProbsLawSpec-Input"] | components["schemas"]["NegativeBinomial2LawSpec-Input"] | components["schemas"]["BetaLawSpec-Input"] | components["schemas"]["OrderedLogisticLawSpec-Input"] | components["schemas"]["CategoricalLawSpec-Input"];
+        readonly "ObservationLawSpec-Input": components["schemas"]["DeltaLawSpec_Expression_-Input"] | components["schemas"]["NormalLawSpec_Expression_-Input"] | components["schemas"]["StudentTLawSpec_Expression_-Input"] | components["schemas"]["PoissonLawSpec_Expression_-Input"] | components["schemas"]["GammaLawSpec_Expression_-Input"] | components["schemas"]["BernoulliLogitsLawSpec_Expression_-Input"] | components["schemas"]["BernoulliProbsLawSpec_Expression_-Input"] | components["schemas"]["NegativeBinomial2LawSpec_Expression_-Input"] | components["schemas"]["BetaLawSpec_Expression_-Input"] | components["schemas"]["OrderedLogisticLawSpec_Expression_-Input"] | components["schemas"]["CategoricalLawSpec_Expression_-Input"];
         readonly "ObservationLawSpec-Output": Domain.ObservationLawSpec;
         /**
          * ObservationRecord
@@ -2308,12 +2007,41 @@ export interface components {
          * ObservationSpec
          * @description A stable observed variable, reusable across scientific model definitions.
          */
-        readonly ObservationSpec: Domain.ObservationSpec;
+        readonly "ObservationSpec-Input": {
+            /** @description Persistent identity. Preserve when revising or renaming. */
+            readonly id: components["schemas"]["IndicatorId-Input"];
+            /**
+             * Name
+             * @description Indicator name (e.g., 'hrv', 'self_reported_stress')
+             */
+            readonly name: string;
+            /** @description 'continuous', 'binary', 'count', 'ordinal', 'categorical' */
+            readonly measurement_dtype: components["schemas"]["MeasurementDtype"];
+            /** @description Aggregation function applied when bucketing raw extractions within the indicator support window. Supported operators: first, last, sum, count, mean, std. A computed_rule must produce this same summary. */
+            readonly aggregation: components["schemas"]["SummaryOperator"];
+            /**
+             * Observation Window
+             * @description Optional duration string describing the support window summarized by this indicator, in positive fixed units s, m, h, d or w (for example '2w'). Resolved by the preparation window or the generative model clock.
+             */
+            readonly observation_window?: string | null;
+            /**
+             * Ordinal Levels
+             * @description Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding.
+             */
+            readonly ordinal_levels?: readonly string[] | null;
+            /**
+             * Categorical Levels
+             * @description Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding.
+             */
+            readonly categorical_levels?: readonly string[] | null;
+        };
         /**
-         * OrderedLogisticLawSpec
-         * @description The OrderedLogistic conditional law.
+         * ObservationSpec
+         * @description A stable observed variable, reusable across scientific model definitions.
          */
-        readonly "OrderedLogisticLawSpec-Input": {
+        readonly "ObservationSpec-Output": Domain.ObservationSpec;
+        /** OrderedLogisticLawSpec[Expression] */
+        readonly "OrderedLogisticLawSpec_Expression_-Input": {
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -2322,11 +2050,8 @@ export interface components {
             readonly predictor: components["schemas"]["Expression-Input"];
             readonly cutpoints: components["schemas"]["Expression-Input"];
         };
-        /**
-         * OrderedLogisticLawSpec
-         * @description The OrderedLogistic conditional law.
-         */
-        readonly "OrderedLogisticLawSpec-Output": Domain.OrderedLogisticLawSpec;
+        /** OrderedLogisticLawSpec[Expression] */
+        readonly "OrderedLogisticLawSpec_Expression_-Output": Domain.OrderedLogisticLawSpec<Domain.Expression>;
         /**
          * PPCOverlay
          * @description A predictive overlay sets one indicator's observed values against simulated ones.
@@ -2478,11 +2203,8 @@ export interface components {
          * @description Map persistence p to -log(p) divided by its explicit interval in days.
          */
         readonly "PersistenceTransformSpec-Output": Domain.PersistenceTransformSpec;
-        /**
-         * PoissonLawSpec
-         * @description The Poisson conditional law.
-         */
-        readonly "PoissonLawSpec-Input": {
+        /** PoissonLawSpec[Expression] */
+        readonly "PoissonLawSpec_Expression_-Input": {
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -2490,11 +2212,8 @@ export interface components {
             readonly distribution: "Poisson";
             readonly rate: components["schemas"]["Expression-Input"];
         };
-        /**
-         * PoissonLawSpec
-         * @description The Poisson conditional law.
-         */
-        readonly "PoissonLawSpec-Output": Domain.PoissonLawSpec;
+        /** PoissonLawSpec[Expression] */
+        readonly "PoissonLawSpec_Expression_-Output": Domain.PoissonLawSpec<Domain.Expression>;
         /**
          * PosteriorEstimate
          * @description A posterior estimate reports a mean and a credible interval with explicit semantics.
@@ -2550,7 +2269,7 @@ export interface components {
         readonly PredictiveSubject: Domain.PredictiveSubject;
         readonly PredictiveSummary: Domain.PredictiveSummary;
         /** PrepareAttempt */
-        readonly PrepareAttempt: Domain.PrepareAttempt;
+        readonly PrepareAttempt: Domain.Attempt<"prepare_data", Domain.PrepareDataRequest, Domain.DataPreparationResult>;
         /**
          * PrepareDataRequest
          * @description Prepare uploaded sources or a simulation replicate without a model.
@@ -2603,64 +2322,18 @@ export interface components {
         readonly RecordDependency: Domain.RecordDependency;
         /** RecordedPath */
         readonly RecordedPath: Domain.RecordedPath;
-        /** Rejected[RejectionReason] */
-        readonly Rejected_RejectionReason_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly status: "rejected";
-            readonly reason: components["schemas"]["RejectionReason"];
-            /** Detail */
-            readonly detail: string;
-        };
+        /** Rejected */
+        readonly Rejected: Domain.Rejected;
         /** @enum {string} */
         readonly RejectionReason: Domain.RejectionReason;
         /** Removed[ComparisonConnection] */
-        readonly Removed_ComparisonConnection_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "removed";
-            readonly before: components["schemas"]["ComparisonConnection"];
-        };
+        readonly Removed_ComparisonConnection_: Domain.Removed<Domain.ComparisonConnection>;
         /** Removed[ConstructSpec] */
-        readonly Removed_ConstructSpec_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "removed";
-            readonly before: components["schemas"]["ConstructSpec-Output"];
-        };
+        readonly Removed_ConstructSpec_: Domain.Removed<Domain.ConstructSpec>;
         /** Removed[DataPoint] */
-        readonly Removed_DataPoint_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "removed";
-            readonly before: components["schemas"]["DataPoint"];
-        };
-        /** Removed[JsonValue] */
-        readonly Removed_JsonValue_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "removed";
-            readonly before: components["schemas"]["JsonValue-Output"];
-        };
+        readonly Removed_DataPoint_: Domain.Removed<Domain.DataPoint>;
         /** Removed[ParameterSpec] */
-        readonly Removed_ParameterSpec_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "removed";
-            readonly before: components["schemas"]["ParameterSpec-Output"];
-        };
+        readonly Removed_ParameterSpec_: Domain.Removed<Domain.ParameterSpec>;
         /** ResponseCurve */
         readonly ResponseCurve: Domain.ResponseCurve;
         /**
@@ -2669,55 +2342,13 @@ export interface components {
          */
         readonly RetractedArtifact: Domain.RetractedArtifact;
         /** Revised[ComparisonConnection] */
-        readonly Revised_ComparisonConnection_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "revised";
-            readonly before: components["schemas"]["ComparisonConnection"];
-            readonly after: components["schemas"]["ComparisonConnection"];
-        };
+        readonly Revised_ComparisonConnection_: Domain.Revised<Domain.ComparisonConnection>;
         /** Revised[ConstructSpec] */
-        readonly Revised_ConstructSpec_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "revised";
-            readonly before: components["schemas"]["ConstructSpec-Output"];
-            readonly after: components["schemas"]["ConstructSpec-Output"];
-        };
+        readonly Revised_ConstructSpec_: Domain.Revised<Domain.ConstructSpec>;
         /** Revised[DataPoint] */
-        readonly Revised_DataPoint_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "revised";
-            readonly before: components["schemas"]["DataPoint"];
-            readonly after: components["schemas"]["DataPoint"];
-        };
-        /** Revised[JsonValue] */
-        readonly Revised_JsonValue_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "revised";
-            readonly before: components["schemas"]["JsonValue-Output"];
-            readonly after: components["schemas"]["JsonValue-Output"];
-        };
+        readonly Revised_DataPoint_: Domain.Revised<Domain.DataPoint>;
         /** Revised[ParameterSpec] */
-        readonly Revised_ParameterSpec_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "revised";
-            readonly before: components["schemas"]["ParameterSpec-Output"];
-            readonly after: components["schemas"]["ParameterSpec-Output"];
-        };
+        readonly Revised_ParameterSpec_: Domain.Revised<Domain.ParameterSpec>;
         /**
          * RevisionCatalog
          * @description A revision catalog lists immutable model, source and observation inputs for selection.
@@ -2736,8 +2367,35 @@ export interface components {
         readonly RunningPoll: Domain.RunningPoll;
         /** @enum {string} */
         readonly ScientificActionId: Domain.ScientificActionId;
+        /**
+         * SemanticExtractionSpec
+         * @description Interpret source records using an explicit measurement rubric.
+         */
+        readonly "SemanticExtractionSpec-Input": {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            readonly kind: "semantic";
+            /**
+             * How To Measure
+             * @description Scoring rubric and extraction instructions.
+             */
+            readonly how_to_measure: string;
+            /**
+             * Source Columns
+             * @description Source columns exposed to the extraction worker.
+             * @default []
+             */
+            readonly source_columns?: readonly string[];
+        };
+        /**
+         * SemanticExtractionSpec
+         * @description Interpret source records using an explicit measurement rubric.
+         */
+        readonly "SemanticExtractionSpec-Output": Domain.SemanticExtractionSpec;
         /** SimulateAttempt */
-        readonly SimulateAttempt: Domain.SimulateAttempt;
+        readonly SimulateAttempt: Domain.Attempt<"simulate", Domain.SimulateRequest, Domain.ModelSimulationResult>;
         /**
          * SimulateRequest
          * @description Generate through end with optional start and interventions; compare saved data with data_diff.
@@ -2839,84 +2497,40 @@ export interface components {
          */
         readonly SnapshotContext: Domain.SnapshotContext;
         /**
-         * SnapshotState
-         * @description A snapshot state lists the artifact revisions current at the selected commit.
-         *
-         *     Recorded checks appear once, as the specification and predictive findings.
-         */
-        readonly SnapshotState: Domain.SnapshotState;
-        /**
          * SourceValidity
          * @description Source validity records whether a fact still matches its pinned inputs.
          * @enum {string}
          */
         readonly SourceValidity: Domain.SourceValidity;
         /** Sourced[DataProfileArtifact] */
-        readonly Sourced_DataProfileArtifact_: {
-            readonly value: components["schemas"]["DataProfileArtifact"];
-            readonly source: components["schemas"]["FactSource"];
-        };
+        readonly Sourced_DataProfileArtifact_: Domain.Sourced<Domain.DataProfileArtifact>;
         /** Sourced[FitSummary] */
-        readonly Sourced_FitSummary_: {
-            readonly value: components["schemas"]["FitSummary"];
-            readonly source: components["schemas"]["FactSource"];
-        };
+        readonly Sourced_FitSummary_: Domain.Sourced<Domain.FitSummary>;
         /** Sourced[IdentificationReport] */
-        readonly Sourced_IdentificationReport_: {
-            readonly value: components["schemas"]["IdentificationReport"];
-            readonly source: components["schemas"]["FactSource"];
-        };
+        readonly Sourced_IdentificationReport_: Domain.Sourced<Domain.IdentificationReport>;
         /** Sourced[InferenceReport] */
         readonly Sourced_InferenceReport_: {
             readonly value: components["schemas"]["InferenceReport"];
             readonly source: components["schemas"]["FactSource"];
         };
         /** Sourced[MeasurementsData] */
-        readonly Sourced_MeasurementsData_: {
-            readonly value: components["schemas"]["MeasurementsData"];
-            readonly source: components["schemas"]["FactSource"];
-        };
+        readonly Sourced_MeasurementsData_: Domain.Sourced<Domain.MeasurementsData>;
         /** Sourced[ModelPredictiveReport] */
-        readonly Sourced_ModelPredictiveReport_: {
-            readonly value: components["schemas"]["ModelPredictiveReport"];
-            readonly source: components["schemas"]["FactSource"];
-        };
+        readonly Sourced_ModelPredictiveReport_: Domain.Sourced<Domain.ModelPredictiveReport>;
         /** Sourced[ModelSpec] */
-        readonly Sourced_ModelSpec_: {
-            readonly value: components["schemas"]["ModelSpec-Output"];
-            readonly source: components["schemas"]["FactSource"];
-        };
+        readonly Sourced_ModelSpec_: Domain.Sourced<Domain.ModelSpec>;
         /** Sourced[PreparedDataMetadata] */
-        readonly Sourced_PreparedDataMetadata_: {
-            readonly value: components["schemas"]["PreparedDataMetadata"];
-            readonly source: components["schemas"]["FactSource"];
-        };
+        readonly Sourced_PreparedDataMetadata_: Domain.Sourced<Domain.PreparedDataMetadata>;
         /** Sourced[RawDataData] */
-        readonly Sourced_RawDataData_: {
-            readonly value: components["schemas"]["RawDataData"];
-            readonly source: components["schemas"]["FactSource"];
-        };
+        readonly Sourced_RawDataData_: Domain.Sourced<Domain.RawDataData>;
         /** Sourced[SimulationReport] */
-        readonly Sourced_SimulationReport_: {
-            readonly value: components["schemas"]["SimulationReport"];
-            readonly source: components["schemas"]["FactSource"];
-        };
+        readonly Sourced_SimulationReport_: Domain.Sourced<Domain.SimulationReport>;
         /** Sourced[SpecificationReport] */
-        readonly Sourced_SpecificationReport_: {
-            readonly value: components["schemas"]["SpecificationReport"];
-            readonly source: components["schemas"]["FactSource"];
-        };
+        readonly Sourced_SpecificationReport_: Domain.Sourced<Domain.SpecificationReport>;
         /** Sourced[ValidationReportArtifact] */
-        readonly Sourced_ValidationReportArtifact_: {
-            readonly value: components["schemas"]["ValidationReportArtifact"];
-            readonly source: components["schemas"]["FactSource"];
-        };
+        readonly Sourced_ValidationReportArtifact_: Domain.Sourced<Domain.ValidationReportArtifact>;
         /** Sourced[tuple[StructuralItemDisposition, ...]] */
-        readonly Sourced_tuple_StructuralItemDisposition__________: {
-            /** Value */
-            readonly value: readonly components["schemas"]["StructuralItemDisposition"][];
-            readonly source: components["schemas"]["FactSource"];
-        };
+        readonly Sourced_tuple_StructuralItemDisposition__________: Domain.Sourced<readonly (Domain.StructuralItemDisposition)[]>;
         readonly SpecificationAssessment: Domain.SpecificationAssessment;
         /**
          * SpecificationReport
@@ -2970,11 +2584,8 @@ export interface components {
          *     entity.
          */
         readonly StructuralItemDisposition: Domain.StructuralItemDisposition;
-        /**
-         * StudentTLawSpec
-         * @description The StudentT conditional law.
-         */
-        readonly "StudentTLawSpec-Input": {
+        /** StudentTLawSpec[Expression] */
+        readonly "StudentTLawSpec_Expression_-Input": {
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -2984,11 +2595,8 @@ export interface components {
             readonly loc: components["schemas"]["Expression-Input"];
             readonly scale: components["schemas"]["Expression-Input"];
         };
-        /**
-         * StudentTLawSpec
-         * @description The StudentT conditional law.
-         */
-        readonly "StudentTLawSpec-Output": Domain.StudentTLawSpec;
+        /** StudentTLawSpec[Expression] */
+        readonly "StudentTLawSpec_Expression_-Output": Domain.StudentTLawSpec<Domain.Expression>;
         /**
          * StudyRevision
          * @description Git publication wraps its already-owned record, without copying its fields.
@@ -3095,27 +2703,9 @@ export interface components {
          */
         readonly TrajectorySummary: Domain.TrajectorySummary;
         /** Unchanged[ComparisonConnection] */
-        readonly Unchanged_ComparisonConnection_: {
-            /**
-             * Kind
-             * @default unchanged
-             * @constant
-             */
-            readonly kind: "unchanged";
-            readonly before: components["schemas"]["ComparisonConnection"];
-            readonly after: components["schemas"]["ComparisonConnection"];
-        };
+        readonly Unchanged_ComparisonConnection_: Domain.Unchanged<Domain.ComparisonConnection>;
         /** Unchanged[ConstructSpec] */
-        readonly Unchanged_ConstructSpec_: {
-            /**
-             * Kind
-             * @default unchanged
-             * @constant
-             */
-            readonly kind: "unchanged";
-            readonly before: components["schemas"]["ConstructSpec-Output"];
-            readonly after: components["schemas"]["ConstructSpec-Output"];
-        };
+        readonly Unchanged_ConstructSpec_: Domain.Unchanged<Domain.ConstructSpec>;
         /**
          * UnknownLawProvenance
          * @description Imported laws do not establish a conditioning history.
@@ -3147,7 +2737,7 @@ export interface components {
         readonly ValidationIssue: Domain.ValidationIssue;
         /**
          * ValidationReportArtifact
-         * @description Measurement findings augmented with model-dependent execution checks.
+         * @description Data findings composed with model-dependent execution checks.
          */
         readonly ValidationReportArtifact: Domain.ValidationReportArtifact;
         /** @description Deterministic support-window expression that returns one scalar per window. Use Python-like syntax over source_columns with arithmetic, comparisons, if/else, and helper functions such as any(), sum(), mean(), std(), first(), last(), count_true(), count_non_null(), lower(), contains(), and contains_any(). Use None for missing values. */

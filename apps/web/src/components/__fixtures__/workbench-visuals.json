@@ -46,8 +46,6 @@
           "measurement_dtype": "continuous",
           "aggregation": "mean",
           "observation_window": "1d",
-          "fill_null": null,
-          "fill_null_limit": null,
           "ordinal_levels": null,
           "categorical_levels": null
         }

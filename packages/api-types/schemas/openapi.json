@@ -2364,7 +2364,8 @@
           "kind",
           "after"
         ],
-        "title": "Added[ComparisonConnection]"
+        "title": "Added[ComparisonConnection]",
+        "x-typescript-type": "Added<ComparisonConnection>"
       },
       "Added_ConstructSpec_": {
         "properties": {
@@ -2384,7 +2385,8 @@
           "kind",
           "after"
         ],
-        "title": "Added[ConstructSpec]"
+        "title": "Added[ConstructSpec]",
+        "x-typescript-type": "Added<ConstructSpec>"
       },
       "Added_DataPoint_": {
         "properties": {
@@ -2404,27 +2406,8 @@
           "kind",
           "after"
         ],
-        "title": "Added[DataPoint]"
-      },
-      "Added_JsonValue_": {
-        "properties": {
-          "kind": {
-            "type": "string",
-            "const": "added",
-            "title": "Kind",
-            "default": "added"
-          },
-          "after": {
-            "$ref": "#/components/schemas/JsonValue-Output"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "kind",
-          "after"
-        ],
-        "title": "Added[JsonValue]"
+        "title": "Added[DataPoint]",
+        "x-typescript-type": "Added<DataPoint>"
       },
       "Added_ParameterSpec_": {
         "properties": {
@@ -2444,7 +2427,8 @@
           "kind",
           "after"
         ],
-        "title": "Added[ParameterSpec]"
+        "title": "Added[ParameterSpec]",
+        "x-typescript-type": "Added<ParameterSpec>"
       },
       "Applied_DataComparisonResult_": {
         "properties": {
@@ -2464,7 +2448,8 @@
           "status",
           "result"
         ],
-        "title": "Applied[DataComparisonResult]"
+        "title": "Applied[DataComparisonResult]",
+        "x-typescript-type": "Applied<DataComparisonResult>"
       },
       "Applied_DataPreparationResult_": {
         "properties": {
@@ -2484,7 +2469,8 @@
           "status",
           "result"
         ],
-        "title": "Applied[DataPreparationResult]"
+        "title": "Applied[DataPreparationResult]",
+        "x-typescript-type": "Applied<DataPreparationResult>"
       },
       "Applied_ModelEditResult_": {
         "properties": {
@@ -2504,7 +2490,8 @@
           "status",
           "result"
         ],
-        "title": "Applied[ModelEditResult]"
+        "title": "Applied[ModelEditResult]",
+        "x-typescript-type": "Applied<ModelEditResult>"
       },
       "Applied_ModelFitResult_": {
         "properties": {
@@ -2524,7 +2511,8 @@
           "status",
           "result"
         ],
-        "title": "Applied[ModelFitResult]"
+        "title": "Applied[ModelFitResult]",
+        "x-typescript-type": "Applied<ModelFitResult>"
       },
       "Applied_ModelSimulationResult_": {
         "properties": {
@@ -2544,7 +2532,8 @@
           "status",
           "result"
         ],
-        "title": "Applied[ModelSimulationResult]"
+        "title": "Applied[ModelSimulationResult]",
+        "x-typescript-type": "Applied<ModelSimulationResult>"
       },
       "ArtifactEnvelope": {
         "properties": {
@@ -2733,6 +2722,24 @@
           }
         ]
       },
+      "Assessment_ConvergenceAssessmentSubject_NumericCriterionEvidence_": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Evaluated_ConvergenceAssessmentSubject_NumericCriterionEvidence_"
+          },
+          {
+            "$ref": "#/components/schemas/NotEvaluated_ConvergenceAssessmentSubject_"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "kind",
+          "mapping": {
+            "evaluated": "#/components/schemas/Evaluated_ConvergenceAssessmentSubject_NumericCriterionEvidence_",
+            "not_evaluated": "#/components/schemas/NotEvaluated_ConvergenceAssessmentSubject_"
+          }
+        },
+        "x-typescript-type": "Assessment<ConvergenceAssessmentSubject, NumericCriterionEvidence>"
+      },
       "Assessment_IndicatorCheckSubject_NumericCriterionEvidence_": {
         "oneOf": [
           {
@@ -2748,24 +2755,8 @@
             "evaluated": "#/components/schemas/Evaluated_IndicatorCheckSubject_NumericCriterionEvidence_",
             "not_evaluated": "#/components/schemas/NotEvaluated_IndicatorCheckSubject_"
           }
-        }
-      },
-      "Assessment_Union_ConvergenceSubject__Literal__recorded_parameter_chains____NumericCriterionEvidence_": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Evaluated_Union_ConvergenceSubject__Literal__recorded_parameter_chains____NumericCriterionEvidence_"
-          },
-          {
-            "$ref": "#/components/schemas/NotEvaluated_Union_ConvergenceSubject__Literal__recorded_parameter_chains____"
-          }
-        ],
-        "discriminator": {
-          "propertyName": "kind",
-          "mapping": {
-            "evaluated": "#/components/schemas/Evaluated_Union_ConvergenceSubject__Literal__recorded_parameter_chains____NumericCriterionEvidence_",
-            "not_evaluated": "#/components/schemas/NotEvaluated_Union_ConvergenceSubject__Literal__recorded_parameter_chains____"
-          }
-        }
+        },
+        "x-typescript-type": "Assessment<IndicatorCheckSubject, NumericCriterionEvidence>"
       },
       "Assessment_str_ParticleMCMCEvidence_": {
         "oneOf": [
@@ -2782,7 +2773,8 @@
             "evaluated": "#/components/schemas/Evaluated_str_ParticleMCMCEvidence_",
             "not_evaluated": "#/components/schemas/NotEvaluated_str_"
           }
-        }
+        },
+        "x-typescript-type": "Assessment<string, ParticleMCMCEvidence>"
       },
       "AttemptRecord": {
         "properties": {
@@ -2896,7 +2888,7 @@
         "title": "AuthoredLawProvenance",
         "description": "The current laws have authored ancestry without retained fitting."
       },
-      "BernoulliLogitsLawSpec-Input": {
+      "BernoulliLogitsLawSpec_Expression_-Input": {
         "properties": {
           "distribution": {
             "type": "string",
@@ -2913,10 +2905,10 @@
         "required": [
           "logits"
         ],
-        "title": "BernoulliLogitsLawSpec",
-        "description": "The BernoulliLogits conditional law."
+        "title": "BernoulliLogitsLawSpec[Expression]",
+        "x-typescript-type": "BernoulliLogitsLawSpec<Expression>"
       },
-      "BernoulliLogitsLawSpec-Output": {
+      "BernoulliLogitsLawSpec_Expression_-Output": {
         "properties": {
           "distribution": {
             "type": "string",
@@ -2934,10 +2926,10 @@
           "distribution",
           "logits"
         ],
-        "title": "BernoulliLogitsLawSpec",
-        "description": "The BernoulliLogits conditional law."
+        "title": "BernoulliLogitsLawSpec[Expression]",
+        "x-typescript-type": "BernoulliLogitsLawSpec<Expression>"
       },
-      "BernoulliProbsLawSpec-Input": {
+      "BernoulliProbsLawSpec_Expression_-Input": {
         "properties": {
           "distribution": {
             "type": "string",
@@ -2954,10 +2946,10 @@
         "required": [
           "probs"
         ],
-        "title": "BernoulliProbsLawSpec",
-        "description": "The BernoulliProbs conditional law."
+        "title": "BernoulliProbsLawSpec[Expression]",
+        "x-typescript-type": "BernoulliProbsLawSpec<Expression>"
       },
-      "BernoulliProbsLawSpec-Output": {
+      "BernoulliProbsLawSpec_Expression_-Output": {
         "properties": {
           "distribution": {
             "type": "string",
@@ -2975,10 +2967,10 @@
           "distribution",
           "probs"
         ],
-        "title": "BernoulliProbsLawSpec",
-        "description": "The BernoulliProbs conditional law."
+        "title": "BernoulliProbsLawSpec[Expression]",
+        "x-typescript-type": "BernoulliProbsLawSpec<Expression>"
       },
-      "BetaLawSpec-Input": {
+      "BetaLawSpec_Expression_-Input": {
         "properties": {
           "distribution": {
             "type": "string",
@@ -2999,10 +2991,10 @@
           "concentration1",
           "concentration0"
         ],
-        "title": "BetaLawSpec",
-        "description": "The Beta conditional law."
+        "title": "BetaLawSpec[Expression]",
+        "x-typescript-type": "BetaLawSpec<Expression>"
       },
-      "BetaLawSpec-Output": {
+      "BetaLawSpec_Expression_-Output": {
         "properties": {
           "distribution": {
             "type": "string",
@@ -3024,8 +3016,8 @@
           "concentration1",
           "concentration0"
         ],
-        "title": "BetaLawSpec",
-        "description": "The Beta conditional law."
+        "title": "BetaLawSpec[Expression]",
+        "x-typescript-type": "BetaLawSpec<Expression>"
       },
       "BinaryExpression-Input": {
         "properties": {
@@ -3186,7 +3178,7 @@
         "title": "CapabilitiesResponse",
         "description": "This response tells clients whether the study facade supports scientific actions."
       },
-      "CategoricalLawSpec-Input": {
+      "CategoricalLawSpec_Expression_-Input": {
         "properties": {
           "distribution": {
             "type": "string",
@@ -3203,10 +3195,10 @@
         "required": [
           "logits"
         ],
-        "title": "CategoricalLawSpec",
-        "description": "The Categorical conditional law."
+        "title": "CategoricalLawSpec[Expression]",
+        "x-typescript-type": "CategoricalLawSpec<Expression>"
       },
-      "CategoricalLawSpec-Output": {
+      "CategoricalLawSpec_Expression_-Output": {
         "properties": {
           "distribution": {
             "type": "string",
@@ -3224,8 +3216,8 @@
           "distribution",
           "logits"
         ],
-        "title": "CategoricalLawSpec",
-        "description": "The Categorical conditional law."
+        "title": "CategoricalLawSpec[Expression]",
+        "x-typescript-type": "CategoricalLawSpec<Expression>"
       },
       "CategoryProbabilitySummary": {
         "properties": {
@@ -3612,7 +3604,8 @@
             "removed": "#/components/schemas/Removed_ComparisonConnection_",
             "revised": "#/components/schemas/Revised_ComparisonConnection_"
           }
-        }
+        },
+        "x-typescript-type": "Change<ComparisonConnection>"
       },
       "Change_ConstructSpec_": {
         "oneOf": [
@@ -3633,7 +3626,8 @@
             "removed": "#/components/schemas/Removed_ConstructSpec_",
             "revised": "#/components/schemas/Revised_ConstructSpec_"
           }
-        }
+        },
+        "x-typescript-type": "Change<ConstructSpec>"
       },
       "Change_DataPoint_": {
         "oneOf": [
@@ -3654,28 +3648,8 @@
             "removed": "#/components/schemas/Removed_DataPoint_",
             "revised": "#/components/schemas/Revised_DataPoint_"
           }
-        }
-      },
-      "Change_JsonValue_": {
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/Added_JsonValue_"
-          },
-          {
-            "$ref": "#/components/schemas/Removed_JsonValue_"
-          },
-          {
-            "$ref": "#/components/schemas/Revised_JsonValue_"
-          }
-        ],
-        "discriminator": {
-          "propertyName": "kind",
-          "mapping": {
-            "added": "#/components/schemas/Added_JsonValue_",
-            "removed": "#/components/schemas/Removed_JsonValue_",
-            "revised": "#/components/schemas/Revised_JsonValue_"
-          }
-        }
+        },
+        "x-typescript-type": "Change<DataPoint>"
       },
       "Change_ParameterSpec_": {
         "oneOf": [
@@ -3696,7 +3670,8 @@
             "removed": "#/components/schemas/Removed_ParameterSpec_",
             "revised": "#/components/schemas/Revised_ParameterSpec_"
           }
-        }
+        },
+        "x-typescript-type": "Change<ParameterSpec>"
       },
       "CheckGroup": {
         "type": "string",
@@ -3945,6 +3920,170 @@
           "messages"
         ],
         "title": "CompletedPoll"
+      },
+      "ComputedExtractionSpec-Input": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "computed",
+            "title": "Kind",
+            "default": "computed"
+          },
+          "how_to_measure": {
+            "type": "string",
+            "minLength": 1,
+            "title": "How To Measure",
+            "description": "Description of the deterministic measurement."
+          },
+          "source_columns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Source Columns"
+          },
+          "computed_rule": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WindowExpression"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional deterministic support-window expression over the declared source columns. It must return one scalar per window with the observation's declared summary operator. Omitted uses a direct single-column aggregation."
+          },
+          "fill_null": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "forward",
+                  "backward",
+                  "min",
+                  "max",
+                  "mean",
+                  "zero",
+                  "one"
+                ]
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fill Null",
+            "description": "Optional Polars null filling after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown."
+          },
+          "fill_null_limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fill Null Limit",
+            "description": "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "how_to_measure",
+          "source_columns"
+        ],
+        "title": "ComputedExtractionSpec",
+        "description": "Compute a deterministic support-window measurement from source columns."
+      },
+      "ComputedExtractionSpec-Output": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "computed",
+            "title": "Kind",
+            "default": "computed"
+          },
+          "how_to_measure": {
+            "type": "string",
+            "minLength": 1,
+            "title": "How To Measure",
+            "description": "Description of the deterministic measurement."
+          },
+          "source_columns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Source Columns"
+          },
+          "computed_rule": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WindowExpression"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Optional deterministic support-window expression over the declared source columns. It must return one scalar per window with the observation's declared summary operator. Omitted uses a direct single-column aggregation."
+          },
+          "fill_null": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "forward",
+                  "backward",
+                  "min",
+                  "max",
+                  "mean",
+                  "zero",
+                  "one"
+                ]
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fill Null",
+            "description": "Optional Polars null filling after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown."
+          },
+          "fill_null_limit": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Fill Null Limit",
+            "description": "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "how_to_measure",
+          "source_columns",
+          "computed_rule",
+          "fill_null",
+          "fill_null_limit"
+        ],
+        "title": "ComputedExtractionSpec",
+        "description": "Compute a deterministic support-window measurement from source columns."
       },
       "ConstructComparison": {
         "properties": {
@@ -4211,6 +4350,17 @@
         "title": "ConstructSpec",
         "description": "A specification of a theoretical entity in the scientific causal model."
       },
+      "ConvergenceAssessmentSubject": {
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/ConvergenceSubject"
+          },
+          {
+            "type": "string",
+            "const": "recorded_parameter_chains"
+          }
+        ]
+      },
       "ConvergenceCriterion": {
         "type": "string",
         "enum": [
@@ -4334,7 +4484,7 @@
                 "$ref": "#/components/schemas/Applied_DataComparisonResult_"
               },
               {
-                "$ref": "#/components/schemas/Rejected_RejectionReason_"
+                "$ref": "#/components/schemas/Rejected"
               },
               {
                 "$ref": "#/components/schemas/Raised"
@@ -4346,7 +4496,7 @@
               "mapping": {
                 "applied": "#/components/schemas/Applied_DataComparisonResult_",
                 "raised": "#/components/schemas/Raised",
-                "rejected": "#/components/schemas/Rejected_RejectionReason_"
+                "rejected": "#/components/schemas/Rejected"
               }
             }
           }
@@ -4358,7 +4508,8 @@
           "request",
           "outcome"
         ],
-        "title": "DataDiffAttempt"
+        "title": "DataDiffAttempt",
+        "x-typescript-type": "Attempt<\"data_diff\", DataDiffRequest, DataComparisonResult>"
       },
       "DataDiffReport": {
         "properties": {
@@ -4722,7 +4873,7 @@
           "is_valid": {
             "type": "boolean",
             "title": "Is Valid",
-            "description": "Read-only verdict derived from the report's current findings.",
+            "description": "Whether the data findings contain no errors, independent of any model.",
             "readOnly": true
           }
         },
@@ -4805,7 +4956,7 @@
           "variable": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ObservationSpec"
+                "$ref": "#/components/schemas/ObservationSpec-Output"
               },
               {
                 "type": "null"
@@ -5033,305 +5184,41 @@
       },
       "DataVariableSpec-Input": {
         "properties": {
-          "id": {
-            "$ref": "#/components/schemas/IndicatorId-Input",
-            "description": "Persistent identity. Preserve when revising or renaming."
+          "observation": {
+            "$ref": "#/components/schemas/ObservationSpec-Input"
           },
-          "name": {
-            "type": "string",
-            "title": "Name",
-            "description": "Indicator name (e.g., 'hrv', 'self_reported_stress')"
-          },
-          "measurement_dtype": {
-            "$ref": "#/components/schemas/MeasurementDtype",
-            "description": "'continuous', 'binary', 'count', 'ordinal', 'categorical'"
-          },
-          "aggregation": {
-            "$ref": "#/components/schemas/SummaryOperator",
-            "description": "Aggregation function applied when bucketing raw extractions within the indicator support window. Supported operators: first, last, sum, count, mean, std. A computed_rule must produce this same summary."
-          },
-          "observation_window": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Observation Window",
-            "description": "Optional duration string describing the support window summarized by this indicator, in positive fixed units s, m, h, d or w (for example '2w'). Resolved by the preparation window or the generative model clock."
-          },
-          "fill_null": {
-            "anyOf": [
-              {
-                "type": "string",
-                "enum": [
-                  "forward",
-                  "backward",
-                  "min",
-                  "max",
-                  "mean",
-                  "zero",
-                  "one"
-                ]
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Fill Null",
-            "description": "Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown."
-          },
-          "fill_null_limit": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Fill Null Limit",
-            "description": "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward."
-          },
-          "ordinal_levels": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ordinal Levels",
-            "description": "Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding."
-          },
-          "categorical_levels": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Categorical Levels",
-            "description": "Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding."
-          },
-          "how_to_measure": {
-            "type": "string",
-            "minLength": 1,
-            "title": "How To Measure",
-            "description": "Scoring rubric and extraction instructions."
-          },
-          "source_columns": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Source Columns",
-            "description": "Raw data column names referenced by how_to_measure. Used to project chunks to only relevant columns before extraction."
-          },
-          "computed_rule": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/WindowExpression"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Optional deterministic support-window expression for extraction_mode='computed'. Use this when a computed indicator needs formulas, thresholds, or multiple source columns instead of a direct single-column aggregation. The expression must return one scalar per support window."
-          },
-          "extraction_mode": {
-            "type": "string",
-            "enum": [
-              "computed",
-              "semantic"
-            ],
-            "title": "Extraction Mode",
-            "description": "'computed' (deterministic pipeline extraction) or 'semantic' (LLM extraction). Use 'computed' when the indicator can be derived deterministically either from a direct source-column aggregation or from a computed_rule support-window expression over the declared source_columns.",
-            "default": "semantic"
+          "extraction": {
+            "$ref": "#/components/schemas/ExtractionSpec-Input"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "id",
-          "name",
-          "measurement_dtype",
-          "aggregation",
-          "how_to_measure"
+          "observation",
+          "extraction"
         ],
         "title": "DataVariableSpec",
-        "description": "How to produce one observed variable, without any causal or latent model."
+        "description": "Compose an observed variable with its data-owned extraction instructions."
       },
       "DataVariableSpec-Output": {
         "properties": {
-          "id": {
-            "$ref": "#/components/schemas/IndicatorId-Output",
-            "description": "Persistent identity. Preserve when revising or renaming."
+          "observation": {
+            "$ref": "#/components/schemas/ObservationSpec-Output"
           },
-          "name": {
-            "type": "string",
-            "title": "Name",
-            "description": "Indicator name (e.g., 'hrv', 'self_reported_stress')"
-          },
-          "measurement_dtype": {
-            "$ref": "#/components/schemas/MeasurementDtype",
-            "description": "'continuous', 'binary', 'count', 'ordinal', 'categorical'"
-          },
-          "aggregation": {
-            "$ref": "#/components/schemas/SummaryOperator",
-            "description": "Aggregation function applied when bucketing raw extractions within the indicator support window. Supported operators: first, last, sum, count, mean, std. A computed_rule must produce this same summary."
-          },
-          "observation_window": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Observation Window",
-            "description": "Optional duration string describing the support window summarized by this indicator, in positive fixed units s, m, h, d or w (for example '2w'). Resolved by the preparation window or the generative model clock."
-          },
-          "fill_null": {
-            "anyOf": [
-              {
-                "type": "string",
-                "enum": [
-                  "forward",
-                  "backward",
-                  "min",
-                  "max",
-                  "mean",
-                  "zero",
-                  "one"
-                ]
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Fill Null",
-            "description": "Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown."
-          },
-          "fill_null_limit": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Fill Null Limit",
-            "description": "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward."
-          },
-          "ordinal_levels": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ordinal Levels",
-            "description": "Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding."
-          },
-          "categorical_levels": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Categorical Levels",
-            "description": "Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding."
-          },
-          "how_to_measure": {
-            "type": "string",
-            "minLength": 1,
-            "title": "How To Measure",
-            "description": "Scoring rubric and extraction instructions."
-          },
-          "source_columns": {
-            "items": {
-              "type": "string"
-            },
-            "type": "array",
-            "title": "Source Columns",
-            "description": "Raw data column names referenced by how_to_measure. Used to project chunks to only relevant columns before extraction."
-          },
-          "computed_rule": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/WindowExpression"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Optional deterministic support-window expression for extraction_mode='computed'. Use this when a computed indicator needs formulas, thresholds, or multiple source columns instead of a direct single-column aggregation. The expression must return one scalar per support window."
-          },
-          "extraction_mode": {
-            "type": "string",
-            "enum": [
-              "computed",
-              "semantic"
-            ],
-            "title": "Extraction Mode",
-            "description": "'computed' (deterministic pipeline extraction) or 'semantic' (LLM extraction). Use 'computed' when the indicator can be derived deterministically either from a direct source-column aggregation or from a computed_rule support-window expression over the declared source_columns.",
-            "default": "semantic"
+          "extraction": {
+            "$ref": "#/components/schemas/ExtractionSpec-Output"
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "id",
-          "name",
-          "measurement_dtype",
-          "aggregation",
-          "observation_window",
-          "fill_null",
-          "fill_null_limit",
-          "ordinal_levels",
-          "categorical_levels",
-          "how_to_measure",
-          "source_columns",
-          "computed_rule",
-          "extraction_mode"
+          "observation",
+          "extraction"
         ],
         "title": "DataVariableSpec",
-        "description": "How to produce one observed variable, without any causal or latent model."
+        "description": "Compose an observed variable with its data-owned extraction instructions."
       },
-      "DeltaLawSpec-Input": {
+      "DeltaLawSpec_Expression_-Input": {
         "properties": {
           "distribution": {
             "type": "string",
@@ -5348,10 +5235,10 @@
         "required": [
           "v"
         ],
-        "title": "DeltaLawSpec",
-        "description": "The Delta conditional law."
+        "title": "DeltaLawSpec[Expression]",
+        "x-typescript-type": "DeltaLawSpec<Expression>"
       },
-      "DeltaLawSpec-Output": {
+      "DeltaLawSpec_Expression_-Output": {
         "properties": {
           "distribution": {
             "type": "string",
@@ -5369,8 +5256,8 @@
           "distribution",
           "v"
         ],
-        "title": "DeltaLawSpec",
-        "description": "The Delta conditional law."
+        "title": "DeltaLawSpec[Expression]",
+        "x-typescript-type": "DeltaLawSpec<Expression>"
       },
       "DensityHistogram": {
         "properties": {
@@ -5613,7 +5500,7 @@
                 "$ref": "#/components/schemas/Applied_ModelEditResult_"
               },
               {
-                "$ref": "#/components/schemas/Rejected_RejectionReason_"
+                "$ref": "#/components/schemas/Rejected"
               },
               {
                 "$ref": "#/components/schemas/Raised"
@@ -5625,7 +5512,7 @@
               "mapping": {
                 "applied": "#/components/schemas/Applied_ModelEditResult_",
                 "raised": "#/components/schemas/Raised",
-                "rejected": "#/components/schemas/Rejected_RejectionReason_"
+                "rejected": "#/components/schemas/Rejected"
               }
             }
           }
@@ -5637,7 +5524,8 @@
           "request",
           "outcome"
         ],
-        "title": "EditAttempt"
+        "title": "EditAttempt",
+        "x-typescript-type": "Attempt<\"edit_model\", EditModelRequest, ModelEditResult>"
       },
       "EditModelRequest-Input": {
         "properties": {
@@ -5846,6 +5734,42 @@
           }
         }
       },
+      "Evaluated_ConvergenceAssessmentSubject_NumericCriterionEvidence_": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "evaluated",
+            "title": "Kind",
+            "default": "evaluated"
+          },
+          "subject": {
+            "$ref": "#/components/schemas/ConvergenceAssessmentSubject"
+          },
+          "outcome": {
+            "type": "string",
+            "enum": [
+              "passed",
+              "failed",
+              "warning",
+              "error"
+            ],
+            "title": "Outcome"
+          },
+          "evidence": {
+            "$ref": "#/components/schemas/NumericCriterionEvidence"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "subject",
+          "outcome",
+          "evidence"
+        ],
+        "title": "Evaluated[ConvergenceAssessmentSubject, NumericCriterionEvidence]",
+        "x-typescript-type": "Evaluated<ConvergenceAssessmentSubject, NumericCriterionEvidence>"
+      },
       "Evaluated_IndicatorCheckSubject_NumericCriterionEvidence_": {
         "properties": {
           "kind": {
@@ -5879,7 +5803,8 @@
           "outcome",
           "evidence"
         ],
-        "title": "Evaluated[IndicatorCheckSubject, NumericCriterionEvidence]"
+        "title": "Evaluated[IndicatorCheckSubject, NumericCriterionEvidence]",
+        "x-typescript-type": "Evaluated<IndicatorCheckSubject, NumericCriterionEvidence>"
       },
       "Evaluated_PredictiveSubject_tuple_NumericCriterionEvidence__________": {
         "properties": {
@@ -5918,51 +5843,8 @@
           "outcome",
           "evidence"
         ],
-        "title": "Evaluated[PredictiveSubject, tuple[NumericCriterionEvidence, ...]]"
-      },
-      "Evaluated_Union_ConvergenceSubject__Literal__recorded_parameter_chains____NumericCriterionEvidence_": {
-        "properties": {
-          "kind": {
-            "type": "string",
-            "const": "evaluated",
-            "title": "Kind",
-            "default": "evaluated"
-          },
-          "subject": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ConvergenceSubject"
-              },
-              {
-                "type": "string",
-                "const": "recorded_parameter_chains"
-              }
-            ],
-            "title": "Subject"
-          },
-          "outcome": {
-            "type": "string",
-            "enum": [
-              "passed",
-              "failed",
-              "warning",
-              "error"
-            ],
-            "title": "Outcome"
-          },
-          "evidence": {
-            "$ref": "#/components/schemas/NumericCriterionEvidence"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "kind",
-          "subject",
-          "outcome",
-          "evidence"
-        ],
-        "title": "Evaluated[Union[ConvergenceSubject, Literal['recorded_parameter_chains']], NumericCriterionEvidence]"
+        "title": "Evaluated[PredictiveSubject, tuple[NumericCriterionEvidence, ...]]",
+        "x-typescript-type": "Evaluated<PredictiveSubject, readonly (NumericCriterionEvidence)[]>"
       },
       "Evaluated_str_ParticleMCMCEvidence_": {
         "properties": {
@@ -5998,7 +5880,8 @@
           "outcome",
           "evidence"
         ],
-        "title": "Evaluated[str, ParticleMCMCEvidence]"
+        "title": "Evaluated[str, ParticleMCMCEvidence]",
+        "x-typescript-type": "Evaluated<string, ParticleMCMCEvidence>"
       },
       "Evaluated_str_str_": {
         "properties": {
@@ -6035,7 +5918,8 @@
           "outcome",
           "evidence"
         ],
-        "title": "Evaluated[str, str]"
+        "title": "Evaluated[str, str]",
+        "x-typescript-type": "Evaluated<string, string>"
       },
       "EventsResponse": {
         "properties": {
@@ -6234,6 +6118,40 @@
         ],
         "title": "ExtractionSnapshotEvent",
         "description": "Aggregate extraction worker counts."
+      },
+      "ExtractionSpec-Input": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ComputedExtractionSpec-Input"
+          },
+          {
+            "$ref": "#/components/schemas/SemanticExtractionSpec-Input"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "kind",
+          "mapping": {
+            "computed": "#/components/schemas/ComputedExtractionSpec-Input",
+            "semantic": "#/components/schemas/SemanticExtractionSpec-Input"
+          }
+        }
+      },
+      "ExtractionSpec-Output": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ComputedExtractionSpec-Output"
+          },
+          {
+            "$ref": "#/components/schemas/SemanticExtractionSpec-Output"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "kind",
+          "mapping": {
+            "computed": "#/components/schemas/ComputedExtractionSpec-Output",
+            "semantic": "#/components/schemas/SemanticExtractionSpec-Output"
+          }
+        }
       },
       "ExtractionWorkerEvent": {
         "properties": {
@@ -6581,7 +6499,7 @@
                 "$ref": "#/components/schemas/Applied_ModelFitResult_"
               },
               {
-                "$ref": "#/components/schemas/Rejected_RejectionReason_"
+                "$ref": "#/components/schemas/Rejected"
               },
               {
                 "$ref": "#/components/schemas/Raised"
@@ -6593,7 +6511,7 @@
               "mapping": {
                 "applied": "#/components/schemas/Applied_ModelFitResult_",
                 "raised": "#/components/schemas/Raised",
-                "rejected": "#/components/schemas/Rejected_RejectionReason_"
+                "rejected": "#/components/schemas/Rejected"
               }
             }
           }
@@ -6605,7 +6523,8 @@
           "request",
           "outcome"
         ],
-        "title": "FitAttempt"
+        "title": "FitAttempt",
+        "x-typescript-type": "Attempt<\"fit\", FitRequest, ModelFitResult>"
       },
       "FitReliability": {
         "type": "string",
@@ -6900,7 +6819,7 @@
         "title": "FittedLawProvenance",
         "description": "All current laws retain one committed fit's model and observation panel."
       },
-      "GammaLawSpec-Input": {
+      "GammaLawSpec_Expression_-Input": {
         "properties": {
           "distribution": {
             "type": "string",
@@ -6921,10 +6840,10 @@
           "concentration",
           "rate"
         ],
-        "title": "GammaLawSpec",
-        "description": "The Gamma conditional law."
+        "title": "GammaLawSpec[Expression]",
+        "x-typescript-type": "GammaLawSpec<Expression>"
       },
-      "GammaLawSpec-Output": {
+      "GammaLawSpec_Expression_-Output": {
         "properties": {
           "distribution": {
             "type": "string",
@@ -6946,8 +6865,8 @@
           "concentration",
           "rate"
         ],
-        "title": "GammaLawSpec",
-        "description": "The Gamma conditional law."
+        "title": "GammaLawSpec[Expression]",
+        "x-typescript-type": "GammaLawSpec<Expression>"
       },
       "GitOid-Input": {
         "type": "string",
@@ -7509,101 +7428,8 @@
       },
       "IndicatorSpec-Input": {
         "properties": {
-          "id": {
-            "$ref": "#/components/schemas/IndicatorId-Input",
-            "description": "Persistent identity. Preserve when revising or renaming."
-          },
-          "name": {
-            "type": "string",
-            "title": "Name",
-            "description": "Indicator name (e.g., 'hrv', 'self_reported_stress')"
-          },
-          "measurement_dtype": {
-            "$ref": "#/components/schemas/MeasurementDtype",
-            "description": "'continuous', 'binary', 'count', 'ordinal', 'categorical'"
-          },
-          "aggregation": {
-            "$ref": "#/components/schemas/SummaryOperator",
-            "description": "Aggregation function applied when bucketing raw extractions within the indicator support window. Supported operators: first, last, sum, count, mean, std. A computed_rule must produce this same summary."
-          },
-          "observation_window": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Observation Window",
-            "description": "Optional duration string describing the support window summarized by this indicator, in positive fixed units s, m, h, d or w (for example '2w'). Resolved by the preparation window or the generative model clock."
-          },
-          "fill_null": {
-            "anyOf": [
-              {
-                "type": "string",
-                "enum": [
-                  "forward",
-                  "backward",
-                  "min",
-                  "max",
-                  "mean",
-                  "zero",
-                  "one"
-                ]
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Fill Null",
-            "description": "Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown."
-          },
-          "fill_null_limit": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Fill Null Limit",
-            "description": "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward."
-          },
-          "ordinal_levels": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ordinal Levels",
-            "description": "Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding."
-          },
-          "categorical_levels": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Categorical Levels",
-            "description": "Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding."
+          "observation": {
+            "$ref": "#/components/schemas/ObservationSpec-Input"
           },
           "likelihood": {
             "anyOf": [
@@ -7623,10 +7449,7 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "id",
-          "name",
-          "measurement_dtype",
-          "aggregation",
+          "observation",
           "construct_polarity"
         ],
         "title": "IndicatorSpec",
@@ -7634,101 +7457,8 @@
       },
       "IndicatorSpec-Output": {
         "properties": {
-          "id": {
-            "$ref": "#/components/schemas/IndicatorId-Output",
-            "description": "Persistent identity. Preserve when revising or renaming."
-          },
-          "name": {
-            "type": "string",
-            "title": "Name",
-            "description": "Indicator name (e.g., 'hrv', 'self_reported_stress')"
-          },
-          "measurement_dtype": {
-            "$ref": "#/components/schemas/MeasurementDtype",
-            "description": "'continuous', 'binary', 'count', 'ordinal', 'categorical'"
-          },
-          "aggregation": {
-            "$ref": "#/components/schemas/SummaryOperator",
-            "description": "Aggregation function applied when bucketing raw extractions within the indicator support window. Supported operators: first, last, sum, count, mean, std. A computed_rule must produce this same summary."
-          },
-          "observation_window": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Observation Window",
-            "description": "Optional duration string describing the support window summarized by this indicator, in positive fixed units s, m, h, d or w (for example '2w'). Resolved by the preparation window or the generative model clock."
-          },
-          "fill_null": {
-            "anyOf": [
-              {
-                "type": "string",
-                "enum": [
-                  "forward",
-                  "backward",
-                  "min",
-                  "max",
-                  "mean",
-                  "zero",
-                  "one"
-                ]
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Fill Null",
-            "description": "Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown."
-          },
-          "fill_null_limit": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Fill Null Limit",
-            "description": "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward."
-          },
-          "ordinal_levels": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Ordinal Levels",
-            "description": "Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding."
-          },
-          "categorical_levels": {
-            "anyOf": [
-              {
-                "items": {
-                  "type": "string"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Categorical Levels",
-            "description": "Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding."
+          "observation": {
+            "$ref": "#/components/schemas/ObservationSpec-Output"
           },
           "likelihood": {
             "anyOf": [
@@ -7748,15 +7478,7 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "id",
-          "name",
-          "measurement_dtype",
-          "aggregation",
-          "observation_window",
-          "fill_null",
-          "fill_null_limit",
-          "ordinal_levels",
-          "categorical_levels",
+          "observation",
           "likelihood",
           "construct_polarity"
         ],
@@ -9042,25 +8764,6 @@
         "title": "ModelData",
         "description": "Observed evidence paired with its source versions."
       },
-      "ModelDefinitionChange": {
-        "properties": {
-          "path": {
-            "type": "string",
-            "title": "Path"
-          },
-          "change": {
-            "$ref": "#/components/schemas/Change_JsonValue_"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "path",
-          "change"
-        ],
-        "title": "ModelDefinitionChange",
-        "description": "One changed field in identity-keyed scientific model definitions."
-      },
       "ModelDiagnostics": {
         "properties": {
           "confounder_equations": {
@@ -9131,13 +8834,6 @@
           "after": {
             "$ref": "#/components/schemas/GitRef"
           },
-          "definition_changes": {
-            "items": {
-              "$ref": "#/components/schemas/ModelDefinitionChange"
-            },
-            "type": "array",
-            "title": "Definition Changes"
-          },
           "parameters": {
             "items": {
               "$ref": "#/components/schemas/ParameterChange"
@@ -9207,7 +8903,6 @@
         "required": [
           "before",
           "after",
-          "definition_changes",
           "parameters",
           "graph",
           "changed_inputs",
@@ -9219,7 +8914,7 @@
           "after_simulation"
         ],
         "title": "ModelDiffReport",
-        "description": "A model diff joins definition changes and evidence at two model revisions or checkpoints."
+        "description": "A model diff joins typed entity comparisons and evidence at two model revisions or checkpoints."
       },
       "ModelEditResult": {
         "properties": {
@@ -9913,7 +9608,7 @@
         "title": "ModelSpec",
         "description": "An evolving research question and connected causal graph with owned scientific detail."
       },
-      "NegativeBinomial2LawSpec-Input": {
+      "NegativeBinomial2LawSpec_Expression_-Input": {
         "properties": {
           "distribution": {
             "type": "string",
@@ -9934,10 +9629,10 @@
           "mean",
           "concentration"
         ],
-        "title": "NegativeBinomial2LawSpec",
-        "description": "The NegativeBinomial2 conditional law."
+        "title": "NegativeBinomial2LawSpec[Expression]",
+        "x-typescript-type": "NegativeBinomial2LawSpec<Expression>"
       },
-      "NegativeBinomial2LawSpec-Output": {
+      "NegativeBinomial2LawSpec_Expression_-Output": {
         "properties": {
           "distribution": {
             "type": "string",
@@ -9959,8 +9654,8 @@
           "mean",
           "concentration"
         ],
-        "title": "NegativeBinomial2LawSpec",
-        "description": "The NegativeBinomial2 conditional law."
+        "title": "NegativeBinomial2LawSpec[Expression]",
+        "x-typescript-type": "NegativeBinomial2LawSpec<Expression>"
       },
       "NonIdentifiableTreatmentStatus": {
         "properties": {
@@ -10001,7 +9696,7 @@
         "title": "NonIdentifiableTreatmentStatus",
         "description": "Context on why a treatment effect is not identifiable."
       },
-      "NormalLawSpec-Input": {
+      "NormalLawSpec_Expression_-Input": {
         "properties": {
           "distribution": {
             "type": "string",
@@ -10022,10 +9717,10 @@
           "loc",
           "scale"
         ],
-        "title": "NormalLawSpec",
-        "description": "The Normal conditional law."
+        "title": "NormalLawSpec[Expression]",
+        "x-typescript-type": "NormalLawSpec<Expression>"
       },
-      "NormalLawSpec-Output": {
+      "NormalLawSpec_Expression_-Output": {
         "properties": {
           "distribution": {
             "type": "string",
@@ -10047,35 +9742,67 @@
           "loc",
           "scale"
         ],
-        "title": "NormalLawSpec",
-        "description": "The Normal conditional law."
+        "title": "NormalLawSpec[Expression]",
+        "x-typescript-type": "NormalLawSpec<Expression>"
       },
       "NotEvaluatedReason": {
-        "type": "string",
-        "enum": [
-          "MODEL_INCOMPLETE",
-          "MODEL_NOT_EXECUTABLE",
-          "NO_COMPATIBLE_PANEL",
-          "INSUFFICIENT_OBSERVATION_TIMES",
-          "SIMULATION_UNSUPPORTED",
-          "NONFINITE_EMISSION_MEAN",
-          "INSUFFICIENT_TIMES",
-          "NO_RELAXATION_TERM",
-          "EDGE_CONTRASTS_EXPLICIT",
-          "NO_OBSERVATION_SUPPORT",
-          "NO_OBSERVATIONS",
-          "STATIC_CONSTRUCT",
-          "INSUFFICIENT_OBSERVATIONS",
-          "ZERO_RESIDUAL_VARIANCE",
-          "ZERO_OBSERVED_VARIANCE",
-          "NONFINITE_PATHS",
-          "NONFINITE_SIGNAL",
-          "COMPARISON_INPUTS_MISSING",
-          "INSUFFICIENT_CHAIN_SAMPLES",
-          "NO_RETAINED_CHAINS",
-          "ARCHIVED_MEASUREMENT_NOT_RETAINED",
-          "ARCHIVED_ENGINE_NOT_RETAINED"
+        "anyOf": [
+          {
+            "$ref": "#/components/schemas/PredictiveCheckReason"
+          },
+          {
+            "type": "string",
+            "enum": [
+              "NONFINITE_EMISSION_MEAN",
+              "INSUFFICIENT_TIMES",
+              "NO_RELAXATION_TERM",
+              "EDGE_CONTRASTS_EXPLICIT",
+              "NO_OBSERVATION_SUPPORT",
+              "NO_OBSERVATIONS",
+              "STATIC_CONSTRUCT",
+              "INSUFFICIENT_OBSERVATIONS",
+              "ZERO_RESIDUAL_VARIANCE",
+              "ZERO_OBSERVED_VARIANCE",
+              "NONFINITE_PATHS",
+              "NONFINITE_SIGNAL",
+              "COMPARISON_INPUTS_MISSING",
+              "INSUFFICIENT_CHAIN_SAMPLES",
+              "NO_RETAINED_CHAINS",
+              "ARCHIVED_ENGINE_NOT_RETAINED"
+            ]
+          }
         ]
+      },
+      "NotEvaluated_ConvergenceAssessmentSubject_": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "not_evaluated",
+            "title": "Kind",
+            "default": "not_evaluated"
+          },
+          "subject": {
+            "$ref": "#/components/schemas/ConvergenceAssessmentSubject"
+          },
+          "reason": {
+            "$ref": "#/components/schemas/NotEvaluatedReason"
+          },
+          "detail": {
+            "type": "string",
+            "title": "Detail",
+            "default": ""
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "subject",
+          "reason",
+          "detail"
+        ],
+        "title": "NotEvaluated[ConvergenceAssessmentSubject]",
+        "x-typescript-type": "NotEvaluated<ConvergenceAssessmentSubject>"
       },
       "NotEvaluated_IndicatorCheckSubject_": {
         "properties": {
@@ -10105,7 +9832,8 @@
           "reason",
           "detail"
         ],
-        "title": "NotEvaluated[IndicatorCheckSubject]"
+        "title": "NotEvaluated[IndicatorCheckSubject]",
+        "x-typescript-type": "NotEvaluated<IndicatorCheckSubject>"
       },
       "NotEvaluated_PredictiveSubject_": {
         "properties": {
@@ -10135,46 +9863,8 @@
           "reason",
           "detail"
         ],
-        "title": "NotEvaluated[PredictiveSubject]"
-      },
-      "NotEvaluated_Union_ConvergenceSubject__Literal__recorded_parameter_chains____": {
-        "properties": {
-          "kind": {
-            "type": "string",
-            "const": "not_evaluated",
-            "title": "Kind",
-            "default": "not_evaluated"
-          },
-          "subject": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ConvergenceSubject"
-              },
-              {
-                "type": "string",
-                "const": "recorded_parameter_chains"
-              }
-            ],
-            "title": "Subject"
-          },
-          "reason": {
-            "$ref": "#/components/schemas/NotEvaluatedReason"
-          },
-          "detail": {
-            "type": "string",
-            "title": "Detail",
-            "default": ""
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "kind",
-          "subject",
-          "reason",
-          "detail"
-        ],
-        "title": "NotEvaluated[Union[ConvergenceSubject, Literal['recorded_parameter_chains']]]"
+        "title": "NotEvaluated[PredictiveSubject]",
+        "x-typescript-type": "NotEvaluated<PredictiveSubject>"
       },
       "NotEvaluated_str_": {
         "properties": {
@@ -10205,7 +9895,8 @@
           "reason",
           "detail"
         ],
-        "title": "NotEvaluated[str]"
+        "title": "NotEvaluated[str]",
+        "x-typescript-type": "NotEvaluated<string>"
       },
       "NumPyroDistribution-Input": {
         "properties": {
@@ -10434,106 +10125,106 @@
       "ObservationLawSpec-Input": {
         "oneOf": [
           {
-            "$ref": "#/components/schemas/DeltaLawSpec-Input"
+            "$ref": "#/components/schemas/DeltaLawSpec_Expression_-Input"
           },
           {
-            "$ref": "#/components/schemas/NormalLawSpec-Input"
+            "$ref": "#/components/schemas/NormalLawSpec_Expression_-Input"
           },
           {
-            "$ref": "#/components/schemas/StudentTLawSpec-Input"
+            "$ref": "#/components/schemas/StudentTLawSpec_Expression_-Input"
           },
           {
-            "$ref": "#/components/schemas/PoissonLawSpec-Input"
+            "$ref": "#/components/schemas/PoissonLawSpec_Expression_-Input"
           },
           {
-            "$ref": "#/components/schemas/GammaLawSpec-Input"
+            "$ref": "#/components/schemas/GammaLawSpec_Expression_-Input"
           },
           {
-            "$ref": "#/components/schemas/BernoulliLogitsLawSpec-Input"
+            "$ref": "#/components/schemas/BernoulliLogitsLawSpec_Expression_-Input"
           },
           {
-            "$ref": "#/components/schemas/BernoulliProbsLawSpec-Input"
+            "$ref": "#/components/schemas/BernoulliProbsLawSpec_Expression_-Input"
           },
           {
-            "$ref": "#/components/schemas/NegativeBinomial2LawSpec-Input"
+            "$ref": "#/components/schemas/NegativeBinomial2LawSpec_Expression_-Input"
           },
           {
-            "$ref": "#/components/schemas/BetaLawSpec-Input"
+            "$ref": "#/components/schemas/BetaLawSpec_Expression_-Input"
           },
           {
-            "$ref": "#/components/schemas/OrderedLogisticLawSpec-Input"
+            "$ref": "#/components/schemas/OrderedLogisticLawSpec_Expression_-Input"
           },
           {
-            "$ref": "#/components/schemas/CategoricalLawSpec-Input"
+            "$ref": "#/components/schemas/CategoricalLawSpec_Expression_-Input"
           }
         ],
         "discriminator": {
           "propertyName": "distribution",
           "mapping": {
-            "BernoulliLogits": "#/components/schemas/BernoulliLogitsLawSpec-Input",
-            "BernoulliProbs": "#/components/schemas/BernoulliProbsLawSpec-Input",
-            "Beta": "#/components/schemas/BetaLawSpec-Input",
-            "Categorical": "#/components/schemas/CategoricalLawSpec-Input",
-            "Delta": "#/components/schemas/DeltaLawSpec-Input",
-            "Gamma": "#/components/schemas/GammaLawSpec-Input",
-            "NegativeBinomial2": "#/components/schemas/NegativeBinomial2LawSpec-Input",
-            "Normal": "#/components/schemas/NormalLawSpec-Input",
-            "OrderedLogistic": "#/components/schemas/OrderedLogisticLawSpec-Input",
-            "Poisson": "#/components/schemas/PoissonLawSpec-Input",
-            "StudentT": "#/components/schemas/StudentTLawSpec-Input"
+            "BernoulliLogits": "#/components/schemas/BernoulliLogitsLawSpec_Expression_-Input",
+            "BernoulliProbs": "#/components/schemas/BernoulliProbsLawSpec_Expression_-Input",
+            "Beta": "#/components/schemas/BetaLawSpec_Expression_-Input",
+            "Categorical": "#/components/schemas/CategoricalLawSpec_Expression_-Input",
+            "Delta": "#/components/schemas/DeltaLawSpec_Expression_-Input",
+            "Gamma": "#/components/schemas/GammaLawSpec_Expression_-Input",
+            "NegativeBinomial2": "#/components/schemas/NegativeBinomial2LawSpec_Expression_-Input",
+            "Normal": "#/components/schemas/NormalLawSpec_Expression_-Input",
+            "OrderedLogistic": "#/components/schemas/OrderedLogisticLawSpec_Expression_-Input",
+            "Poisson": "#/components/schemas/PoissonLawSpec_Expression_-Input",
+            "StudentT": "#/components/schemas/StudentTLawSpec_Expression_-Input"
           }
         }
       },
       "ObservationLawSpec-Output": {
         "oneOf": [
           {
-            "$ref": "#/components/schemas/DeltaLawSpec-Output"
+            "$ref": "#/components/schemas/DeltaLawSpec_Expression_-Output"
           },
           {
-            "$ref": "#/components/schemas/NormalLawSpec-Output"
+            "$ref": "#/components/schemas/NormalLawSpec_Expression_-Output"
           },
           {
-            "$ref": "#/components/schemas/StudentTLawSpec-Output"
+            "$ref": "#/components/schemas/StudentTLawSpec_Expression_-Output"
           },
           {
-            "$ref": "#/components/schemas/PoissonLawSpec-Output"
+            "$ref": "#/components/schemas/PoissonLawSpec_Expression_-Output"
           },
           {
-            "$ref": "#/components/schemas/GammaLawSpec-Output"
+            "$ref": "#/components/schemas/GammaLawSpec_Expression_-Output"
           },
           {
-            "$ref": "#/components/schemas/BernoulliLogitsLawSpec-Output"
+            "$ref": "#/components/schemas/BernoulliLogitsLawSpec_Expression_-Output"
           },
           {
-            "$ref": "#/components/schemas/BernoulliProbsLawSpec-Output"
+            "$ref": "#/components/schemas/BernoulliProbsLawSpec_Expression_-Output"
           },
           {
-            "$ref": "#/components/schemas/NegativeBinomial2LawSpec-Output"
+            "$ref": "#/components/schemas/NegativeBinomial2LawSpec_Expression_-Output"
           },
           {
-            "$ref": "#/components/schemas/BetaLawSpec-Output"
+            "$ref": "#/components/schemas/BetaLawSpec_Expression_-Output"
           },
           {
-            "$ref": "#/components/schemas/OrderedLogisticLawSpec-Output"
+            "$ref": "#/components/schemas/OrderedLogisticLawSpec_Expression_-Output"
           },
           {
-            "$ref": "#/components/schemas/CategoricalLawSpec-Output"
+            "$ref": "#/components/schemas/CategoricalLawSpec_Expression_-Output"
           }
         ],
         "discriminator": {
           "propertyName": "distribution",
           "mapping": {
-            "BernoulliLogits": "#/components/schemas/BernoulliLogitsLawSpec-Output",
-            "BernoulliProbs": "#/components/schemas/BernoulliProbsLawSpec-Output",
-            "Beta": "#/components/schemas/BetaLawSpec-Output",
-            "Categorical": "#/components/schemas/CategoricalLawSpec-Output",
-            "Delta": "#/components/schemas/DeltaLawSpec-Output",
-            "Gamma": "#/components/schemas/GammaLawSpec-Output",
-            "NegativeBinomial2": "#/components/schemas/NegativeBinomial2LawSpec-Output",
-            "Normal": "#/components/schemas/NormalLawSpec-Output",
-            "OrderedLogistic": "#/components/schemas/OrderedLogisticLawSpec-Output",
-            "Poisson": "#/components/schemas/PoissonLawSpec-Output",
-            "StudentT": "#/components/schemas/StudentTLawSpec-Output"
+            "BernoulliLogits": "#/components/schemas/BernoulliLogitsLawSpec_Expression_-Output",
+            "BernoulliProbs": "#/components/schemas/BernoulliProbsLawSpec_Expression_-Output",
+            "Beta": "#/components/schemas/BetaLawSpec_Expression_-Output",
+            "Categorical": "#/components/schemas/CategoricalLawSpec_Expression_-Output",
+            "Delta": "#/components/schemas/DeltaLawSpec_Expression_-Output",
+            "Gamma": "#/components/schemas/GammaLawSpec_Expression_-Output",
+            "NegativeBinomial2": "#/components/schemas/NegativeBinomial2LawSpec_Expression_-Output",
+            "Normal": "#/components/schemas/NormalLawSpec_Expression_-Output",
+            "OrderedLogistic": "#/components/schemas/OrderedLogisticLawSpec_Expression_-Output",
+            "Poisson": "#/components/schemas/PoissonLawSpec_Expression_-Output",
+            "StudentT": "#/components/schemas/StudentTLawSpec_Expression_-Output"
           }
         }
       },
@@ -10656,7 +10347,80 @@
         "title": "ObservationRecord",
         "description": "Canonical serialized extraction observation row."
       },
-      "ObservationSpec": {
+      "ObservationSpec-Input": {
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/IndicatorId-Input",
+            "description": "Persistent identity. Preserve when revising or renaming."
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "Indicator name (e.g., 'hrv', 'self_reported_stress')"
+          },
+          "measurement_dtype": {
+            "$ref": "#/components/schemas/MeasurementDtype",
+            "description": "'continuous', 'binary', 'count', 'ordinal', 'categorical'"
+          },
+          "aggregation": {
+            "$ref": "#/components/schemas/SummaryOperator",
+            "description": "Aggregation function applied when bucketing raw extractions within the indicator support window. Supported operators: first, last, sum, count, mean, std. A computed_rule must produce this same summary."
+          },
+          "observation_window": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Observation Window",
+            "description": "Optional duration string describing the support window summarized by this indicator, in positive fixed units s, m, h, d or w (for example '2w'). Resolved by the preparation window or the generative model clock."
+          },
+          "ordinal_levels": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ordinal Levels",
+            "description": "Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding."
+          },
+          "categorical_levels": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Categorical Levels",
+            "description": "Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "measurement_dtype",
+          "aggregation"
+        ],
+        "title": "ObservationSpec",
+        "description": "A stable observed variable, reusable across scientific model definitions."
+      },
+      "ObservationSpec-Output": {
         "properties": {
           "id": {
             "$ref": "#/components/schemas/IndicatorId-Output",
@@ -10686,43 +10450,6 @@
             ],
             "title": "Observation Window",
             "description": "Optional duration string describing the support window summarized by this indicator, in positive fixed units s, m, h, d or w (for example '2w'). Resolved by the preparation window or the generative model clock."
-          },
-          "fill_null": {
-            "anyOf": [
-              {
-                "type": "string",
-                "enum": [
-                  "forward",
-                  "backward",
-                  "min",
-                  "max",
-                  "mean",
-                  "zero",
-                  "one"
-                ]
-              },
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Fill Null",
-            "description": "Optional Polars null filling during preparation, after aggregation on the sorted time grid within the selected data span. Use forward, backward, min, max, mean, zero, one, or a numeric constant. Fills every null, including explicit unknown readings. Omitted leaves nulls unknown. Forward carries the last value and leaves leading nulls unknown."
-          },
-          "fill_null_limit": {
-            "anyOf": [
-              {
-                "type": "integer",
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Fill Null Limit",
-            "description": "Maximum consecutive nulls filled by forward/backward; omitted is unlimited. Only valid when fill_null is forward or backward."
           },
           "ordinal_levels": {
             "anyOf": [
@@ -10763,15 +10490,13 @@
           "measurement_dtype",
           "aggregation",
           "observation_window",
-          "fill_null",
-          "fill_null_limit",
           "ordinal_levels",
           "categorical_levels"
         ],
         "title": "ObservationSpec",
         "description": "A stable observed variable, reusable across scientific model definitions."
       },
-      "OrderedLogisticLawSpec-Input": {
+      "OrderedLogisticLawSpec_Expression_-Input": {
         "properties": {
           "distribution": {
             "type": "string",
@@ -10792,10 +10517,10 @@
           "predictor",
           "cutpoints"
         ],
-        "title": "OrderedLogisticLawSpec",
-        "description": "The OrderedLogistic conditional law."
+        "title": "OrderedLogisticLawSpec[Expression]",
+        "x-typescript-type": "OrderedLogisticLawSpec<Expression>"
       },
-      "OrderedLogisticLawSpec-Output": {
+      "OrderedLogisticLawSpec_Expression_-Output": {
         "properties": {
           "distribution": {
             "type": "string",
@@ -10817,8 +10542,8 @@
           "predictor",
           "cutpoints"
         ],
-        "title": "OrderedLogisticLawSpec",
-        "description": "The OrderedLogistic conditional law."
+        "title": "OrderedLogisticLawSpec[Expression]",
+        "x-typescript-type": "OrderedLogisticLawSpec<Expression>"
       },
       "PPCOverlay": {
         "properties": {
@@ -11030,7 +10755,7 @@
           },
           "assessments": {
             "items": {
-              "$ref": "#/components/schemas/Assessment_Union_ConvergenceSubject__Literal__recorded_parameter_chains____NumericCriterionEvidence_"
+              "$ref": "#/components/schemas/Assessment_ConvergenceAssessmentSubject_NumericCriterionEvidence_"
             },
             "type": "array",
             "title": "Assessments"
@@ -12432,7 +12157,7 @@
         "title": "PersistenceTransformSpec",
         "description": "Map persistence p to -log(p) divided by its explicit interval in days."
       },
-      "PoissonLawSpec-Input": {
+      "PoissonLawSpec_Expression_-Input": {
         "properties": {
           "distribution": {
             "type": "string",
@@ -12449,10 +12174,10 @@
         "required": [
           "rate"
         ],
-        "title": "PoissonLawSpec",
-        "description": "The Poisson conditional law."
+        "title": "PoissonLawSpec[Expression]",
+        "x-typescript-type": "PoissonLawSpec<Expression>"
       },
-      "PoissonLawSpec-Output": {
+      "PoissonLawSpec_Expression_-Output": {
         "properties": {
           "distribution": {
             "type": "string",
@@ -12470,8 +12195,8 @@
           "distribution",
           "rate"
         ],
-        "title": "PoissonLawSpec",
-        "description": "The Poisson conditional law."
+        "title": "PoissonLawSpec[Expression]",
+        "x-typescript-type": "PoissonLawSpec<Expression>"
       },
       "PosteriorEstimate": {
         "properties": {
@@ -12918,7 +12643,7 @@
                 "$ref": "#/components/schemas/Applied_DataPreparationResult_"
               },
               {
-                "$ref": "#/components/schemas/Rejected_RejectionReason_"
+                "$ref": "#/components/schemas/Rejected"
               },
               {
                 "$ref": "#/components/schemas/Raised"
@@ -12930,7 +12655,7 @@
               "mapping": {
                 "applied": "#/components/schemas/Applied_DataPreparationResult_",
                 "raised": "#/components/schemas/Raised",
-                "rejected": "#/components/schemas/Rejected_RejectionReason_"
+                "rejected": "#/components/schemas/Rejected"
               }
             }
           }
@@ -12942,7 +12667,8 @@
           "request",
           "outcome"
         ],
-        "title": "PrepareAttempt"
+        "title": "PrepareAttempt",
+        "x-typescript-type": "Attempt<\"prepare_data\", PrepareDataRequest, DataPreparationResult>"
       },
       "PrepareDataRequest-Input": {
         "properties": {
@@ -13008,7 +12734,7 @@
           },
           "variables": {
             "items": {
-              "$ref": "#/components/schemas/ObservationSpec"
+              "$ref": "#/components/schemas/ObservationSpec-Output"
             },
             "type": "array",
             "minItems": 1,
@@ -13317,7 +13043,7 @@
         ],
         "title": "RecordedPath"
       },
-      "Rejected_RejectionReason_": {
+      "Rejected": {
         "properties": {
           "status": {
             "type": "string",
@@ -13340,7 +13066,7 @@
           "reason",
           "detail"
         ],
-        "title": "Rejected[RejectionReason]"
+        "title": "Rejected"
       },
       "RejectionReason": {
         "type": "string",
@@ -13369,7 +13095,8 @@
           "kind",
           "before"
         ],
-        "title": "Removed[ComparisonConnection]"
+        "title": "Removed[ComparisonConnection]",
+        "x-typescript-type": "Removed<ComparisonConnection>"
       },
       "Removed_ConstructSpec_": {
         "properties": {
@@ -13389,7 +13116,8 @@
           "kind",
           "before"
         ],
-        "title": "Removed[ConstructSpec]"
+        "title": "Removed[ConstructSpec]",
+        "x-typescript-type": "Removed<ConstructSpec>"
       },
       "Removed_DataPoint_": {
         "properties": {
@@ -13409,27 +13137,8 @@
           "kind",
           "before"
         ],
-        "title": "Removed[DataPoint]"
-      },
-      "Removed_JsonValue_": {
-        "properties": {
-          "kind": {
-            "type": "string",
-            "const": "removed",
-            "title": "Kind",
-            "default": "removed"
-          },
-          "before": {
-            "$ref": "#/components/schemas/JsonValue-Output"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "kind",
-          "before"
-        ],
-        "title": "Removed[JsonValue]"
+        "title": "Removed[DataPoint]",
+        "x-typescript-type": "Removed<DataPoint>"
       },
       "Removed_ParameterSpec_": {
         "properties": {
@@ -13449,7 +13158,8 @@
           "kind",
           "before"
         ],
-        "title": "Removed[ParameterSpec]"
+        "title": "Removed[ParameterSpec]",
+        "x-typescript-type": "Removed<ParameterSpec>"
       },
       "ResponseCurve": {
         "properties": {
@@ -13533,7 +13243,8 @@
           "before",
           "after"
         ],
-        "title": "Revised[ComparisonConnection]"
+        "title": "Revised[ComparisonConnection]",
+        "x-typescript-type": "Revised<ComparisonConnection>"
       },
       "Revised_ConstructSpec_": {
         "properties": {
@@ -13557,7 +13268,8 @@
           "before",
           "after"
         ],
-        "title": "Revised[ConstructSpec]"
+        "title": "Revised[ConstructSpec]",
+        "x-typescript-type": "Revised<ConstructSpec>"
       },
       "Revised_DataPoint_": {
         "properties": {
@@ -13581,31 +13293,8 @@
           "before",
           "after"
         ],
-        "title": "Revised[DataPoint]"
-      },
-      "Revised_JsonValue_": {
-        "properties": {
-          "kind": {
-            "type": "string",
-            "const": "revised",
-            "title": "Kind",
-            "default": "revised"
-          },
-          "before": {
-            "$ref": "#/components/schemas/JsonValue-Output"
-          },
-          "after": {
-            "$ref": "#/components/schemas/JsonValue-Output"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "kind",
-          "before",
-          "after"
-        ],
-        "title": "Revised[JsonValue]"
+        "title": "Revised[DataPoint]",
+        "x-typescript-type": "Revised<DataPoint>"
       },
       "Revised_ParameterSpec_": {
         "properties": {
@@ -13629,7 +13318,8 @@
           "before",
           "after"
         ],
-        "title": "Revised[ParameterSpec]"
+        "title": "Revised[ParameterSpec]",
+        "x-typescript-type": "Revised<ParameterSpec>"
       },
       "RevisionCatalog": {
         "properties": {
@@ -13740,6 +13430,72 @@
           "simulate"
         ]
       },
+      "SemanticExtractionSpec-Input": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "semantic",
+            "title": "Kind",
+            "default": "semantic"
+          },
+          "how_to_measure": {
+            "type": "string",
+            "minLength": 1,
+            "title": "How To Measure",
+            "description": "Scoring rubric and extraction instructions."
+          },
+          "source_columns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Source Columns",
+            "description": "Source columns exposed to the extraction worker.",
+            "default": []
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "how_to_measure"
+        ],
+        "title": "SemanticExtractionSpec",
+        "description": "Interpret source records using an explicit measurement rubric."
+      },
+      "SemanticExtractionSpec-Output": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "semantic",
+            "title": "Kind",
+            "default": "semantic"
+          },
+          "how_to_measure": {
+            "type": "string",
+            "minLength": 1,
+            "title": "How To Measure",
+            "description": "Scoring rubric and extraction instructions."
+          },
+          "source_columns": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Source Columns",
+            "description": "Source columns exposed to the extraction worker.",
+            "default": []
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "how_to_measure",
+          "source_columns"
+        ],
+        "title": "SemanticExtractionSpec",
+        "description": "Interpret source records using an explicit measurement rubric."
+      },
       "SimulateAttempt": {
         "properties": {
           "action": {
@@ -13764,7 +13520,7 @@
                 "$ref": "#/components/schemas/Applied_ModelSimulationResult_"
               },
               {
-                "$ref": "#/components/schemas/Rejected_RejectionReason_"
+                "$ref": "#/components/schemas/Rejected"
               },
               {
                 "$ref": "#/components/schemas/Raised"
@@ -13776,7 +13532,7 @@
               "mapping": {
                 "applied": "#/components/schemas/Applied_ModelSimulationResult_",
                 "raised": "#/components/schemas/Raised",
-                "rejected": "#/components/schemas/Rejected_RejectionReason_"
+                "rejected": "#/components/schemas/Rejected"
               }
             }
           }
@@ -13788,7 +13544,8 @@
           "request",
           "outcome"
         ],
-        "title": "SimulateAttempt"
+        "title": "SimulateAttempt",
+        "x-typescript-type": "Attempt<\"simulate\", SimulateRequest, ModelSimulationResult>"
       },
       "SimulateRequest-Input": {
         "properties": {
@@ -13889,7 +13646,7 @@
         "properties": {
           "variables": {
             "items": {
-              "$ref": "#/components/schemas/ObservationSpec"
+              "$ref": "#/components/schemas/ObservationSpec-Output"
             },
             "type": "array",
             "title": "Variables"
@@ -14398,25 +14155,6 @@
             "title": "Can Simulate",
             "default": false
           },
-          "state": {
-            "$ref": "#/components/schemas/SnapshotState"
-          }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "workspace_id",
-          "seq",
-          "commit_id",
-          "branch",
-          "can_simulate",
-          "state"
-        ],
-        "title": "SnapshotContext",
-        "description": "A snapshot context identifies the selected Git commit and its artifact versions."
-      },
-      "SnapshotState": {
-        "properties": {
           "current": {
             "additionalProperties": {
               "$ref": "#/components/schemas/ArtifactRecord"
@@ -14431,10 +14169,15 @@
         "additionalProperties": false,
         "type": "object",
         "required": [
+          "workspace_id",
+          "seq",
+          "commit_id",
+          "branch",
+          "can_simulate",
           "current"
         ],
-        "title": "SnapshotState",
-        "description": "A snapshot state lists the artifact revisions current at the selected commit.\n\nRecorded checks appear once, as the specification and predictive findings."
+        "title": "SnapshotContext",
+        "description": "A snapshot context identifies the selected Git commit and its artifact versions."
       },
       "SourceValidity": {
         "type": "string",
@@ -14460,7 +14203,8 @@
           "value",
           "source"
         ],
-        "title": "Sourced[DataProfileArtifact]"
+        "title": "Sourced[DataProfileArtifact]",
+        "x-typescript-type": "Sourced<DataProfileArtifact>"
       },
       "Sourced_FitSummary_": {
         "properties": {
@@ -14477,7 +14221,8 @@
           "value",
           "source"
         ],
-        "title": "Sourced[FitSummary]"
+        "title": "Sourced[FitSummary]",
+        "x-typescript-type": "Sourced<FitSummary>"
       },
       "Sourced_IdentificationReport_": {
         "properties": {
@@ -14494,7 +14239,8 @@
           "value",
           "source"
         ],
-        "title": "Sourced[IdentificationReport]"
+        "title": "Sourced[IdentificationReport]",
+        "x-typescript-type": "Sourced<IdentificationReport>"
       },
       "Sourced_InferenceReport_": {
         "properties": {
@@ -14528,7 +14274,8 @@
           "value",
           "source"
         ],
-        "title": "Sourced[MeasurementsData]"
+        "title": "Sourced[MeasurementsData]",
+        "x-typescript-type": "Sourced<MeasurementsData>"
       },
       "Sourced_ModelPredictiveReport_": {
         "properties": {
@@ -14545,7 +14292,8 @@
           "value",
           "source"
         ],
-        "title": "Sourced[ModelPredictiveReport]"
+        "title": "Sourced[ModelPredictiveReport]",
+        "x-typescript-type": "Sourced<ModelPredictiveReport>"
       },
       "Sourced_ModelSpec_": {
         "properties": {
@@ -14562,7 +14310,8 @@
           "value",
           "source"
         ],
-        "title": "Sourced[ModelSpec]"
+        "title": "Sourced[ModelSpec]",
+        "x-typescript-type": "Sourced<ModelSpec>"
       },
       "Sourced_PreparedDataMetadata_": {
         "properties": {
@@ -14579,7 +14328,8 @@
           "value",
           "source"
         ],
-        "title": "Sourced[PreparedDataMetadata]"
+        "title": "Sourced[PreparedDataMetadata]",
+        "x-typescript-type": "Sourced<PreparedDataMetadata>"
       },
       "Sourced_RawDataData_": {
         "properties": {
@@ -14596,7 +14346,8 @@
           "value",
           "source"
         ],
-        "title": "Sourced[RawDataData]"
+        "title": "Sourced[RawDataData]",
+        "x-typescript-type": "Sourced<RawDataData>"
       },
       "Sourced_SimulationReport_": {
         "properties": {
@@ -14613,7 +14364,8 @@
           "value",
           "source"
         ],
-        "title": "Sourced[SimulationReport]"
+        "title": "Sourced[SimulationReport]",
+        "x-typescript-type": "Sourced<SimulationReport>"
       },
       "Sourced_SpecificationReport_": {
         "properties": {
@@ -14630,7 +14382,8 @@
           "value",
           "source"
         ],
-        "title": "Sourced[SpecificationReport]"
+        "title": "Sourced[SpecificationReport]",
+        "x-typescript-type": "Sourced<SpecificationReport>"
       },
       "Sourced_ValidationReportArtifact_": {
         "properties": {
@@ -14647,7 +14400,8 @@
           "value",
           "source"
         ],
-        "title": "Sourced[ValidationReportArtifact]"
+        "title": "Sourced[ValidationReportArtifact]",
+        "x-typescript-type": "Sourced<ValidationReportArtifact>"
       },
       "Sourced_tuple_StructuralItemDisposition__________": {
         "properties": {
@@ -14668,7 +14422,8 @@
           "value",
           "source"
         ],
-        "title": "Sourced[tuple[StructuralItemDisposition, ...]]"
+        "title": "Sourced[tuple[StructuralItemDisposition, ...]]",
+        "x-typescript-type": "Sourced<readonly (StructuralItemDisposition)[]>"
       },
       "SpecificationAssessment": {
         "oneOf": [
@@ -14903,7 +14658,7 @@
         "title": "StructuralItemDisposition",
         "description": "An item disposition explains the compilation decision for one identified authored\nentity."
       },
-      "StudentTLawSpec-Input": {
+      "StudentTLawSpec_Expression_-Input": {
         "properties": {
           "distribution": {
             "type": "string",
@@ -14928,10 +14683,10 @@
           "loc",
           "scale"
         ],
-        "title": "StudentTLawSpec",
-        "description": "The StudentT conditional law."
+        "title": "StudentTLawSpec[Expression]",
+        "x-typescript-type": "StudentTLawSpec<Expression>"
       },
-      "StudentTLawSpec-Output": {
+      "StudentTLawSpec_Expression_-Output": {
         "properties": {
           "distribution": {
             "type": "string",
@@ -14957,8 +14712,8 @@
           "loc",
           "scale"
         ],
-        "title": "StudentTLawSpec",
-        "description": "The StudentT conditional law."
+        "title": "StudentTLawSpec[Expression]",
+        "x-typescript-type": "StudentTLawSpec<Expression>"
       },
       "StudyRevision": {
         "properties": {
@@ -15572,7 +15327,8 @@
           "before",
           "after"
         ],
-        "title": "Unchanged[ComparisonConnection]"
+        "title": "Unchanged[ComparisonConnection]",
+        "x-typescript-type": "Unchanged<ComparisonConnection>"
       },
       "Unchanged_ConstructSpec_": {
         "properties": {
@@ -15596,7 +15352,8 @@
           "before",
           "after"
         ],
-        "title": "Unchanged[ConstructSpec]"
+        "title": "Unchanged[ConstructSpec]",
+        "x-typescript-type": "Unchanged<ConstructSpec>"
       },
       "UnknownLawProvenance": {
         "properties": {
@@ -15721,22 +15478,8 @@
       },
       "ValidationReportArtifact": {
         "properties": {
-          "indicators": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/IndicatorAudit"
-            },
-            "propertyNames": {
-              "$ref": "#/components/schemas/IndicatorId-Output"
-            },
-            "type": "object",
-            "title": "Indicators"
-          },
-          "dataset_issues": {
-            "items": {
-              "$ref": "#/components/schemas/ValidationIssue"
-            },
-            "type": "array",
-            "title": "Dataset Issues"
+          "data": {
+            "$ref": "#/components/schemas/DataProfileArtifact"
           },
           "preflight": {
             "$ref": "#/components/schemas/SpecificationReport"
@@ -15744,20 +15487,19 @@
           "is_valid": {
             "type": "boolean",
             "title": "Is Valid",
-            "description": "Read-only verdict derived from the report's current findings.",
+            "description": "Whether both the data findings and model preflight contain no failures.",
             "readOnly": true
           }
         },
         "additionalProperties": false,
         "type": "object",
         "required": [
-          "indicators",
-          "dataset_issues",
+          "data",
           "preflight",
           "is_valid"
         ],
         "title": "ValidationReportArtifact",
-        "description": "Measurement findings augmented with model-dependent execution checks."
+        "description": "Data findings composed with model-dependent execution checks."
       },
       "WindowExpression": {
         "type": "string",
