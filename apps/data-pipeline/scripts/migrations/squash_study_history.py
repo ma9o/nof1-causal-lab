@@ -16,7 +16,6 @@ import shutil
 from dataclasses import dataclass
 from functools import cache
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import pygit2
 from pydantic import TypeAdapter
@@ -24,17 +23,21 @@ from pydantic import TypeAdapter
 from nof1_causal_lab.artifacts.data_preparation import DataSourceRef, SimulationReplicateRef
 from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.artifacts.simulation import SimulationReport
+from nof1_causal_lab.artifacts.predictive_provenance import FittedLawProvenance, MixedLawProvenance
 from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.lineage import fitted_law_report, law_provenance
+from nof1_causal_lab.study.records import (
+    Applied,
+    DataPreparationResult,
+    ModelEditResult,
+    ModelFitResult,
+    ModelSimulationResult,
+    StudyRevision,
+)
 from nof1_causal_lab.study.store import ArtifactStore
 from nof1_causal_lab.utils.arrays import read_array
 
-if TYPE_CHECKING:
-    from nof1_causal_lab.study.records import StudyRevision
-
 _PRIMARY = {"model", "panel", "data_profile", "raw_data"}
-_PINS = TypeAdapter(dict[ArtifactId, GitOid])
 
 
 @dataclass(frozen=True)
@@ -71,17 +74,20 @@ def plan_squash(source: Path, *, at: str) -> HistorySquashPlan:
     # whose execution base cannot be remapped by this sequential-workflow rule.
     current = root
     for record in records:
-        if record.branch != branch or record.parent_ids != [current]:
-            raise ValueError(f"Attempt {record.seq} is outside the single sequential branch")
-        if (
-            "prior_predictive" in record.diagnostics
-            or record.diagnostics.get("retention") == "report_only"
+        if record.record.branch != branch or record.parent_ids != (current,):
+            raise ValueError(f"Attempt {record.record.seq} is outside the single sequential branch")
+        outcome = record.record.attempt.outcome
+        logs = repo[record.commit_id].peel(pygit2.Commit).tree["logs"].peel(pygit2.Tree)
+        if "retained-metadata.json" in logs or (
+            isinstance(outcome, Applied)
+            and isinstance(outcome.result, ModelFitResult)
+            and outcome.result.retention == "report_only"
         ):
-            raise ValueError(f"Legacy action at attempt {record.seq} is unsupported")
-        if record.status == "applied":
+            raise ValueError(f"Archived action at attempt {record.record.seq} is unsupported")
+        if record.record.attempt.outcome.status == "applied":
             current = record.commit_id
     recorded_commits = {r.commit_id for r in records}
-    if [r.commit_id for r in records if r.status == "applied"] != [
+    if [r.commit_id for r in records if r.record.attempt.outcome.status == "applied"] != [
         r.commit_id for r in ancestry
     ] or any(
         str(repo.references[ref].target) not in recorded_commits
@@ -101,7 +107,9 @@ def plan_squash(source: Path, *, at: str) -> HistorySquashPlan:
 
     producers: dict[tuple[ArtifactId, GitOid], StudyRevision] = {}
     for record in ancestry:
-        for artifact in record.produced:
+        outcome = record.record.attempt.outcome
+        assert isinstance(outcome, Applied)
+        for artifact in outcome.result.produced:
             if artifact.artifact_id not in _PRIMARY:
                 continue
             key = (artifact.artifact_id, artifact.revision)
@@ -119,37 +127,57 @@ def plan_squash(source: Path, *, at: str) -> HistorySquashPlan:
                 )
             },
         )
-        return law_provenance(
-            store, store.read_meta("model", revision), model, None
-        ).fitted_model_revision
+        provenance = law_provenance(store, store.read_meta("model", revision), model, None)
+        return (
+            provenance.fitted_model_revision
+            if isinstance(provenance, (FittedLawProvenance, MixedLawProvenance))
+            else None
+        )
 
     def producer(
         artifact_id: ArtifactId, revision: GitOid, consumer: StudyRevision
     ) -> StudyRevision:
         found = producers.get((artifact_id, revision))
-        if found is None or found.seq > consumer.seq:
+        if found is None or found.record.seq > consumer.record.seq:
             raise ValueError(
-                f"Attempt {consumer.seq}: {artifact_id} {revision} has no recorded producer"
+                f"Attempt {consumer.record.seq}: {artifact_id} {revision} has no recorded producer"
             )
         return found
 
     def dependencies(record: StudyRevision) -> set[GitOid]:
         pins: set[tuple[ArtifactId, GitOid]] = set()
-        if record.action in {"fit", "simulate", "prepare_data"}:
-            pins.update(_PINS.validate_python(record.diagnostics["input_pins"]).items())
-        if record.action == "edit_model":
+        outcome = record.record.attempt.outcome
+        assert isinstance(outcome, Applied)
+        effects = outcome.result
+        match effects:
+            case ModelFitResult(model=model, panel=panel):
+                pins.update((("model", model.revision), ("panel", panel.revision)))
+            case ModelSimulationResult(report=report, panel=panel):
+                pins.add(("model", report.model.revision))
+                if panel is not None:
+                    pins.add(("panel", panel.revision))
+            case DataPreparationResult(raw_data=raw, model=model):
+                if raw is not None:
+                    pins.add(("raw_data", raw.revision))
+                if model is not None:
+                    pins.add(("model", model.revision))
+            case ModelEditResult():
+                pass
+            case _:
+                raise ValueError("Read-only comparisons cannot be squashed")
+        if record.record.attempt.action == "edit_model":
             parent = history.state(record.parent_ids[0])
             pins.update(
                 (key, parent.current[key].revision)
                 for key in ("panel", "data_profile")
                 if parent.has(key)
             )
-        for artifact in record.produced:
+        for artifact in effects.produced:
             if artifact.artifact_id in _PRIMARY - {"model"}:
                 pins.update(artifact.derived_from.items())
         result = {producer(key, revision, record).commit_id for key, revision in pins}
         models = {revision for key, revision in pins if key == "model"}
-        models.update(item.revision for item in record.produced if item.artifact_id == "model")
+        models.update(item.revision for item in effects.produced if item.artifact_id == "model")
         for revision in models:
             owner = fitted_owner(revision)
             if owner is not None:
@@ -159,19 +187,27 @@ def plan_squash(source: Path, *, at: str) -> HistorySquashPlan:
         return result
 
     boundary_record = history.record(boundary)
-    prefix = [r for r in ancestry if r.seq <= boundary_record.seq]
+    prefix = [r for r in ancestry if r.record.seq <= boundary_record.record.seq]
     last_writers: dict[str, GitOid] = {}
     for record in prefix:
-        for artifact in (*record.retracted, *record.produced):
+        outcome = record.record.attempt.outcome
+        assert isinstance(outcome, Applied)
+        effects = outcome.result
+        for artifact in (*effects.retracted, *effects.produced):
             last_writers[artifact.artifact_id] = record.commit_id
-        if record.checks is not None:
+        if effects.checks is not None:
             last_writers["checks"] = record.commit_id
     kept = {root, boundary, *last_writers.values()}
-    kept.update(r.commit_id for r in records if r.seq > boundary_record.seq)
-    latest_simulation = next((r for r in reversed(prefix) if r.action == "simulate"), None)
+    kept.update(r.commit_id for r in records if r.record.seq > boundary_record.record.seq)
+    latest_simulation = next(
+        (r for r in reversed(prefix) if r.record.attempt.action == "simulate"), None
+    )
     model = history.state(boundary).get("model")
     if latest_simulation is not None and model is not None:
-        report = SimulationReport.model_validate(latest_simulation.diagnostics["report"])
+        outcome = latest_simulation.record.attempt.outcome
+        assert isinstance(outcome, Applied)
+        assert isinstance(outcome.result, ModelSimulationResult)
+        report = outcome.result.report
         if report.model.revision == model.revision:
             kept.add(latest_simulation.commit_id)
 
@@ -179,7 +215,7 @@ def plan_squash(source: Path, *, at: str) -> HistorySquashPlan:
     pending = list(kept - {root})
     while pending:
         record = by_commit[pending.pop()]
-        if record.status != "applied":
+        if record.record.attempt.outcome.status != "applied":
             continue
         for dependency in dependencies(record) - kept:
             kept.add(dependency)
@@ -204,7 +240,11 @@ def copy_squashed(plan: HistorySquashPlan, destination: Path) -> dict[str, str |
         if record.commit_id not in plan.kept:
             mapping[record.commit_id] = None
             continue
-        parent = head if record.status == "applied" else mapping[record.parent_ids[0]]
+        parent = (
+            head
+            if record.record.attempt.outcome.status == "applied"
+            else mapping[record.parent_ids[0]]
+        )
         assert parent is not None
         previous = repo[parent].peel(pygit2.Commit).tree
         original = repo[record.commit_id].peel(pygit2.Commit)
@@ -213,11 +253,13 @@ def copy_squashed(plan: HistorySquashPlan, destination: Path) -> dict[str, str |
             if "artifacts" in previous
             else repo.TreeBuilder()
         )
-        if record.status == "applied":
-            for artifact in record.retracted:
+        outcome = record.record.attempt.outcome
+        if isinstance(outcome, Applied):
+            effects = outcome.result
+            for artifact in effects.retracted:
                 if artifacts.get(artifact.artifact_id) is not None:
                     artifacts.remove(artifact.artifact_id)
-            for artifact in record.produced:
+            for artifact in effects.produced:
                 artifacts.insert(
                     artifact.artifact_id,
                     pygit2.Oid(hex=artifact.revision),
@@ -226,7 +268,9 @@ def copy_squashed(plan: HistorySquashPlan, destination: Path) -> dict[str, str |
         tree = repo.TreeBuilder()
         tree.insert("artifacts", artifacts.write(), pygit2.GIT_FILEMODE_TREE)
         checks = (
-            original.tree if record.status == "applied" and record.checks is not None else previous
+            original.tree
+            if isinstance(outcome, Applied) and outcome.result.checks is not None
+            else previous
         )
         if "checks.json" in checks:
             tree.insert("checks.json", checks["checks.json"].id, pygit2.GIT_FILEMODE_BLOB)
@@ -240,10 +284,10 @@ def copy_squashed(plan: HistorySquashPlan, destination: Path) -> dict[str, str |
             [pygit2.Oid(hex=parent)],
         )
         mapping[record.commit_id] = str(rewritten)
-        repo.references.create(f"refs/attempts/{record.seq}", rewritten)
-        if record.attempt_id is not None:
-            repo.references.create(f"refs/actions/{record.attempt_id}", rewritten)
-        if record.status == "applied":
+        repo.references.create(f"refs/attempts/{record.record.seq}", rewritten)
+        if record.record.attempt_id is not None:
+            repo.references.create(f"refs/actions/{record.record.attempt_id}", rewritten)
+        if record.record.attempt.outcome.status == "applied":
             head = GitOid(str(rewritten))
     repo.references.create(f"refs/heads/{plan.branch}", pygit2.Oid(hex=head))
     repo.set_head(f"refs/heads/{plan.branch}")
@@ -264,7 +308,7 @@ def main() -> None:
     for record in plan.records:
         disposition = "keep" if record.commit_id in plan.kept else "drop"
         print(
-            f"{disposition:4} {record.seq:4} {record.action:12} {record.status:8} {record.commit_id}"
+            f"{disposition:4} {record.record.seq:4} {record.record.attempt.action:12} {record.record.attempt.outcome.status:8} {record.commit_id}"
         )
     if not args.dry_run:
         copy_squashed(plan, args.destination)

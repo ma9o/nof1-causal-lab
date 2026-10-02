@@ -6,10 +6,9 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from enum import StrEnum
-from typing import TYPE_CHECKING, Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal, Self
 
 from pydantic import (
-    BaseModel,
     ConfigDict,
     Field,
     PlainSerializer,
@@ -18,6 +17,7 @@ from pydantic import (
     model_validator,
 )
 
+from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.distributions import DistributionFamily
 
 from .evidence import LiteratureSource
@@ -35,7 +35,7 @@ from .identity import (
     ParameterId,
 )
 from .indicator import IndicatorSpec
-from .mechanism import DynamicsMechanismSpec
+from .mechanism import DriftMechanismSpec, DynamicsMechanismSpec
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Iterator
@@ -57,10 +57,10 @@ class TemporalStatus(StrEnum):
     TIME_INVARIANT = "time_invariant"
 
 
-class ConstructSpec(BaseModel):
+class ConstructSpec(Value):
     """A specification of a theoretical entity in the scientific causal model."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+    model_config = ConfigDict(revalidate_instances="always")
 
     id: ConstructId = Field(description="Persistent identity. Preserve when revising or renaming.")
     name: str = Field(description="Construct name (e.g., 'stress', 'sleep_quality')")
@@ -81,6 +81,9 @@ class ConstructSpec(BaseModel):
     temporal_status: TemporalStatus = Field(
         description="'time_varying' (changes over time) or 'time_invariant' (fixed)"
     )
+
+    def with_distribution(self, identity: DistributionId | None) -> ConstructSpec:
+        return self.model_copy(update={"distribution": identity})
 
     @property
     def is_dynamic(self) -> bool:
@@ -116,7 +119,7 @@ class ConstructSpec(BaseModel):
                 if (
                     likelihood is None
                     or likelihood.law.distribution != "Delta"
-                    or not isinstance(expression := likelihood.law.arguments["v"], StateExpression)
+                    or not isinstance(expression := likelihood.law.v, StateExpression)
                     or expression.construct_id != self.id
                     or likelihood.standardized
                 ):
@@ -165,13 +168,13 @@ def _validate_endpoint(value: object, handler: ValidatorFunctionWrapHandler) -> 
     if isinstance(value, ConstructRef) or (
         isinstance(value, dict) and value.get("kind") == "construct"
     ):
-        reference = ConstructRef.model_validate(value)
+        reference = value if isinstance(value, ConstructRef) else ConstructRef(**value)
         if scope is None or reference.id not in scope.definitions:
             raise ValueError(f"Undefined construct endpoint {reference.id!r}")
         if reference.id in scope.constructs:
             return scope.constructs[reference.id]
         value = scope.definitions[reference.id]
-    construct = handler(value)
+    construct: ConstructSpec = handler(value)
     if scope is None:
         return construct
     if construct.id in scope.constructs:
@@ -201,13 +204,13 @@ ConstructEndpoint = Annotated[
 ]
 
 
-class CausalEdgeSpec(BaseModel):
+class CausalEdgeSpec(Value):
     """A specification of a directed causal relationship between two constructs."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+    model_config = ConfigDict(revalidate_instances="always")
 
     id: EdgeId = Field(description="Persistent identity. Preserve when revising the same edge.")
-    mechanisms: tuple[DynamicsMechanismSpec, ...] = ()
+    mechanisms: tuple[DriftMechanismSpec, ...] = ()
     cause: ConstructEndpoint = Field(
         description="Cause construct; shared endpoints have one identity."
     )
@@ -219,6 +222,16 @@ class CausalEdgeSpec(BaseModel):
         default_factory=tuple,
         description="Literature sources supporting this causal link",
     )
+
+    def with_endpoints(self, cause: ConstructSpec, effect: ConstructSpec) -> Self:
+        return type(self)(
+            id=self.id,
+            mechanisms=self.mechanisms,
+            cause=cause,
+            effect=effect,
+            description=self.description,
+            sources=self.sources,
+        )
 
 
 @contextmanager
@@ -274,12 +287,8 @@ def replace_constructs(
     if unknown := by_id.keys() - identities:
         raise ValueError(f"Cannot replace constructs absent from the graph: {sorted(unknown)}")
     return tuple(
-        type(edge).model_validate(
-            {
-                **edge.model_dump(),
-                "cause": by_id.get(edge.cause.id, edge.cause),
-                "effect": by_id.get(edge.effect.id, edge.effect),
-            }
+        edge.with_endpoints(
+            by_id.get(edge.cause.id, edge.cause), by_id.get(edge.effect.id, edge.effect)
         )
         for edge in edges
     )

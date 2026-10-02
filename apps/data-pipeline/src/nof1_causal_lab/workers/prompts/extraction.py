@@ -31,12 +31,12 @@ There are two extraction strategies:
 
 ## Observation Semantics
 
-Each indicator has metadata describing its measurement semantics:
+Each indicator retains its authored observation definition. Its ID stays the same when the display name changes. The definition determines its measurement semantics:
 
 - `operator=X`: The summary operator (first, last, sum, count, mean, std). For constructive extraction, this is how to combine data points. For locative extraction, this describes the kind of value to look for.
 - `support=point`: The value reflects instantaneous state (operators: first, last)
 - `support=interval`: The value summarizes the full support window (operators: sum, count, mean, std)
-- `window=X`: The temporal scope of each support window (e.g., 1d, 1mo)
+- `window=X`: The temporal scope of each support window (e.g., 1d, 2w; fixed units s, m, h, d, w only)
 
 Only the operators listed above are supported. Do not invent `min`, `max`, `median`, percentiles, `trend`, or other unsupported summaries.
 

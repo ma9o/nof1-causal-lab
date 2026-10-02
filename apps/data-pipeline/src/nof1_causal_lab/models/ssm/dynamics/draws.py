@@ -3,16 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import TYPE_CHECKING
-
-from nof1_causal_lab.models.ssm import numerics as numeric
 
 from .spec import compile_dynamics, pack_component_params_from_samples
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from jax import Array
 
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
 
     from .vector_field import VectorField
 
@@ -26,10 +27,15 @@ class DynamicsDraws:
     """
 
     vector_field: VectorField
-    parameters: tuple[dict[str, Array], ...]
+    parameters: tuple[Mapping[str, Array], ...]
     n_draws: int
 
     def __post_init__(self) -> None:
+        object.__setattr__(
+            self,
+            "parameters",
+            tuple(MappingProxyType(dict(component)) for component in self.parameters),
+        )
         if self.n_draws < 0:
             raise ValueError("Dynamics draw count must be non-negative")
         if len(self.parameters) != len(self.vector_field.components):
@@ -41,14 +47,14 @@ class DynamicsDraws:
 
 
 def dynamics_from_samples(
-    spec: ModelSpec,
-    samples: dict[str, Array],
+    spec: CompiledModel,
+    samples: Mapping[str, Array],
     *,
     n_draws: int,
     prefix: str = "vf",
 ) -> DynamicsDraws:
     """Pack already batched site arrays without unstacking individual draws."""
-    dynamics = numeric.dynamics_components(spec)
+    dynamics = spec.dynamics.spec
     return DynamicsDraws(
         vector_field=compile_dynamics(dynamics, prefix=prefix).vector_field,
         parameters=pack_component_params_from_samples(dynamics, samples, prefix=prefix),

@@ -5,9 +5,9 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, model_validator
+from pydantic import ConfigDict, Field, FiniteFloat, model_validator
 
-from nof1_causal_lab.scalar_functions import hill_response, restoring_drift
+from nof1_causal_lab.artifacts.base import Value
 
 from .identity import (
     ConstructId,
@@ -107,45 +107,45 @@ COEFFICIENT_MEANINGS: Mapping[CoefficientRole, CoefficientMeaning] = {
 }
 
 
-class ExpressionValue(BaseModel):
+class _ExpressionValue(Value):
     """An immutable scalar expression, with arithmetic for scientific constructors."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+    model_config = ConfigDict(revalidate_instances="always")
 
-    def __add__(self: Expression, other: Expression | float) -> BinaryExpression:
+    def __add__(self: Expression, other: Expression | float) -> BinaryExpression:  # pyright: ignore[reportGeneralTypeIssues] -- This private operator mixin binds only to the closed Expression variants.
         return BinaryExpression(operator="add", left=self, right=expression(other))
 
-    def __sub__(self: Expression, other: Expression | float) -> BinaryExpression:
+    def __sub__(self: Expression, other: Expression | float) -> BinaryExpression:  # pyright: ignore[reportGeneralTypeIssues] -- This private operator mixin binds only to the closed Expression variants.
         return BinaryExpression(operator="subtract", left=self, right=expression(other))
 
-    def __mul__(self: Expression, other: Expression | float) -> BinaryExpression:
+    def __mul__(self: Expression, other: Expression | float) -> BinaryExpression:  # pyright: ignore[reportGeneralTypeIssues] -- This private operator mixin binds only to the closed Expression variants.
         return BinaryExpression(operator="multiply", left=self, right=expression(other))
 
-    def __truediv__(self: Expression, other: Expression | float) -> BinaryExpression:
+    def __truediv__(self: Expression, other: Expression | float) -> BinaryExpression:  # pyright: ignore[reportGeneralTypeIssues] -- This private operator mixin binds only to the closed Expression variants.
         return BinaryExpression(operator="divide", left=self, right=expression(other))
 
-    def __pow__(self: Expression, other: Expression | float) -> BinaryExpression:
+    def __pow__(self: Expression, other: Expression | float) -> BinaryExpression:  # pyright: ignore[reportGeneralTypeIssues] -- This private operator mixin binds only to the closed Expression variants.
         return BinaryExpression(operator="power", left=self, right=expression(other))
 
-    def __neg__(self: Expression) -> BinaryExpression:
+    def __neg__(self: Expression) -> BinaryExpression:  # pyright: ignore[reportGeneralTypeIssues] -- This private operator mixin binds only to the closed Expression variants.
         return LiteralExpression(value=-1) * self
 
 
-class LiteralExpression(ExpressionValue):
+class LiteralExpression(_ExpressionValue):
     """A finite scalar constant in a model equation."""
 
     kind: Literal["literal"] = "literal"
     value: FiniteFloat
 
 
-class StateExpression(ExpressionValue):
+class StateExpression(_ExpressionValue):
     """A construct's state or declared known input, referenced by identity."""
 
     kind: Literal["state"] = "state"
     construct_id: ConstructId
 
 
-class CoefficientExpression(ExpressionValue):
+class CoefficientExpression(_ExpressionValue):
     """A scientifically typed coefficient operand, literal or parameter reference."""
 
     kind: Literal["coefficient"] = "coefficient"
@@ -180,7 +180,7 @@ class CoefficientExpression(ExpressionValue):
         return self
 
 
-class BinaryExpression(ExpressionValue):
+class BinaryExpression(_ExpressionValue):
     """A supported scalar operation composing two expressions."""
 
     kind: Literal["binary"] = "binary"
@@ -189,7 +189,7 @@ class BinaryExpression(ExpressionValue):
     right: Expression
 
 
-class CallExpression(ExpressionValue):
+class CallExpression(_ExpressionValue):
     """A supported mathematical function, including explicit discrete contrasts."""
 
     kind: Literal["call"] = "call"
@@ -237,12 +237,8 @@ def restoring_force(
     quartic: float | ParameterId | None,
 ) -> Expression:
     """Restoring drift -stiffness * (x - center) - quartic * (x - center)^3."""
-    return restoring_drift(
-        state(target),
-        coefficient(center, "center"),
-        coefficient(stiffness, "decay"),
-        coefficient(quartic, "quartic"),
-    )
+    delta = state(target) - coefficient(center, "center")
+    return -coefficient(stiffness, "decay") * delta - coefficient(quartic, "quartic") * delta**3
 
 
 def restoring_potential(
@@ -268,14 +264,13 @@ def hill(
     n: float | ParameterId | None,
 ) -> Expression:
     """The native non-negative Hill response, including its numerical denominator term."""
-    return hill_response(
-        source,
-        coefficient(emax, "emax"),
-        coefficient(ec50, "ec50"),
-        coefficient(n, "exponent"),
-        maximum=lambda value, lower: BinaryExpression(
-            operator="maximum", left=value, right=LiteralExpression(value=lower)
-        ),
+    dose = BinaryExpression(operator="maximum", left=source, right=LiteralExpression(value=0.0))
+    exponent = coefficient(n, "exponent")
+    powered = dose**exponent
+    return (
+        coefficient(emax, "emax")
+        * powered
+        / (coefficient(ec50, "ec50") ** exponent + powered + 1e-12)
     )
 
 

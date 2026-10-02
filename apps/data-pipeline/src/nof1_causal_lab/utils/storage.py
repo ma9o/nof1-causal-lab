@@ -15,22 +15,24 @@ Environment variables for R2::
 
 from __future__ import annotations
 
-import json
 import os
 from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import datetime
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, TypedDict
+from typing import IO, TYPE_CHECKING, Literal, TypedDict, overload
 
 from pydantic import TypeAdapter
+
+from nof1_causal_lab.json_types import JsonObject
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
     import fsspec
     import polars as pl
+    from fsspec.spec import AbstractBufferedFile
 
 # ---------------------------------------------------------------------------
 # Backend detection
@@ -73,16 +75,19 @@ def get_base_uri() -> str:
 @lru_cache(maxsize=1)
 def get_fs() -> fsspec.AbstractFileSystem:
     """Return an fsspec filesystem for the active backend (cached)."""
+
     import fsspec as _fsspec
 
     if is_remote():
-        return _fsspec.filesystem(
+        remote: fsspec.AbstractFileSystem = _fsspec.filesystem(
             "s3",
             endpoint_url=os.environ["R2_ENDPOINT_URL"],
             key=os.environ["R2_ACCESS_KEY_ID"],
             secret=os.environ["R2_SECRET_ACCESS_KEY"],
         )
-    return _fsspec.filesystem("file")
+        return remote
+    local: fsspec.AbstractFileSystem = _fsspec.filesystem("file")
+    return local
 
 
 def polars_storage_options() -> dict[str, str] | None:
@@ -119,7 +124,8 @@ def join(*parts: str) -> str:
 
 def exists(path: str) -> bool:
     if is_remote():
-        return get_fs().exists(path)
+        present: bool = get_fs().exists(path)
+        return present
     return Path(path).exists()
 
 
@@ -153,10 +159,8 @@ def rm_file(path: str) -> None:
 def listdir(path: str) -> list[str]:
     """List entries in *path*. Returns full paths/URIs."""
     if is_remote():
-        try:
-            entries = get_fs().ls(path, detail=False)
-        except FileNotFoundError:
-            return []
+        fs = get_fs()
+        entries = fs.ls(path, detail=False) if fs.exists(path) else []
         return [f"s3://{e}" if not e.startswith("s3://") else e for e in entries]
     p = Path(path)
     if not p.is_dir():
@@ -199,8 +203,18 @@ def file_info(path: str) -> FileInfo:
     return FileInfo(size=stat.st_size, modified_seconds=stat.st_mtime)
 
 
+@overload
 @contextmanager
-def open_file(path: str, mode: str = "rb") -> Iterator[Any]:
+def open_file(path: str, mode: Literal["rb", "wb", "ab"] = "rb") -> Iterator[IO[bytes]]: ...
+
+
+@overload
+@contextmanager
+def open_file(path: str, mode: Literal["r", "w", "a"]) -> Iterator[IO[str]]: ...
+
+
+@contextmanager
+def open_file(path: str, mode: str = "rb") -> Iterator[IO[bytes] | IO[str] | AbstractBufferedFile]:
     """Open a file for reading or writing. Works for both local and remote."""
     if is_remote():
         with get_fs().open(path, mode) as f:
@@ -215,7 +229,8 @@ def open_file(path: str, mode: str = "rb") -> Iterator[Any]:
 def read_text(path: str) -> str:
     if is_remote():
         with get_fs().open(path, "r") as f:
-            return f.read()
+            payload: str | bytes = f.read()
+            return payload.decode() if isinstance(payload, bytes) else payload
     return Path(path).read_text()
 
 
@@ -229,8 +244,8 @@ def write_text(path: str, content: str) -> None:
         p.write_text(content)
 
 
-def read_json(path: str) -> Any:
-    return json.loads(read_text(path))
+def read_json(path: str) -> JsonObject:
+    return TypeAdapter[JsonObject](JsonObject).validate_json(read_text(path))
 
 
 def read_parquet(path: str) -> pl.DataFrame:

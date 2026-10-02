@@ -4,50 +4,43 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
-from pydantic import TypeAdapter
-
+from nof1_causal_lab.artifacts.checks import Evaluated, NotEvaluated
 from nof1_causal_lab.artifacts.identification import IdentificationReport
-from nof1_causal_lab.artifacts.posterior import InferenceReport
-from nof1_causal_lab.artifacts.simulation import SimulationReport
 from nof1_causal_lab.artifacts.validation_report import (
     DataProfileArtifact,
     ValidationReportArtifact,
 )
-from nof1_causal_lab.json_types import JsonObject
 from nof1_causal_lab.models.ssm.inference.convergence import convergence_failures
-from nof1_causal_lab.study.records import ActionMessage
-from nof1_causal_lab.study.store import ArtifactStore
+from nof1_causal_lab.study.records import (
+    ActionBody,
+    ActionMessage,
+    DataPreparationResult,
+    ModelFitResult,
+    ModelSimulationResult,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
     from datetime import datetime
-
-    from nof1_causal_lab.artifacts.identity import ActionId
-    from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
-    from nof1_causal_lab.study.state import ArtifactRecord
 
 
 def completion_messages(
-    workspace_id: str,
-    action: ActionId,
-    produced: list[ArtifactRecord],
-    diagnostics: Mapping[str, object],
+    result: ActionBody,
     timestamp: datetime,
-    *,
-    checks: ModelCheckReport | None = None,
+    reports: tuple[IdentificationReport | DataProfileArtifact | ValidationReportArtifact, ...],
 ) -> tuple[ActionMessage, ...]:
     """Warnings annotate a completed result; they never decide whether to publish it."""
     labels: dict[str, Literal["debug", "info", "warn"]] = {}
+    checks = result.checks
     if checks is not None:
         for finding in checks.specification.findings:
-            if finding.check == "model_execution" and finding.status == "not_evaluated":
+            if finding.subject == "model_execution" and isinstance(finding, NotEvaluated):
                 labels["MODEL_INCOMPLETE"] = "warn"
-            elif finding.check == "dt_ct_approximation_warning":
+            elif finding.subject == "dt_ct_approximation_warning":
                 labels["DT_CT_APPROXIMATION"] = "warn"
-            elif finding.status == "failed":
+            elif isinstance(finding, Evaluated) and finding.outcome in {"failed", "error"}:
                 labels[
                     "MODEL_NOT_EXECUTABLE"
-                    if finding.check == "model_execution"
+                    if finding.subject == "model_execution"
                     else "FIT_LAWS_UNSUPPORTED"
                 ] = "warn"
         predictive = checks.predictive
@@ -55,68 +48,46 @@ def completion_messages(
             if predictive.status == "failed":
                 labels["PREDICTIVE_CHECK_FAILED"] = "warn"
             if predictive.status == "not_evaluated" or any(
-                finding.passed is None for finding in predictive.findings
+                isinstance(finding, NotEvaluated) for finding in predictive.findings
             ):
                 labels["SIMULATION_CHECK_NOT_EVALUATED"] = "info"
             if "predictive" in checks.reused:
                 labels["PREDICTIVE_CHECKS_REUSED"] = "debug"
 
-    store = ArtifactStore(workspace_id)
-    for artifact in produced:
-        if artifact.artifact_id == "identification_report":
-            report = IdentificationReport.model_validate(
-                store.read_json_file(
-                    artifact.artifact_id, artifact.revision, "identification_report.json"
-                )
-            )
+    for report in reports:
+        if isinstance(report, IdentificationReport):
             if report.non_identifiable:
                 labels["TARGET_NOT_IDENTIFIED"] = "warn"
-        elif artifact.artifact_id == "data_profile":
-            profile = DataProfileArtifact.model_validate(
-                store.read_json_file(
-                    "data_profile",
-                    artifact.revision,
-                    "data_profile.json",
-                )
+        else:
+            issues = (
+                *report.dataset_issues,
+                *(issue for audit in report.indicators.values() for issue in audit.issues),
             )
-            issues = profile.dataset_issues + [
-                issue for audit in profile.indicators.values() for issue in audit.issues
-            ]
             if any(issue.severity in {"error", "warning"} for issue in issues):
                 labels["DATA_QUALITY_FINDINGS"] = "warn"
-        elif artifact.artifact_id == "validation_report":
-            validation = ValidationReportArtifact.model_validate(
-                store.read_json_file(
-                    artifact.artifact_id, artifact.revision, "validation_report.json"
-                )
-            )
-            issues = validation.dataset_issues + [
-                issue for audit in validation.indicators.values() for issue in audit.issues
-            ]
-            if any(issue.severity in {"error", "warning"} for issue in issues):
-                labels["DATA_QUALITY_FINDINGS"] = "warn"
-            if any(finding.status == "failed" for finding in validation.preflight.findings):
+            if isinstance(report, ValidationReportArtifact) and any(
+                isinstance(finding, Evaluated) and finding.outcome in {"failed", "error"}
+                for finding in report.preflight.findings
+            ):
                 labels["MODEL_DATA_INCOMPATIBLE"] = "warn"
 
-    if action == "fit" and convergence_failures(
-        InferenceReport.model_validate(diagnostics["report"]).inference_diagnostics
-    ):
+    if isinstance(result, ModelFitResult) and convergence_failures(result.report.convergence):
         labels["CONVERGENCE_CHECK_FAILED"] = "warn"
-    if action == "prepare_data" and any(
-        worker["status"] == "failed"
-        for worker in TypeAdapter(list[JsonObject]).validate_python(diagnostics.get("workers", []))
-    ):
-        labels["EXTRACTION_PARTIAL"] = "warn"
-    if action == "prepare_data":
-        if diagnostics.get("ingestion_reused"):
+    if isinstance(result, DataPreparationResult):
+        if any(worker.status == "failed" for worker in result.workers):
+            labels["EXTRACTION_PARTIAL"] = "warn"
+        if result.ingestion_reused:
             labels["INGESTION_REUSED"] = "info"
-        if diagnostics.get("extraction_reused"):
+        if result.extraction_reused:
             labels["EXTRACTION_REUSED"] = "info"
-    if action == "simulate":
-        simulation = TypeAdapter(SimulationReport).validate_python(diagnostics["report"])
-        if any(finding.passed is False for finding in simulation.findings):
+    if isinstance(result, ModelSimulationResult):
+        simulation = result.report
+        if any(
+            isinstance(finding, Evaluated) and finding.outcome in {"failed", "error"}
+            for finding in simulation.findings
+        ):
             labels["PREDICTIVE_CHECK_FAILED"] = "warn"
-        if any(finding.passed is None for finding in simulation.findings):
+        if any(isinstance(finding, NotEvaluated) for finding in simulation.findings):
             labels["SIMULATION_CHECK_NOT_EVALUATED"] = "info"
         if simulation.causal_unavailable_reason is not None:
             labels["CAUSAL_EFFECT_NOT_REPORTABLE"] = "info"

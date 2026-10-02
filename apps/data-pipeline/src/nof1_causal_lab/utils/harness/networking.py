@@ -8,6 +8,8 @@ import socket
 from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING, Protocol
 
+from nof1_causal_lab.actions.errors import execution_failure_handler
+
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
@@ -28,10 +30,12 @@ def find_free_port(host: str = "127.0.0.1") -> int:
     """Ask the OS for an unused TCP port on ``host``."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
         sock.bind((host, 0))
-        return sock.getsockname()[1]
+        address: tuple[str, int] = sock.getsockname()
+        return address[1]
 
 
 @asynccontextmanager
+@execution_failure_handler
 async def run_uvicorn_server(
     server: UvicornServer,
     *,

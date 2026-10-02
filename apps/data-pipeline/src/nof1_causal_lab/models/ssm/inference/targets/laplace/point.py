@@ -50,6 +50,9 @@ from .shared import (
 if TYPE_CHECKING:
     from dynestyx import StochasticContinuousTimeStateEvolution
 
+    from nof1_causal_lab.models.ssm.execution.emissions import MeanLogProbFn
+    from nof1_causal_lab.models.ssm.execution.observation_model import ObservationKernel
+
 
 def _row_joint_log_prob(
     latent_trajectory: jnp.ndarray,
@@ -62,7 +65,7 @@ def _row_joint_log_prob(
     H_rows: jnp.ndarray,
     d_rows: jnp.ndarray,
     R: jnp.ndarray,
-    obs_kernel,
+    obs_kernel: ObservationKernel,
 ) -> jnp.ndarray:
     """Exact latent joint log-density for per-row observation operators."""
     return trajectory_prior_log_prob_from_terms(latent_trajectory, Ad, cd, prior_terms) + (
@@ -114,7 +117,7 @@ def _block_tridiagonal_matvec(
     latent_trajectory: jnp.ndarray,
 ) -> jnp.ndarray:
     """Apply a symmetric block-tridiagonal matrix to a latent trajectory."""
-    result = jax.vmap(lambda diag_t, z_t: diag_t @ z_t)(diag, latent_trajectory)
+    result: jnp.ndarray = jax.vmap(lambda diag_t, z_t: diag_t @ z_t)(diag, latent_trajectory)
     if latent_trajectory.shape[0] <= 1:
         return result
     result = result.at[:-1].add(
@@ -137,7 +140,7 @@ def _point_linearize(
     H_rows: jnp.ndarray,
     d_rows: jnp.ndarray,
     R: jnp.ndarray,
-    obs_kernel,
+    obs_kernel: ObservationKernel,
     z_estimate: jnp.ndarray,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Return per-time emission gradients and negative Hessians."""
@@ -173,7 +176,7 @@ def _point_posterior_system(
     R: jnp.ndarray,
     init_mean: jnp.ndarray,
     init_cov: jnp.ndarray,
-    obs_kernel,
+    obs_kernel: ObservationKernel,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Return the point-observation IEKS linear system at a latent iterate."""
     prior_lower, prior_diag, prior_upper, prior_rhs = _build_prior_tridiagonal_system(
@@ -216,7 +219,7 @@ def _point_mode_optimality(
     R: jnp.ndarray,
     init_mean: jnp.ndarray,
     init_cov: jnp.ndarray,
-    obs_kernel,
+    obs_kernel: ObservationKernel,
 ) -> jnp.ndarray:
     """Return the point-observation latent-mode optimality residual F(z, theta) = 0."""
     system_diag, system_upper, system_rhs = _point_posterior_system(
@@ -247,7 +250,7 @@ def _point_ieks_mode(
     R: jnp.ndarray,
     init_mean: jnp.ndarray,
     init_cov: jnp.ndarray,
-    obs_kernel,
+    obs_kernel: ObservationKernel,
     *,
     n_ieks_iters: int,
     z_init: jnp.ndarray | None = None,
@@ -303,7 +306,29 @@ def _point_ieks_mode(
     init_log_joint = log_joint_curr
     max_iters = jnp.asarray(max(n_ieks_iters, 1), dtype=jnp.int32)
 
-    def _newton_step(carry):
+    def _newton_step(
+        carry: tuple[
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+        ],
+    ) -> tuple[
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+    ]:
         (
             z_curr,
             log_joint_prev,
@@ -356,7 +381,7 @@ def _point_ieks_mode(
             dtype=z_curr.dtype,
         )
         accepted_full_step = accepted & (accepted_alpha > 0.999)
-        damping_next = jax.lax.cond(
+        damping_next: jnp.ndarray = jax.lax.cond(
             accepted_full_step,
             lambda _: jnp.maximum(
                 damping * jnp.asarray(_POINT_LM_DAMPING_SHRINK, dtype=z_curr.dtype),
@@ -373,7 +398,7 @@ def _point_ieks_mode(
             ),
             operand=None,
         )
-        next_active = jax.lax.cond(
+        next_active: jnp.ndarray = jax.lax.cond(
             accepted,
             lambda _: rel_change > _POINT_IEKS_CONVERGENCE_RTOL,
             lambda _: damping_next < jnp.asarray(_POINT_LM_DAMPING_MAX, dtype=z_curr.dtype),
@@ -391,7 +416,19 @@ def _point_ieks_mode(
             step_norm,
         )
 
-    def _continue(carry):
+    def _continue(
+        carry: tuple[
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+        ],
+    ) -> jnp.ndarray:
         return carry[3] & (carry[4] < max_iters)
 
     with jax.named_scope("map/ieks_iterations"):
@@ -444,7 +481,7 @@ def _point_laplace_terms_from_mode(
     R: jnp.ndarray,
     init_mean: jnp.ndarray,
     init_cov: jnp.ndarray,
-    obs_kernel,
+    obs_kernel: ObservationKernel,
     *,
     factor_block_cholesky_fn=_factor_block_banded_cholesky,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
@@ -508,7 +545,7 @@ def _point_ieks_laplace_core(
     R: jnp.ndarray,
     init_mean: jnp.ndarray,
     init_cov: jnp.ndarray,
-    obs_kernel,
+    obs_kernel: ObservationKernel,
     *,
     build_measurement_objects=None,
     extra_params: LikelihoodExtraParams | None = None,
@@ -566,7 +603,20 @@ def _point_ieks_laplace_core(
             measurement_semantics_curr.kernel,
         )
 
-    def _mode_core(mode_params):
+    def _mode_core(
+        mode_params,
+    ) -> tuple[
+        jnp.ndarray,
+        tuple[
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+        ],
+    ]:
         (
             Ad_curr,
             Qd_curr,
@@ -595,7 +645,20 @@ def _point_ieks_laplace_core(
         )
 
     @jax.custom_vjp
-    def _implicit_mode_solve(mode_params):
+    def _implicit_mode_solve(
+        mode_params,
+    ) -> tuple[
+        jnp.ndarray,
+        tuple[
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+        ],
+    ]:
         return _mode_core(mode_params)
 
     def _implicit_mode_solve_fwd(mode_params):
@@ -678,7 +741,7 @@ def _point_ieks_laplace_core(
 
     _implicit_mode_solve.defvjp(_implicit_mode_solve_fwd, _implicit_mode_solve_bwd)
 
-    def _laplace_from_mode_core(mode_params, z_mode):
+    def _laplace_from_mode_core(mode_params, z_mode) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
         (
             Ad_curr,
             Qd_curr,
@@ -711,7 +774,7 @@ def _point_ieks_laplace_core(
         }
 
     @jax.custom_vjp
-    def _laplace_from_mode_eval(mode_params, z_mode):
+    def _laplace_from_mode_eval(mode_params, z_mode) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
         return _laplace_from_mode_core(mode_params, z_mode)
 
     def _laplace_from_mode_eval_fwd(mode_params, z_mode):
@@ -911,7 +974,7 @@ def _point_dynamic_transition_ieks_laplace(
     R: jnp.ndarray,
     init_mean: jnp.ndarray,
     init_cov: jnp.ndarray,
-    obs_kernel,
+    obs_kernel: ObservationKernel,
     *,
     n_ieks_iters: int,
     z_init: jnp.ndarray | None = None,
@@ -1110,14 +1173,14 @@ def _ieks_smooth(
     R,
     init_mean,
     init_cov,
-    obs_kernel,
+    obs_kernel: ObservationKernel,
     *,
     solver_kind: int = LIKELIHOOD_SOLVER_KIND_POINT_IEKS,
     n_ieks_iters=5,
     z_init: jnp.ndarray | None = None,
     build_measurement_objects=None,
     extra_params: LikelihoodExtraParams | None = None,
-):
+) -> tuple[jnp.ndarray, jnp.ndarray, dict[str, jnp.ndarray]]:
     """Run the Iterated Extended Kalman Smoother to find the MAP state trajectory."""
     return _point_ieks_laplace_core(
         observations,
@@ -1150,8 +1213,8 @@ def _dense_support_laplace_log_lik(
     R: jnp.ndarray,
     init_mean: jnp.ndarray,
     init_cov: jnp.ndarray,
-    obs_kernel,
-    mean_log_prob_fn,
+    obs_kernel: ObservationKernel,
+    mean_log_prob_fn: MeanLogProbFn | None,
     observation_support,
     n_newton_iters: int,
 ) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
@@ -1169,7 +1232,7 @@ def _dense_support_laplace_log_lik(
             init_cov,
         )
 
-    def _joint_log_prob(z_flat):
+    def _joint_log_prob(z_flat: jnp.ndarray) -> jnp.ndarray:
         z = z_flat.reshape(T, D)
         prior_ll = trajectory_prior_log_prob_from_terms(z, Ad, cd, prior_terms)
         obs_ll = trajectory_observation_log_prob(
@@ -1185,7 +1248,7 @@ def _dense_support_laplace_log_lik(
         )
         return prior_ll + obs_ll
 
-    def _neg_log_prob(z_flat):
+    def _neg_log_prob(z_flat: jnp.ndarray) -> jnp.ndarray:
         return -_joint_log_prob(z_flat)
 
     z_flat = z_init.reshape(-1)
@@ -1255,8 +1318,8 @@ def _dense_dynamic_support_laplace_log_lik(
     R: jnp.ndarray,
     init_mean: jnp.ndarray,
     init_cov: jnp.ndarray,
-    obs_kernel,
-    mean_log_prob_fn,
+    obs_kernel: ObservationKernel,
+    mean_log_prob_fn: MeanLogProbFn | None,
     observation_support,
     n_newton_iters: int,
     *,

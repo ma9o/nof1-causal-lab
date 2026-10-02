@@ -8,14 +8,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, assert_never
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.workers.context import MeasurementIndicator
-
-SUPPORTED_SUMMARY_OPERATORS: tuple[str, ...] = ("first", "last", "sum", "count", "mean", "std")
-_POINT_START_OPERATORS = frozenset({"first"})
-_POINT_END_OPERATORS = frozenset({"last"})
+    from nof1_causal_lab.utils.window_expressions import WindowExpression
 
 
 class SupportKind(StrEnum):
@@ -63,46 +59,30 @@ def normalize_level_label(label: str) -> str:
 
 def supported_summary_operators_text() -> str:
     """Return a stable human-readable list of supported operators."""
-    return ", ".join(SUPPORTED_SUMMARY_OPERATORS)
-
-
-def _coerce_summary_operator(aggregation: str) -> SummaryOperator:
-    try:
-        return SummaryOperator(aggregation)
-    except ValueError as exc:
-        raise ValueError(
-            "aggregation "
-            f"'{aggregation}' is not yet supported by the measurement structure. "
-            f"Supported operators: {supported_summary_operators_text()}."
-        ) from exc
+    return ", ".join(SummaryOperator)
 
 
 def validate_indicator_observation_semantics(
-    aggregation: str,
+    aggregation: SummaryOperator,
     measurement_dtype: str,
 ) -> str | None:
     """Return a user-facing validation error for unsupported semantics."""
-    if aggregation not in SUPPORTED_SUMMARY_OPERATORS:
-        return (
-            f"aggregation '{aggregation}' is not yet supported by the measurement structure. "
-            f"Supported operators: {supported_summary_operators_text()}."
-        )
-
-    if measurement_dtype == "ordinal" and aggregation not in _POINT_START_OPERATORS.union(
-        _POINT_END_OPERATORS
-    ):
+    if measurement_dtype == "ordinal" and aggregation not in {
+        SummaryOperator.FIRST,
+        SummaryOperator.LAST,
+    }:
         return "ordinal indicators currently support only first/last point measurements."
 
-    if aggregation == SummaryOperator.COUNT.value and measurement_dtype != "count":
+    if aggregation == SummaryOperator.COUNT and measurement_dtype != "count":
         return "aggregation 'count' requires measurement_dtype='count'."
 
     if (
-        aggregation in {SummaryOperator.MEAN.value, SummaryOperator.STD.value}
+        aggregation in {SummaryOperator.MEAN, SummaryOperator.STD}
         and measurement_dtype != "continuous"
     ):
         return f"aggregation '{aggregation}' requires measurement_dtype='continuous'."
 
-    if aggregation == SummaryOperator.SUM.value and measurement_dtype not in {
+    if aggregation == SummaryOperator.SUM and measurement_dtype not in {
         "continuous",
         "count",
     }:
@@ -112,15 +92,13 @@ def validate_indicator_observation_semantics(
 
 
 def derive_indicator_observation_semantics(
-    aggregation: str,
+    aggregation: SummaryOperator,
     measurement_dtype: str,
-    computed_rule: str | None = None,
+    computed_rule: WindowExpression | None = None,
 ) -> IndicatorObservationSemantics:
     """Derive semantics from the computation, or the declared semantic aggregation."""
     if computed_rule is not None:
-        from nof1_causal_lab.utils.window_expressions import window_summary_operator
-
-        summary = window_summary_operator(computed_rule)
+        summary = computed_rule.summary_operator
         if aggregation != summary:
             raise ValueError(
                 f"computed_rule produces '{summary}' but aggregation is '{aggregation}'"
@@ -130,40 +108,23 @@ def derive_indicator_observation_semantics(
     if error is not None:
         raise ValueError(error)
 
-    summary_operator = _coerce_summary_operator(aggregation)
-    if summary_operator in {SummaryOperator.FIRST, SummaryOperator.LAST}:
-        support_kind = SupportKind.POINT
-    elif summary_operator in {
-        SummaryOperator.SUM,
-        SummaryOperator.COUNT,
-        SummaryOperator.MEAN,
-        SummaryOperator.STD,
-    }:
-        support_kind = SupportKind.INTERVAL
-    else:
-        raise ValueError(
-            "Unhandled summary operator "
-            f"'{summary_operator.value}'. Supported operators: {supported_summary_operators_text()}."
-        )
+    match aggregation:
+        case SummaryOperator.FIRST | SummaryOperator.LAST:
+            support_kind = SupportKind.POINT
+        case (
+            SummaryOperator.SUM | SummaryOperator.COUNT | SummaryOperator.MEAN | SummaryOperator.STD
+        ):
+            support_kind = SupportKind.INTERVAL
+        case _:
+            assert_never(aggregation)
 
     anchor_policy = (
         AnchorPolicy.SUPPORT_START
-        if summary_operator == SummaryOperator.FIRST
+        if aggregation == SummaryOperator.FIRST
         else AnchorPolicy.SUPPORT_END
     )
     return IndicatorObservationSemantics(
         support_kind=support_kind,
-        summary_operator=summary_operator,
+        summary_operator=aggregation,
         anchor_policy=anchor_policy,
-    )
-
-
-def get_observation_semantics(
-    indicator: MeasurementIndicator,
-) -> IndicatorObservationSemantics:
-    """Derive canonical observation semantics for an indicator dict."""
-    return derive_indicator_observation_semantics(
-        indicator["aggregation"],
-        indicator["measurement_dtype"],
-        indicator.get("computed_rule"),
     )

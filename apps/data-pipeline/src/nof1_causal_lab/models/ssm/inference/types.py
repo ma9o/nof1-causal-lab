@@ -2,16 +2,46 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from jax.stages import Compiled
+    from numpy.typing import ArrayLike
+    from xarray import DataTree
+
+    from nof1_causal_lab.artifacts.identity import ConstructId
+    from nof1_causal_lab.models.ssm.inference.mcmc_state import TrajectoryMCMCResult
+
+
 import logging
+from collections.abc import Mapping
 from dataclasses import dataclass, field
-from typing import Any, Literal, TypedDict
+from types import MappingProxyType
+from typing import Literal
 
 import jax.numpy as jnp
 from numpy.typing import NDArray
 
 from nof1_causal_lab.artifacts.parameter import ParameterCoordinate
 from nof1_causal_lab.artifacts.posterior import PosteriorDrawsInfo
-from nof1_causal_lab.json_types import JsonObject
+from nof1_causal_lab.artifacts.posterior_diagnostics import (
+    ChainDiagnostics,
+    LOODiagnostics,
+    ParameterDiagnostics,
+    ParetoKPoint,
+    ParticleMCMCEvidence,
+    ParticleSamplerDiagnostics,
+    PosteriorMarginal,
+    PosteriorPair,
+    RankHistogram,
+    TraceSeries,
+)
+from nof1_causal_lab.models.ssm.inference.diagnostics_viz import (
+    ParameterReferences,
+    compute_posterior_marginals,
+    compute_posterior_pairs,
+    pareto_k_points,
+)
 from nof1_causal_lab.models.ssm.inference.diagnostics_viz import (
     build_energy_diagnostics as _build_energy_diagnostics,
 )
@@ -21,25 +51,19 @@ from nof1_causal_lab.models.ssm.inference.diagnostics_viz import (
 from nof1_causal_lab.models.ssm.inference.diagnostics_viz import (
     build_trace_data as _build_trace_data,
 )
-from nof1_causal_lab.models.ssm.inference.diagnostics_viz import (
-    compute_posterior_marginals,
-    compute_posterior_pairs,
-)
-from nof1_causal_lab.models.ssm.inference.mcmc_state import TrajectoryMCMCResult
 from nof1_causal_lab.models.ssm.inference.shared import _filter_public_samples
 
 logger = logging.getLogger(__name__)
 
 
-InferenceMethod = Literal["marginal_particle_gibbs"]
-type ArviZArrayMapping = dict[str, Any]
+type ArviZArrayMapping = Mapping[str, jnp.ndarray | NDArray]
 
 
 def _arviz_idata_from_posterior(
     posterior: ArviZArrayMapping,
     *,
     log_likelihood: ArviZArrayMapping | None = None,
-) -> Any:
+) -> DataTree:
     """Build ArviZ inference data from array-valued posterior dictionaries."""
     import arviz_base as az_base
     import numpy as np
@@ -52,22 +76,11 @@ def _arviz_idata_from_posterior(
     return az_base.from_dict(payload)
 
 
-class InferenceDiagnostics(TypedDict, total=False):
-    """Known live inference diagnostics shared by MAP and particle methods."""
+@dataclass(frozen=True, kw_only=True)
+class WarmupDiagnostics:
+    "Initialization-only MAP measurements and native proposal inputs."
 
-    mcmc: TrajectoryMCMCResult
-    public_sites: list[str]
     likelihood_backend: object
-    observation_log_probs: jnp.ndarray
-    exact_observation_rows: jnp.ndarray
-    latent_posterior_summary: dict[str, jnp.ndarray]
-    warmup_latent_paths: jnp.ndarray
-    all_latent_paths: jnp.ndarray
-    beta_schedule: jnp.ndarray
-    ess_history: jnp.ndarray
-    accept_rates: jnp.ndarray
-    n_levels: int
-    n_csmc_particles: int
     optimizer: str
     success: bool
     status: int
@@ -92,7 +105,7 @@ class InferenceDiagnostics(TypedDict, total=False):
     n_init_samples: int
     n_ieks_iters: int
     parameter_covariance: jnp.ndarray | NDArray
-    covariance_diag: list[float]
+    covariance_diag: tuple[float, ...]
     compute_parameter_hessian: bool
     parameter_posterior_strategy: str
     parameter_covariance_method: str
@@ -100,51 +113,74 @@ class InferenceDiagnostics(TypedDict, total=False):
     parameter_hessian_min_eig: float | None
     parameter_hessian_max_eig: float | None
     hessian_jitter: float
-    marginal_particle_gibbs: JsonObject
-    marginal_particle_gibbs_phase_extra_fields: dict[str, dict[str, jnp.ndarray]]
-    chain_complete_log_posterior_history: jnp.ndarray
-    warmup_complete_log_posterior_history: jnp.ndarray
-    all_complete_log_posterior_history: jnp.ndarray
 
 
-class PosteriorDiagnostics(TypedDict, total=False):
-    """JSON-ready findings emitted by the production posterior."""
+@dataclass(frozen=True, kw_only=True)
+class ProductionDiagnostics:
+    "The exact producer's native buffers, separate from serialized report values."
 
-    mcmc: JsonObject
-    smc: JsonObject
-    marginal_particle_gibbs: JsonObject
+    mcmc: TrajectoryMCMCResult
+    observation_log_probs: jnp.ndarray
+    compiled_step: Compiled | None = None
+    public_sites: tuple[str, ...] | None = None
+    exact_observation_rows: jnp.ndarray | None = None
+    latent_posterior_summary: Mapping[str, jnp.ndarray] | None = None
+    warmup_latent_paths: jnp.ndarray | None = None
+    all_latent_paths: jnp.ndarray | None = None
+    marginal_particle_gibbs: ParticleSamplerDiagnostics | None = None
+    marginal_particle_gibbs_phase_extra_fields: Mapping[str, Mapping[str, jnp.ndarray]] | None = (
+        None
+    )
+    chain_complete_log_posterior_history: jnp.ndarray | None = None
+    warmup_complete_log_posterior_history: jnp.ndarray | None = None
+    all_complete_log_posterior_history: jnp.ndarray | None = None
+
+    def __post_init__(self) -> None:
+        if self.latent_posterior_summary is not None:
+            object.__setattr__(
+                self,
+                "latent_posterior_summary",
+                MappingProxyType(dict(self.latent_posterior_summary)),
+            )
+        if self.marginal_particle_gibbs_phase_extra_fields is not None:
+            object.__setattr__(
+                self,
+                "marginal_particle_gibbs_phase_extra_fields",
+                MappingProxyType(
+                    {
+                        phase: MappingProxyType(dict(values))
+                        for phase, values in self.marginal_particle_gibbs_phase_extra_fields.items()
+                    }
+                ),
+            )
 
 
-@dataclass(frozen=True, slots=True)
-class ParticleMCMCEvidence:
-    """Proof that samples came from the production particle-MCMC target."""
-
-    engine: Literal["marginal_particle_gibbs"] = "marginal_particle_gibbs"
-    latent_transition: Literal["euler_maruyama"] = "euler_maruyama"
-
-
-@dataclass
+@dataclass(frozen=True)
 class WarmupProposal:
     """Laplace/IEKS approximation usable only for sampler initialization."""
 
-    _samples: dict[str, jnp.ndarray]
-    diagnostics: InferenceDiagnostics = field(default_factory=dict)
+    _samples: Mapping[str, jnp.ndarray]
+    diagnostics: WarmupDiagnostics
     method: Literal["map"] = field(init=False, default="map")
 
-    def get_samples(self) -> dict[str, jnp.ndarray]:
+    def get_samples(self) -> Mapping[str, jnp.ndarray]:
         """Return approximate parameter draws for warmup consumers."""
         return self._samples
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "_samples", MappingProxyType(dict(self._samples)))
 
 
 @dataclass(frozen=True)
 class JointPosteriorDraws:
     """Aligned parameter and latent-trajectory draws; the leading axis identifies one joint draw."""
 
-    parameters: dict[str, jnp.ndarray]
+    parameters: Mapping[str, jnp.ndarray]
     latent_paths: jnp.ndarray | None = None
-    state_ids: tuple[str, ...] = ()
+    state_ids: tuple[ConstructId, ...] = ()
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "parameters", MappingProxyType(dict(self.parameters)))
         counts = set()
         for values in self.parameters.values():
             if values.ndim < 1:
@@ -172,7 +208,7 @@ class JointPosteriorDraws:
             n_draws=counts[0],
             state_ids=self.state_ids,
             parameter_shapes={
-                name: list(values.shape[1:]) for name, values in self.parameters.items()
+                name: tuple(values.shape[1:]) for name, values in self.parameters.items()
             },
             latent_shape=(self.latent_paths.shape[1], self.latent_paths.shape[2])
             if self.latent_paths is not None
@@ -180,136 +216,104 @@ class JointPosteriorDraws:
         )
 
 
-@dataclass
+@dataclass(frozen=True)
 class ParticleMCMCPosterior:
     """Joint posterior draws produced by the invariant particle-MCMC engine."""
 
     draws: JointPosteriorDraws
-    diagnostics: InferenceDiagnostics = field(default_factory=dict)
+    diagnostics: ProductionDiagnostics
     evidence: ParticleMCMCEvidence = field(default_factory=ParticleMCMCEvidence)
+    initial_latent_delta: jnp.ndarray | None = None
+    final_latent_delta: jnp.ndarray | None = None
     method: Literal["marginal_particle_gibbs"] = field(
         init=False, default="marginal_particle_gibbs"
     )
 
-    def get_samples(self) -> dict[str, jnp.ndarray]:
+    def get_samples(self) -> Mapping[str, jnp.ndarray]:
         """Return parameter draws aligned with the retained latent trajectories."""
         return self.draws.parameters
 
-    def get_inference_diagnostics(self) -> PosteriorDiagnostics:
-        """Report engine telemetry without a public sampler-specific schema."""
-        result: PosteriorDiagnostics = {}
-        mcmc = self.get_mcmc_diagnostics()
-        if mcmc is not None:
-            result["mcmc"] = mcmc
-        smc = self.get_smc_diagnostics()
-        if smc is not None:
-            result["smc"] = smc
-        if "marginal_particle_gibbs" in self.diagnostics:
-            result["marginal_particle_gibbs"] = self.diagnostics["marginal_particle_gibbs"]
-        return result
+    def get_inference_diagnostics(self, references: ParameterReferences) -> ChainDiagnostics:
+        return self.get_mcmc_diagnostics(references)
 
-    def get_mcmc_diagnostics(self) -> JsonObject | None:
-        """Extract JSON-serializable MCMC diagnostics."""
-        mcmc = self.diagnostics.get("mcmc")
-        if mcmc is None:
-            return None
-
-        result: JsonObject = {}
-
-        chain_samples = mcmc.get_samples(group_by_chain=True)
-        public_sites = self.diagnostics.get("public_sites")
-        if public_sites is not None:
-            chain_samples = _filter_public_samples(chain_samples, set(public_sites))
-
-        from arviz_stats.sampling_diagnostics import ess, mcse, rhat
-
-        # Rank-normalized R-hat and bulk/tail ESS, the estimators behind the
-        # convergence thresholds (Vehtari et al. 2021).
-        idata = _arviz_idata_from_posterior(chain_samples)
-        r_hat = rhat(idata)
-        ess_bulk = ess(idata, method="bulk")
-        ess_tail = ess(idata, method="tail")
-        mcse_mean = mcse(idata, method="mean")
-
+    def get_mcmc_diagnostics(self, references: ParameterReferences) -> ChainDiagnostics:
+        """Reduce native chain estimators directly into scientifically referenced values."""
         import math
 
         import numpy as np
+        from arviz_stats.sampling_diagnostics import ess, mcse, rhat
 
-        def metric(values, indices):
+        mcmc = self.diagnostics.mcmc
+        chain_samples = mcmc.get_samples(group_by_chain=True)
+        public_sites = self.diagnostics.public_sites
+        if public_sites is not None:
+            chain_samples = _filter_public_samples(chain_samples, set(public_sites))
+        idata = _arviz_idata_from_posterior(chain_samples)
+        r_hat = rhat(idata)
+        ess_bulk, ess_tail = ess(idata, method="bulk"), ess(idata, method="tail")
+        mcse_mean = mcse(idata, method="mean")
+
+        def metric(values: ArrayLike, indices: tuple[int, ...]) -> float | None:
             value = float(np.asarray(values)[indices])
             return value if math.isfinite(value) else None
 
-        per_param: list[JsonObject] = []
+        parameters = []
         for name in chain_samples:
             for indices in np.ndindex(np.shape(r_hat[name].values)):
                 coordinate = ParameterCoordinate(site_name=name, indices=indices)
-                per_param.append(
-                    {
-                        "parameter": coordinate.label,
-                        "coordinate": coordinate.model_dump(mode="json"),
-                        "r_hat": metric(r_hat[name].values, indices),
-                        "ess_bulk": metric(ess_bulk[name].values, indices),
-                        "ess_tail": metric(ess_tail[name].values, indices),
-                        "mcse_mean": metric(mcse_mean[name].values, indices),
-                    }
-                )
-        result["per_parameter"] = list(per_param)
-
+                reference = references[coordinate]
+                if reference is not None:
+                    label, subject = reference
+                    parameters.append(
+                        ParameterDiagnostics(
+                            parameter=label,
+                            subject=subject,
+                            r_hat=metric(r_hat[name].values, indices),
+                            ess_bulk=metric(ess_bulk[name].values, indices),
+                            ess_tail=metric(ess_tail[name].values, indices),
+                            mcse_mean=metric(mcse_mean[name].values, indices),
+                        )
+                    )
         extra = mcmc.get_extra_fields()
-        if "diverging" in extra:
-            div = extra["diverging"]
-            result["num_divergences"] = int(jnp.sum(div))
-            result["divergence_rate"] = float(jnp.mean(div))
-        if "num_steps" in extra:
-            steps = extra["num_steps"]
-            result["tree_depth_mean"] = float(jnp.mean(steps))
-            result["tree_depth_max"] = int(jnp.max(steps))
-        if "accept_prob" in extra:
-            ap = extra["accept_prob"]
-            result["accept_prob_mean"] = float(jnp.mean(ap))
-        if "latent_accept_prob" in extra:
-            ap = extra["latent_accept_prob"]
-            result["latent_accept_prob_mean"] = float(jnp.mean(ap))
-        if "parameter_accept_prob" in extra:
-            ap = extra["parameter_accept_prob"]
-            result["parameter_accept_prob_mean"] = float(jnp.mean(ap))
-        if "energy" in extra:
-            energy = extra["energy"]
-            n_ch = int(mcmc.num_chains)
-            if n_ch > 1 and energy.ndim == 1 and energy.shape[0] % n_ch == 0:
-                energy = energy.reshape(n_ch, -1)
-            result["energy"] = _build_energy_diagnostics(energy)
+        energy = extra.get("energy")
+        if energy is not None and mcmc.num_chains > 1 and energy.ndim == 1:
+            energy = energy.reshape(mcmc.num_chains, -1)
 
-        result["num_chains"] = int(mcmc.num_chains)
-        result["num_samples"] = int(mcmc.num_samples)
+        def average(name: str) -> float | None:
+            return float(jnp.mean(extra[name])) if name in extra else None
 
-        result["trace_data"] = list(_build_trace_data(chain_samples, max_points=200))
-        result["rank_histograms"] = list(_build_rank_histograms(chain_samples, n_bins=20))
+        return ChainDiagnostics(
+            num_chains=int(mcmc.num_chains),
+            num_samples=int(mcmc.num_samples),
+            per_parameter=tuple(parameters),
+            num_divergences=int(jnp.sum(extra["diverging"])) if "diverging" in extra else None,
+            divergence_rate=average("diverging"),
+            tree_depth_mean=average("num_steps"),
+            tree_depth_max=int(jnp.max(extra["num_steps"])) if "num_steps" in extra else None,
+            accept_prob_mean=average("accept_prob"),
+            latent_accept_prob_mean=average("latent_accept_prob"),
+            parameter_accept_prob_mean=average("parameter_accept_prob"),
+            energy=_build_energy_diagnostics(energy) if energy is not None else None,
+        )
 
-        return result
+    def get_chain_detail(
+        self, references: ParameterReferences
+    ) -> tuple[tuple[TraceSeries, ...], tuple[RankHistogram, ...]]:
+        samples = self.diagnostics.mcmc.get_samples(group_by_chain=True)
+        if (sites := self.diagnostics.public_sites) is not None:
+            samples = _filter_public_samples(samples, set(sites))
+        return _build_trace_data(samples, references), _build_rank_histograms(samples, references)
 
-    def get_smc_diagnostics(self) -> JsonObject | None:
-        """Extract JSON-serializable SMC diagnostics."""
-        beta = self.diagnostics.get("beta_schedule")
-        if beta is None:
-            return None
-
-        return {
-            "beta_schedule": [float(b) for b in beta],
-            "ess_history": [float(e) for e in self.diagnostics.get("ess_history", [])],
-            "accept_rates": [float(a) for a in self.diagnostics.get("accept_rates", [])],
-            "n_levels": int(self.diagnostics.get("n_levels", len(beta))),
-            "n_particles": int(self.diagnostics.get("n_csmc_particles", 0)),
-        }
-
-    def get_loo_diagnostics(self, *, observations: jnp.ndarray) -> JsonObject | None:
+    def get_loo_diagnostics(
+        self, *, observations: jnp.ndarray
+    ) -> tuple[LOODiagnostics, tuple[ParetoKPoint, ...]] | None:
         """PSIS leave-one-measurement-row-out from the joint particle posterior.
 
         The exact emission factors condition on each sampled latent state. The
         held-out row is interpolated using all other rows, including future
         measurements. This does not estimate leave-future-out forecast skill.
         """
-        exact_rows = self.diagnostics.get("exact_observation_rows")
+        exact_rows = self.diagnostics.exact_observation_rows
         if exact_rows is not None and bool(jnp.any(exact_rows)):
             # Removing an equality increases the support dimension. Reweighting
             # draws confined to that equality cannot recover the held-out target.
@@ -318,44 +322,47 @@ class ParticleMCMCPosterior:
                 "requires refitting or integrating out its fixed state coordinates."
             )
             return None
+        import numpy as np
         from arviz_stats.loo import loo
+        from arviz_stats.utils import ELPDDataLOO
 
-        factors = self.diagnostics["observation_log_probs"]
+        factors = self.diagnostics.observation_log_probs
         observed_rows = jnp.any(~jnp.isnan(observations), axis=1)
         factors = factors[:, :, observed_rows]
         if factors.shape[1] == 0 or factors.shape[2] == 0:
             return None
-        mcmc = self.diagnostics["mcmc"]
+        mcmc = self.diagnostics.mcmc
         posterior = mcmc.get_samples(group_by_chain=True)
         idata = _arviz_idata_from_posterior(
             posterior,
             log_likelihood={"measurement_row": factors},
         )
-        estimate = loo(idata)
-        result: JsonObject = {
-            "elpd_loo": float(estimate.elpd),
-            "p_loo": float(estimate.p),
-            "se": float(estimate.se),
-            "n_data_points": int(estimate.n_data_points),
-            "observation_unit": "measurement_row",
-            "prediction_task": "interpolation_given_other_measurements",
-            "likelihood_source": "exact_emission_on_joint_particle_draws",
-        }
-        if estimate.pareto_k is not None:
-            values = jnp.asarray(estimate.pareto_k.values)
-            result["pareto_k"] = [float(value) for value in values]
-            result["n_bad_k"] = int((values > 0.7).sum())
-        return result
+        estimate = loo(
+            idata, pointwise=True
+        )  # ArviZ returns ELPDDataLOO for the ordinary, non-moment-match path.
+        assert isinstance(estimate, ELPDDataLOO)
+        values = tuple(float(value) for value in estimate.pareto_k.values)
+        points = pareto_k_points(
+            values, tuple(int(index) + 1 for index in np.flatnonzero(observed_rows))
+        )
+        return LOODiagnostics(
+            elpd_loo=float(estimate.elpd),
+            p_loo=float(estimate.p),
+            se=float(estimate.se),
+            n_data_points=int(estimate.n_data_points),
+            n_bad_k=sum(point.status == "failed" for point in points) if values else None,
+            n_warn_k=sum(point.status == "warning" for point in points) if values else None,
+        ), points
 
-    def get_posterior_marginals(self, n_bins: int = 50) -> list[JsonObject]:
+    def get_posterior_marginals(
+        self, references: ParameterReferences, n_bins: int = 50
+    ) -> tuple[PosteriorMarginal, ...]:
         """Compute marginal posterior density data for visualization."""
-        return compute_posterior_marginals(self.draws.parameters, n_bins)
+        return compute_posterior_marginals(self.draws.parameters, references, n_bins)
 
-    def get_posterior_pairs(self, max_params: int = 6, max_samples: int = 200) -> list[JsonObject]:
-        """Compute pairwise scatter data for joint posterior visualization."""
+    def get_posterior_pairs(
+        self, references: ParameterReferences, max_params: int = 6
+    ) -> tuple[PosteriorPair, ...]:
         return compute_posterior_pairs(
-            self.draws.parameters,
-            self.diagnostics.get("mcmc"),
-            max_params,
-            max_samples,
+            self.draws.parameters, references, self.diagnostics.mcmc, max_params
         )

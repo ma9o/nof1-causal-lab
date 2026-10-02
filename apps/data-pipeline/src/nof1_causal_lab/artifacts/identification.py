@@ -2,45 +2,42 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 
-from .base import ArtifactPayload
+from .base import Value
 from .identity import ConstructId
 
 if TYPE_CHECKING:
     from .model_spec import ModelSpec
 
 
-class IdentifiedTreatmentStatus(BaseModel):
+class IdentifiedTreatmentStatus(Value):
     """Details on how a treatment effect is identified."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     status: Literal["identified"] = "identified"
     method: Literal["do_calculus"] = Field(
         description="Nonparametric identification; linear-IV arguments do not certify ModelSpec."
     )
     estimand: str = Field(description="Nonparametric estimand returned by do-calculus")
-    marginalized_confounders: list[ConstructId] = Field(
-        default_factory=list,
+    marginalized_confounders: tuple[ConstructId, ...] = Field(
+        default_factory=tuple,
         description="Unobserved confounders the estimand integrates out",
     )
-    instruments: list[ConstructId] = Field(
-        default_factory=list,
+    instruments: tuple[ConstructId, ...] = Field(
+        default_factory=tuple,
         description="Instrument constructs appearing in the nonparametric identification argument",
     )
 
 
-class NonIdentifiableTreatmentStatus(BaseModel):
+class NonIdentifiableTreatmentStatus(Value):
     """Context on why a treatment effect is not identifiable."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
     status: Literal["not_identified"] = "not_identified"
-    confounders: list[ConstructId] = Field(
-        default_factory=list,
+    confounders: tuple[ConstructId, ...] = Field(
+        default_factory=tuple,
         description="Unobserved constructs blocking identification",
     )
     notes: str | None = Field(
@@ -49,11 +46,11 @@ class NonIdentifiableTreatmentStatus(BaseModel):
     )
 
 
-class IdentificationReport(ArtifactPayload):
+class IdentificationReport(Value):
     """Positive and negative causal identification findings for the model's default query."""
 
     outcome: ConstructId | None
-    treatments: dict[
+    treatments: Mapping[
         ConstructId,
         Annotated[
             IdentifiedTreatmentStatus | NonIdentifiableTreatmentStatus,
@@ -79,15 +76,17 @@ class IdentificationReport(ArtifactPayload):
             raise ValueError(f"Identification references unknown construct IDs: {sorted(unknown)}")
 
     @property
-    def estimable_treatments(self) -> list[ConstructId]:
-        return [
-            identity
-            for identity, finding in self.treatments.items()
-            if finding.status == "identified"
-        ]
+    def estimable_treatments(self) -> tuple[ConstructId, ...]:
+        return tuple(
+            (
+                identity
+                for identity, finding in self.treatments.items()
+                if finding.status == "identified"
+            )
+        )
 
     @property
-    def non_identifiable(self) -> dict[ConstructId, NonIdentifiableTreatmentStatus]:
+    def non_identifiable(self) -> Mapping[ConstructId, NonIdentifiableTreatmentStatus]:
         return {
             identity: finding
             for identity, finding in self.treatments.items()

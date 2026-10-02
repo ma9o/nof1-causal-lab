@@ -5,10 +5,11 @@ from __future__ import annotations
 import asyncio
 import json
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, assert_never
+from typing import TYPE_CHECKING, assert_never
 from uuid import uuid4
 
-from pydantic import BaseModel, ValidationError
+from openai.types.chat import ChatCompletionMessageFunctionToolCallParam
+from pydantic import BaseModel, TypeAdapter, ValidationError
 from temporalio import activity
 from typing_extensions import TypedDict
 
@@ -36,12 +37,17 @@ from nof1_causal_lab.actions.temporal.messages import (
     LLMToolExecutionInput,
     LLMToolExecutionResult,
     LLMToolSpec,
+    OpenRouterCallResult,
+    StoredConversation,
 )
 from nof1_causal_lab.json_types import JsonObject
 from nof1_causal_lab.utils import storage
 
 if TYPE_CHECKING:
-    from openai.types.chat import ChatCompletionMessageFunctionToolCallParam
+    from collections.abc import Awaitable
+
+    from nof1_causal_lab.utils.agent_session import TurnResult
+    from nof1_causal_lab.utils.openrouter_client import Tool
 
 _RECOVERABLE_TOOL_EXECUTION_ERRORS = (
     ArithmeticError,
@@ -72,13 +78,14 @@ class HarnessState(BaseModel):
 
 
 def _subroutine_tool_message(
-    tool_call: ChatCompletionMessageFunctionToolCallParam, content: str, error: str | None = None
+    tool_call: JsonObject, content: str, error: str | None = None
 ) -> SubroutineToolMessage:
+    invocation = TypeAdapter(ChatCompletionMessageFunctionToolCallParam).validate_python(tool_call)
     return {
         "role": "tool",
         "content": content,
-        "tool_call_id": tool_call["id"],
-        "name": tool_call["function"]["name"],
+        "tool_call_id": invocation["id"],
+        "name": invocation["function"]["name"],
         "error": error,
     }
 
@@ -155,7 +162,7 @@ async def append_llm_user_message_activity(
     if input.user_message_index >= len(user_messages):
         raise IndexError(f"user message index {input.user_message_index} out of range")
 
-    conversation = read_subroutine_json(input.conversation_ref)
+    conversation = read_subroutine_json(input.conversation_ref, StoredConversation)
     messages = [
         *conversation["messages"],
         {"role": "user", "content": user_messages[input.user_message_index]},
@@ -179,7 +186,7 @@ async def append_llm_repair_message_activity(
 
     from nof1_causal_lab.utils.llm import _tool_retry_message
 
-    conversation = read_subroutine_json(input.conversation_ref)
+    conversation = read_subroutine_json(input.conversation_ref, StoredConversation)
     repair_message = _tool_retry_message(input.error_text, input.tools)
     write_subroutine_json(
         input.next_conversation_ref,
@@ -196,8 +203,8 @@ async def execute_llm_tool_calls_activity(input: LLMToolExecutionInput) -> LLMTo
         )
 
     assistant_output = read_subroutine_json(input.assistant_ref)
-    assistant_message = assistant_output["message"]
-    conversation = read_subroutine_json(input.conversation_ref)
+    assistant_message = TypeAdapter(JsonObject).validate_python(assistant_output["message"])
+    conversation = read_subroutine_json(input.conversation_ref, StoredConversation)
     messages = list(conversation["messages"])
     tool_messages: list[SubroutineToolMessage] = []
     tool_calls_fired: list[str] = []
@@ -205,8 +212,10 @@ async def execute_llm_tool_calls_activity(input: LLMToolExecutionInput) -> LLMTo
     captured_result_ref: str | None = None
     tool_by_name = {tool.name: tool for tool in input.tools}
 
-    for _tool_index, tool_call in enumerate(assistant_message.get("tool_calls") or []):
-        fn = tool_call.get("function") or {}
+    for _tool_index, tool_call in enumerate(
+        TypeAdapter(list[JsonObject]).validate_python(assistant_message.get("tool_calls") or [])
+    ):
+        fn = TypeAdapter(JsonObject).validate_python(tool_call.get("function") or {})
         tool_name = str(fn.get("name") or tool_call.get("name", ""))
         tool_calls_fired.append(tool_name)
         tool = tool_by_name.get(tool_name)
@@ -268,13 +277,13 @@ def _harness_tool_request_path(base: str, folder: str, request_id: str) -> str:
     return storage.join(base, folder, f"{request_id}.json")
 
 
-def _build_harness_bridge_tools(input: HarnessTurnInput):
+def _build_harness_bridge_tools(input: HarnessTurnInput) -> list[Tool]:
     from nof1_causal_lab.utils.openrouter_client import Tool
 
     if not input.tools:
         raise ValueError("harness tool requested for a no-tool LLM subroutine")
 
-    def _build_one(tool: LLMToolSpec):
+    def _build_one(tool: LLMToolSpec) -> Tool:
         async def _execute(**kwargs: str) -> str:
             request_id = uuid4().hex
             response_ref = _harness_tool_request_path(
@@ -318,7 +327,7 @@ def _build_harness_bridge_tools(input: HarnessTurnInput):
         return Tool(
             name=tool.name,
             description=tool.description,
-            parameters=tool.parameters,
+            parameters=dict(tool.parameters),
             execute=_execute,
             stop_on_success=tool.kind == "terminal",
             success_output=tool.success_output,
@@ -327,7 +336,7 @@ def _build_harness_bridge_tools(input: HarnessTurnInput):
     return [_build_one(tool) for tool in input.tools]
 
 
-async def _await_harness_turn(turn: Any, subroutine_id: str) -> Any:
+async def _await_harness_turn(turn: Awaitable[TurnResult], subroutine_id: str) -> TurnResult:
     """Await a harness turn while heartbeating from the activity task.
 
     Harness MCP callbacks execute in the server's task context, where Temporal's
@@ -515,7 +524,7 @@ async def finalize_llm_subroutine_trace_activity(
         storage.write_text(trace_path, trace.model_dump_json())
         return LLMSubroutineTraceResult(trace_ref=trace_path)
 
-    conversation = read_subroutine_json(input.conversation_ref)
+    conversation = read_subroutine_json(input.conversation_ref, StoredConversation)
     input_tokens = 0
     output_tokens = 0
     reasoning_tokens = 0
@@ -525,30 +534,21 @@ async def finalize_llm_subroutine_trace_activity(
     for entry in sorted(storage.listdir(input.call_ref_base)):
         if not entry.endswith(".json"):
             continue
-        call = read_subroutine_json(entry)["result"]
-        model = call.get("model") or model
-        total_time += float(call.get("time") or 0.0)
-        usage = call.get("usage") or {}
+        call = OpenRouterCallResult.model_validate(read_subroutine_json(entry)["result"])
+        model = call.model or model
+        total_time += float(call.time or 0.0)
+        usage = call.usage or {}
         input_tokens += int(usage.get("input_tokens") or 0)
         output_tokens += int(usage.get("output_tokens") or 0)
-        if usage.get("reasoning_tokens") is not None:
+        reasoning = usage.get("reasoning_tokens")
+        if reasoning is not None:
             has_reasoning_tokens = True
-            reasoning_tokens += int(usage["reasoning_tokens"])
+            reasoning_tokens += reasoning
 
     trace = LLMTrace(
-        messages=[
-            TraceMessage(
-                role=message["role"],
-                content=str(message.get("content", "")),
-                reasoning=message.get("reasoning"),
-                tool_calls=message.get("tool_calls"),
-                tool_call_id=message.get("tool_call_id"),
-                tool_name=message.get("name"),
-                tool_result=str(message.get("content", "")) if message["role"] == "tool" else None,
-                tool_is_error=message.get("error") is not None,
-            )
-            for message in conversation["messages"]
-        ],
+        messages=tuple(
+            TraceMessage.from_conversation(message) for message in conversation["messages"]
+        ),
         model=model,
         total_time_seconds=total_time,
         usage=TraceUsage(

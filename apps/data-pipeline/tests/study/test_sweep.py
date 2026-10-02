@@ -8,7 +8,7 @@ from unittest.mock import Mock
 import pytest
 
 from nof1_causal_lab.study.history import StudyRepository
-from nof1_causal_lab.study.records import AttemptRecord
+from nof1_causal_lab.study.records import AttemptRecord, EditAttempt, Raised
 from nof1_causal_lab.study.sweep import sweep_workspace
 from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
@@ -43,10 +43,9 @@ def test_offline_run_collection_removes_completed_and_abandoned_runs(monkeypatch
         AttemptRecord(
             seq=3,
             ts="2026-07-15T00:00:00Z",
-            action="edit_model",
-            inputs={},
-            status="raised",
-            trace_ids=[],
+            attempt=EditAttempt(
+                request=None, outcome=Raised(error_type="SavedError", error_message="failed")
+            ),
         )
     )
     old_run = _run_file(workspace_id, "seq-000001")

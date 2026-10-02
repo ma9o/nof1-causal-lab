@@ -15,16 +15,21 @@ from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import PriorAuthoringTransform, SiteKind, SupportClass
 from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 from nof1_causal_lab.models.ssm import numerics as numeric
+from nof1_causal_lab.models.ssm.execution.parameters import sample_sites
 from nof1_causal_lab.models.ssm.inference.utils import _discover_sites, _DummyLikelihoodBackend
-from nof1_causal_lab.models.ssm.model import SSMModel
+from nof1_causal_lab.models.ssm.likelihood_extra_params import assemble_sampled_extra_params
+from nof1_causal_lab.models.ssm.model import sample_parameters
 from nof1_causal_lab.models.ssm.parameterization import (
     assemble_deterministics_from_registry,
     build_site_registry,
+    likelihood_sites,
     sample_prior_parameters,
 )
 from nof1_causal_lab.models.ssm.priors import resolve_site_priors
 from tests.model_fixtures import (
+    bind_panel_fixture,
     compile_fit_fixture,
+    compile_model_fixture,
 )
 
 # ---------------------------------------------------------------------------
@@ -45,7 +50,7 @@ def simple_spec():
 
 @pytest.fixture
 def simple_model(simple_spec):
-    return SSMModel(compile_fit_fixture(simple_spec))
+    return compile_fit_fixture(simple_spec)
 
 
 @pytest.fixture
@@ -61,7 +66,7 @@ def dag_spec():
 
 @pytest.fixture
 def dag_model(dag_spec):
-    return SSMModel(compile_fit_fixture(dag_spec))
+    return compile_fit_fixture(dag_spec)
 
 
 # ---------------------------------------------------------------------------
@@ -73,32 +78,42 @@ def _assert_registry_matches_trace(registry, site_info):
     """Keep the registry/trace integration assertion owned by this test module."""
     assert {site.name for site in registry} == set(site_info)
     for site in registry:
-        assert site.shape == site_info[site.name]["shape"]
+        assert site.shape == site_info[site.name].shape
 
 
 class TestSiteRegistry:
     @pytest.mark.inference(concern="sampling")
     def test_registry_names_match_trace(self, simple_model):
         """Registry produces the same site names as model tracing."""
-        spec = simple_model.spec
-        registry = build_site_registry(spec)
+        compiled = simple_model.compiled
+        registry = build_site_registry(compiled)
         backend = _DummyLikelihoodBackend()
         T = 2
-        obs = jnp.zeros((T, numeric.n_observations(spec)))
+        obs = jnp.zeros((T, numeric.n_observations(compiled)))
         times = jnp.linspace(0, 1, T)
-        site_info = _discover_sites(simple_model, obs, times, random.PRNGKey(0), backend)
+        site_info = _discover_sites(
+            simple_model.prior_runtime_bundle,
+            bind_panel_fixture(simple_model.compiled, obs, times),
+            random.PRNGKey(0),
+            backend,
+        )
         _assert_registry_matches_trace(registry, site_info)
 
     @pytest.mark.inference(concern="sampling")
     def test_registry_names_match_trace_dag(self, dag_model):
         """Registry matches trace for DAG-constrained model with cint."""
-        spec = dag_model.spec
-        registry = build_site_registry(spec)
+        compiled = dag_model.compiled
+        registry = build_site_registry(compiled)
         backend = _DummyLikelihoodBackend()
         T = 2
-        obs = jnp.zeros((T, numeric.n_observations(spec)))
+        obs = jnp.zeros((T, numeric.n_observations(compiled)))
         times = jnp.linspace(0, 1, T)
-        site_info = _discover_sites(dag_model, obs, times, random.PRNGKey(0), backend)
+        site_info = _discover_sites(
+            dag_model.prior_runtime_bundle,
+            bind_panel_fixture(dag_model.compiled, obs, times),
+            random.PRNGKey(0),
+            backend,
+        )
         _assert_registry_matches_trace(registry, site_info)
 
     @pytest.mark.inference(concern="sampling")
@@ -111,13 +126,18 @@ class TestSiteRegistry:
                 / "parameterization/partial_manifest_variance_model.json"
             ).read_text()
         )
-        model = SSMModel(compile_fit_fixture(spec))
-        registry = build_site_registry(spec)
+        model = compile_fit_fixture(spec)
+        registry = build_site_registry(compile_model_fixture(spec))
         backend = _DummyLikelihoodBackend()
         T = 2
-        obs = jnp.zeros((T, numeric.n_observations(spec)))
+        obs = jnp.zeros((T, numeric.n_observations(compile_model_fixture(spec))))
         times = jnp.linspace(0, 1, T)
-        site_info = _discover_sites(model, obs, times, random.PRNGKey(0), backend)
+        site_info = _discover_sites(
+            model.prior_runtime_bundle,
+            bind_panel_fixture(model.compiled, obs, times),
+            random.PRNGKey(0),
+            backend,
+        )
 
         _assert_registry_matches_trace(registry, site_info)
         manifest_site = next(site for site in registry if site.name == "manifest_var_diag_free")
@@ -133,7 +153,7 @@ class TestSiteRegistry:
                 / "common/two_state_fixed_drift_model.json"
             ).read_text()
         )
-        registry = build_site_registry(spec)
+        registry = build_site_registry(compile_model_fixture(spec))
         assert len([site for site in registry if site.site_kind == SiteKind.DYNAMICS_DECAY]) == 2
 
     @pytest.mark.contract
@@ -146,7 +166,7 @@ class TestSiteRegistry:
                 / "parameterization/testsiteregistry_test_diag_diffusion_excludes_lower__make_spec.json"
             ).read_text()
         )
-        registry = build_site_registry(spec)
+        registry = build_site_registry(compile_model_fixture(spec))
         names = {s.name for s in registry}
         assert "diffusion_diag_free" in names
         assert "diffusion_lower_free" not in names
@@ -161,7 +181,7 @@ class TestSiteRegistry:
                 / "common/two_state_gaussian_model.json"
             ).read_text()
         )
-        registry = build_site_registry(spec)
+        registry = build_site_registry(compile_model_fixture(spec))
         names = {s.name for s in registry}
         assert "diffusion_diag_free" in names
         assert "diffusion_lower_free" in names
@@ -178,14 +198,14 @@ class TestSiteRegistry:
                 / "parameterization/testsiteregistry_test_sparse_initial_state_correlations_only_include_authored_pairs__make_spec.json"
             ).read_text()
         )
-        registry = build_site_registry(spec)
+        registry = build_site_registry(compile_model_fixture(spec))
         site_map = {site.name: site for site in registry}
         assert site_map["t0_var_lower_free"].shape == (1,)
 
     @pytest.mark.contract
     def test_support_classes(self, simple_spec):
         """Check that support classes are correctly assigned."""
-        registry = build_site_registry(simple_spec)
+        registry = build_site_registry(compile_model_fixture(simple_spec))
         support_map = {s.name: s.support for s in registry}
         # POSITIVE support sites
         assert all(
@@ -208,7 +228,7 @@ class TestSiteRegistry:
                 / "parameterization/student_innovation_model.json"
             ).read_text()
         )
-        registry = build_site_registry(spec)
+        registry = build_site_registry(compile_model_fixture(spec))
         assert "proc_df" in {site.name for site in registry}
 
     @pytest.mark.inference(concern="sampling")
@@ -221,10 +241,18 @@ class TestSiteRegistry:
                 / "parameterization/student_innovation_model.json"
             ).read_text()
         )
-        model = SSMModel(compile_fit_fixture(spec))
+        model = compile_fit_fixture(spec)
 
         with handlers.seed(rng_seed=0):
-            trace = handlers.trace(lambda: model._sample_likelihood_extra_params(spec)).get_trace()
+            trace = handlers.trace(
+                lambda: assemble_sampled_extra_params(
+                    model.compiled,
+                    sample_sites(
+                        likelihood_sites(model.compiled),
+                        model.prior_runtime_bundle.priors.__getitem__,
+                    ),
+                )
+            ).get_trace()
 
         assert "proc_df" in trace
 
@@ -238,19 +266,24 @@ class TestSiteRegistry:
                 / "parameterization/static_state_model.json"
             ).read_text()
         )
-        model = SSMModel(compile_fit_fixture(spec))
+        model = compile_fit_fixture(spec)
 
-        registry = build_site_registry(spec)
+        registry = build_site_registry(compile_model_fixture(spec))
         site_map = {site.name: site for site in registry}
         assert site_map["static_state_sd_free"].shape == (1,)
         assert site_map["static_state_sd_free"].support == SupportClass.POSITIVE
 
         backend = _DummyLikelihoodBackend()
-        obs = jnp.zeros((5, numeric.n_observations(spec)))
+        obs = jnp.zeros((5, numeric.n_observations(compile_model_fixture(spec))))
         times = jnp.arange(5, dtype=jnp.float32)
-        site_info = _discover_sites(model, obs, times, random.PRNGKey(0), backend)
+        site_info = _discover_sites(
+            model.prior_runtime_bundle,
+            bind_panel_fixture(model.compiled, obs, times),
+            random.PRNGKey(0),
+            backend,
+        )
         _assert_registry_matches_trace(registry, site_info)
-        assert site_info["static_state_sd_free"]["shape"] == (1,)
+        assert site_info["static_state_sd_free"].shape == (1,)
 
 
 @pytest.mark.inference(concern="sampling")
@@ -264,15 +297,15 @@ class TestSpecBlockAssembly:
                 / "parameterization/static_state_model.json"
             ).read_text()
         )
-        model = SSMModel(compile_fit_fixture(spec))
+        model = compile_fit_fixture(spec)
         values = {
             site.name: jnp.ones(site.shape)
-            for block in numeric.parameter_blocks(spec)
+            for block in numeric.parameter_blocks(compile_model_fixture(spec))
             for site in block.iter_sites()
         }
         values["static_state_sd_free"] = jnp.array([2.0])
         with handlers.substitute(data=values), handlers.trace() as trace:
-            cov = model._sample_parameters()["t0_cov"]
+            cov = sample_parameters(model.compiled, model.prior_runtime_bundle)["t0_cov"]
         assert "t0_correlation_positive_definite" in trace
 
         np.testing.assert_allclose(
@@ -301,7 +334,7 @@ class TestDeterministicAssembly:
             "t0_var_lower_free": jnp.zeros((1, 1), dtype=jnp.float32),
         }
 
-        det = assemble_deterministics_from_registry(samples, simple_spec)
+        det = assemble_deterministics_from_registry(samples, compile_model_fixture(simple_spec))
         assert jnp.allclose(det["diffusion"][0], jnp.array([[0.4, 0.0], [0.25, 0.6]]))
         assert det["lambda"].shape == (1, 2, 2)
         assert jnp.allclose(det["manifest_cov"][0], jnp.diag(jnp.array([0.49, 0.64])))
@@ -311,7 +344,7 @@ class TestDeterministicAssembly:
     @pytest.mark.contract
     def test_missing_declared_free_value_is_rejected(self, simple_spec):
         with pytest.raises(KeyError, match="diffusion_diag_free"):
-            assemble_deterministics_from_registry({}, simple_spec, n_draws=2)
+            assemble_deterministics_from_registry({}, compile_model_fixture(simple_spec), n_draws=2)
 
     @pytest.mark.contract
     def test_assemble_deterministics_from_registry_fixed_blocks(self):
@@ -323,24 +356,24 @@ class TestDeterministicAssembly:
                 / "parameterization/testdeterministicassembly_test_assemble_deterministics_from_registry_fixed_blocks__make_spec.json"
             ).read_text()
         )
-        det = assemble_deterministics_from_registry({}, spec, n_draws=3)
+        det = assemble_deterministics_from_registry({}, compile_model_fixture(spec), n_draws=3)
         assert jnp.allclose(
             det["diffusion"],
-            jnp.broadcast_to(numeric.diffusion_block(spec).assemble(), (3, 2, 2)),
+            jnp.broadcast_to(compile_model_fixture(spec).diffusion_block.assemble(), (3, 2, 2)),
         )
         assert jnp.allclose(
             det["lambda"],
-            jnp.broadcast_to(numeric.loading_block(spec).assemble(), (3, 2, 2)),
+            jnp.broadcast_to(compile_model_fixture(spec).loading_block.assemble(), (3, 2, 2)),
         )
-        manifest_chol = numeric.observation_noise_block(spec).assemble()
+        manifest_chol = compile_model_fixture(spec).observation_noise_block.assemble()
         expected_manifest_cov = manifest_chol @ manifest_chol.T
         assert jnp.allclose(det["manifest_cov"], jnp.broadcast_to(expected_manifest_cov, (3, 2, 2)))
-        assert isinstance(numeric.initial_mean_block(spec).assemble(), jnp.ndarray)
+        assert isinstance(compile_model_fixture(spec).initial_mean_block.assemble(), jnp.ndarray)
         assert jnp.allclose(
             det["t0_means"],
-            jnp.broadcast_to(numeric.initial_mean_block(spec).assemble(), (3, 2)),
+            jnp.broadcast_to(compile_model_fixture(spec).initial_mean_block.assemble(), (3, 2)),
         )
-        expected_t0_cov = numeric.initial_covariance_block(spec).assemble_cov()
+        expected_t0_cov = compile_model_fixture(spec).initial_covariance_block.assemble_cov()
         assert jnp.allclose(det["t0_cov"], jnp.broadcast_to(expected_t0_cov, (3, 2, 2)))
 
     @pytest.mark.contract
@@ -363,7 +396,7 @@ class TestDeterministicAssembly:
             "t0_var_lower_free": jnp.zeros((1, 1), dtype=jnp.float32),
         }
 
-        det = assemble_deterministics_from_registry(samples, spec)
+        det = assemble_deterministics_from_registry(samples, compile_model_fixture(spec))
         assert jnp.allclose(det["manifest_cov"][0], jnp.diag(jnp.array([0.16, 0.81])))
 
     @pytest.mark.contract
@@ -388,7 +421,7 @@ class TestDeterministicAssembly:
             "t0_var_lower_free": jnp.array([[0.25]], dtype=jnp.float32),
         }
 
-        det = assemble_deterministics_from_registry(samples, spec)
+        det = assemble_deterministics_from_registry(samples, compile_model_fixture(spec))
 
         assert jnp.allclose(
             det["t0_cov"][0],
@@ -419,15 +452,17 @@ class TestDeterministicAssembly:
             "t0_var_lower_free": jnp.array([[0.9, 0.9, -0.9]], dtype=jnp.float32),
         }
 
-        det = assemble_deterministics_from_registry(samples, spec)
+        det = assemble_deterministics_from_registry(samples, compile_model_fixture(spec))
         min_eig = jnp.min(jnp.linalg.eigvalsh(det["t0_cov"][0]))
 
         assert bool(jnp.isfinite(det["t0_cov"]).all())
         assert float(min_eig) > -1e-6
 
-        model = SSMModel(compile_fit_fixture(spec))
+        model = compile_fit_fixture(spec)
         with handlers.substitute(data={name: value[0] for name, value in samples.items()}):
-            trace = handlers.trace(model._sample_parameters).get_trace()
+            trace = handlers.trace(sample_parameters).get_trace(
+                model.compiled, model.prior_runtime_bundle
+            )
         np.testing.assert_allclose(trace["t0_cov"]["value"], det["t0_cov"][0], atol=1e-6)
         factor = trace["t0_correlation_positive_definite"]
         assert float(factor["fn"].log_prob(factor["value"])) == pytest.approx(-800000.01, rel=1e-5)
@@ -441,7 +476,7 @@ class TestDeterministicAssembly:
 @pytest.mark.contract
 class TestNativeRuntimePriors:
     def test_sites_have_native_distributions_with_the_declared_shapes(self, simple_spec):
-        registry = build_site_registry(simple_spec)
+        registry = build_site_registry(compile_model_fixture(simple_spec))
         priors = resolve_site_priors(registry)
         assert set(priors) == {site.name for site in registry}
         for site in registry:
@@ -449,7 +484,7 @@ class TestNativeRuntimePriors:
             assert priors[site.name].batch_shape == site.shape
 
     def test_partial_native_overrides_preserve_other_defaults(self, simple_spec):
-        registry = build_site_registry(simple_spec)
+        registry = build_site_registry(compile_model_fixture(simple_spec))
         decay_site = next(
             site.name for site in registry if site.site_kind == SiteKind.DYNAMICS_DECAY
         )
@@ -466,7 +501,7 @@ class TestNativeRuntimePriors:
 @pytest.mark.inference(concern="predictive")
 class TestSampling:
     def test_sample_shapes_and_native_support(self, simple_spec):
-        registry = build_site_registry(simple_spec)
+        registry = build_site_registry(compile_model_fixture(simple_spec))
         state = resolve_site_priors(registry)
         samples = sample_prior_parameters(random.PRNGKey(0), registry, state, n_samples=4)
         assert set(samples) == {site.name for site in registry}
@@ -477,7 +512,7 @@ class TestSampling:
                 assert jnp.all(samples[site.name] > 0)
 
     def test_site_streams_are_stable_under_registry_reordering(self, simple_spec):
-        registry = build_site_registry(simple_spec)
+        registry = build_site_registry(compile_model_fixture(simple_spec))
         state = resolve_site_priors(registry)
         samples = sample_prior_parameters(random.PRNGKey(7), registry, state, n_samples=4)
         reversed_samples = sample_prior_parameters(
@@ -521,17 +556,27 @@ class TestCompiledArtifactIntegration:
         from nof1_causal_lab.models.ssm.compile.prior_compilation import compile_priors
 
         priors, bindings, _diagnostics = compile_priors(
+            compile_model_fixture(
+                ModelSpec.model_validate_json(
+                    (
+                        Path(__file__).resolve().parents[2]
+                        / "fixtures/models"
+                        / "parameterization/testcompiledartifactintegration_test_ordered_threshold_priors_bind_per_manifest_component_and_row_model_with_prior_payloads.json"
+                    ).read_text()
+                )
+            ),
             ModelSpec.model_validate_json(
                 (
                     Path(__file__).resolve().parents[2]
                     / "fixtures/models"
                     / "parameterization/testcompiledartifactintegration_test_ordered_threshold_priors_bind_per_manifest_component_and_row_model_with_prior_payloads.json"
                 ).read_text()
-            )
+            ),
         )
 
         binding_by_parameter = {
-            binding.parameter_name: binding for binding in bindings.by_parameter.values()
+            binding.parameter_name: binding
+            for binding in {binding.parameter_id: binding for binding in bindings}.values()
         }
         assert binding_by_parameter["obs_ordered_base_short_scale"].flat_index == 0
         assert binding_by_parameter["obs_ordered_base_long_scale"].flat_index == 1
@@ -556,23 +601,19 @@ class TestCompiledArtifactIntegration:
     @pytest.mark.contract
     def test_execution_checks_accept_complete_model(self):
         """A model with authored priors satisfies execution requirements."""
-        from nof1_causal_lab.models.model_checks import check_execution
 
-        check_execution(
+        compile_model_fixture(
             ModelSpec.model_validate_json(
                 (
                     Path(__file__).resolve().parents[2]
                     / "fixtures/models"
                     / "parameterization/mood_model.json"
                 ).read_text()
-            ),
+            )
         )
 
     @pytest.mark.inference(concern="sampling")
     def test_runtime_derives_the_authored_priors(self):
-        import polars as pl
-
-        from nof1_causal_lab.models.ssm.runtime import build_ssm_model
 
         definition = ModelSpec.model_validate_json(
             (
@@ -581,11 +622,7 @@ class TestCompiledArtifactIntegration:
                 / "parameterization/mood_model.json"
             ).read_text()
         )
-        model = build_ssm_model(
-            pl.DataFrame({"time": [0.0], "mood_score": [5.0]}),
-            inputs=compile_fit_fixture(definition),
-        )
-        assert model.spec is definition
-        assert set(model.get_prior_runtime_bundle().priors) == {
-            site.name for site in build_site_registry(definition)
+        model = compile_fit_fixture(definition)
+        assert set(model.prior_runtime_bundle.priors) == {
+            site.name for site in build_site_registry(compile_model_fixture(definition))
         }

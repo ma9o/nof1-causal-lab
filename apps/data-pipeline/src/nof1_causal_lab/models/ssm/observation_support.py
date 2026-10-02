@@ -3,35 +3,33 @@
 from __future__ import annotations
 
 import heapq
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
 from typing import TYPE_CHECKING
 
 import numpy as np
 import polars as pl
 
 from nof1_causal_lab.models.ssm import numerics as numeric
-from nof1_causal_lab.utils.time_coordinates import serialization_origin
+from nof1_causal_lab.models.ssm.preflight import ObservationPreflightError
+from nof1_causal_lab.utils.time_coordinates import ModelTime, ObservationInstant
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
     from datetime import datetime
 
-    from jax import Array
-
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
-
-SECONDS_PER_DAY = 86400.0
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
 
 
-@dataclass
+@dataclass(frozen=True)
 class ObservationSupportRuntime:
     """Structured support metadata aligned to the prepared wide observation matrix."""
 
     anchor_times: np.ndarray  # shape (T,)
-    manifest_names: list[str]
-    support_kinds: list[str | None]
-    summary_operators: list[str | None]
-    anchor_policies: list[str | None]
-    observation_windows: list[str | None]
+    manifest_names: tuple[str, ...]
+    support_kinds: tuple[str | None, ...]
+    summary_operators: tuple[str | None, ...]
+    anchor_policies: tuple[str | None, ...]
+    observation_windows: tuple[str | None, ...]
     support_start_times: np.ndarray  # shape (T, n_manifest), NaN when missing
     support_end_times: np.ndarray  # shape (T, n_manifest), NaN when missing
     interval_prev_coeffs: np.ndarray  # shape (T, n_manifest, n_slots)
@@ -39,30 +37,36 @@ class ObservationSupportRuntime:
     interval_weights: np.ndarray  # shape (T, n_manifest, n_slots)
     emission_slot_indices: np.ndarray  # shape (T, n_manifest), -1 when not emitted
 
+    def __post_init__(self) -> None:
+        for field in fields(self):
+            value = getattr(self, field.name)
+            if isinstance(value, np.ndarray):
+                owned = value.copy()
+                owned.setflags(write=False)
+                object.__setattr__(self, field.name, owned)
+
     @property
     def requires_interval_summary_handling(self) -> bool:
         """Whether any manifest requires interval-summary measurement handling."""
         return any(kind == "interval" for kind in self.support_kinds)
 
     @property
-    def interval_summary_manifest_names(self) -> list[str]:
+    def interval_summary_manifest_names(self) -> tuple[str, ...]:
         """Manifest names that require interval-summary measurement handling."""
-        return [
+        return tuple(
             name
             for name, kind in zip(self.manifest_names, self.support_kinds, strict=False)
             if kind == "interval"
-        ]
+        )
 
     @property
     def max_active_windows(self) -> int:
         """Maximum number of concurrent interval-summary windows per manifest."""
-        return int(self.interval_prev_coeffs.shape[2]) if self.interval_prev_coeffs.ndim == 3 else 0
+        return int(self.interval_prev_coeffs.shape[2])
 
 
 def _datetime_expr(df: pl.DataFrame, column: str) -> pl.Expr:
     """Parse a datetime-like column to a consistent expression."""
-    if column not in df.columns:
-        return pl.lit(None, dtype=pl.Datetime)
     if df.schema.get(column) == pl.Utf8:
         return pl.col(column).str.to_datetime(time_zone="UTC").dt.replace_time_zone(None)
     dtype = df.schema.get(column)
@@ -76,7 +80,7 @@ def _pivot_support_matrix(
     *,
     value_col: str,
     base_times: pl.DataFrame,
-    manifest_names: list[str],
+    manifest_names: Sequence[str],
 ) -> np.ndarray:
     """Pivot one support-time column to a dense matrix aligned with wide_data rows."""
     pivoted = (
@@ -85,9 +89,6 @@ def _pivot_support_matrix(
         .sort("time")
     )
     aligned = base_times.join(pivoted, on="time", how="left")
-    for manifest in manifest_names:
-        if manifest not in aligned.columns:
-            aligned = aligned.with_columns(pl.lit(None, dtype=pl.Float64).alias(manifest))
     return aligned.select(manifest_names).to_numpy()
 
 
@@ -100,7 +101,7 @@ def _assign_support_slots(
     support_start_times: np.ndarray,
     support_end_times: np.ndarray,
     support_kinds: list[str | None],
-    manifest_names: list[str],
+    manifest_names: Sequence[str],
 ) -> tuple[list[list[tuple[float, float, int, int]]], int]:
     """Assign concurrent interval windows to reusable slots per manifest."""
     tol = 1e-8
@@ -126,12 +127,12 @@ def _assign_support_slots(
             end = float(ends[row_idx])
             anchor = float(anchor_times[row_idx])
             if end + tol < start:
-                raise ValueError(
+                raise ObservationPreflightError(
                     f"Indicator '{manifest_name}' has support_end before support_start "
                     f"at row {row_idx}: {start} -> {end}"
                 )
             if abs(anchor - end) > tol:
-                raise ValueError(
+                raise ObservationPreflightError(
                     f"Indicator '{manifest_name}' has support_end={end} that does not match "
                     f"its anchored observation time {anchor} at row {row_idx}."
                 )
@@ -139,7 +140,7 @@ def _assign_support_slots(
 
         windows.sort(key=lambda item: (item[0], item[1], item[2]))
         if windows[0][0] < anchor_times[0] - tol:
-            raise ValueError(
+            raise ObservationPreflightError(
                 f"Indicator '{manifest_name}' has support starting before the first model time. "
                 "Add earlier model-clock rows or shift the observation anchor."
             )
@@ -173,7 +174,7 @@ def _compile_interval_support_coefficients(
     support_start_times: np.ndarray,
     support_end_times: np.ndarray,
     support_kinds: list[str | None],
-    manifest_names: list[str],
+    manifest_names: Sequence[str],
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
     """Compile per-interval trapezoidal coefficients for concurrent support windows."""
     T = anchor_times.shape[0]
@@ -229,34 +230,14 @@ def _compile_interval_support_coefficients(
 
 
 def compile_observation_support_runtime(
-    observation_data: pl.DataFrame | None,
+    observation_data: pl.DataFrame,
     wide_data: pl.DataFrame,
-    manifest_names: list[str],
+    manifest_names: Sequence[str],
     *,
     time_origin: datetime | None,
-) -> ObservationSupportRuntime | None:
+) -> ObservationSupportRuntime:
     """Compile long-format observation support metadata into wide aligned arrays."""
-    if (
-        observation_data is None
-        or observation_data.is_empty()
-        or not manifest_names
-        or "anchor_time" not in observation_data.columns
-        or "support_start" not in observation_data.columns
-        or "support_end" not in observation_data.columns
-    ):
-        return None
-
-    if "indicator" not in observation_data.columns:
-        return None
-
     df = observation_data
-    required_semantics = ("support_kind", "summary_operator", "anchor_policy", "observation_window")
-    missing_semantics = [col_name for col_name in required_semantics if col_name not in df.columns]
-    if missing_semantics:
-        missing_display = ", ".join(missing_semantics)
-        raise ValueError(
-            f"Observation data is missing canonical support semantics columns: {missing_display}."
-        )
 
     df = df.with_columns(
         _datetime_expr(df, "anchor_time").alias("__anchor_dt"),
@@ -264,24 +245,13 @@ def compile_observation_support_runtime(
         _datetime_expr(df, "support_end").alias("__support_end_dt"),
     ).drop_nulls(subset=["__anchor_dt"])
 
-    if df.is_empty():
-        return None
-
-    t0 = serialization_origin(time_origin)
+    origin = ObservationInstant.origin(time_origin)
     df = df.with_columns(
-        ((pl.col("__anchor_dt") - pl.lit(t0)).dt.total_seconds() / SECONDS_PER_DAY)
-        .cast(pl.Float64)
-        .alias("time"),
-        ((pl.col("__support_start_dt") - pl.lit(t0)).dt.total_seconds() / SECONDS_PER_DAY)
-        .cast(pl.Float64)
-        .alias("__support_start_time"),
-        ((pl.col("__support_end_dt") - pl.lit(t0)).dt.total_seconds() / SECONDS_PER_DAY)
-        .cast(pl.Float64)
-        .alias("__support_end_time"),
+        ModelTime.bind_column(pl.col("__anchor_dt"), origin).alias("time"),
+        ModelTime.bind_column(pl.col("__support_start_dt"), origin).alias("__support_start_time"),
+        ModelTime.bind_column(pl.col("__support_end_dt"), origin).alias("__support_end_time"),
     )
 
-    if "time" not in wide_data.columns:
-        return None
     base_times = wide_data.select(pl.col("time").cast(pl.Float64).alias("time"))
     anchor_times = base_times["time"].to_numpy()
 
@@ -289,13 +259,13 @@ def compile_observation_support_runtime(
         df,
         value_col="__support_start_time",
         base_times=base_times,
-        manifest_names=manifest_names,
+        manifest_names=tuple(manifest_names),
     )
     support_end_times = _pivot_support_matrix(
         df,
         value_col="__support_end_time",
         base_times=base_times,
-        manifest_names=manifest_names,
+        manifest_names=tuple(manifest_names),
     )
 
     kind_window_rows = (
@@ -309,17 +279,11 @@ def compile_observation_support_runtime(
         .iter_rows(named=True)
     )
     kind_window_lookup = {row["indicator"]: row for row in kind_window_rows}
-    support_kinds = [
-        kind_window_lookup.get(name, {}).get("support_kind") for name in manifest_names
-    ]
-    summary_operators = [
-        kind_window_lookup.get(name, {}).get("summary_operator") for name in manifest_names
-    ]
-    anchor_policies = [
-        kind_window_lookup.get(name, {}).get("anchor_policy") for name in manifest_names
-    ]
+    support_kinds = [kind_window_lookup[name]["support_kind"] for name in manifest_names]
+    summary_operators = [kind_window_lookup[name]["summary_operator"] for name in manifest_names]
+    anchor_policies = [kind_window_lookup[name]["anchor_policy"] for name in manifest_names]
     observation_windows = [
-        kind_window_lookup.get(name, {}).get("observation_window") for name in manifest_names
+        kind_window_lookup[name]["observation_window"] for name in manifest_names
     ]
     interval_prev_coeffs, interval_curr_coeffs, interval_weights, emission_slot_indices = (
         _compile_interval_support_coefficients(
@@ -333,11 +297,11 @@ def compile_observation_support_runtime(
 
     return ObservationSupportRuntime(
         anchor_times=anchor_times,
-        manifest_names=manifest_names,
-        support_kinds=support_kinds,
-        summary_operators=summary_operators,
-        anchor_policies=anchor_policies,
-        observation_windows=observation_windows,
+        manifest_names=tuple(manifest_names),
+        support_kinds=tuple(support_kinds),
+        summary_operators=tuple(summary_operators),
+        anchor_policies=tuple(anchor_policies),
+        observation_windows=tuple(observation_windows),
         support_start_times=support_start_times,
         support_end_times=support_end_times,
         interval_prev_coeffs=interval_prev_coeffs,
@@ -348,9 +312,8 @@ def compile_observation_support_runtime(
 
 
 def augment_wide_data_with_support_boundaries(
-    observation_data: pl.DataFrame | None,
+    observation_data: pl.DataFrame,
     wide_data: pl.DataFrame,
-    manifest_names: list[str],
     *,
     time_origin: datetime | None,
 ) -> pl.DataFrame:
@@ -374,18 +337,6 @@ def augment_wide_data_with_support_boundaries(
             ),
         )
         wide_data = pl.concat([initial, wide_data], how="vertical_relaxed")
-    if (
-        observation_data is None
-        or observation_data.is_empty()
-        or wide_data.is_empty()
-        or "time" not in wide_data.columns
-        or not manifest_names
-        or "anchor_time" not in observation_data.columns
-        or "support_start" not in observation_data.columns
-        or "support_end" not in observation_data.columns
-    ):
-        return wide_data
-
     df = observation_data.with_columns(
         _datetime_expr(observation_data, "anchor_time").alias("__anchor_dt"),
         _datetime_expr(observation_data, "support_start").alias("__support_start_dt"),
@@ -399,7 +350,7 @@ def augment_wide_data_with_support_boundaries(
     if interval_df.is_empty():
         return wide_data
 
-    t0 = serialization_origin(time_origin)
+    origin = ObservationInstant.origin(time_origin)
     boundary_times = (
         pl.concat(
             [
@@ -412,11 +363,7 @@ def augment_wide_data_with_support_boundaries(
         .drop_nulls(subset=["__boundary_dt"])
         .unique()
         .sort("__boundary_dt")
-        .with_columns(
-            ((pl.col("__boundary_dt") - pl.lit(t0)).dt.total_seconds() / SECONDS_PER_DAY)
-            .cast(pl.Float64)
-            .alias("time")
-        )
+        .with_columns(ModelTime.bind_column(pl.col("__boundary_dt"), origin).alias("time"))
         .select("time")
     )
 
@@ -443,7 +390,7 @@ def extract_numeric_column_values(X: pl.DataFrame, column: str) -> np.ndarray:
     return values[~np.isnan(values)]
 
 
-def validate_discrete_manifest_metadata(spec: ModelSpec, X: pl.DataFrame) -> None:
+def validate_discrete_manifest_metadata(spec: CompiledModel, X: pl.DataFrame) -> None:
     """Check encoded observations against the levels declared on their indicators."""
     from nof1_causal_lab.models.ssm.execution.observation_families import get_family_spec
 
@@ -457,18 +404,22 @@ def validate_discrete_manifest_metadata(spec: ModelSpec, X: pl.DataFrame) -> Non
         if not family_spec.needs_level_metadata:
             continue
         if count < 2:
-            raise ValueError(f"Indicator {column!r} requires at least two declared levels")
+            raise ObservationPreflightError(
+                f"Indicator {column!r} requires at least two declared levels"
+            )
         values = extract_numeric_column_values(X, column)
         rounded = np.rint(values)
         if not np.allclose(values, rounded, atol=1e-6):
-            raise ValueError(f"Indicator {column!r} observations are not integer-encoded")
+            raise ObservationPreflightError(
+                f"Indicator {column!r} observations are not integer-encoded"
+            )
         if np.any((rounded < 0) | (rounded >= count)):
-            raise ValueError(
+            raise ObservationPreflightError(
                 f"Indicator {column!r} observations fall outside declared range 0..{count - 1}"
             )
 
 
-def validate_observation_support(spec: ModelSpec, X: pl.DataFrame) -> None:
+def validate_observation_support(spec: CompiledModel, X: pl.DataFrame) -> None:
     """Reject likelihoods whose support is incompatible with observed data."""
     from nof1_causal_lab.models.ssm.execution.observation_families import get_family_spec
 
@@ -499,26 +450,24 @@ def validate_observation_support(spec: ModelSpec, X: pl.DataFrame) -> None:
         )
 
     if issues:
-        raise ValueError("Observation support check failed:\n" + "\n".join(issues))
+        raise ObservationPreflightError("Observation support check failed:\n" + "\n".join(issues))
 
 
-def simulation_observation_support(spec: ModelSpec, times: np.ndarray) -> ObservationSupportRuntime:
+def simulation_observation_support(
+    spec: CompiledModel, times: np.ndarray
+) -> ObservationSupportRuntime:
     """Schedule declared indicators on a simulation grid, omitting unavailable prehistory."""
-    from nof1_causal_lab.artifacts.duration import parse_duration_to_hours
-    from nof1_causal_lab.models.ssm import numerics as numeric
 
-    indicators = {indicator.id: indicator for _, indicator in spec.iter_indicators()}
-    ordered = [indicators[identity] for identity in numeric.observation_ids(spec)]
+    ordered = spec.observations
     names = [indicator.name for indicator in ordered]
-    kinds: list[str | None] = [indicator.support_kind.value for indicator in ordered]
-    windows = [indicator.observation_window or spec.measurement_clock for indicator in ordered]
+    kinds: list[str | None] = [indicator.support.support_kind.value for indicator in ordered]
+    windows: list[str | None] = [indicator.observation_window for indicator in ordered]
     starts = np.broadcast_to(times[:, None], (len(times), len(ordered))).copy()
     ends = starts.copy()
-    for i, (kind, window) in enumerate(zip(kinds, windows, strict=True)):
+    for i, observation in enumerate(ordered):
+        kind = observation.support.support_kind.value
         if kind == "interval":
-            if window is None:
-                raise ValueError("Interval simulation requires a declared measurement window")
-            starts[:, i] -= parse_duration_to_hours(window) / 24
+            starts[:, i] -= observation.window_days
             absent = starts[:, i] < times[0] - 1e-8
             starts[absent, i] = np.nan
             ends[absent, i] = np.nan
@@ -527,56 +476,17 @@ def simulation_observation_support(spec: ModelSpec, times: np.ndarray) -> Observ
     )
     return ObservationSupportRuntime(
         anchor_times=times,
-        manifest_names=names,
-        support_kinds=kinds,
-        summary_operators=[indicator.summary_operator.value for indicator in ordered],
-        anchor_policies=[indicator.anchor_policy.value for indicator in ordered],
-        observation_windows=windows,
+        manifest_names=tuple(names),
+        support_kinds=tuple(kinds),
+        summary_operators=tuple(
+            [indicator.support.summary_operator.value for indicator in ordered]
+        ),
+        anchor_policies=tuple([indicator.support.anchor_policy.value for indicator in ordered]),
+        observation_windows=tuple(windows),
         support_start_times=starts,
         support_end_times=ends,
         interval_prev_coeffs=previous,
         interval_curr_coeffs=current,
         interval_weights=weights,
         emission_slot_indices=slots,
-    )
-
-
-def prepare_simulation_observations(
-    model: ModelSpec,
-    times: np.ndarray,
-    *,
-    comparison_data: pl.DataFrame | None = None,
-    time_origin: datetime | None,
-) -> tuple[Array | None, ObservationSupportRuntime | None]:
-    """Resolve the same observation schedule for generation and replicate materialization."""
-    if comparison_data is None:
-        return None, simulation_observation_support(model, times)
-
-    observations, observed_times, support = prepare_comparison_observations(
-        model, comparison_data, time_origin=time_origin
-    )
-    if observed_times.shape != times.shape or not np.allclose(observed_times, times):
-        raise ValueError("Comparison data and simulation design must have the same time grid")
-    return observations, support
-
-
-def prepare_comparison_observations(
-    model: ModelSpec, comparison_data: pl.DataFrame, *, time_origin: datetime | None
-) -> tuple[Array, Array, ObservationSupportRuntime | None]:
-    """Use actual observation anchors and support boundaries for predictive comparisons."""
-    from nof1_causal_lab.models.ssm.runtime import prepare_fit_inputs, project_observation_data
-
-    wide, rows = project_observation_data(
-        comparison_data, model_spec=model, time_origin=time_origin
-    )
-    wide = augment_wide_data_with_support_boundaries(
-        rows, wide, numeric.observation_names(model), time_origin=time_origin
-    )
-    validate_discrete_manifest_metadata(model, wide)
-    validate_observation_support(model, wide)
-    observations, times, names, wide = prepare_fit_inputs(model, wide)
-    return (
-        observations,
-        times,
-        compile_observation_support_runtime(rows, wide, names, time_origin=time_origin),
     )

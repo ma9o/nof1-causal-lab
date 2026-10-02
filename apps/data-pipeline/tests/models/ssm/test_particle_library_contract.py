@@ -2,6 +2,7 @@
 
 import ast
 from importlib import import_module
+from operator import setitem
 from pathlib import Path
 from typing import Never
 from unittest.mock import Mock
@@ -10,7 +11,6 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from nof1_causal_lab.artifacts.posterior_diagnostics import LOODiagnostics
 from nof1_causal_lab.models.ssm.inference.mcmc_state import TrajectoryMCMCResult
 from nof1_causal_lab.models.ssm.inference.methods._pmcmc_shared.extraction import (
     extract_grouped_public_samples,
@@ -21,8 +21,13 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.runner
 from nof1_causal_lab.models.ssm.inference.parameter_transform import ParameterTransform
 from nof1_causal_lab.models.ssm.inference.problem import ParticleProblem
 from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleTarget
-from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws, ParticleMCMCPosterior
+from nof1_causal_lab.models.ssm.inference.types import (
+    JointPosteriorDraws,
+    ParticleMCMCPosterior,
+    ProductionDiagnostics,
+)
 from nof1_causal_lab.models.ssm.inference.utils import extract_constrained_samples
+from tests.inference_fixtures import particle_posterior
 
 pytestmark = pytest.mark.contract
 
@@ -76,7 +81,7 @@ def test_library_parameter_output_preserves_public_vector_sites_and_chain_order(
     problem = ParticleProblem(
         runtime=runtime,
         site_info={},
-        public_sites={"beta"},
+        public_sites=frozenset({"beta"}),
         latent_transition_kind="euler_maruyama",
     )
     samples = extract_grouped_public_samples(positions, bundle=problem, num_chains=2, num_samples=3)
@@ -131,15 +136,17 @@ def test_loo_uses_joint_emissions_and_omits_only_completely_missing_rows(monkeyp
     mcmc = TrajectoryMCMCResult(samples, {}, num_chains=2, num_samples=3)
     posterior = ParticleMCMCPosterior(
         draws=JointPosteriorDraws(parameters=mcmc.get_samples()),
-        diagnostics={"mcmc": mcmc, "observation_log_probs": factors},
+        diagnostics=ProductionDiagnostics(mcmc=mcmc, observation_log_probs=factors),
     )
 
-    def estimate(idata):
+    def estimate(idata, *, pointwise):
+        assert pointwise is True
         np.testing.assert_array_equal(
             idata.log_likelihood["measurement_row"].values, factors[:, :, [0, 2, 3]]
         )
         np.testing.assert_array_equal(idata.posterior["beta"].values, samples["beta"])
         return Mock(
+            spec=import_module("arviz_stats.utils").ELPDDataLOO,
             elpd=-7.0,
             p=0.4,
             se=0.2,
@@ -149,7 +156,10 @@ def test_loo_uses_joint_emissions_and_omits_only_completely_missing_rows(monkeyp
 
     # Test the scientific factor boundary without computing PSIS or fitting.
     monkeypatch.setattr(import_module("arviz_stats.loo"), "loo", estimate)
-    result = LOODiagnostics.model_validate(posterior.get_loo_diagnostics(observations=observations))
+    measured = posterior.get_loo_diagnostics(observations=observations)
+    assert measured is not None
+    result, points = measured
+    assert [point.timestep for point in points] == [3, 4, 1]
     assert result.n_data_points == 3
     assert result.n_bad_k == 1
     assert result.observation_unit == "measurement_row"
@@ -160,7 +170,10 @@ def test_loo_uses_joint_emissions_and_omits_only_completely_missing_rows(monkeyp
 def test_loo_all_missing_rows_have_no_predictive_estimate():
     posterior = ParticleMCMCPosterior(
         draws=JointPosteriorDraws(parameters={}),
-        diagnostics={"observation_log_probs": jnp.zeros((2, 3, 4))},
+        diagnostics=ProductionDiagnostics(
+            observation_log_probs=jnp.zeros((2, 3, 4)),
+            mcmc=TrajectoryMCMCResult({}, {}, num_chains=2, num_samples=3),
+        ),
     )
     assert posterior.get_loo_diagnostics(observations=jnp.full((4, 2), jnp.nan)) is None
 
@@ -168,15 +181,23 @@ def test_loo_all_missing_rows_have_no_predictive_estimate():
 def test_loo_cannot_reweight_away_an_exact_state_constraint():
     posterior = ParticleMCMCPosterior(
         draws=JointPosteriorDraws(parameters={}),
-        diagnostics={
-            "observation_log_probs": jnp.zeros((2, 3, 2)),
-            "exact_observation_rows": jnp.array([True, False]),
-        },
+        diagnostics=ProductionDiagnostics(
+            observation_log_probs=jnp.zeros((2, 3, 2)),
+            exact_observation_rows=jnp.array([True, False]),
+            mcmc=TrajectoryMCMCResult({}, {}, num_chains=2, num_samples=3),
+        ),
     )
     assert posterior.get_loo_diagnostics(observations=jnp.ones((2, 1))) is None
 
 
-def test_loo_requires_particle_evidence():
-    posterior = ParticleMCMCPosterior(draws=JointPosteriorDraws(parameters={"beta": jnp.zeros(3)}))
-    with pytest.raises(KeyError, match="observation_log_probs"):
-        posterior.get_loo_diagnostics(observations=jnp.ones((4, 2)))
+def test_published_particle_buffers_are_frozen_and_do_not_alias_builder_maps():
+    from dataclasses import FrozenInstanceError
+
+    samples = {"beta": jnp.zeros(3)}
+    posterior = particle_posterior(draws=JointPosteriorDraws(parameters=samples))
+    samples["beta"] = jnp.ones(3)
+    np.testing.assert_array_equal(posterior.get_samples()["beta"], jnp.zeros(3))
+    with pytest.raises(TypeError):
+        setitem(posterior.get_samples(), "beta", jnp.ones(3))
+    with pytest.raises(FrozenInstanceError):
+        posterior.diagnostics.observation_log_probs = jnp.ones((1, 3, 1))

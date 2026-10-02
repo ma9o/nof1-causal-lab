@@ -13,21 +13,33 @@ import json
 import re
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
+import numpy as np
+import polars as pl
 import pyarrow as pa
 import pyarrow.parquet as pq
 
 from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid
+from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.git_objects import object_tree, open_repository, read_file, write_tree
 from nof1_causal_lab.study.state import ArtifactRecord, StudyState
+from nof1_causal_lab.study.view_models import DataPoint, DataRef, DataSeries, Dataset
 from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
 
 if TYPE_CHECKING:
-    import polars as pl
+    from jax.typing import ArrayLike
+    from pydantic import BaseModel
 
+    from nof1_causal_lab.artifacts.identification import IdentificationReport
+    from nof1_causal_lab.artifacts.measurements import ObservationRecord
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.observations import ObservationSpec
+    from nof1_causal_lab.artifacts.validation_report import (
+        DataProfileArtifact,
+        ValidationReportArtifact,
+    )
     from nof1_causal_lab.json_types import JsonObject
 
 
@@ -60,12 +72,12 @@ class ArtifactStore:
         self._root = data_module.store_dir(workspace_id)
         self.repo = open_repository(workspace_id, repository_path)
 
-    def write_array(self, values) -> str:
+    def write_array(self, values: ArrayLike) -> str:
         from nof1_causal_lab.utils.arrays import write_array
 
-        return write_array(storage.join(self._root, "arrays"), values)
+        return write_array(storage.join(self._root, "arrays"), np.asarray(values))
 
-    def read_array(self, identity: str):
+    def read_array(self, identity: str) -> np.ndarray:
         from nof1_causal_lab.utils.arrays import read_array
 
         return read_array(storage.join(self._root, "arrays"), identity)
@@ -147,12 +159,64 @@ class ArtifactStore:
         metadata = json.loads(read_file(self.repo, revision, "meta.json"))
         info = ArtifactRecord(**metadata, revision=GitOid(revision))
         if info.artifact_id != artifact_id:
-            raise ValueError(f"Git object {revision} is {info.artifact_id}, not {artifact_id}")
+            raise StudyLookupError(
+                f"Git object {revision} is {info.artifact_id}, not {artifact_id}"
+            )
         return info
 
-    def read_json_file(self, artifact_id: ArtifactId, revision: str, name: str) -> Any:
+    def completion_reports(
+        self, produced: tuple[ArtifactRecord, ...]
+    ) -> tuple[IdentificationReport | DataProfileArtifact | ValidationReportArtifact, ...]:
+        from nof1_causal_lab.artifacts.identification import IdentificationReport
+        from nof1_causal_lab.artifacts.validation_report import (
+            DataProfileArtifact,
+            ValidationReportArtifact,
+        )
+
+        reports: list[IdentificationReport | DataProfileArtifact | ValidationReportArtifact] = []
+        for artifact in produced:
+            match artifact.artifact_id:
+                case "identification_report":
+                    reports.append(
+                        self.read_value(
+                            artifact.artifact_id,
+                            artifact.revision,
+                            "identification_report.json",
+                            IdentificationReport,
+                        )
+                    )
+                case "data_profile":
+                    reports.append(
+                        self.read_value(
+                            artifact.artifact_id,
+                            artifact.revision,
+                            "data_profile.json",
+                            DataProfileArtifact,
+                        )
+                    )
+                case "validation_report":
+                    reports.append(
+                        self.read_value(
+                            artifact.artifact_id,
+                            artifact.revision,
+                            "validation_report.json",
+                            ValidationReportArtifact,
+                        )
+                    )
+                case _:
+                    pass
+        return tuple(reports)
+
+    def read_value[ValueT: BaseModel](
+        self, artifact_id: ArtifactId, revision: str, name: str, target: type[ValueT]
+    ) -> ValueT:
         self.read_meta(artifact_id, revision)
-        return json.loads(read_file(self.repo, revision, name))
+        return target.model_validate_json(read_file(self.repo, revision, name))
+
+    def read_json_file(self, artifact_id: ArtifactId, revision: str, name: str) -> JsonObject:
+        self.read_meta(artifact_id, revision)
+        value: JsonObject = json.loads(read_file(self.repo, revision, name))
+        return value
 
     def filenames(self, artifact_id: ArtifactId, revision: str) -> list[str]:
         self.read_meta(artifact_id, revision)
@@ -222,14 +286,14 @@ def collect_run_traces(workspace_id: str, seq: int) -> dict[str, bytes]:
     return logs
 
 
-def read_attempt_trace(workspace_id: str, commit_id: str, subroutine_id: str) -> Any:
+def read_attempt_trace(workspace_id: str, commit_id: str, subroutine_id: str) -> JsonObject:
     from nof1_causal_lab.study.history import StudyRepository
 
     repository = StudyRepository(workspace_id)
-    try:
-        return json.loads(repository.read_file(commit_id, f"logs/{trace_log_path(subroutine_id)}"))
-    except KeyError as exc:
-        raise FileNotFoundError(f"No trace {subroutine_id} at {commit_id}") from exc
+    value: JsonObject = json.loads(
+        repository.read_file(commit_id, f"logs/{trace_log_path(subroutine_id)}")
+    )
+    return value
 
 
 def read_current_state(workspace_id: str, *, branch: str = "main") -> StudyState:
@@ -237,3 +301,63 @@ def read_current_state(workspace_id: str, *, branch: str = "main") -> StudyState
 
     repository = StudyRepository(workspace_id)
     return repository.state(repository.head(branch))
+
+
+def read_payload(store: ArtifactStore, artifact_id: ArtifactId, revision: str) -> BaseModel:
+    from functools import cache
+
+    from nof1_causal_lab.artifacts.catalog import ARTIFACT_CONTRACTS
+    from nof1_causal_lab.study.artifact_files import artifact_file_spec
+
+    """Validate one immutable primary JSON payload with its production contract."""
+    filename = next(iter(artifact_file_spec(artifact_id).json.values()))
+    return ARTIFACT_CONTRACTS[artifact_id].model_validate(
+        store.read_json_file(artifact_id, revision, filename),
+        context={"distribution_array_loader": cache(store.read_array)},
+    )
+
+
+def observation_sample(panel: pl.DataFrame) -> tuple[ObservationRecord, ...]:
+    """Parse stored rows before their compact projection."""
+    from pydantic import TypeAdapter
+
+    from nof1_causal_lab.artifacts.measurements import ObservationRecord
+
+    sample = []
+    for row in panel.head(20).to_dicts():
+        record = {
+            key: value for key, value in row.items() if key in ObservationRecord.__annotations__
+        }
+        for key in ("anchor_time", "support_start", "support_end"):
+            if record.get(key) is not None:
+                record[key] = str(record[key])
+        sample.append(TypeAdapter(ObservationRecord).validate_python(record))
+    return tuple(sample)
+
+
+def read_dataset(
+    source: DataRef,
+    variables: tuple[ObservationSpec, ...],
+    observations: pl.DataFrame,
+    time_origin: datetime | None,
+) -> Dataset:
+    from nof1_causal_lab.utils.observation_rows import validate_observation_rows
+
+    frame = validate_observation_rows(observations, variables).with_columns(
+        pl.col("anchor_time", "support_start", "support_end").dt.replace_time_zone("UTC")
+    )
+    series = {
+        variable.id: DataSeries(
+            variable=variable,
+            time_origin=time_origin,
+            points=tuple(
+                DataPoint.model_validate(row)
+                for row in frame.filter(pl.col("indicator_id") == variable.id)
+                .select("anchor_time", "support_start", "support_end", "value")
+                .iter_rows(named=True)
+            ),
+        )
+        for variable in variables
+    }
+
+    return Dataset(source=source, series=series)

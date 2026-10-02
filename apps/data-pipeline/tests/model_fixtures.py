@@ -17,7 +17,7 @@ from nof1_causal_lab.models.ssm.autoreparam import Strategy, _minimal_reparam
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.autoreparam import ReparamSite
+    from numpyro.primitives import Message
 
 
 def affine_test_evolution(A, covariance, b=None, B=None):
@@ -35,8 +35,8 @@ class MinimalReparam(Strategy):
     """Test-owned minimal reparameterization strategy."""
 
     @override
-    def configure(self, msg: ReparamSite):
-        return _minimal_reparam(msg["fn"], msg.get("is_observed", False))
+    def configure(self, msg: Message):
+        return _minimal_reparam(msg["fn"], is_observed=msg.get("is_observed", False))
 
 
 def make_lgss_data(
@@ -133,7 +133,7 @@ def parameter_draws(model: ModelSpec, n_draws: int) -> dict[str, jnp.ndarray]:
     from nof1_causal_lab.models.ssm.compile.inputs import compile_priors
     from nof1_causal_lab.prior_distributions import prior_reference_value
 
-    priors, _, _ = compile_priors(model)
+    priors, _, _ = compile_priors(compile_model_fixture(model), model)
     return {
         name: jnp.broadcast_to(value, (n_draws, *value.shape))
         for name, law in priors.items()
@@ -151,3 +151,50 @@ def compile_fit_fixture(spec: ModelSpec):
     inputs = compile_ssm_inputs_from_model(spec)
     assert isinstance(inputs, CompiledFitInputs), inputs
     return inputs
+
+
+def compile_model_fixture(spec: ModelSpec):
+    """Compile native execution facts without imposing the fitting law restrictions."""
+    from nof1_causal_lab.models.ssm.compile.inputs import compile_executable_model
+
+    return compile_executable_model(spec)
+
+
+def bind_panel_fixture(model, observations, times, *, support=None):
+    """Publish a complete numerical test panel, including its identity-bearing rows."""
+    from datetime import UTC, datetime, timedelta
+
+    import polars as pl
+
+    from nof1_causal_lab.models.ssm.observation_support import simulation_observation_support
+    from nof1_causal_lab.models.ssm.runtime import BoundPanel, bind_panel
+
+    observations, times = jnp.asarray(observations), jnp.asarray(times)
+    support = (
+        simulation_observation_support(model, np.asarray(times)) if support is None else support
+    )
+    origin = datetime(1970, 1, 1, tzinfo=UTC)
+    rows = []
+    for i, observation in enumerate(model.observations):
+        for t, at in enumerate(np.asarray(times)):
+            start, end = support.support_start_times[t, i], support.support_end_times[t, i]
+            rows.append(
+                {
+                    "indicator_id": str(observation.id),
+                    "value": float(observations[t, i]),
+                    "anchor_time": origin + timedelta(days=float(at)),
+                    "support_start": origin + timedelta(days=float(start))
+                    if np.isfinite(start)
+                    else None,
+                    "support_end": origin + timedelta(days=float(end))
+                    if np.isfinite(end)
+                    else None,
+                    "support_kind": support.support_kinds[i],
+                    "summary_operator": support.summary_operators[i],
+                    "anchor_policy": support.anchor_policies[i],
+                    "observation_window": support.observation_windows[i],
+                }
+            )
+    panel = bind_panel(pl.DataFrame(rows), model=model, time_origin=origin)
+    assert isinstance(panel, BoundPanel), panel
+    return panel

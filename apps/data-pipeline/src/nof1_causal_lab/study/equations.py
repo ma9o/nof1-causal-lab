@@ -8,7 +8,9 @@ from typing import TYPE_CHECKING
 from nof1_causal_lab.artifacts.construct import CausalEdgeSpec
 from nof1_causal_lab.artifacts.expressions import fold_expression
 from nof1_causal_lab.artifacts.identity import ParameterId
+from nof1_causal_lab.artifacts.likelihood import observation_expressions
 from nof1_causal_lab.artifacts.parameter import PriorAuthoringTransform
+from nof1_causal_lab.models.model_structure import selected_state_ids
 from nof1_causal_lab.study.expression_latex import (
     LatexValue,
     binary_latex,
@@ -18,7 +20,7 @@ from nof1_causal_lab.study.expression_latex import (
 from nof1_causal_lab.study.view_models import StateEquation
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.expressions import Expression
+    from nof1_causal_lab.artifacts.expressions import CoefficientExpression, Expression
     from nof1_causal_lab.artifacts.identity import ConstructId, IndicatorId, ParameterId
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
@@ -53,7 +55,7 @@ def _expression_latex(model: ModelSpec, expression: Expression) -> str:
             return f"{value:g}"
         parameter = parameters[value]
         symbol = r"\theta_{" + _text(parameter.name) + "}"
-        match parameter.distribution_transform:
+        match parameter.transform.kind:
             case PriorAuthoringTransform.DT_PERSISTENCE_TO_CT_DECAY:
                 return r"\frac{-\log(" + symbol + r")}{\Delta_{" + _text(parameter.name) + "}}"
             case PriorAuthoringTransform.DT_EFFECT_TO_CT_RATE:
@@ -61,7 +63,7 @@ def _expression_latex(model: ModelSpec, expression: Expression) -> str:
             case _:
                 return symbol
 
-    def rendered_coefficient(operand):
+    def rendered_coefficient(operand: CoefficientExpression) -> LatexValue:
         reference = operand.value
         if reference is None:
             return LatexValue(r"\underbrace{?}_{\text{" + operand.role.replace("_", " ") + "}}")
@@ -89,7 +91,7 @@ def observation_equations(model: ModelSpec) -> dict[IndicatorId, str]:
         + r"}\left("
         + r",\; ".join(
             r"\mathrm{" + name + "}=" + _expression_latex(model, argument)
-            for name, argument in likelihood.law.arguments.items()
+            for name, argument in observation_expressions(likelihood.law)
         )
         + r"\right)"
         for indicator, likelihood in model.iter_likelihoods()
@@ -112,7 +114,7 @@ def state_equations(model: ModelSpec) -> list[StateEquation]:
         terms[target].append(expression)
 
     rows = []
-    for key in model.state_order:
+    for key in selected_state_ids(model):
         construct = model._constructs[key]
         if construct.temporal_status == "time_invariant":
             equation = r"\mathrm{d}" + _state_latex(model, key) + " = 0"

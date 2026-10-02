@@ -169,7 +169,14 @@ def _make_glm_grad_hess(score_weight_fn: ScoreWeightFn) -> LatentGradHessFn:
     which is always PSD when w_eta >= 0.
     """
 
-    def emission_grad_hess_fn(y_t, z_t, H, d, _R, mask_t):
+    def emission_grad_hess_fn(
+        y_t: jnp.ndarray,
+        z_t: jnp.ndarray,
+        H: jnp.ndarray,
+        d: jnp.ndarray,
+        _R: jnp.ndarray,
+        mask_t: jnp.ndarray,
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
         eta = H @ z_t + d
         g_eta, w_eta = score_weight_fn(y_t, eta, mask_t)
         g_z = H.T @ g_eta
@@ -182,7 +189,14 @@ def _make_glm_grad_hess(score_weight_fn: ScoreWeightFn) -> LatentGradHessFn:
 def _make_student_t_grad_hess(df: float | jnp.ndarray) -> LatentGradHessFn:
     """Build emission_grad_hess_fn for Student-t (scale extracted from diag(R))."""
 
-    def emission_grad_hess_fn(y_t, z_t, H, d, R, mask_t):
+    def emission_grad_hess_fn(
+        y_t: jnp.ndarray,
+        z_t: jnp.ndarray,
+        H: jnp.ndarray,
+        d: jnp.ndarray,
+        R: jnp.ndarray,
+        mask_t: jnp.ndarray,
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
         eta = H @ z_t + d
         scale_diag = jnp.sqrt(jnp.diag(R))
         residual = y_t - eta
@@ -197,7 +211,14 @@ def _make_student_t_grad_hess(df: float | jnp.ndarray) -> LatentGradHessFn:
     return emission_grad_hess_fn
 
 
-def _delta_grad_hess(_y_t, _z_t, _H, _d, _R, _mask_t):
+def _delta_grad_hess(
+    _y_t: jnp.ndarray,
+    _z_t: jnp.ndarray,
+    _H: jnp.ndarray,
+    _d: jnp.ndarray,
+    _R: jnp.ndarray,
+    _mask_t: jnp.ndarray,
+) -> tuple[jnp.ndarray, jnp.ndarray]:
     raise ValueError(
         "Delta observations impose exact constraints and have no smooth log-density "
         "for Gaussian initialization."
@@ -210,7 +231,14 @@ def _make_gaussian_grad_hess() -> LatentGradHessFn:
         MISSING_DATA_LARGE_VAR,
     )
 
-    def emission_grad_hess_fn(y_t, z_t, H, d, R, mask_t):
+    def emission_grad_hess_fn(
+        y_t: jnp.ndarray,
+        z_t: jnp.ndarray,
+        H: jnp.ndarray,
+        d: jnp.ndarray,
+        R: jnp.ndarray,
+        mask_t: jnp.ndarray,
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
         eta = H @ z_t + d
         residual = (y_t - eta) * mask_t
         R_adj = R + jnp.diag((1.0 - mask_t) * MISSING_DATA_LARGE_VAR)
@@ -362,8 +390,10 @@ def build_heterogeneous_observation_kernel(
         group_kernels.append((ch_indices, kernel))
 
     # Compose predictor-space log-probability: sum per-group contributions.
-    def heterogeneous_log_prob_fn(y_t, eta, R, mask_t):
-        total_ll = 0.0
+    def heterogeneous_log_prob_fn(
+        y_t: jnp.ndarray, eta: jnp.ndarray, R: jnp.ndarray, mask_t: jnp.ndarray
+    ) -> jnp.ndarray:
+        total_ll = jnp.zeros((), dtype=y_t.dtype)
         for ch_indices, kernel in group_kernels:
             idx = jnp.array(ch_indices)
             y_g = y_t[idx]
@@ -374,7 +404,14 @@ def build_heterogeneous_observation_kernel(
         return total_ll
 
     # Compose emission_grad_hess_fn: sum per-group gradients and Hessians
-    def heterogeneous_emission_grad_hess_fn(y_t, z_t, H, d, R, mask_t):
+    def heterogeneous_emission_grad_hess_fn(
+        y_t: jnp.ndarray,
+        z_t: jnp.ndarray,
+        H: jnp.ndarray,
+        d: jnp.ndarray,
+        R: jnp.ndarray,
+        mask_t: jnp.ndarray,
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
         D = z_t.shape[0]
         total_grad = jnp.zeros(D)
         total_hess = jnp.zeros((D, D))
@@ -467,7 +504,7 @@ def compile_observation_model(
         manifest_links=links,
         extra_params=extra_params,
     )
-    mean_log_prob_fn = None
+    mean_log_prob_fn: MeanLogProbFn | None = None
     interval_summary_sampler = None
     if observation_operator is not None and observation_operator.requires_interval_summary_handling:
         interval_summary_indices = list(observation_operator.interval_summary_indices)
@@ -495,7 +532,9 @@ def compile_observation_model(
             extra_params=extra_params,
         )
 
-        def mean_log_prob_fn(y_t, mean_t, R, obs_mask_t):
+        def interval_mean_log_prob_fn(
+            y_t: jnp.ndarray, mean_t: jnp.ndarray, R: jnp.ndarray, obs_mask_t: jnp.ndarray
+        ) -> jnp.ndarray:
             y_interval_summary = y_t[interval_summary_idx]
             mean_interval_summary = mean_t[interval_summary_idx]
             mask_interval_summary = obs_mask_t[interval_summary_idx]
@@ -506,6 +545,8 @@ def compile_observation_model(
                 R_interval_summary,
                 mask_interval_summary,
             )
+
+        mean_log_prob_fn = interval_mean_log_prob_fn
 
     return CompiledObservationModel(
         kernel=kernel,

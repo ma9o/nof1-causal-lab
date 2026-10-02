@@ -3,15 +3,16 @@
 from __future__ import annotations
 
 import functools
-import time
-from typing import TYPE_CHECKING, Literal, TypedDict
+from collections.abc import Callable
+from dataclasses import dataclass
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Literal
 
 import jax
 import jax.numpy as jnp
 import jax.random as random
 from blackjax.adaptation.step_size import dual_averaging_adaptation
 
-from nof1_causal_lab.models.ssm.inference import _profiling
 from nof1_causal_lab.models.ssm.inference.mcmc_state import (
     TrajectoryMCMCState,
     _adapt_scale,
@@ -27,6 +28,10 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.diagno
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping
+
+    from jax.stages import Compiled
+
     from nof1_causal_lab.models.ssm.inference.conditioning import ExactStateConstraints
     from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.kernel import (
         MarginalParticleGibbsKernel,
@@ -34,18 +39,19 @@ if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleTarget
 
 
-class ParticleChainResult(TypedDict):
-    """Retained particle draws, warmup evidence, and sampler diagnostics."""
+@dataclass(frozen=True, kw_only=True)
+class ParticleChainResult:
+    "Retained particle draws, warmup evidence, and sampler diagnostics."
 
     grouped_positions: jnp.ndarray
     observation_log_probs: jnp.ndarray
-    chain_extra_fields: dict[str, jnp.ndarray]
-    warmup_chain_extra_fields: dict[str, jnp.ndarray]
-    all_chain_extra_fields: dict[str, jnp.ndarray]
+    chain_extra_fields: Mapping[str, jnp.ndarray]
+    warmup_chain_extra_fields: Mapping[str, jnp.ndarray]
+    all_chain_extra_fields: Mapping[str, jnp.ndarray]
     complete_log_posterior_history: jnp.ndarray
     warmup_complete_log_posterior_history: jnp.ndarray
     all_complete_log_posterior_history: jnp.ndarray
-    latent_posterior_summary: dict[str, jnp.ndarray] | None
+    latent_posterior_summary: Mapping[str, jnp.ndarray] | None
     latent_paths: jnp.ndarray | None
     warmup_latent_paths: jnp.ndarray | None
     all_latent_paths: jnp.ndarray | None
@@ -53,9 +59,29 @@ class ParticleChainResult(TypedDict):
     final_param_step_size: jnp.ndarray
     initial_latent_delta: jnp.ndarray
     final_latent_delta: jnp.ndarray
+    compiled_step: Compiled
     first_step_seconds: float
     sampling_loop_seconds: float
     post_warmup_complete_log_posterior_mean: jnp.ndarray
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "chain_extra_fields", MappingProxyType(dict(self.chain_extra_fields))
+        )
+        object.__setattr__(
+            self,
+            "warmup_chain_extra_fields",
+            MappingProxyType(dict(self.warmup_chain_extra_fields)),
+        )
+        object.__setattr__(
+            self, "all_chain_extra_fields", MappingProxyType(dict(self.all_chain_extra_fields))
+        )
+        if self.latent_posterior_summary is not None:
+            object.__setattr__(
+                self,
+                "latent_posterior_summary",
+                MappingProxyType(dict(self.latent_posterior_summary)),
+            )
 
 
 def _initialize_chain_state(
@@ -111,7 +137,9 @@ def _run_batched_step(
     states: TrajectoryMCMCState,
     step_keys: jnp.ndarray,
     *,
-    step_fn,
+    step_fn: Callable[
+        [TrajectoryMCMCState, jnp.ndarray], tuple[TrajectoryMCMCState, dict[str, jnp.ndarray]]
+    ],
 ) -> tuple[TrajectoryMCMCState, dict[str, jnp.ndarray]]:
     return jax.vmap(lambda state, key: step_fn(state, key))(states, step_keys)
 
@@ -133,17 +161,9 @@ def run_marginal_particle_gibbs(
     compute_latent_posterior_summary: bool = True,
     # Both adaptation policies stop updating after warmup.
     adaptation_scheme: Literal["simple", "dual_averaging"] = "simple",
-    profile_dir: str | None = None,
-    profile_compile_analysis: bool = True,
-    profile_runtime_trace: bool = True,
-    profile_trace_start_step: int = 0,
-    profile_trace_steps: int = 3,
+    clock: Callable[[], float],
 ) -> ParticleChainResult:
     """Run marginalized Particle Gibbs chains."""
-    if profile_trace_start_step < 0:
-        raise ValueError("profile_trace_start_step must be non-negative.")
-    if profile_trace_steps <= 0:
-        raise ValueError("profile_trace_steps must be positive.")
     use_dual_averaging = adaptation_scheme == "dual_averaging"
     da_param_update = (
         dual_averaging_adaptation(target=float(kernel.target_accept))[1]
@@ -151,8 +171,6 @@ def run_marginal_particle_gibbs(
         else None
     )
     total_steps = num_warmup + num_samples
-    if profile_runtime_trace and profile_trace_start_step >= total_steps:
-        raise ValueError("profile_trace_start_step must be less than the total step count.")
     if total_steps <= 0:
         raise ValueError("marginal_particle_gibbs requires at least one MCMC step.")
     observations = target.observations
@@ -288,7 +306,7 @@ def run_marginal_particle_gibbs(
     amala_grad_norm_mean_history: list[jnp.ndarray] = []
     amala_grad_norm_max_history: list[jnp.ndarray] = []
 
-    progress_started = time.monotonic()
+    progress_started = clock()
     progress_every = max(1, min(250, total_steps // 20))
     print(
         "marginal_particle_gibbs progress: "
@@ -301,230 +319,195 @@ def run_marginal_particle_gibbs(
         flush=True,
     )
 
-    resolved_profile_dir = _profiling.resolve_profile_dir(profile_dir)
-    if profile_compile_analysis:
-        _profiling.dump_compiled_analysis(
-            _run_batched_step,
-            states,
-            step_keys[0],
-            step_fn=kernel.step_fn,
-            profile_dir=resolved_profile_dir,
-            label="run_batched_step",
-        )
-
-    sampling_loop_started = time.monotonic()
-    first_step_seconds: float | None = None
-    trace_active = False
-    trace_stop_step = profile_trace_start_step + profile_trace_steps
-    try:
-        for step_idx in range(total_steps):
-            step_started = time.monotonic()
-            if profile_runtime_trace and step_idx == profile_trace_start_step:
-                _profiling.start_trace(resolved_profile_dir, label="run_loop")
-                trace_active = resolved_profile_dir is not None
-            if step_idx == 0:
-                print(
-                    "marginal_particle_gibbs progress: first step compile/run start",
-                    flush=True,
-                )
-            states, step_info = _run_batched_step(
-                states,
-                step_keys[step_idx],
-                step_fn=kernel.step_fn,
+    sampling_loop_started = clock()
+    first_step_seconds = 0.0
+    print("marginal_particle_gibbs progress: first step compile/run start", flush=True)
+    compiled_step = _run_batched_step.lower(states, step_keys[0], step_fn=kernel.step_fn).compile()
+    for step_idx in range(total_steps):
+        step_started = sampling_loop_started if step_idx == 0 else clock()
+        states, step_info = compiled_step(states, step_keys[step_idx])
+        if (
+            step_idx == 0
+            or (step_idx + 1) % progress_every == 0
+            or step_idx + 1 == num_warmup
+            or step_idx + 1 == total_steps
+        ):
+            param_accept_now = jax.device_get(jnp.mean(step_info["parameter_accepted"]))
+            latent_accept_now = jax.device_get(
+                jnp.mean(_masked_mean(step_info["latent_accepted"], latent_active, axis=-1))
             )
-            if (
-                step_idx == 0
-                or (step_idx + 1) % progress_every == 0
-                or step_idx + 1 == num_warmup
-                or step_idx + 1 == total_steps
-            ):
-                param_accept_now = jax.device_get(jnp.mean(step_info["parameter_accepted"]))
-                latent_accept_now = jax.device_get(
-                    jnp.mean(_masked_mean(step_info["latent_accepted"], latent_active, axis=-1))
-                )
-                param_step_now = jax.device_get(states.param_step_size)
-                latent_delta_now = jax.device_get(states.latent_delta)
-                complete_lp_now = jax.device_get(states.complete_log_posterior)
-                phase = "warmup" if step_idx < num_warmup else "sample"
-                elapsed = time.monotonic() - progress_started
-                latent_delta_status = (
-                    f"amala_delta_range=[{float(jnp.min(latent_delta_now)):.3g},"
-                    f"{float(jnp.max(latent_delta_now)):.3g}] "
-                    if kernel.adapt_amala_delta
-                    else ""
-                )
-                print(
-                    "marginal_particle_gibbs progress: "
-                    f"step={step_idx + 1}/{total_steps} phase={phase} elapsed={elapsed:.1f}s "
-                    f"parameter_accept_now={float(param_accept_now):.3f} "
-                    f"latent_update_now={float(latent_accept_now):.3f} "
-                    f"param_step_range=[{float(jnp.min(param_step_now)):.3g},"
-                    f"{float(jnp.max(param_step_now)):.3g}] "
-                    f"{latent_delta_status}"
-                    f"complete_lp_range=[{float(jnp.min(complete_lp_now)):.3g},"
-                    f"{float(jnp.max(complete_lp_now)):.3g}]",
-                    flush=True,
-                )
-
-            if step_idx == 0:
-                states.complete_log_posterior.block_until_ready()
-                first_step_seconds = time.monotonic() - step_started
-                print(
-                    "marginal_particle_gibbs progress: "
-                    f"first step compile/run complete elapsed={first_step_seconds:.1f}s",
-                    flush=True,
-                )
-
-            if step_idx >= num_warmup:
-                observation_log_prob_history.append(
-                    score_observations(states.latent_context, states.latent_trajectory)
-                )
-            position_history.append(states.position)
-            parameter_accept_history.append(step_info["parameter_accepted"])
-            latent_accept_history.append(
-                _masked_mean(step_info["latent_accepted"], latent_active, axis=-1)
+            param_step_now = jax.device_get(states.param_step_size)
+            latent_delta_now = jax.device_get(states.latent_delta)
+            complete_lp_now = jax.device_get(states.complete_log_posterior)
+            phase = "warmup" if step_idx < num_warmup else "sample"
+            elapsed = clock() - progress_started
+            latent_delta_status = (
+                f"amala_delta_range=[{float(jnp.min(latent_delta_now)):.3g},"
+                f"{float(jnp.max(latent_delta_now)):.3g}] "
+                if kernel.adapt_amala_delta
+                else ""
             )
-            complete_lp_history.append(states.complete_log_posterior)
-            selected_label_history.append(step_info["selected_label"])
-            final_particle_history.append(step_info["final_particle"])
-            latent_move_rms_history.append(step_info["latent_move_rms"])
-            latent_move_max_abs_history.append(step_info["latent_move_max_abs"])
-            latent_move_rms_per_t_history.append(step_info["latent_move_rms_per_t"])
-            latent_frozen_frac_history.append(step_info["latent_frozen_frac"])
-            latent_frozen_frac_by_d_history.append(step_info["latent_frozen_frac_by_d"])
-            final_label_log_probs_history.append(step_info["final_label_log_probs"])
-            amala_grad_norm_mean_history.append(step_info["amala_grad_norm_mean"])
-            amala_grad_norm_max_history.append(step_info["amala_grad_norm_max"])
-            if diagnostic_flags.particle_identity:
-                selected_particle_per_t_history.append(step_info["selected_particle_per_t"])
-                reference_path_hit_rate_history.append(step_info["reference_path_hit_rate"])
-                selected_particle_unique_count_history.append(
-                    step_info["selected_particle_unique_count"]
-                )
-            if diagnostic_flags.parameter_movement:
-                parameter_jump_rms_history.append(step_info["parameter_jump_rms"])
+            print(
+                "marginal_particle_gibbs progress: "
+                f"step={step_idx + 1}/{total_steps} phase={phase} elapsed={elapsed:.1f}s "
+                f"parameter_accept_now={float(param_accept_now):.3f} "
+                f"latent_update_now={float(latent_accept_now):.3f} "
+                f"param_step_range=[{float(jnp.min(param_step_now)):.3g},"
+                f"{float(jnp.max(param_step_now)):.3g}] "
+                f"{latent_delta_status}"
+                f"complete_lp_range=[{float(jnp.min(complete_lp_now)):.3g},"
+                f"{float(jnp.max(complete_lp_now)):.3g}]",
+                flush=True,
+            )
 
-            if need_public_latent:
-                public_latent = states.latent_trajectory
-                if step_idx >= num_warmup and latent_moments is not None:
-                    latent_sum, latent_sumsq, sample_count = latent_moments
-                    latent_moments = (
-                        latent_sum + public_latent,
-                        latent_sumsq + public_latent * public_latent,
-                        sample_count + 1,
-                    )
-                if retain_latent_paths:
-                    latent_paths_history.append(public_latent)
-
-            if trace_active and step_idx + 1 >= trace_stop_step:
-                states.complete_log_posterior.block_until_ready()
-                _profiling.stop_trace(resolved_profile_dir)
-                trace_active = False
-
-            if step_idx < num_warmup:
-                if kernel.adapt_amala_delta:
-                    window_slot = step_idx % int(kernel.amala_adaptation_window)
-                    latent_acceptance_window = latent_acceptance_window.at[:, window_slot, :].set(
-                        step_info["latent_accepted"].astype(latent_acceptance_window.dtype)
-                    )
-                    latent_acceptance_window_count = min(
-                        latent_acceptance_window_count + 1,
-                        int(kernel.amala_adaptation_window),
-                    )
-                    latent_acceptance_rate = jnp.sum(
-                        latent_acceptance_window, axis=1
-                    ) / jnp.asarray(
-                        latent_acceptance_window_count,
-                        dtype=latent_acceptance_window.dtype,
-                    )
-                    target_accept = jnp.asarray(
-                        kernel.amala_target_accept,
-                        dtype=states.latent_delta.dtype,
-                    )
-                    learning_rate = jnp.maximum(
-                        jnp.asarray(step_idx + 1, dtype=states.latent_delta.dtype)
-                        ** jnp.asarray(
-                            kernel.amala_adaptation_gamma,
-                            dtype=states.latent_delta.dtype,
-                        )
-                        * jnp.asarray(kernel.amala_adaptation_rho, dtype=states.latent_delta.dtype),
-                        jnp.asarray(
-                            kernel.amala_adaptation_rho_min,
-                            dtype=states.latent_delta.dtype,
-                        ),
-                    )
-                    delta_update = (
-                        learning_rate
-                        * states.latent_delta
-                        * (latent_acceptance_rate - target_accept)
-                        / target_accept
-                    )
-                    should_adapt_latent_delta = jnp.abs(
-                        latent_acceptance_rate - target_accept
-                    ) >= jnp.asarray(
-                        kernel.amala_adaptation_tolerance,
-                        dtype=states.latent_delta.dtype,
-                    )
-                    should_adapt_latent_delta = should_adapt_latent_delta & (
-                        (step_idx + 1) > int(kernel.amala_adaptation_window)
-                    )
-                    should_adapt_latent_delta = should_adapt_latent_delta & latent_active
-                    next_latent_delta = jnp.where(
-                        should_adapt_latent_delta,
-                        states.latent_delta + delta_update,
-                        states.latent_delta,
-                    )
-                    states = states._replace(
-                        latent_delta=_clip_scale(
-                            next_latent_delta,
-                            min_scale=kernel.amala_delta_min,
-                            max_scale=kernel.amala_delta_max,
-                        )
-                    )
-                if da_param_update is not None:
-                    # Dual averaging converges (unlike the constant-rate scheme), and we
-                    # freeze to the Polyak-averaged step at the final warmup step rather
-                    # than keeping a noisy live value — so per-chain steps no longer
-                    # scatter across orders of magnitude.
-                    updated_param_da = jax.vmap(
-                        lambda da_state, accepted: _clip_dual_averaging_state(
-                            da_param_update(da_state, accepted),
-                            min_scale=kernel.min_scale,
-                            max_scale=kernel.max_scale,
-                        )
-                    )(states.param_da, step_info["parameter_accepted"])
-                    scale_dtype = states.param_step_size.dtype
-                    if step_idx == num_warmup - 1:
-                        next_param_step = jnp.exp(updated_param_da.log_step_size_avg)
-                    else:
-                        next_param_step = jnp.exp(updated_param_da.log_step_size)
-                    states = states._replace(
-                        param_step_size=_clip_scale(
-                            next_param_step.astype(scale_dtype),
-                            min_scale=kernel.min_scale,
-                            max_scale=kernel.max_scale,
-                        ),
-                        param_da=updated_param_da,
-                    )
-                else:
-                    states = states._replace(
-                        param_step_size=_adapt_scale(
-                            states.param_step_size,
-                            accepted=step_info["parameter_accepted"],
-                            target_accept=kernel.target_accept,
-                            adaptation_rate=adaptation_rate,
-                            min_scale=kernel.min_scale,
-                            max_scale=kernel.max_scale,
-                        )
-                    )
-                continue
-    finally:
-        if trace_active:
+        if step_idx == 0:
             states.complete_log_posterior.block_until_ready()
-            _profiling.stop_trace(resolved_profile_dir)
+            first_step_seconds = clock() - step_started
+            print(
+                "marginal_particle_gibbs progress: "
+                f"first step compile/run complete elapsed={first_step_seconds:.1f}s",
+                flush=True,
+            )
+
+        if step_idx >= num_warmup:
+            observation_log_prob_history.append(
+                score_observations(states.latent_context, states.latent_trajectory)
+            )
+        position_history.append(states.position)
+        parameter_accept_history.append(step_info["parameter_accepted"])
+        latent_accept_history.append(
+            _masked_mean(step_info["latent_accepted"], latent_active, axis=-1)
+        )
+        complete_lp_history.append(states.complete_log_posterior)
+        selected_label_history.append(step_info["selected_label"])
+        final_particle_history.append(step_info["final_particle"])
+        latent_move_rms_history.append(step_info["latent_move_rms"])
+        latent_move_max_abs_history.append(step_info["latent_move_max_abs"])
+        latent_move_rms_per_t_history.append(step_info["latent_move_rms_per_t"])
+        latent_frozen_frac_history.append(step_info["latent_frozen_frac"])
+        latent_frozen_frac_by_d_history.append(step_info["latent_frozen_frac_by_d"])
+        final_label_log_probs_history.append(step_info["final_label_log_probs"])
+        amala_grad_norm_mean_history.append(step_info["amala_grad_norm_mean"])
+        amala_grad_norm_max_history.append(step_info["amala_grad_norm_max"])
+        if diagnostic_flags.particle_identity:
+            selected_particle_per_t_history.append(step_info["selected_particle_per_t"])
+            reference_path_hit_rate_history.append(step_info["reference_path_hit_rate"])
+            selected_particle_unique_count_history.append(
+                step_info["selected_particle_unique_count"]
+            )
+        if diagnostic_flags.parameter_movement:
+            parameter_jump_rms_history.append(step_info["parameter_jump_rms"])
+
+        if need_public_latent:
+            public_latent = states.latent_trajectory
+            if step_idx >= num_warmup and latent_moments is not None:
+                latent_sum, latent_sumsq, sample_count = latent_moments
+                latent_moments = (
+                    latent_sum + public_latent,
+                    latent_sumsq + public_latent * public_latent,
+                    sample_count + 1,
+                )
+            if retain_latent_paths:
+                latent_paths_history.append(public_latent)
+
+        if step_idx < num_warmup:
+            if kernel.adapt_amala_delta:
+                window_slot = step_idx % int(kernel.amala_adaptation_window)
+                latent_acceptance_window = latent_acceptance_window.at[:, window_slot, :].set(
+                    step_info["latent_accepted"].astype(latent_acceptance_window.dtype)
+                )
+                latent_acceptance_window_count = min(
+                    latent_acceptance_window_count + 1,
+                    int(kernel.amala_adaptation_window),
+                )
+                latent_acceptance_rate = jnp.sum(latent_acceptance_window, axis=1) / jnp.asarray(
+                    latent_acceptance_window_count,
+                    dtype=latent_acceptance_window.dtype,
+                )
+                target_accept = jnp.asarray(
+                    kernel.amala_target_accept,
+                    dtype=states.latent_delta.dtype,
+                )
+                learning_rate = jnp.maximum(
+                    jnp.asarray(step_idx + 1, dtype=states.latent_delta.dtype)
+                    ** jnp.asarray(
+                        kernel.amala_adaptation_gamma,
+                        dtype=states.latent_delta.dtype,
+                    )
+                    * jnp.asarray(kernel.amala_adaptation_rho, dtype=states.latent_delta.dtype),
+                    jnp.asarray(
+                        kernel.amala_adaptation_rho_min,
+                        dtype=states.latent_delta.dtype,
+                    ),
+                )
+                delta_update = (
+                    learning_rate
+                    * states.latent_delta
+                    * (latent_acceptance_rate - target_accept)
+                    / target_accept
+                )
+                should_adapt_latent_delta = jnp.abs(
+                    latent_acceptance_rate - target_accept
+                ) >= jnp.asarray(
+                    kernel.amala_adaptation_tolerance,
+                    dtype=states.latent_delta.dtype,
+                )
+                should_adapt_latent_delta = should_adapt_latent_delta & (
+                    (step_idx + 1) > int(kernel.amala_adaptation_window)
+                )
+                should_adapt_latent_delta = should_adapt_latent_delta & latent_active
+                next_latent_delta = jnp.where(
+                    should_adapt_latent_delta,
+                    states.latent_delta + delta_update,
+                    states.latent_delta,
+                )
+                states = states._replace(
+                    latent_delta=_clip_scale(
+                        next_latent_delta,
+                        min_scale=kernel.amala_delta_min,
+                        max_scale=kernel.amala_delta_max,
+                    )
+                )
+            if da_param_update is not None:
+                # Dual averaging converges (unlike the constant-rate scheme), and we
+                # freeze to the Polyak-averaged step at the final warmup step rather
+                # than keeping a noisy live value — so per-chain steps no longer
+                # scatter across orders of magnitude.
+                updated_param_da = jax.vmap(
+                    lambda da_state, accepted: _clip_dual_averaging_state(
+                        da_param_update(da_state, accepted),
+                        min_scale=kernel.min_scale,
+                        max_scale=kernel.max_scale,
+                    )
+                )(states.param_da, step_info["parameter_accepted"])
+                scale_dtype = states.param_step_size.dtype
+                if step_idx == num_warmup - 1:
+                    next_param_step = jnp.exp(updated_param_da.log_step_size_avg)
+                else:
+                    next_param_step = jnp.exp(updated_param_da.log_step_size)
+                states = states._replace(
+                    param_step_size=_clip_scale(
+                        next_param_step.astype(scale_dtype),
+                        min_scale=kernel.min_scale,
+                        max_scale=kernel.max_scale,
+                    ),
+                    param_da=updated_param_da,
+                )
+            else:
+                states = states._replace(
+                    param_step_size=_adapt_scale(
+                        states.param_step_size,
+                        accepted=step_info["parameter_accepted"],
+                        target_accept=kernel.target_accept,
+                        adaptation_rate=adaptation_rate,
+                        min_scale=kernel.min_scale,
+                        max_scale=kernel.max_scale,
+                    )
+                )
+            continue
 
     states.complete_log_posterior.block_until_ready()
-    sampling_loop_seconds = time.monotonic() - sampling_loop_started
+    sampling_loop_seconds = clock() - sampling_loop_started
 
     all_grouped_positions = _stack_sample_history(
         position_history,
@@ -696,29 +679,30 @@ def run_marginal_particle_gibbs(
         else jnp.full((num_chains,), jnp.nan, dtype=states.complete_log_posterior.dtype)
     )
 
-    return {
-        "grouped_positions": grouped_positions,
-        "observation_log_probs": _stack_sample_history(
+    return ParticleChainResult(
+        grouped_positions=grouped_positions,
+        observation_log_probs=_stack_sample_history(
             observation_log_prob_history,
             num_chains=num_chains,
             trailing_shape=(num_steps,),
             dtype=states.trajectory_log_prob.dtype,
         ),
-        "chain_extra_fields": chain_extra_fields,
-        "warmup_chain_extra_fields": warmup_chain_extra_fields,
-        "all_chain_extra_fields": all_chain_extra_fields,
-        "complete_log_posterior_history": complete_log_posterior_history,
-        "warmup_complete_log_posterior_history": warmup_complete_log_posterior_history,
-        "all_complete_log_posterior_history": all_complete_log_posterior_history,
-        "latent_posterior_summary": latent_summary,
-        "latent_paths": latent_paths,
-        "warmup_latent_paths": warmup_latent_paths,
-        "all_latent_paths": all_latent_paths,
-        "initial_param_step_size": initial_param_step_size,
-        "final_param_step_size": states.param_step_size,
-        "initial_latent_delta": initial_latent_delta,
-        "final_latent_delta": states.latent_delta,
-        "first_step_seconds": 0.0 if first_step_seconds is None else first_step_seconds,
-        "sampling_loop_seconds": sampling_loop_seconds,
-        "post_warmup_complete_log_posterior_mean": post_warmup_complete_log_posterior_mean,
-    }
+        chain_extra_fields=chain_extra_fields,
+        warmup_chain_extra_fields=warmup_chain_extra_fields,
+        all_chain_extra_fields=all_chain_extra_fields,
+        complete_log_posterior_history=complete_log_posterior_history,
+        warmup_complete_log_posterior_history=warmup_complete_log_posterior_history,
+        all_complete_log_posterior_history=all_complete_log_posterior_history,
+        latent_posterior_summary=latent_summary,
+        latent_paths=latent_paths,
+        warmup_latent_paths=warmup_latent_paths,
+        all_latent_paths=all_latent_paths,
+        initial_param_step_size=initial_param_step_size,
+        final_param_step_size=states.param_step_size,
+        initial_latent_delta=initial_latent_delta,
+        final_latent_delta=states.latent_delta,
+        compiled_step=compiled_step,
+        first_step_seconds=first_step_seconds,
+        sampling_loop_seconds=sampling_loop_seconds,
+        post_warmup_complete_log_posterior_mean=post_warmup_complete_log_posterior_mean,
+    )

@@ -22,11 +22,9 @@
             "likelihood": {
               "law": {
                 "distribution": "Delta",
-                "arguments": {
-                  "v": {
-                    "kind": "state",
-                    "construct_id": "construct:bbc87212909e45b9e6c3"
-                  }
+                "v": {
+                  "kind": "state",
+                  "construct_id": "construct:bbc87212909e45b9e6c3"
                 }
               },
               "standardized": false,
@@ -172,25 +170,29 @@
       "id": "parameter:403d1ba7a1dc2ea4b423d3918766b7d70dc5cab41ad22f6f0251ee151e43952d",
       "name": "cint_mood",
       "description": "center of cint_mood",
-      "distribution_transform": "identity",
       "distribution": null,
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:3dd6b7c9eb6876093f9fe0c1c1ce2864fd4a8c53e6dac3d6a1e5538016e1fdff",
       "name": "rho_mood",
       "description": "stiffness of rho_mood",
-      "distribution_transform": "dt_persistence_to_ct_decay",
       "distribution": null,
-      "reference_interval_days": null
+      "transform": {
+        "kind": "dt_persistence_to_ct_decay",
+        "interval_days": "model_clock"
+      }
     },
     {
       "id": "parameter:ea7fd5ac08160569f35431da4d1741f5ac0606585c802a602de991f3e3a51263",
       "name": "sigma_mood",
       "description": "innovation.scale for sigma_mood",
-      "distribution_transform": "identity",
       "distribution": null,
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     }
   ],
   "distributions": {},

@@ -1,6 +1,6 @@
 """Flatten NumPyro's parameter coordinates for the local particle sampler."""
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from dataclasses import dataclass
 
 import jax
@@ -19,7 +19,13 @@ class ParameterTransform:
     log_prior: Callable[[jax.Array], jax.Array]
 
 
-def prepare_parameter_transform(prior_model, key, *, model_args, initial_values):
+def prepare_parameter_transform(
+    prior_model: Callable[..., object],
+    key: jax.Array,
+    *,
+    model_args: tuple[object, ...],
+    initial_values: Mapping[str, jax.Array],
+) -> ParameterTransform:
     """Keep conditional priors, factors, transforms, and Jacobians in NumPyro."""
     info, potential, postprocess, _ = initialize_model(
         key,

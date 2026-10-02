@@ -8,18 +8,21 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
-from pydantic import TypeAdapter
 
 from nof1_causal_lab.actions.contracts import PrepareDataRequest, SimulateRequest
+from nof1_causal_lab.artifacts.checks import NumericCriterionEvidence
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.simulation import SimulationSpec
 from nof1_causal_lab.models.ssm.inference.persistence import condition_model
-from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws, ParticleMCMCPosterior
+from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
 from nof1_causal_lab.models.ssm.predictive.parameters import sample_model_laws
+from nof1_causal_lab.study.records import ModelEditResult
 from nof1_causal_lab.study.state import StudyState
+from tests.action_fixtures import applied_record
 from tests.git_fixtures import artifact_revision, commit_id, git_oid
+from tests.inference_fixtures import particle_posterior
 from tests.integration.runner_fixtures import panel_metadata
-from tests.model_fixtures import compile_fit_fixture, parameter_draws
+from tests.model_fixtures import compile_model_fixture, parameter_draws
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid
@@ -30,7 +33,7 @@ def test_scientific_tool_transport_shares_the_action_endpoint(monkeypatch):
     from uuid import UUID
 
     from nof1_causal_lab import study_api, tool_server
-    from nof1_causal_lab.actions.results import ActionPoll, ActionReceipt
+    from nof1_causal_lab.actions.results import ActionReceipt, RunningPoll
 
     requests = []
 
@@ -76,7 +79,7 @@ def test_scientific_tool_transport_shares_the_action_endpoint(monkeypatch):
     async def poll(workspace_id, attempt_id):
         assert workspace_id == "TEST"
         assert attempt_id == UUID(int=1)
-        return ActionPoll(done=False)
+        return RunningPoll()
 
     monkeypatch.setattr(study_api, "poll_scientific_action", poll)
     response = client.post(
@@ -86,7 +89,7 @@ def test_scientific_tool_transport_shares_the_action_endpoint(monkeypatch):
             "input": {"attempt_id": str(UUID(int=1))},
         },
     )
-    assert response.json() == {"result": {"done": False, "body": None, "messages": []}}
+    assert response.json() == {"result": {"kind": "running", "messages": []}}
     assert (
         client.post(
             "/api/tools/scientific/poll_action",
@@ -114,8 +117,9 @@ def test_current_law_sampling_preserves_joint_parameter_atoms():
         for name, value in original.items()
     }
     conditioned = condition_model(
-        compile_fit_fixture(model),
-        ParticleMCMCPosterior(
+        model,
+        compile_model_fixture(model),
+        particle_posterior(
             JointPosteriorDraws(
                 original,
                 jnp.zeros((3, 2, 2)),
@@ -123,13 +127,17 @@ def test_current_law_sampling_preserves_joint_parameter_atoms():
         ),
         times=jnp.array([0.0, 1.0]),
     )
-    draws = sample_model_laws(conditioned, draws=24, key=jax.random.PRNGKey(4)).parameters
+    draws = sample_model_laws(
+        compile_model_fixture(conditioned), draws=24, key=jax.random.PRNGKey(4)
+    ).parameters
     for draw in range(24):
         assert any(
             all(np.allclose(draws[name][draw], values[atom]) for name, values in original.items())
             for atom in range(3)
         )
-    authored = sample_model_laws(model, draws=5, key=jax.random.PRNGKey(4)).parameters
+    authored = sample_model_laws(
+        compile_model_fixture(model), draws=5, key=jax.random.PRNGKey(4)
+    ).parameters
     assert all(value.shape[0] == 5 and np.isfinite(value).all() for value in authored.values())
 
 
@@ -154,9 +162,9 @@ def test_durable_replication_preserves_current_laws_without_comparison(
     tmp_path, monkeypatch, fitted_laws, scientific_model_payload
 ):
     from nof1_causal_lab.actions.runners import run_action_locally
-    from nof1_causal_lab.artifacts.simulation import SimulationReport
+    from nof1_causal_lab.artifacts.identity import GitRef
     from nof1_causal_lab.study.history import StudyRepository
-    from nof1_causal_lab.study.records import AttemptRecord
+    from nof1_causal_lab.study.records import ModelFitResult
     from nof1_causal_lab.study.snapshots import ModelReader
     from nof1_causal_lab.study.store import ArtifactStore
     from nof1_causal_lab.utils import data as data_module
@@ -192,13 +200,13 @@ def test_durable_replication_preserves_current_laws_without_comparison(
         from nof1_causal_lab.models.ssm.inference.persistence import condition_model
         from nof1_causal_lab.models.ssm.inference.types import (
             JointPosteriorDraws,
-            ParticleMCMCPosterior,
         )
         from tests.model_fixtures import parameter_draws
 
         model = condition_model(
-            compile_fit_fixture(model),
-            ParticleMCMCPosterior(
+            model,
+            compile_model_fixture(model),
+            particle_posterior(
                 JointPosteriorDraws(parameter_draws(model, 3), jnp.zeros((3, 5, 2)))
             ),
             times=jnp.arange(-1.0, 4.0),
@@ -213,20 +221,19 @@ def test_durable_replication_preserves_current_laws_without_comparison(
         produced.append(fitted)
     state = StudyState().with_artifacts(produced)
     journal.append(
-        AttemptRecord(
+        applied_record(
+            ModelFitResult(
+                produced=tuple(produced),
+                model=GitRef(workspace_id="TEST", revision=definition.revision, path="model.json"),
+                panel=GitRef(
+                    workspace_id="TEST", revision=produced[1].revision, path="panel.parquet"
+                ),
+                report=inference_log(model).record.attempt.outcome.result.report,
+            )
+            if fitted_laws
+            else ModelEditResult(produced=tuple(produced)),
             seq=1,
             ts="2026-09-15T12:00:00Z",
-            status="applied",
-            trace_ids=[],
-            action="fit" if fitted_laws else "edit_model",
-            diagnostics={
-                "report": inference_log(model).diagnostics["report"],
-                "input_pins": {"model": definition.revision, "panel": produced[1].revision},
-            }
-            if fitted_laws
-            else {},
-            inputs={"expected_revision": None},
-            produced=produced,
         )
     )
     effects = run_async(
@@ -240,10 +247,10 @@ def test_durable_replication_preserves_current_laws_without_comparison(
             pins,
         )
     )
-    report = TypeAdapter(SimulationReport).validate_python(effects.diagnostics["report"])
+    report = effects.report
     assert store.read_array(report.latent_paths).shape == (report.draws, 5, 2)
     assert store.read_array(report.observations).shape == (report.draws, 5, 2)
-    assert effects.diagnostics["input_pins"] == pins
+    assert {"model": report.model.revision} == pins
     assert set(pins) == {"model"}
     assert "predictive_checks" not in report.model_dump()
     assert "comparison_panel" not in report.model_dump()
@@ -253,20 +260,11 @@ def test_durable_replication_preserves_current_laws_without_comparison(
         assert report.law.interpretation == "posterior_predictive"
         assert report.law.fitted_panel_revision == produced[1].revision
     assert not effects.produced
-    assert any(finding.check.startswith("C5c") for finding in report.findings)
-    assert not any(finding.check.startswith("C5d") for finding in report.findings)
-    journal.append(
-        AttemptRecord(
-            seq=2,
-            ts="2026-09-15T12:01:00Z",
-            status="applied",
-            trace_ids=[],
-            action="simulate",
-            inputs={},
-            diagnostics=effects.diagnostics,
-        )
-    )
+    assert any(finding.subject.check.startswith("C5c") for finding in report.findings)
+    assert not any(finding.subject.check.startswith("C5d") for finding in report.findings)
+    journal.append(applied_record(effects, seq=2, ts="2026-09-15T12:01:00Z"))
     current = ModelReader("TEST").simulation()
+    assert current is not None
     assert current.value == report
     assert current.source.validity == "fresh"
     edited = store.write_artifact(
@@ -278,18 +276,16 @@ def test_durable_replication_preserves_current_laws_without_comparison(
         },
     )
     journal.append(
-        AttemptRecord(
-            seq=3,
-            ts="2026-09-15T12:02:00Z",
-            status="applied",
-            trace_ids=[],
-            action="edit_model",
-            inputs={"expected_revision": artifact_revision("TEST", "model", 1)},
-            produced=[edited],
+        applied_record(
+            ModelEditResult(produced=[edited]), seq=3, ts="2026-09-15T12:02:00Z", trace_ids=[]
         )
     )
-    assert ModelReader("TEST").simulation().source.validity == "stale"
-    assert ModelReader("TEST", at=commit_id("TEST", 2)).simulation().source.validity == "fresh"
+    revised = ModelReader("TEST").simulation()
+    retained = ModelReader("TEST", at=commit_id("TEST", 2)).simulation()
+    assert revised is not None
+    assert retained is not None
+    assert revised.source.validity == "stale"
+    assert retained.source.validity == "fresh"
 
     # A retained generator result can be prepared without running it again.
     from nof1_causal_lab.actions.runners import run_action
@@ -303,7 +299,9 @@ def test_durable_replication_preserves_current_laws_without_comparison(
     panel = store.read_parquet_file("panel", panel_info.revision, "panel.parquet")
     from nof1_causal_lab.models.ssm.runtime import project_observation_data
 
-    wide, _ = project_observation_data(panel, model_spec=model, time_origin=report.time_origin)
+    wide, _ = project_observation_data(
+        panel, model_spec=compile_model_fixture(model), time_origin=report.time_origin
+    )
     np.testing.assert_allclose(
         wide.select(["stress_score", "sleep_score"]).to_numpy(),
         store.read_array(report.observations)[1],
@@ -349,11 +347,12 @@ def test_retained_forecast_and_timed_intervention_preserve_joint_starts(
     )
     from nof1_causal_lab.models.ssm import numerics as numeric
 
-    states = numeric.state_ids(model)
+    states = numeric.state_ids(compile_model_fixture(model))
     paths = jnp.asarray([[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]])
     model = condition_model(
-        compile_fit_fixture(model),
-        ParticleMCMCPosterior(JointPosteriorDraws(parameter_draws(model, 2), paths)),
+        model,
+        compile_model_fixture(model),
+        particle_posterior(JointPosteriorDraws(parameter_draws(model, 2), paths)),
         times=jnp.array([0.0, 1.0]),
     )
     store = ArtifactStore("TEST")
@@ -407,11 +406,12 @@ def test_causal_action_uses_common_generator_and_requires_matching_engine_eviden
             Path(__file__).resolve().parents[1] / "fixtures/models" / "common/x_y_model.json"
         ).read_text()
     )
-    states = numeric.state_ids(model)
+    states = numeric.state_ids(compile_model_fixture(model))
     model = model.revised(default_outcome=states[1])
     model = condition_model(
-        compile_fit_fixture(model),
-        ParticleMCMCPosterior(JointPosteriorDraws(parameter_draws(model, 2), jnp.zeros((2, 2, 2)))),
+        model,
+        compile_model_fixture(model),
+        particle_posterior(JointPosteriorDraws(parameter_draws(model, 2), jnp.zeros((2, 2, 2)))),
         times=jnp.array([0.0, 1.0]),
     )
     design = SimulationSpec(
@@ -437,26 +437,32 @@ def test_causal_action_uses_common_generator_and_requires_matching_engine_eviden
     store = ArtifactStore("TEST")
     panel = prepare_simulation_panel(result, 0, read_array=store.read_array)
     wide, _ = project_observation_data(
-        panel, model_spec=model, time_origin=panel_metadata().time_origin
+        panel, model_spec=compile_model_fixture(model), time_origin=panel_metadata().time_origin
     )
     np.testing.assert_allclose(
-        wide.select(numeric.observation_names(model)).to_numpy(),
+        wide.select(numeric.observation_names(compile_model_fixture(model))).to_numpy(),
         store.read_array(result.observations)[0],
         equal_nan=True,
     )
-    bad = type(record).model_validate(
-        {
-            **record.model_dump(),
-            "diagnostics": {
-                **record.diagnostics,
-                "engine_evidence": {"engine": "laplace", "latent_transition": "gaussian"},
-            },
-        }
+    from nof1_causal_lab.artifacts.checks import NotEvaluated
+
+    report = record.record.attempt.outcome.result.report
+    bad = inference_log(
+        model,
+        report=report.revised(
+            **{
+                "engine": NotEvaluated(
+                    subject="production_engine",
+                    reason="ARCHIVED_ENGINE_NOT_RETAINED",
+                    detail="Engine evidence not retained",
+                )
+            }
+        ),
     )
     rejected = summarize_causal_simulation(model, generated, store=store, inference=bad)
     assert rejected.causal_result is None
     assert rejected.causal_unavailable_reason is not None
-    assert "production particle" in rejected.causal_unavailable_reason
+    assert "retained exact-engine evidence" in rejected.causal_unavailable_reason
     assert rejected.latent_paths == generated.latent_paths
     unavailable = summarize_causal_simulation(model, generated, store=store, inference=None)
     assert unavailable.causal_result is None
@@ -466,7 +472,7 @@ def test_causal_action_uses_common_generator_and_requires_matching_engine_eviden
 @pytest.mark.contract
 def test_data_profile_survives_model_edits(tmp_path, monkeypatch):
     from nof1_causal_lab.actions.data_checks import evaluate_data_checks, require_data_binding
-    from nof1_causal_lab.actions.effects import ActionEffects
+    from nof1_causal_lab.study.records import DataPreparationResult
     from nof1_causal_lab.study.state import apply_effects
     from nof1_causal_lab.study.store import ArtifactStore
     from nof1_causal_lab.utils import data as data_module
@@ -475,7 +481,7 @@ def test_data_profile_survives_model_edits(tmp_path, monkeypatch):
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path))
     store = ArtifactStore("TEST")
     panel = seed_panel(store, model_revision=None)
-    effects = evaluate_data_checks("TEST", StudyState(), ActionEffects(produced=[panel]))
+    effects = evaluate_data_checks("TEST", StudyState(), DataPreparationResult(produced=[panel]))
     state = apply_effects(StudyState(), effects.produced)
     assert state.current["data_profile"].derived_from == {"panel": panel.revision}
     assert not state.has("model")
@@ -561,7 +567,17 @@ def test_simulation_selects_checks_before_execution_and_persists_only_parameters
             assert group in groups, f"Unselected {group} checks executed"
             called.append(group)
             # Selection cannot depend on C-labels or other presentation text.
-            return [CheckResult(f"{group} renamed check", "X", "ok", "ok", True, "ok")], []
+            return [
+                CheckResult.measured(
+                    f"{group} renamed check",
+                    "X",
+                    "ok",
+                    "ok",
+                    "ok",
+                    outcome="passed",
+                    measurements=(NumericCriterionEvidence(criterion="fixture", value=1.0),),
+                )
+            ], []
 
         return execute
 
@@ -579,7 +595,7 @@ def test_simulation_selects_checks_before_execution_and_persists_only_parameters
         action,
         "measure_simulation_batch",
         lambda model, batch, **_kwargs: original_measure(
-            model, batch, groups=groups, edge_contrasts=True
+            model, batch, groups=groups, edge_contrasts=True, clock=_kwargs["clock"]
         ),
     )
     report = action.simulate(
@@ -590,7 +606,7 @@ def test_simulation_selects_checks_before_execution_and_persists_only_parameters
         write_array=write,
     )
     assert tuple(called) == groups
-    assert [finding.check for finding in report.findings] == [
+    assert [finding.subject.check for finding in report.findings] == [
         f"{group} renamed check" for group in groups
     ]
     assert report.parameter_draws.keys() == prediction.parameters.keys()

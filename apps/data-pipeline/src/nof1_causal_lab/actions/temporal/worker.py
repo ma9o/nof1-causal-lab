@@ -9,6 +9,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+from typing import TYPE_CHECKING
 
 from temporalio.worker import Worker
 from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner, SandboxRestrictions
@@ -39,14 +40,17 @@ from nof1_causal_lab.actions.temporal.measurement_workflow import (
 )
 from nof1_causal_lab.actions.temporal.workflow import StudyWorkflow
 
+if TYPE_CHECKING:
+    from temporalio.client import Client
+
 logger = logging.getLogger(__name__)
 
 
 def study_workflow_runner() -> SandboxedWorkflowRunner:
     """Sandbox runner with the package passed through.
 
-    The package root configures the JAX persistent cache at import time;
-    re-importing jaxlib inside the sandbox aborts the process. Passing the
+    The process configures JAX before starting workers; re-importing jaxlib
+    inside the sandbox aborts the process. Passing the
     package through is safe here because workflow determinism is carried
     by construction (the workflow only calls the pure machine functions).
     Typed model requests run deterministic NetworkX graph validation during
@@ -62,7 +66,7 @@ def study_workflow_runner() -> SandboxedWorkflowRunner:
     )
 
 
-def build_worker(client, task_queue: str = STUDY_TASK_QUEUE) -> Worker:
+def build_worker(client: Client, task_queue: str = STUDY_TASK_QUEUE) -> Worker:
     return Worker(
         client,
         task_queue=task_queue,
@@ -78,7 +82,7 @@ def build_worker(client, task_queue: str = STUDY_TASK_QUEUE) -> Worker:
     )
 
 
-def build_openrouter_worker(client, task_queue: str = OPENROUTER_TASK_QUEUE) -> Worker:
+def build_openrouter_worker(client: Client, task_queue: str = OPENROUTER_TASK_QUEUE) -> Worker:
     from nof1_causal_lab.utils.config import get_config
 
     max_rpm = get_config().extraction_workers.max_rpm
@@ -91,7 +95,7 @@ def build_openrouter_worker(client, task_queue: str = OPENROUTER_TASK_QUEUE) -> 
 
 
 def build_harness_worker(
-    client,
+    client: Client,
     task_queue: str,
 ) -> Worker:
     return Worker(
@@ -102,7 +106,7 @@ def build_harness_worker(
 
 
 def build_model_checks_worker(
-    client,
+    client: Client,
     task_queue: str = MODEL_CHECKS_TASK_QUEUE,
 ) -> Worker:
     """Serialize automatic exact check batches independently of ingestion workers."""
@@ -115,6 +119,9 @@ def build_model_checks_worker(
 
 
 async def run_worker() -> None:
+    from nof1_causal_lab.utils.config import configure_jax_persistent_cache
+
+    configure_jax_persistent_cache()
     client = await connect_client()
     study_worker = build_worker(client)
     openrouter_worker = build_openrouter_worker(client)

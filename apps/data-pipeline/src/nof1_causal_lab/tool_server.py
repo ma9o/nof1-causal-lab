@@ -15,7 +15,8 @@ from __future__ import annotations
 
 import inspect
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable
+from contextlib import asynccontextmanager
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from functools import cached_property, lru_cache, partial
@@ -23,7 +24,7 @@ from typing import TYPE_CHECKING, NotRequired, TypedDict, cast
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, ValidationError
+from pydantic import BaseModel, TypeAdapter, ValidationError
 from pydantic.json_schema import JsonSchemaValue
 
 from nof1_causal_lab.artifacts.identification import IdentificationReport
@@ -33,6 +34,7 @@ from nof1_causal_lab.artifacts.posterior import InferenceReport
 from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorPredictiveChecks
 from nof1_causal_lab.json_types import JsonObject, JsonValue
 from nof1_causal_lab.models.ssm import numerics as numeric
+from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel, compile_executable_model
 from nof1_causal_lab.models.ssm.dynamics import (
     dynamics_from_samples,
 )
@@ -48,12 +50,10 @@ from nof1_causal_lab.tool_contracts import (
     CONTEXT_TOOLS,
     GetModelInfoInput,
     SearchLiteratureInput,
-    execute_search_literature,
 )
 from nof1_causal_lab.utils.data import data_root
 from nof1_causal_lab.utils.model_structure import (
     get_constructs,
-    get_manifest_indicators,
     get_model_clock,
     get_state_names,
 )
@@ -61,8 +61,11 @@ from nof1_causal_lab.utils.model_structure import (
 logger = logging.getLogger(__name__)
 
 
-class ToolContext(TypedDict, total=False):
+class ToolContext(TypedDict):
     _workspace_id: str
+
+
+class AnalysisToolContext(ToolContext):
     model: ModelSpec
     identification_report: IdentificationReport
     inference_report: InferenceReport
@@ -85,16 +88,30 @@ class ToolSchema(TypedDict):
     result: JsonSchemaValue | None
 
 
-type ToolImplementation = Callable[[ToolContext, JsonObject], ToolResult | Awaitable[ToolResult]]
+type ToolImplementation = Callable[[str, JsonObject], ToolResult | Awaitable[ToolResult]]
 
 
-def _parse_tool_call[Input: BaseModel](
+async def execute_search_literature(_ctx: object, args: SearchLiteratureInput) -> ToolResult:
+    """Search Exa for empirical literature about effect sizes."""
+    from nof1_causal_lab.workers.prior_research import search_parameter_literature
+    from nof1_causal_lab.workers.prompts.prior_research import format_literature_for_parameter
+
+    if not args.query:
+        return {"result": "Error: query is required"}
+    sources = await search_parameter_literature(args.query)
+    if not sources:
+        return {"result": "No relevant literature found for this query."}
+    return {"result": format_literature_for_parameter(sources)}
+
+
+def _parse_tool_call[Input: BaseModel, Context: ToolContext](
     schema: type[Input],
-    implementation: Callable[[ToolContext, Input], ToolResult | Awaitable[ToolResult]],
-    context: ToolContext,
+    implementation: Callable[[Context, Input], ToolResult | Awaitable[ToolResult]],
+    context_builder: Callable[[str], Context],
+    workspace_id: str,
     arguments: JsonObject,
 ) -> ToolResult | Awaitable[ToolResult]:
-    return implementation(context, schema.model_validate(arguments))
+    return implementation(context_builder(workspace_id), schema.model_validate(arguments))
 
 
 if TYPE_CHECKING:
@@ -105,7 +122,7 @@ if TYPE_CHECKING:
     from nof1_causal_lab.actions.tool_definition import ToolDefinition
     from nof1_causal_lab.models.ssm.dynamics.draws import DynamicsDraws
     from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
-    from nof1_causal_lab.study.records import AttemptRecord
+    from nof1_causal_lab.study.records import StudyRevision
 
 _API_DESCRIPTION = """\
 The scientific interface has four actions: `edit_model`, `prepare_data`, `fit`,
@@ -118,6 +135,12 @@ come from its versioned artifacts and append-only attempt log.
 2. Submit to `POST /api/studies/{workspace_id}/actions`:
    - `edit_model`: `{"action":"edit_model","expected_revision":null,"model":{"question":"Does workload affect sleep?"}}`.
      Model structure, measurements, mechanisms, constants, and laws can be edited together.
+     Each observation law has a distribution tag and direct Expression fields, e.g.
+     `{"distribution":"Delta","v":{"kind":"state","construct_id":"construct:workload"}}`.
+     Bernoulli uses `BernoulliLogits` with `logits` or `BernoulliProbs` with `probs`.
+     Edges carry drift mechanisms; construct dynamics may also carry potentials.
+     Parameter transforms own their interval: `{"kind":"dt_effect_to_ct_rate","interval_days":7}`
+     or an explicit `"model_clock"` duration; native-scale laws use `{"kind":"identity"}`.
      Valid incomplete models are saved with applicable specification findings.
    - `prepare_data`: supply `input={"source":{"files":["diary.csv"]},"definition":{...}}`
      with `default_window`, `variables`, and optional interpretation `context` in the definition.
@@ -151,9 +174,10 @@ come from its versioned artifacts and append-only attempt log.
      Compare the saved observations separately with `data_diff`; simulation does not
      accept comparison data or change its generation rules for predictive checks.
 3. Dispatch returns HTTP 202 with only `{"attempt_id":"<UUID>"}` after durable acceptance.
-   Poll `GET /api/studies/{workspace_id}/actions/{attempt_id}` for `{done, body, messages}`.
-   While running, `done` is false and `body` is null. At completion, `body` contains the
-   scientific result, or is null on failure. Messages accumulate as
+   Poll `GET /api/studies/{workspace_id}/actions/{attempt_id}` until `kind` is `completed`.
+   A `running` poll carries messages. A `completed` poll carries the correlated attempt,
+   its commit ID and messages. Its outcome is `applied` with a result, `rejected` with a
+   reason and detail, or `raised` with the execution error. Messages accumulate as
    `{timestamp, level, label}` with UTC timestamps, `debug|info|warn|error` levels,
    and stable `SCREAMING_SNAKE_CASE` labels. Warnings can accompany a saved result;
    failed actions leave the scientific branch unchanged. Do not redispatch while polling.
@@ -178,7 +202,7 @@ Model edits automatically run affected checks, including one exact whole-model
 predictive batch when a compatible panel is available. Data preparation runs only
 data checks. Unchanged checks reuse
 their recorded results. Scientific failures save as findings; missing prerequisites carry
-not_evaluated reasons. Read predictive details and law provenance in the action body.
+not_evaluated reasons. Read predictive details and law provenance in the applied result.
 Simulation reports retain their own generating model revision; a later edit makes that
 report historical rather than evidence for the edited model.
 
@@ -203,7 +227,17 @@ the timeline before submitting another request.
 `GET /api/capabilities` reports `actions_enabled`. Read-only deployments reject scientific action submissions with 403.
 """
 
+
+@asynccontextmanager
+async def _lifespan(_app: FastAPI) -> AsyncIterator[None]:
+    from nof1_causal_lab.utils.config import configure_jax_persistent_cache
+
+    configure_jax_persistent_cache()
+    yield
+
+
 app = FastAPI(
+    lifespan=_lifespan,
     title="nof1-causal-lab study API",
     description=_API_DESCRIPTION,
     docs_url="/api/tools/docs",
@@ -255,17 +289,18 @@ class _LoadedSimulation:
     """Process-local numerical inputs for one immutable fitted posterior."""
 
     model: ModelSpec
-    inference: AttemptRecord
+    inference: StudyRevision
     observation_data: pl.DataFrame
     report: InferenceReport
+    compiled: CompiledModel
 
     @cached_property
     def draws(self) -> JointPosteriorDraws:
-        from nof1_causal_lab.models.ssm.inference.persistence import model_draws
+        from nof1_causal_lab.models.ssm.inference.shared import model_draws
         from nof1_causal_lab.models.ssm.runtime import replay_input_events, replay_input_values
 
         events = replay_input_events(
-            self.model,
+            self.compiled,
             self.observation_data,
             time_origin=self.report.time_origin,
             start=self.model.time_points[0],
@@ -273,13 +308,14 @@ class _LoadedSimulation:
             indicator_column="indicator",
         )
         return model_draws(
-            self.model, input_values=replay_input_values(self.model, self.model.time_points, events)
+            self.compiled,
+            input_values=replay_input_values(self.compiled, self.model.time_points, events),
         )
 
     @cached_property
     def dynamics(self) -> DynamicsDraws:
         return dynamics_from_samples(
-            self.model, self.draws.parameters, n_draws=self.draws.describe().n_draws
+            self.compiled, self.draws.parameters, n_draws=self.draws.describe().n_draws
         )
 
 
@@ -293,7 +329,7 @@ def _load_simulation(
     are checked separately on every request. Eviction simply reloads the fit.
     """
     from nof1_causal_lab.study.history import StudyRepository
-    from nof1_causal_lab.study.lineage import inference_record
+    from nof1_causal_lab.study.records import inference_record
     from nof1_causal_lab.study.store import ArtifactStore, read_model
 
     store = ArtifactStore(workspace_id)
@@ -305,21 +341,25 @@ def _load_simulation(
     data_for_model = store.read_parquet_file("panel", panel_pin, parquet_filename("panel", "panel"))
     model = read_model(store, model_revision)
 
-    model.check_execution()
-    from nof1_causal_lab.artifacts.posterior import InferenceReport
+    from nof1_causal_lab.models.ssm.compile.inputs import compile_executable_model
 
-    report = InferenceReport.model_validate(record.diagnostics["report"])
+    compiled = compile_executable_model(model)
+
+    from nof1_causal_lab.study.records import Applied, FitAttempt
+
+    assert isinstance(record.record.attempt, FitAttempt)
+    assert isinstance(record.record.attempt.outcome, Applied)
+    report = record.record.attempt.outcome.result.report
     _, observation_data = project_observation_data(
         data_for_model=data_for_model,
-        model_spec=model,
+        model_spec=compiled,
         time_origin=report.time_origin,
     )
-    return _LoadedSimulation(model, record, observation_data, report)
+    return _LoadedSimulation(model, record, observation_data, report, compiled)
 
 
-def _build_analysis_context(workspace_id: str) -> ToolContext:
+def _build_analysis_context(workspace_id: str) -> AnalysisToolContext:
     """Reuse pinned numerical inputs while checking current input revisions."""
-    from nof1_causal_lab.study.snapshots import ModelReader
     from nof1_causal_lab.study.state import freshness_report
     from nof1_causal_lab.study.store import ArtifactStore, read_current_state
 
@@ -367,12 +407,8 @@ def _build_analysis_context(workspace_id: str) -> ToolContext:
         model.get_construct(cid).name for cid in identification_report.estimable_treatments
     ]
 
-    simulation = ModelReader(workspace_id).simulation()
-    checks = (
-        simulation.value.predictive_checks
-        if simulation is not None and simulation.source.validity == "fresh"
-        else None
-    )
+    predictive = state.checks.predictive if state.checks is not None else None
+    checks = predictive.predictive_checks if predictive is not None else None
 
     return {
         "_workspace_id": workspace_id,
@@ -392,7 +428,7 @@ def _build_analysis_context(workspace_id: str) -> ToolContext:
 # ---------------------------------------------------------------------------
 
 
-def _build_model_info_payload(ctx: ToolContext, args: GetModelInfoInput) -> JsonObject:
+def _build_model_info_payload(ctx: AnalysisToolContext, args: GetModelInfoInput) -> JsonObject:
 
     sections = args.sections or ["overview", "variables", "capabilities"]
     focused = set(args.names)
@@ -402,23 +438,27 @@ def _build_model_info_payload(ctx: ToolContext, args: GetModelInfoInput) -> Json
     constructs = [
         construct for construct in get_constructs(model) if construct.name in retained_state_names
     ]
-    indicators = get_manifest_indicators(model)
+    compiled = compile_executable_model(model)
+    indicators = [
+        (model.indicator_owner(observation.id), model.indicator(observation.id))
+        for observation in compiled.observations
+    ]
 
     if focused:
         constructs = [item for item in constructs if item.name in focused]
         indicators = [
-            item
-            for item in indicators
-            if item.get("name") in focused or item.get("construct_name") in focused
+            (construct, indicator)
+            for construct, indicator in indicators
+            if indicator.name in focused or construct.name in focused
         ]
 
-    payload: JsonObject = {}
+    payload: dict[str, JsonValue] = {}
     if "overview" in sections:
         payload["overview"] = {
             "outcome": ctx.get("_outcome_name"),
             "treatments": [*ctx["_identifiable_treatments"]],
-            "n_latent": numeric.n_states(model),
-            "n_manifest": len(numeric.observation_names(model)),
+            "n_latent": numeric.n_states(compiled),
+            "n_manifest": len(numeric.observation_names(compiled)),
             "inference_method": posterior.inference_metadata.method,
             "observed_time_range": {
                 "start": ctx["_observation_timestamps"][0].isoformat()
@@ -443,22 +483,24 @@ def _build_model_info_payload(ctx: ToolContext, args: GetModelInfoInput) -> Json
             ],
             "indicators": [
                 {
-                    "id": item["id"],
-                    "name": item.get("name"),
-                    "construct_id": item["construct_id"],
-                    "construct_name": item.get("construct_name"),
-                    "measurement_dtype": item.get("measurement_dtype"),
-                    "support_kind": item.get("support_kind"),
-                    "summary_operator": item.get("summary_operator"),
-                    "observation_window": item.get("observation_window"),
+                    "id": item.id,
+                    "name": item.name,
+                    "construct_id": construct.id,
+                    "construct_name": construct.name,
+                    "measurement_dtype": item.measurement_dtype,
+                    "support_kind": item.support_kind.value,
+                    "summary_operator": item.summary_operator.value,
+                    "observation_window": item.observation_window.source
+                    if item.observation_window is not None
+                    else None,
                 }
-                for item in indicators
+                for construct, item in indicators
             ],
         }
     if "measurement" in sections:
         payload["measurement"] = {
-            "model_clock": get_model_clock(model),
-            "manifest_names": [*numeric.observation_names(model)],
+            "model_clock": get_model_clock(model).source,
+            "manifest_names": [*numeric.observation_names(compiled)],
         }
     if "identifiability" in sections:
         payload["identifiability"] = {
@@ -479,33 +521,29 @@ def _build_model_info_payload(ctx: ToolContext, args: GetModelInfoInput) -> Json
 
         payload["capabilities"] = {
             "simulate": {
-                "intervention_targets": [*numeric.state_ids(model)],
+                "intervention_targets": [*numeric.state_ids(compiled)],
                 "request": SimulateRequest.model_json_schema(),
             },
         }
     return payload
 
 
-def _execute_get_model_info(ctx: ToolContext, args: GetModelInfoInput) -> ToolResult:
+def _execute_get_model_info(ctx: AnalysisToolContext, args: GetModelInfoInput) -> ToolResult:
     return {"result": _build_model_info_payload(ctx, args)}
 
 
 # Registry: (context_id, tool_name) -> implementation function
 _TOOL_IMPLS: dict[tuple[str, str], ToolImplementation] = {
     ("literature", "search_literature"): partial(
-        _parse_tool_call, SearchLiteratureInput, execute_search_literature
+        _parse_tool_call,
+        SearchLiteratureInput,
+        execute_search_literature,
+        lambda workspace_id: ToolContext(_workspace_id=workspace_id),
     ),
     ("analysis", "get_model_info"): partial(
-        _parse_tool_call, GetModelInfoInput, _execute_get_model_info
+        _parse_tool_call, GetModelInfoInput, _execute_get_model_info, _build_analysis_context
     ),
 }
-
-
-def _build_context(workspace_id: str, context_id: str) -> ToolContext:
-    """Load the study state a tool reads; literature search reads none."""
-    if context_id == "analysis":
-        return _build_analysis_context(workspace_id)
-    return {"_workspace_id": workspace_id}
 
 
 def _get_tool_contract(context_id: str, tool_name: str) -> ToolDefinition | None:
@@ -575,8 +613,6 @@ async def execute_tool(context_id: str, tool_name: str, request: ToolCallRequest
             result = await read_action_poll(request.workspace_id, query.attempt_id)
             return {"result": result.model_dump(mode="json")}
 
-        from pydantic import TypeAdapter
-
         from nof1_causal_lab.actions.contracts import ScientificActionRequest
         from nof1_causal_lab.study_api import execute_scientific_action
 
@@ -597,32 +633,19 @@ async def execute_tool(context_id: str, tool_name: str, request: ToolCallRequest
             404, f"No implementation for tool {tool_name!r} in context {context_id!r}"
         )
 
-    try:
-        ctx = _build_context(request.workspace_id, context_id)
-        pending_payload = impl(ctx, request.input)
-        payload = await pending_payload if inspect.isawaitable(pending_payload) else pending_payload
-    except ValidationError as exc:
-        raise HTTPException(422, detail=exc.errors(include_context=False)) from exc
-    except HTTPException:
-        raise
-    except Exception as exc:
-        logger.exception("Tool execution failed for %s/%s", context_id, tool_name)
-        raise HTTPException(
-            500,
-            detail={
-                "message": str(exc) or repr(exc),
-                "exception_type": exc.__class__.__name__,
-                "context_id": context_id,
-                "tool_name": tool_name,
-            },
-        ) from exc
+    pending_payload = impl(request.workspace_id, request.input)
+    payload: ToolResult = (
+        await pending_payload if inspect.isawaitable(pending_payload) else pending_payload
+    )
 
     if contract.output_schema is None:
         return payload
 
     try:
-        payload["result"] = contract.output_schema.model_validate(payload.get("result")).model_dump(
-            mode="json"
+        payload["result"] = (
+            TypeAdapter(contract.output_schema)
+            .validate_python(payload.get("result"))
+            .model_dump(mode="json")
         )
     except ValidationError as exc:
         raise HTTPException(

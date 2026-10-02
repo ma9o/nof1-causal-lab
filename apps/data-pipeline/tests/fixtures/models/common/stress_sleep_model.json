@@ -22,37 +22,35 @@
             "likelihood": {
               "law": {
                 "distribution": "Normal",
-                "arguments": {
-                  "loc": {
+                "loc": {
+                  "kind": "binary",
+                  "operator": "add",
+                  "left": {
+                    "kind": "coefficient",
+                    "role": "observation_intercept",
+                    "value": 0.0,
+                    "construct_ids": []
+                  },
+                  "right": {
                     "kind": "binary",
-                    "operator": "add",
+                    "operator": "multiply",
                     "left": {
                       "kind": "coefficient",
-                      "role": "observation_intercept",
-                      "value": 0.0,
+                      "role": "loading",
+                      "value": 1.0,
                       "construct_ids": []
                     },
                     "right": {
-                      "kind": "binary",
-                      "operator": "multiply",
-                      "left": {
-                        "kind": "coefficient",
-                        "role": "loading",
-                        "value": 1.0,
-                        "construct_ids": []
-                      },
-                      "right": {
-                        "kind": "state",
-                        "construct_id": "construct:98df502ac4daf088ca29"
-                      }
+                      "kind": "state",
+                      "construct_id": "construct:98df502ac4daf088ca29"
                     }
-                  },
-                  "scale": {
-                    "kind": "coefficient",
-                    "role": "observation_scale",
-                    "value": 0.0,
-                    "construct_ids": []
                   }
+                },
+                "scale": {
+                  "kind": "coefficient",
+                  "role": "observation_scale",
+                  "value": 0.0,
+                  "construct_ids": []
                 }
               },
               "standardized": true,
@@ -213,37 +211,35 @@
             "likelihood": {
               "law": {
                 "distribution": "Normal",
-                "arguments": {
-                  "loc": {
+                "loc": {
+                  "kind": "binary",
+                  "operator": "add",
+                  "left": {
+                    "kind": "coefficient",
+                    "role": "observation_intercept",
+                    "value": 0.0,
+                    "construct_ids": []
+                  },
+                  "right": {
                     "kind": "binary",
-                    "operator": "add",
+                    "operator": "multiply",
                     "left": {
                       "kind": "coefficient",
-                      "role": "observation_intercept",
-                      "value": 0.0,
+                      "role": "loading",
+                      "value": 1.0,
                       "construct_ids": []
                     },
                     "right": {
-                      "kind": "binary",
-                      "operator": "multiply",
-                      "left": {
-                        "kind": "coefficient",
-                        "role": "loading",
-                        "value": 1.0,
-                        "construct_ids": []
-                      },
-                      "right": {
-                        "kind": "state",
-                        "construct_id": "construct:259490b93f7f2c38ed40"
-                      }
+                      "kind": "state",
+                      "construct_id": "construct:259490b93f7f2c38ed40"
                     }
-                  },
-                  "scale": {
-                    "kind": "coefficient",
-                    "role": "observation_scale",
-                    "value": 0.0,
-                    "construct_ids": []
                   }
+                },
+                "scale": {
+                  "kind": "coefficient",
+                  "role": "observation_scale",
+                  "value": 0.0,
+                  "construct_ids": []
                 }
               },
               "standardized": true,
@@ -381,33 +377,39 @@
       "id": "parameter:79f4ef602a98b2a1c2a8e0e8a32712435c97386a960def454c1819643b151b71",
       "name": "rho_Stress",
       "description": "stiffness of rho_Stress",
-      "distribution_transform": "dt_persistence_to_ct_decay",
       "distribution": "distribution:c59116070fd97f62e1481c1a813279a1f0c5ab452d6f4105f70fbfc3051be03b",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "dt_persistence_to_ct_decay",
+        "interval_days": "model_clock"
+      }
     },
     {
       "id": "parameter:d62df28df0722e5a90eb3d0084864b2e5446788390eb543739e0df14eb4022a8",
       "name": "rho_Sleep",
       "description": "stiffness of rho_Sleep",
-      "distribution_transform": "dt_persistence_to_ct_decay",
       "distribution": "distribution:23926233bdfcdac7277090299d9b4fa760ca7d7cb39fbbed3aa6f77297a88490",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "dt_persistence_to_ct_decay",
+        "interval_days": "model_clock"
+      }
     },
     {
       "id": "parameter:a10f5942f9c664ae6dfdfc6d1517ae7d90c5d58b41a5115c70873fb2bb5c9ead",
       "name": "sigma_Stress",
       "description": "innovation.scale for sigma_Stress",
-      "distribution_transform": "identity",
       "distribution": "distribution:1b42c10520f21b8f6fe4d6a0077f105e3a20182f4e478fcd177a13be70ad54c6",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:9621ac0aee1bc67ad5634d2508adf615c8e92ad21d5baa584a6741a6a020b729",
       "name": "sigma_Sleep",
       "description": "innovation.scale for sigma_Sleep",
-      "distribution_transform": "identity",
       "distribution": "distribution:036f944dfb9be10b5c26aa7e4d7b3b60c0662aab4c4b615dd643dc4fb668e9c7",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     }
   ],
   "distributions": {

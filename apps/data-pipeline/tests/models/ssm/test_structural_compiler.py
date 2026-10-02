@@ -9,12 +9,23 @@ from nof1_causal_lab.artifacts.construct import (
     TemporalStatus,
     replace_constructs,
 )
+from nof1_causal_lab.artifacts.likelihood import DeltaLawSpec
+from nof1_causal_lab.artifacts.mechanism import DriftMechanismSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.models.model_checks import check_execution
-from nof1_causal_lab.models.model_structure import StructuralCompilationError
+from nof1_causal_lab.models.model_parameters import execution_parameters
+from nof1_causal_lab.models.model_structure import (
+    StructuralCompilationError,
+    reference_indicators,
+    selected_edges,
+    selected_indicators,
+    selected_state_ids,
+    validate_execution_structure,
+)
 from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
+from nof1_causal_lab.models.ssm.compile.support import _build_static_factor_structure
 from tests.helpers import make_model
-from tests.model_fixtures import compile_fit_fixture
+from tests.inference_fixtures import particle_posterior
+from tests.model_fixtures import compile_fit_fixture, compile_model_fixture
 
 
 @pytest.mark.contract
@@ -25,30 +36,20 @@ def test_planner_rejects_retained_static_target_edge():
         edges=replace_constructs(
             model.edges,
             (
-                type(x).model_validate(
-                    {
-                        **x.model_dump(),
-                        "role": Role.ENDOGENOUS,
-                        "temporal_status": TemporalStatus.TIME_INVARIANT,
-                    }
-                ),
-                type(baseline).model_validate(
-                    {**baseline.model_dump(), "temporal_status": TemporalStatus.TIME_INVARIANT}
-                ),
+                x.revised(role=Role.ENDOGENOUS, temporal_status=TemporalStatus.TIME_INVARIANT),
+                baseline.revised(temporal_status=TemporalStatus.TIME_INVARIANT),
                 y,
             ),
         )
     )
     with pytest.raises(StructuralCompilationError, match="static-target edge"):
-        (model).require_execution_structure()
+        validate_execution_structure(model)
 
 
 @pytest.mark.contract
 def test_model_rejects_duplicate_endpoint_pairs():
     model = make_model(["X", "Y"], [("X", "Y")])
-    duplicate = type(model.edges[0]).model_validate(
-        {**model.edges[0].model_dump(), "id": "edge:another"}
-    )
+    duplicate = model.edges[0].revised(id="edge:another")
     with pytest.raises(ValueError, match="one causal edge per endpoint pair"):
         model.revised(edges=(*model.edges, duplicate))
 
@@ -59,21 +60,16 @@ def test_projected_coefficients_require_literals():
 
     from nof1_causal_lab.artifacts.expressions import coefficient, state
     from nof1_causal_lab.artifacts.identity import scientific_id
-    from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
     from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
-    from nof1_causal_lab.models.ssm import numerics as numeric
     from nof1_causal_lab.models.ssm.compile.mechanisms import iter_mechanism_components
 
     model = make_model(["U", "X", "Y"], [("U", "Y"), ("X", "Y")])
     root = next(item for item in model.constructs if item.name == "U")
-    root = type(root).model_validate(
-        {
-            **root.model_dump(),
-            "role": Role.ENDOGENOUS,
-            "temporal_status": TemporalStatus.TIME_INVARIANT,
-            "indicators": (),
-            "coefficients": (coefficient(0.0, "initial_mean"), coefficient(1.0, "initial_scale")),
-        }
+    root = root.revised(
+        role=Role.ENDOGENOUS,
+        temporal_status=TemporalStatus.TIME_INVARIANT,
+        indicators=(),
+        coefficients=(coefficient(0.0, "initial_mean"), coefficient(1.0, "initial_scale")),
     )
     model = model.revised(edges=replace_constructs(model.edges, (root,)))
     parameter = ParameterSpec(
@@ -84,16 +80,13 @@ def test_projected_coefficients_require_literals():
 
     def _with_loading(weight, parameters):
         edges = tuple(
-            type(edge).model_validate(
-                {
-                    **edge.model_dump(),
-                    "mechanisms": (
-                        DynamicsMechanismSpec(
-                            id="mechanism:fixed-loading",
-                            expression=coefficient(weight, "weight") * state(root.id),
-                        ),
+            edge.revised(
+                mechanisms=(
+                    DriftMechanismSpec(
+                        id="mechanism:fixed-loading",
+                        expression=coefficient(weight, "weight") * state(root.id),
                     ),
-                }
+                )
             )
             if edge.cause.id == root.id
             else edge
@@ -102,32 +95,45 @@ def test_projected_coefficients_require_literals():
         return model.revised(edges=edges, parameters=parameters)
 
     literal = _with_loading(0.5, ())
-    assert np.any(np.asarray(numeric.static_factor_loadings(literal)) == 0.5)
-    tuple(iter_mechanism_components(literal, literal.state_order))
+    assert np.any(
+        np.asarray(
+            _build_static_factor_structure(
+                literal,
+                tuple(
+                    literal.get_construct(identity).name for identity in selected_state_ids(literal)
+                ),
+            )[2]
+        )
+        == 0.5
+    )
+    tuple(iter_mechanism_components(literal, selected_state_ids(literal)))
     unresolved = _with_loading(parameter.id, (parameter,))
     with pytest.raises(ValueError, match="fixed linear"):
-        numeric.static_factor_loadings(unresolved)
+        _build_static_factor_structure(
+            unresolved,
+            tuple(
+                unresolved.get_construct(identity).name
+                for identity in selected_state_ids(unresolved)
+            ),
+        )[2]
     with pytest.raises(ValueError, match="fixed linear"):
-        tuple(iter_mechanism_components(unresolved, unresolved.state_order))
+        tuple(iter_mechanism_components(unresolved, selected_state_ids(unresolved)))
 
 
 def _model_with_exact_measurement():
     from nof1_causal_lab.artifacts.expressions import state
-    from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec, ObservationLawSpec
+    from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec
 
     model = make_model(
         ["X", "Y", "Driver", "History", "U"],
         [("X", "Y"), ("Driver", "Y"), ("History", "Y"), ("U", "X"), ("U", "Y")],
     )
     x, y, driver, history, u = model.constructs
-    indicator = type(driver.indicators[0]).model_validate(
-        {
-            **driver.indicators[0].model_dump(),
-            "likelihood": LikelihoodSpec(
-                law=ObservationLawSpec(distribution="Delta", arguments={"v": state(driver.id)}),
-                reasoning="Direct exact driver observation",
-            ),
-        }
+    indicator = driver.indicators[0].revised(
+        likelihood=LikelihoodSpec(
+            law=DeltaLawSpec(v=state(driver.id)),
+            reasoning="Direct exact driver observation",
+        )
     )
     return model.revised(
         edges=replace_constructs(
@@ -135,13 +141,9 @@ def _model_with_exact_measurement():
             (
                 x,
                 y,
-                type(driver).model_validate(
-                    {**driver.model_dump(), "role": Role.EXOGENOUS, "indicators": (indicator,)}
-                ),
+                driver.revised(role=Role.EXOGENOUS, indicators=(indicator,)),
                 history,
-                type(u).model_validate(
-                    {**u.model_dump(), "role": Role.ENDOGENOUS, "indicators": ()}
-                ),
+                u.revised(role=Role.ENDOGENOUS, indicators=()),
             ),
         )
     )
@@ -152,7 +154,7 @@ def test_exact_measurements_retain_scientific_states_and_project_only_supported_
     model = _model_with_exact_measurement()
     dispositions = {d.target.id: d.disposition for d in model.structural_dispositions}
     by_name = {c.name: c for c in model.constructs}
-    assert [model.get_construct(key).name for key in model.state_order] == [
+    assert [model.get_construct(key).name for key in selected_state_ids(model)] == [
         "X",
         "Y",
         "Driver",
@@ -161,9 +163,11 @@ def test_exact_measurements_retain_scientific_states_and_project_only_supported_
     assert dispositions[by_name["Driver"].id] == "retained_state"
     assert dispositions[by_name["History"].id] == "retained_state"
     assert dispositions[by_name["U"].id] == "marginalized"
-    assert by_name["Driver"].indicators[0].id in model.manifest_indicator_order
+    assert by_name["Driver"].indicators[0].id in tuple(
+        indicator.id for indicator in selected_indicators(model)
+    )
     assert model.induced_dependencies
-    assert model.execution_edges[0] is model.edges[0]
+    assert selected_edges(model)[0] is model.edges[0]
 
 
 @pytest.mark.contract
@@ -177,7 +181,7 @@ def test_source_ids_are_stable_across_authoring_reordering():
         d.target.id: d.disposition for d in reordered.structural_dispositions
     }
     assert original.induced_dependencies == reordered.induced_dependencies
-    assert original.reference_indicator_ids == reordered.reference_indicator_ids
+    assert reference_indicators(original) == reference_indicators(reordered)
 
 
 @pytest.mark.contract
@@ -188,11 +192,11 @@ def test_execution_checks_preserve_the_scientific_model():
         ).read_text()
     )
     before = model.model_dump(mode="json")
-    check_execution(model)
+    compile_model_fixture(model)
     from nof1_causal_lab.models.ssm import numerics as numeric
 
-    assert numeric.observation_names(model) == ["X_obs", "Y_obs"]
-    assert {b.parameter_id for b in parameter_bindings(model)[0]} == {
+    assert numeric.observation_names(compile_model_fixture(model)) == ("X_obs", "Y_obs")
+    assert {b.parameter_id for b in parameter_bindings(compile_model_fixture(model))[0]} == {
         p.id for p in model.parameters
     }
     assert model.model_dump(mode="json") == before
@@ -208,14 +212,14 @@ def test_required_unmeasured_mediator_cannot_be_silently_excluded():
             model.edges,
             (
                 x,
-                type(mediator).model_validate({**mediator.model_dump(), "indicators": ()}),
+                mediator.revised(indicators=()),
                 y,
             ),
         ),
     )
     assert any(d.disposition == "unsupported" for d in model.structural_dispositions)
     with pytest.raises(StructuralCompilationError, match="Required constructs"):
-        model.check_execution()
+        validate_execution_structure(model)
 
 
 @pytest.mark.inference(concern="predictive")
@@ -224,10 +228,10 @@ def test_severed_components_do_not_require_priors_or_bind_numerical_parameters()
     import jax.numpy as jnp
 
     from nof1_causal_lab.models.ssm import numerics as numeric
-    from nof1_causal_lab.models.ssm.inference.persistence import condition_model, model_draws
+    from nof1_causal_lab.models.ssm.inference.persistence import condition_model
+    from nof1_causal_lab.models.ssm.inference.shared import model_draws
     from nof1_causal_lab.models.ssm.inference.types import (
         JointPosteriorDraws,
-        ParticleMCMCPosterior,
     )
     from nof1_causal_lab.models.ssm.predictive.parameters import sample_model_laws
 
@@ -247,9 +251,7 @@ def test_severed_components_do_not_require_priors_or_bind_numerical_parameters()
     selected = model.revised(
         default_outcome=nodes["Y"].id,
         parameters=tuple(
-            type(item).model_validate({**item.model_dump(), "distribution": None})
-            if item.id == island_parameter.id
-            else item
+            item.revised(distribution=None) if item.id == island_parameter.id else item
             for item in model.parameters
         ),
         distributions={
@@ -259,36 +261,41 @@ def test_severed_components_do_not_require_priors_or_bind_numerical_parameters()
         },
     )
     before = selected.model_dump(mode="json")
-    assert set(numeric.state_names(selected)) == {"X", "Y"}
-    assert len(selected.manifest_indicator_order) == 2
-    assert island_parameter.id not in {item.id for item in selected.execution_parameters}
-    selected.check_execution()
+    assert set(numeric.state_names(compile_model_fixture(selected))) == {"X", "Y"}
+    assert len(tuple(indicator.id for indicator in selected_indicators(selected))) == 2
+    assert island_parameter.id not in {item.id for item in execution_parameters(selected)}
+    compile_model_fixture(selected)
     bindings = compile_fit_fixture(selected).bindings
     assert {item.parameter_id for item in bindings} == {
-        item.id for item in selected.execution_parameters
+        item.id for item in execution_parameters(selected)
     }
     assert selected.model_dump(mode="json") == before
 
-    draws = sample_model_laws(selected, draws=2, key=jax.random.PRNGKey(0))
+    draws = sample_model_laws(compile_model_fixture(selected), draws=2, key=jax.random.PRNGKey(0))
     assert set(draws.state_ids) == {nodes["X"].id, nodes["Y"].id}
     # Exercise persistence with synthetic draws; no fitting or trajectory simulation.
     conditioned = condition_model(
-        compile_fit_fixture(selected),
-        ParticleMCMCPosterior(
+        selected,
+        compile_model_fixture(selected),
+        particle_posterior(
             JointPosteriorDraws(draws.parameters, jnp.zeros((2, 2, 2)), draws.state_ids)
         ),
         times=jnp.array([0.0, 1.0]),
     )
     assert conditioned.parameter(island_parameter.id) == selected.parameter(island_parameter.id)
     assert set(conditioned.distributions) & set(selected.distributions)
-    assert model_draws(conditioned).state_ids == draws.state_ids
+    assert model_draws(compile_model_fixture(conditioned)).state_ids == draws.state_ids
     assert (
-        sample_model_laws(conditioned, draws=2, key=jax.random.PRNGKey(1)).state_ids
+        sample_model_laws(
+            compile_model_fixture(conditioned), draws=2, key=jax.random.PRNGKey(1)
+        ).state_ids
         == draws.state_ids
     )
 
     # Without a selected outcome, the operation still covers all measured components.
-    assert set(numeric.state_names(selected.revised(default_outcome=None))) == {"A", "B", "X", "Y"}
+    assert set(
+        numeric.state_names(compile_model_fixture(selected.revised(default_outcome=None)))
+    ) == {"A", "B", "X", "Y"}
 
 
 @pytest.mark.contract
@@ -299,12 +306,8 @@ def test_projected_latent_dependencies_keep_their_connected_states():
         default_outcome=nodes["Y"].id,
         edges=replace_constructs(
             model.edges,
-            (
-                type(nodes["U"]).model_validate(
-                    {**nodes["U"].model_dump(), "role": Role.ENDOGENOUS, "indicators": ()}
-                ),
-            ),
+            (nodes["U"].revised(role=Role.ENDOGENOUS, indicators=()),),
         ),
     )
     assert nodes["U"].id in selected.marginalized_construct_ids
-    assert set(selected.state_order) == {nodes[name].id for name in ("X", "Y", "A")}
+    assert set(selected_state_ids(selected)) == {nodes[name].id for name in ("X", "Y", "A")}

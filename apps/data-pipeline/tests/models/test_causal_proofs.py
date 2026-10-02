@@ -15,6 +15,7 @@ from nof1_causal_lab.artifacts.identification import (
 from nof1_causal_lab.artifacts.identity import GitRef
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.causal_proofs import (
+    CausalCertificationError,
     CertifiedCausalAnalysis,
     certify_identified_estimand,
 )
@@ -105,7 +106,7 @@ def test_identification_proof_rejects_unidentified_treatment(
         if explicit_finding
         else {},
     )
-    with pytest.raises(ValueError, match="is not identified"):
+    with pytest.raises(CausalCertificationError, match="is not identified"):
         certify_identified_estimand(
             model,
             report,
@@ -120,13 +121,14 @@ def test_conditioning_rejects_warmup_statically(tmp_path):
     probe.write_text(
         dedent("""\
             from jax import Array
-            from nof1_causal_lab.models.ssm.compile.inputs import CompiledFitInputs
+            from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
+            from nof1_causal_lab.artifacts.model_spec import ModelSpec
             from nof1_causal_lab.models.ssm.inference.persistence import condition_model
             from nof1_causal_lab.models.ssm.inference.types import ParticleMCMCPosterior, WarmupProposal
 
-            def condition(model: CompiledFitInputs, posterior: ParticleMCMCPosterior, warmup: WarmupProposal, times: Array):
-                condition_model(model, posterior, times=times)
-                condition_model(model, warmup, times=times)
+            def condition(model: ModelSpec, compiled: CompiledModel, posterior: ParticleMCMCPosterior, warmup: WarmupProposal, times: Array):
+                condition_model(model, compiled, posterior, times=times)
+                condition_model(model, compiled, warmup, times=times)
             """)
     )
     checked = subprocess.run(
@@ -164,13 +166,13 @@ def test_causal_reporting_requires_retained_uncertainty_and_converged_exact_engi
     revision = GitRef(workspace_id="workspace", revision=git_oid(2), path="model.json")
     record = inference_log(model)
     certify_conditioned_model(model, revision, record)
-    with pytest.raises(ValueError, match="committed fit"):
+    with pytest.raises(CausalCertificationError, match="committed fit"):
         certify_conditioned_model(
             model,
-            type(revision).model_validate({**revision.model_dump(), "revision": git_oid(3)}),
+            revision.revised(revision=git_oid(3)),
             record,
         )
-    with pytest.raises(ValueError, match="differs from"):
+    with pytest.raises(CausalCertificationError, match="differs from"):
         certify_conditioned_model(
             ModelSpec.model_validate_json(
                 (
@@ -182,20 +184,20 @@ def test_causal_reporting_requires_retained_uncertainty_and_converged_exact_engi
             revision,
             record,
         )
-    with pytest.raises(ValueError, match="production particle-MCMC"):
-        certify_conditioned_model(
-            model,
-            revision,
-            type(record).model_validate(
-                {
-                    **record.model_dump(),
-                    "diagnostics": {
-                        **record.diagnostics,
-                        "engine_evidence": {"engine": "map", "latent_transition": "euler_maruyama"},
-                    },
-                }
-            ),
-        )
+    from nof1_causal_lab.artifacts.checks import NotEvaluated
+
+    report = record.record.attempt.outcome.result.report
+    unavailable = report.revised(
+        **{
+            "engine": NotEvaluated(
+                subject="production_engine",
+                reason="ARCHIVED_ENGINE_NOT_RETAINED",
+                detail="Exact engine evidence not retained",
+            )
+        }
+    )
+    with pytest.raises(CausalCertificationError, match="retained exact-engine evidence"):
+        certify_conditioned_model(model, revision, inference_log(model, report=unavailable))
     prior = ModelSpec.model_validate_json(
         (
             Path(__file__).resolve().parents[1]
@@ -203,21 +205,27 @@ def test_causal_reporting_requires_retained_uncertainty_and_converged_exact_engi
             / "causal_proofs/treatment_outcome.json"
         ).read_text()
     )
-    with pytest.raises(ValueError, match="no retained joint uncertainty"):
+    with pytest.raises(CausalCertificationError, match="no retained joint uncertainty"):
         certify_conditioned_model(prior, revision, inference_log(prior))
-    report = record.diagnostics["report"]
-    mixed_poorly = {
-        **report,
-        "inference_diagnostics": {
-            "mcmc": {
-                "num_chains": 4,
-                "per_parameter": [
-                    {"parameter": "beta", "r_hat": 1.05, "ess_bulk": 800.0, "ess_tail": 90.0}
-                ],
-            }
-        },
-    }
-    with pytest.raises(ValueError, match=r"R-hat < 1\.01 fails.*tail ESS ≥ 400 fails"):
+    from nof1_causal_lab.models.ssm.inference.convergence import parameter_convergence
+
+    diagnostics = report.inference_diagnostics
+    assert diagnostics is not None
+    poorly_mixed = diagnostics.revised(
+        **{
+            "per_parameter": tuple(
+                row.revised(**{"r_hat": 1.05, "ess_tail": 90.0})
+                for row in diagnostics.per_parameter
+            )
+        }
+    )
+    mixed_poorly = report.revised(
+        **{
+            "inference_diagnostics": poorly_mixed,
+            "convergence": parameter_convergence(poorly_mixed),
+        }
+    )
+    with pytest.raises(CausalCertificationError, match=r"r_hat fails.*ess_tail fails"):
         certify_conditioned_model(model, revision, inference_log(model, report=mixed_poorly))
 
 

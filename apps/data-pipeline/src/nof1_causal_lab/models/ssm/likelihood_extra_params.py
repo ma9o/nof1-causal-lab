@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
@@ -13,16 +14,21 @@ from nof1_causal_lab.models.ssm.execution.observation_families import (
 )
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.models.ssm.execution.contracts import LikelihoodExtraParams
+    from collections.abc import Mapping
+
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
+    from nof1_causal_lab.models.ssm.execution.contracts import (
+        LikelihoodExtraParams,
+        LikelihoodParameterValue,
+    )
 
 
 def assemble_sampled_extra_params(
-    spec: ModelSpec,
-    sampled_values: dict[str, jnp.ndarray],
+    spec: CompiledModel,
+    sampled_values: Mapping[str, jnp.ndarray],
 ) -> LikelihoodExtraParams:
     """Assemble likelihood hyperparameters and derived observation metadata."""
-    extra_params: LikelihoodExtraParams = {}
+    extra_params: dict[str, LikelihoodParameterValue] = {}
     manifest_dist_set = set(numeric.observation_families(spec))
 
     scalar_keys = (
@@ -90,4 +96,4 @@ def assemble_sampled_extra_params(
             cat_slopes = jnp.where(anchor_entries, 1.0, cat_slopes)
         extra_params["obs_cat_slopes"] = cat_slopes
 
-    return extra_params
+    return MappingProxyType(extra_params)

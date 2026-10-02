@@ -26,49 +26,47 @@
             "likelihood": {
               "law": {
                 "distribution": "Categorical",
-                "arguments": {
-                  "logits": {
-                    "kind": "call",
-                    "function": "category_logits",
-                    "arguments": [
-                      {
+                "logits": {
+                  "kind": "call",
+                  "function": "category_logits",
+                  "arguments": [
+                    {
+                      "kind": "binary",
+                      "operator": "add",
+                      "left": {
+                        "kind": "coefficient",
+                        "role": "observation_intercept",
+                        "value": "parameter:9ee7f16619dec0fee01eccacf7ced00544ea939bab64c6916764d6713ad0c0d2",
+                        "construct_ids": []
+                      },
+                      "right": {
                         "kind": "binary",
-                        "operator": "add",
+                        "operator": "multiply",
                         "left": {
                           "kind": "coefficient",
-                          "role": "observation_intercept",
-                          "value": "parameter:9ee7f16619dec0fee01eccacf7ced00544ea939bab64c6916764d6713ad0c0d2",
+                          "role": "loading",
+                          "value": 1.0,
                           "construct_ids": []
                         },
                         "right": {
-                          "kind": "binary",
-                          "operator": "multiply",
-                          "left": {
-                            "kind": "coefficient",
-                            "role": "loading",
-                            "value": 1.0,
-                            "construct_ids": []
-                          },
-                          "right": {
-                            "kind": "state",
-                            "construct_id": "construct:bbc87212909e45b9e6c3"
-                          }
+                          "kind": "state",
+                          "construct_id": "construct:bbc87212909e45b9e6c3"
                         }
-                      },
-                      {
-                        "kind": "coefficient",
-                        "role": "category_intercepts",
-                        "value": "parameter:855c0e9decc81b21aac8a6f77adf9ce25269456daba2da077e546155e0bf3ec9",
-                        "construct_ids": []
-                      },
-                      {
-                        "kind": "coefficient",
-                        "role": "category_slopes",
-                        "value": "parameter:e023bf229ef882dc8b4b6732485a912c1cd54b3bd66085595935952f9013d781",
-                        "construct_ids": []
                       }
-                    ]
-                  }
+                    },
+                    {
+                      "kind": "coefficient",
+                      "role": "category_intercepts",
+                      "value": "parameter:855c0e9decc81b21aac8a6f77adf9ce25269456daba2da077e546155e0bf3ec9",
+                      "construct_ids": []
+                    },
+                    {
+                      "kind": "coefficient",
+                      "role": "category_slopes",
+                      "value": "parameter:e023bf229ef882dc8b4b6732485a912c1cd54b3bd66085595935952f9013d781",
+                      "construct_ids": []
+                    }
+                  ]
                 }
               },
               "standardized": false,
@@ -214,41 +212,47 @@
       "id": "parameter:3dd6b7c9eb6876093f9fe0c1c1ce2864fd4a8c53e6dac3d6a1e5538016e1fdff",
       "name": "rho_mood",
       "description": "stiffness of rho_mood",
-      "distribution_transform": "dt_persistence_to_ct_decay",
-      "distribution": null,
-      "reference_interval_days": null
+      "distribution": "distribution:180f0d57d4bc50a086c6f0f89527c6485cbf55a1177a18c8dbd5b0429158fd41",
+      "transform": {
+        "kind": "dt_persistence_to_ct_decay",
+        "interval_days": "model_clock"
+      }
     },
     {
       "id": "parameter:9ee7f16619dec0fee01eccacf7ced00544ea939bab64c6916764d6713ad0c0d2",
       "name": "manifest_mean_mood_kind",
       "description": "Observation intercept for mood_kind",
-      "distribution_transform": "identity",
-      "distribution": null,
-      "reference_interval_days": null
+      "distribution": "distribution:8fb0b4e3266ff97aba27d74c9c10662056a8c4d39d99176929f7646c4b91a73d",
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:ea7fd5ac08160569f35431da4d1741f5ac0606585c802a602de991f3e3a51263",
       "name": "sigma_mood",
       "description": "innovation.scale for sigma_mood",
-      "distribution_transform": "identity",
-      "distribution": null,
-      "reference_interval_days": null
+      "distribution": "distribution:2cf146fa915507aa42a7b63772ad16479aa4cbb18828a90beb23ee9c2b0edaa5",
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:855c0e9decc81b21aac8a6f77adf9ce25269456daba2da077e546155e0bf3ec9",
       "name": "obs_cat_intercepts",
       "description": "category intercepts for obs_cat_intercepts",
-      "distribution_transform": "identity",
       "distribution": "distribution:8d05ff827a2e678b798443c17236030e6f43afaa516ead3fa728fd445ddf9bfb",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:e023bf229ef882dc8b4b6732485a912c1cd54b3bd66085595935952f9013d781",
       "name": "obs_cat_slopes",
       "description": "category slopes for obs_cat_slopes",
-      "distribution_transform": "identity",
       "distribution": "distribution:6243503fdd834ef949f4cecdcc4e0debec2966d9cb2df7e075634e69a1c6a013",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     }
   ],
   "distributions": {
@@ -264,6 +268,29 @@
       "distribution": "Normal",
       "params": {
         "loc": 0.0,
+        "scale": 1.0,
+        "validate_args": false
+      }
+    },
+    "distribution:180f0d57d4bc50a086c6f0f89527c6485cbf55a1177a18c8dbd5b0429158fd41": {
+      "distribution": "Beta",
+      "params": {
+        "concentration1": 2.0,
+        "concentration0": 2.0,
+        "validate_args": false
+      }
+    },
+    "distribution:8fb0b4e3266ff97aba27d74c9c10662056a8c4d39d99176929f7646c4b91a73d": {
+      "distribution": "Normal",
+      "params": {
+        "loc": 0.0,
+        "scale": 1.0,
+        "validate_args": false
+      }
+    },
+    "distribution:2cf146fa915507aa42a7b63772ad16479aa4cbb18828a90beb23ee9c2b0edaa5": {
+      "distribution": "HalfNormal",
+      "params": {
         "scale": 1.0,
         "validate_args": false
       }

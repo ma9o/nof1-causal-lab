@@ -2,42 +2,6 @@
 
 from __future__ import annotations
 
-import logging
-import os
-from pathlib import Path
-
-_logger = logging.getLogger(__name__)
-
-
-def _truthy_env(name: str) -> bool:
-    """Return True when an environment flag is set to a truthy value."""
-    return os.getenv(name, "").strip().lower() in {"1", "true", "yes", "on"}
-
-
-def _configure_jax_persistent_cache() -> None:
-    """Enable JAX's persistent compilation cache unless explicitly disabled."""
-    if _truthy_env("NOF1_CAUSAL_LAB_DISABLE_JAX_PERSISTENT_CACHE"):
-        return
-
-    try:
-        import jax
-    except (ImportError, OSError):
-        _logger.debug("JAX import failed; skipping persistent cache setup", exc_info=True)
-        return
-
-    cache_dir = os.getenv("JAX_COMPILATION_CACHE_DIR")
-    if not cache_dir:
-        cache_dir = str(Path.home() / ".cache" / "nof1-causal-lab" / "jax")
-
-    try:
-        Path(cache_dir).mkdir(parents=True, exist_ok=True)
-        if not jax.config.values.get("jax_compilation_cache_dir"):
-            jax.config.update("jax_compilation_cache_dir", cache_dir)
-    except (AttributeError, OSError, RuntimeError, ValueError):
-        # Cache configuration is an optimization only; it must never block imports.
-        _logger.debug("JAX cache configuration failed", exc_info=True)
-        return
-
 
 def _keep_numpyro_argument_checks_opt_in() -> None:
     """Undo NumPyro 0.22's default of validating every constructor's arguments.
@@ -50,5 +14,4 @@ def _keep_numpyro_argument_checks_opt_in() -> None:
     numpyro.enable_validation(False)
 
 
-_configure_jax_persistent_cache()
 _keep_numpyro_argument_checks_opt_in()

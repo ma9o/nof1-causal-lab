@@ -6,6 +6,7 @@ import pytest
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.observation_support import validate_discrete_manifest_metadata
+from tests.model_fixtures import compile_model_fixture
 
 pytestmark = pytest.mark.contract
 
@@ -36,10 +37,14 @@ def test_declared_discrete_levels_allow_one_observed_level():
         ).read_text()
     )
 
-    validate_discrete_manifest_metadata(spec, _single_row_panel())
+    validate_discrete_manifest_metadata(compile_model_fixture(spec), _single_row_panel())
 
     counts = dict(
-        zip(numeric.observation_names(spec), numeric.observation_level_counts(spec), strict=True)
+        zip(
+            numeric.observation_names(compile_model_fixture(spec)),
+            numeric.observation_level_counts(compile_model_fixture(spec)),
+            strict=True,
+        )
     )
     assert counts["symptom_severity"] == counts["coping_style"] == 4
 
@@ -54,11 +59,12 @@ def test_declared_discrete_levels_reject_out_of_range_code():
     )
 
     with pytest.raises(ValueError, match=r"outside declared range 0\.\.3"):
-        validate_discrete_manifest_metadata(spec, _single_row_panel(symptom_severity=4.0))
+        validate_discrete_manifest_metadata(
+            compile_model_fixture(spec), _single_row_panel(symptom_severity=4.0)
+        )
 
 
 def test_missing_declared_levels_are_rejected_in_the_scientific_definition():
-    from nof1_causal_lab.artifacts.indicator import IndicatorSpec
 
     indicator = next(
         item
@@ -72,4 +78,4 @@ def test_missing_declared_levels_are_rejected_in_the_scientific_definition():
         if item.measurement_dtype == "ordinal"
     )
     with pytest.raises(ValueError, match="ordinal_levels"):
-        IndicatorSpec.model_validate({**indicator.model_dump(), "ordinal_levels": None})
+        indicator.revised(ordinal_levels=None)

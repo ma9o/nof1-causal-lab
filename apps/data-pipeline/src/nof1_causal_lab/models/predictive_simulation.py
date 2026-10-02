@@ -11,6 +11,7 @@ import jax.random as random
 import numpy as np
 
 from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
+from nof1_causal_lab.models.ssm.execution.dynamical_model import HeterogeneousObservation
 from nof1_causal_lab.models.ssm.execution.observation_dispatch import (
     build_interval_summary_sampler,
 )
@@ -22,9 +23,10 @@ from nof1_causal_lab.models.ssm.execution.observation_operator import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Callable, Sequence
 
-    from nof1_causal_lab.models.ssm.execution.dynamical_model import HeterogeneousObservation
+    import dynestyx as dsx
+
     from nof1_causal_lab.models.ssm.execution.observation_operator import ObservationOperator
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
@@ -114,7 +116,7 @@ def _raise_if_log_link_mean_overflow(
     *,
     manifest_dists: Sequence[DistributionFamily],
     manifest_links: Sequence[LinkFunction | None] | None,
-    manifest_names: list[str] | None,
+    manifest_names: Sequence[str] | None,
 ) -> None:
     """Fail fast when a log-link predictive mean would overflow before sampling."""
     _dists, links = resolve_manifest_families_and_links(
@@ -166,7 +168,7 @@ def _sample_observations_for_draw(
     """Sample one observation trajectory from precomputed linear predictors."""
     _key_latent, key_point, key_interval_summary = random.split(rng_key, 3)
 
-    def emit(key, predictor):
+    def emit(key: jax.Array, predictor: jax.Array) -> tuple[jax.Array, jax.Array]:
         law = observation_model.at_predictor(predictor)
         return law.sample(key), law.mean
 
@@ -242,18 +244,21 @@ def _predictive_observation_grid(
 
 
 def sample_model_observations(
-    models,
-    linear_predictors,
-    times,
+    models: dsx.DynamicalModel,
+    linear_predictors: jax.Array,
+    times: jax.Array,
     *,
-    rng_key,
-    observation_support,
-    observation_mask,
-    manifest_names,
-    held_channels=(),
-):
+    rng_key: jax.Array,
+    observation_support: ObservationSupportRuntime | None,
+    observation_mask: jax.Array | None,
+    manifest_names: Sequence[str] | None,
+    held_channels: tuple[int, ...] = (),
+) -> tuple[jax.Array, jax.Array, jax.Array]:
     """Draw point observations from the fitted model's law, then project interval summaries."""
     observation = models.observation_model
+    assert isinstance(
+        observation, HeterogeneousObservation
+    )  # The compiled nof1 model owns this native adapter.
     mask, operator = _predictive_observation_grid(
         times, linear_predictors.shape[-1], observation_support, observation_mask, held_channels
     )
@@ -265,13 +270,18 @@ def sample_model_observations(
     )
     keys = random.split(rng_key, linear_predictors.shape[0])
 
-    def emit(model, predictors, key):
+    def emit(
+        observation: HeterogeneousObservation, predictors: jax.Array, key: jax.Array
+    ) -> tuple[jax.Array, jax.Array, jax.Array]:
         return _sample_observations_for_draw(
             predictors,
             key,
-            observation_model=model.observation_model,
+            observation_model=observation,
             observation_operator=operator,
             observation_mask=mask,
         )
 
-    return eqx.filter_vmap(emit)(models, linear_predictors, keys)
+    emit_draws: Callable[
+        [HeterogeneousObservation, jax.Array, jax.Array], tuple[jax.Array, jax.Array, jax.Array]
+    ] = eqx.filter_vmap(emit)
+    return emit_draws(observation, linear_predictors, keys)

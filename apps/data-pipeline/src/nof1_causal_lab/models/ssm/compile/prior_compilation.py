@@ -10,11 +10,15 @@ import numpy as np
 import numpyro.distributions as dist
 import scipy.linalg
 
-from nof1_causal_lab.artifacts.duration import parse_duration_to_hours
 from nof1_causal_lab.artifacts.parameter import (
     ParameterCoordinate,
     PriorAuthoringTransform,
     SiteKind,
+)
+from nof1_causal_lab.artifacts.parameter_spec import (
+    InitialCorrelationTransformSpec,
+    IntervalEffectTransformSpec,
+    PersistenceTransformSpec,
 )
 from nof1_causal_lab.artifacts.prior import (
     PriorPathologyCertificate,
@@ -23,14 +27,6 @@ from nof1_causal_lab.artifacts.prior import (
 from nof1_causal_lab.compilation_errors import AggregatedCompileError
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.compile.bindings import CompiledParameterBinding
-from nof1_causal_lab.models.ssm.compile.common import (
-    axis_names_with_fallback,
-)
-from nof1_causal_lab.models.ssm.compile.prior_indexing import (
-    SemanticBindingRegistry,
-    build_semantic_prior_bindings,
-)
-from nof1_causal_lab.models.ssm.compile.support import get_construct_dt_days
 from nof1_causal_lab.models.ssm.execution.contracts import NUMERICAL_EPSILON
 from nof1_causal_lab.models.ssm.parameterization import build_site_registry
 from nof1_causal_lab.models.ssm.priors import (
@@ -38,20 +34,21 @@ from nof1_causal_lab.models.ssm.priors import (
     site_constraint,
     validate_site_prior,
 )
-from nof1_causal_lab.models.ssm.structure.sites import SemanticBinding, SiteDescriptor, site_size
+from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor, site_size
 from nof1_causal_lab.prior_distributions import (
     batch_prior_distributions,
     interval_effect_to_rate,
     persistence_to_decay,
     prior_reference_value,
 )
-from nof1_causal_lab.utils.model_structure import get_model_clock
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
+    from nof1_causal_lab.models.ssm.compile.prior_indexing import SemanticBindingRegistry
 
 logger = logging.getLogger("nof1_causal_lab.models.ssm.compile.inputs")
 CompileDiagnostic = PriorValidationResult
@@ -80,24 +77,20 @@ class PriorCompilationError(AggregatedCompileError):
     header = "Prior compilation failed"
 
 
-def _component_semantic_bindings(model_spec: ModelSpec) -> tuple[SemanticBinding, ...]:
+def _component_semantic_bindings(model_spec: CompiledModel) -> tuple[CompiledParameterBinding, ...]:
     from nof1_causal_lab.models.ssm.dynamics.spec import iter_dynamics_semantic_bindings
 
     component_sites = {
         binding.site_name
         for binding in iter_dynamics_semantic_bindings(
-            numeric.dynamics_components(model_spec),
+            model_spec.dynamics.spec,
             latent_names=tuple(numeric.state_names(model_spec)),
         )
     }
-    return tuple(
-        binding
-        for binding in build_semantic_prior_bindings(model_spec).by_parameter.values()
-        if binding.site_name in component_sites
-    )
+    return tuple(binding for binding in model_spec.bindings if binding.site_name in component_sites)
 
 
-def _decay_bindings(model_spec: ModelSpec) -> tuple[SemanticBinding, ...]:
+def _decay_bindings(model_spec: CompiledModel) -> tuple[CompiledParameterBinding, ...]:
     return tuple(
         binding
         for binding in _component_semantic_bindings(model_spec)
@@ -107,11 +100,11 @@ def _decay_bindings(model_spec: ModelSpec) -> tuple[SemanticBinding, ...]:
 
 
 def _linear_effect_bindings(
-    model_spec: ModelSpec,
-) -> tuple[tuple[SemanticBinding, int, int], ...]:
+    model_spec: CompiledModel,
+) -> tuple[tuple[CompiledParameterBinding, int, int], ...]:
     """Linear (``beta_``) effect bindings, paired with their non-None
     ``(effect_idx, cause_idx)`` so callers receive narrowed ``int`` indices."""
-    result: list[tuple[SemanticBinding, int, int]] = []
+    result: list[tuple[CompiledParameterBinding, int, int]] = []
     for binding in _component_semantic_bindings(model_spec):
         effect_idx = binding.effect_idx
         cause_idx = binding.cause_idx
@@ -125,13 +118,11 @@ def _linear_effect_bindings(
     return tuple(result)
 
 
-def _binding_latent_index(binding: SemanticBinding, model_spec: ModelSpec) -> int | None:
+def _binding_latent_index(
+    binding: CompiledParameterBinding, model_spec: CompiledModel
+) -> int | None:
     if binding.construct_names:
-        latent_names = axis_names_with_fallback(
-            numeric.state_names(model_spec),
-            expected=numeric.n_states(model_spec),
-            prefix="latent",
-        )
+        latent_names = numeric.state_names(model_spec)
         return {name: idx for idx, name in enumerate(latent_names)}.get(binding.construct_names[0])
     site = next(
         (
@@ -150,31 +141,17 @@ def _binding_latent_index(binding: SemanticBinding, model_spec: ModelSpec) -> in
     return None
 
 
-def _resolve_model_clock_interval_days(
-    model: ModelSpec,
+def _resolve_transform_interval_days(
+    transform: PersistenceTransformSpec | IntervalEffectTransformSpec, model: ModelSpec
 ) -> float:
-    """Resolve the declared model clock interval without silently defaulting to 1 day."""
-    try:
-        interval_days = parse_duration_to_hours(get_model_clock(model)) / 24.0
-    except ValueError as exc:
-        raise ValueError(
-            "model.measurement_clock must parse to a positive interval to "
-            "compile interval-effect priors without explicit reference_interval_days."
-        ) from exc
+    """Resolve the explicit interval reference once at the law's compiler boundary."""
+    from nof1_causal_lab.models.ssm.compile.support import get_construct_dt_days
 
-    if interval_days <= 0:
-        raise ValueError(
-            "model.measurement_clock must resolve to a positive interval to "
-            "compile interval-effect priors."
-        )
-    return interval_days
-
-
-def _resolve_effect_interval_days(parameter: ParameterSpec, model: ModelSpec) -> float:
-    """Resolve the authored interval independently of causal-edge placement."""
-    if parameter.reference_interval_days is not None:
-        return float(parameter.reference_interval_days)
-    return _resolve_model_clock_interval_days(model)
+    return (
+        get_construct_dt_days(model)
+        if transform.interval_days == "model_clock"
+        else transform.interval_days
+    )
 
 
 def _format_interval_days(days: float) -> str:
@@ -202,7 +179,7 @@ def _compile_warning(
         severity="warning",
         issue=issue,
         suggested_adjustment=suggested_adjustment,
-        related_parameters=[parameter],
+        related_parameters=(parameter,),
         compiled_site_name=compiled_site_name,
         compiled_flat_index=compiled_flat_index,
         failure_stage=failure_stage,
@@ -211,7 +188,7 @@ def _compile_warning(
 
 
 def collect_compile_diagnostics(
-    model_spec: ModelSpec,
+    model_spec: CompiledModel,
     *,
     prior_registry: dict[str, dist.Distribution] | None = None,
     offdiag_interval_days: dict[tuple[int, int], float] | None = None,
@@ -238,7 +215,7 @@ def _log_compile_diagnostics(diagnostics: list[CompileDiagnostic]) -> None:
 def collect_first_order_approximation_warnings(
     prior_registry: dict[str, dist.Distribution],
     *,
-    model_spec: ModelSpec,
+    model_spec: CompiledModel,
     offdiag_interval_days: dict[tuple[int, int], float] | None = None,
 ) -> list[CompileDiagnostic]:
     """Return warnings when exact matrix-log DT->CT diagnostics diverge from beta/dt."""
@@ -266,11 +243,7 @@ def collect_first_order_approximation_warnings(
     min_diag_label = f"{min_diag_name}" if min_diag_name else f"latent[{min_diag_latent_idx}]"
 
     warnings: list[CompileDiagnostic] = []
-    latent_names = axis_names_with_fallback(
-        numeric.state_names(model_spec),
-        expected=numeric.n_states(model_spec),
-        prefix="latent",
-    )
+    latent_names = numeric.state_names(model_spec)
     for binding, effect_idx, cause_idx in _linear_effect_bindings(model_spec):
         prior = prior_registry.get(binding.site_name)
         if prior is None:
@@ -296,7 +269,7 @@ def collect_first_order_approximation_warnings(
                 taylor_drift,
                 interval_days=interval_days,
             )
-        except ValueError as exc:
+        except PriorCompilationError as exc:
             warnings.append(
                 _compile_warning(
                     code="dt_ct_approximation_warning",
@@ -366,7 +339,7 @@ def _value_at(values: np.ndarray, flat_index: int, *, default: float) -> float:
 
 def _assemble_reference_drift_from_component_priors(
     prior_registry: dict[str, dist.Distribution],
-    model_spec: ModelSpec,
+    model_spec: CompiledModel,
 ) -> np.ndarray | None:
     drift = np.zeros((numeric.n_states(model_spec), numeric.n_states(model_spec)), dtype=float)
     populated = False
@@ -438,15 +411,19 @@ def matrix_log_diagnostic_drift(
 ) -> np.ndarray:
     """Compute the full matrix-log CT drift used by dynamics diagnostics."""
     if interval_days <= 0:
-        raise ValueError("matrix-log CT dynamics diagnostics require a positive interval.")
+        raise PriorCompilationError(
+            ["matrix-log CT dynamics diagnostics require a positive interval."]
+        )
 
     transition = _transition_from_elementwise_dt_terms(drift, interval_days)
     log_transition = scipy.linalg.logm(transition)
     imaginary_scale = float(np.max(np.abs(np.imag(log_transition))))
     if imaginary_scale > _LOGM_IMAG_TOL:
-        raise ValueError(
-            "Matrix-log CT dynamics diagnostics require an embeddable real transition matrix; "
-            f"max imaginary logm component is {imaginary_scale:.3g}."
+        raise PriorCompilationError(
+            [
+                "Matrix-log CT dynamics diagnostics require an embeddable real transition matrix; "
+                f"max imaginary logm component is {imaginary_scale:.3g}."
+            ]
         )
     return np.real(log_transition) / interval_days
 
@@ -454,18 +431,26 @@ def matrix_log_diagnostic_drift(
 def _correlation_prior(prior: dist.Distribution) -> dist.Distribution:
     """Apply the declared correlation domain to Normal and bounded priors."""
     if isinstance(prior, dist.Normal):
-        return dist.TruncatedNormal(prior.loc, prior.scale, low=-1.0, high=1.0)
+        return dist.TruncatedNormal(
+            np.asarray(prior.loc), np.asarray(prior.scale), low=-1.0, high=1.0
+        )
     if isinstance(prior, dist.TwoSidedTruncatedDistribution):
         low = np.maximum(np.asarray(prior.low), -1.0)
         high = np.minimum(np.asarray(prior.high), 1.0)
         if np.any(low >= high):
-            raise ValueError("Initial-state correlation prior has no support within [-1, 1]")
-        return dist.TruncatedNormal(prior.base_dist.loc, prior.base_dist.scale, low=low, high=high)
+            raise PriorCompilationError(
+                ["Initial-state correlation prior has no support within [-1, 1]"]
+            )
+        return dist.TruncatedNormal(
+            np.asarray(prior.base_dist.loc), np.asarray(prior.base_dist.scale), low=low, high=high
+        )
     if isinstance(prior, dist.Uniform):
         low = np.maximum(np.asarray(prior.low), -1.0)
         high = np.minimum(np.asarray(prior.high), 1.0)
         if np.any(low >= high):
-            raise ValueError("Initial-state correlation prior has no support within [-1, 1]")
+            raise PriorCompilationError(
+                ["Initial-state correlation prior has no support within [-1, 1]"]
+            )
         return dist.Uniform(low, high)
     return prior
 
@@ -473,52 +458,63 @@ def _correlation_prior(prior: dist.Distribution) -> dist.Distribution:
 def compile_parameter_law(
     model: ModelSpec,
     parameter: ParameterSpec,
-    binding: SemanticBinding,
+    binding: CompiledParameterBinding,
 ) -> tuple[dist.Distribution, float | None]:
     """Translate one scalar scientific law into its native numerical coordinates."""
     if binding.transform == PriorAuthoringTransform.DT_EFFECT_TO_CT_RATE and (
         binding.effect_idx is None or binding.cause_idx is None
     ):
-        raise ValueError(f"Dynamics effect prior {parameter.id!r} is missing effect/cause metadata")
-    return quantity_parameter_law(model, parameter, binding.transform)
+        raise PriorCompilationError(
+            [f"Dynamics effect prior {parameter.id!r} is missing effect/cause metadata"]
+        )
+    return quantity_parameter_law(model, parameter)
 
 
 def quantity_parameter_law(
-    model: ModelSpec, parameter: ParameterSpec, transform: PriorAuthoringTransform
+    model: ModelSpec, parameter: ParameterSpec
 ) -> tuple[dist.Distribution, float | None]:
     """Resolve a scalar quantity's scale without compiling unrelated model components."""
     prior = model.distribution_for(parameter.id)
     if prior is None:
-        raise ValueError(f"Parameter {parameter.id!r} requires an explicit probability law")
-    if prior.batch_shape or prior.event_shape:
-        raise ValueError(
-            "Fitting requires independent scalar input laws; shared laws remain intact in "
-            "ModelSpec. Select an input revision supported by the fitting engine."
+        raise PriorCompilationError(
+            [f"Parameter {parameter.id!r} requires an explicit probability law"]
         )
-    prior.validate_args()
+    if prior.batch_shape or prior.event_shape:
+        raise PriorCompilationError(
+            [
+                "Fitting requires independent scalar input laws; shared laws remain intact in "
+                "ModelSpec. Select an input revision supported by the fitting engine."
+            ]
+        )
     if isinstance(prior, dist.Delta):
-        raise ValueError(f"Prior {parameter.id!r}: {_DEGENERATE_PRIOR_PREAMBLE}")
-    if transform == PriorAuthoringTransform.DT_PERSISTENCE_TO_CT_DECAY:
-        interval = parameter.reference_interval_days
-        dt = float(interval) if interval is not None else get_construct_dt_days(model)
+        raise PriorCompilationError([f"Prior {parameter.id!r}: {_DEGENERATE_PRIOR_PREAMBLE}"])
+    transform = parameter.transform
+    if isinstance(transform, PersistenceTransformSpec):
+        dt = _resolve_transform_interval_days(transform, model)
         return persistence_to_decay(prior, dt), None
-    if transform == PriorAuthoringTransform.DT_EFFECT_TO_CT_RATE:
-        dt = _resolve_effect_interval_days(parameter, model)
+    if isinstance(transform, IntervalEffectTransformSpec):
+        dt = _resolve_transform_interval_days(transform, model)
         return interval_effect_to_rate(prior, dt), dt
-    if transform == PriorAuthoringTransform.INITIAL_STATE_CORRELATION:
+    if isinstance(transform, InitialCorrelationTransformSpec):
         prior = _correlation_prior(prior)
     return prior, None
 
 
 def compile_priors(
-    model: ModelSpec,
-) -> tuple[dict[str, dist.Distribution], SemanticBindingRegistry, list[CompileDiagnostic]]:
+    model: CompiledModel,
+    authored: ModelSpec,
+) -> tuple[
+    dict[str, dist.Distribution], tuple[CompiledParameterBinding, ...], list[CompileDiagnostic]
+]:
     """Bind the model's native distributions to their declared execution coordinates."""
-    model.require_execution_structure()
-    parameters = {parameter.id: parameter for parameter in model.execution_parameters}
+    from nof1_causal_lab.models.model_parameters import execution_parameters
+
+    parameters = {parameter.id: parameter for parameter in execution_parameters(authored)}
     missing = [parameter.id for parameter in parameters.values() if parameter.distribution is None]
     if missing:
-        raise ValueError(f"ModelSpec parameters require explicit prior distributions: {missing}")
+        raise PriorCompilationError(
+            [f"ModelSpec parameters require explicit prior distributions: {missing}"]
+        )
 
     active_sites = build_site_registry(model)
     prior_entries: dict[str, dist.Distribution] = {
@@ -529,19 +525,21 @@ def compile_priors(
 
     def attach(site: SiteDescriptor, index: int, prior: dist.Distribution) -> None:
         if index < 0 or index >= site_size(site.shape):
-            raise ValueError(
-                f"Prior index {index} is outside site {site.name!r} shape {site.shape}"
+            raise PriorCompilationError(
+                [f"Prior index {index} is outside site {site.name!r} shape {site.shape}"]
             )
         if prior.batch_shape or prior.event_shape:
-            raise ValueError("Each authored prior must describe one scalar parameter")
+            raise PriorCompilationError(["Each authored prior must describe one scalar parameter"])
         validate_site_prior(site, prior)
         values = per_site.setdefault(site.name, {})
         if index in values:
-            raise ValueError(f"Multiple authored priors bind to {site.name!r} coordinate {index}")
+            raise PriorCompilationError(
+                [f"Multiple authored priors bind to {site.name!r} coordinate {index}"]
+            )
         values[index] = prior
 
-    bindings = build_semantic_prior_bindings(model)
-    binding_by_parameter = bindings.by_parameter
+    bindings = model.bindings
+    binding_by_parameter = {binding.parameter_id: binding for binding in bindings}
     errors: list[str] = []
     offdiag_interval_days: dict[tuple[int, int], float] = {}
 
@@ -550,11 +548,11 @@ def compile_priors(
             binding = binding_by_parameter.get(param_name)
             if binding is None:
                 errors.append(
-                    f"Prior {param_name!r} for {model.parameter_context(parameter.id).quantity.value!r} could not be structurally bound to the compiled SSM."
+                    f"Prior {param_name!r} for {authored.parameter_context(parameter.id).quantity.value!r} could not be structurally bound to the compiled SSM."
                 )
                 continue
 
-            prior, effect_interval = compile_parameter_law(model, parameter, binding)
+            prior, effect_interval = compile_parameter_law(authored, parameter, binding)
             if effect_interval is not None:
                 assert binding.effect_idx is not None
                 assert binding.cause_idx is not None
@@ -563,8 +561,8 @@ def compile_priors(
             if binding.transform == PriorAuthoringTransform.SITE_WIDE:
                 site = site_by_name.get(binding.site_name)
                 if site is None:
-                    raise ValueError(
-                        f"Prior {param_name!r} maps to inactive site {binding.site_name!r}."
+                    raise PriorCompilationError(
+                        [f"Prior {param_name!r} maps to inactive site {binding.site_name!r}."]
                     )
                 for index in range(site_size(site.shape)):
                     attach(site, index, prior)
@@ -573,28 +571,32 @@ def compile_priors(
             if binding.transform == PriorAuthoringTransform.SITE_ROW:
                 site = site_by_name.get(binding.site_name)
                 if site is None:
-                    raise ValueError(
-                        f"Prior {param_name!r} maps to inactive site {binding.site_name!r}."
+                    raise PriorCompilationError(
+                        [f"Prior {param_name!r} maps to inactive site {binding.site_name!r}."]
                     )
                 if len(site.shape) != 2:
-                    raise ValueError(
-                        f"Prior {param_name!r} requires a matrix-valued site, "
-                        f"but {binding.site_name!r} has shape {site.shape}."
+                    raise PriorCompilationError(
+                        [
+                            f"Prior {param_name!r} requires a matrix-valued site, "
+                            f"but {binding.site_name!r} has shape {site.shape}."
+                        ]
                     )
                 row_idx = binding.flat_index
                 n_rows, n_cols = site.shape
                 if row_idx >= n_rows:
-                    raise ValueError(
-                        f"Prior {param_name!r} maps to row {row_idx} of "
-                        f"{binding.site_name!r}, which has {n_rows} rows."
+                    raise PriorCompilationError(
+                        [
+                            f"Prior {param_name!r} maps to row {row_idx} of "
+                            f"{binding.site_name!r}, which has {n_rows} rows."
+                        ]
                     )
                 for col_idx in range(n_cols):
                     attach(site, row_idx * n_cols + col_idx, prior)
                 continue
 
             attach(site_by_name[binding.site_name], binding.flat_index, prior)
-        except ValueError as exc:
-            errors.append(str(exc))
+        except AggregatedCompileError as exc:
+            errors.extend(exc.errors)
             continue
 
     if errors:
@@ -603,7 +605,9 @@ def compile_priors(
     for site_name, entries in per_site.items():
         site = site_by_name.get(site_name)
         if site is None:
-            raise ValueError(f"Prior site {site_name!r} maps to no active sample site.")
+            raise PriorCompilationError(
+                [f"Prior site {site_name!r} maps to no active sample site."]
+            )
         coordinates = [prior_entries[site.name]] * site_size(site.shape)
         for index, prior in entries.items():
             coordinates[index] = prior
@@ -627,14 +631,15 @@ def bind_parameters(
     bindings: SemanticBindingRegistry,
     model_spec: ModelSpec,
     parameters: Sequence[ParameterSpec],
-) -> tuple[list[CompiledParameterBinding], list[ParameterCoordinate]]:
+    registry: tuple[SiteDescriptor, ...],
+) -> tuple[tuple[CompiledParameterBinding, ...], tuple[ParameterCoordinate, ...]]:
     """Compile scientific definitions into explicit scalar execution bindings."""
     from nof1_causal_lab.artifacts.parameter import ParameterCoordinate
     from nof1_causal_lab.models.ssm.compile.parameter_identity import (
         component_identity,
     )
 
-    sites = {site.name: site for site in build_site_registry(model_spec)}
+    sites = {site.name: site for site in registry}
     definitions = {parameter.id: parameter for parameter in parameters}
     all_bindings = dict(bindings.by_parameter)
 
@@ -655,8 +660,8 @@ def bind_parameters(
         for index in indices:
             coordinate = ParameterCoordinate(site_name=site.name, indices=index)
             if coordinate in bound_coordinates:
-                raise ValueError(
-                    f"Runtime coordinate {coordinate.label} has multiple scientific owners"
+                raise PriorCompilationError(
+                    [f"Runtime coordinate {coordinate.label} has multiple scientific owners"]
                 )
             bound_coordinates.add(coordinate)
             component = component_identity(definition, index, binding, site, model_spec)
@@ -665,7 +670,9 @@ def bind_parameters(
                 continue
             element_id, label = component
             if element_id in elements:
-                raise ValueError(f"Parameter {definition.name!r} has duplicate logical components")
+                raise PriorCompilationError(
+                    [f"Parameter {definition.name!r} has duplicate logical components"]
+                )
             elements[element_id] = label
             coordinates[element_id] = coordinate
         if not coordinates:
@@ -673,6 +680,7 @@ def bind_parameters(
         result.append(
             CompiledParameterBinding(
                 parameter_id=definition.id,
+                parameter_name=definition.name,
                 coordinates=coordinates,
                 elements=elements,
                 site_name=site.name,
@@ -680,8 +688,8 @@ def bind_parameters(
                 flat_index=binding.flat_index,
                 site_kind=binding.site_kind,
                 transform=binding.transform,
-                construct_names=list(binding.construct_names),
-                indicator_names=list(binding.indicator_names),
+                construct_names=binding.construct_names,
+                indicator_names=binding.indicator_names,
                 component_index=binding.component_index,
                 effect_idx=binding.effect_idx,
                 cause_idx=binding.cause_idx,
@@ -695,8 +703,10 @@ def bind_parameters(
             if coordinate in bound_coordinates:
                 continue
             if site.site_kind not in {SiteKind.OBS_ORDERED_BASE, SiteKind.OBS_ORDERED_GAPS}:
-                raise ValueError(
-                    f"Runtime coordinate {coordinate.label} has no scientific parameter definition"
+                raise PriorCompilationError(
+                    [
+                        f"Runtime coordinate {coordinate.label} has no scientific parameter definition"
+                    ]
                 )
             auxiliary.append(coordinate)
-    return result, auxiliary
+    return tuple(result), tuple(auxiliary)

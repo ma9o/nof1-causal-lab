@@ -1,6 +1,5 @@
 """Stored histories compare symmetrically without generation or scientific state changes."""
 
-from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 
 import numpy as np
@@ -8,13 +7,7 @@ import polars as pl
 import pytest
 from pydantic import ValidationError
 
-from nof1_causal_lab.actions.data_diff import (
-    DataDiffRequest,
-    DataRef,
-    Dataset,
-    data_diff,
-    read_data_diff,
-)
+from nof1_causal_lab.actions.data_diff import read_data_diff
 from nof1_causal_lab.artifacts.identity import GitRef
 from nof1_causal_lab.artifacts.observations import ObservationSpec
 from nof1_causal_lab.artifacts.simulation import (
@@ -22,9 +15,13 @@ from nof1_causal_lab.artifacts.simulation import (
     SimulationReport,
     SimulationSpec,
 )
+from nof1_causal_lab.models.posterior_predictive import data_diff
+from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.history import StudyRepository
-from nof1_causal_lab.study.records import AttemptRecord
-from nof1_causal_lab.study.store import ArtifactStore
+from nof1_causal_lab.study.records import ModelSimulationResult
+from nof1_causal_lab.study.store import ArtifactStore, read_dataset
+from nof1_causal_lab.study.view_models import DataDiffRequest, PanelRef, SimulationRef
+from tests.action_fixtures import applied_record
 from tests.git_fixtures import git_oid
 
 
@@ -40,6 +37,7 @@ def _dataset(values, *, number=1, times=None, variable=None):
     origin = datetime(1970, 1, 1, tzinfo=UTC)
     anchors = [origin + timedelta(days=day) for day in times]
     width = timedelta(days=1) if variable.support_kind.value == "interval" else timedelta()
+    assert variable.observation_window is not None
     frame = pl.DataFrame(
         {
             "indicator_id": [variable.id] * len(values),
@@ -50,11 +48,11 @@ def _dataset(values, *, number=1, times=None, variable=None):
             "support_kind": [variable.support_kind.value] * len(values),
             "summary_operator": [variable.summary_operator.value] * len(values),
             "anchor_policy": [variable.anchor_policy.value] * len(values),
-            "observation_window": [variable.observation_window] * len(values),
+            "observation_window": [variable.observation_window.source] * len(values),
         },
         schema_overrides={"value": pl.Float64},
     )
-    return Dataset(DataRef(kind="panel", revision=git_oid(number)), (variable,), frame, origin)
+    return read_dataset(PanelRef(revision=git_oid(number)), (variable,), frame, origin)
 
 
 @pytest.mark.contract
@@ -71,7 +69,7 @@ def test_selection_contracts_require_nonempty_explicit_sources():
             DataDiffRequest(left=invalid, right=source)
     for invalid in ({"replicate": -1}, {"time_origin": "2026-01-01"}):
         with pytest.raises(ValidationError):
-            DataRef(kind="simulation", revision=git_oid(1), **invalid)
+            SimulationRef.model_validate({"revision": git_oid(1), **invalid})
 
 
 @pytest.mark.inference(concern="predictive")
@@ -80,11 +78,11 @@ def test_single_histories_report_values_missingness_and_schedule_changes():
     right = _dataset([1, 4, 8], times=[0, 1, 3], number=2)
     result = data_diff(left, right)
     variable = result.variables[0]
-    assert [item.change for item in variable.changes] == ["revised", "removed", "added"]
-    assert variable.changes[0].left is not None
-    assert variable.changes[0].right is not None
-    assert variable.changes[0].left.value is None
-    assert variable.changes[0].right.value == 4
+    assert [item.change.kind for item in variable.changes] == ["revised", "removed", "added"]
+    revised = variable.changes[0].change
+    assert revised.kind == "revised"
+    assert revised.before.value is None
+    assert revised.after.value == 4
     assert variable.predictive_checks is None
     assert variable.reference_side is None
     assert variable.predictive_unavailable_reason is None
@@ -92,7 +90,7 @@ def test_single_histories_report_values_missingness_and_schedule_changes():
     missing = next(item for item in variable.statistics if item.statistic == "missing_count")
     assert (missing.left, missing.right) == ((1,), (0,))
     reverse = data_diff(right, left).variables[0]
-    assert [item.change for item in reverse.changes] == ["revised", "added", "removed"]
+    assert [item.change.kind for item in reverse.changes] == ["revised", "added", "removed"]
     assert data_diff(left, left).variables[0].changes == ()
 
 
@@ -136,9 +134,9 @@ def test_measurement_mismatches_and_uncovered_times_do_not_produce_predictive_ch
         == "Replicas contain missing values at observed anchors"
     )
     assert missing.comparison_issues == ()
-    interval = type(observed.variables[0]).model_validate(
-        {**observed.variables[0].model_dump(), "aggregation": "mean"}
-    )
+    original_variable = next(iter(observed.series.values())).variable
+    assert original_variable is not None
+    interval = original_variable.revised(aggregation="mean")
     replicas = [_dataset([1, 2, 3], number=number, variable=interval) for number in (2, 3)]
     mismatch = data_diff(observed, replicas).variables[0]
     assert mismatch.predictive_unavailable_reason is None
@@ -150,30 +148,28 @@ def test_measurement_mismatches_and_uncovered_times_do_not_produce_predictive_ch
     assert mismatch.right[0].variable is not None
     assert mismatch.left[0].variable.aggregation == "last"
     assert mismatch.right[0].variable.aggregation == "mean"
-    renamed = replace(
-        observed,
-        variables=(
-            type(observed.variables[0]).model_validate(
-                {**observed.variables[0].model_dump(), "name": "Renamed"}
-            ),
-        ),
+    renamed = _dataset(
+        [1, 2, 3],
+        variable=original_variable.revised(name="Renamed"),
     )
     assert not data_diff(observed, renamed).variables[0].comparison_issues
     # A first-in-window observation is anchored at support_start, not support_end.
     first = _dataset(
         [1, 2, 3],
-        variable=type(observed.variables[0]).model_validate(
-            {**observed.variables[0].model_dump(), "aggregation": "first"}
-        ),
+        variable=original_variable.revised(aggregation="first"),
     )
-    first = replace(
-        first,
-        observations=first.observations.with_columns(
-            pl.col("support_end") + timedelta(days=1),
-        ),
-    )
+    # Interval coordinates were parsed once by read_dataset; comparisons own no frame.
     assert data_diff(first, first).variables[0].changes == ()
-    floating = [replace(_dataset([1, 2, 3], number=n), time_origin=None) for n in (2, 3)]
+    floating = [
+        type(item)(
+            source=item.source,
+            series={
+                key: type(series)(variable=series.variable, time_origin=None, points=series.points)
+                for key, series in item.series.items()
+            },
+        )
+        for item in [_dataset([1, 2, 3], number=n) for n in (2, 3)]
+    ]
     mismatch = data_diff(observed, floating).variables[0]
     assert mismatch.predictive_checks is None
     assert mismatch.right[0].time_origin is None
@@ -266,27 +262,30 @@ def test_reads_saved_draws_without_generation_or_writing_models(tmp_path, monkey
         latent_paths="unreadable-latent-array",
         observations=store.write_array(values),
         observation_layout=SimulationObservationLayout(
-            variables=observed.variables,
+            variables=tuple(series.variable for series in observed.series.values()),
             support_start_times=store.write_array(np.arange(3.0)[:, None]),
             support_end_times=store.write_array(np.arange(3.0)[:, None]),
             mask=store.write_array(np.ones_like(values, dtype=bool)),
         ),
     )
     commit = history.append(
-        AttemptRecord(
-            seq=1,
-            ts="2026-09-28T00:00:00Z",
-            action="simulate",
-            inputs={},
-            status="applied",
-            trace_ids=[],
-            diagnostics={"report": report.model_dump(mode="json")},
+        applied_record(
+            ModelSimulationResult(report=report), seq=1, ts="2026-09-28T00:00:00Z", trace_ids=[]
         )
-    )
+    ).commit_id
     origin = datetime(2026, 1, 1, tzinfo=UTC)
-    shifted = observed.observations.with_columns(
-        pl.col(name) + (origin - datetime(1970, 1, 1, tzinfo=UTC))
-        for name in ("anchor_time", "support_start", "support_end")
+    shifted = pl.DataFrame(
+        {
+            "indicator_id": ["indicator:y"] * 3,
+            "value": [1.0, 2.0, 3.0],
+            "anchor_time": [origin + timedelta(days=n) for n in range(3)],
+            "support_start": [origin + timedelta(days=n) for n in range(3)],
+            "support_end": [origin + timedelta(days=n) for n in range(3)],
+            "support_kind": ["point"] * 3,
+            "summary_operator": ["last"] * 3,
+            "anchor_policy": ["support_end"] * 3,
+            "observation_window": ["1d"] * 3,
+        }
     )
     panel = store.write_artifact(
         "panel",
@@ -295,15 +294,15 @@ def test_reads_saved_draws_without_generation_or_writing_models(tmp_path, monkey
         json_files={
             "metadata.json": PreparedDataMetadata(
                 source=SimulationReplicateRef(revision=commit, replicate=1),
-                variables=observed.variables,
+                variables=tuple(series.variable for series in observed.series.values()),
                 time_origin=origin,
             ).model_dump(mode="json")
         },
         parquet_files={"panel.parquet": shifted},
     )
     request = DataDiffRequest(
-        left=DataRef(kind="simulation", revision=commit),
-        right=DataRef(kind="panel", revision=panel.revision),
+        left=SimulationRef(revision=commit),
+        right=PanelRef(revision=panel.revision),
     )
     refs_before = sorted(store.repo.references)
     result = read_data_diff("DIFF", request).model_dump(mode="json")
@@ -313,25 +312,14 @@ def test_reads_saved_draws_without_generation_or_writing_models(tmp_path, monkey
     assert history.head() == commit
     assert sorted(store.repo.references) == refs_before
     assert store.list_revisions("model") == [model.revision]
-    assert isinstance(request.left, DataRef)
-    one = type(request).model_validate(
-        {
-            **request.model_dump(),
-            "left": type(request.left).model_validate(
-                {**request.left.model_dump(), "replicate": 1}
-            ),
-        }
-    )
+    assert isinstance(request.left, SimulationRef)
+    one = request.revised(left=request.left.revised(replicate=1))
     assert read_data_diff("DIFF", one).variables[0].changes == ()
-    bad = type(request).model_validate(
-        {**request.model_dump(), "left": DataRef(kind="simulation", revision=commit, replicate=3)}
-    )
-    with pytest.raises(ValueError, match="replicate"):
+    bad = request.revised(left=SimulationRef(revision=commit, replicate=3))
+    with pytest.raises(StudyLookupError, match="replicate"):
         read_data_diff("DIFF", bad)
-    bad = type(request).model_validate(
-        {**request.model_dump(), "right": DataRef(kind="panel", revision=git_oid(98))}
-    )
-    with pytest.raises((KeyError, FileNotFoundError)):
+    bad = request.revised(right=PanelRef(revision=git_oid(98)))
+    with pytest.raises(StudyLookupError):
         read_data_diff("DIFF", bad)
 
     # Saved histories keep absolute model days. Materialization alone resets the
@@ -342,42 +330,34 @@ def test_reads_saved_draws_without_generation_or_writing_models(tmp_path, monkey
         commits = []
         for start in (5, 6):
             times = np.arange(start, start + 3.0)
-            saved = type(report).model_validate(
-                {
-                    **report.model_dump(),
-                    "time_origin": origin,
-                    "design": SimulationSpec(start=start, end=start + 2),
-                    "times": tuple(times),
-                    "observation_layout": type(report.observation_layout).model_validate(
-                        {
-                            **report.observation_layout.model_dump(),
-                            "support_start_times": store.write_array(times[:, None]),
-                            "support_end_times": store.write_array(times[:, None]),
-                        }
-                    ),
-                }
+            saved = report.revised(
+                time_origin=origin,
+                design=SimulationSpec(start=start, end=start + 2),
+                times=tuple(times),
+                observation_layout=report.observation_layout.revised(
+                    support_start_times=store.write_array(times[:, None]),
+                    support_end_times=store.write_array(times[:, None]),
+                ),
             )
             commits.append(
                 history.append(
-                    AttemptRecord(
+                    applied_record(
+                        ModelSimulationResult(report=saved),
                         seq=2 + index * 2 + start - 5,
                         ts="2026-09-28T00:00:00Z",
-                        action="simulate",
-                        status="applied",
                         trace_ids=[],
-                        diagnostics={"report": saved.model_dump(mode="json")},
                     )
-                )
+                ).commit_id
             )
         aligned = read_data_diff(
             "DIFF",
             DataDiffRequest(
-                left=DataRef(kind="simulation", revision=commits[0], replicate=1),
-                right=DataRef(kind="simulation", revision=commits[1], replicate=1),
+                left=SimulationRef(revision=commits[0], replicate=1),
+                right=SimulationRef(revision=commits[1], replicate=1),
             ),
         ).variables[0]
         epoch = origin or datetime(1970, 1, 1, tzinfo=UTC)
-        assert [(change.anchor_time, change.change) for change in aligned.changes] == [
+        assert [(change.anchor_time, change.change.kind) for change in aligned.changes] == [
             (epoch + timedelta(days=5), "removed"),
             (epoch + timedelta(days=6), "revised"),
             (epoch + timedelta(days=7), "revised"),

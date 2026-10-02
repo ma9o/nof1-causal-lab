@@ -2,32 +2,34 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field, FiniteFloat
+from collections.abc import Mapping
+
+from pydantic import ConfigDict, Field, FiniteFloat
+
+from nof1_causal_lab.artifacts.base import Value
 
 from .effects import EffectSummary, EffectTrajectoryPoint
 from .identity import ConstructId
 
 
-class InterventionSpec(BaseModel):
+class InterventionSpec(Value):
     """Set a latent state at one model time, then let its dynamics resume."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     target: ConstructId
     time: FiniteFloat = Field(description="Absolute time in model days.")
     value: FiniteFloat
 
 
-class CausalEffectResult(BaseModel):
+class CausalEffectResult(Value):
     """Causal effects and realized trajectories under the enclosing report's design."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True, allow_inf_nan=False)
+    model_config = ConfigDict(allow_inf_nan=False)
 
     outcome: ConstructId
-    labels: dict[ConstructId, str]
+    labels: Mapping[ConstructId, str]
     summary: EffectSummary
-    effect_trajectory: list[EffectTrajectoryPoint]
+    effect_trajectory: tuple[EffectTrajectoryPoint, ...]
     trajectory_peak: EffectTrajectoryPoint | None = None
-    manifest_effects: dict[str, float] | None = None
+    manifest_effects: Mapping[str, float] | None = None
     reference_mean: float
-    warnings: list[str] = Field(default_factory=list)
+    warnings: tuple[str, ...] = Field(default_factory=tuple)

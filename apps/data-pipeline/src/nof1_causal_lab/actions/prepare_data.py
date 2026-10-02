@@ -8,9 +8,9 @@ from typing import TYPE_CHECKING
 import numpy as np
 import polars as pl
 
-from nof1_causal_lab.utils.data import observation_row_schema
-from nof1_causal_lab.utils.observation_rows import validate_observation_rows
-from nof1_causal_lab.utils.time_coordinates import SYNTHETIC_EPOCH
+from nof1_causal_lab.study.errors import StudyLookupError
+from nof1_causal_lab.utils.observation_rows import observation_row_schema, validate_observation_rows
+from nof1_causal_lab.utils.time_coordinates import ModelTime, ObservationInstant
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -27,7 +27,7 @@ def read_simulation_observations(
 ) -> pl.DataFrame:
     """Read emitted observations on their recorded dates or absolute model days."""
     if not 0 <= replicate < report.draws:
-        raise ValueError(f"Simulation replicate must be between 0 and {report.draws - 1}")
+        raise StudyLookupError(f"Simulation replicate must be between 0 and {report.draws - 1}")
     times = np.asarray(report.times)
     layout = report.observation_layout
     starts = read_array(layout.support_start_times)
@@ -56,12 +56,12 @@ def read_simulation_observations(
     if not (np.isfinite(starts[observed]).all() and np.isfinite(ends[observed]).all()):
         raise ValueError("Observed simulation values must have finite support boundaries")
 
-    origin = report.time_origin if report.time_origin is not None else SYNTHETIC_EPOCH
+    origin = ObservationInstant.origin(report.time_origin)
 
     def _timestamp(day: float) -> str | None:
         if np.isnan(day):
             return None
-        return (origin + timedelta(days=float(day))).isoformat(timespec="microseconds")
+        return ModelTime(float(day)).at(origin).value.isoformat(timespec="microseconds")
 
     rows: list[ObservationRecord] = [
         {
@@ -71,7 +71,7 @@ def read_simulation_observations(
             "support_kind": layout.variables[i].support_kind.value,
             "summary_operator": layout.variables[i].summary_operator.value,
             "anchor_policy": layout.variables[i].anchor_policy.value,
-            "observation_window": layout.variables[i].observation_window,
+            "observation_window": str(layout.variables[i].observation_window),
             "support_start": _timestamp(starts[t, i]),
             "support_end": _timestamp(ends[t, i]),
         }

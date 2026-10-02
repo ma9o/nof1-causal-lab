@@ -13,15 +13,22 @@ from nof1_causal_lab.artifacts.simulation import (
     TrajectorySummary,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Sequence
+
+    from nof1_causal_lab.artifacts.effects import EffectTrajectoryPoint
+
 # Fixed equal-tail 95% intervals for saved predictive and paired-effect summaries.
 SIMULATION_QUANTILES = (0.025, 0.975)
 
 
-def paired_effect_trajectory(times, differences: np.ndarray):
+def paired_effect_trajectory(
+    times: Sequence[float], differences: np.ndarray
+) -> tuple[EffectTrajectoryPoint, ...]:
     """Fixed 95% intervals of paired draw-wise effects on absolute model days."""
     from nof1_causal_lab.artifacts.effects import EffectTrajectoryPoint
 
-    return [
+    return tuple(
         EffectTrajectoryPoint(
             day=float(time),
             effect=float(values.mean()),
@@ -29,7 +36,7 @@ def paired_effect_trajectory(times, differences: np.ndarray):
             upper_95=float(np.quantile(values, SIMULATION_QUANTILES[1])),
         )
         for time, values in zip(times, differences.T, strict=True)
-    ]
+    )
 
 
 if TYPE_CHECKING:

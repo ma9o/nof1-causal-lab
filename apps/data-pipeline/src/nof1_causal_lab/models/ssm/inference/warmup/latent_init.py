@@ -12,17 +12,22 @@ warmup rather than from the prior.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.models.ssm.parameterization import PriorRuntimeBundle
+    from nof1_causal_lab.models.ssm.runtime import BoundPanel
+
 from typing import Any
 
 import jax.numpy as jnp
 
-from nof1_causal_lab.models.ssm.inference.backend_factory import get_laplace_backend
+from nof1_causal_lab.models.ssm.inference.backend_factory import build_laplace_backend
 
 
 def compute_ieks_latent_paths(
-    model: Any,
-    observations: jnp.ndarray,
-    times: jnp.ndarray,
+    priors: PriorRuntimeBundle,
+    panel: BoundPanel,
     *,
     positions: jnp.ndarray,
     trace_key: jnp.ndarray,
@@ -38,10 +43,11 @@ def compute_ieks_latent_paths(
     Returns:
         (num_chains, T, n_latent) smoothed latent paths.
     """
+    observations, times = panel.observations, panel.times
     from nof1_causal_lab.models.ssm.inference.warmup.map import _build_map_laplace_bundle
 
-    backend = get_laplace_backend(model, n_ieks_iters)
-    bundle = _build_map_laplace_bundle(model, observations, times, trace_key, backend, reparam)
+    backend = build_laplace_backend(panel.model, n_ieks_iters, panel.observation_support)
+    bundle = _build_map_laplace_bundle(priors, panel, trace_key, backend, reparam)
     aux_fn = bundle["neg_log_posterior_with_aux_fn"]
     dtype = bundle["flat_example"].dtype
 

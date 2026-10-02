@@ -12,10 +12,11 @@ import json
 import logging
 import threading
 from collections import deque
+from collections.abc import Mapping
 from dataclasses import dataclass
 from functools import wraps
 from time import monotonic, perf_counter
-from typing import TYPE_CHECKING, Any, Literal, NotRequired, Protocol, TypedDict, cast
+from typing import TYPE_CHECKING, Any, Literal, NotRequired, Protocol, TypedDict
 
 from openai import NOT_GIVEN, AsyncOpenAI, omit
 from openai.types.chat import (
@@ -40,7 +41,6 @@ logger = logging.getLogger(__name__)
 OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1"
 OPENROUTER_MODEL_PREFIX = "openrouter/"
 
-type PydanticFieldDefinition = tuple[Any, Any]
 type PydanticFieldDefinitions = dict[str, Any]
 
 
@@ -142,7 +142,7 @@ class Tool:
     stop_on_success: bool = False
     success_output: str | None = None
 
-    async def __call__(self, *args: Any, **kwargs: Any) -> str:
+    async def __call__(self, *args: object, **kwargs: object) -> str:
         return await self.execute(*args, **kwargs)
 
 
@@ -243,7 +243,7 @@ def _parameter_schema(handler: Callable[..., Awaitable[str]], name: str) -> Json
 
     signature = inspect.signature(handler)
     descriptions = _parse_arg_descriptions(inspect.getdoc(handler))
-    fields: dict[str, PydanticFieldDefinition] = {}
+    fields: PydanticFieldDefinitions = {}
 
     for parameter_name, param in signature.parameters.items():
         annotation = param.annotation if param.annotation is not inspect.Signature.empty else Any
@@ -264,7 +264,7 @@ def _parameter_schema(handler: Callable[..., Awaitable[str]], name: str) -> Json
 
     model = create_model(
         f"{name.title()}ToolParams",
-        **cast("PydanticFieldDefinitions", fields),
+        **fields,
     )
     schema = model.model_json_schema()
     schema["additionalProperties"] = False
@@ -304,7 +304,7 @@ class ReasoningAssistantMessage(ChatCompletionAssistantMessageParam):
     reasoning_details: NotRequired[JsonValue]
 
 
-_MESSAGE_ADAPTER = TypeAdapter(ChatCompletionMessageParam)
+_MESSAGE_ADAPTER: TypeAdapter[ChatCompletionMessageParam] = TypeAdapter(ChatCompletionMessageParam)
 
 
 def normalize_message(message: object) -> ChatCompletionMessageParam:
@@ -367,7 +367,7 @@ def _assistant_message(message: _AssistantResponse) -> AssistantMessage:
     for tool_call in tool_calls_raw:
         function = tool_call.function
         arguments = function.arguments
-        if isinstance(arguments, dict):
+        if isinstance(arguments, Mapping):
             arguments = json.dumps(arguments)
         tool_calls.append(
             {
@@ -506,22 +506,10 @@ async def call_model(
         extra_body=extra_body,
         tools=[_tool_schema(tool_obj) for tool_obj in tools] if tools else omit,
     )
-    try:
-        if request.timeout is not None:
-            response = await asyncio.wait_for(request_coro, timeout=request.timeout)
-        else:
-            response = await request_coro
-    except TimeoutError as exc:
-        elapsed = perf_counter() - started_at
-        if log_label:
-            logger.warning(
-                "[%s] call_model timeout: model=%s time=%.1fs timeout=%ss",
-                log_label,
-                normalized_model_name,
-                elapsed,
-                request.timeout,
-            )
-        raise TimeoutError(f"call_model timed out after {request.timeout}s") from exc
+    if request.timeout is not None:
+        response = await asyncio.wait_for(request_coro, timeout=request.timeout)
+    else:
+        response = await request_coro
     elapsed = perf_counter() - started_at
 
     parsed = _OpenRouterResponse.model_validate(response)

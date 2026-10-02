@@ -12,11 +12,8 @@ from nof1_causal_lab.actions.simulation_summaries import (
 )
 from nof1_causal_lab.artifacts.effects import EffectSummary
 from nof1_causal_lab.artifacts.simulation import SimulationReport
-from nof1_causal_lab.study.mechanism_views import mechanism_curves
 from nof1_causal_lab.study.visual_models import MechanismViewRequest
 from nof1_causal_lab.study.visuals import (
-    observation_history,
-    parameter_draws,
     recorded_simulation_paths,
 )
 
@@ -64,9 +61,7 @@ def workbench_visuals(reader: ModelReader, template):
         "reference_latent_paths": "reference",
         "observations": "observations",
         "reference_observations": "reference_observations",
-        "observation_layout": type(report.observation_layout).model_validate(
-            {**report.observation_layout.model_dump(), "mask": "mask"}
-        ),
+        "observation_layout": report.observation_layout.revised(mask="mask"),
         "predictive": summarize_simulation(
             model,
             state_ids=report.state_ids,
@@ -83,28 +78,41 @@ def workbench_visuals(reader: ModelReader, template):
         index = report.state_ids.index(report.causal_result.outcome)
         delta = action[:, :, index] - reference[:, :, index]
         final = delta[:, -1]
-        trajectory = paired_effect_trajectory(time, delta)
-        updates["causal_result"] = type(report.causal_result).model_validate(
-            {
-                **report.causal_result.model_dump(),
-                "summary": EffectSummary(
-                    mean=float(final.mean()),
-                    median=float(np.median(final)),
-                    lower_95=float(np.quantile(final, 0.025)),
-                    upper_95=float(np.quantile(final, 0.975)),
-                    prob_positive=float(np.mean(final > 0)),
-                ),
-                "effect_trajectory": trajectory,
-                "trajectory_peak": None,
-                "reference_mean": float(reference[:, -1, index].mean()),
-                "manifest_effects": None,
-            }
+        trajectory = paired_effect_trajectory(tuple(float(value) for value in time), delta)
+        updates["causal_result"] = report.causal_result.revised(
+            summary=EffectSummary(
+                mean=float(final.mean()),
+                median=float(np.median(final)),
+                lower_95=float(np.quantile(final, 0.025)),
+                upper_95=float(np.quantile(final, 0.975)),
+                prob_positive=float(np.mean(final > 0)),
+            ),
+            effect_trajectory=trajectory,
+            trajectory_peak=None,
+            reference_mean=float(reference[:, -1, index].mean()),
+            manifest_effects=None,
         )
-    report = type(report).model_validate({**report.model_dump(), **updates})
-    paths = recorded_simulation_paths(report, arrays.__getitem__, start=0, count=report.draws)
+    report = report.revised(**updates)
+    effect = None
+    if report.causal_result is not None:
+        effect = (
+            report.causal_result.outcome,
+            action[:, :, report.state_ids.index(report.causal_result.outcome)]
+            - reference[:, :, report.state_ids.index(report.causal_result.outcome)],
+        )
+    paths = recorded_simulation_paths(
+        report,
+        action,
+        arrays["observations"],
+        mask,
+        reference,
+        reference_observations,
+        effect,
+        start=0,
+    )
     observations = {}
     for variable in reader.data_metadata.value.variables:
-        history = observation_history(reader, variable.id)
+        history = reader.observation_history(variable.id)
         assert history is not None
         observations[variable.id] = history.model_dump(mode="json")
     owners = [edge.id for edge in model.edges if edge.mechanisms] + [
@@ -115,9 +123,9 @@ def workbench_visuals(reader: ModelReader, template):
         "report": report.model_dump(mode="json"),
         "simulation": paths.model_dump(mode="json"),
         "observations": observations,
-        "parameters": parameter_draws(reader).model_dump(mode="json"),
+        "parameters": reader.parameter_draws().model_dump(mode="json"),
         "mechanisms": {
-            owner: mechanism_curves(reader, MechanismViewRequest(owner_id=owner)).model_dump(
+            owner: reader.mechanism_curves(MechanismViewRequest(owner_id=owner)).model_dump(
                 mode="json"
             )
             for owner in owners

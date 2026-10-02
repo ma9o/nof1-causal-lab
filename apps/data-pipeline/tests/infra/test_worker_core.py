@@ -1,41 +1,38 @@
 """Tests for worker indicator formatting and extraction prompts."""
 
-from typing import TYPE_CHECKING
-
 import pytest
 
 from nof1_causal_lab.artifacts.identity import IndicatorId
+from nof1_causal_lab.workers.context import MeasurementContext
 from nof1_causal_lab.workers.messages import WorkerMessages, _format_indicators
-
-if TYPE_CHECKING:
-    from nof1_causal_lab.workers.context import MeasurementContext
 
 pytestmark = pytest.mark.contract
 
 
 def _measurement_structure():
     """Minimal MeasurementStructure for testing."""
-    return {
-        "model_clock": "1d",
-        "indicators": [
-            {
-                "id": IndicatorId("indicator:6bde869aba53fb51e0f4"),
-                "construct_id": "construct:6b04dc42c531e7091eb8",
-                "name": "pss_score",
-                "measurement_dtype": "continuous",
-                "how_to_measure": "Perceived Stress Scale score",
-                "aggregation": "mean",
-            },
-            {
-                "id": IndicatorId("indicator:9866c549bd1c25f0a5d7"),
-                "construct_id": "construct:cdc0b2958a9512b2abad",
-                "name": "sleep_hours",
-                "measurement_dtype": "continuous",
-                "how_to_measure": "Self-reported hours of sleep",
-                "aggregation": "mean",
-            },
-        ],
-    }
+    return MeasurementContext.model_validate(
+        {
+            "source": {"files": ["source.csv"]},
+            "model_clock": "1d",
+            "indicators": [
+                {
+                    "id": IndicatorId("indicator:6bde869aba53fb51e0f4"),
+                    "name": "pss_score",
+                    "measurement_dtype": "continuous",
+                    "how_to_measure": "Perceived Stress Scale score",
+                    "aggregation": "mean",
+                },
+                {
+                    "id": IndicatorId("indicator:9866c549bd1c25f0a5d7"),
+                    "name": "sleep_hours",
+                    "measurement_dtype": "continuous",
+                    "how_to_measure": "Self-reported hours of sleep",
+                    "aggregation": "mean",
+                },
+            ],
+        }
+    )
 
 
 # =============================================================================
@@ -55,41 +52,48 @@ class TestFormatIndicators:
         assert "window=1d" in result
 
     def test_empty_indicators(self):
-        result = _format_indicators({"model_clock": "1d", "indicators": []})
-        assert result == ""
+        with pytest.raises(ValueError, match="at least 1"):
+            MeasurementContext.model_validate(
+                {"source": {"files": ["source.csv"]}, "model_clock": "1d", "indicators": []}
+            )
 
-    def test_missing_optional_fields(self):
-        spec: MeasurementContext = {
-            "model_clock": "1d",
-            "indicators": [
+    def test_missing_instructions_are_rejected(self):
+        with pytest.raises(ValueError, match="how_to_measure"):
+            MeasurementContext.model_validate(
                 {
-                    "id": IndicatorId("indicator:x"),
-                    "name": "x",
-                    "measurement_dtype": "continuous",
-                    "aggregation": "mean",
+                    "source": {"files": ["source.csv"]},
+                    "model_clock": "1d",
+                    "indicators": [
+                        {
+                            "id": "indicator:x",
+                            "name": "x",
+                            "measurement_dtype": "continuous",
+                            "aggregation": "mean",
+                        }
+                    ],
                 }
-            ],
-        }
-        result = _format_indicators(spec)
-        assert "indicator:x" in result
+            )
 
     def test_indicator_specific_window_overrides_model_clock(self):
-        spec: MeasurementContext = {
-            "model_clock": "1d",
-            "indicators": [
-                {
-                    "id": IndicatorId("indicator:monthly_pss_score"),
-                    "name": "monthly_pss_score",
-                    "measurement_dtype": "continuous",
-                    "how_to_measure": "Average perceived stress over the last month",
-                    "aggregation": "mean",
-                    "observation_window": "1mo",
-                }
-            ],
-        }
+        spec = MeasurementContext.model_validate(
+            {
+                "source": {"files": ["source.csv"]},
+                "model_clock": "1d",
+                "indicators": [
+                    {
+                        "id": IndicatorId("indicator:fortnightly_pss_score"),
+                        "name": "fortnightly_pss_score",
+                        "measurement_dtype": "continuous",
+                        "how_to_measure": "Average perceived stress over two weeks",
+                        "aggregation": "mean",
+                        "observation_window": "2w",
+                    }
+                ],
+            }
+        )
 
         result = _format_indicators(spec)
-        assert "window=1mo" in result
+        assert "window=2w" in result
 
 
 # =============================================================================

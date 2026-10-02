@@ -1,37 +1,69 @@
-"""Shared duration parsing helpers for stage artifacts and compilation."""
+"""Positive fixed durations, retaining the authored wire spelling exactly."""
 
 from __future__ import annotations
 
 import re
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Literal, override
 
-_DURATION_UNIT_HOURS: dict[str, float] = {
-    "s": 1 / 3600,
-    "m": 1 / 60,
-    "h": 1.0,
-    "d": 24.0,
-    "w": 168.0,
-    "mo": 720.0,
-    "q": 2160.0,
-    "y": 8760.0,
-}
+from pydantic_core import core_schema
 
-_DURATION_RE = re.compile(r"^(\d+)(s|m|h|d|w|mo|q|y)$")
+if TYPE_CHECKING:
+    from pydantic import GetCoreSchemaHandler
+    from pydantic_core import CoreSchema
+
+type DurationUnit = Literal["s", "m", "h", "d", "w"]
+_UNIT_SECONDS: dict[DurationUnit, int] = {"s": 1, "m": 60, "h": 3600, "d": 86400, "w": 604800}
+_DURATION_RE = re.compile(r"([0-9]+)(s|m|h|d|w)")
 
 
-def parse_duration_to_hours(duration: str) -> float:
-    """Parse a Polars-compatible duration string to hours."""
-    match = _DURATION_RE.match(duration)
-    if not match:
-        raise ValueError(
-            f"Invalid duration: {duration!r}. "
-            f"Expected format: <int><unit> where unit is one of "
-            f"{', '.join(_DURATION_UNIT_HOURS)}"
+@dataclass(frozen=True, init=False)
+class Duration:
+    """A fixed interval; days and weeks mean exactly 86400 and 604800 seconds."""
+
+    source: str
+    count: int
+    unit: DurationUnit
+
+    def __init__(self, source: str) -> None:
+        match = _DURATION_RE.fullmatch(source)
+        if match is None:
+            raise ValueError(
+                f"Invalid duration: {source!r}. Expected <int><unit> with s, m, h, d, w"
+            )
+        count = int(match[1])
+        if count == 0:
+            raise ValueError("Duration must be positive (got 0)")
+        unit = next(unit for unit in _UNIT_SECONDS if unit == match[2])
+        object.__setattr__(self, "source", source)
+        object.__setattr__(self, "count", count)
+        object.__setattr__(self, "unit", unit)
+
+    @property
+    def seconds(self) -> int:
+        return self.count * _UNIT_SECONDS[self.unit]
+
+    @property
+    def days(self) -> float:
+        """Lower the exact interval to the numerical engine's day axis."""
+        return self.seconds / 86400
+
+    @override
+    def __str__(self) -> str:
+        return self.source
+
+    @classmethod
+    def __get_pydantic_core_schema__(
+        cls, _source_type: object, _handler: GetCoreSchemaHandler
+    ) -> CoreSchema:
+        parsed = core_schema.no_info_after_validator_function(cls, core_schema.str_schema())
+        return core_schema.json_or_python_schema(
+            json_schema=parsed,
+            python_schema=core_schema.union_schema([core_schema.is_instance_schema(cls), parsed]),
+            serialization=core_schema.plain_serializer_function_ser_schema(
+                str, return_schema=core_schema.str_schema()
+            ),
         )
-    count = int(match.group(1))
-    unit = match.group(2)
-    if count == 0:
-        raise ValueError("Duration must be positive (got 0)")
-    return count * _DURATION_UNIT_HOURS[unit]
 
 
-__all__ = ["parse_duration_to_hours"]
+__all__ = ["Duration"]

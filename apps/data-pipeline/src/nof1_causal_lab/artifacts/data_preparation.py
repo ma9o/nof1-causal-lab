@@ -2,62 +2,66 @@
 
 from __future__ import annotations
 
-import ast
 import re
 from datetime import date
 from typing import TYPE_CHECKING, Annotated, Literal, Self, override
 
 from pydantic import (
-    AfterValidator,
     AwareDatetime,
-    BaseModel,
-    ConfigDict,
     Field,
     field_validator,
     model_validator,
 )
 
-from nof1_causal_lab.utils.aggregations import COMPUTED_RULE_FUNCTIONS
+from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.utils.observation_semantics import (
     IndicatorObservationSemantics,
+    SummaryOperator,
     derive_indicator_observation_semantics,
 )
+from nof1_causal_lab.utils.window_expressions import WindowExpression
 
-from .duration import parse_duration_to_hours
+from .duration import Duration
 from .identity import GitOid
 from .observations import ObservationSpec
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.measurement_types import AggregationFunction
     from nof1_causal_lab.workers.context import MeasurementContext
 
-_SEMANTIC_COLLISIONS: list[tuple[str, set[str], str]] = [
+_SEMANTIC_COLLISIONS: tuple[tuple[str, frozenset[SummaryOperator], str], ...] = (
     (
         r"\bcount\b|\bnumber of\b|\bhow many\b",
-        {"mean", "median", "std", "var"},
+        frozenset({SummaryOperator.MEAN, SummaryOperator.STD}),
         "how_to_measure implies counting but aggregation computes a statistic",
     ),
     (
         r"\baverage\b|\bmean\b",
-        {"sum", "first", "last", "count"},
-        "how_to_measure implies averaging but aggregation is not mean/median",
+        frozenset(
+            {
+                SummaryOperator.SUM,
+                SummaryOperator.FIRST,
+                SummaryOperator.LAST,
+                SummaryOperator.COUNT,
+            }
+        ),
+        "how_to_measure implies averaging but aggregation is not mean",
     ),
     (
         r"\btotal\b|\bcumulative\b|\bsum\b",
-        {"mean", "median", "first", "last"},
+        frozenset({SummaryOperator.MEAN, SummaryOperator.FIRST, SummaryOperator.LAST}),
         "how_to_measure implies summing but aggregation is not sum",
     ),
     (
         r"\blast\b|\bmost recent\b|\bcurrent\b",
-        {"mean", "sum", "median"},
+        frozenset({SummaryOperator.MEAN, SummaryOperator.SUM}),
         "how_to_measure implies point-in-time but aggregation is a window statistic",
     ),
-]
+)
 
 
 def check_semantic_collisions(
     how_to_measure: str,
-    aggregation: AggregationFunction,
+    aggregation: SummaryOperator,
 ) -> list[str]:
     """Check for inconsistencies between how_to_measure text and aggregation."""
     warnings: list[str] = []
@@ -71,69 +75,6 @@ def check_semantic_collisions(
                 f"but aggregation='{aggregation}'."
             )
     return warnings
-
-
-def _parse_computed_rule_expr(expr: str) -> ast.Expression:
-    """Parse a computed-rule expression and surface a stable error."""
-    try:
-        parsed = ast.parse(expr, mode="eval")
-    except SyntaxError as exc:
-        raise ValueError(f"Invalid computed_rule: {exc.msg}") from exc
-    return parsed
-
-
-def _computed_rule_source_names(expr: str) -> set[str]:
-    """Collect source-column references from a computed-rule expression."""
-    parsed = _parse_computed_rule_expr(expr)
-    names: set[str] = set()
-
-    class _NameCollector(ast.NodeVisitor):
-        @override
-        def visit_Call(self, node: ast.Call) -> None:
-            if not isinstance(node.func, ast.Name):
-                raise ValueError("computed_rule only supports simple function calls")
-            if node.func.id not in COMPUTED_RULE_FUNCTIONS:
-                available = ", ".join(sorted(COMPUTED_RULE_FUNCTIONS))
-                raise ValueError(
-                    f"Unsupported computed_rule function '{node.func.id}'. Available: {available}"
-                )
-            if node.keywords:
-                raise ValueError("computed_rule does not support keyword arguments")
-            for arg in node.args:
-                self.visit(arg)
-
-        @override
-        def visit_Attribute(self, node: ast.Attribute) -> None:
-            _ = node
-            raise ValueError("computed_rule does not support attribute access")
-
-        @override
-        def visit_Name(self, node: ast.Name) -> None:
-            if node.id not in COMPUTED_RULE_FUNCTIONS:
-                names.add(node.id)
-
-    _NameCollector().visit(parsed.body)
-    return names
-
-
-def _validate_window_expression(value: str) -> str:
-    _computed_rule_source_names(value)
-    return value
-
-
-type WindowExpression = Annotated[
-    str,
-    AfterValidator(_validate_window_expression),
-    Field(
-        description=(
-            "Deterministic support-window expression that returns one scalar per window. "
-            "Use Python-like syntax over source_columns with arithmetic, comparisons, "
-            "if/else, and helper functions such as any(), sum(), mean(), std(), "
-            "first(), last(), count_true(), count_non_null(), lower(), contains(), "
-            "and contains_any(). Use None for missing values."
-        )
-    ),
-]
 
 
 class DataVariableSpec(ObservationSpec):
@@ -196,7 +137,7 @@ class DataVariableSpec(ObservationSpec):
                     f"Computed indicator '{self.name}' with computed_rule must declare "
                     "at least 1 source_column."
                 )
-            referenced = _computed_rule_source_names(self.computed_rule)
+            referenced = self.computed_rule.dependencies
             if not referenced:
                 raise ValueError(
                     f"Computed indicator '{self.name}' has computed_rule "
@@ -225,10 +166,8 @@ def _validate_uploaded_filename(value: str) -> str:
     return value
 
 
-class FileSourceRef(BaseModel):
+class FileSourceRef(Value):
     """Explicit uploaded filenames, relative to this study's input directory."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     files: tuple[str, ...] = Field(min_length=1)
     start: date | None = Field(default=None, description="Inclusive UTC source-coverage date.")
@@ -248,10 +187,8 @@ class FileSourceRef(BaseModel):
         return self
 
 
-class SimulationReplicateRef(BaseModel):
+class SimulationReplicateRef(Value):
     """One replicate from a recorded, applied simulation in this study."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     revision: GitOid
     replicate: int = Field(ge=0)
@@ -263,22 +200,14 @@ type DataSourceRef = Annotated[
 ]
 
 
-class DataPreparationSpec(BaseModel):
+class DataPreparationSpec(Value):
     """A versioned data definition supplied directly to prepare_data."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    default_window: str
+    default_window: Duration
     variables: tuple[DataVariableSpec, ...] = Field(min_length=1)
     context: str = Field(
         default="", description="Optional context for interpreting the source data."
     )
-
-    @field_validator("default_window")
-    @classmethod
-    def validate_window(cls, value: str) -> str:
-        parse_duration_to_hours(value)
-        return value
 
     @model_validator(mode="after")
     def unique_variables(self) -> Self:
@@ -287,36 +216,27 @@ class DataPreparationSpec(BaseModel):
         return self
 
     def observation_schema(self) -> tuple[ObservationSpec, ...]:
-        return tuple(
-            ObservationSpec.model_validate(
-                {
-                    **item.model_dump(include=set(ObservationSpec.model_fields)),
-                    "observation_window": item.observation_window or self.default_window,
-                }
-            )
-            for item in self.variables
-        )
-
-    def extraction_context(self) -> MeasurementContext:
-        return {
-            "model_clock": self.default_window,
-            "indicators": [item.model_dump(mode="json") for item in self.variables],
-        }
+        return tuple(item.observation(self.default_window) for item in self.variables)
 
 
-class FilePreparationSpec(BaseModel):
+class FilePreparationSpec(Value):
     """Uploaded sources and the complete recipe for preparing their observations."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     source: FileSourceRef
     definition: DataPreparationSpec
 
+    def extraction_context(self) -> MeasurementContext:
+        from nof1_causal_lab.workers.context import MeasurementContext
 
-class PreparedDataMetadata(BaseModel):
+        return MeasurementContext(
+            source=self.source,
+            model_clock=self.definition.default_window,
+            indicators=self.definition.variables,
+        )
+
+
+class PreparedDataMetadata(Value):
     """Self-contained semantics and provenance of one prepared observation table."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     source: DataSourceRef
     variables: tuple[ObservationSpec, ...] = Field(min_length=1)

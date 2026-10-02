@@ -34,12 +34,14 @@ import uvicorn
 from mcp.server.lowlevel import Server
 from mcp.server.streamable_http_manager import StreamableHTTPSessionManager
 
+from nof1_causal_lab.actions.errors import execution_failure_handler
 from nof1_causal_lab.utils.harness.networking import find_free_port, run_uvicorn_server
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
     from mcp.server.context import ServerRequestContext
+    from starlette.types import Receive, Scope, Send
 
     from nof1_causal_lab.utils.openrouter_client import Tool
 
@@ -70,6 +72,7 @@ def build_mcp_server(tools: list[Tool], *, name: str = "pipeline-tools") -> Serv
             ]
         )
 
+    @execution_failure_handler
     async def _call_tool(
         _context: ServerRequestContext, params: mcp_types.CallToolRequestParams
     ) -> mcp_types.CallToolResult:
@@ -151,7 +154,7 @@ async def serve_tools_http(
     # initialize response as a failed handshake ("connection closed").
     # The server exists for exactly one client on an ephemeral port, so
     # every path dispatches straight to the session manager.
-    async def _mcp_asgi(scope, receive, send) -> None:
+    async def _mcp_asgi(scope: Scope, receive: Receive, send: Send) -> None:
         await session_manager.handle_request(scope, receive, send)
 
     config = uvicorn.Config(

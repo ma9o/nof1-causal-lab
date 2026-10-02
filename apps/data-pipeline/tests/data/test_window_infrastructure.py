@@ -9,7 +9,7 @@ from datetime import datetime
 import polars as pl
 import pytest
 
-from nof1_causal_lab.utils.data import bucket_by_clock
+from nof1_causal_lab.utils.observation_rows import bucket_by_clock
 from nof1_causal_lab.workers.windows import format_window_chunk
 
 pytestmark = pytest.mark.contract

@@ -18,6 +18,7 @@ from nof1_causal_lab.models.ssm.inference import problem as problem_module
 from nof1_causal_lab.models.ssm.inference.parameter_transform import ParameterTransform
 from nof1_causal_lab.models.ssm.inference.targets.laplace.shared import _prepare_linearized_path
 from tests.dynamics_fixtures import potential_term
+from tests.model_fixtures import bind_panel_fixture, compile_fit_fixture, compile_model_fixture
 
 
 @pytest.fixture
@@ -34,15 +35,11 @@ def runtime(monkeypatch):
             / "dynamical_model/runtime_model_fixture.json"
         ).read_text()
     )
-    model = SimpleNamespace(
-        spec=spec,
-        observation_support=None,
-        input_values=None,
-    )
+    inputs = compile_fit_fixture(spec)
 
     def constrain(z):
         samples = {"vf_0_p0": z[0]}
-        matrices, _ = assemble_model_matrices(spec, samples)
+        matrices, _ = assemble_model_matrices(compile_model_fixture(spec), samples)
         return {**samples, **matrices}
 
     parameters = ParameterTransform(
@@ -55,9 +52,10 @@ def runtime(monkeypatch):
         problem_module, "prepare_model_parameters", lambda *_: (parameters, {}, {"vf_0_p0"})
     )
     return problem_module.build_particle_problem(
-        model,
-        jnp.array([[0.2, 1.0], [jnp.nan, 2.0], [jnp.nan, jnp.nan]]),
-        times,
+        inputs.prior_runtime_bundle,
+        bind_panel_fixture(
+            inputs.compiled, jnp.array([[0.2, 1.0], [jnp.nan, 2.0], [jnp.nan, jnp.nan]]), times
+        ),
         scheme="euler_maruyama",
         trace_key=jax.random.key(0),
         reparam=None,
@@ -73,7 +71,7 @@ def test_sampler_context_is_a_dynestyx_model_pytree(runtime):
         jax.vmap(runtime.context, in_axes=(0, None)), jnp.zeros((2, 1)), runtime.times
     )
     assert shapes[0].initial_condition.loc.shape == (2, 1)
-    assert shapes[1].shape == (2, 3)
+    assert shapes[1].shape == (2, len(runtime.times))
 
 
 @pytest.mark.inference(concern="warmup")
@@ -277,7 +275,7 @@ def test_indexed_sde_keeps_its_brownian_path_and_uses_dynestyx_evolution(monkeyp
     def solve(terms, _solver, **settings):
         evolution = settings["args"]
         assert isinstance(evolution, dsx.StochasticContinuousTimeStateEvolution)
-        brownian = terms.terms[1].control
+        brownian = terms.law.parsed[1].control
         assert isinstance(brownian, simulator._IndexedBrownianPath)
         np.testing.assert_array_equal(jax.random.key_data(brownian.key), jax.random.key_data(key))
         np.testing.assert_allclose(
@@ -288,7 +286,7 @@ def test_indexed_sde_keeps_its_brownian_path_and_uses_dynestyx_evolution(monkeyp
         base_drift = -0.4 * initial - 0.2 * initial**3
         for time in grid:
             np.testing.assert_allclose(
-                terms.terms[0].vf(time, initial, settings["args"]), base_drift
+                terms.law.parsed[0].vf(time, initial, settings["args"]), base_drift
             )
         assert float(settings["dt0"]) == pytest.approx(0.01)
         assert isinstance(settings["adjoint"], simulator.dfx.ForwardMode)

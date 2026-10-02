@@ -5,7 +5,6 @@ by the inference tests.
 """
 
 from pathlib import Path
-from typing import Any
 
 import jax.numpy as jnp
 import jax.random as random
@@ -16,105 +15,29 @@ import pytest
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.expressions import coefficient
+from nof1_causal_lab.artifacts.identity import ConstructId
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.artifacts.parameter import PriorAuthoringTransform, SiteKind, SupportClass
-from nof1_causal_lab.distributions import DistributionFamily, PriorDistributionFamily
+from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
+from nof1_causal_lab.distributions import PriorDistributionFamily
+from nof1_causal_lab.models.model_structure import validate_execution_structure
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.inference.utils import _DummyLikelihoodBackend
-from nof1_causal_lab.models.ssm.model import SSMModel
+from nof1_causal_lab.models.ssm.model import numpyro_model
 from nof1_causal_lab.models.ssm.parameterization import (
-    SiteDescriptor,
     build_site_registry,
 )
 from nof1_causal_lab.models.ssm.priors import resolve_site_priors
+from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
 from nof1_causal_lab.prior_distributions import distribution_from_params
 from tests.model_fixtures import (
+    bind_panel_fixture,
     compile_fit_fixture,
+    compile_model_fixture,
 )
 
 # ═══════════════════════════════════════════════════════════════════════
 # Fixtures
 # ═══════════════════════════════════════════════════════════════════════
-
-
-def _model_payload() -> dict[str, Any]:
-    """Minimal ModelSpec dict: X→Y, Y→Z, 4 indicators."""
-    return {
-        "default_outcome": "construct:d90c52e59b79004188dc",
-        "edges": [
-            {
-                "cause": {
-                    "id": "construct:311c9047b5ede16a8f26",
-                    "name": "X",
-                    "description": "Cause",
-                    "role": "endogenous",
-                    "temporal_status": "time_varying",
-                    "indicators": [
-                        {
-                            "id": "indicator:0f93ce57e1f1d1c96f5c",
-                            "name": "x1",
-                            "construct_polarity": "positive",
-                            "measurement_dtype": "continuous",
-                            "aggregation": "mean",
-                        },
-                        {
-                            "id": "indicator:27a6125b251378d8dd23",
-                            "name": "x2",
-                            "construct_polarity": "positive",
-                            "measurement_dtype": "continuous",
-                            "aggregation": "mean",
-                        },
-                    ],
-                },
-                "effect": {
-                    "id": "construct:d90c52e59b79004188dc",
-                    "name": "Y",
-                    "description": "Mediator",
-                    "role": "endogenous",
-                    "temporal_status": "time_varying",
-                    "indicators": [
-                        {
-                            "id": "indicator:dec7b4916899d2109674",
-                            "name": "y1",
-                            "construct_polarity": "positive",
-                            "measurement_dtype": "continuous",
-                            "aggregation": "mean",
-                        }
-                    ],
-                },
-                "id": "edge:39ba80b774e02c409662",
-                "description": "X causes Y",
-            },
-            {
-                "cause": {"kind": "construct", "id": "construct:d90c52e59b79004188dc"},
-                "effect": {
-                    "id": "construct:a6b7873d58dac1ff1a02",
-                    "name": "Z",
-                    "description": "Downstream",
-                    "role": "endogenous",
-                    "temporal_status": "time_varying",
-                    "indicators": [
-                        {
-                            "id": "indicator:c26d752dbca8b5a287ac",
-                            "name": "z1",
-                            "construct_polarity": "positive",
-                            "measurement_dtype": "continuous",
-                            "aggregation": "mean",
-                        }
-                    ],
-                },
-                "id": "edge:57072ee1d1b7b3e7c0de",
-                "description": "Y causes Z",
-            },
-        ],
-        "measurement_clock": "1d",
-    }
-
-
-def _make_model() -> ModelSpec:
-    """Compile the shared causal fixture to the executable structural artifact."""
-
-    return ModelSpec.model_validate(_model_payload())
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -139,17 +62,19 @@ class TestDynamicsMask:
                 / "dag_to_ssm/testdynamicsmask_test_dynamics_support_zeros_non_edges__make_3latent_spec.json"
             ).read_text()
         )
-        model = SSMModel(compile_fit_fixture(spec))
+        model = compile_fit_fixture(spec)
 
         rng = random.PRNGKey(42)
-        trace = handlers.trace(handlers.seed(model.model, rng)).get_trace(
-            observations=jnp.zeros((2, 4)),
-            times=jnp.arange(2, dtype=jnp.float32),
+        trace = handlers.trace(handlers.seed(numpyro_model, rng)).get_trace(
+            bind_panel_fixture(model.compiled, jnp.zeros((2, 4)), jnp.arange(2, dtype=jnp.float32)),
+            priors=model.prior_runtime_bundle,
             likelihood_backend=_DummyLikelihoodBackend(),
         )
 
         weight_sites = [
-            site for site in build_site_registry(spec) if site.site_kind == SiteKind.DYNAMICS_WEIGHT
+            site
+            for site in build_site_registry(compile_model_fixture(spec))
+            if site.site_kind == SiteKind.DYNAMICS_WEIGHT
         ]
         assert len(weight_sites) == 2
         assert all(site.name in trace for site in weight_sites)
@@ -167,17 +92,19 @@ class TestDynamicsMask:
                 / "dag_to_ssm/three_latent_unmasked.json"
             ).read_text()
         )
-        model = SSMModel(compile_fit_fixture(spec))
+        model = compile_fit_fixture(spec)
 
         rng = random.PRNGKey(0)
-        trace = handlers.trace(handlers.seed(model.model, rng)).get_trace(
-            observations=jnp.zeros((2, 4)),
-            times=jnp.arange(2, dtype=jnp.float32),
+        trace = handlers.trace(handlers.seed(numpyro_model, rng)).get_trace(
+            bind_panel_fixture(model.compiled, jnp.zeros((2, 4)), jnp.arange(2, dtype=jnp.float32)),
+            priors=model.prior_runtime_bundle,
             likelihood_backend=_DummyLikelihoodBackend(),
         )
 
         weight_sites = [
-            site for site in build_site_registry(spec) if site.site_kind == SiteKind.DYNAMICS_WEIGHT
+            site
+            for site in build_site_registry(compile_model_fixture(spec))
+            if site.site_kind == SiteKind.DYNAMICS_WEIGHT
         ]
         assert len(weight_sites) == 6
         assert all(site.name in trace for site in weight_sites)
@@ -191,17 +118,19 @@ class TestDynamicsMask:
                 / "common/one_state_gaussian_model.json"
             ).read_text()
         )
-        model = SSMModel(compile_fit_fixture(spec))
+        model = compile_fit_fixture(spec)
 
         rng = random.PRNGKey(0)
-        trace = handlers.trace(handlers.seed(model.model, rng)).get_trace(
-            observations=jnp.zeros((2, 1)),
-            times=jnp.arange(2, dtype=jnp.float32),
+        trace = handlers.trace(handlers.seed(numpyro_model, rng)).get_trace(
+            bind_panel_fixture(model.compiled, jnp.zeros((2, 1)), jnp.arange(2, dtype=jnp.float32)),
+            priors=model.prior_runtime_bundle,
             likelihood_backend=_DummyLikelihoodBackend(),
         )
 
         dynamics_sites = [
-            site for site in build_site_registry(spec) if site.assembly_group == "dynamics"
+            site
+            for site in build_site_registry(compile_model_fixture(spec))
+            if site.assembly_group == "dynamics"
         ]
         assert [site.site_kind for site in dynamics_sites] == [SiteKind.DYNAMICS_DECAY]
         assert dynamics_sites[0].name in trace
@@ -230,12 +159,12 @@ class TestLambdaMask:
                 / "dag_to_ssm/testlambdamask_test_lambda_template_plus_mask__make_3latent_spec.json"
             ).read_text()
         )
-        model = SSMModel(compile_fit_fixture(spec))
+        model = compile_fit_fixture(spec)
 
         rng = random.PRNGKey(0)
-        trace = handlers.trace(handlers.seed(model.model, rng)).get_trace(
-            observations=jnp.zeros((2, 4)),
-            times=jnp.arange(2, dtype=jnp.float32),
+        trace = handlers.trace(handlers.seed(numpyro_model, rng)).get_trace(
+            bind_panel_fixture(model.compiled, jnp.zeros((2, 4)), jnp.arange(2, dtype=jnp.float32)),
+            priors=model.prior_runtime_bundle,
             likelihood_backend=_DummyLikelihoodBackend(),
         )
 
@@ -262,12 +191,12 @@ class TestLambdaMask:
                 / "dag_to_ssm/testlambdamask_test_lambda_no_mask_returns_fixed__make_3latent_spec.json"
             ).read_text()
         )
-        model = SSMModel(compile_fit_fixture(spec))
+        model = compile_fit_fixture(spec)
 
         rng = random.PRNGKey(0)
-        trace = handlers.trace(handlers.seed(model.model, rng)).get_trace(
-            observations=jnp.zeros((2, 4)),
-            times=jnp.arange(2, dtype=jnp.float32),
+        trace = handlers.trace(handlers.seed(numpyro_model, rng)).get_trace(
+            bind_panel_fixture(model.compiled, jnp.zeros((2, 4)), jnp.arange(2, dtype=jnp.float32)),
+            priors=model.prior_runtime_bundle,
             likelihood_backend=_DummyLikelihoodBackend(),
         )
 
@@ -379,12 +308,12 @@ class TestPerElementPriors:
                 / "dag_to_ssm/testperelementpriors_test_per_element_prior_in_model_with_parameter_distributions.json"
             ).read_text()
         )
-        model = SSMModel(compile_fit_fixture(spec))
+        model = compile_fit_fixture(spec)
 
         rng = random.PRNGKey(0)
-        trace = handlers.trace(handlers.seed(model.model, rng)).get_trace(
-            observations=jnp.zeros((2, 2)),
-            times=jnp.arange(2, dtype=jnp.float32),
+        trace = handlers.trace(handlers.seed(numpyro_model, rng)).get_trace(
+            bind_panel_fixture(model.compiled, jnp.zeros((2, 2)), jnp.arange(2, dtype=jnp.float32)),
+            priors=model.prior_runtime_bundle,
             likelihood_backend=_DummyLikelihoodBackend(),
         )
 
@@ -403,58 +332,30 @@ class TestPerElementPriors:
 class TestRuntimeStructuralSupport:
     """Test that compilation constructs correct block support from ModelSpec."""
 
-    def test_build_structural_support_from_model(self):
-        """Compilation constructs dynamics/lambda support from ModelSpec."""
-        from nof1_causal_lab.models.ssm.compile.inputs import (
-            build_structural_support_from_model,
+    def test_compiled_mechanisms_and_loadings_preserve_structural_coordinates(self):
+        model = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models/dag_to_ssm/three_latent_unmasked.json"
+            ).read_text()
         )
-
-        model = _make_model()
-
-        latent_names = ["X", "Y", "Z"]
-        manifest_cols = ["x1", "x2", "y1", "z1"]
-
-        (
-            dynamics_support,
-            lambda_mat,
-            lambda_support,
-            _cat,
-        ) = build_structural_support_from_model(
-            latent_names,
-            manifest_cols,
-            3,
-            4,
-            manifest_dists=[DistributionFamily.GAUSSIAN] * 4,
-            model=model,
-        )
-
-        # Dynamics mask: baseline persistence diagonals + X→Y + Y→Z
-        assert dynamics_support is not None
-        assert dynamics_support[0, 0]  # X baseline persistence
-        assert dynamics_support[1, 1]  # Y self
-        assert dynamics_support[2, 2]  # Z self
-        assert dynamics_support[1, 0]  # X→Y (effect=Y row, cause=X col)
-        assert dynamics_support[2, 1]  # Y→Z (effect=Z row, cause=Y col)
-        assert not dynamics_support[0, 1]  # No Y→X edge
-        assert not dynamics_support[0, 2]  # No Z→X edge
-        assert not dynamics_support[1, 2]  # No Z→Y edge
-        assert not dynamics_support[2, 0]  # No X→Z edge
-
-        # Lambda: x1 fixed ref for X, x2 free for X, y1 fixed ref for Y, z1 fixed ref for Z
-        assert float(lambda_mat[0, 0]) == 1.0  # x1→X
-        assert float(lambda_mat[2, 1]) == 1.0  # y1→Y
-        assert float(lambda_mat[3, 2]) == 1.0  # z1→Z
-
-        assert lambda_support is not None
-        assert lambda_support[1, 0]  # x2→X is free
-        assert not lambda_support[0, 0]  # x1→X is fixed
-        assert not lambda_support[2, 1]  # y1→Y is fixed
+        compiled = compile_model_fixture(model)
+        components = compiled.dynamics.spec.components
+        assert {
+            (component.source, component.target) for component in components if component.edge_owned
+        } == {(0, 1), (1, 0), (0, 2), (2, 0), (1, 2), (2, 1)}
+        assert {component.target for component in components if not component.edge_owned} == {
+            0,
+            1,
+            2,
+        }
+        assert compiled.loading_block.free_support.shape == (4, 3)
+        np.testing.assert_array_equal(compiled.loading_block.template[[0, 2, 3], [0, 1, 2]], 1.0)
 
     def test_model_build_accepts_only_already_compiled_ssm_spec(self):
         """Runtime construction consumes an ModelSpec without structural authoring inputs."""
-        from nof1_causal_lab.models.ssm.runtime import build_ssm_model
 
-        X = pl.DataFrame(
+        pl.DataFrame(
             {
                 "time": list(range(5)),
                 "x1": [1.0] * 5,
@@ -464,19 +365,16 @@ class TestRuntimeStructuralSupport:
             }
         )
 
-        model = build_ssm_model(
-            X,
-            inputs=compile_fit_fixture(
-                ModelSpec.model_validate_json(
-                    (
-                        Path(__file__).resolve().parents[2]
-                        / "fixtures/models"
-                        / "dag_to_ssm/three_latent_unmasked.json"
-                    ).read_text()
-                )
-            ),
+        model = compile_fit_fixture(
+            ModelSpec.model_validate_json(
+                (
+                    Path(__file__).resolve().parents[2]
+                    / "fixtures/models"
+                    / "dag_to_ssm/three_latent_unmasked.json"
+                ).read_text()
+            )
         )
-        assert numeric.n_states(model.spec) == 3
+        assert numeric.n_states(model.compiled) == 3
 
     @pytest.mark.parametrize(
         ("source_count", "complete_test_model_payload"),
@@ -505,22 +403,14 @@ class TestRuntimeStructuralSupport:
             ).read_text()
         )
         if source_count == 2:
-            source = model.get_construct("construct:766f6091724c163a3404")
-            second = type(source).model_validate(
-                {
-                    **source.model_dump(),
-                    "id": "construct:second-common-cause",
-                    "name": "second_common_cause",
-                }
-            )
+            source = model.get_construct(ConstructId("construct:766f6091724c163a3404"))
+            second = source.revised(id="construct:second-common-cause", name="second_common_cause")
             model = model.revised(
                 edges=replace_constructs(
                     (
                         *model.edges,
                         *(
-                            type(edge).model_validate(
-                                {**edge.model_dump(), "id": f"{edge.id}-second", "cause": second}
-                            )
+                            edge.revised(id=f"{edge.id}-second", cause=second)
                             for edge in model.edges
                         ),
                     ),
@@ -529,19 +419,29 @@ class TestRuntimeStructuralSupport:
             )
             # Equivalent marginalized roots reference one aggregate scale, not two draws.
             assert second.coefficient("initial_scale") == source.coefficient("initial_scale")
-        model.check_execution()
-        (model).require_execution_structure()
+        compile_model_fixture(model)
+        validate_execution_structure(model)
         spec = model
-        np.testing.assert_array_equal(numeric.static_scale_block(spec).free_support, [True])
-        np.testing.assert_allclose(numeric.static_scale_block(spec).template, np.zeros(1))
-        np.testing.assert_allclose(numeric.static_factor_loadings(spec), [[1.0], [1.0]])
-        assert numeric.static_factor_names(spec) == ["tau_u_shared"]
         np.testing.assert_array_equal(
-            numeric.initial_covariance_block(spec).correlation_support, np.zeros((2, 2), dtype=bool)
+            compile_model_fixture(spec).static_scale_block.free_support, [True]
         )
-        np.testing.assert_array_equal(numeric.initial_mean_block(spec).free_support, [False, False])
+        np.testing.assert_allclose(
+            compile_model_fixture(spec).static_scale_block.template, np.zeros(1)
+        )
+        np.testing.assert_allclose(
+            compile_model_fixture(spec).static_factor_loadings, [[1.0], [1.0]]
+        )
+        assert numeric.static_factor_names(compile_model_fixture(spec)) == ("tau_u_shared",)
         np.testing.assert_array_equal(
-            numeric.initial_covariance_block(spec).diag_support, [False, False]
+            compile_model_fixture(spec).initial_covariance_block.correlation_support,
+            np.zeros((2, 2), dtype=bool),
+        )
+        np.testing.assert_array_equal(
+            compile_model_fixture(spec).initial_mean_block.free_support, [False, False]
+        )
+        np.testing.assert_array_equal(
+            compile_model_fixture(spec).initial_covariance_block.diag_support,
+            [False, False],
         )
 
     def test_translate_spec_marks_standardizable_gaussian_mean_indicators(self):
@@ -554,7 +454,12 @@ class TestRuntimeStructuralSupport:
             ).read_text()
         )
         spec = model
-        assert numeric.observation_standardized(spec) == [True, True, True, True]
+        assert numeric.observation_standardized(compile_model_fixture(spec)) == [
+            True,
+            True,
+            True,
+            True,
+        ]
 
     def test_translate_spec_fixes_manifest_noise_for_single_indicator_constructs(self):
 
@@ -566,11 +471,14 @@ class TestRuntimeStructuralSupport:
             ).read_text()
         )
         spec = model
-        assert isinstance(numeric.observation_noise_block(spec).template, jnp.ndarray)
+        assert isinstance(compile_model_fixture(spec).observation_noise_block.template, jnp.ndarray)
         np.testing.assert_array_equal(
-            numeric.observation_noise_block(spec).diag_support, [True, True, False, False]
+            compile_model_fixture(spec).observation_noise_block.diag_support,
+            [True, True, False, False],
         )
-        np.testing.assert_allclose(numeric.observation_noise_block(spec).template, np.zeros((4, 4)))
+        np.testing.assert_allclose(
+            compile_model_fixture(spec).observation_noise_block.template, np.zeros((4, 4))
+        )
 
     def test_translate_spec_rejects_initial_state_correlation_parameters_with_scientific_model(
         self,
@@ -586,10 +494,13 @@ class TestRuntimeStructuralSupport:
         with pytest.raises(
             ValueError, match=r"explicit latent confounder|two distinct state owners"
         ):
-            numeric.validate_execution(model)
+            compile_model_fixture(model)
 
     def test_translate_spec_rejects_self_initial_state_correlation_with_scientific_model(self):
-        from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
+        from nof1_causal_lab.artifacts.parameter_spec import (
+            InitialCorrelationTransformSpec,
+            ParameterSpec,
+        )
 
         model = ModelSpec.model_validate_json(
             (
@@ -602,27 +513,22 @@ class TestRuntimeStructuralSupport:
             id="parameter:77f3ac548e5c828bd95649d677ae53ce71c8dd33c2b1526961592ea56d79f013",
             name="cor0",
             description="Unsupported pairwise initial correlation",
-            distribution_transform=PriorAuthoringTransform.INITIAL_STATE_CORRELATION,
+            transform=InitialCorrelationTransformSpec(),
         )
 
         with pytest.raises(ValueError, match="Joint coefficients require one other construct"):
-            type(model.constructs[0]).model_validate(
-                {
-                    **model.constructs[0].model_dump(),
-                    "coefficients": (
-                        *model.constructs[0].coefficients,
-                        coefficient(
-                            parameter.id,
-                            "initial_correlation",
-                            construct_ids=(model.constructs[0].id,),
-                        ),
+            model.constructs[0].revised(
+                coefficients=(
+                    *model.constructs[0].coefficients,
+                    coefficient(
+                        parameter.id,
+                        "initial_correlation",
+                        construct_ids=(model.constructs[0].id,),
                     ),
-                }
+                )
             )
 
     def test_model_build_end_to_end(self):
-        from nof1_causal_lab.models.model_checks import check_execution
-        from nof1_causal_lab.models.ssm.runtime import build_ssm_model
 
         science = ModelSpec.model_validate_json(
             (
@@ -631,7 +537,7 @@ class TestRuntimeStructuralSupport:
                 / "dag_to_ssm/x_z_measurements.json"
             ).read_text()
         )
-        wide = pl.DataFrame(
+        pl.DataFrame(
             {
                 "time": list(range(10)),
                 "x1": [1.0] * 10,
@@ -640,19 +546,18 @@ class TestRuntimeStructuralSupport:
                 "z1": [4.0] * 10,
             }
         )
-        check_execution(science)
-        runtime = build_ssm_model(wide, inputs=compile_fit_fixture(science))
-        spec = runtime.spec
+        compile_model_fixture(science)
+        spec = science
         assert (
             sum(
                 site.site_kind == SiteKind.DYNAMICS_DECAY
-                for site in numeric.iter_sample_sites(spec)
+                for site in compile_model_fixture(spec).site_registry
             )
             == 3
         )
-        assert numeric.loading_block(spec).free_support is not None
-        assert numeric.n_states(spec) == 3
-        assert numeric.n_observations(spec) == 4
+        assert compile_model_fixture(spec).loading_block.free_support is not None
+        assert numeric.n_states(compile_model_fixture(spec)) == 3
+        assert numeric.n_observations(compile_model_fixture(spec)) == 4
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -681,14 +586,16 @@ class TestSiteRegistryMasks:
             ).read_text()
         )
 
-        registry = {site.name: site for site in build_site_registry(spec)}
+        registry = {site.name: site for site in build_site_registry(compile_model_fixture(spec))}
 
         weight_sites = sorted(
             site.name for site in registry.values() if site.site_kind == SiteKind.DYNAMICS_WEIGHT
         )
         assert len(weight_sites) == 2
         assert {
-            site.positions[0] for site in build_site_registry(spec) if site.name in weight_sites
+            site.positions[0]
+            for site in build_site_registry(compile_model_fixture(spec))
+            if site.name in weight_sites
         } == {
             (1, 0),
             (2, 1),
@@ -713,7 +620,7 @@ class TestSiteRegistryMasks:
             ).read_text()
         )
 
-        registry = {site.name: site for site in build_site_registry(spec)}
+        registry = {site.name: site for site in build_site_registry(compile_model_fixture(spec))}
         assert registry["lambda_free"].shape == (1,)
 
 
@@ -748,7 +655,7 @@ class TestGradualBuildComponents:
                 for operand in expression_coefficients(component.expression)
                 if operand.role == "quartic"
             )
-            for component in numeric.dynamics_expressions(model)
+            for component in compile_model_fixture(model).dynamics.spec.components
             if not component.edge_owned
         }
         assert isinstance(quartics[1], str)
@@ -766,7 +673,11 @@ class TestGradualBuildComponents:
                 / "dag_to_ssm/testgradualbuildcomponents_test_hill_edge_emitted_for_saturating_edge_complete_test_model.json"
             ).read_text()
         )
-        edge_components = [item for item in numeric.dynamics_expressions(model) if item.edge_owned]
+        edge_components = [
+            item
+            for item in compile_model_fixture(model).dynamics.spec.components
+            if item.edge_owned
+        ]
         hill = [item for item in edge_components if any(hill_applications(item.expression))]
         linear = [item for item in edge_components if not any(hill_applications(item.expression))]
         assert [(item.source, item.target) for item in hill] == [(0, 1)]
@@ -784,13 +695,13 @@ class TestGradualBuildComponents:
             ).read_text()
         )
         spec = science
-        model = SSMModel(compile_fit_fixture(spec))
-        trace = handlers.trace(handlers.seed(model.model, random.PRNGKey(0))).get_trace(
-            observations=jnp.zeros((2, 4)),
-            times=jnp.arange(2, dtype=jnp.float32),
+        model = compile_fit_fixture(spec)
+        trace = handlers.trace(handlers.seed(numpyro_model, random.PRNGKey(0))).get_trace(
+            bind_panel_fixture(model.compiled, jnp.zeros((2, 4)), jnp.arange(2, dtype=jnp.float32)),
+            priors=model.prior_runtime_bundle,
             likelihood_backend=_DummyLikelihoodBackend(),
         )
-        registry = build_site_registry(spec)
+        registry = build_site_registry(compile_model_fixture(spec))
         quartic_sites = [
             site.name for site in registry if site.site_kind == SiteKind.DYNAMICS_POTENTIAL_QUARTIC
         ]

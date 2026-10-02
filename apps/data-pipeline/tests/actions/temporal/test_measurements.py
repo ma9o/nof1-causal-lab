@@ -11,6 +11,7 @@ from nof1_causal_lab.actions.temporal.llm_subroutine_activities import (
     append_llm_repair_message_activity,
     execute_llm_tool_calls_activity,
 )
+from nof1_causal_lab.actions.temporal.llm_subroutine_storage import read_subroutine_json
 from nof1_causal_lab.actions.temporal.llm_subroutine_workflow import LLMSubroutineWorkflow
 from nof1_causal_lab.actions.temporal.measurement_activities import (
     call_openrouter_activity,
@@ -24,12 +25,21 @@ from nof1_causal_lab.actions.temporal.messages import (
     LLMToolSpec,
     OpenRouterCallInput,
     ProgressEventInput,
+    StoredConversation,
 )
 from nof1_causal_lab.llm_specs import EmbeddedLLMSpec, HarnessLLMSpec
 from nof1_causal_lab.utils import storage
+from nof1_causal_lab.workers.schemas import ExtractionRow, WorkerOutput
 from tests.helpers import run_async
 
 pytestmark = pytest.mark.timeout(240)
+
+
+@pytest.fixture(autouse=True)
+def isolated_measurement_store(monkeypatch, tmp_path):
+    from nof1_causal_lab.utils import data
+
+    monkeypatch.setattr(data, "_DATA_URI", str(tmp_path / "data"))
 
 
 @pytest.mark.contract
@@ -184,17 +194,15 @@ def test_execute_llm_tool_calls_activity_dispatches_by_tool_name(tmp_path):
                 "window_text": "2026-01-01T00:00:00: steps were 1000",
                 "window_starts": ["2026-01-01T00:00:00"],
                 "measurement_structure": {
+                    "source": {"files": ["source.csv"]},
                     "model_clock": "1d",
                     "indicators": [
                         {
                             "id": "indicator:steps",
                             "name": "steps",
-                            "construct_id": "construct:exercise",
+                            "how_to_measure": "Measure steps",
                             "measurement_dtype": "continuous",
                             "aggregation": "mean",
-                            "support_kind": "interval",
-                            "summary_operator": "mean",
-                            "anchor_policy": "window_end",
                         }
                     ],
                 },
@@ -268,7 +276,9 @@ def test_execute_llm_tool_calls_activity_dispatches_by_tool_name(tmp_path):
     assert result.terminal_success is True
     assert result.result_ref == result_ref
     assert result.tool_calls_fired == ["submit_extractions"]
-    assert storage.read_json(result_ref)["extractions"][0]["value"] == 1000
+    assert (
+        WorkerOutput.model_validate_json(storage.read_text(result_ref)).extractions[0].value == 1000
+    )
 
 
 @pytest.mark.contract
@@ -399,12 +409,14 @@ def test_execute_llm_tool_calls_activity_persists_raw_data_submit_table(
     assert result.result_ref == result_ref
     persisted = storage.read_json(result_ref)
     assert set(persisted) == {"table_ref"}
-    with storage.open_file(persisted["table_ref"], "rb") as file:
+    table_ref = persisted["table_ref"]
+    assert isinstance(table_ref, str)
+    with storage.open_file(table_ref, "rb") as file:
         table = pa.ipc.open_file(file).read_all()
     assert column_descriptions(table) == descriptions
     assert pl.DataFrame(table).equals(dataframe)
 
-    context = storage.read_json(context_ref)
+    context = dict(storage.read_json(context_ref))
     context.update(cache_ref=str(tmp_path / "cache.arrow"), reused=False)
     storage.write_text(context_ref, json.dumps(context))
     effects = run_async(
@@ -421,7 +433,7 @@ def test_execute_llm_tool_calls_activity_persists_raw_data_submit_table(
     reloaded = store.read_parquet_table("raw_data", raw.revision, "raw.parquet")
     assert reloaded.equals(table, check_metadata=True)
     assert "profile.json" not in store.filenames("raw_data", raw.revision)
-    view = raw_data_view(reloaded)
+    view = raw_data_view(reloaded, None)
     assert view is not None
     assert view.n_records == 2
     assert {column.name: column.description for column in view.column_descriptions} == descriptions
@@ -612,10 +624,12 @@ def test_append_llm_repair_message_activity_persists_repair_turn(tmp_path):
     )
 
     assert result.conversation_ref == next_conversation_ref
-    messages = storage.read_json(next_conversation_ref)["messages"]
+    messages = read_subroutine_json(next_conversation_ref, StoredConversation)["messages"]
     assert messages[-1]["role"] == "user"
-    assert "Your previous response could not be processed" in messages[-1]["content"]
-    assert "submit_table" in messages[-1]["content"]
+    content = messages[-1]["content"]
+    assert isinstance(content, str)
+    assert "Your previous response could not be processed" in content
+    assert "submit_table" in content
 
 
 @pytest.mark.contract
@@ -761,17 +775,15 @@ def test_extraction_chunk_workflow_runs_shared_llm_subroutine(monkeypatch, tmp_p
                 "window_text": "2026-01-01T00:00:00: steps were 1000",
                 "window_starts": ["2026-01-01T00:00:00"],
                 "measurement_structure": {
+                    "source": {"files": ["source.csv"]},
                     "model_clock": "1d",
                     "indicators": [
                         {
                             "id": "indicator:steps",
                             "name": "steps",
-                            "construct_id": "construct:exercise",
+                            "how_to_measure": "Measure steps",
                             "measurement_dtype": "continuous",
                             "aggregation": "mean",
-                            "support_kind": "interval",
-                            "summary_operator": "mean",
-                            "anchor_policy": "window_end",
                         }
                     ],
                 },
@@ -817,7 +829,12 @@ def test_extraction_chunk_workflow_runs_shared_llm_subroutine(monkeypatch, tmp_p
     assert result.n_llm_calls == (0 if reused else 1)
     assert result.reused is reused
     assert result.result_ref is not None
-    assert storage.read_json(result.result_ref)["dataframe"][0]["value"] == "1000"
+    assert (
+        TypeAdapter[list[ExtractionRow]](list[ExtractionRow]).validate_python(
+            storage.read_json(result.result_ref)["dataframe"]
+        )[0]["value"]
+        == "1000"
+    )
     from nof1_causal_lab.utils.llm import LLMTrace
 
     trace_path = storage.join(
@@ -1002,17 +1019,15 @@ def test_llm_subroutine_workflow_delegates_harness_tool_to_temporal_activity(
                 "window_text": "2026-01-01T00:00:00: steps were 1000",
                 "window_starts": ["2026-01-01T00:00:00"],
                 "measurement_structure": {
+                    "source": {"files": ["source.csv"]},
                     "model_clock": "1d",
                     "indicators": [
                         {
                             "id": "indicator:steps",
                             "name": "steps",
-                            "construct_id": "construct:exercise",
+                            "how_to_measure": "Measure steps",
                             "measurement_dtype": "continuous",
                             "aggregation": "mean",
-                            "support_kind": "interval",
-                            "summary_operator": "mean",
-                            "anchor_policy": "window_end",
                         }
                     ],
                 },

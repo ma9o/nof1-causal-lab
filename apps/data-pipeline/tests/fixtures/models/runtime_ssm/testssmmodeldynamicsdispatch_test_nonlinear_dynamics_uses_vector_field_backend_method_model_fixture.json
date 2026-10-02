@@ -22,37 +22,35 @@
             "likelihood": {
               "law": {
                 "distribution": "Normal",
-                "arguments": {
-                  "loc": {
+                "loc": {
+                  "kind": "binary",
+                  "operator": "add",
+                  "left": {
+                    "kind": "coefficient",
+                    "role": "observation_intercept",
+                    "value": 0.0,
+                    "construct_ids": []
+                  },
+                  "right": {
                     "kind": "binary",
-                    "operator": "add",
+                    "operator": "multiply",
                     "left": {
                       "kind": "coefficient",
-                      "role": "observation_intercept",
-                      "value": 0.0,
+                      "role": "loading",
+                      "value": 1.0,
                       "construct_ids": []
                     },
                     "right": {
-                      "kind": "binary",
-                      "operator": "multiply",
-                      "left": {
-                        "kind": "coefficient",
-                        "role": "loading",
-                        "value": 1.0,
-                        "construct_ids": []
-                      },
-                      "right": {
-                        "kind": "state",
-                        "construct_id": "construct:98907cc586bfcf98c836"
-                      }
+                      "kind": "state",
+                      "construct_id": "construct:98907cc586bfcf98c836"
                     }
-                  },
-                  "scale": {
-                    "kind": "coefficient",
-                    "role": "observation_scale",
-                    "value": 0.20000000298023224,
-                    "construct_ids": []
                   }
+                },
+                "scale": {
+                  "kind": "coefficient",
+                  "role": "observation_scale",
+                  "value": 0.20000000298023224,
+                  "construct_ids": []
                 }
               },
               "standardized": false,
@@ -197,37 +195,35 @@
             "likelihood": {
               "law": {
                 "distribution": "Normal",
-                "arguments": {
-                  "loc": {
+                "loc": {
+                  "kind": "binary",
+                  "operator": "add",
+                  "left": {
+                    "kind": "coefficient",
+                    "role": "observation_intercept",
+                    "value": 0.0,
+                    "construct_ids": []
+                  },
+                  "right": {
                     "kind": "binary",
-                    "operator": "add",
+                    "operator": "multiply",
                     "left": {
                       "kind": "coefficient",
-                      "role": "observation_intercept",
-                      "value": 0.0,
+                      "role": "loading",
+                      "value": 1.0,
                       "construct_ids": []
                     },
                     "right": {
-                      "kind": "binary",
-                      "operator": "multiply",
-                      "left": {
-                        "kind": "coefficient",
-                        "role": "loading",
-                        "value": 1.0,
-                        "construct_ids": []
-                      },
-                      "right": {
-                        "kind": "state",
-                        "construct_id": "construct:ecc61dc544b34662cb8a"
-                      }
+                      "kind": "state",
+                      "construct_id": "construct:ecc61dc544b34662cb8a"
                     }
-                  },
-                  "scale": {
-                    "kind": "coefficient",
-                    "role": "observation_scale",
-                    "value": 0.20000000298023224,
-                    "construct_ids": []
                   }
+                },
+                "scale": {
+                  "kind": "coefficient",
+                  "role": "observation_scale",
+                  "value": 0.20000000298023224,
+                  "construct_ids": []
                 }
               },
               "standardized": false,

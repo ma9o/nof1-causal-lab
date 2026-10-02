@@ -51,6 +51,8 @@ if TYPE_CHECKING:
     from dynestyx import StochasticContinuousTimeStateEvolution
     from jaxtyping import PyTree
 
+    from nof1_causal_lab.models.ssm.execution.emissions import MeanLogProbFn
+    from nof1_causal_lab.models.ssm.execution.observation_model import ObservationKernel
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
 
@@ -61,7 +63,7 @@ def _assemble_support_aware_observation_system(
     H: jnp.ndarray,
     d: jnp.ndarray,
     R: jnp.ndarray,
-    obs_kernel,
+    obs_kernel: ObservationKernel,
     support_window_batches: tuple[SupportObservationWindowBatch, ...],
     point_like_mask: jnp.ndarray,
     window_derivatives: tuple[Any, ...],
@@ -80,7 +82,10 @@ def _assemble_support_aware_observation_system(
         lambda y_t, z_t, mask_t: obs_kernel.latent_grad_hess_fn(y_t, z_t, H, d, R, mask_t)
     )(clean_obs, z_est, point_mask)
     diag = diag + local_hess
-    rhs = rhs + jax.vmap(lambda j_t, z_t, g_t: j_t @ z_t + g_t)(local_hess, z_est, local_grads)
+    point_rhs: jnp.ndarray = jax.vmap(lambda j_t, z_t, g_t: j_t @ z_t + g_t)(
+        local_hess, z_est, local_grads
+    )
+    rhs = rhs + point_rhs
 
     if len(support_window_batches) == 0:
         return diag, upper, rhs
@@ -155,10 +160,11 @@ def _make_support_window_derivatives(
     n_latent: int,
     n_manifest: int,
     summary_operator_codes: jnp.ndarray,
-    obs_kernel,
-    mean_log_prob_fn,
+    obs_kernel: ObservationKernel,
+    mean_log_prob_fn: MeanLogProbFn | None,
 ):
     """Build support-window derivatives with Gauss-Newton curvature in mean space."""
+    assert mean_log_prob_fn is not None
 
     def _window_expected_mean_single(
         segment_flat_single: jnp.ndarray,
@@ -240,9 +246,11 @@ def _make_support_window_derivatives(
     ) -> jnp.ndarray:
         return mean_log_prob_fn(anchor_obs_single, expected_mean_single, R, mask_full_single)
 
-    window_expected_mean_jacobian = jax.jacrev(_window_expected_mean_single)
-    mean_log_prob_grad = jax.grad(_window_mean_log_prob_single)
-    mean_log_prob_hessian = jax.hessian(_window_mean_log_prob_single)
+    window_expected_mean_jacobian: Callable[..., jnp.ndarray] = jax.jacrev(
+        _window_expected_mean_single
+    )
+    mean_log_prob_grad: Callable[..., jnp.ndarray] = jax.grad(_window_mean_log_prob_single)
+    mean_log_prob_hessian: Callable[..., jnp.ndarray] = jax.hessian(_window_mean_log_prob_single)
 
     def _batched_window_derivatives(
         segment_flat: jnp.ndarray,
@@ -312,8 +320,8 @@ def _support_aware_joint_log_prob(
     H: jnp.ndarray,
     d: jnp.ndarray,
     R: jnp.ndarray,
-    obs_kernel,
-    mean_log_prob_fn,
+    obs_kernel: ObservationKernel,
+    mean_log_prob_fn: MeanLogProbFn | None,
     observation_support: ObservationSupportRuntime,
 ) -> jnp.ndarray:
     """Exact latent joint log-density used for support-aware step acceptance."""
@@ -356,7 +364,7 @@ def _block_banded_matvec(
     x: jnp.ndarray,
 ) -> jnp.ndarray:
     """Apply a symmetric block-banded matrix to a trajectory-shaped vector."""
-    result = jax.vmap(lambda diag_t, x_t: diag_t @ x_t)(diag, x)
+    result: jnp.ndarray = jax.vmap(lambda diag_t, x_t: diag_t @ x_t)(diag, x)
     bandwidth = upper.shape[0]
     T = x.shape[0]
 
@@ -417,7 +425,7 @@ def _support_aware_posterior_system(
     R: jnp.ndarray,
     init_mean: jnp.ndarray,
     init_cov: jnp.ndarray,
-    obs_kernel,
+    obs_kernel: ObservationKernel,
     support_window_batches: tuple[SupportObservationWindowBatch, ...],
     point_like_mask: jnp.ndarray,
     window_derivatives: tuple[Any, ...],
@@ -460,7 +468,7 @@ def _support_aware_mode_optimality(
     R: jnp.ndarray,
     init_mean: jnp.ndarray,
     init_cov: jnp.ndarray,
-    obs_kernel,
+    obs_kernel: ObservationKernel,
     support_window_batches: tuple[SupportObservationWindowBatch, ...],
     point_like_mask: jnp.ndarray,
     window_derivatives: tuple[Any, ...],
@@ -499,8 +507,8 @@ def _support_aware_ieks_mode(
     R: jnp.ndarray,
     init_mean: jnp.ndarray,
     init_cov: jnp.ndarray,
-    obs_kernel,
-    mean_log_prob_fn,
+    obs_kernel: ObservationKernel,
+    mean_log_prob_fn: MeanLogProbFn | None,
     observation_support: ObservationSupportRuntime,
     support_window_batches: tuple[SupportObservationWindowBatch, ...],
     bandwidth: int,
@@ -509,6 +517,7 @@ def _support_aware_ieks_mode(
     window_derivatives: tuple[Any, ...],
     n_ieks_iters: int,
     z_init: jnp.ndarray | None = None,
+    *,
     iterate_to_convergence: bool = False,
     factor_block_cholesky_fn=_factor_block_profile_cholesky,
     solve_block_from_cholesky_fn=_solve_block_profile_from_cholesky,
@@ -577,7 +586,29 @@ def _support_aware_ieks_mode(
     log_joint_curr = _support_log_joint(z_est)
     init_log_joint = log_joint_curr
 
-    def _newton_step(carry):
+    def _newton_step(
+        carry: tuple[
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+        ],
+    ) -> tuple[
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+        jnp.ndarray,
+    ]:
         (
             z_curr,
             log_joint_prev,
@@ -628,7 +659,7 @@ def _support_aware_ieks_mode(
             )
 
         step_direction = z_newton - z_curr
-        step_norm = jnp.linalg.norm(step_direction)
+        step_norm: jnp.ndarray = jnp.linalg.norm(step_direction)
         z_next, log_joint_next, accepted, accepted_alpha = _support_aware_step_halving_search(
             z_curr,
             step_direction,
@@ -636,10 +667,10 @@ def _support_aware_ieks_mode(
             _support_log_joint,
         )
 
-        rel_change = jnp.linalg.norm(z_next - z_curr) / (1.0 + jnp.linalg.norm(z_curr))
+        rel_change: jnp.ndarray = jnp.linalg.norm(z_next - z_curr) / (1.0 + jnp.linalg.norm(z_curr))
         accepted_full_step = accepted & (accepted_alpha > 0.999)
 
-        damping_next = jax.lax.cond(
+        damping_next: jnp.ndarray = jax.lax.cond(
             accepted_full_step,
             lambda _: jnp.maximum(
                 damping * jnp.asarray(_SUPPORT_AWARE_LM_DAMPING_SHRINK, dtype=z_curr.dtype),
@@ -657,7 +688,7 @@ def _support_aware_ieks_mode(
             ),
             operand=None,
         )
-        next_active = jax.lax.cond(
+        next_active: jnp.ndarray = jax.lax.cond(
             accepted,
             lambda _: rel_change > _SUPPORT_AWARE_IEKS_CONVERGENCE_RTOL,
             lambda _: damping_next < jnp.asarray(_SUPPORT_AWARE_LM_DAMPING_MAX, dtype=z_curr.dtype),
@@ -691,7 +722,19 @@ def _support_aware_ieks_mode(
     with jax.named_scope("map/support_aware_newton"):
         if iterate_to_convergence:
 
-            def _continue(carry):
+            def _continue(
+                carry: tuple[
+                    jnp.ndarray,
+                    jnp.ndarray,
+                    jnp.ndarray,
+                    jnp.ndarray,
+                    jnp.ndarray,
+                    jnp.ndarray,
+                    jnp.ndarray,
+                    jnp.ndarray,
+                    jnp.ndarray,
+                ],
+            ) -> jnp.ndarray:
                 return carry[3] & (carry[4] < max_iters)
 
             (
@@ -711,14 +754,51 @@ def _support_aware_ieks_mode(
             )
         else:
 
-            def _scan_step(carry, _idx):
+            def _scan_step(
+                carry: tuple[
+                    jnp.ndarray,
+                    jnp.ndarray,
+                    jnp.ndarray,
+                    jnp.ndarray,
+                    jnp.ndarray,
+                    jnp.ndarray,
+                    jnp.ndarray,
+                    jnp.ndarray,
+                    jnp.ndarray,
+                ],
+                _idx: jnp.ndarray,
+            ) -> tuple[
+                tuple[
+                    jnp.ndarray,
+                    jnp.ndarray,
+                    jnp.ndarray,
+                    jnp.ndarray,
+                    jnp.ndarray,
+                    jnp.ndarray,
+                    jnp.ndarray,
+                    jnp.ndarray,
+                    jnp.ndarray,
+                ],
+                None,
+            ]:
                 carry_cast = carry
-                return jax.lax.cond(
+                result: tuple[
+                    jnp.ndarray,
+                    jnp.ndarray,
+                    jnp.ndarray,
+                    jnp.ndarray,
+                    jnp.ndarray,
+                    jnp.ndarray,
+                    jnp.ndarray,
+                    jnp.ndarray,
+                    jnp.ndarray,
+                ] = jax.lax.cond(
                     carry[3],
                     _newton_step,
                     lambda _: carry_cast,
                     operand=carry,
-                ), None
+                )
+                return result, None
 
             (
                 (
@@ -762,8 +842,8 @@ def _support_aware_laplace_terms_from_mode(
     R: jnp.ndarray,
     init_mean: jnp.ndarray,
     init_cov: jnp.ndarray,
-    obs_kernel,
-    mean_log_prob_fn,
+    obs_kernel: ObservationKernel,
+    mean_log_prob_fn: MeanLogProbFn | None,
     observation_support: ObservationSupportRuntime,
     support_window_batches: tuple[SupportObservationWindowBatch, ...],
     point_like_mask: jnp.ndarray,
@@ -838,8 +918,8 @@ def _support_dynamic_transition_ieks_laplace(
     R: jnp.ndarray,
     init_mean: jnp.ndarray,
     init_cov: jnp.ndarray,
-    obs_kernel,
-    mean_log_prob_fn,
+    obs_kernel: ObservationKernel,
+    mean_log_prob_fn: MeanLogProbFn | None,
     observation_support: ObservationSupportRuntime,
     support_window_batches: tuple[SupportObservationWindowBatch, ...],
     bandwidth: int,
@@ -1081,8 +1161,8 @@ def _support_aware_ieks_laplace_core(
     R: jnp.ndarray,
     init_mean: jnp.ndarray,
     init_cov: jnp.ndarray,
-    obs_kernel,
-    mean_log_prob_fn,
+    obs_kernel: ObservationKernel,
+    mean_log_prob_fn: MeanLogProbFn | None,
     observation_support: ObservationSupportRuntime,
     support_window_batches: tuple[SupportObservationWindowBatch, ...],
     bandwidth: int,
@@ -1104,7 +1184,20 @@ def _support_aware_ieks_laplace_core(
         get_support_kind_codes(observation_support), observations.dtype
     )
 
-    def _mode_core(mode_params):
+    def _mode_core(
+        mode_params,
+    ) -> tuple[
+        jnp.ndarray,
+        tuple[
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+        ],
+    ]:
         (
             Ad_curr,
             Qd_curr,
@@ -1145,7 +1238,20 @@ def _support_aware_ieks_laplace_core(
         )
 
     @jax.custom_vjp
-    def _implicit_mode_solve(mode_params):
+    def _implicit_mode_solve(
+        mode_params,
+    ) -> tuple[
+        jnp.ndarray,
+        tuple[
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+            jnp.ndarray,
+        ],
+    ]:
         return _mode_core(mode_params)
 
     def _implicit_mode_solve_fwd(mode_params):
@@ -1244,7 +1350,9 @@ def _support_aware_ieks_laplace_core(
 
     _implicit_mode_solve.defvjp(_implicit_mode_solve_fwd, _implicit_mode_solve_bwd)
 
-    def _laplace_from_mode_core(mode_params, z_mode, *, factor_block_cholesky_fn):
+    def _laplace_from_mode_core(
+        mode_params, z_mode, *, factor_block_cholesky_fn
+    ) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
         (
             Ad_curr,
             Qd_curr,
@@ -1293,7 +1401,7 @@ def _support_aware_ieks_laplace_core(
         return log_lik, laplace_aux
 
     @jax.custom_vjp
-    def _laplace_from_mode_eval(mode_params, z_mode):
+    def _laplace_from_mode_eval(mode_params, z_mode) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
         return _laplace_from_mode_core(
             mode_params,
             z_mode,
@@ -1501,8 +1609,8 @@ def _support_aware_ieks_laplace(
     R: jnp.ndarray,
     init_mean: jnp.ndarray,
     init_cov: jnp.ndarray,
-    obs_kernel,
-    mean_log_prob_fn,
+    obs_kernel: ObservationKernel,
+    mean_log_prob_fn: MeanLogProbFn | None,
     observation_support: ObservationSupportRuntime,
     support_window_batches: tuple[SupportObservationWindowBatch, ...],
     bandwidth: int,

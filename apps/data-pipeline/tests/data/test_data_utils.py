@@ -1,15 +1,12 @@
 """Tests for utils/data.py dataframe utility functions."""
 
 from datetime import UTC, datetime, timedelta
-from typing import TYPE_CHECKING
 
 import polars as pl
 import pytest
 
 from nof1_causal_lab.artifacts.identity import IndicatorId
-
-if TYPE_CHECKING:
-    from nof1_causal_lab.workers.context import MeasurementContext
+from nof1_causal_lab.artifacts.observations import ObservationSpec
 
 pytestmark = pytest.mark.contract
 
@@ -20,7 +17,7 @@ pytestmark = pytest.mark.contract
 
 class TestAnnotateObservationRows:
     def test_adds_observation_metadata_from_indicator_specs(self):
-        from nof1_causal_lab.utils.data import annotate_observation_rows
+        from nof1_causal_lab.utils.observation_rows import annotate_observation_rows
 
         raw = pl.DataFrame(
             {
@@ -29,19 +26,17 @@ class TestAnnotateObservationRows:
                 "timestamp": ["2024-01-01T00:00:00Z"],
             }
         )
-        measurement_structure: MeasurementContext = {
-            "model_clock": "1d",
-            "indicators": [
-                {
-                    "id": IndicatorId("indicator:3696aef3ff6f446744e5"),
-                    "name": "stress_score",
-                    "measurement_dtype": "continuous",
-                    "aggregation": "mean",
-                }
-            ],
-        }
+        variables = (
+            ObservationSpec(
+                id=IndicatorId("indicator:3696aef3ff6f446744e5"),
+                name="stress_score",
+                measurement_dtype="continuous",
+                aggregation="mean",
+                observation_window="1d",
+            ),
+        )
 
-        annotated = annotate_observation_rows(raw, measurement_structure)
+        annotated = annotate_observation_rows(raw, variables)
 
         assert "timestamp" not in annotated.columns
         assert annotated["anchor_time"][0] == "2024-01-02T00:00:00"
@@ -52,7 +47,7 @@ class TestAnnotateObservationRows:
         assert annotated["support_end"][0] == "2024-01-02T00:00:00"
 
     def test_uses_indicator_specific_observation_window_when_present(self):
-        from nof1_causal_lab.utils.data import annotate_observation_rows
+        from nof1_causal_lab.utils.observation_rows import annotate_observation_rows
 
         raw = pl.DataFrame(
             {
@@ -61,29 +56,26 @@ class TestAnnotateObservationRows:
                 "timestamp": ["2024-01-01T00:00:00Z"],
             }
         )
-        measurement_structure: MeasurementContext = {
-            "model_clock": "1d",
-            "indicators": [
-                {
-                    "id": IndicatorId("indicator:8172ff8b9182b2e869c5"),
-                    "name": "monthly_stress_score",
-                    "measurement_dtype": "continuous",
-                    "aggregation": "mean",
-                    "observation_window": "1mo",
-                }
-            ],
-        }
+        variables = (
+            ObservationSpec(
+                id=IndicatorId("indicator:8172ff8b9182b2e869c5"),
+                name="weekly_stress_score",
+                measurement_dtype="continuous",
+                aggregation="mean",
+                observation_window="1w",
+            ),
+        )
 
-        annotated = annotate_observation_rows(raw, measurement_structure)
+        annotated = annotate_observation_rows(raw, variables)
 
         assert "timestamp" not in annotated.columns
-        assert annotated["anchor_time"][0] == "2024-02-01T00:00:00"
-        assert annotated["observation_window"][0] == "1mo"
+        assert annotated["anchor_time"][0] == "2024-01-08T00:00:00"
+        assert annotated["observation_window"][0] == "1w"
         assert annotated["support_start"][0] == "2024-01-01T00:00:00"
-        assert annotated["support_end"][0] == "2024-02-01T00:00:00"
+        assert annotated["support_end"][0] == "2024-01-08T00:00:00"
 
     def test_point_last_observations_anchor_at_window_end(self):
-        from nof1_causal_lab.utils.data import annotate_observation_rows
+        from nof1_causal_lab.utils.observation_rows import annotate_observation_rows
 
         raw = pl.DataFrame(
             {
@@ -92,19 +84,17 @@ class TestAnnotateObservationRows:
                 "timestamp": ["2024-01-01T00:00:00Z"],
             }
         )
-        measurement_structure: MeasurementContext = {
-            "model_clock": "1d",
-            "indicators": [
-                {
-                    "id": IndicatorId("indicator:5dc4b94693df7e0aef53"),
-                    "name": "closing_mood",
-                    "measurement_dtype": "continuous",
-                    "aggregation": "last",
-                }
-            ],
-        }
+        variables = (
+            ObservationSpec(
+                id=IndicatorId("indicator:5dc4b94693df7e0aef53"),
+                name="closing_mood",
+                measurement_dtype="continuous",
+                aggregation="last",
+                observation_window="1d",
+            ),
+        )
 
-        annotated = annotate_observation_rows(raw, measurement_structure)
+        annotated = annotate_observation_rows(raw, variables)
 
         assert annotated["support_kind"][0] == "point"
         assert annotated["summary_operator"][0] == "last"
@@ -129,7 +119,7 @@ class TestPivotToWide:
                 "value": [10.0, 20.0, 30.0, 40.0],
             }
         )
-        from nof1_causal_lab.utils.data import pivot_to_wide
+        from nof1_causal_lab.utils.observation_rows import pivot_to_wide
 
         wide = pivot_to_wide(df, time_origin=datetime(2024, 1, 1, tzinfo=UTC))
         assert "time" in wide.columns
@@ -139,7 +129,7 @@ class TestPivotToWide:
 
     def test_empty_dataframe(self):
         """Empty input returns empty output."""
-        from nof1_causal_lab.utils.data import pivot_to_wide
+        from nof1_causal_lab.utils.observation_rows import pivot_to_wide
 
         df = pl.DataFrame({"anchor_time": [], "indicator_id": [], "value": []})
         result = pivot_to_wide(df, time_origin=datetime(2024, 1, 1, tzinfo=UTC))
@@ -147,7 +137,7 @@ class TestPivotToWide:
 
     def test_datetime_to_fractional_days(self):
         """Datetime timestamps are converted to fractional days from t0."""
-        from nof1_causal_lab.utils.data import pivot_to_wide
+        from nof1_causal_lab.utils.observation_rows import pivot_to_wide
 
         t0 = datetime(2024, 1, 1)
         t1 = t0 + timedelta(days=1)
@@ -172,7 +162,7 @@ class TestPivotToWide:
 
     def test_sorted_by_time(self):
         """Output should be sorted by time."""
-        from nof1_causal_lab.utils.data import pivot_to_wide
+        from nof1_causal_lab.utils.observation_rows import pivot_to_wide
 
         df = pl.DataFrame(
             {
@@ -191,7 +181,7 @@ class TestPivotToWide:
 
     def test_missing_values_as_null(self):
         """Indicators without values at certain times should be null."""
-        from nof1_causal_lab.utils.data import pivot_to_wide
+        from nof1_causal_lab.utils.observation_rows import pivot_to_wide
 
         df = pl.DataFrame(
             {
@@ -211,7 +201,7 @@ class TestPivotToWide:
 
     def test_string_timestamps_parsed(self):
         """String timestamps should be parsed to datetime."""
-        from nof1_causal_lab.utils.data import pivot_to_wide
+        from nof1_causal_lab.utils.observation_rows import pivot_to_wide
 
         df = pl.DataFrame(
             {
@@ -231,7 +221,7 @@ class TestPivotToWide:
 
     def test_string_values_cast_to_float(self):
         """String values should be cast to Float64."""
-        from nof1_causal_lab.utils.data import pivot_to_wide
+        from nof1_causal_lab.utils.observation_rows import pivot_to_wide
 
         df = pl.DataFrame(
             {
@@ -249,7 +239,7 @@ class TestPivotToWide:
 
     def test_duplicate_values_aggregated_with_mean(self):
         """Multiple values at same time for same indicator should be averaged."""
-        from nof1_causal_lab.utils.data import pivot_to_wide
+        from nof1_causal_lab.utils.observation_rows import pivot_to_wide
 
         df = pl.DataFrame(
             {
@@ -270,7 +260,7 @@ class TestPivotToWide:
 
     def test_single_indicator(self):
         """Minimal case with just one indicator."""
-        from nof1_causal_lab.utils.data import pivot_to_wide
+        from nof1_causal_lab.utils.observation_rows import pivot_to_wide
 
         df = pl.DataFrame(
             {
@@ -292,7 +282,7 @@ class TestPivotToWideSparsity:
         """Sparse multi-granularity data triggers a warning."""
         import logging
 
-        from nof1_causal_lab.utils.data import pivot_to_wide
+        from nof1_causal_lab.utils.observation_rows import pivot_to_wide
 
         rows = []
         for h in range(24):
@@ -323,7 +313,7 @@ class TestPivotToWideSparsity:
         """Complete data should not trigger sparsity warning."""
         import logging
 
-        from nof1_causal_lab.utils.data import pivot_to_wide
+        from nof1_causal_lab.utils.observation_rows import pivot_to_wide
 
         rows = []
         for t in range(10):
@@ -352,7 +342,7 @@ class TestPivotToWideSparsity:
 class TestPivotToWideTimezoneStrings:
     def test_utc_string_timestamps_parsed(self):
         """UTC timestamps with timezone suffix should parse to fractional days."""
-        from nof1_causal_lab.utils.data import pivot_to_wide
+        from nof1_causal_lab.utils.observation_rows import pivot_to_wide
 
         df = pl.DataFrame(
             {

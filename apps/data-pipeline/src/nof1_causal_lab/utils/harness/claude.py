@@ -29,6 +29,9 @@ from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
 
+from pydantic import ValidationError
+
+from nof1_causal_lab.actions.errors import execution_failure_handler
 from nof1_causal_lab.utils.agent_session import AgentResult, TurnResult
 from nof1_causal_lab.utils.harness.mcp_server import serve_tools_http
 from nof1_causal_lab.utils.harness.stream_json import (
@@ -193,6 +196,7 @@ class ClaudeHarnessSession:
     def raw_events(self) -> list[JsonObject]:
         return list(self._state.raw_events)
 
+    @execution_failure_handler
     async def turn(self, user_message: str) -> TurnResult:
         self._turn_index += 1
         pre_event_count = len(self._state.raw_events)
@@ -251,8 +255,8 @@ class ClaudeHarnessSession:
         if not line:
             return
         try:
-            event = json.loads(line)
-        except json.JSONDecodeError as exc:
+            event = parse_stream_event(line)
+        except ValidationError as exc:
             raise RuntimeError(
                 f"[{self._log_label}] claude emitted non-JSON on stdout: {line[:200]!r}"
             ) from exc
@@ -260,7 +264,6 @@ class ClaudeHarnessSession:
             raise RuntimeError(
                 f"[{self._log_label}] claude emitted non-object JSON on stdout: {line[:200]!r}"
             )
-        event = parse_stream_event(event)
         log_line = format_claude_event_for_log(event)
         if log_line is not None:
             logger.info("[%s] %s", self._log_label, log_line)

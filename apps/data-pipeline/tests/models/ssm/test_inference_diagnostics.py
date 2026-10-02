@@ -1,12 +1,13 @@
 """Diagnostic reductions checked against small, deterministic reference values."""
 
-from typing import Any
+from dataclasses import replace
 
 import jax.numpy as jnp
 import numpy as np
 import pytest
 from pydantic import ValidationError
 
+from nof1_causal_lab.artifacts.identity import ParameterElementId, ParameterId, ParameterRef
 from nof1_causal_lab.artifacts.parameter import ParameterCoordinate
 from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorEstimate
 from nof1_causal_lab.models.ssm.inference.diagnostics_viz import (
@@ -15,27 +16,37 @@ from nof1_causal_lab.models.ssm.inference.diagnostics_viz import (
     build_trace_data,
     param_marginal,
 )
+from nof1_causal_lab.models.ssm.inference.types import ProductionDiagnostics
+
+
+def references(coordinates):
+    return {
+        ParameterCoordinate(site_name=name, indices=indices): (
+            ParameterCoordinate(site_name=name, indices=indices).label,
+            ParameterRef(
+                parameter_id=ParameterId("parameter:" + str(index).zfill(64)),
+                element_id=ParameterElementId("element:" + str(index).zfill(64)),
+            ),
+        )
+        for index, (name, indices) in enumerate(coordinates)
+    }
 
 
 @pytest.mark.contract
-@pytest.mark.parametrize(("max_points", "indices"), [(4, [0, 2, 4, 6]), (20, list(range(8)))])
-def test_trace_thinning_preserves_values_chains_and_coordinates(max_points, indices):
+def test_traces_preserve_all_draws_chains_and_scientific_subjects():
     scalar = np.arange(16).reshape(2, 8)
     matrix = np.arange(64).reshape(2, 8, 2, 2)
-    traces: Any = build_trace_data(
-        {"scalar": jnp.asarray(scalar), "matrix": jnp.asarray(matrix)}, max_points=max_points
-    )
     expected = [("scalar", (), scalar)] + [
         ("matrix", ij, matrix[:, :, *ij]) for ij in np.ndindex(2, 2)
     ]
+    refs = references([(name, indices) for name, indices, _ in expected])
+    traces = build_trace_data({"scalar": jnp.asarray(scalar), "matrix": jnp.asarray(matrix)}, refs)
     assert len(traces) == len(expected)
-    for trace, (name, ij, values) in zip(traces, expected, strict=True):
-        coordinate = ParameterCoordinate(site_name=name, indices=ij)
-        assert trace["parameter"] == coordinate.label
-        assert trace["coordinate"] == coordinate.model_dump(mode="json")
-        assert trace["chains"] == [
-            {"chain": chain, "values": values[chain, indices].tolist()} for chain in range(2)
-        ]
+    for trace, (name, indices, values) in zip(traces, expected, strict=True):
+        label, subject = refs[ParameterCoordinate(site_name=name, indices=indices)]
+        assert trace.parameter == label
+        assert trace.subject == subject
+        assert trace.chains == tuple(tuple(row) for row in values.tolist())
 
 
 @pytest.mark.inference(concern="sampling")
@@ -50,18 +61,18 @@ def test_trace_thinning_preserves_values_chains_and_coordinates(max_points, indi
 def test_rank_histograms_use_pooled_ranks_for_each_coordinate(values, counts):
     scalar = jnp.asarray(values)
     matrix = scalar[:, :, None, None] + jnp.asarray([[0, 10], [20, 30]])
-    histograms: Any = build_rank_histograms({"scalar": scalar, "matrix": matrix}, n_bins=4)
+    coords = [("scalar", ())] + [("matrix", ij) for ij in np.ndindex(2, 2)]
+    refs = references(coords)
+    histograms = build_rank_histograms({"scalar": scalar, "matrix": matrix}, refs, n_bins=4)
     coordinates = [("scalar", ())] + [("matrix", ij) for ij in np.ndindex(2, 2)]
     assert len(histograms) == len(coordinates)
     for histogram, (name, ij) in zip(histograms, coordinates, strict=True):
         coordinate = ParameterCoordinate(site_name=name, indices=ij)
-        assert histogram["parameter"] == coordinate.label
-        assert histogram["coordinate"] == coordinate.model_dump(mode="json")
-        assert histogram["n_bins"] == 4
-        assert histogram["expected_per_bin"] == 1.0
-        assert histogram["chains"] == [
-            {"chain": chain, "counts": counts[chain]} for chain in range(2)
-        ]
+        assert histogram.parameter == coordinate.label
+        assert histogram.subject == refs[coordinate][1]
+        assert histogram.n_bins == 4
+        assert histogram.expected_per_bin == 1.0
+        assert histogram.chains == tuple(tuple(row) for row in counts)
 
 
 @pytest.mark.inference(concern="sampling")
@@ -69,17 +80,22 @@ def test_marginal_normalizes_density_and_finds_shortest_interval():
     # The shortest 94% interval excludes the isolated upper-tail value.
     values = np.concatenate([np.arange(39), [100]])
     coordinate = ParameterCoordinate(site_name="matrix", indices=(1, 0))
-    marginal: Any = param_marginal(coordinate, jnp.asarray(values), n_bins=8)
-    assert marginal["coordinate"] == coordinate.model_dump(mode="json")
-    assert marginal["mean"] == pytest.approx(float(values.mean()))
-    assert marginal["sd"] == pytest.approx(float(values.std()))
-    assert (marginal["lower"], marginal["upper"]) == (0.0, 38.0)
-    assert marginal["interval_kind"] == "hdi"
-    assert marginal["interval_mass"] == 0.94
-    assert len(marginal["x_values"]) == len(marginal["density"]) == 8
-    assert all(density >= 0 for density in marginal["density"])
-    bin_width = marginal["x_values"][1] - marginal["x_values"][0]
-    assert sum(marginal["density"]) * bin_width == pytest.approx(1.0)
+    marginal = param_marginal(
+        coordinate.label,
+        references([("matrix", (1, 0))])[coordinate][1],
+        jnp.asarray(values),
+        n_bins=8,
+    )
+    assert marginal.subject == references([("matrix", (1, 0))])[coordinate][1]
+    assert marginal.mean == pytest.approx(float(values.mean()))
+    assert marginal.sd == pytest.approx(float(values.std()))
+    assert (marginal.lower, marginal.upper) == (0.0, 38.0)
+    assert marginal.interval_kind == "hdi"
+    assert marginal.interval_mass == 0.94
+    assert len(marginal.x_values) == len(marginal.density) == 8
+    assert all(density >= 0 for density in marginal.density)
+    bin_width = marginal.x_values[1] - marginal.x_values[0]
+    assert sum(marginal.density) * bin_width == pytest.approx(1.0)
 
 
 @pytest.mark.inference(concern="sampling")
@@ -93,14 +109,14 @@ def test_marginal_normalizes_density_and_finds_shortest_interval():
     ids=["separate-chains", "single-chain", "constant"],
 )
 def test_energy_diagnostics_preserve_chain_boundaries_and_normalize_histograms(energy, bfmi):
-    result: Any = build_energy_diagnostics(jnp.asarray(energy, dtype=float), n_bins=4)
-    np.testing.assert_allclose(result["bfmi"], bfmi, rtol=1e-6)
+    result = build_energy_diagnostics(jnp.asarray(energy, dtype=float), n_bins=4)
+    np.testing.assert_allclose(result.bfmi, bfmi, rtol=1e-6)
     for key in ("energy_hist", "energy_transition_hist"):
-        histogram = result[key]
-        assert len(histogram["bin_centers"]) == len(histogram["density"]) == 4
-        assert all(density >= 0 for density in histogram["density"])
-        bin_width = histogram["bin_centers"][1] - histogram["bin_centers"][0]
-        assert sum(histogram["density"]) * bin_width == pytest.approx(1.0)
+        histogram = getattr(result, key)
+        assert len(histogram.bin_centers) == len(histogram.density) == 4
+        assert all(density >= 0 for density in histogram.density)
+        bin_width = histogram.bin_centers[1] - histogram.bin_centers[0]
+        assert sum(histogram.density) * bin_width == pytest.approx(1.0)
 
 
 @pytest.mark.contract
@@ -150,84 +166,77 @@ def particle_posterior():
         backend="marginal_particle_gibbs",
     )
     return ParticleMCMCPosterior(
-        draws=JointPosteriorDraws(parameters=mcmc.get_samples()), diagnostics={"mcmc": mcmc}
+        draws=JointPosteriorDraws(parameters=mcmc.get_samples()),
+        diagnostics=ProductionDiagnostics(
+            mcmc=mcmc, observation_log_probs=jnp.zeros((mcmc.num_chains, mcmc.num_samples, 0))
+        ),
     )
 
 
 @pytest.mark.inference(concern="sampling")
 def test_mcmc_report_preserves_coordinate_metrics_chains_and_sampler_statistics(particle_posterior):
-    report: Any = particle_posterior.get_mcmc_diagnostics()
-    assert report["num_chains"] == 2
-    assert report["num_samples"] == 64
-    assert report["num_divergences"] == 1
-    assert report["divergence_rate"] == pytest.approx(1 / 128)
-    assert report["tree_depth_mean"] == report["tree_depth_max"] == 4
-    assert report["accept_prob_mean"] == pytest.approx(0.84)
-    assert len(report["energy"]["bfmi"]) == 2
-    assert all(np.isfinite(value) and value > 0 for value in report["energy"]["bfmi"])
-    assert set(report["energy"]) == {"bfmi", "energy_hist", "energy_transition_hist"}
-
     coordinates = [("alpha", ()), ("beta", (0,)), ("beta", (1,)), ("sigma", ())]
-    assert (
-        len(report["per_parameter"])
-        == len(report["trace_data"])
-        == len(report["rank_histograms"])
-        == 4
-    )
+    refs = references(coordinates)
+    report = particle_posterior.get_mcmc_diagnostics(refs)
+    traces, ranks = particle_posterior.get_chain_detail(refs)
+    assert report.num_chains == 2
+    assert report.num_samples == 64
+    assert report.num_divergences == 1
+    assert report.divergence_rate == pytest.approx(1 / 128)
+    assert report.tree_depth_mean == report.tree_depth_max == 4
+    assert report.accept_prob_mean == pytest.approx(0.84)
+    assert len(report.energy.bfmi) == 2
+    assert all(np.isfinite(value) and value > 0 for value in report.energy.bfmi)
+    assert len(report.per_parameter) == len(traces) == len(ranks) == 4
     for metric, trace, hist, (name, indices) in zip(
-        report["per_parameter"],
-        report["trace_data"],
-        report["rank_histograms"],
-        coordinates,
-        strict=True,
+        report.per_parameter, traces, ranks, coordinates, strict=True
     ):
         coordinate = ParameterCoordinate(site_name=name, indices=indices)
         for entry in (metric, trace, hist):
-            assert entry["parameter"] == coordinate.label
-            assert entry["coordinate"] == coordinate.model_dump(mode="json")
+            assert entry.parameter == coordinate.label
+            assert entry.subject == refs[coordinate][1]
         for key in ("r_hat", "ess_bulk", "ess_tail", "mcse_mean"):
-            assert np.isfinite(metric[key])
-            assert metric[key] > 0
+            assert np.isfinite(getattr(metric, key))
+            assert getattr(metric, key) > 0
         expected = np.asarray(
             particle_posterior.get_samples()[name][(slice(None), *indices)]
         ).reshape(2, 64)
-        assert trace["chains"] == [
-            {"chain": chain, "values": expected[chain].tolist()} for chain in range(2)
-        ]
-        assert hist["expected_per_bin"] == 64 / hist["n_bins"]
-        assert len(hist["chains"]) == 2
-        for chain in hist["chains"]:
-            assert len(chain["counts"]) == hist["n_bins"]
-            assert all(count >= 0 for count in chain["counts"])
-            assert sum(chain["counts"]) == 64
+        assert trace.chains == tuple(tuple(row) for row in expected.tolist())
+        assert hist.expected_per_bin == 64 / hist.n_bins
+        assert len(hist.chains) == 2
+        assert all(
+            len(row) == hist.n_bins and min(row) >= 0 and sum(row) == 64 for row in hist.chains
+        )
 
 
 @pytest.mark.inference(concern="sampling")
-def test_posterior_plots_preserve_coordinates_and_thin_divergences_with_draws(particle_posterior):
-    marginals: Any = particle_posterior.get_posterior_marginals(n_bins=8)
+def test_posterior_plots_preserve_all_joint_draws_and_divergences(particle_posterior):
+    coords = [("alpha", ()), ("beta", (0,)), ("beta", (1,)), ("sigma", ())]
+    refs = references(coords)
+    marginals = particle_posterior.get_posterior_marginals(refs, n_bins=8)
     assert len(marginals) == 4
+    by_subject = {subject.element_id: coordinate for coordinate, (_, subject) in refs.items()}
     for marginal in marginals:
-        coordinate = marginal["coordinate"]
-        values = particle_posterior.get_samples()[coordinate["site_name"]][
-            (slice(None), *coordinate["indices"])
+        coordinate = by_subject[marginal.subject.element_id]
+        values = particle_posterior.get_samples()[coordinate.site_name][
+            (slice(None), *coordinate.indices)
         ]
-        assert marginal["mean"] == pytest.approx(float(jnp.mean(values)))
-        assert marginal["lower"] < marginal["mean"] < marginal["upper"]
-        assert len(marginal["x_values"]) == len(marginal["density"]) == 8
-        assert all(value >= 0 for value in marginal["density"])
-
-    pairs: Any = particle_posterior.get_posterior_pairs(max_params=3, max_samples=32)
+        assert marginal.mean == pytest.approx(float(jnp.mean(values)))
+        assert marginal.lower < marginal.mean < marginal.upper
+        assert len(marginal.x_values) == len(marginal.density) == 8
+        assert min(marginal.density) >= 0
+    pairs = particle_posterior.get_posterior_pairs(refs, max_params=3)
     assert len(pairs) == 3
-    expected_divergences = [False] * 32
-    expected_divergences[1] = True
+    expected_divergences = [False] * 128
+    expected_divergences[4] = True
     for pair in pairs:
-        assert pair["divergent"] == expected_divergences
+        assert pair.divergent == tuple(expected_divergences)
         for axis in ("x", "y"):
-            coordinate = pair[f"coordinate_{axis}"]
-            values = particle_posterior.get_samples()[coordinate["site_name"]][
-                (slice(None, None, 4), *coordinate["indices"])
+            coordinate = by_subject[getattr(pair, "subject_" + axis).element_id]
+            values = particle_posterior.get_samples()[coordinate.site_name][
+                (slice(None), *coordinate.indices)
             ]
-            np.testing.assert_array_equal(pair[f"{axis}_values"], values)
+            np.testing.assert_array_equal(getattr(pair, axis + "_values"), values)
 
 
 @pytest.mark.inference(concern="sampling")
@@ -236,16 +245,18 @@ def test_loo_report_accepts_joint_particle_emission_factors(particle_posterior):
 
     x = jnp.linspace(-2, 2, 6)
     observations = 1.0 + 2.5 * x + jnp.asarray(np.random.default_rng(0).normal(size=6) * 0.5)
-    samples = particle_posterior.diagnostics["mcmc"].get_samples(group_by_chain=True)
+    samples = particle_posterior.diagnostics.mcmc.get_samples(group_by_chain=True)
     mean = samples["alpha"][..., None] + samples["beta"][..., 0, None] * x
-    particle_posterior.diagnostics["observation_log_probs"] = dist.Normal(
-        mean, samples["sigma"][..., None]
-    ).log_prob(observations)
+    factors = dist.Normal(mean, samples["sigma"][..., None]).log_prob(observations)
+    particle_posterior = replace(
+        particle_posterior,
+        diagnostics=replace(particle_posterior.diagnostics, observation_log_probs=factors),
+    )
 
-    estimate: Any = particle_posterior.get_loo_diagnostics(observations=observations[:, None])
-
-    assert estimate["observation_unit"] == "measurement_row"
-    assert estimate["prediction_task"] == "interpolation_given_other_measurements"
-    assert estimate["n_data_points"] == len(estimate["pareto_k"]) == 6
-    assert np.isfinite(estimate["elpd_loo"])
-    assert all(np.isfinite(value) for value in estimate["pareto_k"])
+    estimate, points = particle_posterior.get_loo_diagnostics(observations=observations[:, None])
+    assert estimate.observation_unit == "measurement_row"
+    assert estimate.prediction_task == "interpolation_given_other_measurements"
+    assert estimate.n_data_points == len(points) == 6
+    assert np.isfinite(estimate.elpd_loo)
+    assert all(isinstance(point.k, float) and np.isfinite(point.k) for point in points)
+    assert sorted(point.timestep for point in points) == list(range(1, 7))

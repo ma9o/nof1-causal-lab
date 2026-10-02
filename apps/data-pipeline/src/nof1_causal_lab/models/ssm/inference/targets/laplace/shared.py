@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import jax
 import jax.core
@@ -439,30 +439,37 @@ def _factor_block_banded_cholesky(
     chol_diag = jnp.zeros_like(diag)
     lower = jnp.zeros_like(upper)
 
-    def _factor_step(i, state):
+    def _factor_step(
+        i: int | jnp.ndarray, state: tuple[jnp.ndarray, jnp.ndarray]
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
         chol_diag_state, lower_state = state
         upper_bw_i = row_upper_bandwidths[i]
         lower_bw_i = row_lower_bandwidths[i]
 
-        def _schur_offset(offset, schur):
-            return jax.lax.cond(
+        def _schur_offset(offset: int | jnp.ndarray, schur: jnp.ndarray) -> jnp.ndarray:
+            result: jnp.ndarray = jax.lax.cond(
                 (i >= offset) & (offset <= lower_bw_i),
                 lambda s: s - lower_state[offset - 1, i] @ lower_state[offset - 1, i].T,
                 lambda s: s,
                 schur,
             )
+            return result
 
         schur = jax.lax.fori_loop(1, bandwidth + 1, _schur_offset, diag[i])
         l_ii = jnp.linalg.cholesky(_symmetrize_psd(schur, jitter=jitter))
         chol_diag_state = chol_diag_state.at[i].set(l_ii)
 
-        def _update_lower_for_offset(offset_j, lower_curr):
-            def _compute(curr_lower):
+        def _update_lower_for_offset(
+            offset_j: int | jnp.ndarray, lower_curr: jnp.ndarray
+        ) -> jnp.ndarray:
+            def _compute(curr_lower: jnp.ndarray) -> jnp.ndarray:
                 lower_bw_j = row_lower_bandwidths[i + offset_j]
 
-                def _cross_update(offset_k, schur_off):
+                def _cross_update(
+                    offset_k: int | jnp.ndarray, schur_off: jnp.ndarray
+                ) -> jnp.ndarray:
                     cross_offset = offset_j + offset_k - 1
-                    return jax.lax.cond(
+                    result: jnp.ndarray = jax.lax.cond(
                         (i >= offset_k)
                         & (offset_k <= lower_bw_i)
                         & (cross_offset < bandwidth)
@@ -474,6 +481,7 @@ def _factor_block_banded_cholesky(
                         lambda s: s,
                         schur_off,
                     )
+                    return result
 
                 schur_off = jax.lax.fori_loop(
                     1, bandwidth + 1, _cross_update, upper[offset_j - 1, i].T
@@ -481,17 +489,23 @@ def _factor_block_banded_cholesky(
                 l_ji = jla.solve_triangular(l_ii, schur_off.T, lower=True).T
                 return curr_lower.at[offset_j - 1, i + offset_j].set(l_ji)
 
-            return jax.lax.cond(
+            result: jnp.ndarray = jax.lax.cond(
                 (i + offset_j < T) & (offset_j <= upper_bw_i),
                 _compute,
                 lambda x: x,
                 lower_curr,
             )
+            return result
 
-        lower_state = jax.lax.fori_loop(1, bandwidth + 1, _update_lower_for_offset, lower_state)
+        lower_state: jnp.ndarray = jax.lax.fori_loop(
+            1, bandwidth + 1, _update_lower_for_offset, lower_state
+        )
         return chol_diag_state, lower_state
 
-    return jax.lax.fori_loop(0, T, _factor_step, (chol_diag, lower))
+    result: tuple[jnp.ndarray, jnp.ndarray] = jax.lax.fori_loop(
+        0, T, _factor_step, (chol_diag, lower)
+    )
+    return result
 
 
 def _solve_block_banded_from_cholesky(
@@ -510,16 +524,17 @@ def _solve_block_banded_from_cholesky(
         row_lower_bandwidths = jnp.full((T,), bandwidth, dtype=jnp.int32)
     y = jnp.zeros_like(rhs)
 
-    def _forward_step(i, y_state):
+    def _forward_step(i: int | jnp.ndarray, y_state: jnp.ndarray) -> jnp.ndarray:
         lower_bw_i = row_lower_bandwidths[i]
 
-        def _forward_offset(offset, res):
-            return jax.lax.cond(
+        def _forward_offset(offset: int | jnp.ndarray, res: jnp.ndarray) -> jnp.ndarray:
+            result: jnp.ndarray = jax.lax.cond(
                 (i >= offset) & (offset <= lower_bw_i),
                 lambda r: r - lower[offset - 1, i] @ y_state[i - offset],
                 lambda r: r,
                 res,
             )
+            return result
 
         res = jax.lax.fori_loop(1, bandwidth + 1, _forward_offset, rhs[i])
         y_i = jla.solve_triangular(chol_diag[i], res, lower=True)
@@ -528,23 +543,25 @@ def _solve_block_banded_from_cholesky(
     y = jax.lax.fori_loop(0, T, _forward_step, y)
     x = jnp.zeros_like(rhs)
 
-    def _backward_step(rev_idx, x_state):
+    def _backward_step(rev_idx: int | jnp.ndarray, x_state: jnp.ndarray) -> jnp.ndarray:
         i = T - 1 - rev_idx
         upper_bw_i = row_upper_bandwidths[i]
 
-        def _backward_offset(offset, res):
-            return jax.lax.cond(
+        def _backward_offset(offset: int | jnp.ndarray, res: jnp.ndarray) -> jnp.ndarray:
+            result: jnp.ndarray = jax.lax.cond(
                 (i + offset < T) & (offset <= upper_bw_i),
                 lambda r: r - lower[offset - 1, i + offset].T @ x_state[i + offset],
                 lambda r: r,
                 res,
             )
+            return result
 
         res = jax.lax.fori_loop(1, bandwidth + 1, _backward_offset, y[i])
         x_i = jla.solve_triangular(chol_diag[i].T, res, lower=False)
         return x_state.at[i].set(x_i)
 
-    return jax.lax.fori_loop(0, T, _backward_step, x)
+    result: jnp.ndarray = jax.lax.fori_loop(0, T, _backward_step, x)
+    return result
 
 
 def _block_banded_logdet(chol_diag: jnp.ndarray) -> jnp.ndarray:
@@ -579,16 +596,20 @@ def _factor_block_profile_cholesky(
     chol_diag = jnp.zeros_like(diag)
     lower = jnp.zeros_like(upper)
 
-    def _factor_step(i, state):
+    def _factor_step(
+        i: int | jnp.ndarray, state: tuple[jnp.ndarray, jnp.ndarray]
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
         chol_diag_state, lower_state = state
         lower_bw_i = row_lower_bandwidths[i]
         upper_bw_i = row_upper_bandwidths[i]
 
-        def _schur_cond(loop_state):
+        def _schur_cond(loop_state: tuple[int | jnp.ndarray, jnp.ndarray]) -> jnp.ndarray:
             offset, _schur = loop_state
             return offset <= lower_bw_i
 
-        def _schur_body(loop_state):
+        def _schur_body(
+            loop_state: tuple[int | jnp.ndarray, jnp.ndarray],
+        ) -> tuple[int | jnp.ndarray, jnp.ndarray]:
             offset, schur = loop_state
             schur = schur - lower_state[offset - 1, i] @ lower_state[offset - 1, i].T
             return offset + 1, schur
@@ -597,23 +618,27 @@ def _factor_block_profile_cholesky(
         l_ii = jnp.linalg.cholesky(_symmetrize_psd(schur, jitter=jitter))
         chol_diag_state = chol_diag_state.at[i].set(l_ii)
 
-        def _future_cond(loop_state):
+        def _future_cond(loop_state: tuple[int | jnp.ndarray, jnp.ndarray]) -> jnp.ndarray:
             offset_j, _lower_curr = loop_state
             return offset_j <= upper_bw_i
 
-        def _future_body(loop_state):
+        def _future_body(
+            loop_state: tuple[int | jnp.ndarray, jnp.ndarray],
+        ) -> tuple[int | jnp.ndarray, jnp.ndarray]:
             offset_j, lower_curr = loop_state
             row_j = i + offset_j
             lower_bw_j = row_lower_bandwidths[row_j]
 
-            def _cross_cond(cross_state):
+            def _cross_cond(cross_state: tuple[int | jnp.ndarray, jnp.ndarray]) -> jnp.ndarray:
                 offset_k, _schur_off = cross_state
                 return offset_k <= lower_bw_i
 
-            def _cross_body(cross_state):
+            def _cross_body(
+                cross_state: tuple[int | jnp.ndarray, jnp.ndarray],
+            ) -> tuple[int | jnp.ndarray, jnp.ndarray]:
                 offset_k, schur_off = cross_state
                 cross_idx = offset_j + offset_k - 1
-                schur_off = jax.lax.cond(
+                schur_off: jnp.ndarray = jax.lax.cond(
                     cross_idx < lower_bw_j,
                     lambda s: s - lower_curr[cross_idx, row_j] @ lower_curr[offset_k - 1, i].T,
                     lambda s: s,
@@ -639,7 +664,10 @@ def _factor_block_profile_cholesky(
         del _future_done
         return chol_diag_state, lower_state
 
-    return jax.lax.fori_loop(0, T, _factor_step, (chol_diag, lower))
+    result: tuple[jnp.ndarray, jnp.ndarray] = jax.lax.fori_loop(
+        0, T, _factor_step, (chol_diag, lower)
+    )
+    return result
 
 
 def _solve_block_profile_from_cholesky(
@@ -653,14 +681,16 @@ def _solve_block_profile_from_cholesky(
     T = rhs.shape[0]
     y = jnp.zeros_like(rhs)
 
-    def _forward_step(i, y_state):
+    def _forward_step(i: int | jnp.ndarray, y_state: jnp.ndarray) -> jnp.ndarray:
         lower_bw_i = row_lower_bandwidths[i]
 
-        def _forward_cond(loop_state):
+        def _forward_cond(loop_state: tuple[int | jnp.ndarray, jnp.ndarray]) -> jnp.ndarray:
             offset, _res = loop_state
             return offset <= lower_bw_i
 
-        def _forward_body(loop_state):
+        def _forward_body(
+            loop_state: tuple[int | jnp.ndarray, jnp.ndarray],
+        ) -> tuple[int | jnp.ndarray, jnp.ndarray]:
             offset, res = loop_state
             res = res - lower[offset - 1, i] @ y_state[i - offset]
             return offset + 1, res
@@ -673,15 +703,17 @@ def _solve_block_profile_from_cholesky(
     y = jax.lax.fori_loop(0, T, _forward_step, y)
     x = jnp.zeros_like(rhs)
 
-    def _backward_step(rev_idx, x_state):
+    def _backward_step(rev_idx: int | jnp.ndarray, x_state: jnp.ndarray) -> jnp.ndarray:
         i = T - 1 - rev_idx
         upper_bw_i = row_upper_bandwidths[i]
 
-        def _backward_cond(loop_state):
+        def _backward_cond(loop_state: tuple[int | jnp.ndarray, jnp.ndarray]) -> jnp.ndarray:
             offset, _res = loop_state
             return offset <= upper_bw_i
 
-        def _backward_body(loop_state):
+        def _backward_body(
+            loop_state: tuple[int | jnp.ndarray, jnp.ndarray],
+        ) -> tuple[int | jnp.ndarray, jnp.ndarray]:
             offset, res = loop_state
             res = res - lower[offset - 1, i + offset].T @ x_state[i + offset]
             return offset + 1, res
@@ -691,44 +723,49 @@ def _solve_block_profile_from_cholesky(
         x_i = jla.solve_triangular(chol_diag[i].T, res, lower=False)
         return x_state.at[i].set(x_i)
 
-    return jax.lax.fori_loop(0, T, _backward_step, x)
+    result: jnp.ndarray = jax.lax.fori_loop(0, T, _backward_step, x)
+    return result
 
 
 def _selected_inverse_block(
     inv_diag: jnp.ndarray,
     inv_upper: jnp.ndarray,
     row_upper_bandwidths: jnp.ndarray,
-    i: int,
-    j: int,
+    i: int | jnp.ndarray,
+    j: int | jnp.ndarray,
 ) -> jnp.ndarray:
     """Return block (i, j) from the packed inverse subset."""
     zero = jnp.zeros_like(inv_diag[0])
 
-    def _diag_branch(_):
+    def _diag_branch(_: None) -> jnp.ndarray:
         return inv_diag[i]
 
-    def _offdiag_branch(_):
-        def _upper_branch(_):
+    def _offdiag_branch(_: None) -> jnp.ndarray:
+        def _upper_branch(_: None) -> jnp.ndarray:
             offset = j - i
-            return jax.lax.cond(
+            result: jnp.ndarray = jax.lax.cond(
                 offset <= row_upper_bandwidths[i],
                 lambda _: inv_upper[offset - 1, i],
                 lambda _: zero,
                 operand=None,
             )
+            return result
 
-        def _lower_branch(_):
+        def _lower_branch(_: None) -> jnp.ndarray:
             offset = i - j
-            return jax.lax.cond(
+            result: jnp.ndarray = jax.lax.cond(
                 offset <= row_upper_bandwidths[j],
                 lambda _: jnp.swapaxes(inv_upper[offset - 1, j], -1, -2),
                 lambda _: zero,
                 operand=None,
             )
+            return result
 
-        return jax.lax.cond(j > i, _upper_branch, _lower_branch, operand=None)
+        result: jnp.ndarray = jax.lax.cond(j > i, _upper_branch, _lower_branch, operand=None)
+        return result
 
-    return jax.lax.cond(i == j, _diag_branch, _offdiag_branch, operand=None)
+    result: jnp.ndarray = jax.lax.cond(i == j, _diag_branch, _offdiag_branch, operand=None)
+    return result
 
 
 def _block_profile_inverse_subset_from_cholesky(
@@ -744,23 +781,27 @@ def _block_profile_inverse_subset_from_cholesky(
     inv_diag = jnp.zeros_like(chol_diag)
     inv_upper = jnp.zeros_like(lower)
 
-    def _row_step(rev_i, state):
+    def _row_step(
+        rev_i: int | jnp.ndarray, state: tuple[jnp.ndarray, jnp.ndarray]
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
         inv_diag_state, inv_upper_state = state
         i = t_steps - 1 - rev_i
         l_ii = chol_diag[i]
         upper_bw_i = row_upper_bandwidths[i]
 
-        def _offdiag_step(offset_j_zero, inv_upper_curr):
+        def _offdiag_step(
+            offset_j_zero: int | jnp.ndarray, inv_upper_curr: jnp.ndarray
+        ) -> jnp.ndarray:
             offset_j = offset_j_zero + 1
 
-            def _compute(curr):
+            def _compute(curr: jnp.ndarray) -> jnp.ndarray:
                 row_j = i + offset_j
                 zero = jnp.zeros((block_dim, block_dim), dtype=chol_diag.dtype)
 
-                def _sum_step(offset_k_zero, acc):
+                def _sum_step(offset_k_zero: int | jnp.ndarray, acc: jnp.ndarray) -> jnp.ndarray:
                     offset_k = offset_k_zero + 1
 
-                    def _accumulate(a):
+                    def _accumulate(a: jnp.ndarray) -> jnp.ndarray:
                         row_k = i + offset_k
                         l_ki = lower[offset_k - 1, row_k]
                         s_kj = _selected_inverse_block(
@@ -772,32 +813,36 @@ def _block_profile_inverse_subset_from_cholesky(
                         )
                         return a + l_ki.T @ s_kj
 
-                    return jax.lax.cond(
+                    result: jnp.ndarray = jax.lax.cond(
                         offset_k <= upper_bw_i,
                         _accumulate,
                         lambda a: a,
                         acc,
                     )
+                    return result
 
                 schur_term = jax.lax.fori_loop(0, max_bandwidth, _sum_step, zero)
                 s_ij = -jla.solve_triangular(l_ii.T, schur_term, lower=False)
                 return curr.at[offset_j - 1, i].set(s_ij)
 
-            return jax.lax.cond(
+            result: jnp.ndarray = jax.lax.cond(
                 offset_j <= upper_bw_i,
                 _compute,
                 lambda curr: curr,
                 inv_upper_curr,
             )
+            return result
 
-        inv_upper_state = jax.lax.fori_loop(0, max_bandwidth, _offdiag_step, inv_upper_state)
+        inv_upper_state: jnp.ndarray = jax.lax.fori_loop(
+            0, max_bandwidth, _offdiag_step, inv_upper_state
+        )
         inv_l_ii = jla.solve_triangular(l_ii, eye, lower=True)
         diag_base = inv_l_ii.T @ inv_l_ii
 
-        def _diag_sum_step(offset_k_zero, acc):
+        def _diag_sum_step(offset_k_zero: int | jnp.ndarray, acc: jnp.ndarray) -> jnp.ndarray:
             offset_k = offset_k_zero + 1
 
-            def _accumulate(a):
+            def _accumulate(a: jnp.ndarray) -> jnp.ndarray:
                 row_k = i + offset_k
                 l_ki = lower[offset_k - 1, row_k]
                 s_ki = _selected_inverse_block(
@@ -809,7 +854,10 @@ def _block_profile_inverse_subset_from_cholesky(
                 )
                 return a + l_ki.T @ s_ki
 
-            return jax.lax.cond(offset_k <= upper_bw_i, _accumulate, lambda a: a, acc)
+            result: jnp.ndarray = jax.lax.cond(
+                offset_k <= upper_bw_i, _accumulate, lambda a: a, acc
+            )
+            return result
 
         diag_schur = jax.lax.fori_loop(
             0,
@@ -822,7 +870,10 @@ def _block_profile_inverse_subset_from_cholesky(
         inv_diag_state = inv_diag_state.at[i].set(diag_i)
         return inv_diag_state, inv_upper_state
 
-    return jax.lax.fori_loop(0, t_steps, _row_step, (inv_diag, inv_upper))
+    result: tuple[jnp.ndarray, jnp.ndarray] = jax.lax.fori_loop(
+        0, t_steps, _row_step, (inv_diag, inv_upper)
+    )
+    return result
 
 
 def block_profile_logdet_packed_cotangent(
@@ -1042,7 +1093,7 @@ def _step_halving_search(
         raise ValueError("max_halvings must be non-negative")
     zero_step = jnp.all(step_direction == 0)
 
-    def _zero_step_result(_):
+    def _zero_step_result(_: None) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
         return (
             z_curr,
             current_log_joint,
@@ -1050,16 +1101,20 @@ def _step_halving_search(
             jnp.asarray(1.0, dtype=z_curr.dtype),
         )
 
-    def _run_search(_):
+    def _run_search(_: None) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
         alphas = jnp.asarray(
             [0.5**i for i in range(max_halvings + 1)],
             dtype=z_curr.dtype,
         )
 
-        def _ls_step(carry, alpha):
+        def _ls_step(
+            carry: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray], alpha: jnp.ndarray
+        ) -> tuple[tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray], None]:
             accepted, z_best, log_best, alpha_best = carry
 
-            def _evaluate(_):
+            def _evaluate(
+                _: None,
+            ) -> tuple[tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray], None]:
                 z_cand = jnp.asarray(z_curr + alpha * step_direction, dtype=z_curr.dtype)
                 cand_log_joint = jnp.asarray(
                     objective_fn(z_cand),
@@ -1071,7 +1126,10 @@ def _step_halving_search(
                 next_alpha = jnp.where(improved, alpha, alpha_best)
                 return (improved, next_z, next_log, next_alpha), None
 
-            return jax.lax.cond(accepted, lambda _: (carry, None), _evaluate, operand=None)
+            result: tuple[tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray], None] = (
+                jax.lax.cond(accepted, lambda _: (carry, None), _evaluate, operand=None)
+            )
+            return result
 
         init_carry = (
             jnp.asarray(False),
@@ -1083,9 +1141,7 @@ def _step_halving_search(
         accepted, z_next, log_joint_next, alpha_next = final_carry
         return z_next, log_joint_next, accepted, alpha_next
 
-    return jax.lax.cond(zero_step, _zero_step_result, _run_search, operand=None)
-
-
-def _tree_contains_tracer(tree: Any) -> bool:
-    """Whether any leaf in a pytree is currently a JAX tracer."""
-    return any(isinstance(leaf, jax.core.Tracer) for leaf in jax.tree_util.tree_leaves(tree))
+    result: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray] = jax.lax.cond(
+        zero_step, _zero_step_result, _run_search, operand=None
+    )
+    return result

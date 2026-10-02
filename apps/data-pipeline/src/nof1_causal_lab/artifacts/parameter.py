@@ -3,7 +3,9 @@
 from enum import Enum, StrEnum
 from typing import Annotated
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
+
+from nof1_causal_lab.artifacts.base import Value
 
 
 class SupportClass(Enum):
@@ -56,10 +58,8 @@ class PriorAuthoringTransform(StrEnum):
     SITE_ROW = "site_row"
 
 
-class ParameterCoordinate(BaseModel):
+class ParameterCoordinate(Value):
     """A parameter coordinate identifies a scalar element of a named runtime sample site."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     site_name: str
     indices: tuple[Annotated[int, Field(ge=0)], ...]

@@ -2,19 +2,18 @@
 
 from __future__ import annotations
 
-import dataclasses
-import math
 import os
 import shutil
 from dataclasses import dataclass, field
 from functools import lru_cache
 from pathlib import Path
-from typing import TYPE_CHECKING, Literal, assert_never
+from typing import Literal, assert_never
 
 import yaml
 from dotenv import load_dotenv
 from pydantic import ConfigDict, TypeAdapter, with_config
 
+from nof1_causal_lab.actions.errors import execution_failure_handler
 from nof1_causal_lab.llm_specs import (
     EmbeddedLLMSpec,
     EmbeddedReasoningEffort,
@@ -23,9 +22,7 @@ from nof1_causal_lab.llm_specs import (
     LLMProfileSpec,
     PiThinking,
 )
-
-if TYPE_CHECKING:
-    from nof1_causal_lab.sampler_config import SamplerConfig
+from nof1_causal_lab.sampler_config import SamplerSpec
 
 # Centralized .env loading — all modules that need env vars import from config.py
 # (or from modules that import config.py), so this runs once at import time.
@@ -160,105 +157,12 @@ class PriorElicitationConfig:
 
 @with_config(ConfigDict(extra="forbid"))
 @dataclass(frozen=True)
-class MAPConfig:
-    """Internal IEKS/Laplace settings used by MCMC initializers."""
-
-    n_ieks_iters: int = 6
-
-
-@with_config(ConfigDict(extra="forbid"))
-@dataclass(frozen=True)
-class MarginalParticleGibbsConfig:
-    """Marginalized Particle Gibbs inference settings."""
-
-    n_particles: int = 64
-    n_parameter_particles: int = 2
-    latent_smoother: Literal["dsmc"] = "dsmc"
-    latent_delta: float = 0.2
-    parameter_proposal: Literal["random_walk", "pseudo_langevin"] = "pseudo_langevin"
-    amala_delta_init: float = 1e-2
-    amala_delta_min: float = 1e-5
-    amala_delta_max: float = 1e1
-    amala_target_accept: float = 0.75
-    amala_adaptation_window: int = 100
-    amala_adaptation_tolerance: float = 0.05
-    amala_adaptation_rho: float = 0.5
-    amala_adaptation_rho_min: float = 1e-3
-    amala_adaptation_gamma: float = -0.5
-    amala_kappa: float = 0.75
-    amala_grad_clip: float = math.inf
-    dsmc_leaf_proposal: Literal["amala_exact", "paid_mix"] = "amala_exact"
-    # Coordinate-block proposals: number of latent coordinates proposed per sweep
-    # (None = all). Blocks of 2-4 sidestep the joint-coherence weight degeneracy of
-    # full-state proposals at higher latent dimension.
-    latent_block_coords: int | None = None
-    # paid_mix leaf mixture: z-anchored (amala_exact core) + fixed IEKS-pilot
-    # component + wide tail (weight = 1 - z - pilot). Pilot variances are
-    # pilot_var_scale x the IEKS paths' per-coordinate spread; the wide tail is
-    # wide_mult x the same spread.
-    paid_mix_z_weight: float = 0.85
-    paid_mix_pilot_weight: float = 0.10
-    paid_mix_pilot_var_scale: float = 0.25
-    paid_mix_wide_mult: float = 4.0
-    diagnostic_metrics_all: bool = False
-    diagnostic_metrics: tuple[str, ...] = ()
-    param_step_size: float = 0.02
-    param_step_size_min: float = 1e-6
-    param_step_size_max: float = 1e3
-    param_target_accept: float = 0.35
-    adaptation_rate: float = 0.05
-    init_method: Literal["random", "pathfinder"] = "pathfinder"
-    latent_init_method: Literal["predictive"] = "predictive"
-    pathfinder_num_elbo_samples: int = 20
-    pathfinder_maxiter: int = 20
-    n_pathfinder_starts: int = 8
-    pathfinder_parallel_workers: int | None = None
-    pathfinder_init_scale: float | None = 0.1
-    auto_preconditioner_method: Literal["map", "none", "pathfinder"] = "pathfinder"
-    auto_preconditioner_maxiter: int = 200
-    init_scale: float = 0.05
-    retain_latent_paths: bool = True
-    compute_latent_posterior_summary: bool = True
-
-
-@with_config(ConfigDict(extra="forbid"))
-@dataclass(frozen=True)
 class InferenceConfig:
-    """Inference configuration (method + sampler settings)."""
+    """Shell settings alongside the single owned sampler specification."""
 
     compute_backend: Literal["local", "modal"] = "local"
-    method: Literal["marginal_particle_gibbs"] = "marginal_particle_gibbs"
-    num_warmup: int = 4000
-    num_samples: int = 1000
-    num_chains: int = 4
-    seed: int = 0
     compute_loo_diagnostics: bool = True
-    map: MAPConfig = field(default_factory=MAPConfig)
-    marginal_particle_gibbs: MarginalParticleGibbsConfig = field(
-        default_factory=MarginalParticleGibbsConfig
-    )
-
-    def to_sampler_config(
-        self, method_override: Literal["marginal_particle_gibbs"] | None = None
-    ) -> SamplerConfig:
-        """Build a flat sampler config dict for SSM inference."""
-        from nof1_causal_lab.sampler_config import validate_sampler_config
-
-        method = method_override or self.method
-        config = {
-            "method": method,
-            "num_warmup": self.num_warmup,
-            "num_samples": self.num_samples,
-            "num_chains": self.num_chains,
-            "seed": self.seed,
-        }
-        config.update(
-            {
-                "n_ieks_iters": self.map.n_ieks_iters,
-                **dataclasses.asdict(self.marginal_particle_gibbs),
-            }
-        )
-        return validate_sampler_config(config)
+    sampler: SamplerSpec = field(default_factory=SamplerSpec)
 
 
 # ---------------------------------------------------------------------------
@@ -368,6 +272,7 @@ def _check_embedded_prereqs() -> list[str]:
     return errors
 
 
+@execution_failure_handler
 def _check_claude_code_prereqs(config: PipelineConfig) -> list[str]:
     import subprocess
 
@@ -451,3 +356,23 @@ def ensure_harness_prereqs(harness: HarnessName) -> None:
             f"Harness {harness!r} prereqs not satisfied:\n" + "\n".join(f"  - {e}" for e in errors)
         )
     _verified_harnesses.add(harness)
+
+
+@lru_cache(maxsize=1)
+def configure_jax_persistent_cache() -> None:
+    """Acquire the fit process's compilation cache; configuration errors propagate."""
+    if os.getenv("NOF1_CAUSAL_LAB_DISABLE_JAX_PERSISTENT_CACHE", "").strip().lower() in {
+        "1",
+        "true",
+        "yes",
+        "on",
+    }:
+        return
+    import jax
+
+    cache_dir = os.getenv("JAX_COMPILATION_CACHE_DIR") or str(
+        Path.home() / ".cache" / "nof1-causal-lab" / "jax"
+    )
+    Path(cache_dir).mkdir(parents=True, exist_ok=True)
+    if not jax.config.values.get("jax_compilation_cache_dir"):
+        jax.config.update("jax_compilation_cache_dir", cache_dir)

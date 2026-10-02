@@ -8,6 +8,7 @@ import jax
 import jax.numpy as jnp
 import pytest
 
+from nof1_causal_lab.artifacts.likelihood import DeltaLawSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.scenarios import InterventionSpec
 from nof1_causal_lab.models.ssm.counterfactual import (
@@ -17,6 +18,7 @@ from nof1_causal_lab.models.ssm.counterfactual import (
 )
 from nof1_causal_lab.models.ssm.dynamics import DynamicsDraws, ProcessNoise, VectorField
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
+from tests.model_fixtures import compile_model_fixture
 
 # var1 is driven by var0; both stable. Baseline steady state is η* = -A⁻¹c = [1, 1].
 _PARAMS = ({"drift": jnp.array([[-1.0, 0.0], [0.5, -1.0]]), "cint": jnp.array([1.0, 0.5])},)
@@ -54,34 +56,54 @@ def test_segment_bounds_split_at_exact_event_times():
 @pytest.mark.contract
 def test_given_inputs_replay_windows_hold_and_override_later_records(monkeypatch):
     from datetime import UTC, datetime, timedelta, timezone
+    from pathlib import Path
 
     import numpy as np
     import polars as pl
 
     from nof1_causal_lab.artifacts.construct import replace_constructs
     from nof1_causal_lab.artifacts.expressions import state
-    from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec, ObservationLawSpec
+    from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.models.ssm.counterfactual import orchestration
     from nof1_causal_lab.models.ssm.inference.conditioning import compile_exact_state_constraints
     from nof1_causal_lab.models.ssm.runtime import replay_input_events, replay_input_values
-    from tests.helpers import make_model
 
-    model = make_model(["dose", "response"], [("dose", "response")])
+    model = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[1]
+            / "fixtures/models/delta_observations/exact_model_model.json"
+        ).read_text()
+    )
     dose = model.constructs[0]
-    indicator = type(dose.indicators[0]).model_validate(
-        {
-            **dose.indicators[0].model_dump(),
-            "aggregation": "sum",
-            "likelihood": LikelihoodSpec(
-                law=ObservationLawSpec(distribution="Delta", arguments={"v": state(dose.id)}),
-                reasoning="Given dose total",
-            ),
-        }
+    indicator = dose.indicators[0].revised(
+        aggregation="sum",
+        likelihood=LikelihoodSpec(
+            law=DeltaLawSpec(v=state(dose.id)),
+            reasoning="Given dose total",
+        ),
     )
-    dose = type(dose).model_validate(
-        {**dose.model_dump(), "role": "exogenous", "indicators": (indicator,)}
+    dose = dose.revised(
+        role="exogenous", indicators=(indicator,), dynamics=(), coefficients=(), distribution=None
     )
-    model = model.revised(edges=replace_constructs(model.edges, (dose,)), measurement_clock="1d")
+    parameters = tuple(
+        parameter
+        for parameter in model.parameters
+        if parameter.name not in {"rho_setting", "sigma_setting"}
+    )
+    model = model.revised(
+        edges=replace_constructs(model.edges, (dose,)),
+        measurement_clock="1d",
+        parameters=parameters,
+        distributions={
+            identity: law
+            for identity, law in model.distributions.items()
+            if identity in {parameter.distribution for parameter in parameters}
+        },
+    )
+    from tests.model_fixtures import compile_model_fixture
+
+    model = compile_model_fixture(model)
     origin = datetime(2026, 1, 1, tzinfo=UTC)
     panel = pl.DataFrame(
         {
@@ -179,7 +201,7 @@ def test_fully_fixed_dynamics_keep_the_explicit_draw_axis():
             / "composable_clamps/fully_fixed_dynamics_keep_the_explicit_draw_axis_model_fixture.json"
         ).read_text()
     )
-    draws = dynamics_from_samples(spec, {}, n_draws=3)
+    draws = dynamics_from_samples(compile_model_fixture(spec), {}, n_draws=3)
     times = jnp.array([0.0, 0.2, 0.4])
     initial = jnp.array([[-1.0], [0.0], [1.0]])
     baseline, action, effect = vmap_simulate_interventions_from_state(

@@ -27,12 +27,24 @@ Monte Carlo sampling, return the approximation with highest ELBO.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+from nof1_causal_lab.models.ssm.execution.contracts import EMPTY_LAPLACE_STATE
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from jax.typing import DTypeLike
+
+    from nof1_causal_lab.models.ssm.autoreparam import Strategy
+    from nof1_causal_lab.models.ssm.parameterization import PriorRuntimeBundle
+    from nof1_causal_lab.models.ssm.runtime import BoundPanel
+
 import functools
 import logging
-import time
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, TypedDict
+from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
@@ -40,38 +52,26 @@ import jax.random as random
 import numpy as np
 import scipy.optimize
 
+from nof1_causal_lab.artifacts.posterior_diagnostics import (
+    ElboScoringDiagnostics,
+    ParticleInitializationDiagnostics,
+    PathfinderDiagnostics,
+    PathfinderStartDiagnostics,
+)
+
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleTarget
-    from nof1_causal_lab.models.ssm.model import SSMModel
 
 logger = logging.getLogger(__name__)
 
 
-class ElboScoringDiagnostics(TypedDict):
-    n_elbo_batch_evaluations: int
-    n_elbo_screen_candidates: int
-    n_elbo_refine_candidates: int
-    best_elbo_candidate_index: int
-
-
-class PathfinderStartDiagnostics(ElboScoringDiagnostics):
-    start_idx: int
-    n_trajectory_points: int
-    n_valid_iterates: int
-    n_elbo_candidates: int
-    n_lbfgs_iterations: int
-    final_log_posterior: float
-    best_elbo_this_start: float | None
-    scipy_success: bool
-    scipy_status: int
-
-
-class PathfinderRunDiagnostics(TypedDict):
+@dataclass(frozen=True, kw_only=True)
+class PathfinderRunDiagnostics:
     n_starts: int
     n_starts_finite: int
-    per_start: list[PathfinderStartDiagnostics]
+    per_start: tuple[PathfinderStartDiagnostics, ...]
     elbo_samples: int
     elbo_screen_samples: int
     elbo_refine_candidates: int
@@ -82,41 +82,6 @@ class PathfinderRunDiagnostics(TypedDict):
     elbo_min: float
     elbo_max: float
     elbo_spread: float
-
-
-class PathfinderDiagnostics(TypedDict):
-    """Completed Pathfinder initialization telemetry."""
-
-    n_pathfinder_starts: int
-    n_pathfinder_starts_finite: int
-    pathfinder_parallel_workers: int
-    pathfinder_setup_seconds: float
-    pathfinder_jax_compile_seconds: float
-    pathfinder_jax_compile_batch_sizes: list[int]
-    pathfinder_runtime_seconds: float
-    pathfinder_total_seconds: float
-    best_pathfinder_elbo: float
-    pathfinder_elbo: float
-    pathfinder_elbo_min: float
-    pathfinder_elbo_max: float
-    pathfinder_elbo_spread: float
-    pathfinder_elbos: list[float]
-    pathfinder_maxiter: int
-    pathfinder_lbfgs_memory: int
-    pathfinder_elbo_samples: int
-    pathfinder_elbo_screen_samples: int
-    pathfinder_elbo_refine_candidates: int
-    pathfinder_elbo_candidate_batch_size: int
-    pathfinder_per_start: list[PathfinderStartDiagnostics]
-
-
-class InitializationDiagnostics(PathfinderDiagnostics, total=False):
-    init_method: str
-    pathfinder_sampling_mode: str
-    pathfinder_init_scale: float | None
-    prior_released_site_names: list[str]
-    prior_released_site_indices: list[int]
-    prior_release_scale: float
 
 
 @dataclass(frozen=True)
@@ -150,14 +115,14 @@ def _scipy_pathfinder_value_batch_runtime(
     observations: jnp.ndarray,
     times: jnp.ndarray,
     *,
-    runtime_log_posterior_fn,
+    runtime_log_posterior_fn: Callable[..., jax.Array],
 ) -> jnp.ndarray:
     return jax.vmap(
         lambda z_arg: runtime_log_posterior_fn(
             z_arg,
             observations,
             times,
-            latent_mode_init=None,
+            solver_state=EMPTY_LAPLACE_STATE,
         )
     )(z_batch)
 
@@ -168,21 +133,22 @@ def _scipy_pathfinder_value_and_grad_runtime(
     observations: jnp.ndarray,
     times: jnp.ndarray,
     *,
-    runtime_log_posterior_fn,
+    runtime_log_posterior_fn: Callable[..., jax.Array],
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
-    return jax.value_and_grad(
+    evaluate: Callable[[jax.Array], tuple[jax.Array, jax.Array]] = jax.value_and_grad(
         lambda z_arg: runtime_log_posterior_fn(
             z_arg,
             observations,
             times,
-            latent_mode_init=None,
+            solver_state=EMPTY_LAPLACE_STATE,
         )
-    )(z)
+    )
+    return evaluate(z)
 
 
 def _flat_indices_for_sites(
     flat_example: jnp.ndarray,
-    unravel_fn,
+    unravel_fn: Callable[[jax.Array], dict[str, jax.Array]],
     site_names: tuple[str, ...],
 ) -> list[int]:
     """Return flat indices in the Pathfinder layout that belong to site names."""
@@ -349,12 +315,12 @@ def _score_elbo_candidates(
             -np.inf,
             None,
             None,
-            {
-                "n_elbo_batch_evaluations": 0,
-                "n_elbo_screen_candidates": 0,
-                "n_elbo_refine_candidates": 0,
-                "best_elbo_candidate_index": -1,
-            },
+            ElboScoringDiagnostics(
+                n_elbo_batch_evaluations=0,
+                n_elbo_screen_candidates=0,
+                n_elbo_refine_candidates=0,
+                best_elbo_candidate_index=-1,
+            ),
         )
 
     if len(means) <= elbo_refine_candidates or elbo_screen_samples == elbo_samples:
@@ -374,12 +340,12 @@ def _score_elbo_candidates(
             float(elbos[best_idx]) if best_idx >= 0 else -np.inf,
             means[best_idx].copy() if best_idx >= 0 else None,
             chols[best_idx].copy() if best_idx >= 0 else None,
-            {
-                "n_elbo_batch_evaluations": int(n_batch_evaluations),
-                "n_elbo_screen_candidates": len(means),
-                "n_elbo_refine_candidates": len(means),
-                "best_elbo_candidate_index": int(best_idx),
-            },
+            ElboScoringDiagnostics(
+                n_elbo_batch_evaluations=int(n_batch_evaluations),
+                n_elbo_screen_candidates=len(means),
+                n_elbo_refine_candidates=len(means),
+                best_elbo_candidate_index=int(best_idx),
+            ),
         )
 
     screen_elbos, screen_batch_evaluations = _estimate_elbo_candidate_batch(
@@ -397,12 +363,12 @@ def _score_elbo_candidates(
             -np.inf,
             None,
             None,
-            {
-                "n_elbo_batch_evaluations": int(screen_batch_evaluations),
-                "n_elbo_screen_candidates": len(means),
-                "n_elbo_refine_candidates": 0,
-                "best_elbo_candidate_index": -1,
-            },
+            ElboScoringDiagnostics(
+                n_elbo_batch_evaluations=int(screen_batch_evaluations),
+                n_elbo_screen_candidates=len(means),
+                n_elbo_refine_candidates=0,
+                best_elbo_candidate_index=-1,
+            ),
         )
 
     ordered_finite = finite_indices[np.argsort(screen_elbos[finite_indices])[::-1]]
@@ -432,12 +398,12 @@ def _score_elbo_candidates(
         float(refine_elbos[refine_best_offset]) if best_idx >= 0 else -np.inf,
         means[best_idx].copy() if best_idx >= 0 else None,
         chols[best_idx].copy() if best_idx >= 0 else None,
-        {
-            "n_elbo_batch_evaluations": int(screen_batch_evaluations + refine_batch_evaluations),
-            "n_elbo_screen_candidates": len(means),
-            "n_elbo_refine_candidates": len(selected),
-            "best_elbo_candidate_index": int(best_idx),
-        },
+        ElboScoringDiagnostics(
+            n_elbo_batch_evaluations=int(screen_batch_evaluations + refine_batch_evaluations),
+            n_elbo_screen_candidates=len(means),
+            n_elbo_refine_candidates=len(selected),
+            best_elbo_candidate_index=int(best_idx),
+        ),
     )
 
 
@@ -457,8 +423,9 @@ def _run_pathfinder_start(
     lbfgs_memory: int,
     jitter: float,
     seed: int,
+    clock: Callable[[], float],
 ) -> _ScipyPathfinderStartResult:
-    start_t0 = time.monotonic()
+    start_t0 = clock()
     rng = np.random.default_rng(seed)
     logger.info(
         "scipy_pathfinder start %d/%d: starting L-BFGS-B from |x0|=%.2g",
@@ -466,23 +433,18 @@ def _run_pathfinder_start(
         n_starts,
         float(np.linalg.norm(np.asarray(x0, dtype=np.float64))),
     )
-    cached_eval: _ObjectiveEvaluation | None = None
     trajectory: list[tuple[np.ndarray, np.ndarray, float]] = []
 
     def _evaluate(x: np.ndarray) -> _ObjectiveEvaluation:
-        nonlocal cached_eval
         x_np = np.asarray(x, dtype=np.float64)
-        if cached_eval is not None and np.array_equal(x_np, cached_eval.x):
-            return cached_eval
         log_post, grad_log_post = log_post_and_grad_fn(x_np)
         objective_grad = -np.asarray(grad_log_post, dtype=np.float64)
-        cached_eval = _ObjectiveEvaluation(
+        return _ObjectiveEvaluation(
             x=x_np.copy(),
             neg_log_post=float(-log_post),
             objective_grad=objective_grad.copy(),
             log_post=float(log_post),
         )
-        return cached_eval
 
     def _append_accepted_iterate(
         x: np.ndarray,
@@ -522,7 +484,7 @@ def _run_pathfinder_start(
         "success=%s, status=%s, log_post=%.3f)",
         start_idx + 1,
         n_starts,
-        time.monotonic() - start_t0,
+        clock() - start_t0,
         int(opt_result.nit),
         int(opt_result.nfev),
         bool(opt_result.success),
@@ -536,16 +498,16 @@ def _run_pathfinder_start(
     # per-iterate two-loop recursion then adds best-ELBO selection on top.
     candidate_means: list[np.ndarray] = []
     candidate_chols: list[np.ndarray] = []
+    hess_inv_final = np.asarray(opt_result.hess_inv.todense(), dtype=np.float64)
+    hess_inv_final = 0.5 * (hess_inv_final + hess_inv_final.T)
+    hess_inv_final = hess_inv_final + jitter * np.eye(dim, dtype=np.float64)
     try:
-        hess_inv_final = np.asarray(opt_result.hess_inv.todense(), dtype=np.float64)
-        hess_inv_final = 0.5 * (hess_inv_final + hess_inv_final.T)
-        hess_inv_final = hess_inv_final + jitter * np.eye(dim, dtype=np.float64)
         l_final = np.linalg.cholesky(hess_inv_final)
-        x_final = np.asarray(opt_result.x, dtype=np.float64).copy()
-        candidate_means.append(x_final)
-        candidate_chols.append(l_final)
-    except (np.linalg.LinAlgError, ValueError):
+    except np.linalg.LinAlgError:
         pass
+    else:
+        candidate_means.append(np.asarray(opt_result.x, dtype=np.float64).copy())
+        candidate_chols.append(l_final)
 
     # Iterate along the accepted L-BFGS iterates, forming H^{-1} at each
     # point from the most recent curvature history and scoring the
@@ -585,18 +547,21 @@ def _run_pathfinder_start(
         )
     )
 
-    diagnostics: PathfinderStartDiagnostics = {
-        "start_idx": int(start_idx),
-        "n_trajectory_points": len(trajectory),
-        "n_valid_iterates": int(valid_iterate_count),
-        "n_elbo_candidates": len(candidate_means),
-        **elbo_score_diagnostics,
-        "n_lbfgs_iterations": int(opt_result.nit),
-        "final_log_posterior": float(-opt_result.fun),
-        "best_elbo_this_start": (float(start_best_elbo) if start_best_elbo > -np.inf else None),
-        "scipy_success": bool(opt_result.success),
-        "scipy_status": int(opt_result.status),
-    }
+    diagnostics: PathfinderStartDiagnostics = PathfinderStartDiagnostics(
+        start_idx=int(start_idx),
+        n_trajectory_points=len(trajectory),
+        n_valid_iterates=int(valid_iterate_count),
+        n_elbo_candidates=len(candidate_means),
+        n_elbo_batch_evaluations=elbo_score_diagnostics.n_elbo_batch_evaluations,
+        n_elbo_screen_candidates=elbo_score_diagnostics.n_elbo_screen_candidates,
+        n_elbo_refine_candidates=elbo_score_diagnostics.n_elbo_refine_candidates,
+        best_elbo_candidate_index=elbo_score_diagnostics.best_elbo_candidate_index,
+        n_lbfgs_iterations=int(opt_result.nit),
+        final_log_posterior=float(-opt_result.fun),
+        best_elbo_this_start=float(start_best_elbo) if start_best_elbo > -np.inf else None,
+        scipy_success=bool(opt_result.success),
+        scipy_status=int(opt_result.status),
+    )
     logger.info(
         "scipy_pathfinder start %d/%d: best ELBO this start = %s "
         "(n_valid_iterates=%d, total %.1fs)",
@@ -604,7 +569,7 @@ def _run_pathfinder_start(
         n_starts,
         f"{start_best_elbo:.3f}" if np.isfinite(start_best_elbo) else "n/a",
         int(valid_iterate_count),
-        time.monotonic() - start_t0,
+        clock() - start_t0,
     )
     return _ScipyPathfinderStartResult(
         start_idx=start_idx,
@@ -629,6 +594,7 @@ def scipy_pathfinder(
     jitter: float = 1e-6,
     seed: int = 0,
     parallel_workers: int | None = None,
+    clock: Callable[[], float],
 ) -> ScipyPathfinderResult:
     """Multi-start scipy-driven Pathfinder.
 
@@ -678,7 +644,7 @@ def scipy_pathfinder(
     )
     if elbo_refine_candidates < 1:
         raise ValueError("elbo_refine_candidates must be >= 1.")
-    pf_t0 = time.monotonic()
+    pf_t0 = clock()
 
     dim = int(x0_starts[0].shape[0])
     worker_count = len(x0_starts) if parallel_workers is None else int(parallel_workers)
@@ -723,6 +689,7 @@ def scipy_pathfinder(
                 lbfgs_memory=int(lbfgs_memory),
                 jitter=float(jitter),
                 seed=start_seeds[start_idx],
+                clock=clock,
             )
             for start_idx, x0 in enumerate(x0_starts)
         ]
@@ -743,47 +710,44 @@ def scipy_pathfinder(
 
     logger.info(
         "scipy_pathfinder: complete in %.1fs (best ELBO=%.3f across %d starts)",
-        time.monotonic() - pf_t0,
+        clock() - pf_t0,
         float(best_elbo),
         len(x0_starts),
     )
 
-    finite_starts = sum(1 for d in per_start_diagnostics if d["best_elbo_this_start"] is not None)
+    finite_starts = sum(1 for d in per_start_diagnostics if d.best_elbo_this_start is not None)
     elbo_values = [
-        d["best_elbo_this_start"]
-        for d in per_start_diagnostics
-        if d["best_elbo_this_start"] is not None
+        d.best_elbo_this_start for d in per_start_diagnostics if d.best_elbo_this_start is not None
     ]
     return ScipyPathfinderResult(
         mean=np.asarray(best_mean, dtype=np.float64),
         chol=np.asarray(best_chol, dtype=np.float64),
         best_elbo=float(best_elbo),
-        diagnostics={
-            "n_starts": len(x0_starts),
-            "n_starts_finite": int(finite_starts),
-            "per_start": per_start_diagnostics,
-            "elbo_samples": int(elbo_samples),
-            "elbo_screen_samples": int(resolved_elbo_screen_samples),
-            "elbo_refine_candidates": int(elbo_refine_candidates),
-            "elbo_candidate_batch_size": int(elbo_candidate_batch_size),
-            "lbfgs_memory": int(lbfgs_memory),
-            "maxiter": int(maxiter),
-            "parallel_workers": int(worker_count),
-            "elbo_min": float(min(elbo_values)) if elbo_values else float("nan"),
-            "elbo_max": float(max(elbo_values)) if elbo_values else float("nan"),
-            "elbo_spread": (float(max(elbo_values) - min(elbo_values)) if elbo_values else 0.0),
-        },
+        diagnostics=PathfinderRunDiagnostics(
+            n_starts=len(x0_starts),
+            n_starts_finite=int(finite_starts),
+            per_start=tuple(per_start_diagnostics),
+            elbo_samples=int(elbo_samples),
+            elbo_screen_samples=int(resolved_elbo_screen_samples),
+            elbo_refine_candidates=int(elbo_refine_candidates),
+            elbo_candidate_batch_size=int(elbo_candidate_batch_size),
+            lbfgs_memory=int(lbfgs_memory),
+            maxiter=int(maxiter),
+            parallel_workers=int(worker_count),
+            elbo_min=float(min(elbo_values)) if elbo_values else float("nan"),
+            elbo_max=float(max(elbo_values)) if elbo_values else float("nan"),
+            elbo_spread=float(max(elbo_values) - min(elbo_values)) if elbo_values else 0.0,
+        ),
     )
 
 
 def run_scipy_pathfinder_approximation(
-    model: SSMModel,
-    observations: jnp.ndarray,
-    times: jnp.ndarray,
+    priors: PriorRuntimeBundle,
+    panel: BoundPanel,
     *,
     trace_key: jnp.ndarray,
     pathfinder_key: jnp.ndarray,
-    reparam,
+    reparam: Strategy | None,
     n_ieks_iters: int,
     num_elbo_samples: int,
     maxiter: int,
@@ -793,24 +757,24 @@ def run_scipy_pathfinder_approximation(
     elbo_refine_candidates: int = 16,
     elbo_candidate_batch_size: int = 8,
     init_scale: float = 0.1,
+    clock: Callable[[], float],
 ) -> tuple[ScipyPathfinderResult, PathfinderDiagnostics]:
     """Run scipy Pathfinder on the IEKS-marginal log-posterior for parameters."""
+    observations, times = panel.observations, panel.times
     if n_pathfinder_starts < 1:
         raise ValueError("n_pathfinder_starts must be >= 1.")
     from nof1_causal_lab.models.ssm.inference.warmup.map import _build_map_laplace_bundle
 
-    total_t0 = time.monotonic()
-    setup_t0 = time.monotonic()
-    from nof1_causal_lab.models.ssm.inference.backend_factory import get_laplace_backend
+    total_t0 = clock()
+    setup_t0 = clock()
+    from nof1_causal_lab.models.ssm.inference.backend_factory import build_laplace_backend
 
-    backend = get_laplace_backend(model, n_ieks_iters)
-    laplace_bundle = _build_map_laplace_bundle(
-        model, observations, times, trace_key, backend, reparam
-    )
+    backend = build_laplace_backend(panel.model, n_ieks_iters, panel.observation_support)
+    laplace_bundle = _build_map_laplace_bundle(priors, panel, trace_key, backend, reparam)
     runtime_log_post_fn = laplace_bundle["log_posterior_fn"]
     flat_example = laplace_bundle["flat_example"]
     flat_dtype = flat_example.dtype
-    setup_seconds = time.monotonic() - setup_t0
+    setup_seconds = clock() - setup_t0
 
     def log_post_batch_np(x_batch: np.ndarray) -> np.ndarray:
         xj = jnp.asarray(x_batch, dtype=flat_dtype)
@@ -845,11 +809,11 @@ def run_scipy_pathfinder_approximation(
             int(elbo_candidate_batch_size) * int(num_elbo_samples),
         }
     )
-    compile_t0 = time.monotonic()
+    compile_t0 = clock()
     log_post_and_grad_np(base_np)
     for batch_size in compile_batch_sizes:
         log_post_batch_np(np.repeat(base_np[None, :], int(batch_size), axis=0))
-    jax_compile_seconds = time.monotonic() - compile_t0
+    jax_compile_seconds = clock() - compile_t0
     logger.info(
         "scipy_pathfinder: JAX compile/warm-up done in %.1fs (grad_shape=%s, value_batch_sizes=%s)",
         jax_compile_seconds,
@@ -861,7 +825,7 @@ def run_scipy_pathfinder_approximation(
         for _ in range(int(n_pathfinder_starts))
     ]
 
-    pathfinder_runtime_t0 = time.monotonic()
+    pathfinder_runtime_t0 = clock()
     result = scipy_pathfinder(
         log_post_batch_np,
         log_post_and_grad_np,
@@ -873,38 +837,37 @@ def run_scipy_pathfinder_approximation(
         elbo_candidate_batch_size=int(elbo_candidate_batch_size),
         seed=seed_int,
         parallel_workers=pathfinder_parallel_workers,
+        clock=clock,
     )
-    pathfinder_runtime_seconds = time.monotonic() - pathfinder_runtime_t0
+    pathfinder_runtime_seconds = clock() - pathfinder_runtime_t0
     pathfinder_elbos = [
-        float(item["best_elbo_this_start"])
-        for item in result.diagnostics["per_start"]
-        if item["best_elbo_this_start"] is not None
+        float(item.best_elbo_this_start)
+        for item in result.diagnostics.per_start
+        if item.best_elbo_this_start is not None
     ]
-    diagnostics: PathfinderDiagnostics = {
-        "n_pathfinder_starts": int(n_pathfinder_starts),
-        "n_pathfinder_starts_finite": int(result.diagnostics["n_starts_finite"]),
-        "pathfinder_parallel_workers": int(result.diagnostics["parallel_workers"]),
-        "pathfinder_setup_seconds": float(setup_seconds),
-        "pathfinder_jax_compile_seconds": float(jax_compile_seconds),
-        "pathfinder_jax_compile_batch_sizes": compile_batch_sizes,
-        "pathfinder_runtime_seconds": float(pathfinder_runtime_seconds),
-        "pathfinder_total_seconds": float(time.monotonic() - total_t0),
-        "best_pathfinder_elbo": float(result.best_elbo),
-        "pathfinder_elbo": float(result.best_elbo),
-        "pathfinder_elbo_min": float(result.diagnostics["elbo_min"]),
-        "pathfinder_elbo_max": float(result.diagnostics["elbo_max"]),
-        "pathfinder_elbo_spread": float(result.diagnostics["elbo_spread"]),
-        "pathfinder_elbos": pathfinder_elbos,
-        "pathfinder_maxiter": int(result.diagnostics["maxiter"]),
-        "pathfinder_lbfgs_memory": int(result.diagnostics["lbfgs_memory"]),
-        "pathfinder_elbo_samples": int(result.diagnostics["elbo_samples"]),
-        "pathfinder_elbo_screen_samples": int(result.diagnostics["elbo_screen_samples"]),
-        "pathfinder_elbo_refine_candidates": int(result.diagnostics["elbo_refine_candidates"]),
-        "pathfinder_elbo_candidate_batch_size": int(
-            result.diagnostics["elbo_candidate_batch_size"]
-        ),
-        "pathfinder_per_start": result.diagnostics["per_start"],
-    }
+    diagnostics: PathfinderDiagnostics = PathfinderDiagnostics(
+        n_pathfinder_starts=int(n_pathfinder_starts),
+        n_pathfinder_starts_finite=int(result.diagnostics.n_starts_finite),
+        pathfinder_parallel_workers=int(result.diagnostics.parallel_workers),
+        pathfinder_setup_seconds=float(setup_seconds),
+        pathfinder_jax_compile_seconds=float(jax_compile_seconds),
+        pathfinder_jax_compile_batch_sizes=tuple(compile_batch_sizes),
+        pathfinder_runtime_seconds=float(pathfinder_runtime_seconds),
+        pathfinder_total_seconds=float(clock() - total_t0),
+        best_pathfinder_elbo=float(result.best_elbo),
+        pathfinder_elbo=float(result.best_elbo),
+        pathfinder_elbo_min=float(result.diagnostics.elbo_min),
+        pathfinder_elbo_max=float(result.diagnostics.elbo_max),
+        pathfinder_elbo_spread=float(result.diagnostics.elbo_spread),
+        pathfinder_elbos=tuple(pathfinder_elbos),
+        pathfinder_maxiter=int(result.diagnostics.maxiter),
+        pathfinder_lbfgs_memory=int(result.diagnostics.lbfgs_memory),
+        pathfinder_elbo_samples=int(result.diagnostics.elbo_samples),
+        pathfinder_elbo_screen_samples=int(result.diagnostics.elbo_screen_samples),
+        pathfinder_elbo_refine_candidates=int(result.diagnostics.elbo_refine_candidates),
+        pathfinder_elbo_candidate_batch_size=int(result.diagnostics.elbo_candidate_batch_size),
+        pathfinder_per_start=tuple(result.diagnostics.per_start),
+    )
     return result, diagnostics
 
 
@@ -914,14 +877,14 @@ def sample_scipy_pathfinder_init_positions(
     *,
     sample_key: jnp.ndarray,
     num_chains: int,
-    dtype,
+    dtype: DTypeLike,
     pathfinder_init_scale: float | None = None,
     init_bundle: ParticleTarget | None = None,
     prior_released_sites: tuple[str, ...] = (),
     prior_release_scale: float = 0.05,
     release_jitter_key: jnp.ndarray | None = None,
     method_label: str = "sampler",
-) -> tuple[jnp.ndarray, InitializationDiagnostics]:
+) -> tuple[jnp.ndarray, ParticleInitializationDiagnostics]:
     """Sample per-chain initial positions from a fitted scipy Pathfinder state."""
     mean_np = np.asarray(jax.device_get(pathfinder_state.mean), dtype=np.float64)
     chol_np = np.asarray(jax.device_get(pathfinder_state.chol), dtype=np.float64)
@@ -963,15 +926,15 @@ def sample_scipy_pathfinder_init_positions(
             prior_values = flat_example[None, :] + float(prior_release_scale) * noise
             positions = jnp.where(mask_j[None, :], prior_values, positions)
 
-    diagnostics: InitializationDiagnostics = {
-        "init_method": "pathfinder",
-        "pathfinder_sampling_mode": sampling_mode,
-        "pathfinder_init_scale": pathfinder_init_scale,
-        **pathfinder_diagnostics,
-        "prior_released_site_names": list(prior_released_sites) if prior_site_indices else [],
-        "prior_released_site_indices": prior_site_indices,
-        "prior_release_scale": float(prior_release_scale) if prior_site_indices else 0.0,
-    }
+    diagnostics: ParticleInitializationDiagnostics = ParticleInitializationDiagnostics(
+        init_method="pathfinder",
+        pathfinder_sampling_mode=sampling_mode,
+        pathfinder_init_scale=pathfinder_init_scale,
+        pathfinder=pathfinder_diagnostics,
+        prior_released_site_names=tuple(list(prior_released_sites) if prior_site_indices else []),
+        prior_released_site_indices=tuple(prior_site_indices),
+        prior_release_scale=float(prior_release_scale) if prior_site_indices else 0.0,
+    )
     return positions, diagnostics
 
 

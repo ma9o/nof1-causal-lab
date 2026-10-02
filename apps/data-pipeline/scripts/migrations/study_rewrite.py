@@ -8,13 +8,16 @@ from typing import TYPE_CHECKING, Any
 
 import pygit2
 
+from nof1_causal_lab.artifacts.identity import scientific_id
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.model_inputs import input_fingerprints
 from nof1_causal_lab.utils.arrays import read_array
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
+    from collections.abc import Callable, Mapping
     from pathlib import Path
+
+    from nof1_causal_lab.json_types import JsonObject, JsonValue
 
 
 def rewrite_study(
@@ -25,8 +28,11 @@ def rewrite_study(
     mapping_name: str,
     source_format: int,
     target_format: int,
+    preserve_model_meaning: bool = False,
     update_file: Callable[[str, str, Any], Any] | None = None,
     rename_entry: Callable[[str], str | None] | None = None,
+    additional_files: Callable[[str], JsonObject] | None = None,
+    check_preimages: Mapping[str, JsonValue] | None = None,
     layout: tuple[str, str] = ("study", "study"),
 ) -> dict[str, str]:
     """Copy a stopped study and rewrite its Git graph and stored revision references.
@@ -35,7 +41,11 @@ def rewrite_study(
     name. `rename_entry` renames a stored file, or drops it by returning None. `layout`
     names the directory holding the repository before and after the copy. Changed
     objects get new Git identities and references to them follow. Model owners
-    receive translated input fingerprints; saved readers retain their consumed inputs.
+    receive translated input fingerprints. Representation-only conversions translate
+    matching consumed fingerprints; stale inputs remain stale. `additional_files`
+    publishes retained metadata not represented by the target record. `check_preimages`
+    names recognized check hashes whose retained inputs need representation translation.
+    Unrecognized (including stale or older-policy) hashes stay unchanged.
     """
     source_layout, destination_layout = layout
     if destination.exists() or destination.resolve().is_relative_to(source.resolve()):
@@ -60,10 +70,9 @@ def rewrite_study(
                     )
                 if "artifacts/model" in commit.tree:
                     models.add(str(commit.tree["artifacts/model"].id))
-    # Model owners receive their translated fingerprints. Saved readers keep
-    # their original inputs, so the existing freshness comparison marks them
-    # stale when the model's scientific meaning changed.
+    # The converter explicitly declares whether only the representation changes.
     model_inputs: dict[str, dict[str, str]] = {}
+    original_inputs: dict[str, dict[str, str]] = {}
     for oid in models:
         tree = repo[pygit2.Oid(hex=oid)].peel(pygit2.Tree)
         model = ModelSpec.model_validate(
@@ -75,16 +84,51 @@ def rewrite_study(
             },
         )
         model_inputs[oid] = input_fingerprints(model)
+        original_inputs[oid] = json.loads(tree["meta.json"].peel(pygit2.Blob).data)["model_inputs"]
     mapping: dict[str, str] = {}
     active: set[str] = set()
 
+    fingerprint_replacements = {
+        original_inputs[oid][purpose]: fingerprint
+        for oid, inputs in model_inputs.items()
+        for purpose, fingerprint in inputs.items()
+    }
+
+    def check_inputs(value):
+        if isinstance(value, dict):
+            return {key: check_inputs(item) for key, item in value.items()}
+        if isinstance(value, list):
+            return [check_inputs(item) for item in value]
+        if isinstance(value, str):
+            return fingerprint_replacements.get(value, value)
+        return value
+
     def rewrite(value):
         if isinstance(value, dict):
-            return {rewrite(key): rewrite(item) for key, item in value.items()}
+            owned = value
+            if (
+                preserve_model_meaning
+                and value.get("artifact_id") == "model"
+                and value.get("revision") in model_inputs
+            ):
+                owned = {**value, "model_inputs": model_inputs[value["revision"]]}
+            if preserve_model_meaning and "consumed_model_inputs" in value:
+                source_model = value.get("derived_from", {}).get("model")
+                if source_model in model_inputs:
+                    consumed = {
+                        purpose: model_inputs[source_model][purpose]
+                        if fingerprint == original_inputs[source_model][purpose]
+                        else fingerprint
+                        for purpose, fingerprint in value["consumed_model_inputs"].items()
+                    }
+                    owned = {**owned, "consumed_model_inputs": consumed}
+            return {rewrite(key): rewrite(item) for key, item in owned.items()}
         if isinstance(value, list):
             return [rewrite(item) for item in value]
         if isinstance(value, str) and value in revisions:
             return migrate(value)
+        if isinstance(value, str) and check_preimages is not None and value in check_preimages:
+            return scientific_id("check", rewrite(check_inputs(update(check_preimages[value]))))
         return value
 
     def migrate(oid):
@@ -133,17 +177,30 @@ def rewrite_study(
                 else:
                     replacement = entry.id
                 builder.insert(name, replacement, entry.filemode)
+            if additional_files is not None:
+                for name, payload in additional_files(oid).items():
+                    builder.insert(
+                        name,
+                        repo.create_blob(json.dumps(rewrite(payload), sort_keys=True).encode()),
+                        pygit2.GIT_FILEMODE_BLOB,
+                    )
             result = builder.write()
         mapping[oid] = str(result)
         active.remove(oid)
         return str(result)
 
     replacements = {name: migrate(oid) for name, oid in refs.items()}
-    for name, oid in replacements.items():
-        target = name.rsplit("/", 1)[0] + "/" + oid if name.startswith("refs/artifacts/") else name
-        if target != name:
-            repo.references.delete(name)
-        repo.references.create(target, pygit2.Oid(hex=oid), force=True)
+    targets = {
+        name.rsplit("/", 1)[0] + "/" + oid if name.startswith("refs/artifacts/") else name: oid
+        for name, oid in replacements.items()
+    }
+    with repo.transaction() as transaction:
+        for name in sorted(set(refs) | set(targets)):
+            transaction.lock_ref(name)
+        for name in set(refs) - set(targets):
+            transaction.remove(name)
+        for name, oid in targets.items():
+            transaction.set_target(name, pygit2.Oid(hex=oid))
     (destination / mapping_name).write_text(json.dumps(mapping, indent=2) + "\n")
     repo.config["nof1.format"] = target_format
     return mapping

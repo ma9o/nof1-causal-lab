@@ -1,3 +1,4 @@
+import time
 from typing import Any, ClassVar
 
 import numpy as np
@@ -60,14 +61,15 @@ def test_scipy_pathfinder_uses_accepted_iterates_for_custom_history(monkeypatch)
         elbo_samples=8,
         elbo_candidate_batch_size=4,
         seed=0,
+        clock=time.monotonic,
     )
 
-    per_start = result.diagnostics["per_start"][0]
-    assert per_start["n_trajectory_points"] == 3
-    assert per_start["n_lbfgs_iterations"] == 2
-    assert per_start["n_valid_iterates"] == 2
-    assert per_start["n_elbo_candidates"] == 3
-    assert per_start["n_elbo_batch_evaluations"] == 1
+    per_start = result.diagnostics.per_start[0]
+    assert per_start.n_trajectory_points == 3
+    assert per_start.n_lbfgs_iterations == 2
+    assert per_start.n_valid_iterates == 2
+    assert per_start.n_elbo_candidates == 3
+    assert per_start.n_elbo_batch_evaluations == 1
     assert call_counts["value_batch"] == 1
     assert batch_sizes == [32]
     assert call_counts["value_and_grad"] > call_counts["value_batch"]
@@ -141,13 +143,14 @@ def test_scipy_pathfinder_submits_multistarts_to_thread_pool(monkeypatch):
         elbo_candidate_batch_size=2,
         parallel_workers=2,
         seed=0,
+        clock=time.monotonic,
     )
 
     executor = _RecordingExecutor.instances[0]
     assert executor.max_workers == 2
     assert len(executor.submissions) == 3
-    assert result.diagnostics["parallel_workers"] == 2
-    assert [item["start_idx"] for item in result.diagnostics["per_start"]] == [0, 1, 2]
+    assert result.diagnostics.parallel_workers == 2
+    assert [item.start_idx for item in result.diagnostics.per_start] == [0, 1, 2]
 
 
 def test_scipy_pathfinder_finds_valid_custom_iterates_on_gaussian_target():
@@ -169,8 +172,9 @@ def test_scipy_pathfinder_finds_valid_custom_iterates_on_gaussian_target():
         elbo_samples=20,
         elbo_candidate_batch_size=4,
         seed=0,
+        clock=time.monotonic,
     )
 
-    per_start = result.diagnostics["per_start"][0]
-    assert per_start["n_valid_iterates"] > 0
+    per_start = result.diagnostics.per_start[0]
+    assert per_start.n_valid_iterates > 0
     np.testing.assert_allclose(result.mean, np.zeros((2,), dtype=np.float64), atol=1e-3)

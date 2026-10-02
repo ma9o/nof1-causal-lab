@@ -1,128 +1,360 @@
-"""Attempt records stored in study commits, their commit views and dependency links."""
+"""Correlated scientific attempts; Git publication and attempt metadata have one owner."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING, Annotated, Literal, Self
 from uuid import UUID
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, Field
 
-from nof1_causal_lab.artifacts.identity import ActionId, GitOid
-from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
-from nof1_causal_lab.json_types import JsonObject
-from nof1_causal_lab.study.state import ArtifactRecord, RetractedArtifact, StudyState
+from nof1_causal_lab.actions.contracts import (
+    EditModelRequest,
+    FitRequest,
+    PrepareDataRequest,
+    ScientificActionRequest,
+    SimulateRequest,
+)
+from nof1_causal_lab.actions.effects import ActionEffects
+from nof1_causal_lab.artifacts.base import Value
+from nof1_causal_lab.artifacts.data_preparation import SimulationReplicateRef
+from nof1_causal_lab.artifacts.identity import GitOid, GitRef
+from nof1_causal_lab.artifacts.posterior import InferenceReport
+from nof1_causal_lab.artifacts.simulation import SimulationReport
+from nof1_causal_lab.study.state import StudyState
+from nof1_causal_lab.study.view_models import (
+    DataDiffReport,
+    DataDiffRequest,
+    PanelRef,
+    SimulationRef,
+)
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Iterable, Sequence
 
 
-class ActionMessage(BaseModel):
-    """One label emitted by an action; scientific measurements belong in its body."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
+class ActionMessage(Value):
+    """A label emitted by an attempt; measurements belong in its scientific result."""
 
     timestamp: AwareDatetime
     level: Literal["debug", "info", "warn", "error"]
     label: str = Field(pattern=r"^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$")
 
 
-type JournalStatus = Literal["applied", "rejected", "raised"]
+class _ExtractionWorkerMeasurements(Value):
+    """Retained extraction measurements, independent of a transient result-file path."""
+
+    worker_id: int
+    n_extractions: int
+    n_windows: int
+    n_llm_calls: int | None = None
+    reused: bool | None = None
 
 
-class AttemptRecord(BaseModel):
-    """One journaled action attempt — applied, rejected, or raised.
+class CompletedExtractionWorker(_ExtractionWorkerMeasurements):
+    """Retained measurements from a completed worker; no failure field exists."""
 
-    Stored in its owning Git commit. Rejected and raised attempts retain logs
-    without advancing the scientific branch.
-    """
+    status: Literal["completed"] = "completed"
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
 
+class FailedExtractionChunk(_ExtractionWorkerMeasurements):
+    """An extraction failure with its error and no usable result-file reference."""
+
+    status: Literal["failed"] = "failed"
+    error: str
+    n_llm_calls: int | None = 0
+    reused: bool | None = False
+
+
+type ExtractionWorkerResult = Annotated[
+    CompletedExtractionWorker | FailedExtractionChunk, Field(discriminator="status")
+]
+
+
+class ModelEditResult(ActionEffects):
+    """The model/check artifacts are the result; the selected base remains explicit."""
+
+    action: Literal["edit_model"] = "edit_model"
+    base: GitRef | None = None
+
+
+class DataPreparationResult(ActionEffects):
+    """Preparation artifacts and the measurements actually retained by extraction."""
+
+    action: Literal["prepare_data"] = "prepare_data"
+    raw_data: GitRef | None = None
+    model: GitRef | None = None
+    simulation_source: SimulationReplicateRef | None = None
+    n_observations: int | None = None
+    workers: tuple[ExtractionWorkerResult, ...] = ()
+    ingestion_reused: bool | None = None
+    extraction_reused: int | None = None
+
+
+class ModelFitResult(ActionEffects):
+    """One retained fit report, with the exact inputs and truthful retention state."""
+
+    action: Literal["fit"] = "fit"
+    model: GitRef
+    panel: GitRef
+    report: InferenceReport
+    retention: Literal["joint", "report_only"] = "joint"
+
+    @staticmethod
+    def from_remote(payload: object) -> ModelFitResult:
+        """Decode the foreign compute transport once in the target's owner."""
+        return ModelFitResult.model_validate(payload)
+
+
+class ModelSimulationResult(ActionEffects):
+    """The report owns its model reference; the selected panel is separately pinned."""
+
+    action: Literal["simulate"] = "simulate"
+    panel: GitRef | None = None
+    report: SimulationReport
+
+
+class DataComparisonResult(ActionEffects):
+    """A retained data comparison; it never installs scientific artifacts."""
+
+    action: Literal["data_diff"] = "data_diff"
+    report: DataDiffReport
+
+
+type ActionBody = Annotated[
+    ModelEditResult
+    | DataPreparationResult
+    | ModelFitResult
+    | ModelSimulationResult
+    | DataComparisonResult,
+    Field(discriminator="action"),
+]
+
+
+class Applied[ResultT: ActionEffects](Value):
+    status: Literal["applied"] = "applied"
+    result: ResultT
+
+
+class Rejected[ReasonT](Value):
+    status: Literal["rejected"] = "rejected"
+    reason: ReasonT
+    detail: str
+
+
+class Raised(Value):
+    status: Literal["raised"] = "raised"
+    error_type: str
+    error_message: str
+    # Foreign failure payloads are retained as opaque text, never scientific inputs.
+    details: tuple[str, ...] = ()
+
+
+type RejectionReason = Literal[
+    "revision_conflict", "input_unavailable", "scientific_inputs", "recorded_rejection"
+]
+type FailedOutcome = Rejected[RejectionReason] | Raised
+
+
+class EditAttempt(Value):
+    action: Literal["edit_model"] = "edit_model"
+    request: EditModelRequest | None
+    outcome: Annotated[
+        Applied[ModelEditResult] | Rejected[RejectionReason] | Raised, Field(discriminator="status")
+    ]
+
+
+class PrepareAttempt(Value):
+    action: Literal["prepare_data"] = "prepare_data"
+    request: PrepareDataRequest | None
+    outcome: Annotated[
+        Applied[DataPreparationResult] | Rejected[RejectionReason] | Raised,
+        Field(discriminator="status"),
+    ]
+
+
+class FitAttempt(Value):
+    action: Literal["fit"] = "fit"
+    request: FitRequest | None
+    outcome: Annotated[
+        Applied[ModelFitResult] | Rejected[RejectionReason] | Raised, Field(discriminator="status")
+    ]
+
+
+class SimulateAttempt(Value):
+    action: Literal["simulate"] = "simulate"
+    request: SimulateRequest | None
+    outcome: Annotated[
+        Applied[ModelSimulationResult] | Rejected[RejectionReason] | Raised,
+        Field(discriminator="status"),
+    ]
+
+
+class DataDiffAttempt(Value):
+    action: Literal["data_diff"] = "data_diff"
+    request: DataDiffRequest | None
+    outcome: Annotated[
+        Applied[DataComparisonResult] | Rejected[RejectionReason] | Raised,
+        Field(discriminator="status"),
+    ]
+
+
+type ActionAttempt = Annotated[
+    EditAttempt | PrepareAttempt | FitAttempt | SimulateAttempt | DataDiffAttempt,
+    Field(discriminator="action"),
+]
+
+
+class AttemptMetadata(Value):
     seq: int
     attempt_id: UUID | None = None
     branch: str = "main"
     ts: str
-    action: ActionId
-    inputs: JsonObject = Field(default_factory=dict)
-    status: JournalStatus
-    reason: str | None = None
-    error_type: str | None = None
-    error_message: str | None = None
-    diagnostics: JsonObject = Field(default_factory=dict)
-    checks: ModelCheckReport | None = None
     messages: tuple[ActionMessage, ...] = ()
-    produced: list[ArtifactRecord] = Field(default_factory=list)
-    retracted: list[RetractedArtifact] = Field(default_factory=list)
-    trace_ids: list[str]
+    trace_ids: tuple[str, ...] = ()
 
 
-class StudyRevision(AttemptRecord):
-    """One Git commit's parent links and its action log."""
+class AttemptRecord(AttemptMetadata):
+    """Stored inside the Git object, with no self-referential publication ID."""
+
+    attempt: ActionAttempt
+
+    def with_logs(self, *, messages: tuple[ActionMessage, ...], trace_ids: tuple[str, ...]) -> Self:
+        return self.model_copy(update={"messages": messages, "trace_ids": trace_ids})
+
+
+class StudyRevision(Value):
+    """Git publication wraps its already-owned record, without copying its fields."""
 
     commit_id: GitOid
-    parent_ids: list[GitOid]
+    parent_ids: tuple[GitOid, ...]
+    record: AttemptRecord
 
 
-class RecordDependency(BaseModel):
-    """A journal record used an output of an earlier record."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
+class RecordDependency(Value):
     seq: int
     source_seq: int
     argument: str
     check: bool = Field(
-        description="Only the action's checks read the output; its request did not name it.",
+        description="Only the action's checks read the output; its request did not name it."
     )
 
 
-def _argument_revisions(inputs: JsonObject) -> list[tuple[str, str]]:
-    """Revisions a request named: fields ending in `revision`, and refs that carry one.
+def failed_attempt(
+    request: ScientificActionRequest | DataDiffRequest, outcome: FailedOutcome
+) -> ActionAttempt:
+    """Close the action/request relation for a rejection or execution failure."""
+    match request:
+        case EditModelRequest():
+            return EditAttempt(request=request, outcome=outcome)
+        case PrepareDataRequest():
+            return PrepareAttempt(request=request, outcome=outcome)
+        case FitRequest():
+            return FitAttempt(request=request, outcome=outcome)
+        case SimulateRequest():
+            return SimulateAttempt(request=request, outcome=outcome)
+        case DataDiffRequest():
+            return DataDiffAttempt(request=request, outcome=outcome)
+    raise TypeError("Unknown action request")
 
-    The field names the argument (`expected_revision` is the model an edit revises); a ref names
-    its field, and prepare_data's `input` ref is a simulation replicate.
-    """
-    pins: list[tuple[str, str]] = []
-    for key, value in inputs.items():
-        if key.endswith("revision") and isinstance(value, str):
-            pins.append(
-                ("model" if key == "expected_revision" else key.removesuffix("_revision"), value)
+
+def applied_attempt(
+    request: ScientificActionRequest | DataDiffRequest, result: ActionBody
+) -> ActionAttempt:
+    """The execution transport is closed again before publication; mismatches are bugs."""
+    match request, result:
+        case EditModelRequest(), ModelEditResult():
+            return EditAttempt(request=request, outcome=Applied(result=result))
+        case PrepareDataRequest(), DataPreparationResult():
+            return PrepareAttempt(request=request, outcome=Applied(result=result))
+        case FitRequest(), ModelFitResult():
+            return FitAttempt(request=request, outcome=Applied(result=result))
+        case SimulateRequest(), ModelSimulationResult():
+            return SimulateAttempt(request=request, outcome=Applied(result=result))
+        case DataDiffRequest(), DataComparisonResult():
+            return DataDiffAttempt(request=request, outcome=Applied(result=result))
+        case _:
+            raise TypeError("Action result does not match its request")
+
+
+def argument_revisions(attempt: ActionAttempt) -> tuple[tuple[str, GitOid], ...]:
+    """Explicit request fields and retained input refs replace suffix scanning."""
+    request, outcome = attempt.request, attempt.outcome
+    match request:
+        case EditModelRequest(expected_revision=revision):
+            return (("model", revision),) if revision is not None else ()
+        case FitRequest(model_revision=model, panel_revision=panel):
+            return (("model", model), ("panel", panel))
+        case SimulateRequest(model_revision=model):
+            return (("model", model),)
+        case PrepareDataRequest(input=SimulationReplicateRef(revision=revision)):
+            return (("simulation", revision),)
+        case DataDiffRequest():
+            return tuple(
+                (name, ref.revision)
+                for name, selection in (("left", request.left), ("right", request.right))
+                for ref in (
+                    (selection,) if isinstance(selection, (PanelRef, SimulationRef)) else selection
+                )
             )
-        for ref in value if isinstance(value, list) else [value]:
-            if isinstance(ref, dict) and isinstance(revision := ref.get("revision"), str):
-                pins.append(("simulation" if key == "input" else key, revision))
-    return pins
+        case PrepareDataRequest() | None:
+            pass
+    if isinstance(outcome, Applied):
+        match outcome.result:
+            case ModelEditResult(base=base):
+                return (("model", base.revision),) if base is not None else ()
+            case ModelFitResult(model=model, panel=panel):
+                return (("model", model.revision), ("panel", panel.revision))
+            case DataPreparationResult(simulation_source=SimulationReplicateRef(revision=revision)):
+                return (("simulation", revision),)
+            case DataPreparationResult(raw_data=raw, model=model):
+                return tuple(
+                    (name, ref.revision)
+                    for name, ref in (("raw_data", raw), ("model", model))
+                    if ref is not None
+                )
+            case ModelSimulationResult(report=report):
+                return (("model", report.model.revision),)
+            case DataComparisonResult(report=report):
+                return tuple(
+                    (name, ref.revision)
+                    for name, refs in (("left", report.left), ("right", report.right))
+                    for ref in refs
+                )
+    return ()
 
 
-def record_dependencies(records: Sequence[StudyRevision]) -> list[RecordDependency]:
-    """Link each record to the earlier records whose outputs it took, in journal order.
-
-    Arguments are the revisions its request named, plus the previous revision of any artifact it
-    revised. Other pins on its new outputs are reads by its checks. A simulation is referenced by
-    its commit; every other output by its artifact revision, which keeps its first producer.
-    """
-    producers: dict[str, int] = {}
-    for record in records:
-        if record.status != "applied":
+def record_dependencies(revisions: Sequence[StudyRevision]) -> list[RecordDependency]:
+    """Link explicit inputs and derived artifact pins to their first producer."""
+    producers: dict[GitOid, int] = {}
+    for revision in revisions:
+        record = revision.record
+        outcome = record.attempt.outcome
+        if not isinstance(outcome, Applied):
             continue
-        for artifact in record.produced:
+        for artifact in outcome.result.produced:
             producers.setdefault(artifact.revision, record.seq)
-        if record.action == "simulate":
-            producers[record.commit_id] = record.seq
+        if isinstance(record.attempt, SimulateAttempt):
+            producers[revision.commit_id] = record.seq
     dependencies: list[RecordDependency] = []
-    for record in records:
+    for revision in revisions:
+        record = revision.record
         arguments: dict[int, str] = {}
-        for name, revision in _argument_revisions(record.inputs):
-            source = producers.get(revision)
+        for name, identity in argument_revisions(record.attempt):
+            source = producers.get(identity)
             if source is not None and source < record.seq:
                 arguments.setdefault(source, name)
-        pins = [
-            (artifact.artifact_id, artifact_id, source)
-            for artifact in record.produced
-            if producers.get(artifact.revision) == record.seq
-            for artifact_id, revision in artifact.derived_from.items()
-            if (source := producers.get(revision)) is not None and source < record.seq
-        ]
+        outcome = record.attempt.outcome
+        pins = (
+            [
+                (artifact.artifact_id, artifact_id, source)
+                for artifact in outcome.result.produced
+                if producers.get(artifact.revision) == record.seq
+                for artifact_id, identity in artifact.derived_from.items()
+                if (source := producers.get(identity)) is not None and source < record.seq
+            ]
+            if isinstance(outcome, Applied)
+            else []
+        )
         for produced, artifact_id, source in pins:
             if artifact_id == produced:
                 arguments.setdefault(source, artifact_id)
@@ -130,21 +362,36 @@ def record_dependencies(records: Sequence[StudyRevision]) -> list[RecordDependen
         for _, artifact_id, source in pins:
             if source not in arguments:
                 checks.setdefault(source, artifact_id)
-        dependencies += [
-            RecordDependency(seq=record.seq, source_seq=source, argument=argument, check=False)
-            for source, argument in arguments.items()
-        ]
-        dependencies += [
-            RecordDependency(seq=record.seq, source_seq=source, argument=argument, check=True)
-            for source, argument in checks.items()
-        ]
+        dependencies.extend(
+            RecordDependency(seq=record.seq, source_seq=source, argument=name, check=False)
+            for source, name in arguments.items()
+        )
+        dependencies.extend(
+            RecordDependency(seq=record.seq, source_seq=source, argument=name, check=True)
+            for source, name in checks.items()
+        )
     return dependencies
 
 
-class BranchBase(BaseModel):
+class BranchBase(Value):
     """Immutable execution base, captured before an action starts."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
 
     commit_id: GitOid
     state: StudyState
+
+
+def inference_record[T: StudyRevision](records: Iterable[T], model_revision: GitOid) -> T | None:
+    """Find the committed inference operation that produced this exact model value."""
+    return next(
+        (
+            record
+            for record in reversed(list(records))
+            if isinstance(record.record.attempt, FitAttempt)
+            and isinstance(record.record.attempt.outcome, Applied)
+            and any(
+                info.artifact_id == "model" and info.revision == model_revision
+                for info in record.record.attempt.outcome.result.produced
+            )
+        ),
+        None,
+    )

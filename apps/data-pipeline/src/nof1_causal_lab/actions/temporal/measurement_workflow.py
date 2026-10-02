@@ -9,8 +9,9 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ChildWorkflowError
 
+from nof1_causal_lab.actions.errors import execution_failure_handler
+
 with workflow.unsafe.imports_passed_through():
-    from nof1_causal_lab.actions.effects import ActionEffects
     from nof1_causal_lab.actions.progress import (
         ExtractionPlanEvent,
         ExtractionSnapshotEvent,
@@ -20,9 +21,11 @@ with workflow.unsafe.imports_passed_through():
         StepEvent,
     )
     from nof1_causal_lab.actions.temporal.messages import (
+        CompletedExtractionChunk,
         ExtractionChunkFinalizeInput,
         ExtractionChunkResult,
         ExtractionChunkWorkflowInput,
+        FailedExtractionChunk,
         LLMSubroutineInput,
         LLMSubroutineResult,
         MeasurementChunkRef,
@@ -32,8 +35,9 @@ with workflow.unsafe.imports_passed_through():
     )
     from nof1_causal_lab.actions.temporal.workflow_support import (
         emit_progress,
-        temporal_failure_details,
+        temporal_failure,
     )
+    from nof1_causal_lab.study.records import DataPreparationResult
 
 _PLAN_TIMEOUT = timedelta(minutes=30)
 _FINALIZE_CHUNK_TIMEOUT = timedelta(minutes=5)
@@ -55,14 +59,15 @@ _CHUNK_WORKFLOW_RETRY = RetryPolicy(
 @workflow.defn
 class ExtractionChunkWorkflow:
     @workflow.run
-    async def run(self, input: ExtractionChunkWorkflowInput) -> ExtractionChunkResult:
+    @execution_failure_handler
+    async def run(self, input: ExtractionChunkWorkflowInput) -> CompletedExtractionChunk:
         attempt = workflow.info().attempt
         subroutine_id = f"measurement-chunk-{input.worker_id:06d}-attempt-{attempt:03d}"
         result_ref = input.cached_result_ref
         conversation_ref = ""
         n_llm_calls = 0
         if result_ref is None:
-            subroutine = await workflow.execute_child_workflow(
+            subroutine: LLMSubroutineResult = await workflow.execute_child_workflow(
                 "LLMSubroutineWorkflow",
                 LLMSubroutineInput(
                     workspace_id=input.workspace_id,
@@ -97,7 +102,7 @@ class ExtractionChunkWorkflow:
             result_ref = subroutine.result_ref
             conversation_ref = subroutine.conversation_ref
             n_llm_calls = subroutine.n_llm_calls
-        return await workflow.execute_activity(
+        result: CompletedExtractionChunk = await workflow.execute_activity(
             "finalize_extraction_chunk_activity",
             ExtractionChunkFinalizeInput(
                 workspace_id=input.workspace_id,
@@ -111,17 +116,19 @@ class ExtractionChunkWorkflow:
                 spec_ref=input.spec_ref,
                 reused=input.cached_result_ref is not None,
             ),
-            result_type=ExtractionChunkResult,
+            result_type=CompletedExtractionChunk,
             start_to_close_timeout=_FINALIZE_CHUNK_TIMEOUT,
             retry_policy=_ACTIVITY_RETRY,
             summary=f"Finalize extraction chunk {input.worker_id}",
         )
+        return result
 
 
 @workflow.defn
 class MeasurementsWorkflow:
     @workflow.run
-    async def run(self, input: MeasurementsWorkflowInput) -> ActionEffects:
+    @execution_failure_handler
+    async def run(self, input: MeasurementsWorkflowInput) -> DataPreparationResult:
         chunk_results: list[ExtractionChunkResult] = []
         attempt_id = input.attempt_id
 
@@ -130,7 +137,7 @@ class MeasurementsWorkflow:
 
         await emit(StepEvent(attempt_id=attempt_id, step="extraction", status="running"))
         try:
-            plan = await workflow.execute_activity(
+            plan: MeasurementsPlan = await workflow.execute_activity(
                 "plan_measurements_activity",
                 input,
                 result_type=MeasurementsPlan,
@@ -184,7 +191,7 @@ class MeasurementsWorkflow:
                     await emit_snapshot()
 
                     try:
-                        result = await workflow.execute_child_workflow(
+                        result: ExtractionChunkResult = await workflow.execute_child_workflow(
                             "ExtractionChunkWorkflow",
                             ExtractionChunkWorkflowInput(
                                 workspace_id=input.workspace_id,
@@ -202,7 +209,7 @@ class MeasurementsWorkflow:
                                 f"{input.seq:06d}-chunk-{chunk.worker_id:06d}"
                             ),
                             task_queue=workflow.info().task_queue,
-                            result_type=ExtractionChunkResult,
+                            result_type=CompletedExtractionChunk,
                             retry_policy=_CHUNK_WORKFLOW_RETRY,
                             static_summary=f"Extract measurements chunk {chunk.worker_id}",
                             static_details=(
@@ -218,13 +225,13 @@ class MeasurementsWorkflow:
                             },
                         )
                     except ChildWorkflowError as exc:
-                        _, failure_message, _ = temporal_failure_details(exc)
-                        result = ExtractionChunkResult(
+                        failure = temporal_failure(exc)
+                        result = FailedExtractionChunk(
                             worker_id=chunk.worker_id,
                             status="failed",
                             n_extractions=0,
                             n_windows=chunk.n_windows,
-                            error=failure_message,
+                            error=failure.error_message,
                         )
 
                     running_workers -= 1
@@ -240,7 +247,7 @@ class MeasurementsWorkflow:
                             n_windows=result.n_windows,
                             n_extractions=result.n_extractions,
                             n_llm_calls=result.n_llm_calls or None,
-                            error=result.error,
+                            error=result.error if result.status == "failed" else None,
                         )
                     )
                     await emit_snapshot()
@@ -250,7 +257,7 @@ class MeasurementsWorkflow:
             chunk_results = [await task for task in workflow.as_completed(tasks)]
             chunk_results.sort(key=lambda result: result.worker_id)
 
-            effects = await workflow.execute_activity(
+            effects: DataPreparationResult = await workflow.execute_activity(
                 "finalize_measurements_activity",
                 MeasurementsFinalizeInput(
                     workspace_id=input.workspace_id,
@@ -259,19 +266,19 @@ class MeasurementsWorkflow:
                     pins=plan.pins,
                     chunk_results=chunk_results,
                 ),
-                result_type=ActionEffects,
+                result_type=DataPreparationResult,
                 start_to_close_timeout=_FINALIZE_MEASUREMENTS_TIMEOUT,
                 retry_policy=_ACTIVITY_RETRY,
                 summary="Finalize measurements artifacts",
             )
         except Exception as exc:
-            failure_type, failure_message, _ = temporal_failure_details(exc)
+            failure = temporal_failure(exc)
             await emit(
                 StepEvent(
                     attempt_id=attempt_id,
                     step="extraction",
                     status="failed",
-                    error=StepError(type=failure_type, message=failure_message),
+                    error=StepError(type=failure.error_type, message=failure.error_message),
                 )
             )
             raise

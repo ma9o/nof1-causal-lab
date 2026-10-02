@@ -8,7 +8,8 @@ can be carried through JAX transformations without closing over traced arrays.
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, ClassVar, override
+from types import MappingProxyType
+from typing import TYPE_CHECKING, override
 
 import dynestyx as dsx
 import equinox as eqx
@@ -29,21 +30,26 @@ from nof1_causal_lab.models.ssm.execution.contracts import MeasurementParams
 from nof1_causal_lab.models.ssm.execution.observation_model import compile_observation_model
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+
     from dynestyx import StochasticContinuousTimeStateEvolution
+    from jax.typing import ArrayLike
 
     from nof1_causal_lab.artifacts.likelihood import LinkFunction
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.distributions import DistributionFamily
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
     from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
     from nof1_causal_lab.models.ssm.execution.contracts import (
         LikelihoodExtraParams,
     )
+    from nof1_causal_lab.models.ssm.execution.observation_dispatch import ObservationSampleFn
+    from nof1_causal_lab.models.ssm.execution.observation_model import ObservationKernel
     from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
 
 
 def continuous_state_evolution(
     vector_field: VectorField,
-    vf_params: tuple[dict[str, jax.Array], ...],
+    vf_params: tuple[Mapping[str, jax.Array], ...],
     diffusion: jax.Array,
     *,
     intervention: Intervention | None = None,
@@ -66,15 +72,21 @@ class HeterogeneousObservation(dsx.ObservationModel):
     links: tuple[LinkFunction, ...] = eqx.field(static=True)
     extra_params: LikelihoodExtraParams | None = None
 
+    def __post_init__(self) -> None:
+        if self.extra_params is not None:
+            object.__setattr__(self, "extra_params", MappingProxyType(dict(self.extra_params)))
+
     @override
-    def __call__(self, x, u, t):
+    def __call__(
+        self, x: jax.Array, u: jax.Array | None, t: float | int | jax.Array
+    ) -> _ObservationDistribution:
         del u, t
         return self.at_predictor(self.linear_predictor(x))
 
-    def linear_predictor(self, state):
+    def linear_predictor(self, state: jax.Array) -> jax.Array:
         return self.measurement.lambda_mat @ state + self.measurement.manifest_means
 
-    def at_predictor(self, predictor):
+    def at_predictor(self, predictor: jax.Array) -> _ObservationDistribution:
         """Use the same observation law with cached predictors and interval projections."""
         return _ObservationDistribution(predictor, self)
 
@@ -82,8 +94,15 @@ class HeterogeneousObservation(dsx.ObservationModel):
 class _ObservationDistribution(dist.Distribution):
     """NumPyro distribution for one heterogeneous measurement row."""
 
-    arg_constraints: ClassVar[dict[str, dist.constraints.Constraint]] = {}
-    support = dist.constraints.real_vector
+    _predictor: jax.Array
+    _measurement: MeasurementParams
+    _kernel: ObservationKernel
+    _sampler: ObservationSampleFn
+
+    @property
+    @override
+    def support(self) -> dist.constraints.Constraint:
+        return dist.constraints.real_vector
 
     def __init__(self, predictor: jax.Array, observation: HeterogeneousObservation) -> None:
         self._predictor = predictor
@@ -103,10 +122,11 @@ class _ObservationDistribution(dist.Distribution):
         )
 
     @property
-    def mean(self):
+    def mean(self) -> jax.Array:
         return self._kernel.response_fn(self._predictor)
 
-    def sample(self, key: jax.Array, sample_shape: tuple[int, ...] = ()) -> jax.Array:
+    def sample(self, key: jax.Array | None, sample_shape: tuple[int, ...] = ()) -> jax.Array:
+        assert key is not None  # This stochastic distribution requires a NumPyro PRNG key.
         if not sample_shape:
             return self._sampler(key, self._predictor)
         from math import prod
@@ -115,7 +135,8 @@ class _ObservationDistribution(dist.Distribution):
         flat = jax.vmap(lambda k: self._sampler(k, self._predictor))(keys)
         return flat.reshape((*sample_shape, *self.event_shape))
 
-    def log_prob(self, value: jax.Array) -> jax.Array:
+    def log_prob(self, value: ArrayLike, intermediates: list[object] | None = None) -> jax.Array:
+        del intermediates
         observation = jnp.asarray(value)
         mask = ~jnp.isnan(observation)
         filled = jnp.nan_to_num(observation, nan=0.0)
@@ -132,7 +153,7 @@ class _ObservationDistribution(dist.Distribution):
 
 
 def initial_state_distribution(
-    spec: ModelSpec,
+    spec: CompiledModel,
     mean: jax.Array,
     covariance: jax.Array,
     *,
@@ -152,9 +173,9 @@ def initial_state_distribution(
 
 def assemble_likelihood_inputs(
     samples: dict[str, jnp.ndarray],
-    spec: ModelSpec,
+    spec: CompiledModel,
     *,
-    registry: list[SiteDescriptor],
+    registry: Sequence[SiteDescriptor],
     dynamics: DynamicsSpec | None = None,
     intervention: Intervention | None = None,
     input_values: jax.Array | None = None,
@@ -167,8 +188,8 @@ def assemble_likelihood_inputs(
     """Consume the canonical deterministic values from NumPyro's prior replay."""
     from nof1_causal_lab.models.ssm.parameterization import assemble_extra_params_from_registry
 
-    dynamics_spec = numeric.dynamics_components(spec) if dynamics is None else dynamics
-    compiled = compile_dynamics(dynamics_spec)
+    dynamics_spec = spec.dynamics.spec if dynamics is None else dynamics
+    compiled = spec.dynamics if dynamics is None else compile_dynamics(dynamics_spec)
     diffusion_chol = samples["diffusion"]
     evolution = continuous_state_evolution(
         vector_field=compiled.vector_field,
@@ -189,22 +210,20 @@ def assemble_likelihood_inputs(
 
 
 def build_dynamical_model(
-    model_spec: ModelSpec,
+    model_spec: CompiledModel,
     values: dict[str, jnp.ndarray],
     *,
     t0: jax.Array,
     dynamics: DynamicsSpec | None = None,
 ) -> dsx.DynamicalModel:
-    """Construct Dynestyx's model from the source ModelSpec and one parameter draw.
+    """Construct Dynestyx's model from the compiled model and one parameter draw.
 
     Values include the matrices derived by assemble_model_matrices or by
     NumPyro's prior replay. An execution-only dynamics override supports paired
     edge-off admission contrasts while retaining the same measurement and initial laws.
     """
-    from nof1_causal_lab.models.ssm.parameterization import build_site_registry
-
     evolution, measurement, initial, extra_params = assemble_likelihood_inputs(
-        values, model_spec, registry=build_site_registry(model_spec), dynamics=dynamics
+        values, model_spec, registry=model_spec.site_registry, dynamics=dynamics
     )
     return dsx.DynamicalModel(
         initial_condition=initial,

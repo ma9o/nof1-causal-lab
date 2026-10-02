@@ -9,6 +9,7 @@ from nof1_causal_lab.artifacts.expressions import BinaryExpression
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
 from nof1_causal_lab.models.ssm.compile.prior_compilation import compile_priors
+from tests.model_fixtures import compile_model_fixture
 
 
 @pytest.fixture(scope="module")
@@ -26,23 +27,16 @@ def two_hills():
 def test_independent_hill_coefficients_survive_reorder_rename_and_submission(two_hills):
     model = two_hills
     edge = model.edges[0]
-    model.check_execution()
-    before = parameter_bindings(model)[0]
-    before_priors = compile_priors(model)[0]
+    compile_model_fixture(model)
+    before = parameter_bindings(compile_model_fixture(model))[0]
+    before_priors = compile_priors(compile_model_fixture(model), model)[0]
     revised = model.revised(
-        edges=(
-            type(edge).model_validate(
-                {**edge.model_dump(), "mechanisms": tuple(reversed(edge.mechanisms))}
-            ),
-        ),
-        parameters=tuple(
-            type(p).model_validate({**p.model_dump(), "name": f"new label {i}"})
-            for i, p in enumerate(model.parameters)
-        ),
+        edges=(edge.revised(mechanisms=tuple(reversed(edge.mechanisms))),),
+        parameters=tuple(p.revised(name=f"new label {i}") for i, p in enumerate(model.parameters)),
     )
-    revised.check_execution()
-    after = parameter_bindings(revised)[0]
-    after_priors = compile_priors(revised)[0]
+    compile_model_fixture(revised)
+    after = parameter_bindings(compile_model_fixture(revised))[0]
+    after_priors = compile_priors(compile_model_fixture(revised), revised)[0]
     identities = {p.id for term in edge.mechanisms for p in model.parameters_for(term.id)}
     assert len(identities) == 6
     old = {b.parameter_id: b for b in before if b.parameter_id in identities}
@@ -63,9 +57,7 @@ def test_independent_hill_coefficients_survive_reorder_rename_and_submission(two
     removed_ids = {p.id for p in model.parameters_for(edge.mechanisms[1].id)}
     remaining = tuple(p for p in model.parameters if p.id not in removed_ids)
     edited = model.revised(
-        edges=(
-            type(edge).model_validate({**edge.model_dump(), "mechanisms": (edge.mechanisms[0],)}),
-        ),
+        edges=(edge.revised(mechanisms=(edge.mechanisms[0],)),),
         parameters=remaining,
         distributions={
             key: law
@@ -74,7 +66,7 @@ def test_independent_hill_coefficients_survive_reorder_rename_and_submission(two
         },
     )
     assert {p.id for p in edited.parameters} == {p.id for p in model.parameters} - removed_ids
-    edited.check_execution()
+    compile_model_fixture(edited)
 
 
 @pytest.mark.contract
@@ -84,27 +76,22 @@ def test_term_identity_rejects_ambiguous_or_dangling_revisions(two_hills, change
     edge = model.edges[0]
     first, second = edge.mechanisms
     if change == "duplicate":
-        terms = (first, type(second).model_validate({**second.model_dump(), "id": first.id}))
+        terms = (first, second.revised(id=first.id))
     elif change == "wrong_coefficient":
         terms = (
             first,
-            type(second).model_validate(
-                {
-                    **second.model_dump(),
-                    "expression": BinaryExpression.model_validate_json(
-                        (
-                            Path(__file__).resolve().parents[2]
-                            / "fixtures/models"
-                            / "mechanism_identity/term_identity_rejects_ambiguous_or_dangling_revisions_map_expression.json"
-                        ).read_text()
-                    ),
-                }
+            second.revised(
+                expression=BinaryExpression.model_validate_json(
+                    (
+                        Path(__file__).resolve().parents[2]
+                        / "fixtures/models"
+                        / "mechanism_identity/term_identity_rejects_ambiguous_or_dangling_revisions_map_expression.json"
+                    ).read_text()
+                )
             ),
         )
     else:
         terms = (first,)
     with pytest.raises(ValueError, match=r"Duplicate mechanism|not referenced by component slots"):
-        model.revised(
-            edges=(type(edge).model_validate({**edge.model_dump(), "mechanisms": terms}),)
-        )
+        model.revised(edges=(edge.revised(mechanisms=terms),))
     assert model.mechanism(second.id) is second

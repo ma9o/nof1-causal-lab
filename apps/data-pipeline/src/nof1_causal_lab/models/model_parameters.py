@@ -17,12 +17,15 @@ from nof1_causal_lab.artifacts.identity import (
     MechanismRef,
 )
 from nof1_causal_lab.artifacts.parameter import SiteKind
+from nof1_causal_lab.models.model_structure import selected_indicators, selected_state_ids
 
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+    from nof1_causal_lab.artifacts.construct import ConstructSpec
     from nof1_causal_lab.artifacts.identity import EntityRef, ParameterId
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 
 
 @dataclass(frozen=True)
@@ -92,7 +95,7 @@ def iter_coefficient_uses(model: ModelSpec) -> Iterator[CoefficientUse]:
         for indicator in construct.indicators:
             if indicator.likelihood is None:
                 continue
-            terms = indicator.likelihood.terms
+            terms = indicator.likelihood.parsed
             for identity, operand in terms.loadings.items():
                 if operand.value is not None:
                     yield CoefficientUse(
@@ -122,7 +125,7 @@ def parameter_contexts(model: ModelSpec) -> dict[ParameterId, ParameterContext]:
 
 def execution_coefficient_uses(model: ModelSpec) -> Iterator[CoefficientUse]:
     """Exclude coefficients owned only by structure outside the numerical selection."""
-    states = set(model.state_order)
+    states = set(selected_state_ids(model))
     roots = {
         edge.cause.id
         for edge in model.edges
@@ -136,11 +139,17 @@ def execution_coefficient_uses(model: ModelSpec) -> Iterator[CoefficientUse]:
     active = {
         "construct": states | roots,
         "edge": edges,
-        "indicator": set(model.manifest_indicator_order),
+        "indicator": {indicator.id for indicator in selected_indicators(model)},
     }
     for use in iter_coefficient_uses(model):
         if all(owner.kind == "mechanism" or owner.id in active[owner.kind] for owner in use.owners):
             yield use
+
+
+def execution_parameters(model: ModelSpec) -> tuple[ParameterSpec, ...]:
+    """Select the scientific coefficients used by the current retained structure."""
+    referenced = {use.value for use in execution_coefficient_uses(model)}
+    return tuple(parameter for parameter in model.parameters if parameter.id in referenced)
 
 
 def coefficient_value(coefficient: float | ParameterId) -> float | None:
@@ -148,11 +157,11 @@ def coefficient_value(coefficient: float | ParameterId) -> float | None:
     return None if isinstance(coefficient, str) else coefficient
 
 
-def baseline_factor_groups(model: ModelSpec):
+def baseline_factor_groups(model: ModelSpec) -> tuple[tuple[ConstructSpec, ...], ...]:
     """A shared scale denotes one identifiable factor for marginalized baseline roots."""
-    grouped = {}
+    grouped: dict[str, list[ConstructSpec]] = {}
     retained_parents = {
-        edge.cause.id for edge in model.edges if edge.effect.id in model.state_order
+        edge.cause.id for edge in model.edges if edge.effect.id in selected_state_ids(model)
     }
     for construct in model.constructs:
         if (

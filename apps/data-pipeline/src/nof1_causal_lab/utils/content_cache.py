@@ -9,6 +9,7 @@ from contextlib import suppress
 from pathlib import Path
 from tempfile import NamedTemporaryFile
 
+from nof1_causal_lab.actions.errors import execution_failure_handler
 from nof1_causal_lab.utils import storage
 from nof1_causal_lab.utils.data import data_root
 
@@ -23,6 +24,7 @@ def cache_path(kind: str, key: str) -> str:
     return storage.join(data_root(), ".preparation-cache", kind, key)
 
 
+@execution_failure_handler
 def read(path: str) -> bytes | None:
     """Read once; eviction before or during the read is a cache miss."""
     try:
@@ -32,6 +34,7 @@ def read(path: str) -> bytes | None:
         return None
 
 
+@execution_failure_handler
 def publish(path: str, value: bytes) -> bytes:
     """Publish a fully validated value; return the winning value after a race."""
     if storage.is_remote():

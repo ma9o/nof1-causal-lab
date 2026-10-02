@@ -48,6 +48,9 @@ class ParticleTarget:
 
     def initial_moments(self, context):
         distribution = self.model(context).initial_condition
+        assert isinstance(
+            distribution, dist.MultivariateNormal
+        )  # The exact model producer declares a Gaussian initial law.
         return jnp.asarray(distribution.mean), jnp.asarray(distribution.covariance_matrix)
 
     def initial_log_prob(self, context, state):

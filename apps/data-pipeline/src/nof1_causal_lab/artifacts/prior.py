@@ -2,24 +2,26 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Literal, Self
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from nof1_causal_lab.artifacts.base import Value
 
 
-class PriorRepairScope(BaseModel):
+class PriorRepairScope(Value):
     """Deterministic repair scope for nonlocal prior-validation failures."""
 
     kind: Literal["dynamics_scc"] = Field(
         description="Repair-scope family for a nonlocal validation failure"
     )
-    construct_names: list[str] = Field(
-        default_factory=list,
+    construct_names: tuple[str, ...] = Field(
+        default_factory=tuple,
         description="Ordered latent constructs included in the minimal repair scope",
     )
 
 
-class PriorPathologyCertificate(BaseModel):
+class PriorPathologyCertificate(Value):
     """Comparable summary of one validation pathology."""
 
     kind: Literal["nonfinite_samples", "dynamics_stability", "dt_ct_approximation"] = Field(
@@ -36,7 +38,7 @@ class PriorPathologyCertificate(BaseModel):
     )
 
 
-class PriorValidationResult(BaseModel):
+class PriorValidationResult(Value):
     """Typed model-spec validation diagnostic."""
 
     parameter: str = Field(description="Name of the parameter that was validated")
@@ -46,10 +48,10 @@ class PriorValidationResult(BaseModel):
     severity: Literal["error", "warning"] = "error"
     issue: str | None = None
     suggested_adjustment: str | None = None
-    related_parameters: list[str] = Field(default_factory=list)
+    related_parameters: tuple[str, ...] = Field(default_factory=tuple)
     compiled_site_name: str | None = None
     compiled_flat_index: int | None = None
-    supporting_codes: list[str] = Field(default_factory=list)
+    supporting_codes: tuple[str, ...] = Field(default_factory=tuple)
     repair_scope: PriorRepairScope | None = None
     failure_stage: (
         Literal[
@@ -64,11 +66,15 @@ class PriorValidationResult(BaseModel):
         ]
         | None
     ) = None
-    bad_sample_sites: list[str] = Field(default_factory=list)
-    bad_manifest_names: list[str] = Field(default_factory=list)
-    failing_draw_indices: list[int] = Field(default_factory=list)
+    bad_sample_sites: tuple[str, ...] = Field(default_factory=tuple)
+    bad_manifest_names: tuple[str, ...] = Field(default_factory=tuple)
+    failing_draw_indices: tuple[int, ...] = Field(default_factory=tuple)
     first_bad_time_index: int | None = None
     pathology_certificate: PriorPathologyCertificate | None = None
+
+    def with_parameter_provenance(self, parameters: tuple[str, ...]) -> Self:
+        """Attach resolved writer identities without mutating a diagnostic."""
+        return self.model_copy(update={"related_parameters": parameters})
 
 
 __all__ = [

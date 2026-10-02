@@ -13,6 +13,8 @@ import equinox as eqx
 import jax.numpy as jnp
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from jax import Array
 
 
@@ -34,7 +36,7 @@ class VectorFieldComponent(Protocol):
         eta: Array,
         eta_per_edge: Array,
         t: Array,
-        params: dict[str, Array],
+        params: Mapping[str, Array],
         /,
     ) -> Array: ...
 
@@ -62,7 +64,7 @@ class DenseLinear(eqx.Module):
         _eta: Array,
         eta_per_edge: Array,
         _t: Array,
-        params: dict[str, Array],
+        params: Mapping[str, Array],
     ) -> Array:
         A = params["drift"]
         cint = params.get("cint", jnp.zeros(A.shape[0], dtype=accumulator.dtype))
@@ -85,7 +87,7 @@ class DiagonalDecay(eqx.Module):
         eta: Array,
         _eta_per_edge: Array,
         _t: Array,
-        params: dict[str, Array],
+        params: Mapping[str, Array],
     ) -> Array:
         return accumulator + (-params["decay"] * eta)
 
@@ -101,7 +103,7 @@ class StateDecay(eqx.Module):
         eta: Array,
         _eta_per_edge: Array,
         _t: Array,
-        params: dict[str, Array],
+        params: Mapping[str, Array],
     ) -> Array:
         return accumulator.at[self.target].add(-params["decay"] * eta[self.target])
 
@@ -115,7 +117,7 @@ class Intercept(eqx.Module):
         _eta: Array,
         _eta_per_edge: Array,
         _t: Array,
-        params: dict[str, Array],
+        params: Mapping[str, Array],
     ) -> Array:
         return accumulator + params["cint"]
 
@@ -131,7 +133,7 @@ class StateIntercept(eqx.Module):
         _eta: Array,
         _eta_per_edge: Array,
         _t: Array,
-        params: dict[str, Array],
+        params: Mapping[str, Array],
     ) -> Array:
         return accumulator.at[self.target].add(params["cint"])
 
@@ -158,7 +160,7 @@ class LinearEdge(eqx.Module):
         _eta: Array,
         eta_per_edge: Array,
         _t: Array,
-        params: dict[str, Array],
+        params: Mapping[str, Array],
     ) -> Array:
         contribution = params["weight"] * eta_per_edge[self.target, self.source]
         return accumulator.at[self.target].add(contribution)

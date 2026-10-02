@@ -14,6 +14,7 @@ likelihood.  Three solver strategies are dispatched automatically:
 
 from __future__ import annotations
 
+from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any, cast
 
 import jax
@@ -21,6 +22,11 @@ import jax.numpy as jnp
 import numpy as np
 
 from nof1_causal_lab.models.ssm.dynamics.linearisation import infer_linearisation
+from nof1_causal_lab.models.ssm.execution.contracts import (
+    EMPTY_LAPLACE_STATE,
+    LaplaceEvaluationResult,
+    LaplaceSolverState,
+)
 from nof1_causal_lab.models.ssm.execution.observation_model import compile_observation_model
 from nof1_causal_lab.models.ssm.execution.observation_operator import (
     get_summary_operator_codes,
@@ -47,7 +53,6 @@ from .shared import (
     _solve_block_banded_from_cholesky,
     _solve_block_profile_from_cholesky,
     _solve_block_tridiagonal,
-    _tree_contains_tracer,
     block_profile_logdet_packed_cotangent,
 )
 from .support import (
@@ -69,9 +74,13 @@ if TYPE_CHECKING:
         LikelihoodExtraParams,
         MeasurementParams,
     )
+    from nof1_causal_lab.models.ssm.execution.observation_model import CompiledObservationModel
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
+    from .shared import SupportObservationWindowBatch
 
+
+@dataclass(frozen=True, init=False, eq=False)
 class LaplaceLikelihood:
     """Laplace-approximated likelihood backend.
 
@@ -85,6 +94,17 @@ class LaplaceLikelihood:
     # The support-aware Laplace path constructs runtime callables and custom-VJP
     # closures that are not remat-safe under large traced outer evaluations.
     checkpoint_loglik = False
+    n_latent: int
+    n_manifest: int
+    manifest_dists: tuple[DistributionFamily, ...]
+    manifest_links: tuple[LinkFunction, ...]
+    n_ieks_iters: int
+    observation_support: ObservationSupportRuntime | None
+    _summary_operator_codes: jax.Array
+    _support_window_batches: tuple[SupportObservationWindowBatch, ...]
+    _support_bandwidth: int
+    _support_row_upper_bandwidths: jax.Array
+    _support_row_lower_bandwidths: jax.Array
 
     def __init__(
         self,
@@ -94,30 +114,30 @@ class LaplaceLikelihood:
         manifest_links: list[LinkFunction],
         n_ieks_iters: int = 5,
         observation_support: ObservationSupportRuntime | None = None,
-    ):
-        self.n_latent = n_latent
-        self.n_manifest = n_manifest
-        self.manifest_dists = manifest_dists
-        self.manifest_links = manifest_links
-        self.n_ieks_iters = n_ieks_iters
-        self.observation_support = observation_support
-        self._point_mode_cache: jnp.ndarray | None = None
-        self._support_mode_cache: jnp.ndarray | None = None
-        self._support_window_derivatives = None
-        self._support_window_derivatives_signature: tuple[Any, ...] | None = None
+    ) -> None:
+        object.__setattr__(self, "n_latent", n_latent)
+        object.__setattr__(self, "n_manifest", n_manifest)
+        object.__setattr__(self, "manifest_dists", tuple(manifest_dists))
+        object.__setattr__(self, "manifest_links", tuple(manifest_links))
+        object.__setattr__(self, "n_ieks_iters", n_ieks_iters)
+        object.__setattr__(self, "observation_support", observation_support)
         if observation_support is not None:
-            self._summary_operator_codes = get_summary_operator_codes(observation_support)
+            object.__setattr__(
+                self, "_summary_operator_codes", get_summary_operator_codes(observation_support)
+            )
         else:
-            self._summary_operator_codes = jnp.zeros((n_manifest,), dtype=jnp.int32)
+            object.__setattr__(
+                self, "_summary_operator_codes", jnp.zeros((n_manifest,), dtype=jnp.int32)
+            )
         if (
             observation_support is not None
             and observation_support.requires_interval_summary_handling
         ):
-            (
-                self._support_window_batches,
-                self._support_bandwidth,
-                support_row_upper_bandwidths,
-            ) = _infer_support_groups(observation_support)
+            support_window_batches, support_bandwidth, support_row_upper_bandwidths = (
+                _infer_support_groups(observation_support)
+            )
+            object.__setattr__(self, "_support_window_batches", tuple(support_window_batches))
+            object.__setattr__(self, "_support_bandwidth", support_bandwidth)
             prior_row_upper_bandwidths = np.zeros(
                 (len(observation_support.anchor_times),),
                 dtype=np.int64,
@@ -128,21 +148,35 @@ class LaplaceLikelihood:
                 np.asarray(support_row_upper_bandwidths, dtype=np.int64),
                 prior_row_upper_bandwidths,
             )
-            self._support_row_upper_bandwidths = jnp.asarray(
-                full_row_upper_bandwidths,
-                dtype=jnp.int32,
+            object.__setattr__(
+                self,
+                "_support_row_upper_bandwidths",
+                jnp.asarray(
+                    full_row_upper_bandwidths,
+                    dtype=jnp.int32,
+                ),
             )
-            self._support_row_lower_bandwidths = jnp.asarray(
-                _compute_profile_lower_bandwidths(full_row_upper_bandwidths),
-                dtype=jnp.int32,
+            object.__setattr__(
+                self,
+                "_support_row_lower_bandwidths",
+                jnp.asarray(
+                    _compute_profile_lower_bandwidths(full_row_upper_bandwidths),
+                    dtype=jnp.int32,
+                ),
             )
         else:
-            self._support_window_batches = ()
-            self._support_bandwidth = 1 if n_latent > 0 else 0
-            self._support_row_upper_bandwidths = jnp.zeros((0,), dtype=jnp.int32)
-            self._support_row_lower_bandwidths = jnp.zeros((0,), dtype=jnp.int32)
+            object.__setattr__(self, "_support_window_batches", ())
+            object.__setattr__(self, "_support_bandwidth", 1 if n_latent > 0 else 0)
+            object.__setattr__(
+                self, "_support_row_upper_bandwidths", jnp.zeros((0,), dtype=jnp.int32)
+            )
+            object.__setattr__(
+                self, "_support_row_lower_bandwidths", jnp.zeros((0,), dtype=jnp.int32)
+            )
 
-    def _build_support_window_derivatives(self, observation_model) -> tuple[Any, ...]:
+    def _build_support_window_derivatives(
+        self, observation_model: CompiledObservationModel
+    ) -> tuple[Any, ...]:
         return tuple(
             _make_support_window_derivatives(
                 max_state_len=batch.max_state_len,
@@ -155,33 +189,6 @@ class LaplaceLikelihood:
             for batch in self._support_window_batches
         )
 
-    def _get_support_window_derivatives(
-        self,
-        observation_model,
-        extra_params: LikelihoodExtraParams | None,
-        *,
-        allow_cache: bool,
-    ):
-        if not allow_cache or extra_params is not None:
-            return self._build_support_window_derivatives(observation_model)
-
-        signature = (
-            observation_model.manifest_dists,
-            observation_model.manifest_links,
-            tuple(batch.max_state_len for batch in self._support_window_batches),
-            self.n_latent,
-            self.n_manifest,
-        )
-        if (
-            self._support_window_derivatives is None
-            or self._support_window_derivatives_signature != signature
-        ):
-            self._support_window_derivatives = self._build_support_window_derivatives(
-                observation_model
-            )
-            self._support_window_derivatives_signature = signature
-        return self._support_window_derivatives
-
     def _compute_log_likelihood_impl(
         self,
         dynamics: StochasticContinuousTimeStateEvolution,
@@ -193,12 +200,12 @@ class LaplaceLikelihood:
         obs_mask: jnp.ndarray | None = None,
         extra_params: LikelihoodExtraParams | None = None,
         latent_mode_init: jnp.ndarray | None = None,
-        allow_stateful_cache: bool,
     ) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
-        """Shared Laplace likelihood implementation with explicit cache control."""
+        """Shared Laplace likelihood implementation with caller-owned solver initialization."""
 
         if obs_mask is None:
             obs_mask = ~jnp.isnan(observations)
+        initial_covariance: jax.Array = initial_state.covariance_matrix  # pyright: ignore[reportAssignmentType] - NumPyro lazy_property returns the covariance array on instances.
         clean_obs = jnp.nan_to_num(observations, nan=0.0)
 
         with jax.named_scope("map/compile_observation_model"):
@@ -223,31 +230,12 @@ class LaplaceLikelihood:
             self.observation_support is not None
             and self.observation_support.requires_interval_summary_handling
         ):
-            cache_inputs = (
-                dynamics,
-                measurement_params,
-                initial_state,
-                observations,
-                time_intervals,
-                obs_mask,
-                extra_params,
-            )
             uses_dynamic_transitions = (
                 infer_linearisation(cast("StructuralDrift", dynamics.drift).vector_field)
                 == "trajectory"
             )
             if uses_dynamic_transitions:
-                can_reuse_support_mode = allow_stateful_cache and not _tree_contains_tracer(
-                    cache_inputs
-                )
                 support_mode_init = latent_mode_init
-                if (
-                    support_mode_init is None
-                    and can_reuse_support_mode
-                    and self._support_mode_cache is not None
-                    and self._support_mode_cache.shape == (clean_obs.shape[0], self.n_latent)
-                ):
-                    support_mode_init = self._support_mode_cache
                 if _should_use_dense_support_laplace(
                     n_time=clean_obs.shape[0],
                     n_latent=self.n_latent,
@@ -262,27 +250,19 @@ class LaplaceLikelihood:
                             measurement_params.manifest_means,
                             measurement_params.manifest_cov,
                             initial_state.mean,
-                            initial_state.covariance_matrix,
+                            jnp.asarray(initial_state.scale_tril)
+                            @ jnp.asarray(initial_state.scale_tril).T,
                             obs_kernel,
                             observation_model.mean_log_prob_fn,
                             self.observation_support,
                             self.n_ieks_iters,
                             z_init=support_mode_init,
                         )
-                        if can_reuse_support_mode:
-                            self._support_mode_cache = jax.device_get(inner_eval_aux["latent_mode"])
                     return log_lik, inner_eval_aux
 
-                can_cache_window_derivatives = allow_stateful_cache and not _tree_contains_tracer(
-                    (measurement_params.manifest_cov, extra_params)
-                )
                 with jax.named_scope("map/support_dynamic_backend"):
-                    window_derivatives = self._get_support_window_derivatives(
-                        observation_model,
-                        extra_params,
-                        allow_cache=can_cache_window_derivatives,
-                    )
-                    log_lik, z_mode, inner_eval_aux = _support_dynamic_transition_ieks_laplace(
+                    window_derivatives = self._build_support_window_derivatives(observation_model)
+                    log_lik, _z_mode, inner_eval_aux = _support_dynamic_transition_ieks_laplace(
                         clean_obs,
                         obs_mask,
                         dynamics,
@@ -291,7 +271,8 @@ class LaplaceLikelihood:
                         measurement_params.manifest_means,
                         measurement_params.manifest_cov,
                         initial_state.mean,
-                        initial_state.covariance_matrix,
+                        jnp.asarray(initial_state.scale_tril)
+                        @ jnp.asarray(initial_state.scale_tril).T,
                         obs_kernel,
                         observation_model.mean_log_prob_fn,
                         self.observation_support,
@@ -303,14 +284,12 @@ class LaplaceLikelihood:
                         self.n_ieks_iters,
                         z_init=support_mode_init,
                     )
-                    if can_reuse_support_mode:
-                        self._support_mode_cache = jax.device_get(z_mode)
                 return log_lik, inner_eval_aux
 
             def _build_support_measurement_objects(
                 manifest_cov: jnp.ndarray,
                 runtime_extra_params: LikelihoodExtraParams | None,
-            ):
+            ) -> tuple[CompiledObservationModel, tuple[Any, ...]]:
                 runtime_observation_model = compile_observation_model(
                     self.manifest_dists,
                     manifest_cov=manifest_cov,
@@ -318,30 +297,12 @@ class LaplaceLikelihood:
                     manifest_links=self.manifest_links,
                     observation_support=self.observation_support,
                 )
-                allow_runtime_cache = allow_stateful_cache and not _tree_contains_tracer(
-                    (manifest_cov, runtime_extra_params)
-                )
-                return runtime_observation_model, self._get_support_window_derivatives(
-                    runtime_observation_model,
-                    runtime_extra_params,
-                    allow_cache=allow_runtime_cache,
+                return runtime_observation_model, self._build_support_window_derivatives(
+                    runtime_observation_model
                 )
 
             Ad, Qd, cd = _discretize_base_system()
-            can_reuse_support_mode = allow_stateful_cache and not _tree_contains_tracer(
-                cache_inputs
-            )
-            can_cache_window_derivatives = allow_stateful_cache and not _tree_contains_tracer(
-                (measurement_params.manifest_cov, extra_params)
-            )
             support_mode_init = latent_mode_init
-            if (
-                support_mode_init is None
-                and can_reuse_support_mode
-                and self._support_mode_cache is not None
-                and self._support_mode_cache.shape == (clean_obs.shape[0], self.n_latent)
-            ):
-                support_mode_init = self._support_mode_cache
             if _should_use_dense_support_laplace(
                 n_time=clean_obs.shape[0],
                 n_latent=self.n_latent,
@@ -357,7 +318,8 @@ class LaplaceLikelihood:
                         measurement_params.manifest_means,
                         measurement_params.manifest_cov,
                         initial_state.mean,
-                        initial_state.covariance_matrix,
+                        jnp.asarray(initial_state.scale_tril)
+                        @ jnp.asarray(initial_state.scale_tril).T,
                         obs_kernel,
                         observation_model.mean_log_prob_fn,
                         self.observation_support,
@@ -365,12 +327,8 @@ class LaplaceLikelihood:
                     )
                 return log_lik, inner_eval_aux
             with jax.named_scope("map/support_aware_backend"):
-                window_derivatives = self._get_support_window_derivatives(
-                    observation_model,
-                    extra_params,
-                    allow_cache=can_cache_window_derivatives,
-                )
-                log_lik, z_mode, inner_eval_aux = _support_aware_ieks_laplace(
+                window_derivatives = self._build_support_window_derivatives(observation_model)
+                log_lik, _z_mode, inner_eval_aux = _support_aware_ieks_laplace(
                     clean_obs,
                     obs_mask,
                     Ad,
@@ -380,7 +338,7 @@ class LaplaceLikelihood:
                     measurement_params.manifest_means,
                     measurement_params.manifest_cov,
                     initial_state.mean,
-                    initial_state.covariance_matrix,
+                    initial_covariance,
                     obs_kernel,
                     observation_model.mean_log_prob_fn,
                     self.observation_support,
@@ -394,28 +352,9 @@ class LaplaceLikelihood:
                     n_ieks_iters=self.n_ieks_iters,
                     z_init=support_mode_init,
                 )
-                if can_reuse_support_mode:
-                    self._support_mode_cache = jax.device_get(z_mode)
                 return log_lik, inner_eval_aux
 
-        cache_inputs = (
-            dynamics,
-            measurement_params,
-            initial_state,
-            observations,
-            time_intervals,
-            obs_mask,
-            extra_params,
-        )
-        can_reuse_point_mode = allow_stateful_cache and not _tree_contains_tracer(cache_inputs)
         point_mode_init = latent_mode_init
-        if (
-            point_mode_init is None
-            and can_reuse_point_mode
-            and self._point_mode_cache is not None
-            and self._point_mode_cache.shape == (clean_obs.shape[0], self.n_latent)
-        ):
-            point_mode_init = self._point_mode_cache
 
         uses_dynamic_transitions = (
             infer_linearisation(cast("StructuralDrift", dynamics.drift).vector_field)
@@ -434,7 +373,7 @@ class LaplaceLikelihood:
         def _build_point_measurement_objects(
             manifest_cov: jnp.ndarray,
             runtime_extra_params: LikelihoodExtraParams | None,
-        ):
+        ) -> CompiledObservationModel:
             return compile_observation_model(
                 self.manifest_dists,
                 manifest_cov=manifest_cov,
@@ -445,7 +384,7 @@ class LaplaceLikelihood:
 
         with jax.named_scope("map/ieks_backend"):
             if uses_dynamic_transitions:
-                z_mode, log_lik, inner_eval_aux = _point_dynamic_transition_ieks_laplace(
+                _z_mode, log_lik, inner_eval_aux = _point_dynamic_transition_ieks_laplace(
                     clean_obs,
                     obs_mask,
                     dynamics,
@@ -454,14 +393,14 @@ class LaplaceLikelihood:
                     d_rows,
                     measurement_params.manifest_cov,
                     initial_state.mean,
-                    initial_state.covariance_matrix,
+                    initial_covariance,
                     obs_kernel,
                     n_ieks_iters=self.n_ieks_iters,
                     z_init=point_mode_init,
                 )
             else:
                 Ad, Qd, cd = _discretize_base_system()
-                z_mode, log_lik, inner_eval_aux = _ieks_smooth(
+                _z_mode, log_lik, inner_eval_aux = _ieks_smooth(
                     clean_obs,
                     obs_mask,
                     Ad,
@@ -471,15 +410,13 @@ class LaplaceLikelihood:
                     d_rows,
                     measurement_params.manifest_cov,
                     initial_state.mean,
-                    initial_state.covariance_matrix,
+                    initial_covariance,
                     obs_kernel,
                     n_ieks_iters=self.n_ieks_iters,
                     z_init=point_mode_init,
                     build_measurement_objects=_build_point_measurement_objects,
                     extra_params=extra_params,
                 )
-            if can_reuse_point_mode:
-                self._point_mode_cache = jax.device_get(z_mode)
 
         return log_lik, inner_eval_aux
 
@@ -492,7 +429,7 @@ class LaplaceLikelihood:
         time_intervals: jnp.ndarray,
         obs_mask: jnp.ndarray | None = None,
         extra_params: LikelihoodExtraParams | None = None,
-        latent_mode_init: jnp.ndarray | None = None,
+        solver_state: LaplaceSolverState = EMPTY_LAPLACE_STATE,
     ) -> jnp.ndarray:
         """Compute Laplace-approximated log-likelihood.
 
@@ -507,8 +444,7 @@ class LaplaceLikelihood:
             time_intervals,
             obs_mask=obs_mask,
             extra_params=extra_params,
-            latent_mode_init=latent_mode_init,
-            allow_stateful_cache=False,
+            latent_mode_init=solver_state.latent_mode,
         )
         return log_lik
 
@@ -521,8 +457,8 @@ class LaplaceLikelihood:
         time_intervals: jnp.ndarray,
         obs_mask: jnp.ndarray | None = None,
         extra_params: LikelihoodExtraParams | None = None,
-        latent_mode_init: jnp.ndarray | None = None,
-    ) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
+        solver_state: LaplaceSolverState = EMPTY_LAPLACE_STATE,
+    ) -> LaplaceEvaluationResult:
         """Compute Laplace-approximated log-likelihood plus host-log aux."""
         log_lik, inner_eval_aux = self._compute_log_likelihood_impl(
             dynamics,
@@ -532,10 +468,13 @@ class LaplaceLikelihood:
             time_intervals,
             obs_mask=obs_mask,
             extra_params=extra_params,
-            latent_mode_init=latent_mode_init,
-            allow_stateful_cache=True,
+            latent_mode_init=solver_state.latent_mode,
         )
-        return log_lik, inner_eval_aux
+        return LaplaceEvaluationResult(
+            log_lik,
+            LaplaceSolverState(inner_eval_aux["latent_mode"]),
+            {key: value for key, value in inner_eval_aux.items() if key != "latent_mode"},
+        )
 
 
 __all__ = [
@@ -557,7 +496,6 @@ __all__ = [
     "_solve_block_banded_from_cholesky",
     "_solve_block_profile_from_cholesky",
     "_solve_block_tridiagonal",
-    "_tree_contains_tracer",
     "block_profile_logdet_packed_cotangent",
     # support.py re-exports
     "_assemble_support_aware_observation_system",

@@ -1,37 +1,35 @@
 {
   "law": {
-    "distribution": "Bernoulli",
-    "arguments": {
-      "probs": {
-        "kind": "call",
-        "function": "normal_cdf",
-        "arguments": [
-          {
+    "distribution": "BernoulliProbs",
+    "probs": {
+      "kind": "call",
+      "function": "normal_cdf",
+      "arguments": [
+        {
+          "kind": "binary",
+          "operator": "add",
+          "left": {
+            "kind": "coefficient",
+            "role": "observation_intercept",
+            "value": "parameter:c7cc6b0071ab97151f017d6c845cc4361197c6229b21f9eccd62d8bf3e14f5e1",
+            "construct_ids": []
+          },
+          "right": {
             "kind": "binary",
-            "operator": "add",
+            "operator": "multiply",
             "left": {
               "kind": "coefficient",
-              "role": "observation_intercept",
-              "value": "parameter:c7cc6b0071ab97151f017d6c845cc4361197c6229b21f9eccd62d8bf3e14f5e1",
+              "role": "loading",
+              "value": "parameter:47e62d9558d25434dcf5fccf7c0dd89b1900f27ef2def017d65eb0cd55f76abb",
               "construct_ids": []
             },
             "right": {
-              "kind": "binary",
-              "operator": "multiply",
-              "left": {
-                "kind": "coefficient",
-                "role": "loading",
-                "value": "parameter:47e62d9558d25434dcf5fccf7c0dd89b1900f27ef2def017d65eb0cd55f76abb",
-                "construct_ids": []
-              },
-              "right": {
-                "kind": "state",
-                "construct_id": "construct:x"
-              }
+              "kind": "state",
+              "construct_id": "construct:x"
             }
           }
-        ]
-      }
+        }
+      ]
     }
   },
   "standardized": false,

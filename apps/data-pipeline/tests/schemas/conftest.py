@@ -9,11 +9,12 @@ import pytest
 from nof1_causal_lab.artifacts.construct import ConstructSpec, Role, TemporalStatus
 from nof1_causal_lab.artifacts.expressions import state
 from nof1_causal_lab.artifacts.indicator import IndicatorPolarity, IndicatorSpec
-from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec, ObservationLawSpec
+from nof1_causal_lab.artifacts.likelihood import DeltaLawSpec, LikelihoodSpec
+from nof1_causal_lab.utils.observation_semantics import SummaryOperator
 from tests.helpers import fixture_entity_id
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.measurement_types import AggregationFunction, MeasurementDtype
+    from nof1_causal_lab.measurement_types import MeasurementDtype
 
 
 @pytest.fixture
@@ -46,9 +47,7 @@ def construct_factory():
                     aggregation="last",
                     construct_polarity="positive",
                     likelihood=LikelihoodSpec(
-                        law=ObservationLawSpec(
-                            distribution="Delta", arguments={"v": state(identity)}
-                        ),
+                        law=DeltaLawSpec(v=state(identity)),
                         reasoning="Given reading",
                     ),
                 ),
@@ -72,7 +71,7 @@ def indicator_factory():
     def _make(
         name: str,
         dtype: MeasurementDtype = "continuous",
-        aggregation: AggregationFunction = "mean",
+        aggregation: SummaryOperator = SummaryOperator.MEAN,
         construct_polarity: IndicatorPolarity = IndicatorPolarity.POSITIVE,
         ordinal_levels: list[str] | None = None,
     ) -> IndicatorSpec:

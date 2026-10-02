@@ -12,14 +12,24 @@ import asyncio
 import os
 from typing import TYPE_CHECKING
 
-from pydantic import TypeAdapter
-
 from nof1_causal_lab.actions.contracts import FitRequest, PrepareDataRequest, SimulateRequest
-from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.artifacts.data_preparation import SimulationReplicateRef
+from nof1_causal_lab.artifacts.identity import GitRef
+from nof1_causal_lab.artifacts.predictive_provenance import FittedLawProvenance, MixedLawProvenance
 from nof1_causal_lab.artifacts.simulation import SimulationSpec
 from nof1_causal_lab.study.artifact_files import json_filename, parquet_filename
+from nof1_causal_lab.study.errors import StudyLookupError
+from nof1_causal_lab.study.records import (
+    ActionBody,
+    Applied,
+    DataComparisonResult,
+    DataPreparationResult,
+    ModelFitResult,
+    ModelSimulationResult,
+    SimulateAttempt,
+)
 from nof1_causal_lab.study.store import ArtifactStore
+from nof1_causal_lab.study.view_models import DataDiffRequest
 
 if TYPE_CHECKING:
     import polars as pl
@@ -38,12 +48,9 @@ async def _run_fit(
     store: ArtifactStore,
     pins: dict[ArtifactId, GitOid],
     settings: FitSettingsSpec,
-) -> ActionEffects:
-    from nof1_causal_lab.actions.fit import (
-        build_sampler_config,
-        fit,
-    )
-    from nof1_causal_lab.artifacts.posterior import InferenceReport
+) -> ModelFitResult:
+    from nof1_causal_lab.actions.fit import fit
+    from nof1_causal_lab.actions.inference.fit import resolve_sampler_spec
     from nof1_causal_lab.utils.config import get_config
 
     panel = _panel_df(store, pins)
@@ -52,13 +59,11 @@ async def _run_fit(
     from nof1_causal_lab.study.store import read_model
 
     model_spec = read_model(store, pins["model"])
-    model_spec.check_execution()
     from nof1_causal_lab.actions.data_checks import require_data_binding
     from nof1_causal_lab.study.lineage import read_data_metadata
 
     require_data_binding(store, model_spec, pins["panel"])
-    sampler_config = build_sampler_config()
-    sampler_config.update(settings.model_dump(exclude_none=True))
+    sampler = resolve_sampler_spec(settings)
 
     config = get_config().inference
     if config.compute_backend == "modal" and os.environ.get("DEPLOYMENT_ENV") != "production":
@@ -72,30 +77,25 @@ async def _run_fit(
         model_spec=model_spec,
         data_for_model=panel,
         time_origin=read_data_metadata(store, pins["panel"]).time_origin,
-        sampler_config=sampler_config,
+        sampler=sampler,
         array_writer=store.write_array,
         array_loader=cache(store.read_array),
         compute_loo_diagnostics=config.compute_loo_diagnostics,
     )
 
     conditioned = result["_model"]
-    evidence = result["engine_evidence"]
-    report = InferenceReport.model_validate(
-        {key: value for key, value in result.items() if key not in {"_model", "engine_evidence"}}
-    )
+    report = result["report"]
     info = store.write_artifact(
         "model",
         derived_from=pins,
         produced_by="fit",
         json_files={json_filename("model", "model"): conditioned.model_dump(mode="json")},
     )
-    return ActionEffects(
-        produced=[info],
-        diagnostics={
-            "input_pins": pins,
-            "engine_evidence": evidence,
-            "report": report.model_dump(mode="json"),
-        },
+    return ModelFitResult(
+        produced=(info,),
+        model=GitRef(workspace_id=store.workspace_id, revision=pins["model"], path="model.json"),
+        panel=GitRef(workspace_id=store.workspace_id, revision=pins["panel"], path="panel.parquet"),
+        report=report,
     )
 
 
@@ -104,12 +104,12 @@ async def _run_simulate(
     store: ArtifactStore,
     pins: dict[ArtifactId, GitOid],
     design: SimulationSpec,
-) -> ActionEffects:
+) -> ModelSimulationResult:
     from nof1_causal_lab.actions.scenarios import summarize_causal_simulation
     from nof1_causal_lab.actions.simulate import simulate
     from nof1_causal_lab.artifacts.identity import GitRef
     from nof1_causal_lab.study.history import StudyRepository
-    from nof1_causal_lab.study.lineage import inference_record
+    from nof1_causal_lab.study.records import inference_record
     from nof1_causal_lab.study.store import read_model
 
     model = read_model(store, pins["model"])
@@ -124,13 +124,11 @@ async def _run_simulate(
         time_origin = read_data_metadata(store, origin_panel_revision).time_origin
 
     reliability: FitReliability = "unknown" if law.kind == "unknown" else "not_fitted"
-    if law.fitted_model_revision is not None:
+    if isinstance(law, (FittedLawProvenance, MixedLawProvenance)):
         fit_report = fitted_law_report(records, law.fitted_model_revision)
         time_origin = fit_report.time_origin
         origin_panel_revision = law.fitted_panel_revision
-        reliability = (
-            "unconverged" if convergence_failures(fit_report.inference_diagnostics) else "converged"
-        )
+        reliability = "unconverged" if convergence_failures(fit_report.convergence) else "converged"
 
     report = await asyncio.to_thread(
         simulate,
@@ -147,20 +145,18 @@ async def _run_simulate(
         and any(construct.role == "exogenous" for construct in model.constructs)
         else None,
     )
-    report = type(report).model_validate(
-        {**report.model_dump(), "law": law, "origin_panel_revision": origin_panel_revision}
-    )
+    report = report.with_provenance(law=law, origin_panel_revision=origin_panel_revision)
     report = summarize_causal_simulation(
         model,
         report,
         store=store,
         inference=inference_record(records, pins["model"]),
     )
-    return ActionEffects(
-        diagnostics={
-            "input_pins": pins,
-            "report": report.model_dump(mode="json"),
-        }
+    return ModelSimulationResult(
+        report=report,
+        panel=GitRef(workspace_id=workspace_id, revision=pins["panel"], path="panel.parquet")
+        if "panel" in pins
+        else None,
     )
 
 
@@ -168,21 +164,22 @@ async def _run_simulated_data(
     workspace_id: str,
     store: ArtifactStore,
     source: SimulationReplicateRef,
-) -> ActionEffects:
+) -> DataPreparationResult:
     """Materialize one recorded simulation replicate; its source owns every input selection."""
     from datetime import timedelta
 
     from nof1_causal_lab.actions.prepare_data import prepare_simulation_panel
     from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata
-    from nof1_causal_lab.artifacts.simulation import SimulationReport
     from nof1_causal_lab.study.history import StudyRepository
 
     record = StudyRepository(workspace_id).record(source.revision)
-    if record.status != "applied" or record.action != "simulate":
-        raise ValueError("The source revision must be an applied simulation commit")
-    report = TypeAdapter(SimulationReport).validate_python(record.diagnostics["report"])
+    if not isinstance(record.record.attempt, SimulateAttempt) or not isinstance(
+        record.record.attempt.outcome, Applied
+    ):
+        raise StudyLookupError("The source revision must be an applied simulation commit")
+    report = record.record.attempt.outcome.result.report
     if report.model.workspace_id != workspace_id:
-        raise ValueError("The simulation must belong to the current study")
+        raise StudyLookupError("The simulation must belong to the current study")
     panel = await asyncio.to_thread(
         prepare_simulation_panel,
         report,
@@ -205,23 +202,24 @@ async def _run_simulated_data(
         },
         parquet_files={parquet_filename("panel", "panel"): panel},
     )
-    return ActionEffects(
-        produced=[info],
-        diagnostics={
-            "input_pins": used_pins,
-            "simulation_source": source.model_dump(mode="json"),
-            "n_observations": panel["value"].count(),
-        },
+    return DataPreparationResult(
+        produced=(info,), simulation_source=source, n_observations=panel["value"].count()
     )
 
 
 async def run_action_locally(
     workspace_id: str,
-    request: FitRequest | SimulateRequest | PrepareDataRequest,
+    request: FitRequest | SimulateRequest | PrepareDataRequest | DataDiffRequest,
     pins: dict[ArtifactId, GitOid],
-) -> ActionEffects:
+) -> ActionBody:
     """Run a fit, simulation or simulated-data preparation on this process."""
     store = ArtifactStore(workspace_id)
+    if isinstance(request, DataDiffRequest):
+        from nof1_causal_lab.actions.data_diff import read_data_diff
+
+        return DataComparisonResult(
+            report=await asyncio.to_thread(read_data_diff, workspace_id, request)
+        )
     if isinstance(request, FitRequest):
         return await _run_fit(store, pins, request.settings)
     if isinstance(request, SimulateRequest):
@@ -243,18 +241,20 @@ def _pinned(store: ArtifactStore, selected: dict[ArtifactId, GitOid]) -> dict[Ar
 
 async def run_action(
     workspace_id: str,
-    request: FitRequest | SimulateRequest | PrepareDataRequest,
+    request: FitRequest | SimulateRequest | PrepareDataRequest | DataDiffRequest,
     state: StudyState,
-) -> ActionEffects:
+) -> ActionBody:
     """Pin a request's inputs and run it, routing fits to Modal in production."""
     store = ArtifactStore(workspace_id)
     if isinstance(request, FitRequest):
         pins = _pinned(store, {"model": request.model_revision, "panel": request.panel_revision})
+        from nof1_causal_lab.models.ssm.compile.inputs import compile_executable_model
+        from nof1_causal_lab.study.store import read_model
+
+        compile_executable_model(read_model(store, pins["model"]))
         if os.environ.get("DEPLOYMENT_ENV") == "production":
             from nof1_causal_lab.actions.modal_runners import run_fit_on_modal
-            from nof1_causal_lab.study.store import read_model
 
-            read_model(store, pins["model"]).check_execution()
             return await run_fit_on_modal(workspace_id, request, pins)
     elif isinstance(request, SimulateRequest):
         pins = _pinned(store, {"model": request.model_revision})

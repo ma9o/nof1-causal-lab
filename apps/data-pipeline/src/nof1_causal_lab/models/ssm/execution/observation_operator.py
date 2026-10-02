@@ -18,6 +18,7 @@ if TYPE_CHECKING:
 _POINT_SUPPORT_CODE = 0
 _INTERVAL_SUPPORT_CODE = 1
 _SUPPORT_KIND_TO_CODE = {
+    None: _POINT_SUPPORT_CODE,
     "point": _POINT_SUPPORT_CODE,
     "interval": _INTERVAL_SUPPORT_CODE,
 }
@@ -29,6 +30,7 @@ _COUNT_OPERATOR_CODE = 3
 _MEAN_OPERATOR_CODE = 4
 _STD_OPERATOR_CODE = 5
 _SUMMARY_OPERATOR_TO_CODE = {
+    None: _LAST_OPERATOR_CODE,
     "first": _FIRST_OPERATOR_CODE,
     "last": _LAST_OPERATOR_CODE,
     "sum": _SUM_OPERATOR_CODE,
@@ -153,10 +155,7 @@ def compile_observation_operator(
 def get_support_kind_codes(observation_support: ObservationSupportRuntime) -> jnp.ndarray:
     """Map support kinds to integer codes aligned with manifest order."""
     return jnp.asarray(
-        [
-            _SUPPORT_KIND_TO_CODE.get(kind, _POINT_SUPPORT_CODE)
-            for kind in observation_support.support_kinds
-        ],
+        [_SUPPORT_KIND_TO_CODE[kind] for kind in observation_support.support_kinds],
         dtype=jnp.int32,
     )
 
@@ -164,10 +163,7 @@ def get_support_kind_codes(observation_support: ObservationSupportRuntime) -> jn
 def get_summary_operator_codes(observation_support: ObservationSupportRuntime) -> jnp.ndarray:
     """Map summary operators to integer codes aligned with manifest order."""
     return jnp.asarray(
-        [
-            _SUMMARY_OPERATOR_TO_CODE.get(operator, _LAST_OPERATOR_CODE)
-            for operator in observation_support.summary_operators
-        ],
+        [_SUMMARY_OPERATOR_TO_CODE[operator] for operator in observation_support.summary_operators],
         dtype=jnp.int32,
     )
 
@@ -553,7 +549,7 @@ def row_observation_log_probs(
     H_rows: jnp.ndarray,
     d_rows: jnp.ndarray,
     R: jnp.ndarray,
-    obs_kernel,
+    obs_kernel: ObservationKernel,
 ) -> jnp.ndarray:
     """Per-row ``(T,)`` point-observation log-prob for per-row observation operators.
 
@@ -578,7 +574,7 @@ def row_observation_log_prob(
     H_rows: jnp.ndarray,
     d_rows: jnp.ndarray,
     R: jnp.ndarray,
-    obs_kernel,
+    obs_kernel: ObservationKernel,
 ) -> jnp.ndarray:
     """Return the point-observation log-probability for per-row observation operators."""
     return jnp.sum(

@@ -12,7 +12,7 @@ from nof1_causal_lab.actions.temporal.workflow_support import (
     EVENT_RETRY,
     EVENT_TIMEOUT,
     emit_progress,
-    temporal_failure_details,
+    temporal_failure,
 )
 
 pytestmark = pytest.mark.contract
@@ -24,7 +24,7 @@ class _WrappedError(FailureError):
         self.__cause__ = cause
 
 
-def test_temporal_failure_details_unwraps_application_error_and_copies_diagnostics() -> None:
+def test_temporal_failure_unwraps_application_error_and_copies_diagnostics() -> None:
     diagnostics = {"reason": "invalid"}
     error = _WrappedError(
         _WrappedError(
@@ -37,20 +37,19 @@ def test_temporal_failure_details_unwraps_application_error_and_copies_diagnosti
         )
     )
 
-    error_type, message, extracted = temporal_failure_details(error)
-    extracted["local"] = True
+    failure = temporal_failure(error)
+    diagnostics["local"] = True
 
-    assert error_type == "ModelCompileError"
-    assert message == "model failed"
-    assert diagnostics == {"reason": "invalid"}
+    assert failure.error_type == "ModelCompileError"
+    assert failure.error_message == "model failed"
+    assert failure.details == ('{"reason": "invalid"}',)
 
 
-def test_temporal_failure_details_uses_deepest_untyped_cause() -> None:
-    assert temporal_failure_details(_WrappedError(ValueError("bad input"))) == (
-        "ValueError",
-        "bad input",
-        {},
-    )
+def test_temporal_failure_uses_deepest_untyped_cause() -> None:
+    failure = temporal_failure(_WrappedError(ValueError("bad input")))
+    assert failure.error_type == "ValueError"
+    assert failure.error_message == "bad input"
+    assert failure.details == ()
 
 
 def test_emit_progress_uses_shared_activity_policy(monkeypatch) -> None:

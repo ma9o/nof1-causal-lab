@@ -17,18 +17,17 @@ from nof1_causal_lab.artifacts.expressions import (
     state,
 )
 from nof1_causal_lab.artifacts.identity import IndicatorId, MechanismId
-from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
+from nof1_causal_lab.artifacts.mechanism import (
+    DriftMechanismSpec,
+    PotentialMechanismSpec,
+)
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.study.mechanism_views import mechanism_curves
+from nof1_causal_lab.models.model_structure import selected_state_ids
+from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.snapshots import ModelReader
 from nof1_causal_lab.study.visual_models import MechanismViewRequest
-from nof1_causal_lab.study.visuals import (
-    observation_history,
-    parameter_draws,
-    predictive_history,
-    simulation_paths,
-)
 from tests.helpers import make_model
+from tests.model_fixtures import compile_model_fixture
 
 
 @pytest.mark.contract
@@ -55,7 +54,7 @@ def test_observations_keep_irregular_anchors_support_missingness_and_empirical_m
         state=SimpleNamespace(current={"panel": SimpleNamespace(revision="pinned")}),
         store=SimpleNamespace(read_parquet_file=lambda *_args: table),
     )
-    view = observation_history(reader, identity)
+    view = ModelReader.observation_history(reader, identity)
     assert view is not None
     assert view.times == (0, 0.25, 8, 10, 11)
     assert view.values == (-4, -4, None, 5, 5)
@@ -99,7 +98,7 @@ def test_paging_original_paths_preserves_opposite_modes_and_paired_effects():
         simulation=lambda: SimpleNamespace(value=report),
         store=SimpleNamespace(read_array=arrays.__getitem__),
     )
-    view = simulation_paths(reader, start=0, count=2)
+    view = ModelReader.simulation_paths(reader, start=0, count=2)
     assert view is not None
     assert view.effect is not None
     assert view.times == report.times
@@ -107,12 +106,12 @@ def test_paging_original_paths_preserves_opposite_modes_and_paired_effects():
     assert [p.values for p in view.states[state_id].action] == [(-5, -4, -5), (5, 4, 5)]
     assert [p.values for p in view.effect.action] == [(1, 1, 1), (3, 3, 3)]
     assert view.indicators[indicator].action[0].values == (-5, None, -5)
-    last = simulation_paths(reader, start=2, count=128)
+    last = ModelReader.simulation_paths(reader, start=2, count=128)
     assert last is not None
     assert last.count == 1
     assert last.states[state_id].action[0].draw == 2
-    with pytest.raises(ValueError, match="past"):
-        simulation_paths(reader, start=3, count=1)
+    with pytest.raises(StudyLookupError, match="past"):
+        ModelReader.simulation_paths(reader, start=3, count=1)
 
 
 @pytest.mark.inference(concern="simulation")
@@ -122,15 +121,10 @@ def test_exact_hill_curves_retain_saturation_and_sign_changing_moderation():
     expression = hill(state(edge.cause.id), emax=4.0, ec50=2.0, n=2.0) * state(edge.effect.id)
     model = model.revised(
         edges=(
-            type(edge).model_validate(
-                {
-                    **edge.model_dump(),
-                    "mechanisms": (
-                        DynamicsMechanismSpec(
-                            id=MechanismId("mechanism:hill"), expression=expression
-                        ),
-                    ),
-                }
+            edge.revised(
+                mechanisms=(
+                    DriftMechanismSpec(id=MechanismId("mechanism:hill"), expression=expression),
+                )
             ),
         )
     )
@@ -142,7 +136,7 @@ def test_exact_hill_curves_retain_saturation_and_sign_changing_moderation():
         levels=(-1.0, 1.0),
         points=101,
     )
-    result = mechanism_curves(Mock(spec=ModelReader, model=model), request)
+    result = ModelReader.mechanism_curves(Mock(spec=ModelReader, model=model), request)
     x = np.asarray(result.x)
     expected = 4 * x**2 / (4 + x**2)
     np.testing.assert_allclose(
@@ -157,9 +151,9 @@ def test_exact_hill_curves_retain_saturation_and_sign_changing_moderation():
     assert result.curves[1].values[-1] is not None
     assert result.curves[1].values[-1] < 4
     with pytest.raises(ValueError, match="moderator"):
-        mechanism_curves(
+        ModelReader.mechanism_curves(
             Mock(spec=ModelReader, model=model),
-            type(request).model_validate({**request.model_dump(), "moderator": edge.cause.id}),
+            request.revised(moderator=edge.cause.id),
         )
 
 
@@ -167,7 +161,7 @@ def test_exact_hill_curves_retain_saturation_and_sign_changing_moderation():
 def test_potential_response_is_the_negative_gradient_not_the_potential():
     model = make_model(["X", "Y"], [("X", "Y")])
     owner = model.edges[0].effect
-    potential = DynamicsMechanismSpec(
+    potential = PotentialMechanismSpec(
         id=MechanismId("mechanism:potential"),
         kind="potential",
         expression=restoring_potential(owner.id, center=1.0, stiffness=2.0, quartic=3.0),
@@ -175,10 +169,10 @@ def test_potential_response_is_the_negative_gradient_not_the_potential():
     model = model.revised(
         edges=replace_constructs(
             model.edges,
-            [type(owner).model_validate({**owner.model_dump(), "dynamics": (potential,)})],
+            [owner.revised(dynamics=(potential,))],
         )
     )
-    result = mechanism_curves(
+    result = ModelReader.mechanism_curves(
         Mock(spec=ModelReader, model=model),
         MechanismViewRequest(owner_id=owner.id, lower=-2, upper=4),
     )
@@ -202,32 +196,22 @@ def test_every_parameter_coordinate_and_joint_draw_survives_the_read(monkeypatch
             Path(__file__).resolve().parents[1] / "fixtures/models" / "visuals/x_y_z_model.json"
         ).read_text()
     )
-    bindings, _ = parameter_bindings(model)
+    bindings, _ = parameter_bindings(compile_model_fixture(model))
     layout = JointLawLayout.from_bindings(
         bindings,
         parameters=[b.parameter_id for b in bindings],
-        constructs=model.state_order,
+        constructs=selected_state_ids(model),
         time_points=(0, 10),
     )
     atoms = np.arange(503 * layout.width, dtype=float).reshape(503, layout.width)
     model = model.revised(
         parameters=tuple(
-            type(p).model_validate(
-                {
-                    **p.model_dump(),
-                    "distribution": layout.distribution_id,
-                    "distribution_transform": "identity",
-                    "reference_interval_days": None,
-                }
-            )
+            p.revised(distribution=layout.distribution_id, transform={"kind": "identity"})
             for p in model.parameters
         ),
         edges=replace_constructs(
             model.edges,
-            [
-                type(c).model_validate({**c.model_dump(), "distribution": layout.distribution_id})
-                for c in model.constructs
-            ],
+            [c.revised(distribution=layout.distribution_id) for c in model.constructs],
         ),
         distributions={layout.distribution_id: empirical_distribution(atoms)},
         time_points=(0, 10),
@@ -239,7 +223,7 @@ def test_every_parameter_coordinate_and_joint_draw_survives_the_read(monkeypatch
     reader = Mock(
         spec=ModelReader, model=model, store=None, state=SimpleNamespace(current={"model": None})
     )
-    view = parameter_draws(reader)
+    view = ModelReader.parameter_draws(reader)
     assert len(view.columns) > 6
     assert {column.subject.element_id for column in view.columns} == set(layout.parameter_columns)
     for column in view.columns:
@@ -268,14 +252,14 @@ def test_declared_scalar_law_can_be_inspected_with_unfinished_unrelated_mechanis
     model = model.revised(
         edges=(
             edge,
-            type(unfinished).model_validate({**unfinished.model_dump(), "mechanisms": ()}),
+            unfinished.revised(mechanisms=()),
         ),
         parameters=kept,
         distributions={
             identity: law for identity, law in model.distributions.items() if identity in laws
         },
     )
-    view = mechanism_curves(
+    view = ModelReader.mechanism_curves(
         Mock(spec=ModelReader, model=model), MechanismViewRequest(owner_id=edge.id, count=2)
     )
     assert view.law == "sampled"
@@ -347,7 +331,7 @@ def test_predictive_overlay_uses_pinned_schedule_including_support_boundaries(mo
             )
         ),
     )
-    view = predictive_history(reader, identity)
+    view = ModelReader.predictive_history(reader, identity)
     assert view is not None
     assert view.times == (0, 1, 9, 10)
     assert view.overlay == overlay

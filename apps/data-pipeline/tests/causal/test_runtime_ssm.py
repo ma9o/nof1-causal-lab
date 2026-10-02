@@ -21,8 +21,10 @@ from nof1_causal_lab.models.ssm.dynamics import (
     compile_dynamics,
     infer_linearisation,
 )
+from nof1_causal_lab.models.ssm.model import numpyro_model
 from tests.dynamics_fixtures import decay_term, hill_term, intercept_term, linear_term
 from tests.model_fixtures import (
+    bind_panel_fixture,
     compile_fit_fixture,
 )
 
@@ -68,14 +70,12 @@ class TestInferLinearisation:
 
 
 @pytest.mark.inference(concern="simulation")
-class TestSSMModelDynamicsDispatch:
+class TestCompiledModelDynamicsDispatch:
     """The NumPyro model samples dynamics and delegates at the backend boundary."""
 
     def test_nonlinear_dynamics_uses_vector_field_backend_method(self):
         import numpyro
         from numpyro import handlers
-
-        from nof1_causal_lab.models.ssm import SSMModel
 
         class DynamicsAwareBackend:
             def compute_log_likelihood(
@@ -104,10 +104,10 @@ class TestSSMModelDynamicsDispatch:
                 / "runtime_ssm/testssmmodeldynamicsdispatch_test_nonlinear_dynamics_uses_vector_field_backend_method_model_fixture.json"
             ).read_text()
         )
-        model = SSMModel(compile_fit_fixture(spec))
-        tr = handlers.trace(handlers.seed(model.model, rng_seed=0)).get_trace(
-            observations=jnp.zeros((4, 2)),
-            times=jnp.arange(4, dtype=jnp.float32),
+        model = compile_fit_fixture(spec)
+        tr = handlers.trace(handlers.seed(numpyro_model, rng_seed=0)).get_trace(
+            bind_panel_fixture(model.compiled, jnp.zeros((4, 2)), jnp.arange(4, dtype=jnp.float32)),
+            priors=model.prior_runtime_bundle,
             likelihood_backend=DynamicsAwareBackend(),
         )
 

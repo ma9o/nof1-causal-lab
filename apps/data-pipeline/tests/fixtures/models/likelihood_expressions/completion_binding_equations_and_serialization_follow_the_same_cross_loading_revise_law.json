@@ -1,55 +1,53 @@
 {
   "law": {
     "distribution": "Normal",
-    "arguments": {
-      "loc": {
+    "loc": {
+      "kind": "binary",
+      "operator": "add",
+      "left": {
         "kind": "binary",
         "operator": "add",
         "left": {
-          "kind": "binary",
-          "operator": "add",
-          "left": {
-            "kind": "coefficient",
-            "role": "observation_intercept",
-            "value": 0.0,
-            "construct_ids": []
-          },
-          "right": {
-            "kind": "binary",
-            "operator": "multiply",
-            "left": {
-              "kind": "coefficient",
-              "role": "loading",
-              "value": 1.0,
-              "construct_ids": []
-            },
-            "right": {
-              "kind": "state",
-              "construct_id": "construct:311c9047b5ede16a8f26"
-            }
-          }
+          "kind": "coefficient",
+          "role": "observation_intercept",
+          "value": 0.0,
+          "construct_ids": []
         },
         "right": {
           "kind": "binary",
           "operator": "multiply",
           "left": {
-            "kind": "state",
-            "construct_id": "construct:d90c52e59b79004188dc"
-          },
-          "right": {
             "kind": "coefficient",
             "role": "loading",
-            "value": 0.25,
+            "value": 1.0,
             "construct_ids": []
+          },
+          "right": {
+            "kind": "state",
+            "construct_id": "construct:311c9047b5ede16a8f26"
           }
         }
       },
-      "scale": {
-        "kind": "coefficient",
-        "role": "observation_scale",
-        "value": 0.0,
-        "construct_ids": []
+      "right": {
+        "kind": "binary",
+        "operator": "multiply",
+        "left": {
+          "kind": "state",
+          "construct_id": "construct:d90c52e59b79004188dc"
+        },
+        "right": {
+          "kind": "coefficient",
+          "role": "loading",
+          "value": 0.25,
+          "construct_ids": []
+        }
       }
+    },
+    "scale": {
+      "kind": "coefficient",
+      "role": "observation_scale",
+      "value": 0.0,
+      "construct_ids": []
     }
   },
   "standardized": true,

@@ -1,7 +1,7 @@
 """Compile-stable predictive runtime for the model's current uncertainty.
 
 Builds prior predictive samples directly from compiled prior semantics or
-native NumPyro priors without tracing back through ``SSMModel.model()``.
+native NumPyro priors without tracing back through ``numpyro_model()``.
 """
 
 from __future__ import annotations
@@ -48,9 +48,11 @@ from nof1_causal_lab.models.ssm.parameterization import (
 from .types import PredictiveDraws, PredictiveTrajectory
 
 if TYPE_CHECKING:
+    from collections.abc import Callable, Mapping
+
     import dynestyx as dsx
 
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
     from nof1_causal_lab.models.ssm.dynamics.spec import CompiledDynamics, DynamicsSpec
 
 logger = logging.getLogger(__name__)
@@ -71,8 +73,8 @@ def predictive_keys(seed: int) -> PredictiveKeys:
 
 
 def _assemble_extra_params_batched(
-    spec: ModelSpec,
-    constrained_samples: dict[str, jnp.ndarray],
+    spec: CompiledModel,
+    constrained_samples: Mapping[str, jnp.ndarray],
     registry,
     *,
     n_draws: int,
@@ -81,16 +83,25 @@ def _assemble_extra_params_batched(
     if not any(site.assembly_group == "likelihood" for site in registry):
         return {}
 
-    def _assemble_one(draw_idx):
+    def _assemble_one(draw_idx: jnp.ndarray) -> dict[str, jnp.ndarray]:
         sampled_values = {
             site_name: values[draw_idx] for site_name, values in constrained_samples.items()
         }
-        return assemble_extra_params_from_registry(spec, sampled_values, registry)
+        return {
+            name: jnp.asarray(value)
+            for name, value in assemble_extra_params_from_registry(
+                spec, sampled_values, registry
+            ).items()
+        }
 
     return jax.vmap(_assemble_one)(jnp.arange(n_draws, dtype=jnp.int32))
 
 
-def _ensure_gaussian_process_diffusion(spec: ModelSpec) -> None:
+def forward_simulation_supported(spec: CompiledModel) -> bool:
+    return all(family == DistributionFamily.GAUSSIAN for family in numeric.diffusion_families(spec))
+
+
+def _ensure_gaussian_process_diffusion(spec: CompiledModel) -> None:
     non_gaussian = [
         dist.value
         for dist in numeric.diffusion_families(spec)
@@ -103,12 +114,13 @@ def _ensure_gaussian_process_diffusion(spec: ModelSpec) -> None:
 
 
 def _predictive_models(
-    spec: ModelSpec, samples, times, *, dynamics: DynamicsSpec | None = None
+    spec: CompiledModel, samples, times, *, dynamics: DynamicsSpec | None = None
 ) -> dsx.DynamicalModel:
     """Batch the same model constructor used by the particle target."""
-    return eqx.filter_vmap(
+    build_draws: Callable[[Mapping[str, jnp.ndarray]], dsx.DynamicalModel] = eqx.filter_vmap(
         lambda draw: build_dynamical_model(spec, draw, t0=times[0], dynamics=dynamics)
-    )(samples)
+    )
+    return build_draws(samples)
 
 
 # Refine the SDE step using declared relaxation rates, including fixed rates.
@@ -136,7 +148,7 @@ def _update_array_digest(digest: Any, label: str, value: Any) -> None:
 def _prior_predictive_latent_cache_key(
     dynamics: DynamicsSpec,
     vf_params: Any,
-    samples: dict[str, jnp.ndarray],
+    samples: Mapping[str, jnp.ndarray],
     times: jnp.ndarray,
     rng_key: jax.Array,
 ) -> str:
@@ -177,7 +189,7 @@ def _cache_latents(key: str, latents: jax.Array) -> None:
 
 
 def _predictive_max_rates(
-    compiled: CompiledDynamics, samples: dict[str, jnp.ndarray]
+    compiled: CompiledDynamics, samples: Mapping[str, jnp.ndarray]
 ) -> jnp.ndarray:
     """Read the fastest declared relaxation rate per draw from coefficient metadata."""
     n_draws = int(next(iter(samples.values())).shape[0])
@@ -239,7 +251,7 @@ def _simulate_model_predictive_latent_draw(
     key_init, key_latent = random.split(key)
     return simulate_model_path(
         model,
-        model.initial_condition.sample(key_init),
+        jnp.asarray(model.initial_condition.sample(key_init)),
         times,
         config=_predictive_sde_config(max_rate, span),
         key=key_latent,
@@ -255,7 +267,7 @@ def _simulate_model_predictive_draws_microbatched(
 ) -> jnp.ndarray:
     arrays, structure = eqx.partition(models, eqx.is_array)
 
-    def simulate_one(args):
+    def simulate_one(args) -> jnp.ndarray:
         model_arrays, key, max_rate = args
         return _simulate_model_predictive_latent_draw(
             eqx.combine(model_arrays, structure),
@@ -265,26 +277,27 @@ def _simulate_model_predictive_draws_microbatched(
             max_rate,
         )
 
-    return jax.lax.map(
+    result: jnp.ndarray = jax.lax.map(
         simulate_one,
         (arrays, keys, max_rates),
         batch_size=_PREDICTIVE_MICROBATCH_SIZE,
     )
+    return result
 
 
 _simulate_model_predictive_draws = eqx.filter_jit(_simulate_model_predictive_draws_microbatched)
 
 
 def _simulate_vector_field_predictive_latents(
-    spec: ModelSpec,
-    samples: dict[str, jnp.ndarray],
+    spec: CompiledModel,
+    samples: Mapping[str, jnp.ndarray],
     times: jnp.ndarray,
     *,
     rng_key: jax.Array,
     dynamics: DynamicsSpec | None = None,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     _ensure_gaussian_process_diffusion(spec)
-    dynamics = numeric.dynamics_components(spec) if dynamics is None else dynamics
+    dynamics = spec.dynamics.spec if dynamics is None else dynamics
     compiled = compile_dynamics(dynamics)
     n_draws = int(next(iter(samples.values())).shape[0])
     draw_keys = random.split(rng_key, n_draws)
@@ -316,14 +329,14 @@ def _simulate_vector_field_predictive_latents(
         logger.info("Prior-predictive latent cache miss %s", cache_key[:12])
     else:
         logger.info("Prior-predictive latent cache hit %s", cache_key[:12])
-    linear_predictors = eqx.filter_vmap(
+    predict: Callable[[dsx.DynamicalModel, jnp.ndarray], jnp.ndarray] = eqx.filter_vmap(
         lambda model, path: jax.vmap(model.observation_model.linear_predictor)(path)
-    )(models, latents)
-    return latents, linear_predictors
+    )
+    return latents, predict(models, latents)
 
 
 def sample_prior_parameters_from_runtime(
-    spec: ModelSpec,
+    spec: CompiledModel,
     runtime: PriorRuntimeBundle,
     *,
     num_samples: int,
@@ -345,8 +358,8 @@ def sample_prior_parameters_from_runtime(
 
 
 def sample_predictive_emissions(
-    spec: ModelSpec,
-    samples: dict[str, jnp.ndarray],
+    spec: CompiledModel,
+    samples: Mapping[str, jnp.ndarray],
     linear_predictors: jnp.ndarray,
     times: jnp.ndarray,
     *,
@@ -371,15 +384,15 @@ def sample_predictive_emissions(
         manifest_names=list(numeric.observation_names(spec)),
         held_channels=tuple(
             index
-            for index, indicator in enumerate(numeric.observed_indicators(spec))
-            if spec.indicator_owner(indicator.id).role == "exogenous"
+            for index, indicator in enumerate(spec.observations)
+            if spec.states[indicator.state_index].is_input
         ),
     )
     return observations, mask, means
 
 
 def sample_prior_predictive_from_runtime(
-    spec: ModelSpec,
+    spec: CompiledModel,
     runtime: PriorRuntimeBundle,
     times: jnp.ndarray,
     *,
@@ -410,8 +423,8 @@ def sample_prior_predictive_from_runtime(
 
 
 def simulate_predictive_draws(
-    spec: ModelSpec,
-    samples: dict[str, jnp.ndarray],
+    spec: CompiledModel,
+    samples: Mapping[str, jnp.ndarray],
     times: jnp.ndarray,
     *,
     observation_support=None,
@@ -511,7 +524,7 @@ def simulate_latent_histories(
         )(models, draw_keys)
     dynamics = dynamics_from_samples(spec, samples, n_draws=draw_keys.shape[0])
     span = float(times[-1] - times[0])
-    max_rates = _predictive_max_rates(compile_dynamics(numeric.dynamics_components(spec)), samples)
+    max_rates = _predictive_max_rates(compile_dynamics(spec.dynamics.spec), samples)
     # Paired paths use identical step sizes and random streams in each segment.
     reference, latents, _ = vmap_simulate_interventions_from_state(
         dynamics,

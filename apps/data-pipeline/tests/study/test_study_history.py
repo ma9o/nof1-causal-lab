@@ -7,12 +7,22 @@ import pytest
 
 from nof1_causal_lab.actions.contracts import EditModelRequest
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.history import BranchConflict, StudyRepository
-from nof1_causal_lab.study.records import AttemptRecord
-from nof1_causal_lab.study.snapshots import ModelReader, SnapshotRevisionNotFound
+from nof1_causal_lab.study.records import (
+    Applied,
+    AttemptRecord,
+    DataPreparationResult,
+    PrepareAttempt,
+    Raised,
+    Rejected,
+)
+from nof1_causal_lab.study.snapshots import ModelReader
 from nof1_causal_lab.study.state import RetractedArtifact
 from nof1_causal_lab.study.store import ArtifactStore
+from nof1_causal_lab.study.view_models import PanelRef
 from nof1_causal_lab.utils import data as data_module
+from tests.action_fixtures import applied_record
 
 pytestmark = pytest.mark.contract
 
@@ -23,16 +33,21 @@ def study(monkeypatch, tmp_path):
     return StudyRepository("STUDY"), ArtifactStore("STUDY")
 
 
-def _record(seq, *, branch="main", status="applied", **effects):
-    return AttemptRecord(
+def _record(seq, *, branch="main", outcome=None, attempt_id=None, **effects):
+    if outcome is not None:
+        return AttemptRecord(
+            seq=seq,
+            branch=branch,
+            attempt_id=attempt_id,
+            ts="2026-09-23T12:00:00+00:00",
+            attempt=PrepareAttempt(request=None, outcome=outcome),
+        )
+    return applied_record(
+        DataPreparationResult(**effects),
         seq=seq,
         branch=branch,
+        attempt_id=attempt_id,
         ts="2026-09-23T12:00:00+00:00",
-        action="prepare_data",
-        inputs={},
-        status=status,
-        trace_ids=[],
-        **effects,
     )
 
 
@@ -48,23 +63,22 @@ def _model(store, question, parent=0):
 def test_branches_share_ancestry_but_isolate_state_and_logs(study):
     repository, store = study
     first = _model(store, "Does X change Y?")
-    root = repository.append(_record(1, produced=[first]), logs={"notes.json": b"[1]"})
+    root = repository.append(_record(1, produced=[first]), logs={"notes.json": b"[1]"}).commit_id
     repository.create_branch("alternative", at=root)
     second = _model(store, "Does X change Y at night?", first.revision)
-    main = repository.append(_record(2, produced=[second]), expected_head=root)
+    main = repository.append(_record(2, produced=[second]), expected_head=root).commit_id
     fork = repository.append(
         _record(
             3,
             branch="alternative",
             retracted=[RetractedArtifact(artifact_id="model", reason_ref="finding:revisit")],
-            diagnostics={"finding": "alternative only"},
         ),
         expected_head=root,
         logs={"notes.json": b"[3]"},
-    )
+    ).commit_id
     reopened = StudyRepository("STUDY")
-    assert reopened.record(main).parent_ids == [root]
-    assert reopened.record(fork).parent_ids == [root]
+    assert reopened.record(main).parent_ids == (root,)
+    assert reopened.record(fork).parent_ids == (root,)
     main_model = ModelReader("STUDY", branch="main").model
     assert main_model is not None
     assert main_model.question == "Does X change Y at night?"
@@ -72,10 +86,13 @@ def test_branches_share_ancestry_but_isolate_state_and_logs(study):
     initial_model = ModelReader("STUDY", at=root).model
     assert initial_model is not None
     assert initial_model.question == "Does X change Y?"
-    assert [record.seq for record in ModelReader("STUDY", branch="main").records] == [1, 2]
-    assert [record.seq for record in ModelReader("STUDY", branch="alternative").records] == [1, 3]
+    assert [record.record.seq for record in ModelReader("STUDY", branch="main").records] == [1, 2]
+    assert [record.record.seq for record in ModelReader("STUDY", branch="alternative").records] == [
+        1,
+        3,
+    ]
     assert reopened.read_file(root, "logs/notes.json") == b"[1]"
-    with pytest.raises(KeyError):
+    with pytest.raises(StudyLookupError):
         reopened.read_file(main, "logs/notes.json")
     assert reopened.read_file(fork, "logs/notes.json") == b"[3]"
     assert not (repository.path.parent / "journal").exists()
@@ -86,8 +103,8 @@ def test_failed_attempt_and_stale_publication_do_not_advance_branch(study):
     base = repository.head()
     attempt_id = uuid4()
     accepted = _record(1, attempt_id=attempt_id)
-    head = repository.append(accepted, expected_head=base)
-    assert repository.append(accepted, expected_head=base) == head
+    head = repository.append(accepted, expected_head=base).commit_id
+    assert repository.append(accepted, expected_head=base).commit_id == head
     persisted = StudyRepository("STUDY").dispatched_attempt(attempt_id)
     assert persisted is not None
     assert persisted.commit_id == head
@@ -96,30 +113,37 @@ def test_failed_attempt_and_stale_publication_do_not_advance_branch(study):
     with pytest.raises(BranchConflict):
         repository.append(_record(2), expected_head=base)
     assert repository.read_attempt(2) is None
-    failed = repository.append(_record(2, status="raised"), expected_head=base)
+    failed = repository.append(
+        _record(2, outcome=Raised(error_type="SavedError", error_message="failure")),
+        expected_head=base,
+    ).commit_id
     assert repository.head() == head
-    assert repository.record(failed).status == "raised"
-    with pytest.raises(SnapshotRevisionNotFound):
+    assert repository.record(failed).record.attempt.outcome.status == "raised"
+    with pytest.raises(StudyLookupError):
         ModelReader("STUDY", at=failed)
-    assert [record.seq for record in StudyRepository("STUDY").attempts()] == [1, 2]
+    assert [record.record.seq for record in StudyRepository("STUDY").attempts()] == [1, 2]
     assert len(repository.branches()) == 1
-    with pytest.raises(ValueError, match="Invalid branch"):
+    with pytest.raises(StudyLookupError, match="Invalid branch"):
         repository.create_branch("../escape", at=head)
 
 
 def test_action_captures_selected_branch_before_validation(study, monkeypatch):
     from nof1_causal_lab.actions.temporal import workflow as study_workflow
-    from nof1_causal_lab.actions.temporal.activities import journal_activity, read_branch_activity
+    from nof1_causal_lab.actions.temporal.activities import (
+        journal_activity,
+        read_branch_activity,
+    )
     from nof1_causal_lab.actions.temporal.messages import ActionRequest, StudyInit
 
     repository, store = study
     first = _model(store, "Shared question")
-    root = repository.append(_record(1, produced=[first]))
+    root = repository.append(_record(1, produced=[first])).commit_id
     repository.create_branch("alternative", at=root)
     second = _model(store, "Main question", first.revision)
     repository.append(_record(2, produced=[second]))
 
     async def execute(name, input, **kwargs):
+        name = name if isinstance(name, str) else name.__name__
         if name == "read_branch_activity":
             return await read_branch_activity(input)
         if name == "journal_activity":
@@ -147,8 +171,11 @@ def test_action_captures_selected_branch_before_validation(study, monkeypatch):
     )
     rejected = repository.read_attempt(3)
     assert rejected is not None
-    assert (rejected.status, rejected.branch) == ("rejected", "alternative")
-    assert rejected.parent_ids == [root]
+    assert (rejected.record.attempt.outcome.status, rejected.record.branch) == (
+        "rejected",
+        "alternative",
+    )
+    assert rejected.parent_ids == (root,)
     assert repository.state(root).current["model"].revision == first.revision
     assert repository.head("alternative") == root
 
@@ -158,18 +185,21 @@ def test_data_comparison_is_a_saved_leaf_at_dispatch_head(study, monkeypatch, fa
     from temporalio.exceptions import ActivityError, ApplicationError
 
     from nof1_causal_lab.actions import data_diff
-    from nof1_causal_lab.actions.reads import read_action_body
-    from nof1_causal_lab.actions.results import DataComparisonResult
     from nof1_causal_lab.actions.temporal import workflow as study_workflow
-    from nof1_causal_lab.actions.temporal.activities import journal_activity, read_branch_activity
+    from nof1_causal_lab.actions.temporal.activities import (
+        journal_activity,
+        read_branch_activity,
+        run_action_activity,
+    )
     from nof1_causal_lab.actions.temporal.messages import ActionRequest, StudyInit
+    from nof1_causal_lab.study.records import DataComparisonResult
     from tests.helpers import run_async
 
     repository, store = study
-    root = repository.append(_record(1, produced=[_model(store, "Original")]))
-    head = repository.append(_record(2, produced=[_model(store, "Changed while queued")]))
-    left = data_diff.DataRef(kind="panel", revision=root)
-    right = data_diff.DataRef(kind="panel", revision=head)
+    root = repository.append(_record(1, produced=[_model(store, "Original")])).commit_id
+    head = repository.append(_record(2, produced=[_model(store, "Changed while queued")])).commit_id
+    left = PanelRef(revision=root)
+    right = PanelRef(revision=head)
     request = data_diff.DataDiffRequest(left=left, right=right)
     report = data_diff.DataDiffReport(left=(left,), right=(right,), variables=())
     reads = []
@@ -177,12 +207,15 @@ def test_data_comparison_is_a_saved_leaf_at_dispatch_head(study, monkeypatch, fa
     def compare(workspace, selection):
         reads.append((workspace, selection))
         if fails:
-            raise ValueError("The selected panel has no saved observations")
+            raise StudyLookupError("The selected panel has no saved observations")
         return report
 
     async def execute(name, input, **kwargs):
+        name = name if isinstance(name, str) else name.__name__
         if name == "read_branch_activity":
             return await read_branch_activity(input)
+        if name == "run_action_activity":
+            return await run_action_activity(input)
         if name == "journal_activity":
             try:
                 # A journal activity retry reads the saved report rather than comparing again.
@@ -212,22 +245,24 @@ def test_data_comparison_is_a_saved_leaf_at_dispatch_head(study, monkeypatch, fa
     run_async(study_workflow.StudyWorkflow.execute_action(worker, action))
     leaf = repository.read_attempt(3)
     assert leaf is not None
-    assert leaf.parent_ids == [root]
-    assert leaf.action == "data_diff"
-    assert leaf.status == ("raised" if fails else "applied")
-    assert leaf.diagnostics == {}
-    assert leaf.produced == leaf.retracted == []
-    assert leaf.checks is None
+    assert leaf.parent_ids == (root,)
+    assert leaf.record.attempt.action == "data_diff"
+    outcome = leaf.record.attempt.outcome
+    assert outcome.status == ("rejected" if fails else "applied")
     assert repository.state(leaf.commit_id) == repository.state(root)
     assert repository.head() == head
     assert len(reads) == 1
     if fails:
-        assert "no saved observations" in leaf.error_message
+        assert isinstance(outcome, Rejected)
+        assert "no saved observations" in outcome.detail
     else:
-        body = read_action_body("STUDY", leaf)
+        assert isinstance(outcome, Applied)
+        body = outcome.result
+        assert body.produced == body.retracted == ()
+        assert body.checks is None
         assert isinstance(body, DataComparisonResult)
         assert body.report == report
-        with pytest.raises(ValueError, match="read-only leaf"):
+        with pytest.raises(StudyLookupError, match="read-only leaf"):
             repository.create_branch("from-comparison", at=leaf.commit_id)
 
 
@@ -238,25 +273,120 @@ def test_timeline_links_named_arguments_and_check_reads():
     def oid(n):
         return f"{n:040x}"
 
+    from nof1_causal_lab.actions.contracts import FitRequest, SimulateRequest
+    from nof1_causal_lab.artifacts.data_preparation import SimulationReplicateRef
+    from nof1_causal_lab.artifacts.identity import GitRef
+    from nof1_causal_lab.artifacts.simulation import SimulationReport, SimulationSpec
+    from nof1_causal_lab.study.records import (
+        DataComparisonResult,
+        FitAttempt,
+        ModelEditResult,
+        ModelSimulationResult,
+    )
+    from nof1_causal_lab.study.view_models import DataDiffReport, DataDiffRequest
+    from tests.inference_fixtures import inference_log
+
     def revision(seq, action, inputs, *produced, status="applied"):
-        return StudyRevision(
-            seq=seq,
-            ts="2026-09-30T12:00:00+00:00",
-            action=action,
-            inputs=inputs,
-            status=status,
-            produced=[
-                ArtifactRecord(
-                    artifact_id=artifact_id,
-                    revision=oid(n),
-                    derived_from={key: oid(value) for key, value in derived.items()},
-                )
-                for artifact_id, n, derived in produced
-            ],
-            trace_ids=[],
-            commit_id=oid(100 + seq),
-            parent_ids=[oid(99 + seq)],
+        artifacts = tuple(
+            ArtifactRecord(
+                artifact_id=artifact_id,
+                revision=oid(n),
+                derived_from={key: oid(value) for key, value in derived.items()},
+            )
+            for artifact_id, n, derived in produced
         )
+        if action == "edit_model":
+            result = ModelEditResult(
+                produced=artifacts,
+                base=GitRef(
+                    workspace_id="STUDY", revision=inputs["expected_revision"], path="model.json"
+                )
+                if inputs.get("expected_revision")
+                else None,
+            )
+            record = applied_record(result, seq=seq)
+        elif action == "prepare_data":
+            record = applied_record(
+                DataPreparationResult(
+                    produced=artifacts, simulation_source=SimulationReplicateRef(**inputs["input"])
+                ),
+                seq=seq,
+            )
+        elif action == "simulate":
+            ref = GitRef(workspace_id="STUDY", revision=inputs["model_revision"], path="model.json")
+            report = SimulationReport(
+                model=ref,
+                design=SimulationSpec(end=10),
+                time_origin=None,
+                times=(0, 10),
+                draws=1,
+                seed=0,
+                state_ids=(),
+                parameter_draws={},
+                latent_paths="paths",
+                observations="observations",
+                observation_layout={
+                    "variables": [],
+                    "support_start_times": "starts",
+                    "support_end_times": "ends",
+                    "mask": "mask",
+                },
+                predictive={"states": {}, "indicators": {}, "fit_reliability": "not_fitted"},
+            )
+            record = applied_record(
+                ModelSimulationResult(report=report),
+                seq=seq,
+                request=SimulateRequest(model_revision=ref.revision, end=10),
+            )
+        elif action == "fit":
+            request = FitRequest(**inputs)
+            if status == "raised":
+                record = AttemptRecord(
+                    seq=seq,
+                    ts="2026-10-01T00:00:00Z",
+                    attempt=FitAttempt(
+                        request=request,
+                        outcome=Raised(error_type="WorkerError", error_message="failed"),
+                    ),
+                )
+            else:
+                from pathlib import Path
+
+                model = ModelSpec.model_validate_json(
+                    (
+                        Path(__file__).parents[1] / "fixtures/models/common/x_y_model.json"
+                    ).read_text()
+                )
+                result = inference_log(
+                    model, prior_revision=inputs["model_revision"], seq=seq
+                ).record.attempt.outcome.result
+                result = result.revised(
+                    **{
+                        "produced": artifacts,
+                        "panel": GitRef(
+                            workspace_id="STUDY",
+                            revision=inputs["panel_revision"],
+                            path="panel.parquet",
+                        ),
+                    }
+                )
+                record = applied_record(result, seq=seq, request=request)
+        else:
+            request = DataDiffRequest(**inputs)
+            record = applied_record(
+                DataComparisonResult(
+                    report=DataDiffReport(
+                        left=request.left if isinstance(request.left, tuple) else (request.left,),
+                        right=request.right
+                        if isinstance(request.right, tuple)
+                        else (request.right,),
+                        variables=(),
+                    )
+                ),
+                seq=seq,
+                request=request,
+            )
+        return StudyRevision(record=record, commit_id=oid(100 + seq), parent_ids=(oid(99 + seq),))
 
     records = [
         revision(1, "edit_model", {"expected_revision": None}, ("model", 1, {})),

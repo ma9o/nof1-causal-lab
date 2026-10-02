@@ -6,6 +6,7 @@ import numpy as np
 import numpyro.distributions as dist
 import pytest
 from numpyro import handlers
+from pydantic import TypeAdapter
 
 from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec, replace_constructs
 from nof1_causal_lab.artifacts.expressions import (
@@ -20,7 +21,7 @@ from nof1_causal_lab.artifacts.expressions import (
     state,
 )
 from nof1_causal_lab.artifacts.identity import ConstructId, scientific_id
-from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
+from nof1_causal_lab.artifacts.mechanism import DriftMechanismSpec, DynamicsMechanismSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.ssm.dynamics.expression import ExpressionComponentSpec
 from nof1_causal_lab.models.ssm.dynamics.intervention import (
@@ -135,8 +136,10 @@ def test_multiple_same_role_operands_bind_directly_and_repeated_references_sampl
     packed = pack_component_params_from_samples(native.spec, sampled)
     assert packed[0].keys() == sites.keys()
     assert native.spec.components[0] is component
-    mechanism = DynamicsMechanismSpec(id="mechanism:sum", expression=value)
-    assert DynamicsMechanismSpec.model_validate_json(mechanism.model_dump_json()) == mechanism
+    mechanism = DriftMechanismSpec(id="mechanism:sum", expression=value)
+    assert (
+        TypeAdapter(DynamicsMechanismSpec).validate_json(mechanism.model_dump_json()) == mechanism
+    )
 
 
 def _model(expression):
@@ -157,7 +160,7 @@ def _model(expression):
                 cause=nodes["x"],
                 effect=nodes["y"],
                 description="x affects y",
-                mechanisms=(DynamicsMechanismSpec(id="mechanism:effect", expression=expression),),
+                mechanisms=(DriftMechanismSpec(id="mechanism:effect", expression=expression),),
             ),
             CausalEdgeSpec(
                 id="edge:xz", cause=nodes["x"], effect=nodes["z"], description="x affects z"
@@ -172,11 +175,8 @@ def test_composition_requires_all_causal_dependencies_and_valid_parameter_refere
     compound = hill(state(ConstructId("construct:x")), emax=1, ec50=1, n=2) * state(
         ConstructId("construct:z")
     )
-    edge = type(base.edges[0]).model_validate(
-        {
-            **base.edges[0].model_dump(),
-            "mechanisms": (DynamicsMechanismSpec(id="mechanism:effect", expression=compound),),
-        }
+    edge = base.edges[0].revised(
+        mechanisms=(DriftMechanismSpec(id="mechanism:effect", expression=compound),)
     )
     with pytest.raises(ValueError, match="explicit causal edges"):
         base.revised(edges=(edge, *base.edges[1:]))
@@ -207,16 +207,13 @@ def test_composition_requires_all_causal_dependencies_and_valid_parameter_refere
             edges=replace_constructs(
                 base.edges,
                 (
-                    type(base.constructs[0]).model_validate(
-                        {
-                            **base.constructs[0].model_dump(),
-                            "dynamics": (
-                                DynamicsMechanismSpec(
-                                    id="mechanism:intrinsic",
-                                    expression=state(ConstructId("construct:y")),
-                                ),
+                    base.constructs[0].revised(
+                        dynamics=(
+                            DriftMechanismSpec(
+                                id="mechanism:intrinsic",
+                                expression=state(ConstructId("construct:y")),
                             ),
-                        }
+                        )
                     ),
                     *base.constructs[1:],
                 ),
@@ -253,9 +250,10 @@ def test_restoring_anchor_requires_the_complete_function_and_supported_coefficie
     with pytest.raises(ValueError, match="exponent must be positive"):
         CoefficientExpression(role="exponent", value=-1)
     with pytest.raises(ValueError, match="literal_error"):
-        DynamicsMechanismSpec.model_validate(
+        TypeAdapter(DynamicsMechanismSpec).validate_python(
             {
                 "id": "mechanism:unknown",
+                "kind": kind,
                 "expression": {
                     "kind": "binary",
                     "operator": "eval",

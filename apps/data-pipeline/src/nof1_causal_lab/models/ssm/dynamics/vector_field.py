@@ -5,7 +5,8 @@ supply scalar energies for Dynestyx's negative-gradient drift. Hard intervention
 replace the owning derivative and remove its natural potential contribution.
 """
 
-from typing import TYPE_CHECKING, cast
+from collections.abc import Mapping
+from typing import TYPE_CHECKING, cast, overload
 
 import dynestyx as dsx
 import equinox as eqx
@@ -29,7 +30,7 @@ class VectorFieldArgs(eqx.Module):
     ``eqx.Module`` pytree carrying override structure.
     """
 
-    params: tuple[dict[str, Array], ...]
+    params: tuple[Mapping[str, Array], ...]
     intervention: Intervention
 
 
@@ -79,7 +80,19 @@ class VectorField(eqx.Module):
     components: tuple[VectorFieldComponent, ...]
     potential_indices: tuple[int, ...] = eqx.field(static=True, default=())
 
-    def evolution(self, args: VectorFieldArgs, diffusion=None):
+    @overload
+    def evolution(
+        self, args: VectorFieldArgs, diffusion: None = None
+    ) -> dsx.DeterministicContinuousTimeStateEvolution: ...
+
+    @overload
+    def evolution(
+        self, args: VectorFieldArgs, diffusion: dsx.FullDiffusion
+    ) -> dsx.StochasticContinuousTimeStateEvolution: ...
+
+    def evolution(
+        self, args: VectorFieldArgs, diffusion: dsx.FullDiffusion | None = None
+    ) -> dsx.DeterministicContinuousTimeStateEvolution | dsx.StochasticContinuousTimeStateEvolution:
         """Bind scientific terms to Dynestyx's drift and native negative-gradient potential."""
         drift = StructuralDrift(
             self,
@@ -128,7 +141,7 @@ class StructuralDrift(eqx.Module):
     vector_field: VectorField
     args: VectorFieldArgs
 
-    def __call__(self, x, u, t):
+    def __call__(self, x: Array, u: Array | None, t: float | int | Array) -> Array:
         del u
         t = jnp.asarray(t)
         value = self.vector_field._natural_derivative(t, x, self.args)
@@ -141,7 +154,7 @@ class StructuralPotential(eqx.Module):
     vector_field: VectorField
     args: VectorFieldArgs
 
-    def __call__(self, x, u, t):
+    def __call__(self, x: Array, u: Array | None, t: float | int | Array) -> Array:
         del u, t
         clamped = {override.index for override in self.args.intervention.variable_overrides()}
         energy = jnp.zeros((), dtype=x.dtype)

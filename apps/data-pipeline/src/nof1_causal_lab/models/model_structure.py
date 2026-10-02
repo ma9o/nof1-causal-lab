@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 from collections import defaultdict
 from itertools import combinations
 from typing import TYPE_CHECKING, Literal
@@ -14,10 +15,27 @@ from nof1_causal_lab.artifacts.construct import (
 from nof1_causal_lab.artifacts.execution import StructuralDisposition, StructuralItemDisposition
 from nof1_causal_lab.artifacts.identity import ConstructRef, EdgeRef, IndicatorRef
 from nof1_causal_lab.compilation_errors import AggregatedCompileError
+from nof1_causal_lab.study.view_models import (
+    Added,
+    Change,
+    ComparisonConnection,
+    ConstructComparison,
+    EdgeComparison,
+    ModelDefinitionChange,
+    ModelGraphComparison,
+    ParameterChange,
+    Removed,
+    Revised,
+    Unchanged,
+)
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.identity import ConstructId
+    from collections.abc import Callable, Iterator, Mapping, Sequence
+
+    from nof1_causal_lab.artifacts.identity import ConstructId, IndicatorId
+    from nof1_causal_lab.artifacts.indicator import IndicatorSpec
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.json_types import JsonValue
 
 type DependencyKey = tuple[
     ConstructId, ConstructId, Literal["innovation_correlation", "initial_state_correlation"]
@@ -49,13 +67,49 @@ def marginalized_construct_ids(model: ModelSpec) -> frozenset[ConstructId]:
     )
 
 
+def selected_state_ids(model: ModelSpec) -> tuple[ConstructId, ...]:
+    """A structural selection is meaningful even while numerical choices are drafts."""
+    selected = retained_construct_ids(model)
+    return tuple(
+        item.id
+        for static in (False, True)
+        for item in model.constructs
+        if item.id in selected and (item.temporal_status == TemporalStatus.TIME_INVARIANT) == static
+    )
+
+
+def selected_edges(model: ModelSpec) -> tuple[CausalEdgeSpec, ...]:
+    states = set(selected_state_ids(model))
+    return tuple(
+        edge for edge in model.edges if edge.cause.id in states and edge.effect.id in states
+    )
+
+
+def selected_indicators(model: ModelSpec) -> tuple[IndicatorSpec, ...]:
+    states = set(selected_state_ids(model))
+    return tuple(indicator for owner, indicator in model.iter_indicators() if owner.id in states)
+
+
+def reference_indicators(model: ModelSpec) -> Mapping[ConstructId, IndicatorId]:
+    from types import MappingProxyType
+
+    from nof1_causal_lab.utils.causal_design import choose_reference_indicator
+
+    return MappingProxyType(
+        {
+            identity: choose_reference_indicator(model.get_construct(identity).indicators).id
+            for identity in selected_state_ids(model)
+        }
+    )
+
+
 def induced_dependencies(model: ModelSpec) -> dict[DependencyKey, tuple[ConstructId, ...]]:
     """Pairs of retained states sharing projected roots, with their scientific sources."""
     from nof1_causal_lab.utils.identifiability import dag_to_admg, get_observed_constructs
 
     observed = get_observed_constructs(model.constructs)
     _, confounders = dag_to_admg(model.constructs, model.edges, observed)
-    retained = set(model.state_order)
+    retained = set(selected_state_ids(model))
     sources: dict[DependencyKey, list[ConstructId]] = defaultdict(list)
     for identity in sorted(
         model.marginalized_construct_ids, key=lambda cid: model.get_construct(cid).name
@@ -123,7 +177,7 @@ def retained_construct_ids(model: ModelSpec) -> frozenset[ConstructId]:
         }
         for indicator in construct.indicators:
             if indicator.likelihood is not None:
-                dependencies.update(indicator.likelihood.terms.loadings)
+                dependencies.update(indicator.likelihood.parsed.loadings)
         graph.add_edges_from((construct.id, identity) for identity in dependencies & measured)
 
     # Shared parameters and joint laws can connect components without a direct causal edge.
@@ -142,12 +196,13 @@ def retained_construct_ids(model: ModelSpec) -> frozenset[ConstructId]:
             law_members[parameter.distribution].update(owners)
     for members in law_members.values():
         nx.add_path(graph, sorted(members))
-    return frozenset(measured & nx.node_connected_component(graph, model.default_outcome))
+    component = nx.node_connected_component(graph, model.default_outcome)
+    return frozenset(identity for identity in measured if identity in component)
 
 
 def unsupported_construct_ids(model: ModelSpec) -> frozenset[ConstructId]:
     """Required parents outside the selection without an executable marginalization rule."""
-    states = set(model.state_order)
+    states = set(selected_state_ids(model))
     selected = retained_construct_ids(model)
     return frozenset(
         {
@@ -164,11 +219,11 @@ def unsupported_construct_ids(model: ModelSpec) -> frozenset[ConstructId]:
 def validate_execution_structure(model: ModelSpec) -> None:
     """Check executable capabilities after the model's intrinsic/reference validation."""
     model.require_measurements()
-    states = set(model.state_order)
+    states = set(selected_state_ids(model))
     errors = []
     if model.default_outcome is not None and model.default_outcome not in states:
         errors.append("The default outcome requires retained measurement indicators.")
-    for edge in model.execution_edges:
+    for edge in selected_edges(model):
         if edge.effect.temporal_status == TemporalStatus.TIME_INVARIANT:
             errors.append(
                 f"Unsupported retained static-target edge {edge.id} "
@@ -190,9 +245,9 @@ def structural_dispositions(model: ModelSpec) -> tuple[StructuralItemDisposition
     """Explain the computational treatment of every scientific entity at this revision."""
     model.require_measurements()
     unsupported = unsupported_construct_ids(model)
-    states = set(model.state_order)
-    edge_ids = {edge.id for edge in model.execution_edges}
-    manifests = set(model.manifest_indicator_order)
+    states = set(selected_state_ids(model))
+    edge_ids = {edge.id for edge in selected_edges(model)}
+    manifests = {indicator.id for indicator in selected_indicators(model)}
     findings = []
     for construct in model.constructs:
         if construct.id in states:
@@ -273,5 +328,155 @@ def model_graph_entities(
             item
             for item in model.edges
             if dispositions[item.id] == StructuralDisposition.RETAINED_EDGE
+        ),
+    )
+
+
+def compare_parameters(left: ModelSpec, right: ModelSpec) -> list[ParameterChange]:
+    """Compare native parameter decisions and law contents by persistent identity."""
+    old, new = {p.id: p for p in left.parameters}, {p.id: p for p in right.parameters}
+    old_laws = left.model_dump(mode="json")["distributions"]
+    new_laws = right.model_dump(mode="json")["distributions"]
+    changes = []
+    for identity in sorted(old.keys() | new.keys()):
+        a, b = old.get(identity), new.get(identity)
+        if a == b and (
+            a is None
+            or a.distribution is None
+            or json.dumps(old_laws[a.distribution], sort_keys=True)
+            == json.dumps(new_laws[a.distribution], sort_keys=True)
+        ):
+            continue
+        change = (
+            Added(after=new[identity])
+            if identity not in old
+            else Removed(before=old[identity])
+            if identity not in new
+            else Revised(before=old[identity], after=new[identity])
+        )
+        changes.append(ParameterChange(parameter_id=identity, change=change))
+    return changes
+
+
+def compare_model_definitions(left: ModelSpec, right: ModelSpec) -> list[ModelDefinitionChange]:
+    """Compare every authored field, aligning entities by ID rather than list position."""
+
+    def definition(model: ModelSpec) -> JsonValue:
+        value: dict[str, JsonValue] = model.model_dump(mode="json", exclude={"edges", "parameters"})
+        constructs: dict[str, JsonValue] = {}
+        for item in model.constructs:
+            construct: dict[str, JsonValue] = item.model_dump(mode="json", exclude={"indicators"})
+            indicators: dict[str, JsonValue] = {
+                indicator.id: indicator.model_dump(mode="json") for indicator in item.indicators
+            }
+            construct["indicators"] = indicators
+            constructs[item.id] = construct
+        value["constructs"] = constructs
+        value["parameters"] = {item.id: item.model_dump(mode="json") for item in model.parameters}
+        value["edges"] = {
+            item.id: {
+                **item.model_dump(mode="json", exclude={"cause", "effect"}),
+                "cause": item.cause.id,
+                "effect": item.effect.id,
+            }
+            for item in model.edges
+        }
+        return value
+
+    changes = []
+
+    def walk(before: JsonValue, after: JsonValue, path: str) -> None:
+        if isinstance(before, dict) and isinstance(after, dict):
+            for key in sorted(before.keys() | after.keys()):
+                pointer = path + "/" + key.replace("~", "~0").replace("/", "~1")
+                if key not in before or key not in after:
+                    changes.append(
+                        ModelDefinitionChange(
+                            path=pointer,
+                            change=Added(after=after[key])
+                            if key in after
+                            else Removed(before=before[key]),
+                        )
+                    )
+                else:
+                    walk(before[key], after[key], pointer)
+        elif before != after:
+            changes.append(
+                ModelDefinitionChange(path=path, change=Revised(before=before, after=after))
+            )
+
+    walk(definition(left), definition(right), "")
+    return changes
+
+
+def compare_model_graph(left: ModelSpec, right: ModelSpec) -> ModelGraphComparison:
+    """Compare displayed nodes and connections, including their time-slice topology."""
+    from nof1_causal_lab.models.model_structure import model_graph_entities
+
+    graphs = [model_graph_entities(model) for model in (left, right)]
+    dispositions = [
+        {item.target.id: item for item in model.structural_dispositions}
+        if model.measurement_clock is not None and model.indicators
+        else {}
+        for model in (left, right)
+    ]
+
+    def topology(
+        entity: ConstructSpec | CausalEdgeSpec,
+    ) -> bool | tuple[ConstructId, bool, ConstructId]:
+        if isinstance(entity, CausalEdgeSpec):
+            return entity.cause.id, entity.cause.is_dynamic, entity.effect.id
+        return entity.is_dynamic
+
+    def entities[T: (ConstructSpec, CausalEdgeSpec), DefinitionT](
+        before: Sequence[T],
+        after: Sequence[T],
+        project: Callable[[T], DefinitionT],
+    ) -> Iterator[tuple[T, Change[DefinitionT] | Unchanged[DefinitionT]]]:
+        old, new = {item.id: item for item in before}, {item.id: item for item in after}
+
+        for identity in sorted(old.keys() | new.keys()):
+            if identity not in old:
+                yield new[identity], Added(after=project(new[identity]))
+            elif identity not in new:
+                yield old[identity], Removed(before=project(old[identity]))
+            else:
+                a, b = old[identity], new[identity]
+                yield (
+                    b,
+                    (
+                        Unchanged(before=project(a), after=project(b))
+                        if topology(a) == topology(b)
+                        else Revised(before=project(a), after=project(b))
+                    ),
+                )
+
+    def connection(edge: CausalEdgeSpec) -> ComparisonConnection:
+        return ComparisonConnection(
+            cause=ConstructRef(id=edge.cause.id),
+            effect=ConstructRef(id=edge.effect.id),
+            description=edge.description,
+        )
+
+    return ModelGraphComparison(
+        before_dynamic_construct_ids=tuple(item.id for item in graphs[0][0] if item.is_dynamic),
+        after_dynamic_construct_ids=tuple(item.id for item in graphs[1][0] if item.is_dynamic),
+        constructs=tuple(
+            ConstructComparison(
+                construct_id=item.id,
+                change=change,
+                before_disposition=dispositions[0].get(item.id),
+                after_disposition=dispositions[1].get(item.id),
+            )
+            for item, change in entities(graphs[0][0], graphs[1][0], lambda item: item)
+        ),
+        edges=tuple(
+            EdgeComparison(
+                edge_id=item.id,
+                change=change,
+                before_disposition=dispositions[0].get(item.id),
+                after_disposition=dispositions[1].get(item.id),
+            )
+            for item, change in entities(graphs[0][1], graphs[1][1], connection)
         ),
     )

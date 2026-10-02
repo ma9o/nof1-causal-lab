@@ -10,9 +10,11 @@ import polars as pl
 from nof1_causal_lab.artifacts.validation_report import ValidationIssue
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
     from datetime import datetime, timedelta
 
-    from nof1_causal_lab.workers.context import MeasurementIndicator
+    from nof1_causal_lab.artifacts.construct import ConstructSpec
+    from nof1_causal_lab.artifacts.identity import IndicatorId
 
 MIN_OBSERVATIONS = 10
 MIN_COVERAGE_PERIODS = 10
@@ -70,7 +72,7 @@ def timestamp_issue_specs(
 def check_dtype_range(
     values: pl.Series,
     dtype: str,
-    ind_name: str,
+    ind_name: IndicatorId,
 ) -> tuple[list[ValidationIssue], int]:
     issues: list[ValidationIssue] = []
     violation_count = 0
@@ -138,7 +140,7 @@ def check_dtype_range(
 def check_time_coverage(
     parsed_ts: pl.Series,
     model_clock_hours: float,
-    ind_name: str,
+    ind_name: IndicatorId,
 ) -> tuple[list[ValidationIssue], float | None]:
     issues: list[ValidationIssue] = []
     if len(parsed_ts) < 2:
@@ -167,7 +169,7 @@ def check_time_coverage(
 def check_timestamp_gaps(
     parsed_ts: pl.Series,
     model_clock_hours: float,
-    ind_name: str,
+    ind_name: IndicatorId,
 ) -> tuple[list[ValidationIssue], float | None]:
     issues: list[ValidationIssue] = []
     if len(parsed_ts) < 3:
@@ -194,7 +196,7 @@ def check_timestamp_gaps(
 
 
 def check_hallucination_signals(
-    values: pl.Series, dtype: str, ind_name: str
+    values: pl.Series, dtype: str, ind_name: IndicatorId
 ) -> tuple[list[ValidationIssue], float, bool]:
     issues: list[ValidationIssue] = []
     n = len(values)
@@ -242,16 +244,13 @@ def check_hallucination_signals(
 
 def check_construct_correlations(
     combined: pl.DataFrame,
-    indicators: list[MeasurementIndicator],
+    construct_lookup: Mapping[str, ConstructSpec],
 ) -> list[ValidationIssue]:
     issues: list[ValidationIssue] = []
 
     construct_indicators: dict[str, list[str]] = {}
-    for indicator in indicators:
-        construct_id = indicator.get("construct_id", "")
-        indicator_name = indicator["id"]
-        if construct_id and indicator_name:
-            construct_indicators.setdefault(construct_id, []).append(indicator_name)
+    for indicator_id, construct in construct_lookup.items():
+        construct_indicators.setdefault(construct.id, []).append(indicator_id)
 
     for construct_id, indicator_names in construct_indicators.items():
         if len(indicator_names) < 2:
@@ -303,7 +302,9 @@ def check_construct_correlations(
     return issues
 
 
-def data_availability_issue(indicator_id: str, n_observations: int):
+def data_availability_issue(
+    indicator_id: IndicatorId, n_observations: int
+) -> ValidationIssue | None:
     """Report a declared channel with no likelihood contributions, without simulation."""
     from nof1_causal_lab.artifacts.validation_report import ValidationIssue
 

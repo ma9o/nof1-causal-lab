@@ -13,6 +13,7 @@ from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.likelihood_extra_params import assemble_sampled_extra_params
 from nof1_causal_lab.models.ssm.predictive.statistics import observation_signal_and_variance
 from nof1_causal_lab.models.ssm.predictive.types import PredictiveDraws, PredictiveTrajectory
+from tests.model_fixtures import compile_model_fixture
 
 
 def _trajectory():
@@ -77,8 +78,10 @@ def test_discrete_diagnostics_share_cutpoints_anchors_and_padded_probabilities()
         # The categorical anchor must replace 99 by +1, and padded entries vanish.
         "obs_cat_slopes": jnp.full((2, 2, 3), 99.0),
     }
-    metadata = jax.vmap(lambda draw: assemble_sampled_extra_params(spec, draw))(raw)
-    assert numeric.categorical_anchors(spec)[1]
+    metadata = jax.vmap(
+        lambda draw: assemble_sampled_extra_params(compile_model_fixture(spec), draw)
+    )(raw)
+    assert numeric.categorical_anchors(compile_model_fixture(spec))[1]
     predictors = jnp.broadcast_to(jnp.array([-100.0, 0.0, 100.0])[None, :, None], (2, 3, 2))
     batch = PredictiveDraws(
         parameters={**raw, "manifest_cov": jnp.broadcast_to(jnp.eye(2), (2, 2, 2))},
@@ -86,14 +89,18 @@ def test_discrete_diagnostics_share_cutpoints_anchors_and_padded_probabilities()
         trajectory=replace(_trajectory(), linear_predictors=predictors),
     )
     indices = np.arange(3)
-    ordered, variance = observation_signal_and_variance(spec, batch, 0, indices)
+    ordered, variance = observation_signal_and_variance(
+        compile_model_fixture(spec), batch, 0, indices
+    )
     assert variance is None
     np.testing.assert_allclose(ordered.sum(axis=2), 1.0, atol=1e-7)
     np.testing.assert_array_equal(ordered[:, 0], [[1.0, 0.0, 0.0, 0.0]] * 2)
     np.testing.assert_array_equal(ordered[:, -1], [[0.0, 0.0, 0.0, 1.0]] * 2)
     np.testing.assert_allclose(ordered[:, 1, 0], jax.nn.sigmoid(jnp.array([0.0, 1.0])))
 
-    categorical, variance = observation_signal_and_variance(spec, batch, 1, indices)
+    categorical, variance = observation_signal_and_variance(
+        compile_model_fixture(spec), batch, 1, indices
+    )
     assert variance is None
     np.testing.assert_array_equal(categorical[:, :, 2:], 0.0)
     np.testing.assert_allclose(categorical[:, 1, :2], 0.5)
@@ -115,12 +122,14 @@ def test_scalar_diagnostics_use_projected_means_at_supported_times():
         ),
     )
     signal, variance = observation_signal_and_variance(
-        ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "predictive_batches/scalar_diagnostics_use_projected_means_at_supported_times_model_fixture.json"
-            ).read_text()
+        compile_model_fixture(
+            ModelSpec.model_validate_json(
+                (
+                    Path(__file__).resolve().parents[2]
+                    / "fixtures/models"
+                    / "predictive_batches/scalar_diagnostics_use_projected_means_at_supported_times_model_fixture.json"
+                ).read_text()
+            )
         ),
         batch,
         0,
@@ -141,12 +150,14 @@ def test_undefined_student_moments_produce_an_explicit_diagnostic():
         trajectory=paths,
     )
     signal, variance = observation_signal_and_variance(
-        ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "predictive_batches/undefined_student_moments_produce_an_explicit_diagnostic_model_fixture.json"
-            ).read_text()
+        compile_model_fixture(
+            ModelSpec.model_validate_json(
+                (
+                    Path(__file__).resolve().parents[2]
+                    / "fixtures/models"
+                    / "predictive_batches/undefined_student_moments_produce_an_explicit_diagnostic_model_fixture.json"
+                ).read_text()
+            )
         ),
         batch,
         0,
@@ -224,11 +235,11 @@ def test_diagnostic_noise_matches_point_and_interval_execution(
     if interval:
         support = ObservationSupportRuntime(
             anchor_times=np.arange(3.0),
-            manifest_names=list(numeric.observation_names(spec)),
-            support_kinds=["interval"] * channels,
-            summary_operators=["mean"] * channels,
-            anchor_policies=["support_end"] * channels,
-            observation_windows=["2d"] * channels,
+            manifest_names=numeric.observation_names(compile_model_fixture(spec)),
+            support_kinds=("interval",) * channels,
+            summary_operators=("mean",) * channels,
+            anchor_policies=("support_end",) * channels,
+            observation_windows=("2d",) * channels,
             support_start_times=np.tile([[np.nan], [np.nan], [0.0]], (1, channels)),
             support_end_times=np.tile([[np.nan], [np.nan], [2.0]], (1, channels)),
             interval_prev_coeffs=np.tile([[[0.0]], [[0.5]], [[0.5]]], (1, channels, 1)),
@@ -237,7 +248,7 @@ def test_diagnostic_noise_matches_point_and_interval_execution(
             emission_slot_indices=np.tile([[-1], [-1], [0]], (1, channels)),
         )
     _, variance = observation_signal_and_variance(
-        spec, prediction, 0, np.array([2]), observation_support=support
+        compile_model_fixture(spec), prediction, 0, np.array([2]), observation_support=support
     )
     assert variance is not None
     np.testing.assert_allclose(variance, expected_variance, rtol=1e-6, atol=0.0)

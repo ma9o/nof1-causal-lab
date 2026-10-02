@@ -5,35 +5,41 @@ from __future__ import annotations
 import hashlib
 import json
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING
 
+from pydantic import TypeAdapter
 from temporalio import activity
 
-from nof1_causal_lab.actions.effects import ActionEffects
+from nof1_causal_lab.actions.errors import execution_failure_handler
 from nof1_causal_lab.actions.temporal.activity_errors import (
     as_non_retryable_application_error,
 )
 from nof1_causal_lab.actions.temporal.backend_config import llm_backend_config
+from nof1_causal_lab.actions.temporal.llm_tool_adapters import RawDataContext
 from nof1_causal_lab.actions.temporal.messages import (
     IngestionFinalizeInput,
     IngestionPlan,
     IngestionWorkflowInput,
 )
 from nof1_causal_lab.study.artifact_files import parquet_filename
+from nof1_causal_lab.study.records import DataPreparationResult
 from nof1_causal_lab.study.store import ArtifactStore
 from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.json_types import JsonObject
 
 
 def _raw_data_root(workspace_id: str, run_id: str) -> str:
     return storage.join(data_module.scratch_run_dir(workspace_id, run_id), "ingestion")
 
 
-def _write_raw_data_json(path: str, value: Any) -> None:
+def _write_raw_data_json(path: str, value: object) -> None:
     storage.write_text(path, json.dumps(value))
 
 
-def _read_raw_data_json(path: str) -> Any:
+def _read_raw_data_json(path: str) -> JsonObject:
     return storage.read_json(path)
 
 
@@ -93,7 +99,7 @@ async def plan_ingestion_activity(
         max_tool_turns,
         {"files": input.source.files, "staged": manifest},
     )
-    context = _read_raw_data_json(context_ref)
+    context = dict(_read_raw_data_json(context_ref))
     context["cache_ref"] = cache_ref
     cached = read(cache_ref)
     context["reused"] = cached is not None
@@ -116,18 +122,20 @@ async def plan_ingestion_activity(
 
 
 @activity.defn
-async def finalize_ingestion_activity(input: IngestionFinalizeInput) -> ActionEffects:
+@execution_failure_handler
+async def finalize_ingestion_activity(input: IngestionFinalizeInput) -> DataPreparationResult:
     import pyarrow as pa
 
     from nof1_causal_lab.utils.content_cache import publish
 
     try:
         result = _read_raw_data_json(input.result_ref)
-        context = _read_raw_data_json(input.context_ref)
-        with storage.open_file(result["table_ref"], "rb") as file:
+        context = RawDataContext.model_validate(_read_raw_data_json(input.context_ref))
+        with storage.open_file(TypeAdapter(str).validate_python(result["table_ref"]), "rb") as file:
             payload = file.read()
         # Terminal submit_table validated this Arrow payload, including field metadata.
-        payload = publish(context["cache_ref"], payload)
+        assert context.cache_ref is not None
+        payload = publish(context.cache_ref, payload)
         table = pa.ipc.open_file(pa.BufferReader(payload)).read_all()
 
         store = ArtifactStore(input.workspace_id)
@@ -139,7 +147,7 @@ async def finalize_ingestion_activity(input: IngestionFinalizeInput) -> ActionEf
                 parquet_files={parquet_filename("raw_data", "raw"): table},
             )
         ]
-        return ActionEffects(produced=produced, diagnostics={"ingestion_reused": context["reused"]})
+        return DataPreparationResult(produced=tuple(produced), ingestion_reused=context.reused)
     except Exception as exc:
         raise as_non_retryable_application_error(exc) from exc
 

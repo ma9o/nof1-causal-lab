@@ -21,6 +21,8 @@ from nof1_causal_lab.models.ssm.dynamics import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from nof1_causal_lab.artifacts.scenarios import InterventionSpec
     from nof1_causal_lab.models.ssm.dynamics.draws import DynamicsDraws
 
@@ -93,12 +95,18 @@ def vmap_simulate_interventions_from_state(
     }
     inputs = {event.index for event in input_events}
 
-    def path(params, y0, process_noise: ProcessNoise | None, active):
+    def path(
+        params: tuple[Mapping[str, Array], ...],
+        y0: Array,
+        process_noise: ProcessNoise | None,
+        *,
+        active: bool,
+    ) -> Array:
         pieces = []
         state = y0
         overridden: set[int] = set()
 
-        def apply_at(state, index):
+        def apply_at(state: Array, index: int) -> Array:
             if active:
                 overridden.update(target for target, _ in sets[index] if target in inputs)
             state = _apply_events(
@@ -138,9 +146,11 @@ def vmap_simulate_interventions_from_state(
         # An assignment at the destination changes the reported end state too.
         return result.at[-1].set(apply_at(result[-1], len(grid) - 1))
 
-    def per_draw(params, y0, process_noise: ProcessNoise | None):
-        reference = path(params, y0, process_noise, False)
-        action = path(params, y0, process_noise, True) if interventions else reference
+    def per_draw(
+        params: tuple[Mapping[str, Array], ...], y0: Array, process_noise: ProcessNoise | None
+    ) -> tuple[Array, Array, Array]:
+        reference = path(params, y0, process_noise, active=False)
+        action = path(params, y0, process_noise, active=True) if interventions else reference
         return reference, action, action - reference
 
     return jax.vmap(per_draw, axis_size=dynamics.n_draws)(

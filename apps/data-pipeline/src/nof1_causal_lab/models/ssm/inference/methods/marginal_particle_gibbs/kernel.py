@@ -62,6 +62,7 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.diagno
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.smoothers.dsmc import (
     step as dsmc_step,
 )
+from nof1_causal_lab.sampler_config import MarginalParticleGibbsSpec
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -70,27 +71,7 @@ if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleTarget
 
 
-_DEFAULT_MIN_SCALE = 1e-6
-_DEFAULT_MAX_SCALE = 1e3
-_DEFAULT_AMALA_DELTA_INIT = 1e-2
-_DEFAULT_AMALA_DELTA_MIN = 1e-5
-_DEFAULT_AMALA_DELTA_MAX = 1e1
-_DEFAULT_AMALA_TARGET_ACCEPT = 0.75
-_DEFAULT_AMALA_ADAPTATION_WINDOW = 100
-_DEFAULT_AMALA_ADAPTATION_TOLERANCE = 0.05
-_DEFAULT_AMALA_ADAPTATION_RHO = 0.5
-_DEFAULT_AMALA_ADAPTATION_RHO_MIN = 1e-3
-_DEFAULT_AMALA_ADAPTATION_GAMMA = -0.5
-_DEFAULT_AMALA_GRAD_CLIP = float("inf")
-# Target acceptance for the M=2 ensemble Barker selection. Its move-rate is
-# bounded above by ~0.5 -- the step->0 coin-flip limit, (M-1)/M for M ensemble
-# candidates -- so MALA-style optima (~0.574) do NOT transfer: a target above
-# that ceiling makes dual averaging chase an unreachable rate and collapse the
-# step size to the floor (observed empirically at 0.57). 0.35 sits safely below
-# the ceiling, is reachable under dual averaging, and matches the long-standing
-# baseline. The ceiling is a property of the M=2 selection, not of the proposal
-# drift, so this default is shared by random_walk and pseudo_langevin.
-_DEFAULT_PARAM_TARGET_ACCEPT = 0.35
+_DEFAULT_OPTIONS = MarginalParticleGibbsSpec()
 
 
 def _uses_amala_delta(latent_smoother: MPGibbsLatentSmoother) -> bool:
@@ -139,34 +120,36 @@ def build_marginal_particle_gibbs_kernel(
     num_parameter_particles: int,
     param_step_size: float,
     target_accept: float | None = None,
-    min_scale: float = _DEFAULT_MIN_SCALE,
-    max_scale: float = _DEFAULT_MAX_SCALE,
+    min_scale: float = _DEFAULT_OPTIONS.param_step_size_min,
+    max_scale: float = _DEFAULT_OPTIONS.param_step_size_max,
     parameter_preconditioner_chol: jnp.ndarray | None = None,
-    parameter_proposal: Literal["random_walk", "pseudo_langevin"] = "pseudo_langevin",
-    latent_smoother: Literal["dsmc"] = _LATENT_SMOOTHER_DSMC,
-    latent_delta: float = 0.2,
-    amala_delta_init: float = _DEFAULT_AMALA_DELTA_INIT,
-    amala_delta_min: float = _DEFAULT_AMALA_DELTA_MIN,
-    amala_delta_max: float = _DEFAULT_AMALA_DELTA_MAX,
-    amala_target_accept: float = _DEFAULT_AMALA_TARGET_ACCEPT,
-    amala_adaptation_window: int = _DEFAULT_AMALA_ADAPTATION_WINDOW,
-    amala_adaptation_tolerance: float = _DEFAULT_AMALA_ADAPTATION_TOLERANCE,
-    amala_adaptation_rho: float = _DEFAULT_AMALA_ADAPTATION_RHO,
-    amala_adaptation_rho_min: float = _DEFAULT_AMALA_ADAPTATION_RHO_MIN,
-    amala_adaptation_gamma: float = _DEFAULT_AMALA_ADAPTATION_GAMMA,
-    amala_kappa: float = 0.75,
-    amala_grad_clip: float = _DEFAULT_AMALA_GRAD_CLIP,
-    dsmc_leaf_proposal: DSMCLeafProposal = "amala_exact",
-    latent_block_coords: int | None = None,
-    paid_mix_z_weight: float = 0.85,
-    paid_mix_pilot_weight: float = 0.10,
+    parameter_proposal: Literal[
+        "random_walk", "pseudo_langevin"
+    ] = _DEFAULT_OPTIONS.parameter_proposal,
+    latent_smoother: Literal["dsmc"] = _DEFAULT_OPTIONS.latent_smoother,
+    latent_delta: float = _DEFAULT_OPTIONS.latent_delta,
+    amala_delta_init: float = _DEFAULT_OPTIONS.amala_delta_init,
+    amala_delta_min: float = _DEFAULT_OPTIONS.amala_delta_min,
+    amala_delta_max: float = _DEFAULT_OPTIONS.amala_delta_max,
+    amala_target_accept: float = _DEFAULT_OPTIONS.amala_target_accept,
+    amala_adaptation_window: int = _DEFAULT_OPTIONS.amala_adaptation_window,
+    amala_adaptation_tolerance: float = _DEFAULT_OPTIONS.amala_adaptation_tolerance,
+    amala_adaptation_rho: float = _DEFAULT_OPTIONS.amala_adaptation_rho,
+    amala_adaptation_rho_min: float = _DEFAULT_OPTIONS.amala_adaptation_rho_min,
+    amala_adaptation_gamma: float = _DEFAULT_OPTIONS.amala_adaptation_gamma,
+    amala_kappa: float = _DEFAULT_OPTIONS.amala_kappa,
+    amala_grad_clip: float = _DEFAULT_OPTIONS.amala_grad_clip,
+    dsmc_leaf_proposal: DSMCLeafProposal = _DEFAULT_OPTIONS.dsmc_leaf_proposal,
+    latent_block_coords: int | None = _DEFAULT_OPTIONS.latent_block_coords,
+    paid_mix_z_weight: float = _DEFAULT_OPTIONS.paid_mix_z_weight,
+    paid_mix_pilot_weight: float = _DEFAULT_OPTIONS.paid_mix_pilot_weight,
     pilot_means: jnp.ndarray | None = None,
     pilot_vars: jnp.ndarray | None = None,
     pilot_wide_vars: jnp.ndarray | None = None,
     parameter_reference_path: jnp.ndarray | None = None,
     exact_constraints: ExactStateConstraints | None = None,
-    diagnostic_metrics_all: bool = False,
-    diagnostic_metrics: tuple[str, ...] | list[str] | None = None,
+    diagnostic_metrics_all: bool = _DEFAULT_OPTIONS.diagnostic_metrics_all,
+    diagnostic_metrics: tuple[str, ...] | list[str] | None = _DEFAULT_OPTIONS.diagnostic_metrics,
 ) -> MarginalParticleGibbsKernel:
     """Build a marginalized Particle Gibbs joint state update."""
     latent_smoother_spec = _resolve_latent_smoother(latent_smoother)
@@ -233,6 +216,7 @@ def build_marginal_particle_gibbs_kernel(
             "marginal_particle_gibbs latent_block_coords must be a positive coordinate "
             f"count or None (all coordinates); got {latent_block_coords}."
         )
+    pilot_moments: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray] | None = None
     if dsmc_leaf_proposal == _DSMC_LEAF_PROPOSAL_PAID_MIX:
         if not (0.0 < paid_mix_z_weight < 1.0) or not (0.0 < paid_mix_pilot_weight < 1.0):
             raise ValueError(
@@ -249,9 +233,10 @@ def build_marginal_particle_gibbs_kernel(
                 "marginal_particle_gibbs dsmc_leaf_proposal='paid_mix' requires pilot "
                 "moments (pilot_means, pilot_vars, pilot_wide_vars) from a fixed pilot initializer."
             )
+        pilot_moments = (pilot_means, pilot_vars, pilot_wide_vars)
     use_gradient_drift = parameter_proposal == "pseudo_langevin"
     if target_accept is None:
-        target_accept = _DEFAULT_PARAM_TARGET_ACCEPT
+        target_accept = _DEFAULT_OPTIONS.param_target_accept
 
     latent_context_runtime_fn = target.context
     log_prior_unc_fn = target.log_prior
@@ -276,9 +261,10 @@ def build_marginal_particle_gibbs_kernel(
     def _theta_logpost_grad(z: jnp.ndarray) -> jnp.ndarray:
         # q(u | theta) uses a theta-only oracle, fixed for every kernel call.
         # Conditioning this oracle on the current path invalidates the label correction.
-        return jax.grad(
+        evaluate: Callable[[jnp.ndarray], jnp.ndarray] = jax.grad(
             lambda zz: target.log_posterior(zz, fixed_path, runtime_observations, runtime_times)
-        )(z)
+        )
+        return evaluate(z)
 
     preconditioner = (
         None
@@ -366,13 +352,10 @@ def build_marginal_particle_gibbs_kernel(
         latent_delta=latent_delta,
         amala_kappa=amala_kappa,
         amala_grad_clip=amala_grad_clip,
-        dsmc_leaf_proposal=dsmc_leaf_proposal,
         latent_block_coords=latent_block_coords,
         paid_mix_z_weight=paid_mix_z_weight,
         paid_mix_pilot_weight=paid_mix_pilot_weight,
-        pilot_means=pilot_means,
-        pilot_vars=pilot_vars,
-        pilot_wide_vars=pilot_wide_vars,
+        pilot_moments=pilot_moments,
         transition_initial_log_prob_fn=target.initial_log_prob,
         transition_log_prob_fn=target.transition_log_prob,
         transition_log_probs_for_pairs_fn=target.aligned_transition_log_prob,

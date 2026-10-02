@@ -1,5 +1,6 @@
 """MAP initialization, gradients, and covariance references on small targets."""
 
+import time
 from types import SimpleNamespace
 from unittest.mock import Mock
 
@@ -8,10 +9,15 @@ import numpy as np
 import pytest
 from scipy.optimize import LbfgsInvHessProduct
 
-from nof1_causal_lab.models.ssm import SSMModel
+from nof1_causal_lab.models.ssm.execution.contracts import (
+    LaplaceEvaluationResult,
+    LaplaceSolverState,
+)
 from nof1_causal_lab.models.ssm.inference.parameter_transform import ParameterTransform
 from nof1_causal_lab.models.ssm.inference.types import WarmupProposal
 from nof1_causal_lab.models.ssm.inference.warmup import map as map_warmup
+from nof1_causal_lab.models.ssm.parameterization import PriorRuntimeBundle
+from nof1_causal_lab.models.ssm.runtime import BoundPanel
 
 pytestmark = pytest.mark.inference(concern="warmup")
 
@@ -30,24 +36,27 @@ _INNER_DIAGNOSTICS: map_warmup.InnerEvaluationDiagnostics = {
 }
 
 
-def _log_posterior(z, observations, times, latent_mode_init=None):
-    del observations, times, latent_mode_init
+def _log_posterior(z, observations, times, solver_state=None):
+    del observations, times, solver_state
     return -jnp.sum((z - jnp.array([1.0, -2.0])) ** 2) - 0.1 * jnp.sum(z**2)
 
 
-def _negative_log_posterior(z, observations, times, latent_mode_init=None):
-    return -_log_posterior(z, observations, times, latent_mode_init)
+def _negative_log_posterior(z, observations, times, solver_state=None):
+    return -_log_posterior(z, observations, times, solver_state)
 
 
-def _objective_with_aux(z, observations, times, latent_mode_init=None):
-    log_post = _log_posterior(z, observations, times, latent_mode_init)
+def _objective_with_aux(z, observations, times, solver_state=None):
+    log_post = _log_posterior(z, observations, times, solver_state)
     log_prior = -0.1 * jnp.sum(z**2)
     return -log_post, {
         "log_posterior": log_post,
         "log_likelihood": log_post - log_prior,
         "log_prior": log_prior,
-        "inner": _INNER_DIAGNOSTICS,
-        "latent_mode": z[None, :],
+        "inner": LaplaceEvaluationResult(
+            log_post - log_prior,
+            LaplaceSolverState(z[None, :]),
+            {name: jnp.asarray(value) for name, value in _INNER_DIAGNOSTICS.items()},
+        ),
     }
 
 
@@ -55,7 +64,7 @@ def _objective_with_aux(z, observations, times, latent_mode_init=None):
 def test_optimizer_initialization_and_exact_gradient_contract(monkeypatch, interval_support):
     flat_example = jnp.array([0.25, -0.5])
     model = Mock(
-        spec=SSMModel,
+        spec=BoundPanel,
         observation_support=SimpleNamespace(requires_interval_summary_handling=interval_support),
     )
     candidates = jnp.array([[0.0, 0.0], [4.0, 4.0], [1.0, -2.0]])
@@ -69,13 +78,14 @@ def test_optimizer_initialization_and_exact_gradient_contract(monkeypatch, inter
         assert tol == 1e-3
         assert options["maxiter"] == 9
         np.testing.assert_allclose(x0, expected_start)
-        np.testing.assert_allclose(jac(x0), 2.2 * x0 - np.array([2.0, -4.0]), atol=1e-6)
-        assert fun(optimum) < fun(x0)
-        np.testing.assert_allclose(jac(optimum), 0.0, atol=1e-6)
+        assert jac is True
+        np.testing.assert_allclose(fun(x0)[1], 2.2 * x0 - np.array([2.0, -4.0]), atol=1e-6)
+        assert fun(optimum)[0] < fun(x0)[0]
+        np.testing.assert_allclose(fun(optimum)[1], 0.0, atol=1e-6)
         callback(optimum)
         return SimpleNamespace(
             x=optimum,
-            fun=fun(optimum),
+            fun=fun(optimum)[0],
             nit=3,
             nfev=5,
             status=0,
@@ -98,6 +108,7 @@ def test_optimizer_initialization_and_exact_gradient_contract(monkeypatch, inter
         n_init_samples=2,
         maxiter=9,
         tol=1e-3,
+        clock=time.monotonic,
     )
 
     optimizer.assert_called_once()
@@ -148,7 +159,7 @@ def test_covariance_routes_and_public_draw_extraction(monkeypatch, strategy):
         "neg_log_posterior_fn": _negative_log_posterior,
         "neg_log_posterior_with_aux_fn": _objective_with_aux,
     }
-    monkeypatch.setattr(map_warmup, "get_laplace_backend", Mock(return_value=object()))
+    monkeypatch.setattr(map_warmup, "build_laplace_backend", Mock(return_value=object()))
     monkeypatch.setattr(map_warmup, "_build_map_laplace_bundle", Mock(return_value=bundle))
     monkeypatch.setattr(
         map_warmup, "_optimize_laplace_parameter_mode", Mock(return_value=mode_result)
@@ -165,15 +176,21 @@ def test_covariance_routes_and_public_draw_extraction(monkeypatch, strategy):
     sampler = Mock(side_effect=sample)
     monkeypatch.setattr(map_warmup, "_sample_gaussian_parameter_posterior", sampler)
     result = map_warmup.fit_map(
-        Mock(spec=SSMModel, observation_support=None),
-        jnp.zeros((2, 1)),
-        jnp.array([0.0, 1.0]),
+        Mock(spec=PriorRuntimeBundle),
+        Mock(
+            spec=BoundPanel,
+            model=object(),
+            observation_support=SimpleNamespace(requires_interval_summary_handling=False),
+            observations=jnp.zeros((2, 1)),
+            times=jnp.array([0.0, 1.0]),
+        ),
         num_samples=4,
         compute_parameter_hessian=strategy != "mode_only",
         parameter_covariance_method="exact_hessian"
         if strategy == "exact_hessian"
         else "optimizer_hess_inv",
         hessian_jitter=0.0,
+        clock=time.monotonic,
     )
 
     if strategy == "mode_only":
@@ -187,9 +204,9 @@ def test_covariance_routes_and_public_draw_extraction(monkeypatch, strategy):
         )
         draws = np.asarray(mode) + np.asarray(noise) @ np.linalg.cholesky(covariance).T
     assert isinstance(result, WarmupProposal)
-    assert result.diagnostics["parameter_covariance_method"] == strategy
-    assert result.diagnostics["compute_parameter_hessian"] == (strategy != "mode_only")
-    np.testing.assert_allclose(result.diagnostics["parameter_covariance"], covariance, atol=1e-6)
+    assert result.diagnostics.parameter_covariance_method == strategy
+    assert result.diagnostics.compute_parameter_hessian == (strategy != "mode_only")
+    np.testing.assert_allclose(result.diagnostics.parameter_covariance, covariance, atol=1e-6)
     assert set(result.get_samples()) == {"theta"}
     np.testing.assert_allclose(result.get_samples()["theta"], 7.0 + 2.0 * draws, atol=1e-6)
     assert hessian.call_count == (1 if strategy == "exact_hessian" else 0)

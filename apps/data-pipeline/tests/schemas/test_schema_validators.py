@@ -1,7 +1,7 @@
 """Whole-model validation reports intrinsic errors; measurement readiness is a separate requirement."""
 
 import pytest
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
@@ -9,6 +9,62 @@ from nof1_causal_lab.compilation_errors import IncompleteModelError
 from tests.helpers import graph_constructs, invalid_dict_payload, make_model
 
 pytestmark = pytest.mark.contract
+
+
+def test_dependent_alternatives_reject_impossible_fields_at_the_schema_boundary():
+    from nof1_causal_lab.actions.temporal.messages import ExtractionChunkResult
+    from nof1_causal_lab.artifacts.likelihood import ObservationLawSpec
+    from nof1_causal_lab.artifacts.parameter_spec import ParameterTransformSpec
+    from nof1_causal_lab.artifacts.predictive_provenance import PredictiveLawProvenance
+    from nof1_causal_lab.study.view_models import DataRef
+
+    expression = {"kind": "state", "construct_id": "construct:x"}
+    for tag, argument, excluded in (
+        ("BernoulliLogits", "logits", "probs"),
+        ("BernoulliProbs", "probs", "logits"),
+    ):
+        adapter = TypeAdapter(ObservationLawSpec)
+        law = adapter.validate_python({"distribution": tag, argument: expression})
+        assert set(law.model_dump()) == {"distribution", argument}
+        with pytest.raises(ValidationError, match="extra_forbidden"):
+            adapter.validate_python(
+                {"distribution": tag, argument: expression, excluded: expression}
+            )
+    for adapter, payload in (
+        (TypeAdapter(ParameterTransformSpec), {"kind": "identity", "interval_days": 7}),
+        (TypeAdapter(ParameterTransformSpec), {"kind": "dt_effect_to_ct_rate"}),
+        (
+            TypeAdapter(PredictiveLawProvenance),
+            {"kind": "fitted", "interpretation": "posterior_predictive"},
+        ),
+        (TypeAdapter(DataRef), {"kind": "panel", "revision": "a" * 40, "replicate": None}),
+        (
+            TypeAdapter(ExtractionChunkResult),
+            {"status": "completed", "worker_id": 0, "n_windows": 1, "n_extractions": 1},
+        ),
+        (
+            TypeAdapter(ExtractionChunkResult),
+            {
+                "status": "failed",
+                "worker_id": 0,
+                "n_windows": 1,
+                "n_extractions": 0,
+                "error": "failed",
+                "result_ref": "out.json",
+            },
+        ),
+    ):
+        with pytest.raises(ValidationError):
+            adapter.validate_python(payload)
+
+    model = make_model(["x", "y"], [("x", "y")])
+    edge = model.edges[0]
+    with pytest.raises(ValidationError, match="drift"):
+        edge.revised(
+            mechanisms=[
+                {"id": "mechanism:potential", "kind": "potential", "expression": expression}
+            ]
+        )
 
 
 def test_valid_partial_model_can_be_enriched_for_measurement():
@@ -19,10 +75,7 @@ def test_valid_partial_model_can_be_enriched_for_measurement():
     partial = model.revised(
         edges=replace_constructs(
             model.edges,
-            tuple(
-                type(c).model_validate({**c.model_dump(), "indicators": ()})
-                for c in model.constructs
-            ),
+            tuple(c.revised(indicators=()) for c in model.constructs),
         ),
         measurement_clock=None,
     )
@@ -91,3 +144,56 @@ def test_edge_payload_must_be_a_valid_entity():
     data["edges"] = ["not a dict"]
     with pytest.raises(ValidationError, match="edges"):
         ModelSpec.model_validate(data)
+
+
+@pytest.mark.contract
+@pytest.mark.parametrize(
+    ("identity_name", "wire"),
+    [
+        ("GitOid", "a" * 40),
+        ("ConstructId", "construct:outcome"),
+        ("EdgeId", "edge:exposure-outcome"),
+        ("IndicatorId", "indicator:rating"),
+        ("MechanismId", "mechanism:drift"),
+        ("DistributionId", "distribution:prior"),
+        ("ParameterId", "parameter:" + "b" * 64),
+        ("ParameterElementId", "element:" + "c" * 64),
+    ],
+)
+def test_identity_construction_and_parsing_share_wire_grammar(
+    identity_name: str, wire: str
+) -> None:
+    from pydantic import TypeAdapter, ValidationError
+
+    from nof1_causal_lab.artifacts import identity
+
+    constructor = getattr(identity, identity_name)
+    value = constructor(wire)
+    adapter = TypeAdapter(constructor)
+    assert type(value) is constructor
+    assert adapter.validate_json(adapter.dump_json(value)) == value
+    with pytest.raises(ValueError, match=f"Invalid {identity_name}"):
+        constructor("wrong:identity")
+    with pytest.raises(ValidationError):
+        adapter.validate_python("wrong:identity")
+
+
+@pytest.mark.contract
+def test_response_presence_is_independent_of_request_defaults_and_excluded_fields() -> None:
+    from pydantic import Field
+
+    from nof1_causal_lab.artifacts.base import Value
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+
+    model = ModelSpec()
+    assert model.model_dump(mode="json")["question"] is None
+    assert "question" in ModelSpec.model_json_schema(mode="serialization")["required"]
+    assert "question" not in ModelSpec.model_json_schema(mode="validation").get("required", [])
+
+    class PrivateField(Value):
+        visible: int = 0
+        excluded: str | None = Field(default=None, exclude=True)
+
+    value = PrivateField(excluded="private")
+    assert value.model_dump(mode="json") == {"visible": 0}
+    assert "excluded" not in PrivateField.model_json_schema(mode="serialization")["properties"]

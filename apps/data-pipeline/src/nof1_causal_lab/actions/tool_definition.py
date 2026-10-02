@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, TypeAliasType, cast
+
+from pydantic import TypeAdapter
 
 if TYPE_CHECKING:
     from pydantic import BaseModel
@@ -18,10 +20,12 @@ def _inline_refs(schema: JsonSchemaValue) -> JsonSchemaValue:
 
     recursive = False
 
-    def _resolve(node: Any, ancestors: frozenset[str] = frozenset()) -> Any:
+    def _resolve[SchemaNode](
+        node: SchemaNode, ancestors: frozenset[str] = frozenset()
+    ) -> SchemaNode:
         nonlocal recursive
         if isinstance(node, list):
-            return [_resolve(item, ancestors) for item in node]
+            return cast("SchemaNode", [_resolve(item, ancestors) for item in node])
         if not isinstance(node, dict):
             return node
         if "$ref" in node:
@@ -30,8 +34,11 @@ def _inline_refs(schema: JsonSchemaValue) -> JsonSchemaValue:
             if ref_name in ancestors:
                 recursive = True
                 return node
-            return _resolve(dict(defs[ref_name]), ancestors | {ref_name})
-        return {key: _resolve(value, ancestors) for key, value in node.items() if key != "$defs"}
+            return cast("SchemaNode", _resolve(dict(defs[ref_name]), ancestors | {ref_name}))
+        return cast(
+            "SchemaNode",
+            {key: _resolve(value, ancestors) for key, value in node.items() if key != "$defs"},
+        )
 
     result = _resolve(schema)
     if recursive:
@@ -46,7 +53,7 @@ class ToolDefinition:
     name: str
     description: str
     input_schema: type[BaseModel]
-    output_schema: type[BaseModel] | None = None
+    output_schema: type[BaseModel] | TypeAliasType | None = None
 
     def parameters_json_schema(self) -> JsonSchemaValue:
         schema = self.input_schema.model_json_schema()
@@ -56,7 +63,7 @@ class ToolDefinition:
     def result_json_schema(self) -> JsonSchemaValue | None:
         if self.output_schema is None:
             return None
-        schema = self.output_schema.model_json_schema(mode="serialization")
+        schema = TypeAdapter(self.output_schema).json_schema(mode="serialization")
         if schema.get("type") == "object":
             schema["additionalProperties"] = False
         return _inline_refs(schema)

@@ -7,7 +7,11 @@ from evaluation.recovery import extraction
 
 from nof1_causal_lab.artifacts.parameter import ParameterCoordinate
 from nof1_causal_lab.models.ssm.inference.mcmc_state import TrajectoryMCMCResult
-from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws, ParticleMCMCPosterior
+from nof1_causal_lab.models.ssm.inference.types import (
+    JointPosteriorDraws,
+    ParticleMCMCPosterior,
+    ProductionDiagnostics,
+)
 
 pytestmark = [pytest.mark.inference(concern="sampling"), pytest.mark.inference(concern="recovery")]
 
@@ -38,7 +42,10 @@ def test_recovery_and_ess_share_target_coordinates_and_scales(monkeypatch):
         num_samples=4,
     )
     result = ParticleMCMCPosterior(
-        JointPosteriorDraws(mcmc.get_samples()), diagnostics={"mcmc": mcmc}
+        JointPosteriorDraws(mcmc.get_samples()),
+        diagnostics=ProductionDiagnostics(
+            mcmc=mcmc, observation_log_probs=jnp.zeros((mcmc.num_chains, mcmc.num_samples, 0))
+        ),
     )
 
     recovery = extraction.parameter_recovery(result, elapsed_seconds=2.0)

@@ -9,6 +9,8 @@
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
 import jax
 import jax.numpy as jnp
 
@@ -20,10 +22,16 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._math 
     _normalize_log_probs,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from nof1_causal_lab.models.ssm.inference.mcmc_state import TrajectoryMCMCState
+    from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleContext
+
 
 def build_smoother_context(
     static: MPGibbsStatic,
-    state,
+    state: TrajectoryMCMCState,
     parameter_particles: jnp.ndarray,
     label_correction: jnp.ndarray,
 ) -> SmootherContext:
@@ -55,11 +63,12 @@ def build_smoother_context(
         ).astype(traj_dtype)
         initial_label_log_probs = _normalize_log_probs(parameter_log_probs)
 
-    def _initial_value_grad_by_param(particle0: jnp.ndarray):
-        def _one_context(context):
-            return jax.value_and_grad(
+    def _initial_value_grad_by_param(particle0: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
+        def _one_context(context: ParticleContext) -> tuple[jnp.ndarray, jnp.ndarray]:
+            evaluate: Callable[[jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]] = jax.value_and_grad(
                 lambda particle: transition_initial_log_prob_fn(context, particle)
-            )(particle0)
+            )
+            return evaluate(particle0)
 
         log_prob, grad = jax.vmap(_one_context)(contexts)
         return log_prob.astype(traj_dtype), grad.astype(latent_dtype)
@@ -68,16 +77,17 @@ def build_smoother_context(
         prev_particle: jnp.ndarray,
         particle_t: jnp.ndarray,
         time_idx: jnp.ndarray,
-    ):
-        def _one_context(context):
-            return jax.value_and_grad(
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        def _one_context(context: ParticleContext) -> tuple[jnp.ndarray, jnp.ndarray]:
+            evaluate: Callable[[jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]] = jax.value_and_grad(
                 lambda particle: transition_log_prob_fn(
                     context,
                     prev_particle,
                     particle,
                     time_idx,
                 )
-            )(particle_t)
+            )
+            return evaluate(particle_t)
 
         log_prob, grad_current = jax.vmap(_one_context)(contexts)
         return log_prob.astype(traj_dtype), grad_current.astype(latent_dtype)
@@ -86,16 +96,17 @@ def build_smoother_context(
         particle_t: jnp.ndarray,
         next_particle: jnp.ndarray,
         next_time_idx: jnp.ndarray,
-    ):
-        def _one_context(context):
-            return jax.value_and_grad(
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        def _one_context(context: ParticleContext) -> tuple[jnp.ndarray, jnp.ndarray]:
+            evaluate: Callable[[jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]] = jax.value_and_grad(
                 lambda particle: transition_log_prob_fn(
                     context,
                     particle,
                     next_particle,
                     next_time_idx,
                 )
-            )(particle_t)
+            )
+            return evaluate(particle_t)
 
         log_prob, grad_prev = jax.vmap(_one_context)(contexts)
         return log_prob.astype(traj_dtype), grad_prev.astype(latent_dtype)
@@ -136,7 +147,7 @@ def build_smoother_context(
         return jnp.where(real_seam, transition_lp, 0.0).astype(traj_dtype)
 
     def _trajectory_label_log_probs(path: jnp.ndarray) -> jnp.ndarray:
-        def _one_context(context):
+        def _one_context(context: ParticleContext) -> jnp.ndarray:
             return trajectory_log_prob_fn(
                 context,
                 path,
@@ -160,24 +171,17 @@ def build_smoother_context(
         amala_delta=jnp.asarray(state.latent_delta, dtype=latent_dtype),
         amala_kappa=static.amala_kappa,
         amala_grad_clip=static.amala_grad_clip,
-        dsmc_leaf_proposal=static.dsmc_leaf_proposal,
         latent_block_coords=static.latent_block_coords,
         paid_mix_z_weight=static.paid_mix_z_weight,
         paid_mix_pilot_weight=static.paid_mix_pilot_weight,
-        pilot_means=(
+        pilot_moments=(
             None
-            if static.pilot_means is None
-            else jnp.asarray(static.pilot_means, dtype=latent_dtype)
-        ),
-        pilot_vars=(
-            None
-            if static.pilot_vars is None
-            else jnp.asarray(static.pilot_vars, dtype=latent_dtype)
-        ),
-        pilot_wide_vars=(
-            None
-            if static.pilot_wide_vars is None
-            else jnp.asarray(static.pilot_wide_vars, dtype=latent_dtype)
+            if static.pilot_moments is None
+            else (
+                jnp.asarray(static.pilot_moments[0], dtype=latent_dtype),
+                jnp.asarray(static.pilot_moments[1], dtype=latent_dtype),
+                jnp.asarray(static.pilot_moments[2], dtype=latent_dtype),
+            )
         ),
         initial_value_grad_by_param=_initial_value_grad_by_param,
         transition_current_value_grad_by_param=_transition_current_value_grad_by_param,

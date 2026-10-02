@@ -36,9 +36,9 @@ class TestIVAllowedDefault:
             default_outcome=fixture_entity_id("construct", "Y"),
             observed_constructs={"X", "Y", "Z"},
         )
-        assert "X" not in result["identifiable_treatments"]
-        assert "X" in result["non_identifiable_treatments"]
-        assert result["graph_info"]["iv_allowed"] is False
+        assert "X" not in result.identifiable_treatments
+        assert "X" in result.non_identifiable_treatments
+        assert result.graph_info.iv_allowed is False
 
 
 class TestIVAllowedFalse:
@@ -58,11 +58,11 @@ class TestIVAllowedFalse:
             iv_allowed=False,
         )
 
-        assert result_no_iv["graph_info"]["iv_allowed"] is False
-        assert result_with_iv["identifiable_treatments"]["X"]["method"] == "instrumental_variable"
-        assert result_with_iv["identifiable_treatments"]["X"]["instruments"] == ["Z"]
-        assert "X" not in result_no_iv["identifiable_treatments"]
-        assert "X" in result_no_iv["non_identifiable_treatments"]
+        assert result_no_iv.graph_info.iv_allowed is False
+        assert result_with_iv.identifiable_treatments["X"].method == "instrumental_variable"
+        assert result_with_iv.identifiable_treatments["X"].instruments == ("Z",)
+        assert "X" not in result_no_iv.identifiable_treatments
+        assert "X" in result_no_iv.non_identifiable_treatments
 
     def test_disabled_iv_gate_preserves_do_calculus_identifications(self):
         """The IV gate does not change nonparametric identification."""
@@ -83,11 +83,11 @@ class TestIVAllowedFalse:
             iv_allowed=False,
         )
 
-        assert "X" in result_with_iv["identifiable_treatments"]
-        assert "X" in result_no_iv["identifiable_treatments"]
+        assert "X" in result_with_iv.identifiable_treatments
+        assert "X" in result_no_iv.identifiable_treatments
         assert (
-            result_with_iv["identifiable_treatments"]["X"]["method"]
-            == result_no_iv["identifiable_treatments"]["X"]["method"]
+            result_with_iv.identifiable_treatments["X"].method
+            == result_no_iv.identifiable_treatments["X"].method
         )
 
 
@@ -103,12 +103,9 @@ def test_model_reporting_keeps_nonparametric_findings_without_linear_iv_assumpti
         edges=replace_constructs(
             model.edges,
             tuple(
-                type(construct).model_validate(
-                    {
-                        **construct.model_dump(),
-                        "temporal_status": TemporalStatus.TIME_INVARIANT,
-                        "indicators": () if construct.id == u_id else construct.indicators,
-                    }
+                construct.revised(
+                    temporal_status=TemporalStatus.TIME_INVARIANT,
+                    indicators=() if construct.id == u_id else construct.indicators,
                 )
                 for construct in model.constructs
             ),

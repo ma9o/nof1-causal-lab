@@ -4,9 +4,19 @@ import polars as pl
 import pytest
 
 from nof1_causal_lab.study.history import StudyRepository
-from nof1_causal_lab.study.records import AttemptRecord
+from nof1_causal_lab.study.records import (
+    AttemptRecord,
+    DataPreparationResult,
+    EditAttempt,
+    FitAttempt,
+    ModelEditResult,
+    PrepareAttempt,
+    Raised,
+    Rejected,
+)
 from nof1_causal_lab.study.state import RetractedArtifact
 from nof1_causal_lab.study.store import ArtifactStore, read_current_state
+from tests.action_fixtures import applied_record
 from tests.git_fixtures import git_oid
 from tests.helpers import make_model
 
@@ -41,11 +51,11 @@ class TestArtifactStore:
         assert not list(__import__("pathlib").Path(store._root).glob("*/v*"))
         assert store.list_revisions("model") == [first.revision, second.revision]
         # Old revision stays readable — nothing is overwritten.
-        assert store.read_json_file("model", first.revision, "model.json")["question"].startswith(
-            "does exercise"
+        assert store.read_json_file("model", first.revision, "model.json")["question"] == (
+            "does exercise improve sleep?"
         )
-        assert store.read_json_file("model", second.revision, "model.json")["question"].startswith(
-            "does caffeine"
+        assert store.read_json_file("model", second.revision, "model.json")["question"] == (
+            "does caffeine harm sleep?"
         )
 
     def test_meta_roundtrip(self, workspace):
@@ -79,15 +89,22 @@ class TestArtifactStore:
 
 
 class TestStudyRepository:
-    def _record(self, seq, action, status="applied", **kwargs):
-        kwargs.setdefault("trace_ids", [])
-        return AttemptRecord(
-            seq=seq,
-            ts="2026-07-03T00:00:00+00:00",
-            action=action,
-            status=status,
-            **kwargs,
+    def _record(self, seq, action, outcome=None, **kwargs):
+        if outcome is not None:
+            variant = {
+                "edit_model": EditAttempt,
+                "prepare_data": PrepareAttempt,
+                "fit": FitAttempt,
+            }[action]
+            return AttemptRecord(
+                seq=seq,
+                ts="2026-07-03T00:00:00+00:00",
+                attempt=variant(request=None, outcome=outcome),
+            )
+        result = {"edit_model": ModelEditResult, "prepare_data": DataPreparationResult}[action](
+            **kwargs
         )
+        return applied_record(result, seq=seq, ts="2026-07-03T00:00:00+00:00")
 
     def test_append_and_read_back_in_order(self, workspace):
         journal = StudyRepository(workspace)
@@ -96,10 +113,12 @@ class TestStudyRepository:
             self._record(
                 2,
                 "edit_model",
-                status="rejected",
-                reason=(
-                    "measurement_structure requires artifacts that do not exist: "
-                    "raw_data, latent_structure"
+                outcome=Rejected(
+                    reason="scientific_inputs",
+                    detail=(
+                        "measurement_structure requires artifacts that do not exist: "
+                        "raw_data, latent_structure"
+                    ),
                 ),
             )
         )
@@ -107,31 +126,31 @@ class TestStudyRepository:
             self._record(
                 3,
                 "fit",
-                status="raised",
-                error_type="ModelFitError",
-                error_message="sampler diverged",
-                diagnostics={"rhat_max": 2.4},
+                outcome=Raised(
+                    error_type="ModelFitError",
+                    error_message="sampler diverged",
+                    details=('{"rhat_max": 2.4}',),
+                ),
             )
         )
         records = journal.attempts()
-        assert [r.seq for r in records] == [1, 2, 3]
-        assert records[1].status == "rejected"
-        assert records[1].reason is not None
-        assert "raw_data" in records[1].reason
-        assert records[2].error_type == "ModelFitError"
-        assert records[2].diagnostics["rhat_max"] == 2.4
+        assert [r.record.seq for r in records] == [1, 2, 3]
+        assert records[1].record.attempt.outcome.status == "rejected"
+        assert records[1].record.attempt.outcome.detail is not None
+        assert "raw_data" in records[1].record.attempt.outcome.detail
+        assert records[2].record.attempt.outcome.status == "raised"
+        assert records[2].record.attempt.outcome.error_type == "ModelFitError"
+        assert records[2].record.attempt.outcome.details == ('{"rhat_max": 2.4}',)
         # Scientific action identifiers round-trip.
-        assert records[0].action == "edit_model"
-        assert records[2].action == "fit"
+        assert records[0].record.attempt.action == "edit_model"
+        assert records[2].record.attempt.action == "fit"
 
     def test_identical_duplicate_seq_is_idempotent(self, workspace):
         journal = StudyRepository(workspace)
         record = self._record(1, "edit_model")
         journal.append(record)
         journal.append(record)
-        assert [
-            item.model_dump(exclude={"commit_id", "parent_ids"}) for item in journal.attempts()
-        ] == [record.model_dump()]
+        assert [item.record.model_dump() for item in journal.attempts()] == [record.model_dump()]
 
     def test_different_duplicate_seq_refused(self, workspace):
         journal = StudyRepository(workspace)
@@ -148,17 +167,23 @@ class TestStudyRepository:
 
 class TestDerivedCurrentState:
     def _append(self, workspace, seq, action, *, produced=None, retracted=None, status="applied"):
-        StudyRepository(workspace).append(
-            AttemptRecord(
-                seq=seq,
-                ts="2026-07-03T00:00:00+00:00",
-                action=action,
-                status=status,
-                produced=produced or [],
-                retracted=retracted or [],
-                trace_ids=[],
+        if status == "applied":
+            result = {"edit_model": ModelEditResult, "prepare_data": DataPreparationResult}[action](
+                produced=produced or (), retracted=retracted or ()
             )
-        )
+            record = applied_record(result, seq=seq)
+        else:
+            # A failed outcome has no artifact payload, even if staging wrote a tree.
+            variant = {"edit_model": EditAttempt, "prepare_data": PrepareAttempt}[action]
+            outcome = (
+                Rejected(reason="scientific_inputs", detail="Saved rejection")
+                if status == "rejected"
+                else Raised(error_type="SavedError", error_message="Saved failure")
+            )
+            record = AttemptRecord(
+                seq=seq, ts="2026-07-03T00:00:00Z", attempt=variant(request=None, outcome=outcome)
+            )
+        StudyRepository(workspace).append(record)
 
     def test_current_state_replays_only_applied_versions(self, workspace):
         store = ArtifactStore(workspace)

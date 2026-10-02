@@ -2,16 +2,26 @@
 
 from __future__ import annotations
 
+from datetime import date, datetime
 from functools import cache, cached_property
 from typing import TYPE_CHECKING, Literal, cast
 
-from pydantic import TypeAdapter
+import jax
+import numpy as np
+import numpyro.distributions as dist
+import polars as pl
 
-from nof1_causal_lab.artifacts.identity import GitOid, GitRef
+from nof1_causal_lab.artifacts.expressions import expression_coefficients, expression_states
+from nof1_causal_lab.artifacts.identity import GitOid, GitRef, ParameterRef
 from nof1_causal_lab.artifacts.parameter import SiteKind
-from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorEstimate
+from nof1_causal_lab.artifacts.predictive_provenance import FittedLawProvenance, MixedLawProvenance
+from nof1_causal_lab.models.model_parameters import execution_parameters
+from nof1_causal_lab.models.ssm.compile.inputs import compile_executable_model
+from nof1_causal_lab.models.ssm.dynamics.expression import ExpressionComponentSpec
 from nof1_causal_lab.study.artifact_files import artifact_file_spec, parquet_filename
+from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.history import StudyRepository
+from nof1_causal_lab.study.records import Applied, FitAttempt, SimulateAttempt, StudyRevision
 from nof1_causal_lab.study.snapshot_models import (
     FactSource,
     FitSummary,
@@ -23,39 +33,55 @@ from nof1_causal_lab.study.snapshot_models import (
     Sourced,
     SourceValidity,
 )
-from nof1_causal_lab.study.state import is_stale
-from nof1_causal_lab.study.store import ArtifactStore
+from nof1_causal_lab.study.state import StudyState, is_stale
+from nof1_causal_lab.study.store import ArtifactStore, observation_sample, read_payload
 from nof1_causal_lab.study.views import (
+    entity_failures,
     measurements_view,
     model_diagnostics_view,
     raw_data_view,
-    read_payload,
+)
+from nof1_causal_lab.study.visual_models import (
+    MechanismCurves,
+    MechanismViewRequest,
+    ObservationHistory,
+    ParameterDrawColumn,
+    ParameterDraws,
+    PredictiveHistory,
+    SimulationPaths,
 )
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
-    import polars as pl
-
     from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec
+    from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata
     from nof1_causal_lab.artifacts.execution import (
         StructuralItemDisposition,
     )
     from nof1_causal_lab.artifacts.identification import IdentificationReport
-    from nof1_causal_lab.artifacts.identity import ArtifactId, ConstructId, EntityRef, ParameterId
+    from nof1_causal_lab.artifacts.identity import (
+        ArtifactId,
+        ConstructId,
+        EntityRef,
+        IndicatorId,
+        ParameterId,
+    )
     from nof1_causal_lab.artifacts.indicator import IndicatorSpec
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
     from nof1_causal_lab.artifacts.posterior import InferenceReport
+    from nof1_causal_lab.artifacts.simulation import SimulationReport
     from nof1_causal_lab.artifacts.validation_report import (
         DataProfileArtifact,
         ValidationReportArtifact,
     )
-    from nof1_causal_lab.study.view_models import MeasurementsData, ModelDiagnostics, RawDataData
-
-
-class SnapshotRevisionNotFound(ValueError):
-    """The requested sequence does not identify a committed model revision."""
+    from nof1_causal_lab.study.view_models import (
+        DensityPoint,
+        MeasurementsData,
+        ModelDiagnostics,
+        RawDataData,
+    )
 
 
 class ModelReader:
@@ -66,30 +92,29 @@ class ModelReader:
     Lookup indexes are private to this reader; they are not a second public domain model.
     """
 
-    def __init__(self, workspace_id: str, *, at: GitOid | None = None, branch: str = "main"):
+    def __init__(
+        self, workspace_id: str, *, at: GitOid | None = None, branch: str = "main"
+    ) -> None:
         self.repository = StudyRepository(workspace_id)
-        try:
-            self.commit_id = self.repository.resolve(branch=branch, at=at)
-        except (ValueError, KeyError) as exc:
-            raise SnapshotRevisionNotFound(str(exc)) from exc
+        self.commit_id = self.repository.resolve(branch=branch, at=at)
         self.branch = branch
         self.store = ArtifactStore(workspace_id)
         self.workspace_id = workspace_id
         self.selected = cache(self._selected)
 
     @cached_property
-    def state(self):
+    def state(self) -> StudyState:
         return self.repository.state(self.commit_id)
 
     @cached_property
-    def records(self):
+    def records(self) -> list[StudyRevision]:
         return self.repository.records(self.commit_id)
 
     @cached_property
     def seq(self) -> int:
-        return self.records[-1].seq if self.records else 0
+        return self.records[-1].record.seq if self.records else 0
 
-    def _selected(self, artifact_id: ArtifactId):
+    def _selected(self, artifact_id: ArtifactId) -> object:
         return read_payload(
             self.store,
             artifact_id,
@@ -141,12 +166,12 @@ class ModelReader:
         return self.model.parameters if owner is None else self.model.parameters_for(owner.id)
 
     @cached_property
-    def _construct_ids(self):
-        return {item.id for item in self.constructs()}
+    def _construct_ids(self) -> frozenset[ConstructId]:
+        return frozenset(item.id for item in self.constructs())
 
     @cached_property
-    def _indicator_ids(self):
-        return {item.id for item in self.indicators()}
+    def _indicator_ids(self) -> frozenset[IndicatorId]:
+        return frozenset(item.id for item in self.indicators())
 
     @cached_property
     def _panel(self) -> pl.DataFrame | None:
@@ -160,13 +185,28 @@ class ModelReader:
     def raw_data(self) -> Sourced[RawDataData] | None:
         if not self.state.has("raw_data"):
             return None
+        table = self.store.read_parquet_table(
+            "raw_data", self.state.current["raw_data"].revision, parquet_filename("raw_data", "raw")
+        )
+        frame = pl.DataFrame(table)
+
+        dates: list[str] = []
+        for candidate in ("timestamp", "date", "time", "datetime"):
+            if candidate not in frame.columns:
+                continue
+            for value in frame[candidate].drop_nulls():
+                if isinstance(value, (date, datetime)):
+                    dates.append(value.isoformat()[:10])
+                elif isinstance(value, str):
+                    dates.append(datetime.fromisoformat(value).date().isoformat())
+            if dates:
+                break
+        from nof1_causal_lab.study.view_models import RawDataDateRange
+
         return self.fact(
             raw_data_view(
-                self.store.read_parquet_table(
-                    "raw_data",
-                    self.state.current["raw_data"].revision,
-                    parquet_filename("raw_data", "raw"),
-                )
+                table,
+                RawDataDateRange(start=min(dates), end=max(dates)) if dates else None,
             ),
             "raw_data",
             "",
@@ -177,11 +217,17 @@ class ModelReader:
         if self._panel is None:
             return None
         return self.fact(
-            measurements_view(self._panel, set(self._panel["indicator_id"].to_list())), "panel", ""
+            measurements_view(
+                self._panel,
+                set(self._panel["indicator_id"].to_list()),
+                observation_sample(self._panel),
+            ),
+            "panel",
+            "",
         )
 
     @cached_property
-    def data_metadata(self):
+    def data_metadata(self) -> Sourced[PreparedDataMetadata] | None:
         if not self.state.has("panel"):
             return None
         from nof1_causal_lab.study.lineage import read_data_metadata
@@ -192,7 +238,7 @@ class ModelReader:
         )
 
     @cached_property
-    def data_profile(self):
+    def data_profile(self) -> Sourced[DataProfileArtifact] | None:
         if not self.state.has("data_profile"):
             return None
         return self.fact(
@@ -205,16 +251,7 @@ class ModelReader:
             return None
         report = cast("ValidationReportArtifact", self.selected("validation_report"))
         return self.fact(
-            type(report).model_validate(
-                {
-                    **report.model_dump(),
-                    "indicators": {
-                        iid: audit
-                        for iid, audit in report.indicators.items()
-                        if iid in self._indicator_ids
-                    },
-                }
-            ),
+            report.for_indicators(frozenset(self._indicator_ids)),
             "validation_report",
             "",
         )
@@ -231,7 +268,17 @@ class ModelReader:
             validation=validation.value if validation else None,
         )
 
-    def artifact_view(self, name: str):
+    def artifact_view(
+        self, name: str
+    ) -> (
+        ModelSpec
+        | ModelDiagnostics
+        | RawDataData
+        | MeasurementsData
+        | ValidationReportArtifact
+        | InferenceReport
+        | None
+    ):
         """Select one projection without evaluating unrelated view builders."""
         match name:
             case "model":
@@ -247,16 +294,14 @@ class ModelReader:
             case "inference_report":
                 finding = self.inference_report
             case _:
-                raise KeyError(name)
+                raise StudyLookupError(f"Unknown artifact view: {name}")
         return finding.value if finding is not None else None
 
     @cached_property
     def inference_report(self) -> Sourced[InferenceReport] | None:
-        from nof1_causal_lab.artifacts.posterior import InferenceReport
         from nof1_causal_lab.study.lineage import (
             inference_report_is_current,
             inference_report_record,
-            scientific_inference_report,
         )
 
         if not self.state.has("model"):
@@ -267,11 +312,11 @@ class ModelReader:
         )
         if record is None:
             return None
-        assert self.model is not None
-        report = scientific_inference_report(
-            self.model, InferenceReport.model_validate(record.diagnostics["report"])
-        )
-        current = inference_report_is_current(record, self.state)
+        assert isinstance(record.record.attempt, FitAttempt)
+        assert isinstance(record.record.attempt.outcome, Applied)
+        result = record.record.attempt.outcome.result
+        report = result.report
+        current = inference_report_is_current(result, self.state)
         return Sourced(
             value=report,
             source=FactSource(
@@ -280,7 +325,7 @@ class ModelReader:
                     revision=record.commit_id,
                     path="logs/attempt.json",
                 ),
-                pointer="/diagnostics/report",
+                pointer="/attempt/outcome/result/report",
                 validity=SourceValidity.FRESH if current else SourceValidity.STALE,
             ),
         )
@@ -305,7 +350,6 @@ class ModelReader:
         )
 
     def fit(self) -> Sourced[FitSummary] | None:
-        from nof1_causal_lab.models.ssm.inference.convergence import parameter_convergence
 
         read = self.inference_report
         if read is None:
@@ -321,7 +365,7 @@ class ModelReader:
             findings = marginals.get(parameter.id, [])
             if len(findings) != 1:
                 continue
-            estimate = PosteriorEstimate.model_validate(findings[0], from_attributes=True)
+            estimate = findings[0]
             for owner in model.parameter_context(parameter.id).owners:
                 if (
                     model.parameter_context(parameter.id).quantity == SiteKind.DYNAMICS_WEIGHT
@@ -335,8 +379,7 @@ class ModelReader:
                     decay_estimates[owner.id] = estimate
         return Sourced(
             value=FitSummary(
-                report=posterior.summary(),
-                convergence=parameter_convergence(posterior.inference_diagnostics),
+                report=posterior,
                 edge_estimates=edge_estimates,
                 decay_estimates=decay_estimates,
                 prior_densities=self.fit_prior_densities(marginals.keys()),
@@ -344,31 +387,31 @@ class ModelReader:
             source=read.source,
         )
 
-    def fit_prior_densities(self, fitted: Iterable[ParameterId]):
+    def fit_prior_densities(
+        self, fitted: Iterable[ParameterId]
+    ) -> dict[ParameterId, tuple[DensityPoint, ...]]:
         """Curves of the input laws the fit conditioned, where it reports posteriors."""
-        from nof1_causal_lab.compilation_errors import IncompleteModelError
         from nof1_causal_lab.study.lineage import inference_report_record
-        from nof1_causal_lab.study.prior_views import quantity_prior_densities
         from nof1_causal_lab.study.store import read_model
 
         record = inference_report_record(self.records, self.state)
         assert record is not None
-        try:
-            curves = quantity_prior_densities(
-                read_model(self.store, record.diagnostics["input_pins"]["model"])
-            )
-        except IncompleteModelError:
-            return {}  # The current compiler places no laws of an input it cannot execute.
+        assert isinstance(record.record.attempt, FitAttempt)
+        assert isinstance(record.record.attempt.outcome, Applied)
+        curves = quantity_prior_densities(
+            read_model(self.store, record.record.attempt.outcome.result.model.revision)
+        )
         return {identity: curves[identity] for identity in fitted if curves.get(identity)}
 
-    def simulation(self):
+    def simulation(self) -> Sourced[SimulationReport] | None:
         """Return the most recent explicit simulation with its own input revisions."""
-        from nof1_causal_lab.artifacts.simulation import SimulationReport
 
         for record in reversed(self.records):
-            if record.action != "simulate" or record.status != "applied":
+            if not isinstance(record.record.attempt, SimulateAttempt) or not isinstance(
+                record.record.attempt.outcome, Applied
+            ):
                 continue
-            report = TypeAdapter(SimulationReport).validate_python(record.diagnostics["report"])
+            report = record.record.attempt.outcome.result.report
             pins: dict[ArtifactId, GitOid] = {"model": report.model.revision}
             current = all(
                 self.state.has(aid) and self.state.current[aid].revision == revision
@@ -382,7 +425,7 @@ class ModelReader:
                         revision=record.commit_id,
                         path="logs/attempt.json",
                     ),
-                    pointer="/diagnostics/report",
+                    pointer="/attempt/outcome/result/report",
                     validity=SourceValidity.FRESH if current else SourceValidity.STALE,
                 ),
             )
@@ -411,6 +454,7 @@ class ModelReader:
         from nof1_causal_lab.study.snapshot_models import ModelGraphView
 
         identification, dispositions = self.identification(), self.dispositions()
+        fit = self.fit()
         graph_constructs, graph_edges = model_graph_entities(self.model) if self.model else ((), ())
         blocking = set()
         if identification:
@@ -430,19 +474,25 @@ class ModelReader:
         }
         can_simulate = False
         if self.model is not None:
-            from nof1_causal_lab.models.ssm.predictive.parameters import validate_simulation_laws
+            from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel, compile_model
             from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
-                _ensure_gaussian_process_diffusion,
+                forward_simulation_supported,
             )
 
-            try:
-                self.model.check_execution()
-                validate_simulation_laws(self.model)
-                _ensure_gaussian_process_diffusion(self.model)
-            except ValueError:
-                pass  # An incomplete or unsupported scientific model has no forward generator.
-            else:
-                can_simulate = True
+            compiled = compile_model(self.model)
+            can_simulate = isinstance(compiled, CompiledModel) and forward_simulation_supported(
+                compiled
+            )
+        predictive = self.check_finding(
+            self.state.checks.predictive if self.state.checks else None,
+            "/predictive",
+            validity=SourceValidity.STALE
+            if self.state.checks is not None
+            and self.state.checks.predictive is not None
+            and self.state.checks.predictive.panel_revision
+            != (self.state.current["panel"].revision if self.state.has("panel") else None)
+            else SourceValidity.FRESH,
+        )
         return ModelSnapshot(
             model=self.fact(self.model, "model", "") if self.model else None,
             context=SnapshotContext(
@@ -460,6 +510,13 @@ class ModelReader:
                 profile=self.data_profile,
             ),
             findings=ModelFindings(
+                entity_failures=entity_failures(
+                    self.model,
+                    fit,
+                    predictive,
+                    identification,
+                    self.validation_report or self.data_profile,
+                ),
                 identification=identification,
                 dispositions=dispositions,
                 graph=ModelGraphView(
@@ -472,21 +529,310 @@ class ModelReader:
                 ),
                 validation_report=self.validation_report,
                 diagnostics=self.diagnostics,
-                fit=self.fit(),
+                fit=fit,
                 simulation=self.simulation(),
                 specification=self.check_finding(
                     self.state.checks.specification if self.state.checks else None,
                     "/specification",
                 ),
-                predictive=self.check_finding(
-                    self.state.checks.predictive if self.state.checks else None,
-                    "/predictive",
-                    validity=SourceValidity.STALE
-                    if self.state.checks is not None
-                    and self.state.checks.predictive is not None
-                    and self.state.checks.predictive.panel_revision
-                    != (self.state.current["panel"].revision if self.state.has("panel") else None)
-                    else SourceValidity.FRESH,
-                ),
+                predictive=predictive,
             ),
         )
+
+    def observation_history(self, indicator_id: IndicatorId) -> ObservationHistory | None:
+        metadata = self.data_metadata
+        if metadata is None:
+            return None
+        variable = next((v for v in metadata.value.variables if v.id == indicator_id), None)
+        if variable is None:
+            return None
+        panel = (
+            self.store.read_parquet_file(
+                "panel", self.state.current["panel"].revision, "panel.parquet"
+            )
+            .filter(pl.col("indicator_id") == indicator_id)
+            .sort("anchor_time")
+        )
+        from nof1_causal_lab.study.visuals import observation_history
+
+        return observation_history(metadata.value, variable, panel)
+
+    def predictive_history(self, indicator_id: IndicatorId) -> PredictiveHistory | None:
+        """Recover the saved check's exact schedule from its pinned inputs, without prediction."""
+        from nof1_causal_lab.models.ssm.observation_support import (
+            augment_wide_data_with_support_boundaries,
+        )
+        from nof1_causal_lab.models.ssm.runtime import project_observation_data
+        from nof1_causal_lab.study.lineage import fitted_law_report, read_data_metadata
+        from nof1_causal_lab.study.store import read_model
+
+        check = self.state.checks.predictive if self.state.checks else None
+        if check is None or check.predictive_checks is None or check.panel_revision is None:
+            return None
+        overlay = next(
+            (
+                item
+                for item in check.predictive_checks.overlays
+                if item.indicator_id == indicator_id
+            ),
+            None,
+        )
+        if overlay is None:
+            return None
+        model = read_model(self.store, check.model_revision)
+        origin = read_data_metadata(self.store, check.panel_revision).time_origin
+        if isinstance(check.law, (FittedLawProvenance, MixedLawProvenance)):
+            origin = fitted_law_report(
+                self.repository.attempts(), check.law.fitted_model_revision
+            ).time_origin
+        panel = self.store.read_parquet_file("panel", check.panel_revision, "panel.parquet")
+        compiled = compile_executable_model(model)
+        wide, rows = project_observation_data(panel, model_spec=compiled, time_origin=origin)
+        wide = augment_wide_data_with_support_boundaries(rows, wide, time_origin=origin)
+        times = tuple(float(value) for value in wide["time"])
+        if len(times) != len(overlay.observed):
+            raise ValueError(
+                "Saved predictive series do not match their pinned observation schedule"
+            )
+        likelihood = next(
+            law for indicator, law in model.iter_likelihoods() if indicator.id == indicator_id
+        )
+        return PredictiveHistory(
+            times=times, time_origin=origin, standardized=likelihood.standardized, overlay=overlay
+        )
+
+    def simulation_paths(self, *, start: int, count: int) -> SimulationPaths | None:
+        """Read a contiguous page of original paired paths."""
+        from nof1_causal_lab.study.visuals import recorded_simulation_paths
+
+        saved = self.simulation()
+        if saved is None:
+            return None
+        report = saved.value
+        if start >= report.draws:
+            raise StudyLookupError("Draw page starts past the saved simulation")
+        stop = min(start + count, report.draws)
+        latent = self.store.read_array(report.latent_paths)[start:stop]
+        observed = self.store.read_array(report.observations)[start:stop]
+        mask = self.store.read_array(report.observation_layout.mask)[start:stop]
+        reference = (
+            self.store.read_array(report.reference_latent_paths)[start:stop]
+            if report.reference_latent_paths is not None
+            else None
+        )
+        reference_observed = (
+            self.store.read_array(report.reference_observations)[start:stop]
+            if report.reference_observations is not None
+            else None
+        )
+        effect = None
+        if report.causal_result is not None:
+            if reference is None:
+                raise ValueError("A causal simulation requires its retained reference paths")
+            outcome = report.state_ids.index(report.causal_result.outcome)
+            effect = (
+                report.causal_result.labels[report.causal_result.outcome],
+                latent[:, :, outcome] - reference[:, :, outcome],
+            )
+        return recorded_simulation_paths(
+            report, latent, observed, mask, reference, reference_observed, effect, start=start
+        )
+
+    def parameter_draws(self) -> ParameterDraws:
+        """Read the fitted joint law instead of the report's small selection of pair plots."""
+        from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
+        from nof1_causal_lab.models.ssm.joint_layout import JointLawLayout
+        from nof1_causal_lab.numpyro_json import empirical_atoms
+        from nof1_causal_lab.study.lineage import law_provenance
+        from nof1_causal_lab.study.visuals import empirical_points
+
+        model = self.model
+        if model is None:
+            return ParameterDraws(columns=(), unavailable_reason="No model at this revision.")
+        provenance = law_provenance(self.store, self.state.current["model"], model, None)
+        if provenance.kind != "fitted":
+            return ParameterDraws(
+                columns=(),
+                unavailable_reason="This revision has no complete retained joint posterior. Recorded summary plots cannot recover missing draws.",
+            )
+        bindings, _ = parameter_bindings(compile_executable_model(model))
+        columns = []
+        for identity in sorted(
+            {
+                parameter.distribution
+                for parameter in execution_parameters(model)
+                if parameter.distribution
+            }
+        ):
+            members = [
+                b for b in bindings if model.parameter(b.parameter_id).distribution == identity
+            ]
+            layout = JointLawLayout.from_bindings(
+                members,
+                parameters=[b.parameter_id for b in members],
+                constructs=[c.id for c in model.constructs if c.distribution == identity],
+                time_points=model.time_points,
+            )
+            atoms = empirical_atoms(model.distributions[identity])
+            for binding in members:
+                for element, label in binding.elements.items():
+                    columns.append(
+                        ParameterDrawColumn(
+                            label=label,
+                            subject=ParameterRef(
+                                parameter_id=binding.parameter_id, element_id=element
+                            ),
+                            values=tuple(
+                                float(v) for v in atoms[:, layout.parameter_columns[element]]
+                            ),
+                            empirical=empirical_points(atoms[:, layout.parameter_columns[element]]),
+                        )
+                    )
+        return ParameterDraws(columns=tuple(columns))
+
+    def mechanism_curves(self, request: MechanismViewRequest) -> MechanismCurves:
+        model = self.model
+        if model is None:
+            raise StudyLookupError("No model at this revision")
+        edge = next((item for item in model.edges if item.id == request.owner_id), None)
+        construct = next((item for item in model.constructs if item.id == request.owner_id), None)
+        if edge is not None:
+            mechanisms, target, default_axis = edge.mechanisms, edge.effect, edge.cause.id
+        elif construct is not None:
+            mechanisms, target, default_axis = construct.dynamics, construct, construct.id
+        else:
+            raise StudyLookupError("Unknown mechanism owner")
+        if not mechanisms:
+            raise StudyLookupError("No dynamics are declared for this entity")
+        dependencies = {
+            identity for m in mechanisms for identity in expression_states(m.expression)
+        }
+        dependencies.add(default_axis)
+        axis = request.axis or default_axis
+        if axis not in dependencies:
+            raise StudyLookupError("The response axis must be a state in this mechanism")
+        if request.moderator is not None and (
+            request.moderator not in dependencies or request.moderator == axis
+        ):
+            raise StudyLookupError("The moderator must be another state in this mechanism")
+        if request.held.keys() - dependencies or axis in request.held:
+            raise StudyLookupError("Held values must name other states in this mechanism")
+        held = {
+            identity: request.held.get(identity, 0.0)
+            for identity in sorted(dependencies - {axis, request.moderator})
+        }
+        ids = tuple(item.id for item in model.constructs)
+        parameters, law, total = _mechanism_parameters(
+            model,
+            {
+                operand.value
+                for mechanism in mechanisms
+                for operand in expression_coefficients(mechanism.expression)
+                if isinstance(operand.value, str)
+            },
+        )
+        if request.start >= total:
+            raise StudyLookupError("Draw page starts past this law")
+        components = [
+            ExpressionComponentSpec(
+                target=ids.index(target.id),
+                source=ids.index(edge.cause.id) if edge is not None else None,
+                kind=mechanism.kind,
+                expression=mechanism.expression,
+                state_ids=ids,
+            ).build()
+            for mechanism in mechanisms
+        ]
+
+        from nof1_causal_lab.study.mechanism_views import mechanism_curves
+
+        return mechanism_curves(
+            request,
+            tuple(components),
+            tuple(m.kind for m in mechanisms),
+            ids,
+            target.id,
+            target.name,
+            axis,
+            {identity: model.get_construct(identity).name for identity in sorted(dependencies)},
+            held,
+            parameters,
+            law,
+            total,
+        )
+
+
+def _mechanism_parameters(
+    model: ModelSpec, identities: set[ParameterId]
+) -> tuple[dict[ParameterId, np.ndarray], Literal["retained", "sampled", "fixed"], int]:
+    """Preserve joint atoms, or sample native current laws with a reproducible plot seed."""
+    from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
+    from nof1_causal_lab.models.ssm.compile.prior_compilation import quantity_parameter_law
+    from nof1_causal_lab.models.ssm.joint_layout import JointLawLayout
+    from nof1_causal_lab.numpyro_json import empirical_atoms, materialize_distribution
+
+    parameters = [model.parameter(identity) for identity in sorted(identities)]
+    if any(p.distribution is None for p in parameters):
+        raise StudyLookupError("Assign probability laws to this mechanism's parameters first")
+    if not parameters:
+        return {}, "fixed", 1
+    laws = {p.distribution for p in parameters if p.distribution is not None}
+    native = {
+        identity: materialize_distribution(model.distributions[identity]) for identity in laws
+    }
+    only = next(iter(native.values())) if len(native) == 1 else None
+    retained = (
+        isinstance(only, dist.MixtureSameFamily)
+        and isinstance(only.component_distribution, dist.Delta)
+        and np.all(
+            np.asarray(only.mixing_distribution.probs)
+            == np.asarray(only.mixing_distribution.probs)[0]
+        )
+    )
+    total = len(empirical_atoms(only)) if retained and only is not None else 128
+    values = {}
+    for index, identity in enumerate(sorted(laws)):
+        law = native[identity]
+        members = [p for p in parameters if p.distribution == identity]
+        key = jax.random.fold_in(jax.random.PRNGKey(0), index)
+        if not law.batch_shape and not law.event_shape:
+            for member_index, parameter in enumerate(members):
+                compiled, _ = quantity_parameter_law(model, parameter)
+                values[parameter.id] = np.asarray(
+                    compiled.sample(jax.random.fold_in(key, member_index), (total,))
+                )
+        else:
+            bindings, _ = parameter_bindings(compile_executable_model(model))
+            by_id = {b.parameter_id: b for b in bindings}
+            layout = JointLawLayout.from_bindings(
+                bindings,
+                parameters=[
+                    p.id for p in execution_parameters(model) if p.distribution == identity
+                ],
+                constructs=[c.id for c in model.constructs if c.distribution == identity],
+                time_points=model.time_points,
+            )
+            draws = empirical_atoms(law) if retained else np.asarray(law.sample(key, (total,)))
+            for parameter in members:
+                coordinates = by_id[parameter.id].coordinates
+                if len(coordinates) != 1:
+                    raise ValueError(
+                        "A scalar drift coefficient requires one scientific coordinate"
+                    )
+                column = layout.parameter_columns[next(iter(coordinates))]
+                values[parameter.id] = draws[:, column]
+    return values, "retained" if retained else "sampled", total
+
+
+def quantity_prior_densities(model: ModelSpec) -> dict[ParameterId, tuple[DensityPoint, ...]]:
+    """Resolve native quantity laws at the reader boundary before projecting curves."""
+    from nof1_causal_lab.models.ssm.compile.prior_compilation import quantity_parameter_law
+    from nof1_causal_lab.numpyro_json import distribution_shape
+    from nof1_causal_lab.study.prior_views import prior_density
+
+    return {
+        parameter.id: prior_density(quantity_parameter_law(model, parameter)[0])
+        for parameter in execution_parameters(model)
+        if parameter.distribution is not None
+        and not any(distribution_shape(model.distributions[parameter.distribution]))
+    }

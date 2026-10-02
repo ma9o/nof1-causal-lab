@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
+
+from nof1_causal_lab.artifacts.base import Value
 
 
-class ValidateExtractionsInput(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class ValidateExtractionsInput(Value):
     output_json: str = Field(
         description="The JSON string containing the worker output to validate."
     )

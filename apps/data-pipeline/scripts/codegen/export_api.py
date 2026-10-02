@@ -12,25 +12,31 @@ import json
 import re
 import sys
 from pathlib import Path
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, TypeAliasType
 
-from nof1_causal_lab.actions.data_diff import DataDiffReport, DataDiffRequest
+from pydantic import TypeAdapter
+
 from nof1_causal_lab.actions.results import ActionPoll, ActionReceipt
-
-# Import all artifact contracts — this pulls in every nested domain model
-from nof1_causal_lab.actions.revisions import ModelDiffReport, RevisionCatalog
 from nof1_causal_lab.actions.status import StudyStatus
 from nof1_causal_lab.artifacts.catalog import ARTIFACT_CONTRACTS
 from nof1_causal_lab.artifacts.effects import EffectSummary
+from nof1_causal_lab.artifacts.expressions import COEFFICIENT_MEANINGS
 from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS
-from nof1_causal_lab.artifacts.parameter import SiteKind
+from nof1_causal_lab.artifacts.likelihood import OBSERVATION_FAMILY_SPECS
 from nof1_causal_lab.artifacts.scenarios import (
     CausalEffectResult,
     EffectTrajectoryPoint,
 )
-from nof1_causal_lab.distributions import OBSERVATION_FAMILY_SPECS
 from nof1_causal_lab.study.snapshot_models import ModelSnapshot
-from nof1_causal_lab.study.view_models import ArtifactViewResponse
+
+# Import all artifact contracts — this pulls in every nested domain model
+from nof1_causal_lab.study.view_models import (
+    ArtifactViewResponse,
+    DataDiffReport,
+    DataDiffRequest,
+    ModelDiffReport,
+    RevisionCatalog,
+)
 from nof1_causal_lab.study.visual_models import (
     MechanismCurves,
     MechanismViewRequest,
@@ -60,7 +66,7 @@ REPO_ROOT = Path(__file__).resolve().parents[4]
 OUTPUT_DIR = REPO_ROOT / "packages" / "api-types" / "schemas"
 SKILL_PATH = REPO_ROOT / ".agents" / "skills" / "nof1-study-api" / "SKILL.md"
 
-EXPORTED_API_MODELS: tuple[type[BaseModel], ...] = (
+EXPORTED_API_MODELS: tuple[type[BaseModel] | TypeAliasType, ...] = (
     CapabilitiesResponse,
     WorkspaceEntry,
     WorkspaceList,
@@ -94,77 +100,10 @@ EXPORTED_TOOL_MODELS: tuple[type[BaseModel], ...] = (
 )
 
 
-def _make_defaults_required(schema: JsonSchemaValue) -> JsonSchemaValue:
-    """Make all properties with defaults required in serialization schema.
-
-    Pydantic marks fields with defaults as optional in JSON Schema, but in
-    serialization mode they're always present. This post-processes the schema
-    to make them required so TypeScript types aren't overly permissive.
-
-    Only applies to object schemas that have 'properties'.
-    Does NOT touch fields where the default is None and the type includes null
-    (those are genuinely optional/nullable).
-    """
-    # Recurse into $defs
-    if "$defs" in schema:
-        for name, defn in schema["$defs"].items():
-            schema["$defs"][name] = _make_defaults_required(defn)
-
-    # Recurse into properties
-    if "properties" in schema:
-        props = schema["properties"]
-        current_required = set(schema.get("required", []))
-
-        for prop_name, prop_schema in props.items():
-            # Skip already-required fields
-            if prop_name in current_required:
-                continue
-
-            # Skip fields that are nullable (anyOf with null) — these are
-            # genuinely optional fields that default to None
-            if _is_nullable(prop_schema):
-                continue
-
-            # This field has a default but is not nullable — make it required
-            current_required.add(prop_name)
-
-        if current_required:
-            schema["required"] = sorted(current_required)
-
-        # Recurse into nested properties
-        for prop_schema in props.values():
-            _make_defaults_required(prop_schema)
-
-    # Recurse into items (arrays)
-    if "items" in schema:
-        _make_defaults_required(schema["items"])
-
-    # Recurse into anyOf/oneOf
-    for key in ("anyOf", "oneOf"):
-        if key in schema:
-            for i, item in enumerate(schema[key]):
-                schema[key][i] = _make_defaults_required(item)
-
-    return schema
-
-
-def _is_nullable(prop_schema: JsonSchemaValue) -> bool:
-    """Check if a property schema allows null (e.g., anyOf with null type)."""
-    # Direct null type
-    if prop_schema.get("type") == "null":
-        return True
-
-    # Default is None
-    if prop_schema.get("default") is None and "default" in prop_schema:
-        return True
-
-    # anyOf contains null
-    any_of: list[dict[str, object]] = prop_schema.get("anyOf", [])
-    return any(item.get("type") == "null" for item in any_of)
-
-
-def _collect_model_schema(model_cls: type[BaseModel], all_defs: JsonSchemaValue) -> dict[str, str]:
-    schema = model_cls.model_json_schema(mode="serialization")
+def _collect_model_schema(
+    model_cls: type[BaseModel] | TypeAliasType, all_defs: JsonSchemaValue
+) -> dict[str, str]:
+    schema = TypeAdapter(model_cls).json_schema(mode="serialization")
     defs = schema.pop("$defs", {})
     all_defs.update(defs)
     model_name = model_cls.__name__
@@ -184,7 +123,7 @@ def export_schemas() -> JsonSchemaValue:
         _collect_model_schema(model_cls, all_defs)
 
     annotate_definitions(all_defs)
-    combined = {
+    return {
         "$schema": "https://json-schema.org/draft/2020-12/schema",
         "title": "CausalSSMContracts",
         "description": "Combined JSON Schema for exported artifact contracts and facade API models. Generated from Python Pydantic models.",
@@ -193,25 +132,17 @@ def export_schemas() -> JsonSchemaValue:
         "$defs": dict(sorted(all_defs.items())),
     }
 
-    # Post-process: make non-nullable defaults required
-    return _make_defaults_required(combined)
-
 
 def export_metadata() -> JsonSchemaValue:
     """Export distribution catalog metadata for TypeScript type-safe rendering maps."""
-    site_kind_values = {sk.value for sk in SiteKind if sk.name.startswith("OBS_")}
-    catalog_hypers = {h for spec in OBSERVATION_FAMILY_SPECS for h in spec.hyperparameters}
-    if catalog_hypers != site_kind_values:
-        diff = catalog_hypers.symmetric_difference(site_kind_values)
-        raise ValueError(
-            f"ObservationFamilyCatalogEntry.hyperparameters out of sync with SiteKind: {diff}"
-        )
     return {
         "artifactIds": list(ARTIFACT_IDS),
         "observationHyperparametersByDistribution": {
-            spec.family.value: list(spec.hyperparameters)
+            spec.family.value: [
+                COEFFICIENT_MEANINGS[role].quantity.value for role in spec.parameter_roles
+            ]
             for spec in OBSERVATION_FAMILY_SPECS
-            if spec.hyperparameters
+            if spec.parameter_roles
         },
     }
 
@@ -404,6 +335,8 @@ def main(*, check: bool = False) -> bool:
             if not path.exists() or path.read_text() != rendered:
                 changed.append(path.relative_to(REPO_ROOT))
         else:
+            if path.exists() and path.read_text() == rendered:
+                continue
             path.parent.mkdir(parents=True, exist_ok=True)
             path.write_text(rendered)
     if changed:

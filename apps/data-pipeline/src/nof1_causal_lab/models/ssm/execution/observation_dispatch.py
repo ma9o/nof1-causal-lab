@@ -80,7 +80,7 @@ class MeanObservationSampler:
 
 
 def _trajectory_sampler(sample_vector: ObservationSampleFn) -> ObservationSampleFn:
-    def sample_trajectory(key, trajectory):
+    def sample_trajectory(key: jnp.ndarray, trajectory: jnp.ndarray) -> jnp.ndarray:
         keys = jax.random.split(key, trajectory.shape[0])
         return jax.vmap(sample_vector)(keys, trajectory)
 
@@ -128,9 +128,9 @@ def build_point_observation_sampler(
     all_gaussian = all(dist == DistributionFamily.GAUSSIAN for dist in dists)
     if all_gaussian:
         manifest_cov_adj = symmetrize_with_jitter(manifest_cov)
-        manifest_chol = jnp.linalg.cholesky(manifest_cov_adj)
+        manifest_chol: jax.Array = jnp.linalg.cholesky(manifest_cov_adj)
 
-        def _sample_point_vector(key, linear_predictor):
+        def _sample_point_vector(key: jnp.ndarray, linear_predictor: jnp.ndarray) -> jnp.ndarray:
             return linear_predictor + manifest_chol @ jax.random.normal(key, linear_predictor.shape)
 
         sample_point_trajectory = _trajectory_sampler(_sample_point_vector)
@@ -172,20 +172,20 @@ def build_point_observation_sampler(
     )
 
     def _sample_channel(
-        loc_j,
-        key,
-        dist_idx,
-        std_j,
-        df,
-        shape_p,
-        r_p,
-        phi_p,
-        level_count,
-        cutpoints,
-        cat_intercepts_j,
-        cat_slopes_j,
-    ):
-        return jax.lax.switch(
+        loc_j: jnp.ndarray,
+        key: jnp.ndarray,
+        dist_idx: jnp.ndarray,
+        std_j: jnp.ndarray,
+        df: float | jnp.ndarray,
+        shape_p: jnp.ndarray,
+        r_p: jnp.ndarray,
+        phi_p: jnp.ndarray,
+        level_count: jnp.ndarray,
+        cutpoints: jnp.ndarray | float | int,
+        cat_intercepts_j: jnp.ndarray | float | int,
+        cat_slopes_j: jnp.ndarray | float | int,
+    ) -> jnp.ndarray:
+        result: jnp.ndarray = jax.lax.switch(
             dist_idx,
             POSTERIOR_PREDICTIVE_SWITCH_BRANCHES,
             loc_j,
@@ -200,8 +200,9 @@ def build_point_observation_sampler(
             cat_intercepts_j,
             cat_slopes_j,
         )
+        return result
 
-    def _sample_point_vector(key, linear_predictor):
+    def _sample_point_vector(key: jnp.ndarray, linear_predictor: jnp.ndarray) -> jnp.ndarray:
         channel_keys = jax.random.split(key, n_manifest)
         return jax.vmap(_sample_channel)(
             linear_predictor,

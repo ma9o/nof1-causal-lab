@@ -1,10 +1,56 @@
 {
   "distribution": "Beta",
-  "arguments": {
-    "concentration1": {
+  "concentration1": {
+    "kind": "binary",
+    "operator": "multiply",
+    "left": {
+      "kind": "call",
+      "function": "normal_cdf",
+      "arguments": [
+        {
+          "kind": "binary",
+          "operator": "add",
+          "left": {
+            "kind": "coefficient",
+            "role": "observation_intercept",
+            "value": null,
+            "construct_ids": []
+          },
+          "right": {
+            "kind": "binary",
+            "operator": "multiply",
+            "left": {
+              "kind": "coefficient",
+              "role": "loading",
+              "value": null,
+              "construct_ids": []
+            },
+            "right": {
+              "kind": "state",
+              "construct_id": "construct:x"
+            }
+          }
+        }
+      ]
+    },
+    "right": {
+      "kind": "coefficient",
+      "role": "concentration",
+      "value": null,
+      "construct_ids": []
+    }
+  },
+  "concentration0": {
+    "kind": "binary",
+    "operator": "multiply",
+    "left": {
       "kind": "binary",
-      "operator": "multiply",
+      "operator": "subtract",
       "left": {
+        "kind": "literal",
+        "value": 1.0
+      },
+      "right": {
         "kind": "call",
         "function": "normal_cdf",
         "arguments": [
@@ -33,61 +79,13 @@
             }
           }
         ]
-      },
-      "right": {
-        "kind": "coefficient",
-        "role": "concentration",
-        "value": null,
-        "construct_ids": []
       }
     },
-    "concentration0": {
-      "kind": "binary",
-      "operator": "multiply",
-      "left": {
-        "kind": "binary",
-        "operator": "subtract",
-        "left": {
-          "kind": "literal",
-          "value": 1.0
-        },
-        "right": {
-          "kind": "call",
-          "function": "normal_cdf",
-          "arguments": [
-            {
-              "kind": "binary",
-              "operator": "add",
-              "left": {
-                "kind": "coefficient",
-                "role": "observation_intercept",
-                "value": null,
-                "construct_ids": []
-              },
-              "right": {
-                "kind": "binary",
-                "operator": "multiply",
-                "left": {
-                  "kind": "coefficient",
-                  "role": "loading",
-                  "value": null,
-                  "construct_ids": []
-                },
-                "right": {
-                  "kind": "state",
-                  "construct_id": "construct:x"
-                }
-              }
-            }
-          ]
-        }
-      },
-      "right": {
-        "kind": "coefficient",
-        "role": "concentration",
-        "value": null,
-        "construct_ids": []
-      }
+    "right": {
+      "kind": "coefficient",
+      "role": "concentration",
+      "value": null,
+      "construct_ids": []
     }
   }
 }

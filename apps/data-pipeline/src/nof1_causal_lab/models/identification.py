@@ -34,20 +34,20 @@ def identify_model(model: ModelSpec) -> IdentificationReport:
             **{
                 by_name[name]: IdentifiedTreatmentStatus(
                     method="do_calculus",
-                    estimand=finding["estimand"],
-                    marginalized_confounders=[
-                        by_name[item] for item in finding.get("marginalized_confounders", [])
-                    ],
-                    instruments=[by_name[item] for item in finding.get("instruments", [])],
+                    estimand=finding.estimand,
+                    marginalized_confounders=tuple(
+                        by_name[item] for item in finding.marginalized_confounders
+                    ),
+                    instruments=tuple(by_name[item] for item in finding.instruments),
                 )
-                for name, finding in result["identifiable_treatments"].items()
+                for name, finding in result.identifiable_treatments.items()
             },
             **{
                 by_name[name]: NonIdentifiableTreatmentStatus(
-                    confounders=[by_name[item] for item in finding["confounders"]],
-                    notes=finding.get("notes"),
+                    confounders=tuple(by_name[item] for item in finding.confounders),
+                    notes=finding.notes,
                 )
-                for name, finding in result["non_identifiable_treatments"].items()
+                for name, finding in result.non_identifiable_treatments.items()
             },
         },
     )

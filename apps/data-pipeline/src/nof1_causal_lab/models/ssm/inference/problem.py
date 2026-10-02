@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 import dynestyx as dsx
@@ -10,6 +11,7 @@ import equinox as eqx
 import numpy as np
 from dynestyx.inference.configs.discretizer import EulerMaruyamaConfig
 
+from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.covariance_utils import CHOL_JITTER
 from nof1_causal_lab.models.ssm.execution.dynamical_model import build_dynamical_model
@@ -21,12 +23,16 @@ from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleTarget
 from nof1_causal_lab.models.ssm.inference.utils import (
     prepare_model_parameters,
 )
-from nof1_causal_lab.models.ssm.preflight import validate_observation_support_for_fit
-from nof1_causal_lab.models.ssm.spec_metadata import has_student_t_diffusion
 from nof1_causal_lab.models.ssm.transition_kinds import LATENT_TRANSITION_EULER_MARUYAMA
 
 if TYPE_CHECKING:
+    import jax
+
+    from nof1_causal_lab.models.ssm.autoreparam import Strategy
+    from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleContext
     from nof1_causal_lab.models.ssm.inference.utils import SiteInfo
+    from nof1_causal_lab.models.ssm.parameterization import PriorRuntimeBundle
+    from nof1_causal_lab.models.ssm.runtime import BoundPanel
 
 
 @dataclass(frozen=True)
@@ -35,31 +41,41 @@ class ParticleProblem:
 
     runtime: ParticleTarget
     site_info: SiteInfo
-    public_sites: set[str]
+    public_sites: frozenset[str]
     latent_transition_kind: str
     exact_constraints: ExactStateConstraints | None = None
 
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "site_info", MappingProxyType(dict(self.site_info)))
+        object.__setattr__(self, "public_sites", frozenset(self.public_sites))
 
-def build_particle_problem(model, observations, times, *, scheme, trace_key, reparam):
+
+def build_particle_problem(
+    priors: PriorRuntimeBundle,
+    panel: BoundPanel,
+    *,
+    scheme: str,
+    trace_key: jax.Array,
+    reparam: Strategy | None,
+) -> ParticleProblem:
     """Prepare the parameter transform and the exact discrete model for sampling."""
+    observations, times = panel.observations, panel.times
+    model = panel.model
     if scheme != LATENT_TRANSITION_EULER_MARUYAMA:
         raise ValueError(f"Particle inference requires 'euler_maruyama'; got {scheme!r}.")
     exact_constraints = compile_exact_state_constraints(
-        model.spec, observations, input_values=model.input_values
+        model, observations, input_values=panel.input_values
     )
-    if has_student_t_diffusion(model.spec):
+    if DistributionFamily.STUDENT_T in numeric.diffusion_families(model):
         raise ValueError(
             "Particle inference currently requires Gaussian latent diffusion for every state."
         )
-    validate_observation_support_for_fit(model)
     parameters, site_info, public_sites = prepare_model_parameters(
-        model, observations, times, trace_key, reparam
+        priors, panel, trace_key, reparam
     )
 
-    def continuous_model(position, runtime_times):
-        return build_dynamical_model(
-            model.spec, parameters.constrain(position), t0=runtime_times[0]
-        )
+    def continuous_model(position: jax.Array, runtime_times: jax.Array) -> dsx.DynamicalModel:
+        return build_dynamical_model(model, parameters.constrain(position), t0=runtime_times[0])
 
     # Partition once to retain static metadata outside the sampler state. Every
     # parameter-dependent value in the declared model is an explicit array leaf.
@@ -67,10 +83,13 @@ def build_particle_problem(model, observations, times, *, scheme, trace_key, rep
         continuous_model(parameters.initial_position, times), eqx.is_array
     )
 
-    def context_fn(position, runtime_times):
-        return eqx.filter(continuous_model(position, runtime_times), eqx.is_array), runtime_times
+    def context_fn(position: jax.Array, runtime_times: jax.Array) -> ParticleContext:
+        dynamic_model: dsx.DynamicalModel = eqx.filter(
+            continuous_model(position, runtime_times), eqx.is_array
+        )
+        return dynamic_model, runtime_times
 
-    def declared_model(context):
+    def declared_model(context: ParticleContext) -> dsx.DynamicalModel:
         return dsx.discretize_dynamics(
             eqx.combine(context[0], static_model),
             EulerMaruyamaConfig(covariance_jitter=CHOL_JITTER),
@@ -82,7 +101,7 @@ def build_particle_problem(model, observations, times, *, scheme, trace_key, rep
         declared_model,
         observations,
         times,
-        tuple(int(index) for index in np.flatnonzero(~numeric.input_mask(model.spec))),
+        tuple(int(index) for index in np.flatnonzero(~numeric.input_mask(model))),
     )
     return ParticleProblem(
         runtime, site_info, public_sites, LATENT_TRANSITION_EULER_MARUYAMA, exact_constraints

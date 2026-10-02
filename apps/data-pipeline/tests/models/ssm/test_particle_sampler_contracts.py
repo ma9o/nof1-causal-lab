@@ -1,5 +1,6 @@
 """Particle configuration and initialization contracts without compiling a sampler."""
 
+import time
 from unittest.mock import Mock
 
 import jax.numpy as jnp
@@ -15,8 +16,7 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.kernel
     build_marginal_particle_gibbs_kernel,
 )
 from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleTarget
-from nof1_causal_lab.sampler_config import validate_sampler_config
-from nof1_causal_lab.utils.config import InferenceConfig
+from nof1_causal_lab.sampler_config import MarginalParticleGibbsSpec
 
 pytestmark = pytest.mark.contract
 
@@ -43,7 +43,6 @@ def test_kernel_rejects_invalid_configuration_before_accessing_target(options, e
 @pytest.mark.parametrize(
     "field",
     [
-        "method",
         "parameter_proposal",
         "latent_smoother",
         "dsmc_leaf_proposal",
@@ -54,9 +53,9 @@ def test_kernel_rejects_invalid_configuration_before_accessing_target(options, e
     ],
 )
 def test_sampler_boundary_rejects_unknown_modes(field):
-    raw = {**InferenceConfig().to_sampler_config(), field: "bogus"}
+    raw = {field: "bogus"}
     with pytest.raises(ValidationError, match=field):
-        validate_sampler_config(raw)
+        MarginalParticleGibbsSpec.model_validate(raw)
 
 
 @pytest.mark.parametrize(
@@ -118,6 +117,7 @@ def test_runner_rejects_invalid_initial_chains_before_any_step(monkeypatch, inva
             retain_latent_paths=True,
             init_positions=jnp.asarray(positions),
             initial_latent_trajectories=jnp.asarray(paths),
+            clock=time.monotonic,
         )
     step.assert_not_called()
     target.initial_path.assert_not_called()

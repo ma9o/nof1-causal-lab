@@ -22,37 +22,35 @@
             "likelihood": {
               "law": {
                 "distribution": "Normal",
-                "arguments": {
-                  "loc": {
+                "loc": {
+                  "kind": "binary",
+                  "operator": "add",
+                  "left": {
+                    "kind": "coefficient",
+                    "role": "observation_intercept",
+                    "value": 0.0,
+                    "construct_ids": []
+                  },
+                  "right": {
                     "kind": "binary",
-                    "operator": "add",
+                    "operator": "multiply",
                     "left": {
                       "kind": "coefficient",
-                      "role": "observation_intercept",
-                      "value": 0.0,
+                      "role": "loading",
+                      "value": 1.0,
                       "construct_ids": []
                     },
                     "right": {
-                      "kind": "binary",
-                      "operator": "multiply",
-                      "left": {
-                        "kind": "coefficient",
-                        "role": "loading",
-                        "value": 1.0,
-                        "construct_ids": []
-                      },
-                      "right": {
-                        "kind": "state",
-                        "construct_id": "construct:bbc87212909e45b9e6c3"
-                      }
+                      "kind": "state",
+                      "construct_id": "construct:bbc87212909e45b9e6c3"
                     }
-                  },
-                  "scale": {
-                    "kind": "coefficient",
-                    "role": "observation_scale",
-                    "value": "parameter:dffee488204a13c5d792226ba1612760b10719710b7c7293ac88f7882fb8ad46",
-                    "construct_ids": []
                   }
+                },
+                "scale": {
+                  "kind": "coefficient",
+                  "role": "observation_scale",
+                  "value": "parameter:dffee488204a13c5d792226ba1612760b10719710b7c7293ac88f7882fb8ad46",
+                  "construct_ids": []
                 }
               },
               "standardized": true,
@@ -73,30 +71,28 @@
             "categorical_levels": null,
             "likelihood": {
               "law": {
-                "distribution": "Bernoulli",
-                "arguments": {
-                  "logits": {
+                "distribution": "BernoulliLogits",
+                "logits": {
+                  "kind": "binary",
+                  "operator": "add",
+                  "left": {
+                    "kind": "coefficient",
+                    "role": "observation_intercept",
+                    "value": "parameter:5313b06cc9f7da6557b18d034bbbec6f84b3c074a293f6f005019171296895ac",
+                    "construct_ids": []
+                  },
+                  "right": {
                     "kind": "binary",
-                    "operator": "add",
+                    "operator": "multiply",
                     "left": {
                       "kind": "coefficient",
-                      "role": "observation_intercept",
-                      "value": "parameter:5313b06cc9f7da6557b18d034bbbec6f84b3c074a293f6f005019171296895ac",
+                      "role": "loading",
+                      "value": "parameter:394a9953e3e1d44ba3624b273b0c2dba1a55a17b480a8b36622d90deb14ca99f",
                       "construct_ids": []
                     },
                     "right": {
-                      "kind": "binary",
-                      "operator": "multiply",
-                      "left": {
-                        "kind": "coefficient",
-                        "role": "loading",
-                        "value": "parameter:394a9953e3e1d44ba3624b273b0c2dba1a55a17b480a8b36622d90deb14ca99f",
-                        "construct_ids": []
-                      },
-                      "right": {
-                        "kind": "state",
-                        "construct_id": "construct:bbc87212909e45b9e6c3"
-                      }
+                      "kind": "state",
+                      "construct_id": "construct:bbc87212909e45b9e6c3"
                     }
                   }
                 }
@@ -244,52 +240,106 @@
       "id": "parameter:403d1ba7a1dc2ea4b423d3918766b7d70dc5cab41ad22f6f0251ee151e43952d",
       "name": "cint_mood",
       "description": "center of cint_mood",
-      "distribution_transform": "identity",
-      "distribution": null,
-      "reference_interval_days": null
+      "distribution": "distribution:d79f65d0c3a6603d25b82ed47e122fc0e09ecf5a48f58169e2b11e7fc2eca1ea",
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:3dd6b7c9eb6876093f9fe0c1c1ce2864fd4a8c53e6dac3d6a1e5538016e1fdff",
       "name": "rho_mood",
       "description": "stiffness of rho_mood",
-      "distribution_transform": "dt_persistence_to_ct_decay",
-      "distribution": null,
-      "reference_interval_days": null
+      "distribution": "distribution:180f0d57d4bc50a086c6f0f89527c6485cbf55a1177a18c8dbd5b0429158fd41",
+      "transform": {
+        "kind": "dt_persistence_to_ct_decay",
+        "interval_days": "model_clock"
+      }
     },
     {
       "id": "parameter:ea7fd5ac08160569f35431da4d1741f5ac0606585c802a602de991f3e3a51263",
       "name": "sigma_mood",
       "description": "innovation.scale for sigma_mood",
-      "distribution_transform": "identity",
-      "distribution": null,
-      "reference_interval_days": null
+      "distribution": "distribution:2cf146fa915507aa42a7b63772ad16479aa4cbb18828a90beb23ee9c2b0edaa5",
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:dffee488204a13c5d792226ba1612760b10719710b7c7293ac88f7882fb8ad46",
       "name": "obs_sd_mood_rating",
       "description": "likelihood.scale for obs_sd_mood_rating",
-      "distribution_transform": "identity",
-      "distribution": null,
-      "reference_interval_days": null
+      "distribution": "distribution:0a2092a029c292f50cbd3124da6aa410a55ec908e1b663b06ce9c52fa7393480",
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:394a9953e3e1d44ba3624b273b0c2dba1a55a17b480a8b36622d90deb14ca99f",
       "name": "lambda_mood_flag_mood",
       "description": "likelihood.loading.construct:bbc87212909e45b9e6c3 for lambda_mood_flag_mood",
-      "distribution_transform": "identity",
-      "distribution": null,
-      "reference_interval_days": null
+      "distribution": "distribution:d6787d3887497306423f49eda0eb6a66905ffb03f8441252dab79c9423f8f334",
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:5313b06cc9f7da6557b18d034bbbec6f84b3c074a293f6f005019171296895ac",
       "name": "manifest_mean_mood_flag",
       "description": "likelihood.intercept for manifest_mean_mood_flag",
-      "distribution_transform": "identity",
-      "distribution": null,
-      "reference_interval_days": null
+      "distribution": "distribution:486120e129bdc327a4b929d45b946276ec981c5012f53a603cf2875f1ba584f1",
+      "transform": {
+        "kind": "identity"
+      }
     }
   ],
-  "distributions": {},
+  "distributions": {
+    "distribution:d79f65d0c3a6603d25b82ed47e122fc0e09ecf5a48f58169e2b11e7fc2eca1ea": {
+      "distribution": "Normal",
+      "params": {
+        "loc": 0.0,
+        "scale": 1.0,
+        "validate_args": false
+      }
+    },
+    "distribution:180f0d57d4bc50a086c6f0f89527c6485cbf55a1177a18c8dbd5b0429158fd41": {
+      "distribution": "Beta",
+      "params": {
+        "concentration1": 2.0,
+        "concentration0": 2.0,
+        "validate_args": false
+      }
+    },
+    "distribution:2cf146fa915507aa42a7b63772ad16479aa4cbb18828a90beb23ee9c2b0edaa5": {
+      "distribution": "HalfNormal",
+      "params": {
+        "scale": 1.0,
+        "validate_args": false
+      }
+    },
+    "distribution:0a2092a029c292f50cbd3124da6aa410a55ec908e1b663b06ce9c52fa7393480": {
+      "distribution": "HalfNormal",
+      "params": {
+        "scale": 1.0,
+        "validate_args": false
+      }
+    },
+    "distribution:d6787d3887497306423f49eda0eb6a66905ffb03f8441252dab79c9423f8f334": {
+      "distribution": "Normal",
+      "params": {
+        "loc": 0.0,
+        "scale": 1.0,
+        "validate_args": false
+      }
+    },
+    "distribution:486120e129bdc327a4b929d45b946276ec981c5012f53a603cf2875f1ba584f1": {
+      "distribution": "Normal",
+      "params": {
+        "loc": 0.0,
+        "scale": 1.0,
+        "validate_args": false
+      }
+    }
+  },
   "time_points": [],
   "measurement_clock": "1d",
   "default_outcome": null

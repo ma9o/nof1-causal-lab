@@ -22,37 +22,35 @@
             "likelihood": {
               "law": {
                 "distribution": "Normal",
-                "arguments": {
-                  "loc": {
+                "loc": {
+                  "kind": "binary",
+                  "operator": "add",
+                  "left": {
+                    "kind": "coefficient",
+                    "role": "observation_intercept",
+                    "value": 0.0,
+                    "construct_ids": []
+                  },
+                  "right": {
                     "kind": "binary",
-                    "operator": "add",
+                    "operator": "multiply",
                     "left": {
                       "kind": "coefficient",
-                      "role": "observation_intercept",
-                      "value": 0.0,
+                      "role": "loading",
+                      "value": 1.0,
                       "construct_ids": []
                     },
                     "right": {
-                      "kind": "binary",
-                      "operator": "multiply",
-                      "left": {
-                        "kind": "coefficient",
-                        "role": "loading",
-                        "value": 1.0,
-                        "construct_ids": []
-                      },
-                      "right": {
-                        "kind": "state",
-                        "construct_id": "construct:98907cc586bfcf98c836"
-                      }
+                      "kind": "state",
+                      "construct_id": "construct:98907cc586bfcf98c836"
                     }
-                  },
-                  "scale": {
-                    "kind": "coefficient",
-                    "role": "observation_scale",
-                    "value": "parameter:3eabd5ae1b7ca15eca2772cdf8298293985fe28dedeec57e8d543a043b9c2597",
-                    "construct_ids": []
                   }
+                },
+                "scale": {
+                  "kind": "coefficient",
+                  "role": "observation_scale",
+                  "value": "parameter:3eabd5ae1b7ca15eca2772cdf8298293985fe28dedeec57e8d543a043b9c2597",
+                  "construct_ids": []
                 }
               },
               "standardized": false,
@@ -182,25 +180,28 @@
       "id": "parameter:e7e20d74af8aa47e58ffca403670f3912bcddafed670860906dee61462d2c669",
       "name": "parameter:e7e20d74af8aa47e58ffca403670f3912bcddafed670860906dee61462d2c669",
       "description": "Fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:4aca7dfa6f1b5e5e96daf4e0f6ee2ffa83e03759c22c1af544d80a9dcd5e1a52",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:428e7de5d18c796563860ab8173a48433fdbf81b7aecf44b01d76044d80d5c10",
       "name": "parameter:428e7de5d18c796563860ab8173a48433fdbf81b7aecf44b01d76044d80d5c10",
       "description": "Fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:b58954baa704ad5ddc92db893300309e874c54365f3526674f27362589587169",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:3eabd5ae1b7ca15eca2772cdf8298293985fe28dedeec57e8d543a043b9c2597",
       "name": "parameter:3eabd5ae1b7ca15eca2772cdf8298293985fe28dedeec57e8d543a043b9c2597",
       "description": "Fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:ede68b1107e3df64cd6babad8f8dc4e1227616b4ee3f999ab0114decbe5b4720",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     }
   ],
   "distributions": {

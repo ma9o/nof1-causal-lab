@@ -15,7 +15,7 @@ from nof1_causal_lab.actions.temporal.measurement_activities import (
     plan_measurements_activity,
 )
 from nof1_causal_lab.actions.temporal.messages import (
-    ExtractionChunkResult,
+    CompletedExtractionChunk,
     MeasurementsFinalizeInput,
     MeasurementsWorkflowInput,
 )
@@ -23,6 +23,8 @@ from nof1_causal_lab.artifacts.data_preparation import (
     DataPreparationSpec,
     DataVariableSpec,
     FilePreparationSpec,
+    FileSourceRef,
+    PreparedDataMetadata,
 )
 from nof1_causal_lab.artifacts.validation_report import DataProfileArtifact
 from nof1_causal_lab.study.state import StudyState
@@ -125,7 +127,7 @@ def test_preparation_without_model_combines_computed_and_semantic_workers(monkey
             ),
         )
         results.append(
-            ExtractionChunkResult(
+            CompletedExtractionChunk(
                 worker_id=chunk.worker_id,
                 n_windows=chunk.n_windows,
                 status="completed",
@@ -150,29 +152,27 @@ def test_preparation_without_model_combines_computed_and_semantic_workers(monkey
     panel = next(item for item in effects.produced if item.artifact_id == "panel")
     assert panel.derived_from == {"raw_data": raw.revision}
     observations = store.read_parquet_file("panel", panel.revision, "panel.parquet")
-    assert observations.filter(pl.col("indicator_id") == "indicator:steps")["value"].to_list() == [
-        4,
-        0,
-        8,
+    assert observations.select("indicator_id", "value").rows() == [
+        ("indicator:steps", 4),
+        ("indicator:steps", 0),
+        ("indicator:steps", 8),
+        ("indicator:stress", 0),
+        ("indicator:stress", None),
+        ("indicator:stress", 2),
     ]
-    assert observations.filter(pl.col("indicator_id") == "indicator:stress")["value"].to_list() == [
-        0,
-        None,
-        2,
-    ]
-    metadata = store.read_json_file("panel", panel.revision, "metadata.json")
+    metadata = store.read_value("panel", panel.revision, "metadata.json", PreparedDataMetadata)
+    assert metadata.preparation is not None
     assert (
-        metadata["preparation"]["variables"][1]["how_to_measure"]
-        == preparation.variables[1].how_to_measure
+        metadata.preparation.variables[1].how_to_measure == preparation.variables[1].how_to_measure
     )
-    assert metadata["variables"][1]["ordinal_levels"] == ["low", "medium", "high"]
+    assert metadata.variables[1].ordinal_levels == ("low", "medium", "high")
     profile_ref = next(item for item in effects.produced if item.artifact_id == "data_profile")
     profile = DataProfileArtifact.model_validate(
         store.read_json_file("data_profile", profile_ref.revision, "data_profile.json")
     )
     assert set(profile.indicators) == {"indicator:steps", "indicator:stress"}
     labels = completion_messages(
-        "data-only", "prepare_data", effects.produced, effects.diagnostics, datetime.now(UTC)
+        effects, datetime.now(UTC), store.completion_reports(effects.produced)
     )
     assert "DATA_QUALITY_FINDINGS" in {label.label for label in labels}
     assert all(set(label.model_dump()) == {"timestamp", "level", "label"} for label in labels)
@@ -186,7 +186,7 @@ def test_declared_categorical_codebook_validates_and_encodes_normalized_labels(
     value, expected_code
 ):
     from nof1_causal_lab.actions.extraction.materialization import materialize_panel
-    from nof1_causal_lab.utils.data import annotate_observation_rows
+    from nof1_causal_lab.utils.observation_rows import annotate_observation_rows
     from nof1_causal_lab.workers.schemas import validate_worker_output
 
     preparation = DataPreparationSpec(
@@ -206,7 +206,9 @@ def test_declared_categorical_codebook_validates_and_encodes_normalized_labels(
 
     from nof1_causal_lab.artifacts.measurements import ObservationRecord
 
-    context = preparation.extraction_context()
+    context = FilePreparationSpec(
+        source=FileSourceRef(files=("source.csv",)), definition=preparation
+    ).extraction_context()
     output, errors = validate_worker_output(
         {
             "extractions": [
@@ -227,7 +229,9 @@ def test_declared_categorical_codebook_validates_and_encodes_normalized_labels(
         return
     assert errors == []
     assert output is not None
-    rows = annotate_observation_rows(output.to_dataframe(), context).to_dicts()
+    rows = annotate_observation_rows(
+        output.to_dataframe(), preparation.observation_schema()
+    ).to_dicts()
     assert materialize_panel(TypeAdapter(list[ObservationRecord]).validate_python(rows), context)[
         "value"
     ].to_list() == [expected_code]

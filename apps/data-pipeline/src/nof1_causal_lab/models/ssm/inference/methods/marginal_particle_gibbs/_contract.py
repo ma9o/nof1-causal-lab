@@ -4,7 +4,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Callable
+from collections.abc import Callable, Mapping
 from typing import TYPE_CHECKING, Literal, NamedTuple
 
 import jax.numpy as jnp
@@ -52,7 +52,7 @@ class MPGibbsLatentSmootherResult(NamedTuple):
     latent_path: Float[Array, "T D"]
     final_label_log_probs: Float[Array, " K"]
     origin_path: jnp.ndarray
-    diagnostics: dict[str, jnp.ndarray]
+    diagnostics: Mapping[str, jnp.ndarray]
 
 
 def _resolve_latent_smoother(name: Literal["dsmc"]) -> MPGibbsLatentSmoother:
@@ -81,7 +81,6 @@ class MPGibbsStatic(NamedTuple):
     latent_delta: float
     amala_kappa: float
     amala_grad_clip: float
-    dsmc_leaf_proposal: DSMCLeafProposal
     # Number of latent coordinates proposed per sweep (None = all). Restricting the
     # per-sweep update to a random coordinate block sidesteps the joint-coherence
     # weight degeneracy of full-state proposals at higher latent dimension; the tree
@@ -92,9 +91,8 @@ class MPGibbsStatic(NamedTuple):
     # per-time pilot moments derived from the IEKS warmup paths.
     paid_mix_z_weight: float
     paid_mix_pilot_weight: float
-    pilot_means: jnp.ndarray | None
-    pilot_vars: jnp.ndarray | None
-    pilot_wide_vars: jnp.ndarray | None
+    # Present only for paid_mix: means, pilot variances, wide-tail variances.
+    pilot_moments: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray] | None
     transition_initial_log_prob_fn: Callable[[ParticleContext, jnp.ndarray], jnp.ndarray]
     transition_log_prob_fn: TransitionLogProbFn
     transition_log_probs_for_pairs_fn: TransitionLogProbFn
@@ -123,13 +121,11 @@ class SmootherContext(NamedTuple):
     amala_delta: Float[Array, " D"]
     amala_kappa: float
     amala_grad_clip: float
-    dsmc_leaf_proposal: DSMCLeafProposal
     latent_block_coords: int | None
     paid_mix_z_weight: float
     paid_mix_pilot_weight: float
-    pilot_means: jnp.ndarray | None
-    pilot_vars: jnp.ndarray | None
-    pilot_wide_vars: jnp.ndarray | None
+    # Present only for paid_mix: means, pilot variances, wide-tail variances.
+    pilot_moments: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray] | None
     initial_value_grad_by_param: Callable[..., tuple[jnp.ndarray, jnp.ndarray]]
     transition_current_value_grad_by_param: Callable[..., tuple[jnp.ndarray, jnp.ndarray]]
     transition_next_value_grad_by_param: Callable[..., tuple[jnp.ndarray, jnp.ndarray]]

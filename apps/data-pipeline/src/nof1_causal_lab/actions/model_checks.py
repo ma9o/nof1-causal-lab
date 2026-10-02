@@ -8,13 +8,13 @@ from nof1_causal_lab.actions.checks import check_specification
 from nof1_causal_lab.artifacts.identity import scientific_id
 from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
 from nof1_causal_lab.study.artifact_files import json_filename, parquet_filename
+from nof1_causal_lab.study.records import ModelEditResult, ModelFitResult
 from nof1_causal_lab.study.state import RetractedArtifact, apply_effects
 from nof1_causal_lab.study.store import ArtifactStore, read_model
 
 if TYPE_CHECKING:
     import polars as pl
 
-    from nof1_causal_lab.actions.effects import ActionEffects
     from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid
     from nof1_causal_lab.artifacts.model_checks import CheckGroup
     from nof1_causal_lab.study.state import ArtifactRecord, StudyState
@@ -23,13 +23,13 @@ if TYPE_CHECKING:
 CHECK_POLICY_VERSION = "model-checks-v4"
 
 
-def evaluate_model_checks(
+def evaluate_model_checks[ResultT: ModelEditResult | ModelFitResult](
     workspace_id: str,
     state: StudyState,
-    effects: ActionEffects,
+    effects: ResultT,
     *,
     action: Literal["edit_model", "fit"],
-) -> ActionEffects:
+) -> ResultT:
     """Finish one edit or fit before its model and findings commit together.
 
     This is a fixed sequence, not an artifact scheduler. Reuse is scoped to the
@@ -105,18 +105,15 @@ def evaluate_model_checks(
         )
         if was_reused:
             reused.append("predictive")
-    return type(effects).model_validate(
-        {
-            **effects.model_dump(),
-            "produced": produced,
-            "retracted": retracted,
-            "checks": ModelCheckReport(
-                input_keys=keys,
-                specification=specification,
-                predictive=predictive,
-                reused=tuple(reused),
-            ),
-        }
+    return effects.with_checks(
+        produced=tuple(produced),
+        retracted=tuple(retracted),
+        checks=ModelCheckReport(
+            input_keys=keys,
+            specification=specification,
+            predictive=predictive,
+            reused=tuple(reused),
+        ),
     )
 
 
@@ -156,41 +153,28 @@ def _write_validation(
     panel = _read_panel(store, pins["panel"])
     from nof1_causal_lab.artifacts.validation_report import DataProfileArtifact
 
-    profile = DataProfileArtifact.model_validate(
-        store.read_json_file(
-            "data_profile", pins["data_profile"], json_filename("data_profile", "data_profile")
-        )
+    profile = store.read_value(
+        "data_profile", pins["data_profile"], "data_profile.json", DataProfileArtifact
     )
     audit_result = validate_extraction(model, [panel], data_profile=profile)
-    if not audit_result:
-        raise RuntimeError(
-            "validation_report derivation returned an empty audit result; "
-            "refusing to fabricate an is_valid=False report with empty indicators."
-        )
-
     from nof1_causal_lab.actions.checks import check_model_data
-    from nof1_causal_lab.actions.data_checks import data_binding_issues
+    from nof1_causal_lab.models.model_inputs import data_binding_issues
     from nof1_causal_lab.study.lineage import read_data_metadata
 
     preflight = check_model_data(
         model, panel, time_origin=read_data_metadata(store, pins["panel"]).time_origin
     )
-    payload = ValidationReportArtifact.model_validate(
-        {
-            "indicators": audit_result["indicators"],
-            "dataset_issues": audit_result["dataset_issues"],
-            "preflight": preflight,
-        }
-    )
-    for issue in data_binding_issues(model, read_data_metadata(store, pins["panel"])):
-        payload.dataset_issues.append(
-            ValidationIssue(
-                indicator_id=None,
-                issue_type="measurement_definitions",
-                severity="error",
-                message=issue,
-            )
+    binding_issues = tuple(
+        ValidationIssue(
+            indicator_id=None, issue_type="measurement_definitions", severity="error", message=issue
         )
+        for issue in data_binding_issues(model, read_data_metadata(store, pins["panel"]))
+    )
+    payload = ValidationReportArtifact(
+        indicators=audit_result.indicators,
+        dataset_issues=(*audit_result.dataset_issues, *binding_issues),
+        preflight=preflight,
+    )
     return store.write_artifact(
         "validation_report",
         derived_from=pins,

@@ -12,9 +12,17 @@ import polars as pl
 import pytest
 
 from nof1_causal_lab.actions.validation.flow import (
-    validate_extraction,
+    profile_data,
+)
+from nof1_causal_lab.actions.validation.flow import (
+    validate_extraction as validate_model_data,
 )
 from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec, replace_constructs
+from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata, SimulationReplicateRef
+from nof1_causal_lab.artifacts.identity import GitOid, IndicatorId
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.observations import ObservationSpec
+from nof1_causal_lab.artifacts.validation_report import DataProfileArtifact, ValidationIssue
 from tests.helpers import fixture_entity_id, make_model
 
 pytestmark = pytest.mark.contract
@@ -48,18 +56,41 @@ def _create_worker_dfs(records: list[dict[str, Any]]) -> list[pl.DataFrame]:
     return [df]
 
 
-def _all_issues(result: dict[str, Any]) -> list[dict[str, Any]]:
-    indicator_issues = [
-        issue for audit in result.get("indicators", {}).values() for issue in audit["issues"]
-    ]
-    return [*indicator_issues, *result.get("dataset_issues", [])]
+def validate_extraction(model: ModelSpec, dataframes: list[pl.DataFrame]) -> DataProfileArtifact:
+    """Exercise stored data quality and model compatibility as distinct owners."""
+    metadata = PreparedDataMetadata(
+        source=SimulationReplicateRef(revision=GitOid("a" * 40), replicate=0),
+        variables=tuple(
+            ObservationSpec(
+                id=item.id,
+                name=item.name,
+                measurement_dtype=item.measurement_dtype,
+                aggregation=item.aggregation,
+                observation_window=item.observation_window or model.measurement_clock or "1d",
+                ordinal_levels=item.ordinal_levels,
+                categorical_levels=item.categorical_levels,
+            )
+            for item in model.indicators
+        ),
+        time_origin=None,
+    )
+    data = pl.concat(dataframes).with_columns(pl.col("value").cast(pl.Float64, strict=False))
+    return validate_model_data(
+        model, dataframes, data_profile=profile_data(data, metadata=metadata)
+    )
+
+
+def _all_issues(result: DataProfileArtifact) -> tuple[ValidationIssue, ...]:
+    return (
+        *result.dataset_issues,
+        *(issue for audit in result.indicators.values() for issue in audit.issues),
+    )
 
 
 def _issues_for_indicator(
-    result: dict[str, Any],
-    indicator: str,
-) -> list[dict[str, Any]]:
-    return result["indicators"][indicator]["issues"]
+    result: DataProfileArtifact, indicator: IndicatorId
+) -> tuple[ValidationIssue, ...]:
+    return result.indicators[indicator].issues
 
 
 def _make_spec(
@@ -77,7 +108,6 @@ def _make_spec(
             "construct_id": fixture_entity_id("construct", construct_name),
             "name": indicator_name,
             "measurement_dtype": dtype,
-            "how_to_measure": f"Extract {indicator_name}",
         },
     ]
     if extra_indicators:
@@ -87,7 +117,6 @@ def _make_spec(
         assert indicator.pop("construct_id") == fixture_entity_id("construct", construct_name)
         indicator.setdefault("construct_polarity", "positive")
         indicator.setdefault("measurement_dtype", "continuous")
-        indicator.setdefault("how_to_measure", "Read the value")
         indicator.setdefault("aggregation", "last")
     model = make_model([construct_name])
     construct = ConstructSpec.model_validate(
@@ -145,7 +174,12 @@ class TestValidateExtraction:
                 "dataset_issues": [],
                 "preflight": {
                     "findings": [
-                        {"check": "execution", "status": "failed", "message": "Incomplete model"}
+                        {
+                            "kind": "evaluated",
+                            "subject": "execution",
+                            "outcome": "failed",
+                            "evidence": "Incomplete model",
+                        }
                     ]
                 },
             }
@@ -164,9 +198,9 @@ class TestValidateExtraction:
 
     def test_empty_results_returns_error(self, simple_causal_design):
         """Empty worker results returns error."""
-        result = validate_extraction(simple_causal_design, [])
-        assert result["is_valid"] is False
-        assert any(i["issue_type"] == "no_data" for i in _all_issues(result))
+        result = validate_model_data(simple_causal_design, [])
+        assert result.is_valid is False
+        assert any(i.issue_type == "no_data" for i in _all_issues(result))
 
     def test_valid_data_no_issues(self, simple_causal_design):
         """Valid data with sufficient variance and sample size passes."""
@@ -190,9 +224,9 @@ class TestValidateExtraction:
         worker_results = _create_worker_dfs(records)
         result = validate_extraction(simple_causal_design, worker_results)
 
-        assert result["is_valid"] is True
+        assert result.is_valid is True
         # May have warnings but no errors
-        errors = [i for i in _all_issues(result) if i["severity"] == "error"]
+        errors = [i for i in _all_issues(result) if i.severity == "error"]
         assert len(errors) == 0
 
     def test_missing_indicator_is_warning(self, simple_causal_design):
@@ -209,11 +243,11 @@ class TestValidateExtraction:
         result = validate_extraction(simple_causal_design, worker_results)
 
         # Should have warning for missing sleep_hours
-        missing_issues = [i for i in _all_issues(result) if i["issue_type"] == "missing"]
-        assert any(i["indicator_id"] == "indicator:9866c549bd1c25f0a5d7" for i in missing_issues)
+        missing_issues = [i for i in _all_issues(result) if i.issue_type == "missing"]
+        assert any(i.indicator_id == "indicator:9866c549bd1c25f0a5d7" for i in missing_issues)
 
-    def test_zero_variance_is_error(self, simple_causal_design):
-        """Constant values (zero variance) returns error."""
+    def test_zero_variance_is_warning(self, simple_causal_design):
+        """Constant observed values are a data-quality warning."""
         records = []
         for i in range(20):
             records.append(
@@ -234,15 +268,15 @@ class TestValidateExtraction:
         worker_results = _create_worker_dfs(records)
         result = validate_extraction(simple_causal_design, worker_results)
 
-        assert result["is_valid"] is False
+        assert result.is_valid is True
 
-        error_issues = [i for i in _all_issues(result) if i["severity"] == "error"]
-        assert len(error_issues) == 1
-        assert error_issues[0]["indicator_id"] == "indicator:3696aef3ff6f446744e5"
-        assert error_issues[0]["issue_type"] == "no_variance"
+        variance_issues = [i for i in _all_issues(result) if i.issue_type == "no_variance"]
+        assert len(variance_issues) == 1
+        assert variance_issues[0].indicator_id == "indicator:3696aef3ff6f446744e5"
+        assert variance_issues[0].severity == "warning"
 
-    def test_time_invariant_skips_variance(self):
-        """Time-invariant indicators are constant by definition; no_variance should not fire."""
+    def test_data_quality_is_retained_independently_of_construct_time_status(self):
+        """A model time status does not reinterpret the stored empirical profile."""
         spec = _make_spec(model_clock=None, temporal_status="time_invariant")
         records = [
             {
@@ -253,9 +287,10 @@ class TestValidateExtraction:
             for i in range(20)
         ]
         result = validate_extraction(spec, _create_worker_dfs(records))
-        no_var = [i for i in _all_issues(result) if i["issue_type"] == "no_variance"]
-        assert len(no_var) == 0
-        assert result["is_valid"] is True
+        no_var = [i for i in _all_issues(result) if i.issue_type == "no_variance"]
+        assert len(no_var) == 1
+        assert no_var[0].severity == "warning"
+        assert result.is_valid is True
 
     def test_low_sample_size_is_warning(self, simple_causal_design):
         """Low sample size generates warning."""
@@ -296,10 +331,10 @@ class TestValidateExtraction:
         result = validate_extraction(simple_causal_design, worker_results)
 
         # Should be valid (warnings only)
-        assert result["is_valid"] is True
+        assert result.is_valid is True
 
         # But should have low_n warnings
-        low_n_warnings = [i for i in _all_issues(result) if i["issue_type"] == "low_n"]
+        low_n_warnings = [i for i in _all_issues(result) if i.issue_type == "low_n"]
         assert len(low_n_warnings) == 2  # Both indicators
 
     def test_non_numeric_values_are_errors(self, simple_causal_design):
@@ -329,25 +364,25 @@ class TestValidateExtraction:
         stress_issues = _issues_for_indicator(
             result, fixture_entity_id("indicator", "stress_score")
         )
-        assert any(i["issue_type"] == "no_numeric" for i in stress_issues)
+        assert any(i.issue_type == "no_numeric" for i in stress_issues)
 
     def test_combined_error_and_warning(self, simple_causal_design):
         """Indicator can have multiple issues."""
         records = [
-            # stress_score: constant AND low N
+            # stress_score: no numeric observations
             {
                 "indicator_id": "indicator:3696aef3ff6f446744e5",
-                "value": "5.0",
+                "value": "not_numeric",
                 "anchor_time": "2024-01-01 10:00",
             },
             {
                 "indicator_id": "indicator:3696aef3ff6f446744e5",
-                "value": "5.0",
+                "value": "not_numeric",
                 "anchor_time": "2024-01-02 10:00",
             },
             {
                 "indicator_id": "indicator:3696aef3ff6f446744e5",
-                "value": "5.0",
+                "value": "not_numeric",
                 "anchor_time": "2024-01-03 10:00",
             },
             # sleep_hours: varying but low N
@@ -371,15 +406,17 @@ class TestValidateExtraction:
         worker_results = _create_worker_dfs(records)
         result = validate_extraction(simple_causal_design, worker_results)
 
-        assert result["is_valid"] is False  # Has error
+        assert result.is_valid is False  # Has error
 
-        # stress_score should have both issues
+        # stress_score has a numeric-data error; sleep retains a low-N warning
         stress_issues = _issues_for_indicator(
             result, fixture_entity_id("indicator", "stress_score")
         )
-        issue_types = {i["issue_type"] for i in stress_issues}
-        assert "no_variance" in issue_types
-        assert "low_n" in issue_types
+        issue_types = {i.issue_type for i in stress_issues}
+        assert "no_numeric" in issue_types
+        assert any(i.severity == "error" for i in stress_issues)
+        sleep_issues = _issues_for_indicator(result, fixture_entity_id("indicator", "sleep_hours"))
+        assert any(i.issue_type == "low_n" and i.severity == "warning" for i in sleep_issues)
 
     def test_only_warnings_is_valid(self, simple_causal_design):
         """is_valid=True when only warnings exist."""
@@ -404,10 +441,10 @@ class TestValidateExtraction:
         worker_results = _create_worker_dfs(records)
         result = validate_extraction(simple_causal_design, worker_results)
 
-        assert result["is_valid"] is True
+        assert result.is_valid is True
         issues = _all_issues(result)
         assert len(issues) > 0
-        assert all(i["severity"] == "warning" for i in issues)
+        assert all(i.severity == "warning" for i in issues)
 
 
 # ==============================================================================
@@ -430,7 +467,7 @@ class TestCheckTimestamps:
             for i in range(20)
         ]
         result = validate_extraction(spec, _create_worker_dfs(records))
-        ts_issues = [i for i in _all_issues(result) if i["issue_type"] == "unparseable_timestamps"]
+        ts_issues = [i for i in _all_issues(result) if i.issue_type == "unparseable_timestamps"]
         assert len(ts_issues) == 0
 
     def test_native_datetime_timestamps_are_parseable(self):
@@ -444,7 +481,7 @@ class TestCheckTimestamps:
             }
         )
         result = validate_extraction(spec, [df])
-        ts_issues = [i for i in _all_issues(result) if i["issue_type"] == "unparseable_timestamps"]
+        ts_issues = [i for i in _all_issues(result) if i.issue_type == "unparseable_timestamps"]
         assert len(ts_issues) == 0
 
     def test_all_unparseable_is_error(self):
@@ -459,9 +496,9 @@ class TestCheckTimestamps:
             for i in range(20)
         ]
         result = validate_extraction(spec, _create_worker_dfs(records))
-        ts_issues = [i for i in _all_issues(result) if i["issue_type"] == "unparseable_timestamps"]
+        ts_issues = [i for i in _all_issues(result) if i.issue_type == "unparseable_timestamps"]
         assert len(ts_issues) == 1
-        assert ts_issues[0]["severity"] == "error"
+        assert ts_issues[0].severity == "error"
 
     def test_majority_unparseable_is_warning(self):
         """Over 50% unparseable timestamps → warning."""
@@ -477,9 +514,9 @@ class TestCheckTimestamps:
                 }
             )
         result = validate_extraction(spec, _create_worker_dfs(records))
-        ts_issues = [i for i in _all_issues(result) if i["issue_type"] == "unparseable_timestamps"]
+        ts_issues = [i for i in _all_issues(result) if i.issue_type == "unparseable_timestamps"]
         assert len(ts_issues) == 1
-        assert ts_issues[0]["severity"] == "warning"
+        assert ts_issues[0].severity == "warning"
 
     def test_minority_unparseable_no_issue(self):
         """Under 50% unparseable timestamps → no timestamp issue."""
@@ -495,7 +532,7 @@ class TestCheckTimestamps:
                 }
             )
         result = validate_extraction(spec, _create_worker_dfs(records))
-        ts_issues = [i for i in _all_issues(result) if i["issue_type"] == "unparseable_timestamps"]
+        ts_issues = [i for i in _all_issues(result) if i.issue_type == "unparseable_timestamps"]
         assert len(ts_issues) == 0
 
 
@@ -519,7 +556,7 @@ class TestCheckDtypeRange:
             for i, v in enumerate(["0", "1", "0", "1", "1", "0", "1", "0", "1", "0"] * 2)
         ]
         result = validate_extraction(spec, _create_worker_dfs(records))
-        dtype_issues = [i for i in _all_issues(result) if i["issue_type"] == "dtype_violation"]
+        dtype_issues = [i for i in _all_issues(result) if i.issue_type == "dtype_violation"]
         assert len(dtype_issues) == 0
 
     def test_binary_violation_is_error(self):
@@ -534,9 +571,9 @@ class TestCheckDtypeRange:
             for i, v in enumerate(["0", "1", "2", "0.5", "1", "0", "1", "0", "1", "0"])
         ]
         result = validate_extraction(spec, _create_worker_dfs(records))
-        dtype_issues = [i for i in _all_issues(result) if i["issue_type"] == "dtype_violation"]
+        dtype_issues = [i for i in _all_issues(result) if i.issue_type == "dtype_violation"]
         assert len(dtype_issues) == 1
-        assert dtype_issues[0]["severity"] == "error"
+        assert dtype_issues[0].severity == "error"
 
     def test_count_negative_is_error(self):
         """Count indicator with negative values → error."""
@@ -550,9 +587,9 @@ class TestCheckDtypeRange:
             for i, v in enumerate(["3", "5", "-1", "2", "4", "0", "1", "6", "3", "2"])
         ]
         result = validate_extraction(spec, _create_worker_dfs(records))
-        dtype_issues = [i for i in _all_issues(result) if i["issue_type"] == "dtype_violation"]
-        assert any(i["severity"] == "error" for i in dtype_issues)
-        assert any("negative" in i["message"] for i in dtype_issues)
+        dtype_issues = [i for i in _all_issues(result) if i.issue_type == "dtype_violation"]
+        assert any(i.severity == "error" for i in dtype_issues)
+        assert any("negative" in i.message for i in dtype_issues)
 
     def test_count_fractional_is_error(self):
         """Count indicator with fractional values → error."""
@@ -566,9 +603,9 @@ class TestCheckDtypeRange:
             for i, v in enumerate(["3", "5", "2.5", "2", "4", "0", "1", "6", "3", "2"])
         ]
         result = validate_extraction(spec, _create_worker_dfs(records))
-        dtype_issues = [i for i in _all_issues(result) if i["issue_type"] == "dtype_violation"]
-        assert any(i["severity"] == "error" for i in dtype_issues)
-        assert any("fractional" in i["message"] for i in dtype_issues)
+        dtype_issues = [i for i in _all_issues(result) if i.issue_type == "dtype_violation"]
+        assert any(i.severity == "error" for i in dtype_issues)
+        assert any("fractional" in i.message for i in dtype_issues)
 
     def test_continuous_outlier_warning(self):
         """Continuous data with extreme outlier → warning."""
@@ -584,9 +621,9 @@ class TestCheckDtypeRange:
             for i, v in enumerate(values)
         ]
         result = validate_extraction(spec, _create_worker_dfs(records))
-        dtype_issues = [i for i in _all_issues(result) if i["issue_type"] == "dtype_violation"]
+        dtype_issues = [i for i in _all_issues(result) if i.issue_type == "dtype_violation"]
         assert len(dtype_issues) == 1
-        assert dtype_issues[0]["severity"] == "warning"
+        assert dtype_issues[0].severity == "warning"
 
     def test_continuous_no_outlier(self):
         """Continuous data without outliers produces no dtype issues."""
@@ -600,7 +637,7 @@ class TestCheckDtypeRange:
             for i in range(20)
         ]
         result = validate_extraction(spec, _create_worker_dfs(records))
-        dtype_issues = [i for i in _all_issues(result) if i["issue_type"] == "dtype_violation"]
+        dtype_issues = [i for i in _all_issues(result) if i.issue_type == "dtype_violation"]
         assert len(dtype_issues) == 0
 
 
@@ -624,7 +661,7 @@ class TestCheckTimeCoverage:
             for i in range(20)
         ]
         result = validate_extraction(spec, _create_worker_dfs(records))
-        cov_issues = [i for i in _all_issues(result) if i["issue_type"] == "insufficient_coverage"]
+        cov_issues = [i for i in _all_issues(result) if i.issue_type == "insufficient_coverage"]
         assert len(cov_issues) == 0
 
     def test_insufficient_coverage_is_warning(self):
@@ -640,12 +677,12 @@ class TestCheckTimeCoverage:
             for i in range(3)
         ]
         result = validate_extraction(spec, _create_worker_dfs(records))
-        cov_issues = [i for i in _all_issues(result) if i["issue_type"] == "insufficient_coverage"]
+        cov_issues = [i for i in _all_issues(result) if i.issue_type == "insufficient_coverage"]
         assert len(cov_issues) == 1
-        assert cov_issues[0]["severity"] == "warning"
+        assert cov_issues[0].severity == "warning"
 
-    def test_time_invariant_skips_coverage(self):
-        """Time-invariant constructs skip coverage check."""
+    def test_data_coverage_is_independent_of_construct_temporal_status(self):
+        """The stored data profile retains coverage evidence for every construct role."""
         spec = _make_spec(model_clock=None, temporal_status="time_invariant")
         records = [
             {
@@ -656,8 +693,9 @@ class TestCheckTimeCoverage:
             for i in range(3)
         ]
         result = validate_extraction(spec, _create_worker_dfs(records))
-        cov_issues = [i for i in _all_issues(result) if i["issue_type"] == "insufficient_coverage"]
-        assert len(cov_issues) == 0
+        cov_issues = [i for i in _all_issues(result) if i.issue_type == "insufficient_coverage"]
+        assert len(cov_issues) == 1
+        assert cov_issues[0].severity == "warning"
 
     def test_weekly_granularity_needs_more_span(self):
         """Weekly granularity requires 10 * 168h = 1680h of coverage."""
@@ -672,7 +710,7 @@ class TestCheckTimeCoverage:
             for i in range(20)
         ]
         result = validate_extraction(spec, _create_worker_dfs(records))
-        cov_issues = [i for i in _all_issues(result) if i["issue_type"] == "insufficient_coverage"]
+        cov_issues = [i for i in _all_issues(result) if i.issue_type == "insufficient_coverage"]
         assert len(cov_issues) == 1
 
 
@@ -696,7 +734,7 @@ class TestCheckTimestampGaps:
             for i in range(20)
         ]
         result = validate_extraction(spec, _create_worker_dfs(records))
-        gap_issues = [i for i in _all_issues(result) if i["issue_type"] == "large_timestamp_gap"]
+        gap_issues = [i for i in _all_issues(result) if i.issue_type == "large_timestamp_gap"]
         assert len(gap_issues) == 0
 
     def test_large_gap_warning(self):
@@ -756,9 +794,9 @@ class TestCheckTimestampGaps:
             },
         ]
         result = validate_extraction(spec, _create_worker_dfs(records))
-        gap_issues = [i for i in _all_issues(result) if i["issue_type"] == "large_timestamp_gap"]
+        gap_issues = [i for i in _all_issues(result) if i.issue_type == "large_timestamp_gap"]
         assert len(gap_issues) == 1
-        assert gap_issues[0]["severity"] == "warning"
+        assert gap_issues[0].severity == "warning"
 
     def test_skips_with_few_timestamps(self):
         """Fewer than 3 timestamps skips gap check."""
@@ -776,7 +814,7 @@ class TestCheckTimestampGaps:
             },
         ]
         result = validate_extraction(spec, _create_worker_dfs(records))
-        gap_issues = [i for i in _all_issues(result) if i["issue_type"] == "large_timestamp_gap"]
+        gap_issues = [i for i in _all_issues(result) if i.issue_type == "large_timestamp_gap"]
         assert len(gap_issues) == 0
 
 
@@ -800,7 +838,7 @@ class TestCheckHallucinationSignals:
             for i in range(20)
         ]
         result = validate_extraction(spec, _create_worker_dfs(records))
-        hall_issues = [i for i in _all_issues(result) if i["issue_type"] == "suspicious_pattern"]
+        hall_issues = [i for i in _all_issues(result) if i.issue_type == "suspicious_pattern"]
         assert len(hall_issues) == 0
 
     def test_excessive_duplicates_warning(self):
@@ -817,8 +855,8 @@ class TestCheckHallucinationSignals:
             for i, v in enumerate(values)
         ]
         result = validate_extraction(spec, _create_worker_dfs(records))
-        hall_issues = [i for i in _all_issues(result) if i["issue_type"] == "suspicious_pattern"]
-        assert any("5.0" in i["message"] for i in hall_issues)
+        hall_issues = [i for i in _all_issues(result) if i.issue_type == "suspicious_pattern"]
+        assert any("5.0" in i.message for i in hall_issues)
 
     def test_arithmetic_sequence_warning(self):
         """Perfect arithmetic sequence → warning."""
@@ -832,8 +870,8 @@ class TestCheckHallucinationSignals:
             for i in range(20)
         ]
         result = validate_extraction(spec, _create_worker_dfs(records))
-        hall_issues = [i for i in _all_issues(result) if i["issue_type"] == "suspicious_pattern"]
-        assert any("arithmetic sequence" in i["message"] for i in hall_issues)
+        hall_issues = [i for i in _all_issues(result) if i.issue_type == "suspicious_pattern"]
+        assert any("arithmetic sequence" in i.message for i in hall_issues)
 
     def test_binary_exempt_from_duplicates(self):
         """Binary data with >50% same value is natural, not flagged."""
@@ -852,8 +890,7 @@ class TestCheckHallucinationSignals:
         hall_issues = [
             i
             for i in _all_issues(result)
-            if i["issue_type"] == "suspicious_pattern"
-            and "duplicate" in i.get("message", "").lower()
+            if i.issue_type == "suspicious_pattern" and "duplicate" in i.message.lower()
         ]
         # No duplicate-based hallucination warning for binary
         assert len(hall_issues) == 0
@@ -875,8 +912,7 @@ class TestCheckHallucinationSignals:
         hall_issues = [
             i
             for i in _all_issues(result)
-            if i["issue_type"] == "suspicious_pattern"
-            and "duplicate" in i.get("message", "").lower()
+            if i.issue_type == "suspicious_pattern" and "duplicate" in i.message.lower()
         ]
         assert len(hall_issues) == 0
 
@@ -900,7 +936,6 @@ class TestCheckConstructCorrelations:
                     "construct_id": "construct:6b04dc42c531e7091eb8",
                     "name": "stress_self_report",
                     "measurement_dtype": "continuous",
-                    "how_to_measure": "Self reported stress",
                 },
             ],
         )
@@ -923,7 +958,7 @@ class TestCheckConstructCorrelations:
             )
         result = validate_extraction(spec, _create_worker_dfs(records))
         corr_issues = [
-            i for i in _all_issues(result) if i["issue_type"] == "low_construct_correlation"
+            i for i in _all_issues(result) if i.issue_type == "low_construct_correlation"
         ]
         assert len(corr_issues) == 0
 
@@ -938,7 +973,6 @@ class TestCheckConstructCorrelations:
                     "construct_id": "construct:6b04dc42c531e7091eb8",
                     "name": "stress_self_report",
                     "measurement_dtype": "continuous",
-                    "how_to_measure": "Self reported stress",
                 },
             ],
         )
@@ -961,16 +995,13 @@ class TestCheckConstructCorrelations:
             )
         result = validate_extraction(spec, _create_worker_dfs(records))
         corr_issues = [
-            i for i in _all_issues(result) if i["issue_type"] == "low_construct_correlation"
+            i for i in _all_issues(result) if i.issue_type == "low_construct_correlation"
         ]
         assert len(corr_issues) == 1
-        assert corr_issues[0]["severity"] == "warning"
-        assert corr_issues[0]["indicator_id"] is None
-        assert "construct:6b04dc42c531e7091eb8" in corr_issues[0]["message"]
-        from nof1_causal_lab.artifacts.validation_report import ValidationReportArtifact
-
-        report = ValidationReportArtifact.model_validate(result)
-        assert report.dataset_issues[0].indicator_id is None
+        assert corr_issues[0].severity == "warning"
+        assert corr_issues[0].indicator_id is None
+        assert "construct:6b04dc42c531e7091eb8" in corr_issues[0].message
+        assert result.dataset_issues[0].indicator_id is None
 
     def test_single_indicator_skipped(self):
         """Constructs with only one indicator skip correlation check."""
@@ -985,7 +1016,7 @@ class TestCheckConstructCorrelations:
         ]
         result = validate_extraction(spec, _create_worker_dfs(records))
         corr_issues = [
-            i for i in _all_issues(result) if i["issue_type"] == "low_construct_correlation"
+            i for i in _all_issues(result) if i.issue_type == "low_construct_correlation"
         ]
         assert len(corr_issues) == 0
 
@@ -1000,7 +1031,6 @@ class TestCheckConstructCorrelations:
                     "construct_id": "construct:6b04dc42c531e7091eb8",
                     "name": "stress_self_report",
                     "measurement_dtype": "continuous",
-                    "how_to_measure": "Self reported stress",
                 },
             ],
         )
@@ -1023,6 +1053,6 @@ class TestCheckConstructCorrelations:
             )
         result = validate_extraction(spec, _create_worker_dfs(records))
         corr_issues = [
-            i for i in _all_issues(result) if i["issue_type"] == "low_construct_correlation"
+            i for i in _all_issues(result) if i.issue_type == "low_construct_correlation"
         ]
         assert len(corr_issues) == 0

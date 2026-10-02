@@ -19,10 +19,12 @@ from nof1_causal_lab.artifacts.likelihood import (
     LinkFunction,
 )
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.compilation_errors import AggregatedCompileError
+from nof1_causal_lab.models.model_structure import selected_state_ids
 from nof1_causal_lab.models.ssm import numerics as numeric
-from nof1_causal_lab.models.ssm.compile.support import NumericalSupportError
 from nof1_causal_lab.models.ssm.likelihood_extra_params import assemble_sampled_extra_params
 from tests.helpers import fixture_entity_id, make_model
+from tests.model_fixtures import compile_model_fixture
 
 pytestmark = pytest.mark.contract
 
@@ -66,20 +68,17 @@ def _structure(
         edges=replace_constructs(
             model.edges,
             tuple(
-                type(construct).model_validate(
-                    {
-                        **construct.model_dump(),
-                        "temporal_status": "time_invariant"
-                        if construct.name in (time_invariant or set())
-                        else "time_varying",
-                        "indicators": tuple(
-                            IndicatorSpec.model_validate(
-                                {key: value for key, value in row.items() if key != "construct_id"}
-                            )
-                            for row in indicators
-                            if row["construct_id"] == construct.id
-                        ),
-                    }
+                construct.revised(
+                    temporal_status="time_invariant"
+                    if construct.name in (time_invariant or set())
+                    else "time_varying",
+                    indicators=tuple(
+                        IndicatorSpec.model_validate(
+                            {key: value for key, value in row.items() if key != "construct_id"}
+                        )
+                        for row in indicators
+                        if row["construct_id"] == construct.id
+                    ),
                 )
                 for construct in model.constructs
             ),
@@ -111,7 +110,7 @@ class TestOrderedThresholds:
             ).read_text()
         )
         extra = assemble_sampled_extra_params(
-            spec,
+            compile_model_fixture(spec),
             {
                 "obs_ordered_base": jnp.array([0.7]),
                 "obs_ordered_gaps": jnp.array([[0.5]]),
@@ -130,14 +129,14 @@ class TestOrderedThresholds:
                 / "identification_anchors/testorderedthresholds_test_ordinal_only_construct_compiles__with_likelihoods.json"
             ).read_text()
         )
-        assert numeric.categorical_anchors(spec) is not None
-        assert not any(numeric.categorical_anchors(spec))
-        assert float(numeric.loading_block(spec).template[0, 0]) == 1.0
-        assert not numeric.loading_block(spec).free_support[0, 0]
+        assert numeric.categorical_anchors(compile_model_fixture(spec)) is not None
+        assert not any(numeric.categorical_anchors(compile_model_fixture(spec)))
+        assert float(compile_model_fixture(spec).loading_block.template[0, 0]) == 1.0
+        assert not compile_model_fixture(spec).loading_block.free_support[0, 0]
 
     def test_manifest_intercept_is_rejected_for_threshold_channel(self):
-        with pytest.raises(NumericalSupportError, match=r"Observation intercept.*is inactive"):
-            numeric.validate_execution(
+        with pytest.raises(AggregatedCompileError, match=r"Observation intercept.*is inactive"):
+            compile_model_fixture(
                 ModelSpec.model_validate_json(
                     (
                         Path(__file__).resolve().parents[2]
@@ -155,8 +154,8 @@ class TestOrderedThresholds:
 
 class TestLocationAnchors:
     def test_manifest_intercept_is_rejected_for_standardized_channel(self):
-        with pytest.raises(NumericalSupportError, match=r"Observation intercept.*is inactive"):
-            numeric.validate_execution(
+        with pytest.raises(AggregatedCompileError, match=r"Observation intercept.*is inactive"):
+            compile_model_fixture(
                 ModelSpec.model_validate_json(
                     (
                         Path(__file__).resolve().parents[2]
@@ -177,8 +176,8 @@ class TestLocationAnchors:
             ).read_text()
         )
 
-        assert numeric.observation_standardized(spec) == [False]
-        assert numeric.observation_mean_block(spec).free_support.tolist() == [True]
+        assert numeric.observation_standardized(compile_model_fixture(spec)) == (False,)
+        assert compile_model_fixture(spec).observation_mean_block.free_support.tolist() == [True]
 
     def test_manifest_intercept_remains_free_for_binary_channel(self):
         spec = ModelSpec.model_validate_json(
@@ -188,7 +187,7 @@ class TestLocationAnchors:
                 / "identification_anchors/testlocationanchors_test_manifest_intercept_remains_free_for_binary_channel__with_likelihoods.json"
             ).read_text()
         )
-        assert numeric.observation_mean_block(spec).free_support.tolist() == [True]
+        assert compile_model_fixture(spec).observation_mean_block.free_support.tolist() == [True]
 
     def test_free_center_without_standardized_channel_fails(self):
         with pytest.raises(ValueError, match="Construct 'mood' has no location anchor"):
@@ -208,8 +207,8 @@ class TestLocationAnchors:
                 / "identification_anchors/testlocationanchors_test_free_center_with_standardized_channel_compiles__with_likelihoods.json"
             ).read_text()
         )
-        assert numeric.observation_standardized(spec) is not None
-        assert numeric.observation_standardized(spec)[0]
+        assert numeric.observation_standardized(compile_model_fixture(spec)) is not None
+        assert numeric.observation_standardized(compile_model_fixture(spec))[0]
 
     @pytest.mark.parametrize(
         ("affine", "model_payload"),
@@ -264,9 +263,9 @@ class TestLocationAnchors:
                 / "identification_anchors/testlocationanchors_test_static_t0_mean_gated_without_standardized_channel__with_likelihoods.json"
             ).read_text()
         )
-        assert numeric.state_names(spec) is not None
-        trait_index = numeric.state_names(spec).index("trait")
-        assert not numeric.initial_mean_block(spec).free_support[trait_index]
+        assert numeric.state_names(compile_model_fixture(spec)) is not None
+        trait_index = numeric.state_names(compile_model_fixture(spec)).index("trait")
+        assert not compile_model_fixture(spec).initial_mean_block.free_support[trait_index]
 
     def test_static_t0_mean_free_with_standardized_channel(self):
         spec = ModelSpec.model_validate_json(
@@ -276,14 +275,14 @@ class TestLocationAnchors:
                 / "identification_anchors/testlocationanchors_test_static_t0_mean_free_with_standardized_channel__with_likelihoods.json"
             ).read_text()
         )
-        assert numeric.state_names(spec) is not None
-        trait_index = numeric.state_names(spec).index("trait")
-        assert numeric.initial_mean_block(spec).free_support[trait_index]
+        assert numeric.state_names(compile_model_fixture(spec)) is not None
+        trait_index = numeric.state_names(compile_model_fixture(spec)).index("trait")
+        assert compile_model_fixture(spec).initial_mean_block.free_support[trait_index]
 
     def test_unmeasured_construct_stays_scientific_without_an_unidentified_state(self):
         plan = _structure(["mood", "ghost"], [_indicator("mood_rating", "mood", "continuous")])
         assert plan.get_construct(fixture_entity_id("construct", "ghost")).indicators == ()
-        assert fixture_entity_id("construct", "ghost") not in plan.state_order
+        assert fixture_entity_id("construct", "ghost") not in selected_state_ids(plan)
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -300,12 +299,12 @@ class TestCategoricalAnchors:
                 / "identification_anchors/testcategoricalanchors_test_categorical_loading_pinned_in_mixed_construct__with_likelihoods.json"
             ).read_text()
         )
-        assert numeric.observation_names(spec) is not None
-        assert numeric.categorical_anchors(spec) is not None
-        cat_row = numeric.observation_names(spec).index("mood_kind")
-        assert float(numeric.loading_block(spec).template[cat_row, 0]) == 1.0
-        assert not numeric.loading_block(spec).free_support[cat_row, 0]
-        assert not numeric.categorical_anchors(spec)[cat_row]
+        assert numeric.observation_names(compile_model_fixture(spec)) is not None
+        assert numeric.categorical_anchors(compile_model_fixture(spec)) is not None
+        cat_row = numeric.observation_names(compile_model_fixture(spec)).index("mood_kind")
+        assert float(compile_model_fixture(spec).loading_block.template[cat_row, 0]) == 1.0
+        assert not compile_model_fixture(spec).loading_block.free_support[cat_row, 0]
+        assert not numeric.categorical_anchors(compile_model_fixture(spec))[cat_row]
 
     def test_all_categorical_construct_gets_anchor_slope(self):
         spec = ModelSpec.model_validate_json(
@@ -315,11 +314,11 @@ class TestCategoricalAnchors:
                 / "identification_anchors/testcategoricalanchors_test_all_categorical_construct_gets_anchor_slope__with_likelihoods.json"
             ).read_text()
         )
-        assert numeric.categorical_anchors(spec) == [True]
-        assert numeric.observation_level_counts(spec) == [3]
+        assert numeric.categorical_anchors(compile_model_fixture(spec)) == (True,)
+        assert numeric.observation_level_counts(compile_model_fixture(spec)) == (3,)
 
         extra = assemble_sampled_extra_params(
-            spec,
+            compile_model_fixture(spec),
             {
                 "obs_cat_intercepts": jnp.array([[0.3, -0.4]]),
                 "obs_cat_slopes": jnp.array([[9.9, 2.0]]),
@@ -328,8 +327,8 @@ class TestCategoricalAnchors:
         np.testing.assert_allclose(np.asarray(extra["obs_cat_slopes"]), np.array([[1.0, 2.0]]))
 
     def test_manifest_intercept_is_rejected_for_categorical_channel(self):
-        with pytest.raises(NumericalSupportError, match=r"Observation intercept.*is inactive"):
-            numeric.validate_execution(
+        with pytest.raises(AggregatedCompileError, match=r"Observation intercept.*is inactive"):
+            compile_model_fixture(
                 ModelSpec.model_validate_json(
                     (
                         Path(__file__).resolve().parents[2]
@@ -354,8 +353,8 @@ class TestAnchorSurfaces:
                 / "identification_anchors/testanchorsurfaces_test_reference_prefers_continuous_over_ordinal__with_likelihoods.json"
             ).read_text()
         )
-        assert numeric.observation_names(spec) is not None
-        continuous_row = numeric.observation_names(spec).index("mood_rating")
-        ordinal_row = numeric.observation_names(spec).index("mood_level")
-        assert float(numeric.loading_block(spec).template[continuous_row, 0]) == 1.0
-        assert numeric.loading_block(spec).free_support[ordinal_row, 0]
+        assert numeric.observation_names(compile_model_fixture(spec)) is not None
+        continuous_row = numeric.observation_names(compile_model_fixture(spec)).index("mood_rating")
+        ordinal_row = numeric.observation_names(compile_model_fixture(spec)).index("mood_level")
+        assert float(compile_model_fixture(spec).loading_block.template[continuous_row, 0]) == 1.0
+        assert compile_model_fixture(spec).loading_block.free_support[ordinal_row, 0]

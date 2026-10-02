@@ -2,11 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
 
+from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.artifacts.checks import SpecificationReport
 from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata
 from nof1_causal_lab.artifacts.execution import StructuralItemDisposition
@@ -17,13 +19,13 @@ from nof1_causal_lab.artifacts.identity import (
     EdgeId,
     GitOid,
     GitRef,
+    IndicatorId,
     ParameterId,
 )
 from nof1_causal_lab.artifacts.model_checks import ModelPredictiveReport
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.artifacts.posterior import InferenceReport
+from nof1_causal_lab.artifacts.posterior import InferenceReportCore
 from nof1_causal_lab.artifacts.posterior_diagnostics import (
-    ParameterConvergenceReport,
     PosteriorEstimate,
 )
 from nof1_causal_lab.artifacts.simulation import SimulationReport
@@ -40,12 +42,6 @@ from nof1_causal_lab.study.view_models import (
 )
 
 
-class SnapshotValue(BaseModel):
-    model_config = ConfigDict(
-        extra="forbid", frozen=True, json_schema_extra={"x-python-module": __name__}
-    )
-
-
 class SourceValidity(StrEnum):
     """Source validity records whether a fact still matches its pinned inputs."""
 
@@ -53,7 +49,7 @@ class SourceValidity(StrEnum):
     STALE = "stale"
 
 
-class FactSource(SnapshotValue):
+class FactSource(Value):
     """A fact source locates supporting content within an artifact revision and records its freshness."""
 
     ref: GitRef
@@ -61,24 +57,23 @@ class FactSource(SnapshotValue):
     validity: SourceValidity
 
 
-class Sourced[T](SnapshotValue):
+class Sourced[T](Value):
     """A sourced read pairs a canonical aggregate or derived finding with its artifact revision."""
 
     value: T
     source: FactSource
 
 
-class FitSummary(SnapshotValue):
+class FitSummary(Value):
     """A fit read contains the inference report summary and server-composed display findings.
 
     Per-draw diagnostics load separately from the inference report endpoint.
     """
 
-    report: InferenceReport
-    convergence: ParameterConvergenceReport
-    edge_estimates: dict[EdgeId, PosteriorEstimate] = Field(default_factory=dict)
-    decay_estimates: dict[ConstructId, PosteriorEstimate] = Field(default_factory=dict)
-    prior_densities: dict[ParameterId, tuple[DensityPoint, ...]] = Field(
+    report: InferenceReportCore
+    edge_estimates: Mapping[EdgeId, PosteriorEstimate] = Field(default_factory=dict)
+    decay_estimates: Mapping[ConstructId, PosteriorEstimate] = Field(default_factory=dict)
+    prior_densities: Mapping[ParameterId, tuple[DensityPoint, ...]] = Field(
         default_factory=dict,
         description=(
             "Conditioned input laws of the fitted parameters, on their posterior marginals' "
@@ -87,16 +82,16 @@ class FitSummary(SnapshotValue):
     )
 
 
-class SnapshotState(SnapshotValue):
+class SnapshotState(Value):
     """A snapshot state lists the artifact revisions current at the selected commit.
 
     Recorded checks appear once, as the specification and predictive findings.
     """
 
-    current: dict[ArtifactId, ArtifactRecord] = Field(default_factory=dict)
+    current: Mapping[ArtifactId, ArtifactRecord] = Field(default_factory=dict)
 
 
-class SnapshotContext(SnapshotValue):
+class SnapshotContext(Value):
     """A snapshot context identifies the selected Git commit and its artifact versions."""
 
     workspace_id: str = Field(min_length=1)
@@ -107,7 +102,7 @@ class SnapshotContext(SnapshotValue):
     state: SnapshotState
 
 
-class ModelData(SnapshotValue):
+class ModelData(Value):
     """Observed evidence paired with its source versions."""
 
     raw_data: Sourced[RawDataData] | None = None
@@ -116,23 +111,26 @@ class ModelData(SnapshotValue):
     profile: Sourced[DataProfileArtifact] | None = None
 
 
-class ModelGraphView(SnapshotValue):
+class ModelGraphView(Value):
     """Scientific entity identities selected for the graph at this authoring checkpoint."""
 
     construct_ids: tuple[ConstructId, ...] = ()
     edge_ids: tuple[EdgeId, ...] = ()
     dynamic_construct_ids: tuple[ConstructId, ...] = ()
-    status: dict[ConstructId, Literal["observed", "marginalized", "blocking"]] = Field(
+    status: Mapping[ConstructId, Literal["observed", "marginalized", "blocking"]] = Field(
         default_factory=dict
     )
 
 
-class ModelFindings(SnapshotValue):
+class ModelFindings(Value):
     """ModelSpec findings collect identification, validation, and fitted results with their input references."""
 
     identification: Sourced[IdentificationReport] | None = None
     dispositions: Sourced[tuple[StructuralItemDisposition, ...]] | None = None
     graph: ModelGraphView = Field(default_factory=ModelGraphView)
+    entity_failures: Mapping[ConstructId | EdgeId | IndicatorId, tuple[str, ...]] = Field(
+        default_factory=dict
+    )
     validation_report: Sourced[ValidationReportArtifact] | None = None
     diagnostics: ModelDiagnostics | None = None
     fit: Sourced[FitSummary] | None = None
@@ -141,7 +139,7 @@ class ModelFindings(SnapshotValue):
     predictive: Sourced[ModelPredictiveReport] | None = None
 
 
-class ModelSnapshot(SnapshotValue):
+class ModelSnapshot(Value):
     """The canonical scientific definition with independently sourced inputs and findings."""
 
     model: Sourced[ModelSpec] | None = None
@@ -151,22 +149,58 @@ class ModelSnapshot(SnapshotValue):
 
     @model_validator(mode="after")
     def validate_ownership_and_sources(self) -> ModelSnapshot:
-        for read, artifact_id in (
-            (self.model, "model"),
-            (self.findings.identification, "identification_report"),
-            (self.findings.dispositions, "model"),
-            (self.data.raw_data, "raw_data"),
-            (self.data.measurements, "panel"),
-            (self.data.metadata, "panel"),
-            (self.data.profile, "data_profile"),
-            (self.findings.validation_report, "validation_report"),
-            (self.findings.fit, "inference"),
-            (self.findings.specification, "specification"),
-            (self.findings.simulation, "simulation"),
-            (self.findings.predictive, "predictive"),
-        ):
-            if read is not None:
-                self._validate_source(read, artifact_id)
+        sources: tuple[
+            tuple[
+                FactSource | None,
+                ArtifactId | Literal["inference", "simulation", "specification", "predictive"],
+            ],
+            ...,
+        ] = (
+            (self.model.source if self.model is not None else None, "model"),
+            (
+                self.findings.identification.source
+                if self.findings.identification is not None
+                else None,
+                "identification_report",
+            ),
+            (
+                self.findings.dispositions.source
+                if self.findings.dispositions is not None
+                else None,
+                "model",
+            ),
+            (self.data.raw_data.source if self.data.raw_data is not None else None, "raw_data"),
+            (
+                self.data.measurements.source if self.data.measurements is not None else None,
+                "panel",
+            ),
+            (self.data.metadata.source if self.data.metadata is not None else None, "panel"),
+            (self.data.profile.source if self.data.profile is not None else None, "data_profile"),
+            (
+                self.findings.validation_report.source
+                if self.findings.validation_report is not None
+                else None,
+                "validation_report",
+            ),
+            (self.findings.fit.source if self.findings.fit is not None else None, "inference"),
+            (
+                self.findings.specification.source
+                if self.findings.specification is not None
+                else None,
+                "specification",
+            ),
+            (
+                self.findings.simulation.source if self.findings.simulation is not None else None,
+                "simulation",
+            ),
+            (
+                self.findings.predictive.source if self.findings.predictive is not None else None,
+                "predictive",
+            ),
+        )
+        for source, artifact_id in sources:
+            if source is not None:
+                self._validate_source(source, artifact_id)
         model = self.model.value if self.model else None
         constructs = {item.id for item in model.constructs} if model else set()
         edges = {item.id for item in model.edges} if model else set()
@@ -202,23 +236,19 @@ class ModelSnapshot(SnapshotValue):
         if findings.fit:
             fit = findings.fit.value
             marginals = fit.report.posterior_marginals or []
-            pairs = fit.report.posterior_pairs or []
             if any(item.subject.parameter_id not in parameters for item in marginals):
                 raise ValueError("Posterior finding has no scientific parameter definition")
-            if any(
-                subject.parameter_id not in parameters
-                for pair in pairs
-                for subject in (pair.subject_x, pair.subject_y)
-            ):
-                raise ValueError("Posterior pair has no scientific parameter definition")
             if not fit.prior_densities.keys() <= parameters:
                 raise ValueError("Prior curve has no scientific parameter definition")
         return self
 
-    def _validate_source(self, read: Sourced[Any], artifact_id: str) -> None:
+    def _validate_source(
+        self,
+        source: FactSource,
+        artifact_id: ArtifactId | Literal["inference", "simulation", "specification", "predictive"],
+    ) -> None:
         from nof1_causal_lab.study.artifact_files import artifact_file_spec
 
-        source = read.source
         ref = source.ref
         if ref.workspace_id != self.context.workspace_id:
             raise ValueError("Fact source belongs to another study")
@@ -233,7 +263,9 @@ class ModelSnapshot(SnapshotValue):
             expected = (
                 "stale"
                 if artifact_id == "predictive"
-                and read.value.panel_revision != (panel.revision if panel else None)
+                and self.findings.predictive is not None
+                and self.findings.predictive.value.panel_revision
+                != (panel.revision if panel else None)
                 else "fresh"
             )
             if source.validity != expected:
@@ -244,7 +276,12 @@ class ModelSnapshot(SnapshotValue):
                 raise ValueError("Only operation findings refer to action logs")
             # The repository reader selects these logs through Git ancestry.
             return
-        current = self.context.state.current.get(artifact_id)
+        if artifact_id in {"inference", "simulation", "specification", "predictive"}:
+            raise ValueError("Operation findings require an action log or recorded check")
+        current = next(
+            (record for key, record in self.context.state.current.items() if key == artifact_id),
+            None,
+        )
         if current is None or current.revision != ref.revision:
             raise ValueError("Fact source does not belong to the selected artifact tree")
         if (

@@ -58,7 +58,7 @@ def build_discrete_transitions(
 
     starts = jnp.cumsum(time_intervals) - time_intervals - time_intervals[0]
 
-    def at_interval(state, start, dt):
+    def at_interval(state: jax.Array, start: jax.Array, dt: jax.Array) -> dsx.LinearGaussianParams:
         affine_drift = dsx.linearize_drift(normalized.total_drift, x=state, u=None, t=start)
         affine_model = dsx.StochasticContinuousTimeStateEvolution(
             drift=affine_drift, diffusion=normalized.diffusion

@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from pathlib import Path
-from types import SimpleNamespace
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -12,13 +11,14 @@ import pytest
 from nof1_causal_lab.actions.contracts import FitRequest
 from nof1_causal_lab.actions.runners import run_action_locally
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.models.ssm.inference.persistence import model_draws
+from nof1_causal_lab.models.ssm.inference.shared import model_draws
 from nof1_causal_lab.study.lineage import inference_is_current
 from nof1_causal_lab.study.state import apply_effects
 from nof1_causal_lab.study.store import read_model
 from tests.helpers import run_async
+from tests.inference_fixtures import particle_posterior
 from tests.integration import runner_fixtures as fx
-from tests.model_fixtures import compile_fit_fixture, parameter_draws
+from tests.model_fixtures import bind_panel_fixture, compile_model_fixture, parameter_draws
 
 pytestmark = pytest.mark.contract
 
@@ -35,8 +35,7 @@ def test_inference_advances_model_and_uses_the_selected_input(
     import jax.numpy as jnp
 
     from nof1_causal_lab.actions.inference import fit as stage5_fit
-    from nof1_causal_lab.models.ssm import SSMModel, numerics
-    from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior
+    from nof1_causal_lab.models.ssm import numerics
     from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
 
     original = fx.seed_model(artifact_store)
@@ -48,9 +47,12 @@ def test_inference_advances_model_and_uses_the_selected_input(
             / "common/stress_sleep_model.json"
         ).read_text()
     )
-    telemetry = {"new_kernel": {"accepted": [True, False], "tuning": {"step": 0.25}}, "note": None}
+    from nof1_causal_lab.artifacts.posterior import InferenceReportDetail
+    from nof1_causal_lab.artifacts.posterior_diagnostics import ChainDiagnostics
+
+    telemetry = ChainDiagnostics(num_chains=1, num_samples=4, per_parameter=())
     parameters = parameter_draws(authored, 4)
-    states = tuple(numerics.state_ids(authored))
+    states = tuple(numerics.state_ids(compile_model_fixture(authored)))
     paths = jnp.arange(4 * 2 * len(states), dtype=jnp.float32).reshape(4, 2, len(states))
     fitted_inputs = []
 
@@ -59,19 +61,21 @@ def test_inference_advances_model_and_uses_the_selected_input(
         return {
             "fitted": True,
             "duration_seconds": 0.01,
-            "result": ParticleMCMCPosterior(
+            "result": particle_posterior(
                 draws=JointPosteriorDraws(
                     parameters=parameters, latent_paths=paths, state_ids=states
                 )
             ),
-            "runtime": SimpleNamespace(
-                model=SSMModel(compile_fit_fixture(model)),
-                times=jnp.array([0.0, 1.0], dtype=jnp.float32),
+            "panel": bind_panel_fixture(
+                compile_model_fixture(model),
+                jnp.zeros((2, 2)),
+                jnp.array([0.0, 1.0], dtype=jnp.float32),
             ),
             "inference_diagnostics": telemetry,
             "loo_diagnostics": None,
-            "posterior_marginals": None,
-            "posterior_pairs": None,
+            "posterior_marginals": (),
+            "posterior_pairs": (),
+            "detail": InferenceReportDetail(),
         }
 
     monkeypatch.setattr(stage5_fit, "fit_model", fake_fit_model)
@@ -90,15 +94,18 @@ def test_inference_advances_model_and_uses_the_selected_input(
             "model": original.revision,
             "panel": panel.revision,
         }
-        assert effects.diagnostics["input_pins"] == info.derived_from
-        assert effects.diagnostics["report"]["inference_diagnostics"] == telemetry
-        assert effects.diagnostics["report"]["inference_metadata"]["n_samples"] == 4
-        assert effects.diagnostics["engine_evidence"]["latent_transition"] == "euler_maruyama"
+        assert {
+            "model": effects.model.revision,
+            "panel": effects.panel.revision,
+        } == info.derived_from
+        assert effects.report.inference_diagnostics == telemetry
+        assert effects.report.inference_metadata.n_samples == 4
+        assert effects.report.engine.evidence.latent_transition == "euler_maruyama"
         conditioned = read_model(artifact_store, info.revision)
         assert type(conditioned) is type(authored)
         assert conditioned.distributions
         assert "inference_diagnostics" not in conditioned.model_dump()
-        retained = model_draws(conditioned)
+        retained = model_draws(compile_model_fixture(conditioned))
         np.testing.assert_array_equal(retained.latent_paths, paths)
         for name, values in parameters.items():
             np.testing.assert_array_equal(retained.parameters[name], values)

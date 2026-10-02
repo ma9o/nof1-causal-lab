@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -56,22 +57,26 @@ class JointLawLayout:
         )
 
     @property
-    def parameter_columns(self) -> dict[ParameterElementId, int]:
-        return {
-            identity: index
-            for index, identity in enumerate(
-                element for _, elements in self.parameters for element in elements
-            )
-        }
+    def parameter_columns(self) -> Mapping[ParameterElementId, int]:
+        return MappingProxyType(
+            {
+                identity: index
+                for index, identity in enumerate(
+                    element for _, elements in self.parameters for element in elements
+                )
+            }
+        )
 
     @property
-    def trajectory_slices(self) -> dict[ConstructId, slice]:
+    def trajectory_slices(self) -> Mapping[ConstructId, slice]:
         offset = len(self.parameter_columns)
         steps = len(self.time_points)
-        return {
-            identity: slice(offset + index * steps, offset + (index + 1) * steps)
-            for index, identity in enumerate(self.constructs)
-        }
+        return MappingProxyType(
+            {
+                identity: slice(offset + index * steps, offset + (index + 1) * steps)
+                for index, identity in enumerate(self.constructs)
+            }
+        )
 
     @property
     def width(self) -> int:

@@ -1,27 +1,24 @@
 """Measurement validation findings and empirical profiles."""
 
+from collections.abc import Mapping
 from typing import Literal, Self, override
 
 from pydantic import (
-    BaseModel,
-    ConfigDict,
     Field,
     ModelWrapValidatorHandler,
     computed_field,
     model_validator,
 )
 
-from .base import ArtifactPayload
-from .checks import SpecificationReport
+from .base import Value
+from .checks import Evaluated, SpecificationReport
 from .identity import IndicatorId
 
 
-class ValidationIssue(BaseModel):
+class ValidationIssue(Value):
     """A validation issue explains a data problem and its severity for an indicator or the
     dataset.
     """
-
-    model_config = ConfigDict(extra="forbid")
 
     indicator_id: IndicatorId | None = Field(
         default=None, description="Affected indicator; null for a dataset-wide issue."
@@ -31,12 +28,10 @@ class ValidationIssue(BaseModel):
     message: str
 
 
-class IndicatorEmpiricalProfile(BaseModel):
+class IndicatorEmpiricalProfile(Value):
     """An empirical profile summarizes an indicator's observed values, coverage, and data-
     quality signals.
     """
-
-    model_config = ConfigDict(extra="forbid")
 
     measurement_dtype: str | None = None
     n_obs: int
@@ -61,23 +56,52 @@ class IndicatorEmpiricalProfile(BaseModel):
     variance_to_mean_ratio: float | None = None
 
 
-class IndicatorAudit(BaseModel):
+class IndicatorAudit(Value):
     """An indicator audit combines its empirical data profile with the results of validation
     checks.
     """
 
-    model_config = ConfigDict(extra="forbid")
-
     profile: IndicatorEmpiricalProfile | None = None
-    issues: list[ValidationIssue]
-    checks: dict[str, Literal["ok", "warning", "error", "not_evaluated"]]
+    issues: tuple[ValidationIssue, ...]
+    checks: Mapping[str, Literal["ok", "warning", "error", "not_evaluated"]]
+
+    def with_source(self, source: Self) -> Self:
+        """Compose retained empirical findings with model-dependent findings."""
+        return self.model_copy(
+            update={
+                "profile": source.profile,
+                "issues": (*source.issues, *self.issues),
+                "checks": {**source.checks, **self.checks},
+            }
+        )
+
+    def without_data(self) -> Self:
+        """Record unavailable observations without revising the published audit."""
+        return self.model_copy(
+            update={"checks": {**self.checks, "data_availability": "not_evaluated"}}
+        )
+
+    def with_issue(self, issue: ValidationIssue) -> Self:
+        """Append a finding as a new audit, preserving the old value."""
+        return self.model_copy(update={"issues": (*self.issues, issue)})
 
 
-class DataProfileArtifact(ArtifactPayload):
+class DataProfileArtifact(Value):
     """Model-independent empirical measurements and data-quality findings."""
 
-    indicators: dict[IndicatorId, IndicatorAudit]
-    dataset_issues: list[ValidationIssue]
+    indicators: Mapping[IndicatorId, IndicatorAudit]
+    dataset_issues: tuple[ValidationIssue, ...]
+
+    def for_indicators(self, identities: frozenset[IndicatorId]) -> Self:
+        return self.model_copy(
+            update={
+                "indicators": {
+                    identity: audit
+                    for identity, audit in self.indicators.items()
+                    if identity in identities
+                }
+            }
+        )
 
     def _has_errors(self) -> bool:
         return any(issue.severity == "error" for issue in self.dataset_issues) or any(
@@ -116,5 +140,6 @@ class ValidationReportArtifact(DataProfileArtifact):
     @override
     def _has_errors(self) -> bool:
         return super()._has_errors() or any(
-            finding.status == "failed" for finding in self.preflight.findings
+            isinstance(finding, Evaluated) and finding.outcome in {"failed", "error"}
+            for finding in self.preflight.findings
         )

@@ -7,25 +7,29 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
+from pydantic import TypeAdapter
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.likelihood import (
     ObservationLawSpec,
 )
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.models.model_structure import selected_state_ids, validate_execution_structure
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.execution.dynamical_model import (
     HeterogeneousObservation,
     build_dynamical_model,
 )
-from nof1_causal_lab.models.ssm.inference.persistence import condition_model, model_draws
-from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws, ParticleMCMCPosterior
+from nof1_causal_lab.models.ssm.inference.persistence import condition_model
+from nof1_causal_lab.models.ssm.inference.shared import model_draws
+from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
 from nof1_causal_lab.models.ssm.parameterization import (
     assemble_deterministics_from_registry,
     build_site_registry,
 )
 from tests.helpers import make_model
-from tests.model_fixtures import compile_fit_fixture
+from tests.inference_fixtures import particle_posterior
+from tests.model_fixtures import compile_model_fixture
 
 
 @pytest.fixture(scope="module")
@@ -59,23 +63,20 @@ def test_conditioning_revises_the_same_type_and_retains_joint_uncertainty(
     if categorical:
         model = make_model(["A", "B"], [("A", "B")])
         construct = model.constructs[1]
-        indicator = type(construct.indicators[0]).model_validate(
-            {
-                **construct.indicators[0].model_dump(),
-                "measurement_dtype": "categorical",
-                "categorical_levels": ("low", "medium", "high"),
-                "aggregation": "last",
-                "likelihood": LikelihoodSpec(
-                    law=ObservationLawSpec.model_validate_json(
-                        (
-                            Path(__file__).resolve().parents[2]
-                            / "fixtures/models"
-                            / "model_spec_execution/conditioning_revises_the_same_type_and_retains_joint_uncertainty_observation_law.json"
-                        ).read_text()
-                    ),
-                    reasoning="Joint law with category-specific parameter elements",
+        indicator = construct.indicators[0].revised(
+            measurement_dtype="categorical",
+            categorical_levels=("low", "medium", "high"),
+            aggregation="last",
+            likelihood=LikelihoodSpec(
+                law=TypeAdapter(ObservationLawSpec).validate_json(
+                    (
+                        Path(__file__).resolve().parents[2]
+                        / "fixtures/models"
+                        / "model_spec_execution/conditioning_revises_the_same_type_and_retains_joint_uncertainty_observation_law.json"
+                    ).read_text()
                 ),
-            }
+                reasoning="Joint law with category-specific parameter elements",
+            ),
         )
         model = ModelSpec.model_validate_json(
             (
@@ -88,22 +89,21 @@ def test_conditioning_revises_the_same_type_and_retains_joint_uncertainty(
     samples = {
         site.name: 100 * (index + 1)
         + jnp.arange(count * np.prod(site.shape), dtype=float).reshape(count, *site.shape)
-        for index, site in enumerate(build_site_registry(model))
+        for index, site in enumerate(build_site_registry(compile_model_fixture(model)))
     }
-    bindings, auxiliary = parameter_bindings(model)
+    bindings, auxiliary = parameter_bindings(compile_model_fixture(model))
     if categorical:
         assert any(len(binding.coordinates) > 1 for binding in bindings)
     for coordinate in auxiliary:
         samples[coordinate.site_name] = (
             samples[coordinate.site_name].at[(slice(None), *coordinate.indices)].set(0)
         )
-    samples.update(assemble_deterministics_from_registry(samples, model))
+    samples.update(assemble_deterministics_from_registry(samples, compile_model_fixture(model)))
     paths = jnp.arange(count * 4 * 2, dtype=float).reshape(count, 4, 2)
-    result = ParticleMCMCPosterior(
-        JointPosteriorDraws(samples, paths), diagnostics={"likelihood_backend": lambda: None}
-    )
+    result = particle_posterior(JointPosteriorDraws(samples, paths))
     conditioned = condition_model(
-        compile_fit_fixture(model),
+        model,
+        compile_model_fixture(model),
         result,
         times=jnp.arange(4),
         array_writer=store.write_array,
@@ -128,11 +128,11 @@ def test_conditioning_revises_the_same_type_and_retains_joint_uncertainty(
     loaded = read_model(store, info.revision)
     assert loaded == conditioned
     assert input_fingerprints(model)["compilation"] == input_fingerprints(loaded)["compilation"]
-    restored = model_draws(loaded)
+    restored = model_draws(compile_model_fixture(loaded))
     for name, values in samples.items():
         np.testing.assert_array_equal(restored.parameters[name], values)
     np.testing.assert_array_equal(restored.latent_paths, paths)
-    sampled = sample_model_laws(loaded, draws=12, key=jax.random.PRNGKey(4))
+    sampled = sample_model_laws(compile_model_fixture(loaded), draws=12, key=jax.random.PRNGKey(4))
     assert sampled.latent_paths is not None
     for draw in range(12):
         atom = int(sampled.latent_paths[draw, 0, 0] // 8)
@@ -142,7 +142,9 @@ def test_conditioning_revises_the_same_type_and_retains_joint_uncertainty(
     # Entity/parameter list order carries no joint distribution coordinates.
     reordered = loaded.revised(parameters=tuple(reversed(loaded.parameters)))
     for name, values in restored.parameters.items():
-        np.testing.assert_array_equal(model_draws(reordered).parameters[name], values)
+        np.testing.assert_array_equal(
+            model_draws(compile_model_fixture(reordered)).parameters[name], values
+        )
     assert (
         loaded.revised(edges=replace_constructs(loaded.edges, tuple(reversed(loaded.constructs))))
         == loaded
@@ -166,18 +168,10 @@ def test_conditioning_revises_the_same_type_and_retains_joint_uncertainty(
                 edges=replace_constructs(
                     loaded.edges,
                     (
-                        type(construct).model_validate(
-                            {
-                                **construct.model_dump(),
-                                "indicators": (
-                                    type(indicator).model_validate(
-                                        {
-                                            **indicator.model_dump(),
-                                            "categorical_levels": ("medium", "low", "high"),
-                                        }
-                                    ),
-                                ),
-                            }
+                        construct.revised(
+                            indicators=(
+                                indicator.revised(categorical_levels=("medium", "low", "high")),
+                            )
                         ),
                     ),
                 )
@@ -186,17 +180,24 @@ def test_conditioning_revises_the_same_type_and_retains_joint_uncertainty(
 
 @pytest.mark.inference(concern="simulation")
 def test_numerical_function_constructs_dynestyx_model(model):
-    samples = {site.name: jnp.full((1, *site.shape), 0.5) for site in build_site_registry(model)}
-    samples.update(assemble_deterministics_from_registry(samples, model))
+    samples = {
+        site.name: jnp.full((1, *site.shape), 0.5)
+        for site in build_site_registry(compile_model_fixture(model))
+    }
+    samples.update(assemble_deterministics_from_registry(samples, compile_model_fixture(model)))
     native = build_dynamical_model(
-        model, {key: value[0] for key, value in samples.items()}, t0=jnp.asarray(0.0)
+        compile_model_fixture(model),
+        {key: value[0] for key, value in samples.items()},
+        t0=jnp.asarray(0.0),
     )
     assert isinstance(native, dsx.DynamicalModel)
     assert native.initial_condition.event_shape == (2,)
     assert isinstance(native.observation_model, HeterogeneousObservation)
     assert isinstance(native.state_evolution, dsx.StochasticContinuousTimeStateEvolution)
     assert native.state_evolution.drift is not None
-    assert native.observation_model.families == tuple(numeric.observation_families(model))
+    assert native.observation_model.families == tuple(
+        numeric.observation_families(compile_model_fixture(model))
+    )
     assert native.state_evolution.drift(jnp.ones(2), jnp.empty(0), 0.0).shape == (2,)
 
 
@@ -208,13 +209,20 @@ def test_predictive_runtime_uses_native_initial_and_observation_laws(model):
         simulate_latent_histories,
     )
 
-    samples = {site.name: jnp.full((2, *site.shape), 0.5) for site in build_site_registry(model)}
-    samples.update(assemble_deterministics_from_registry(samples, model))
+    samples = {
+        site.name: jnp.full((2, *site.shape), 0.5)
+        for site in build_site_registry(compile_model_fixture(model))
+    }
+    samples.update(assemble_deterministics_from_registry(samples, compile_model_fixture(model)))
     times = jnp.array([2.0])
     key = jax.random.PRNGKey(14)
-    latents, predictors, _ = simulate_latent_histories(model, samples, times, key, None, ())
+    latents, predictors, _ = simulate_latent_histories(
+        compile_model_fixture(model), samples, times, key, None, ()
+    )
     native = build_dynamical_model(
-        model, {name: values[0] for name, values in samples.items()}, t0=times[0]
+        compile_model_fixture(model),
+        {name: values[0] for name, values in samples.items()},
+        t0=times[0],
     )
     assert isinstance(native.observation_model, HeterogeneousObservation)
     init_key, _ = jax.random.split(jax.random.split(key, 2)[0])
@@ -223,7 +231,7 @@ def test_predictive_runtime_uses_native_initial_and_observation_laws(model):
         predictors[0, 0], native.observation_model.linear_predictor(latents[0, 0]), atol=1e-6
     )
     observations, mask, means = sample_predictive_emissions(
-        model,
+        compile_model_fixture(model),
         samples,
         predictors,
         times,
@@ -252,9 +260,12 @@ def test_predictive_edge_off_reaches_the_native_state_evolution(model, monkeypat
     from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
     from nof1_causal_lab.models.ssm.predictive import registry_runtime
 
-    samples = {site.name: jnp.full((1, *site.shape), 0.5) for site in build_site_registry(model)}
-    samples.update(assemble_deterministics_from_registry(samples, model))
-    terms = numeric.dynamics_expressions(model)
+    samples = {
+        site.name: jnp.full((1, *site.shape), 0.5)
+        for site in build_site_registry(compile_model_fixture(model))
+    }
+    samples.update(assemble_deterministics_from_registry(samples, compile_model_fixture(model)))
+    terms = compile_model_fixture(model).dynamics.spec.components
     edge = next(term for term in terms if term.edge_owned)
     dynamics = DynamicsSpec(
         2,
@@ -272,14 +283,16 @@ def test_predictive_edge_off_reaches_the_native_state_evolution(model, monkeypat
 
     monkeypatch.setattr(registry_runtime, "_simulate_model_predictive_draws", inspect_drift)
     derivatives, _ = registry_runtime._simulate_vector_field_predictive_latents(
-        model,
+        compile_model_fixture(model),
         samples,
         jnp.array([3.0]),
         rng_key=jax.random.PRNGKey(21),
         dynamics=dynamics,
     )
     natural = build_dynamical_model(
-        model, {name: values[0] for name, values in samples.items()}, t0=jnp.array(3.0)
+        compile_model_fixture(model),
+        {name: values[0] for name, values in samples.items()},
+        t0=jnp.array(3.0),
     )
     assert isinstance(natural.state_evolution, dsx.StochasticContinuousTimeStateEvolution)
     # This model's Hill edge vanishes at zero source, while the target's own
@@ -297,8 +310,8 @@ def test_predictive_edge_off_reaches_the_native_state_evolution(model, monkeypat
 def test_model_equality_does_not_depend_on_execution_cache(model):
 
     restored = ModelSpec.model_validate_json(model.model_dump_json())
-    (model).require_execution_structure()
-    (restored).require_execution_structure()
+    validate_execution_structure(model)
+    validate_execution_structure(restored)
     assert restored == model
 
 
@@ -321,16 +334,18 @@ def test_nonlinear_fixture_declares_the_same_drift_and_measurements():
             ]
         ),
         manifest_var_diag_free=jnp.asarray(fixture.TRUE_MANIFEST_SD)[
-            numeric.observation_noise_block(source).diag_support[:-2]
+            compile_model_fixture(source).observation_noise_block.diag_support[:-2]
         ],
         manifest_means_free=jnp.asarray(fixture.TRUE_MANIFEST_MEANS)[
-            numeric.observation_mean_block(source).free_support[:-2]
+            compile_model_fixture(source).observation_mean_block.free_support[:-2]
         ],
     )
-    matrices, _ = assemble_model_matrices(source, samples)
+    matrices, _ = assemble_model_matrices(compile_model_fixture(source), samples)
     np.testing.assert_allclose(matrices["lambda"][:-2, :-2], fixture.TRUE_LOADINGS)
     np.testing.assert_allclose(matrices["manifest_means"][:-2], fixture.TRUE_MANIFEST_MEANS)
-    native = build_dynamical_model(source, {**samples, **matrices}, t0=jnp.asarray(0.0))
+    native = build_dynamical_model(
+        compile_model_fixture(source), {**samples, **matrices}, t0=jnp.asarray(0.0)
+    )
     assert isinstance(native.state_evolution, dsx.StochasticContinuousTimeStateEvolution)
     assert native.state_evolution.drift is not None
     state = jnp.asarray([0.8, 0.5, 1.2])
@@ -362,13 +377,15 @@ def test_fixed_quantities_and_interactions_remain_effective_in_edge_off_checks(m
         ).read_text()
     )
     source = ModelSpec.model_validate_json(source.model_dump_json())
-    terms = numeric.dynamics_expressions(source)
-    assert linear_coefficient(terms[3].expression, source.state_order[0]) == 0.7
+    terms = compile_model_fixture(source).dynamics.spec.components
+    assert linear_coefficient(terms[3].expression, selected_state_ids(source)[0]) == 0.7
     assert not terms[3].parameters
     target = _incoming_edge_off_target(
-        source,
-        ConstructSimulationTarget(construct=source.constructs[2], edge_parents=("A", "B")),
-        numeric.state_names(source),
+        compile_model_fixture(source),
+        ConstructSimulationTarget(
+            construct=compile_model_fixture(source).states[2], edge_parents=("A", "B")
+        ),
+        numeric.state_names(compile_model_fixture(source)),
         2,
     )
     assert target.components == (3, 4)
@@ -395,11 +412,11 @@ def test_fixed_quantities_and_interactions_remain_effective_in_edge_off_checks(m
 
     monkeypatch.setattr(registry_runtime, "_simulate_vector_field_predictive_latents", capture)
     _resimulate_edge_off(
-        source,
+        compile_model_fixture(source),
         prediction,
         jnp.arange(3),
         target,
         seed=0,
     )
     assert len(calls) == 1
-    assert numeric.dynamics_expressions(source) == terms
+    assert compile_model_fixture(source).dynamics.spec.components == terms

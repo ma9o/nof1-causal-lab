@@ -14,7 +14,18 @@ are retried by policy without the navigator ever seeing them.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import TYPE_CHECKING
+
+
+def execution_failure_handler[HandlerT: Callable[..., object]](handler: HandlerT) -> HandlerT:
+    """Declare a shell operation whose failure is returned or retried as a failure.
+
+    The checker permits broad exception handling only in these shell operations;
+    scientific decisions and HTTP input translation still use specific outcomes.
+    """
+    return handler
+
 
 if TYPE_CHECKING:
     from nof1_causal_lab.json_types import JsonObject

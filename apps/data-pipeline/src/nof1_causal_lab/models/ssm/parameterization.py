@@ -11,28 +11,24 @@ from __future__ import annotations
 
 import hashlib
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
 import jax.random as random
 
-from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
-from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.execution.parameters import assemble_model_matrices
 from nof1_causal_lab.models.ssm.priors import resolve_site_priors
-from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
-from nof1_causal_lab.models.ssm.structure.sites import (
-    make_site as _site,
-)
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
     import numpyro.distributions as dist
 
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
     from nof1_causal_lab.models.ssm.execution.contracts import LikelihoodExtraParams
+    from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
 
 
 @dataclass(frozen=True)
@@ -48,134 +44,12 @@ class PriorRuntimeBundle:
 # ---------------------------------------------------------------------------
 
 
-def build_site_registry(spec: ModelSpec) -> list[SiteDescriptor]:
-    """Collect block, dynamics, and likelihood sites in stable name order."""
-    return sorted(
-        [*numeric.iter_sample_sites(spec), *likelihood_sites(spec)], key=lambda site: site.name
-    )
+def build_site_registry(spec: CompiledModel) -> tuple[SiteDescriptor, ...]:
+    return spec.site_registry
 
 
-def likelihood_sites(spec: ModelSpec) -> list[SiteDescriptor]:
-    """Declare observation/process hyperparameters in their NumPyro sampling order."""
-    from nof1_causal_lab.artifacts.likelihood import DistributionFamily
-
-    sites: list[SiteDescriptor] = []
-    n_m = numeric.n_observations(spec)
-
-    # -- Likelihood extra-parameter sites -----------------------------------
-
-    manifest_dist_set = set(numeric.observation_families(spec))
-
-    if DistributionFamily.STUDENT_T in manifest_dist_set:
-        sites.append(
-            _site(
-                "obs_df",
-                (),
-                SupportClass.POSITIVE,
-                "likelihood",
-                SiteKind.OBS_DF,
-                priors_field="obs_df",
-            )
-        )
-    if DistributionFamily.GAMMA in manifest_dist_set:
-        sites.append(
-            _site(
-                "obs_shape",
-                (),
-                SupportClass.POSITIVE,
-                "likelihood",
-                SiteKind.OBS_SHAPE,
-                priors_field="obs_shape",
-            )
-        )
-    if DistributionFamily.NEGATIVE_BINOMIAL in manifest_dist_set:
-        sites.append(
-            _site(
-                "obs_r",
-                (),
-                SupportClass.POSITIVE,
-                "likelihood",
-                SiteKind.OBS_R,
-                priors_field="obs_r",
-            )
-        )
-    if DistributionFamily.BETA in manifest_dist_set:
-        sites.append(
-            _site(
-                "obs_concentration",
-                (),
-                SupportClass.POSITIVE,
-                "likelihood",
-                SiteKind.OBS_CONCENTRATION,
-                priors_field="obs_concentration",
-            )
-        )
-
-    level_counts_list = list(numeric.observation_level_counts(spec))
-    max_levels = max(level_counts_list) if level_counts_list else 0
-    max_cutpoints = max(max_levels - 1, 0)
-
-    if DistributionFamily.ORDERED_LOGISTIC in manifest_dist_set and max_cutpoints > 0:
-        sites.append(
-            _site(
-                "obs_ordered_base",
-                (n_m,),
-                SupportClass.REAL,
-                "likelihood",
-                SiteKind.OBS_ORDERED_BASE,
-                priors_field="obs_ordered_base",
-            )
-        )
-        if max_cutpoints > 1:
-            sites.append(
-                _site(
-                    "obs_ordered_gaps",
-                    (n_m, max_cutpoints - 1),
-                    SupportClass.POSITIVE,
-                    "likelihood",
-                    SiteKind.OBS_ORDERED_GAPS,
-                    priors_field="obs_ordered_gaps",
-                )
-            )
-
-    if DistributionFamily.CATEGORICAL in manifest_dist_set and max_cutpoints > 0:
-        cat_shape = (n_m, max_cutpoints)
-        sites.append(
-            _site(
-                "obs_cat_intercepts",
-                cat_shape,
-                SupportClass.REAL,
-                "likelihood",
-                SiteKind.OBS_CAT_INTERCEPTS,
-                priors_field="obs_cat_intercepts",
-            )
-        )
-        sites.append(
-            _site(
-                "obs_cat_slopes",
-                cat_shape,
-                SupportClass.REAL,
-                "likelihood",
-                SiteKind.OBS_CAT_SLOPES,
-                priors_field="obs_cat_slopes",
-            )
-        )
-
-    from nof1_causal_lab.models.ssm.spec_metadata import has_student_t_diffusion
-
-    if has_student_t_diffusion(spec):
-        sites.append(
-            _site(
-                "proc_df",
-                (),
-                SupportClass.POSITIVE,
-                "likelihood",
-                SiteKind.PROC_DF,
-                priors_field="proc_df",
-            )
-        )
-
-    return sites
+def likelihood_sites(spec: CompiledModel) -> tuple[SiteDescriptor, ...]:
+    return tuple(site for site in spec.site_registry if site.assembly_group == "likelihood")
 
 
 # ---------------------------------------------------------------------------
@@ -212,14 +86,14 @@ def _resolve_num_draws(
 
 def assemble_deterministics_from_registry(
     samples: dict[str, jnp.ndarray],
-    spec: ModelSpec,
+    spec: CompiledModel,
     *,
     n_draws: int | None = None,
 ) -> dict[str, jnp.ndarray]:
     """Batch the same scientific matrix assembly used by NumPyro inference."""
     n_draws = _resolve_num_draws(samples, n_draws)
 
-    def assemble_draw(index):
+    def assemble_draw(index: jax.Array) -> dict[str, jax.Array]:
         return assemble_model_matrices(
             spec, {name: value[index] for name, value in samples.items()}
         )[0]
@@ -228,7 +102,7 @@ def assemble_deterministics_from_registry(
 
 
 def assemble_extra_params_from_registry(
-    spec: ModelSpec,
+    spec: CompiledModel,
     samples: dict[str, jnp.ndarray],
     registry: Sequence[SiteDescriptor],
 ) -> LikelihoodExtraParams:
@@ -278,11 +152,11 @@ def sample_prior_parameters(
 
 
 def build_prior_runtime_bundle(
-    spec: ModelSpec,
+    spec: CompiledModel,
     priors: Mapping[str, dist.Distribution] | None = None,
 ) -> PriorRuntimeBundle:
     """Resolve the scientific site declarations to native NumPyro laws."""
     registry = build_site_registry(spec)
     return PriorRuntimeBundle(
-        registry=tuple(registry), priors=resolve_site_priors(registry, priors)
+        registry=tuple(registry), priors=MappingProxyType(resolve_site_priors(registry, priors))
     )

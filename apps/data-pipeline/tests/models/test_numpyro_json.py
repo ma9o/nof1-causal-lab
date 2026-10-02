@@ -10,7 +10,7 @@ import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
+from nof1_causal_lab.artifacts.parameter_spec import PersistenceTransformSpec
 from nof1_causal_lab.numpyro_json import NumPyroDistribution
 from nof1_causal_lab.prior_distributions import persistence_to_decay
 
@@ -89,7 +89,9 @@ def test_parameter_changes_distribution_without_keeping_authoring_history():
     assert restored == specified
     assert restored.parameter(parameter.id).id == parameter.id
     assert isinstance(restored.distribution_for(parameter.id), dist.Normal)
-    assert restored.parameter(parameter.id).reference_interval_days == 7.0
+    transform = restored.parameter(parameter.id).transform
+    assert isinstance(transform, PersistenceTransformSpec)
+    assert transform.interval_days == 7.0
     revised = restored.revised(
         distributions={
             **restored.distributions,
@@ -109,7 +111,7 @@ def test_parameter_changes_distribution_without_keeping_authoring_history():
     assert not hasattr(revised.parameter(parameter.id), "prior_sources")
     assert not hasattr(revised.parameter(parameter.id), "original_proposal")
     with pytest.raises(ValidationError):
-        ParameterSpec.model_validate({**parameter.model_dump(), "distribution": dist.Normal(0, 1)})
+        parameter.revised(distribution=dist.Normal(0, 1))
 
 
 @pytest.mark.contract
@@ -120,8 +122,8 @@ def test_parameter_tool_boundary_validates_the_reference_interval():
         ).read_text()
     )
     with pytest.raises(ValidationError):
-        ParameterSpec.model_validate(
-            {**model.parameters[0].model_dump(), "reference_interval_days": -7.0}
+        model.parameters[0].revised(
+            transform={"kind": "dt_persistence_to_ct_decay", "interval_days": -7.0},
         )
 
 
@@ -137,10 +139,7 @@ def test_completed_model_requires_a_prior_on_each_parameter():
     )
     draft = science.revised(
         distributions={},
-        parameters=tuple(
-            type(parameter).model_validate({**parameter.model_dump(), "distribution": None})
-            for parameter in science.parameters
-        ),
+        parameters=tuple(parameter.revised(distribution=None) for parameter in science.parameters),
     )
     with pytest.raises(IncompleteModelError, match="prior"):
         draft.require_priors()
@@ -173,9 +172,7 @@ def test_law_memberships_reject_dangling_unused_and_accidentally_shared_scalar_l
     with pytest.raises(ValidationError, match="exactly one parameter"):
         model.revised(
             parameters=tuple(
-                type(p).model_validate({**p.model_dump(), "distribution": first.distribution})
-                if p.id == second.id
-                else p
+                p.revised(distribution=first.distribution) if p.id == second.id else p
                 for p in model.parameters
             ),
             distributions={

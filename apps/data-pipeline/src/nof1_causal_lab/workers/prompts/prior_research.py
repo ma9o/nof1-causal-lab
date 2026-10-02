@@ -48,12 +48,22 @@ __PRIOR_DISTRIBUTION_GUIDANCE_BULLETS__
 
 ## Output Format
 
-Return a JSON object:
+Return a proposed parameter, its native law, and the research evidence. Use the exact parameter ID supplied by the caller. This example proposes an interval effect:
 ```json
 {
-  "parameter": "parameter_name",
-  "distribution": "__PRIOR_DISTRIBUTION_CHOICE_LIST__",
-  "params": {"mu": 0.3, "sigma": 0.15},
+  "parameter": {
+    "id": "parameter:aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+    "name": "beta_workload_sleep",
+    "description": "Workload effect over seven days",
+    "distribution": "distribution:workload_sleep",
+    "transform": {"kind": "dt_effect_to_ct_rate", "interval_days": 7.0}
+  },
+  "distributions": {
+    "distribution:workload_sleep": {
+      "distribution": "Normal",
+      "params": {"loc": 0.3, "scale": 0.15}
+    }
+  },
   "sources": [
     {
       "title": "Source title",
@@ -62,15 +72,18 @@ Return a JSON object:
       "effect_size": "r=0.3, 95% CI [0.2, 0.4]"
     }
   ],
-  "reasoning": "Justification for the prior",
-  "reference_interval_days": 7.0
+  "reasoning": "Justification for the prior"
 }
 ```
 
-Only include `reference_interval_days` when the evidence is expressed on a \
-different observation interval than the model interval. For interval-effect `beta_*` \
-priors, keep `params` on that authored interval scale and let the compiler \
-rescale them.
+The native law uses NumPyro constructor names and arguments. Suggested families are
+__PRIOR_DISTRIBUTION_CHOICE_LIST__. Keep the law on the authored scale.
+`transform` is `{"kind":"identity"}` for a native-scale law or
+`{"kind":"initial_state_correlation"}` for an initial correlation. Persistence
+uses `dt_persistence_to_ct_decay`; interval effects use `dt_effect_to_ct_rate`.
+Both interval transforms require `interval_days`: a positive duration in days,
+or the explicit string `model_clock`. Research sources and reasoning accompany
+the proposal; the parameter definition itself carries only its scientific fields.
 
 ### Parameter Guidelines by Type
 __PRIOR_PARAMETER_GUIDANCE_TABLE__

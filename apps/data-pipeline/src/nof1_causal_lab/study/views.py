@@ -2,25 +2,24 @@
 
 from __future__ import annotations
 
-from datetime import date, datetime
-from functools import cache
 from typing import TYPE_CHECKING
 
 import numpy as np
 import polars as pl
-from pydantic import TypeAdapter
 
-from nof1_causal_lab.artifacts.catalog import ARTIFACT_CONTRACTS
+from nof1_causal_lab.artifacts.checks import ConvergenceSubject, Evaluated
+from nof1_causal_lab.artifacts.construct import ConstructSpec
 from nof1_causal_lab.artifacts.effects import HistogramBin
+from nof1_causal_lab.artifacts.indicator import IndicatorSpec
 from nof1_causal_lab.artifacts.raw_data import column_descriptions
 from nof1_causal_lab.numpyro_json import distribution_shape
-from nof1_causal_lab.study.artifact_files import artifact_file_spec
 from nof1_causal_lab.study.equations import (
     confounder_equations,
     observation_equations,
     state_equations,
 )
 from nof1_causal_lab.study.prior_views import prior_density
+from nof1_causal_lab.study.snapshot_models import SourceValidity
 from nof1_causal_lab.study.view_models import (
     LikelihoodDiagnostics,
     MeasurementsData,
@@ -34,53 +33,35 @@ from nof1_causal_lab.utils.histograms import histogram_draws
 
 if TYPE_CHECKING:
     import pyarrow as pa
-    from pydantic import BaseModel
 
-    from nof1_causal_lab.artifacts.identity import ArtifactId, IndicatorId
+    from nof1_causal_lab.artifacts.identification import IdentificationReport
+    from nof1_causal_lab.artifacts.identity import ConstructId, EdgeId, IndicatorId
+    from nof1_causal_lab.artifacts.model_checks import ModelPredictiveReport
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.artifacts.validation_report import ValidationReportArtifact
-    from nof1_causal_lab.study.store import ArtifactStore
-
-
-def read_payload(store: ArtifactStore, artifact_id: ArtifactId, revision: str) -> BaseModel:
-    """Validate one immutable primary JSON payload with its production contract."""
-    filename = next(iter(artifact_file_spec(artifact_id).json.values()))
-    return ARTIFACT_CONTRACTS[artifact_id].model_validate(
-        store.read_json_file(artifact_id, revision, filename),
-        context={"distribution_array_loader": cache(store.read_array)},
+    from nof1_causal_lab.artifacts.validation_report import (
+        DataProfileArtifact,
+        ValidationReportArtifact,
     )
+    from nof1_causal_lab.study.snapshot_models import FitSummary, Sourced
 
 
-def raw_data_view(table: pa.Table) -> RawDataData:
+def raw_data_view(table: pa.Table, date_range: RawDataDateRange | None) -> RawDataData:
     """Describe the physical table and sample evenly spaced rows."""
     descriptions = column_descriptions(table)
     frame = pl.DataFrame(table)
-    dates: list[str] = []
-    for candidate in ("timestamp", "date", "time", "datetime"):
-        if candidate not in frame.columns:
-            continue
-        for value in frame[candidate].drop_nulls():
-            if isinstance(value, (date, datetime)):
-                dates.append(value.isoformat()[:10])
-            elif isinstance(value, str):
-                dates.append(datetime.fromisoformat(value).date().isoformat())
-        if dates:
-            break
     indices = np.linspace(0, frame.height - 1, min(15, frame.height), dtype=int).tolist()
     return RawDataData(
         n_records=frame.height,
         n_columns=frame.width,
-        date_range=RawDataDateRange(
-            start=min(dates) if dates else "", end=max(dates) if dates else ""
-        ),
-        sample=[
+        date_range=date_range,
+        sample=tuple(
             {key: None if value is None else str(value) for key, value in row.items()}
             for row in frame[indices].to_dicts()
-        ],
-        column_descriptions=[
+        ),
+        column_descriptions=tuple(
             RawDataColumnDescription(name=name, dtype=str(dtype), description=descriptions[name])
             for name, dtype in frame.schema.items()
-        ],
+        ),
     )
 
 
@@ -103,17 +84,10 @@ def observed_histogram(values: np.ndarray, *, discrete: bool) -> list[HistogramB
     return histogram_draws(values, max_bins=15)
 
 
-def measurements_view(panel: pl.DataFrame, indicator_ids: set[IndicatorId]) -> MeasurementsData:
+def measurements_view(
+    panel: pl.DataFrame, indicator_ids: set[IndicatorId], sample: tuple[ObservationRecord, ...]
+) -> MeasurementsData:
     """Counts owned by the selected model and representative rows from one panel."""
-    sample = []
-    for row in panel.head(20).to_dicts():
-        record = {
-            key: value for key, value in row.items() if key in ObservationRecord.__annotations__
-        }
-        for key in ("anchor_time", "support_start", "support_end"):
-            if record.get(key) is not None:
-                record[key] = str(record[key])
-        sample.append(TypeAdapter(ObservationRecord).validate_python(record))
     return MeasurementsData(
         n_observations=len(panel),
         per_indicator_counts=dict(
@@ -152,7 +126,7 @@ def model_diagnostics_view(
             diagnostics[indicator.id] = LikelihoodDiagnostics(
                 indicator_id=indicator.id,
                 profile=audit.profile if audit else None,
-                histogram=bins,
+                histogram=tuple(bins),
             )
     return ModelDiagnostics(
         prior_densities={
@@ -161,12 +135,95 @@ def model_diagnostics_view(
             if (law := model.distribution_for(parameter.id)) is not None
             and distribution_shape(law) == ((), ())
         },
-        confounder_equations=confounder_equations(model)
+        confounder_equations=tuple(confounder_equations(model))
         if model.measurement_clock is not None and model.indicators
-        else [],
-        state_equations=state_equations(model)
+        else (),
+        state_equations=tuple(state_equations(model))
         if model.measurement_clock is not None and model.indicators
-        else [],
+        else (),
         observation_equations=observation_equations(model),
         likelihood_diagnostics=diagnostics,
     )
+
+
+def entity_failures(
+    model: ModelSpec | None,
+    fit: Sourced[FitSummary] | None,
+    predictive: Sourced[ModelPredictiveReport] | None,
+    identification: Sourced[IdentificationReport] | None,
+    data: Sourced[ValidationReportArtifact] | Sourced[DataProfileArtifact] | None,
+) -> dict[ConstructId | EdgeId | IndicatorId, tuple[str, ...]]:
+    """Attribute recorded scientific failures before the workbench renders them."""
+    if model is None:
+        return {}
+    entities = (*model.constructs, *model.edges, *model.indicators)
+    failures: dict[ConstructId | EdgeId | IndicatorId, tuple[str, ...]] = {}
+    for entity in entities:
+        messages = []
+        label = entity.name if isinstance(entity, (ConstructSpec, IndicatorSpec)) else entity.id
+        parameters = {p.id for p in model.parameters_for(entity.id)}
+        if fit is not None and fit.source.validity == SourceValidity.FRESH:
+            for assessment in fit.value.report.convergence.assessments:
+                if (
+                    isinstance(assessment, Evaluated)
+                    and assessment.outcome == "failed"
+                    and isinstance(assessment.subject, ConvergenceSubject)
+                    and assessment.subject.parameter.parameter_id in parameters
+                ):
+                    messages.append(f"Parameter convergence: {assessment.subject.label}")
+        if predictive is not None and predictive.source.validity == SourceValidity.FRESH:
+            for assessment in predictive.value.findings:
+                if not isinstance(assessment, Evaluated) or assessment.outcome not in {
+                    "failed",
+                    "error",
+                }:
+                    continue
+                subject = assessment.subject
+                target = subject.target.id if not isinstance(subject.target, str) else None
+                if target == entity.id or (
+                    subject.construct_id == entity.id
+                    and (
+                        not isinstance(entity, ConstructSpec)
+                        or target not in {i.id for i in entity.indicators}
+                    )
+                ):
+                    messages.append(f"Predictive checks: {label}")
+            if predictive.value.predictive_checks is not None:
+                for assessment in predictive.value.predictive_checks.per_variable_warnings:
+                    if (
+                        isinstance(assessment, Evaluated)
+                        and assessment.outcome in {"failed", "warning", "error"}
+                        and assessment.subject.target.id == entity.id
+                    ):
+                        messages.append(f"Predictive checks: {label}")
+        if (
+            data is not None
+            and data.source.validity == SourceValidity.FRESH
+            and isinstance(entity, IndicatorSpec)
+        ):
+            audit = data.value.indicators.get(entity.id)
+            if audit is not None and any(issue.severity != "info" for issue in audit.issues):
+                messages.append(f"Data quality: {label}")
+        if (
+            identification is not None
+            and identification.source.validity == SourceValidity.FRESH
+            and isinstance(entity, ConstructSpec)
+        ):
+            treatment = identification.value.treatments.get(entity.id)
+            if treatment is not None and treatment.status == "not_identified":
+                messages.append(f"Identification against ★: {label}")
+        failures[entity.id] = tuple(dict.fromkeys(messages))
+    for construct in model.constructs:
+        failures[construct.id] = tuple(
+            dict.fromkeys(
+                (
+                    *failures[construct.id],
+                    *(
+                        message
+                        for indicator in construct.indicators
+                        for message in failures[indicator.id]
+                    ),
+                )
+            )
+        )
+    return failures

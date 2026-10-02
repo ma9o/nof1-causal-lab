@@ -9,12 +9,30 @@ Implements the outer optimization loop for MAP inference:
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+from nof1_causal_lab.models.ssm.execution.contracts import EMPTY_LAPLACE_STATE
+
+if TYPE_CHECKING:
+    from dynestyx import StochasticContinuousTimeStateEvolution
+    from jax.typing import DTypeLike
+    from numpyro.distributions import MultivariateNormal
+
+    from nof1_causal_lab.models.ssm.autoreparam import Strategy
+    from nof1_causal_lab.models.ssm.execution.contracts import (
+        LaplaceSolverState,
+        LikelihoodExtraParams,
+        MeasurementParams,
+    )
+    from nof1_causal_lab.models.ssm.inference.targets.laplace import LaplaceLikelihood
+    from nof1_causal_lab.models.ssm.parameterization import PriorRuntimeBundle
+    from nof1_causal_lab.models.ssm.runtime import BoundPanel
+
 import functools
 import logging
-import time
 from collections.abc import Callable
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Any, Literal, NotRequired, TypedDict
+from typing import TYPE_CHECKING, Literal, TypedDict
 
 import jax
 import jax.numpy as jnp
@@ -23,24 +41,25 @@ import jax.scipy.linalg as jla
 import numpy as np
 import scipy.optimize as spo
 
+from nof1_causal_lab.models.ssm.constants import MIN_DT
 from nof1_causal_lab.models.ssm.covariance_utils import symmetrize_with_jitter
 from nof1_causal_lab.models.ssm.execution.contracts import (
     LIKELIHOOD_SOLVER_KIND_DENSE_SUPPORT,
     LIKELIHOOD_SOLVER_KIND_POINT_IEKS,
     LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS,
+    LaplaceEvaluationResult,
 )
-from nof1_causal_lab.models.ssm.inference.backend_factory import get_laplace_backend
+from nof1_causal_lab.models.ssm.execution.dynamical_model import assemble_likelihood_inputs
+from nof1_causal_lab.models.ssm.inference.backend_factory import build_laplace_backend
 from nof1_causal_lab.models.ssm.inference.parameter_transform import ParameterTransform
-from nof1_causal_lab.models.ssm.inference.types import InferenceDiagnostics, WarmupProposal
+from nof1_causal_lab.models.ssm.inference.types import WarmupDiagnostics, WarmupProposal
 from nof1_causal_lab.models.ssm.inference.utils import (
     SiteInfo,
-    _build_eval_fns,
     extract_constrained_samples,
     prepare_model_parameters,
 )
-
-if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.model import SSMModel
+from nof1_causal_lab.models.ssm.model import initialization_input_intervention
+from nof1_causal_lab.models.ssm.parameterization import build_site_registry
 
 
 class InnerEvaluationDiagnostics(TypedDict):
@@ -68,8 +87,7 @@ class OuterEvaluationAux(TypedDict):
     log_posterior: jax.Array
     log_likelihood: jax.Array
     log_prior: jax.Array
-    inner: dict[str, jax.Array]
-    latent_mode: NotRequired[jax.Array]
+    inner: LaplaceEvaluationResult
 
 
 class MapRuntime(TypedDict):
@@ -86,7 +104,7 @@ class MapBundle(MapRuntime):
     site_info: SiteInfo
     unravel_fn: Callable[[jax.Array], dict[str, jax.Array]]
     parameters: ParameterTransform
-    public_sites: set[str]
+    public_sites: frozenset[str]
 
 
 logger = logging.getLogger(__name__)
@@ -103,41 +121,41 @@ _SOLVER_KIND_LABELS = {
 }
 
 
-def _map_shape_dtype_signature(array: jnp.ndarray) -> tuple[tuple[int, ...], str]:
-    return tuple(array.shape), str(jnp.dtype(array.dtype))
-
-
-@functools.partial(jax.jit, static_argnames=("runtime_log_posterior_fn",))
 def _batch_log_posterior_runtime(
     candidates: jnp.ndarray,
     observations: jnp.ndarray,
     times: jnp.ndarray,
     *,
-    runtime_log_posterior_fn,
+    runtime_log_posterior_fn: Callable[..., jax.Array],
 ) -> jnp.ndarray:
     return jax.vmap(
-        lambda z: runtime_log_posterior_fn(z, observations, times, latent_mode_init=None)
+        lambda z: runtime_log_posterior_fn(z, observations, times, solver_state=EMPTY_LAPLACE_STATE)
     )(candidates)
 
 
 @functools.partial(jax.jit, static_argnames=("runtime_neg_log_posterior_with_aux_fn",))
 def _laplace_value_and_grad_runtime(
     z: jnp.ndarray,
-    latent_mode_init,
+    solver_state: LaplaceSolverState,
     observations: jnp.ndarray,
     times: jnp.ndarray,
     *,
-    runtime_neg_log_posterior_with_aux_fn,
-):
-    def _objective(z_arg, latent_mode_init_arg):
+    runtime_neg_log_posterior_with_aux_fn: Callable[..., tuple[jax.Array, OuterEvaluationAux]],
+) -> tuple[tuple[jax.Array, OuterEvaluationAux], jax.Array]:
+    def _objective(
+        z_arg: jax.Array, solver_state_arg: LaplaceSolverState
+    ) -> tuple[jax.Array, OuterEvaluationAux]:
         return runtime_neg_log_posterior_with_aux_fn(
             z_arg,
             observations,
             times,
-            latent_mode_init=latent_mode_init_arg,
+            solver_state=solver_state_arg,
         )
 
-    return jax.value_and_grad(_objective, argnums=0, has_aux=True)(z, latent_mode_init)
+    evaluate: Callable[
+        [jax.Array, LaplaceSolverState], tuple[tuple[jax.Array, OuterEvaluationAux], jax.Array]
+    ] = jax.value_and_grad(_objective, argnums=0, has_aux=True)
+    return evaluate(z, solver_state)
 
 
 @functools.partial(jax.jit, static_argnames=("runtime_neg_log_posterior_fn",))
@@ -146,22 +164,21 @@ def _laplace_parameter_hessian_runtime(
     observations: jnp.ndarray,
     times: jnp.ndarray,
     *,
-    runtime_neg_log_posterior_fn,
+    runtime_neg_log_posterior_fn: Callable[..., jax.Array],
 ) -> jnp.ndarray:
-    return jax.hessian(
-        lambda z: runtime_neg_log_posterior_fn(z, observations, times, latent_mode_init=None)
-    )(z_mode)
+    evaluate: Callable[[jax.Array], jax.Array] = jax.hessian(
+        lambda z: runtime_neg_log_posterior_fn(
+            z, observations, times, solver_state=EMPTY_LAPLACE_STATE
+        )
+    )
+    return evaluate(z_mode)
 
 
-def _elapsed_seconds(start: float) -> float:
-    return time.monotonic() - start
-
-
-def _scalar_float(value: Any) -> float:
+def _scalar_float(value: float | int | jax.Array | np.ndarray) -> float:
     return float(np.asarray(value, dtype=np.float64))
 
 
-def _scalar_int(value: Any) -> int:
+def _scalar_int(value: float | int | jax.Array | np.ndarray) -> int:
     return int(np.asarray(value, dtype=np.int64))
 
 
@@ -198,7 +215,7 @@ def _hostify_outer_eval_diagnostics(aux: OuterEvaluationAux) -> OuterEvaluationD
         "log_posterior": _scalar_float(host["log_posterior"]),
         "log_likelihood": _scalar_float(host["log_likelihood"]),
         "log_prior": _scalar_float(host["log_prior"]),
-        "inner": _hostify_inner_eval_diagnostics(host["inner"]),
+        "inner": _hostify_inner_eval_diagnostics(dict(host["inner"].diagnostics)),
     }
 
 
@@ -282,36 +299,24 @@ class LaplaceModeOptimizationResult:
 
 
 def _build_map_laplace_bundle(
-    model: SSMModel,
-    observations: jnp.ndarray,
-    times: jnp.ndarray,
+    priors: PriorRuntimeBundle,
+    panel: BoundPanel,
     trace_key: jnp.ndarray,
-    likelihood_backend,
-    reparam,
+    likelihood_backend: LaplaceLikelihood,
+    reparam: Strategy | None,
 ) -> MapBundle:
     """Build the traced/JITed artifacts for optimizer-backed MAP."""
+    observations = panel.observations
     parameters, site_info, public_sites = prepare_model_parameters(
-        model, observations, times, trace_key, reparam
+        priors, panel, trace_key, reparam
     )
     flat_example, unravel_fn = parameters.initial_position, parameters.unravel
 
-    cache_key = (
-        "map_laplace_runtime_bundle",
-        id(likelihood_backend),
-        id(reparam),
-        _map_shape_dtype_signature(observations),
-        _map_shape_dtype_signature(times),
-    )
-
     def _build_runtime_bundle() -> MapRuntime:
         log_lik_fn, log_prior_unc_fn, log_lik_with_aux_fn = _build_eval_fns(
-            model,
-            observations,
-            times,
+            panel,
             parameters,
             likelihood_backend=likelihood_backend,
-            include_likelihood_aux=True,
-            runtime_observations_times=True,
         )
 
         safe_floor = jnp.asarray(-1e30, dtype=observations.dtype)
@@ -321,13 +326,13 @@ def _build_map_laplace_bundle(
             z: jnp.ndarray,
             runtime_observations: jnp.ndarray,
             runtime_times: jnp.ndarray,
-            latent_mode_init=None,
+            solver_state: LaplaceSolverState = EMPTY_LAPLACE_STATE,
         ) -> jnp.ndarray:
             total = log_prior_unc_fn(z) + log_lik_fn(
                 z,
                 runtime_observations,
                 runtime_times,
-                latent_mode_init=latent_mode_init,
+                solver_state=solver_state,
             )
             return jnp.where(jnp.isfinite(total), total, safe_floor)
 
@@ -335,13 +340,13 @@ def _build_map_laplace_bundle(
             z: jnp.ndarray,
             runtime_observations: jnp.ndarray,
             runtime_times: jnp.ndarray,
-            latent_mode_init=None,
+            solver_state: LaplaceSolverState = EMPTY_LAPLACE_STATE,
         ) -> jnp.ndarray:
             value = -_log_posterior_fn(
                 z,
                 runtime_observations,
                 runtime_times,
-                latent_mode_init=latent_mode_init,
+                solver_state=solver_state,
             )
             return jnp.where(jnp.isfinite(value), value, safe_ceiling)
 
@@ -349,13 +354,13 @@ def _build_map_laplace_bundle(
             z: jnp.ndarray,
             runtime_observations: jnp.ndarray,
             runtime_times: jnp.ndarray,
-            latent_mode_init=None,
+            solver_state: LaplaceSolverState = EMPTY_LAPLACE_STATE,
         ) -> tuple[jnp.ndarray, OuterEvaluationAux]:
             log_lik, inner_eval_aux = log_lik_with_aux_fn(
                 z,
                 runtime_observations,
                 runtime_times,
-                latent_mode_init=latent_mode_init,
+                solver_state=solver_state,
             )
             log_prior = log_prior_unc_fn(z)
             log_posterior = log_prior + log_lik
@@ -365,12 +370,8 @@ def _build_map_laplace_bundle(
                 "log_posterior": log_posterior,
                 "log_likelihood": log_lik,
                 "log_prior": log_prior,
-                "inner": {
-                    key: value for key, value in inner_eval_aux.items() if key != "latent_mode"
-                },
+                "inner": inner_eval_aux,
             }
-            if "latent_mode" in inner_eval_aux:
-                outer_aux["latent_mode"] = inner_eval_aux["latent_mode"]
             return safe_value, outer_aux
 
         return {
@@ -381,7 +382,7 @@ def _build_map_laplace_bundle(
             "neg_log_posterior_with_aux_fn": _neg_log_posterior_with_aux_fn,
         }
 
-    runtime_bundle = model.get_cached_artifact(cache_key, _build_runtime_bundle)
+    runtime_bundle = _build_runtime_bundle()
 
     return {
         "dim": int(flat_example.shape[0]),
@@ -405,7 +406,7 @@ def _draw_laplace_init_candidates(
     *,
     dim: int,
     n_candidates: int,
-    dtype,
+    dtype: DTypeLike,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Sample candidate parameter vectors from the prior in unconstrained space."""
     n_candidates = max(int(n_candidates), 1)
@@ -415,9 +416,10 @@ def _draw_laplace_init_candidates(
     parts = []
     for name in sorted(site_info.keys()):
         info = site_info[name]
-        rng_key, sample_key = random.split(rng_key)
-        constrained = info["distribution"].sample(sample_key, (n_candidates,))
-        unconstrained = info["transform"].inv(constrained)
+        keys = random.split(rng_key)
+        rng_key, sample_key = keys[0], keys[1]
+        constrained = info.distribution.sample(sample_key, (n_candidates,))
+        unconstrained = jnp.asarray(info.transform.inv(constrained))
         parts.append(unconstrained.reshape(n_candidates, -1))
 
     candidates = jnp.concatenate(parts, axis=1)
@@ -425,12 +427,10 @@ def _draw_laplace_init_candidates(
     return rng_key, jnp.concatenate([zeros, candidates], axis=0)
 
 
-def _requires_support_aware_outer_optimizer(model: SSMModel) -> bool:
+def _requires_support_aware_outer_optimizer(panel: BoundPanel) -> bool:
     """Use the support-aware outer optimizer for interval-summary models."""
-    observation_support = model.observation_support
-    return bool(
-        observation_support is not None and observation_support.requires_interval_summary_handling
-    )
+    observation_support = panel.observation_support
+    return bool(observation_support.requires_interval_summary_handling)
 
 
 # ---------------------------------------------------------------------------
@@ -439,19 +439,20 @@ def _requires_support_aware_outer_optimizer(model: SSMModel) -> bool:
 
 
 def _optimize_laplace_parameter_mode(
-    _model: SSMModel,
+    panel: BoundPanel,
     *,
     init_key: jnp.ndarray,
     dim: int,
     flat_example: jnp.ndarray,
     site_info: SiteInfo,
-    runtime_log_posterior_fn,
-    runtime_neg_log_posterior_with_aux_fn,
+    runtime_log_posterior_fn: Callable[..., jax.Array],
+    runtime_neg_log_posterior_with_aux_fn: Callable[..., tuple[jax.Array, OuterEvaluationAux]],
     observations: jnp.ndarray,
     times: jnp.ndarray,
     n_init_samples: int,
     maxiter: int,
     tol: float,
+    clock: Callable[[], float],
 ) -> LaplaceModeOptimizationResult:
     """Find the parameter mode using the route appropriate for the model class."""
     if dim == 0:
@@ -460,7 +461,7 @@ def _optimize_laplace_parameter_mode(
             z_mode,
             observations,
             times,
-            latent_mode_init=None,
+            solver_state=EMPTY_LAPLACE_STATE,
         )
         return LaplaceModeOptimizationResult(
             z_mode=z_mode,
@@ -476,7 +477,7 @@ def _optimize_laplace_parameter_mode(
                         z_mode,
                         observations,
                         times,
-                        latent_mode_init=None,
+                        solver_state=EMPTY_LAPLACE_STATE,
                     )
                 )
             ),
@@ -485,7 +486,7 @@ def _optimize_laplace_parameter_mode(
             final_eval_diagnostics=_hostify_outer_eval_diagnostics(final_eval_aux),
         )
 
-    support_aware_outer = _requires_support_aware_outer_optimizer(_model)
+    support_aware_outer = _requires_support_aware_outer_optimizer(panel)
     if support_aware_outer:
         z_init = flat_example
         init_log_posterior_best: float | None = None
@@ -514,71 +515,54 @@ def _optimize_laplace_parameter_mode(
             init_log_posterior_best,
         )
 
-    cached_evaluation: (
-        tuple[np.ndarray, tuple[float, np.ndarray, OuterEvaluationDiagnostics]] | None
-    ) = None
     eval_count = 0
-    optimize_started_at = time.monotonic()
-    latent_mode_init: np.ndarray | None = None
+    optimize_started_at = clock()
+    solver_state = EMPTY_LAPLACE_STATE
     if support_aware_outer:
         _seed_objective, seed_aux = runtime_neg_log_posterior_with_aux_fn(
             z_init,
             observations,
             times,
-            latent_mode_init=None,
+            solver_state=EMPTY_LAPLACE_STATE,
         )
         del _seed_objective
-        if "latent_mode" in seed_aux:
-            latent_mode_init = np.asarray(jax.device_get(seed_aux["latent_mode"])).copy()
-            logger.info("MAP seeded latent warm start before jitted value-and-grad compile")
+        solver_state = seed_aux["inner"].state
+        logger.info("MAP seeded latent warm start before jitted value-and-grad compile")
 
-    def _value_and_grad(z_np: np.ndarray) -> tuple[float, np.ndarray, OuterEvaluationDiagnostics]:
-        nonlocal cached_evaluation, eval_count, latent_mode_init
+    def _value_and_grad(
+        z_np: np.ndarray, state: LaplaceSolverState
+    ) -> tuple[tuple[float, np.ndarray, OuterEvaluationDiagnostics], LaplaceSolverState]:
+        """Numerical evaluation consumes and returns state; the SciPy driver owns it."""
         z_host = np.asarray(z_np, dtype=np.float64)
-        if cached_evaluation is not None and np.array_equal(z_host, cached_evaluation[0]):
-            return cached_evaluation[1]
-
         z = jnp.asarray(z_host, dtype=z_init.dtype)
-        latent_mode_arg = (
-            None
-            if latent_mode_init is None
-            else jnp.asarray(latent_mode_init, dtype=observations.dtype)
-        )
         (fun, aux), grad = _laplace_value_and_grad_runtime(
             z,
-            latent_mode_arg,
+            state,
             observations,
             times,
             runtime_neg_log_posterior_with_aux_fn=runtime_neg_log_posterior_with_aux_fn,
         )
-        eval_count += 1
         evaluation = (
             float(jax.device_get(fun)),
             np.asarray(jax.device_get(grad), dtype=np.float64),
             _hostify_outer_eval_diagnostics(aux),
         )
-        cached_evaluation = (z_host.copy(), evaluation)
-        if "latent_mode" in aux:
-            latent_mode_init = np.asarray(jax.device_get(aux["latent_mode"])).copy()
-        else:
-            latent_mode_init = None
-        return evaluation
+        return evaluation, aux["inner"].state
 
-    def _objective(z_np: np.ndarray) -> float:
-        fun, _grad, _aux = _value_and_grad(z_np)
-        return fun
-
-    def _gradient(z_np: np.ndarray) -> np.ndarray:
-        _fun, grad, _aux = _value_and_grad(z_np)
-        return grad
+    def _objective(z_np: np.ndarray) -> tuple[float, np.ndarray]:
+        nonlocal solver_state, eval_count
+        (fun, grad, _aux), solver_state = _value_and_grad(z_np, solver_state)
+        eval_count += 1
+        return fun, grad
 
     x0_np = np.asarray(jax.device_get(z_init), dtype=np.float64)
-    init_fun, init_grad, init_aux = _value_and_grad(x0_np)
+    (init_fun, init_grad, init_aux), solver_state = _value_and_grad(x0_np, solver_state)
+    eval_count += 1
     if init_log_posterior_best is None:
         init_log_posterior_best = -init_fun
     _log_outer_eval(
         label="init",
-        elapsed_seconds=_elapsed_seconds(optimize_started_at),
+        elapsed_seconds=(clock() - optimize_started_at),
         eval_count=eval_count,
         objective=init_fun,
         best_objective=init_fun,
@@ -594,14 +578,15 @@ def _optimize_laplace_parameter_mode(
     previous_x = x0_np.copy()
 
     def _callback(xk: np.ndarray) -> None:
-        nonlocal iteration_count, best_objective, previous_fun, previous_x
+        nonlocal iteration_count, best_objective, previous_fun, previous_x, eval_count
         x_curr = np.asarray(xk, dtype=np.float64)
-        fun, grad, aux = _value_and_grad(x_curr)
+        (fun, grad, aux), _ = _value_and_grad(x_curr, solver_state)
+        eval_count += 1
         iteration_count += 1
         best_objective = min(best_objective, fun)
         _log_outer_eval(
             label=f"iter {iteration_count}",
-            elapsed_seconds=_elapsed_seconds(optimize_started_at),
+            elapsed_seconds=(clock() - optimize_started_at),
             eval_count=eval_count,
             objective=fun,
             best_objective=best_objective,
@@ -616,14 +601,14 @@ def _optimize_laplace_parameter_mode(
     opt_result = spo.minimize(
         _objective,
         x0=x0_np,
-        jac=_gradient,
+        jac=True,
         method="L-BFGS-B",
         tol=tol,
         options={"maxiter": maxiter},
         callback=_callback,
     )
     final_x = np.asarray(opt_result.x, dtype=np.float64)
-    final_fun, final_grad, final_aux = _value_and_grad(final_x)
+    (final_fun, final_grad, final_aux), _ = _value_and_grad(final_x, solver_state)
     return LaplaceModeOptimizationResult(
         z_mode=jnp.asarray(opt_result.x, dtype=z_init.dtype),
         objective_at_mode=float(final_fun),
@@ -671,7 +656,7 @@ def _sample_gaussian_parameter_posterior(
 def _sample_laplace_parameter_posterior(
     rng_key: jnp.ndarray,
     z_mode: jnp.ndarray,
-    runtime_neg_log_posterior_fn,
+    runtime_neg_log_posterior_fn: Callable[..., jax.Array],
     observations: jnp.ndarray,
     times: jnp.ndarray,
     *,
@@ -705,7 +690,8 @@ def _sample_laplace_parameter_posterior(
         num_samples=num_samples,
     )
 
-    return unc_samples, covariance, jnp.linalg.eigvalsh(hessian)
+    eigenvalues: jax.Array = jnp.linalg.eigvalsh(hessian)
+    return unc_samples, covariance, eigenvalues
 
 
 def _sample_laplace_parameter_posterior_from_optimizer_hess_inv(
@@ -760,9 +746,8 @@ def _mode_only_parameter_posterior(
 
 
 def fit_map(
-    model: SSMModel,
-    observations: jnp.ndarray,
-    times: jnp.ndarray,
+    priors: PriorRuntimeBundle,
+    panel: BoundPanel,
     num_samples: int = 1000,
     seed: int = 0,
     n_ieks_iters: int = 5,
@@ -770,11 +755,13 @@ def fit_map(
     tol: float = 1e-4,
     n_init_samples: int = 32,
     hessian_jitter: float = 1e-4,
+    *,
     compute_parameter_hessian: bool = True,
     parameter_covariance_method: Literal[
         "exact_hessian", "optimizer_hess_inv"
     ] = "optimizer_hess_inv",
-    reparam=None,
+    reparam: Strategy | None = None,
+    clock: Callable[[], float],
 ) -> WarmupProposal:
     """Fit an approximate posterior with KFAS-style Laplace optimization.
 
@@ -784,6 +771,7 @@ def fit_map(
     posterior, compute the local curvature there, and sample the resulting
     Gaussian approximation in unconstrained parameter space.
     """
+    observations, times = panel.observations, panel.times
     rng_key = random.PRNGKey(seed)
     rng_key, trace_key, init_key, sample_key = random.split(rng_key, 4)
 
@@ -802,30 +790,29 @@ def fit_map(
         parameter_covariance_method,
     )
 
-    phase_started_at = time.monotonic()
+    phase_started_at = clock()
     logger.info("MAP phase start: phase=build_likelihood_backend")
-    with jax.profiler.TraceAnnotation("map/build_likelihood_backend"):
-        backend = get_laplace_backend(model, n_ieks_iters)
+    with jax.named_scope("map/build_likelihood_backend"):
+        backend = build_laplace_backend(panel.model, n_ieks_iters, panel.observation_support)
     logger.info(
         "MAP phase complete: phase=build_likelihood_backend elapsed=%.1fs backend=%s",
-        _elapsed_seconds(phase_started_at),
+        (clock() - phase_started_at),
         backend_label,
     )
 
-    phase_started_at = time.monotonic()
+    phase_started_at = clock()
     logger.info("MAP phase start: phase=build_bundle")
-    with jax.profiler.TraceAnnotation("map/build_bundle"):
+    with jax.named_scope("map/build_bundle"):
         bundle = _build_map_laplace_bundle(
-            model,
-            observations,
-            times,
+            priors,
+            panel,
             trace_key,
             backend,
             reparam,
         )
     logger.info(
         "MAP phase complete: phase=build_bundle elapsed=%.1fs",
-        _elapsed_seconds(phase_started_at),
+        (clock() - phase_started_at),
     )
 
     dim = bundle["dim"]
@@ -839,13 +826,13 @@ def fit_map(
     logger.info(
         "MAP outer optimizer: method=%s support_aware=%s",
         "L-BFGS-B",
-        _requires_support_aware_outer_optimizer(model),
+        _requires_support_aware_outer_optimizer(panel),
     )
-    phase_started_at = time.monotonic()
+    phase_started_at = clock()
     logger.info("MAP phase start: phase=parameter_optimize")
-    with jax.profiler.TraceAnnotation("map/parameter_optimize"):
+    with jax.named_scope("map/parameter_optimize"):
         mode_result = _optimize_laplace_parameter_mode(
-            model,
+            panel,
             init_key=init_key,
             dim=dim,
             flat_example=flat_example,
@@ -857,10 +844,11 @@ def fit_map(
             n_init_samples=n_init_samples,
             maxiter=maxiter,
             tol=tol,
+            clock=clock,
         )
     logger.info(
         "MAP phase complete: phase=parameter_optimize elapsed=%.1fs",
-        _elapsed_seconds(phase_started_at),
+        (clock() - phase_started_at),
     )
 
     z_mode = mode_result.z_mode
@@ -904,9 +892,9 @@ def fit_map(
             dim,
             parameter_covariance_method,
         )
-        phase_started_at = time.monotonic()
+        phase_started_at = clock()
         logger.info("MAP phase start: phase=parameter_curvature")
-        with jax.profiler.TraceAnnotation("map/sample_parameter_posterior"):
+        with jax.named_scope("map/sample_parameter_posterior"):
             if parameter_covariance_method == "exact_hessian":
                 unc_samples, covariance, hessian_eigvals = _sample_laplace_parameter_posterior(
                     sample_key,
@@ -929,7 +917,7 @@ def fit_map(
                 )
         logger.info(
             "MAP phase complete: phase=parameter_curvature elapsed=%.1fs",
-            _elapsed_seconds(phase_started_at),
+            (clock() - phase_started_at),
         )
         parameter_posterior_strategy = "laplace_gaussian"
     else:
@@ -940,15 +928,15 @@ def fit_map(
         )
         parameter_posterior_strategy = "mode_only"
 
-    phase_started_at = time.monotonic()
+    phase_started_at = clock()
     logger.info("MAP phase start: phase=extract_samples")
-    with jax.profiler.TraceAnnotation("map/extract_samples"):
+    with jax.named_scope("map/extract_samples"):
         samples = extract_constrained_samples(
             unc_samples, bundle["parameters"], bundle["public_sites"]
         )
     logger.info(
         "MAP phase complete: phase=extract_samples elapsed=%.1fs draws=%d",
-        _elapsed_seconds(phase_started_at),
+        (clock() - phase_started_at),
         int(unc_samples.shape[0]),
     )
 
@@ -975,46 +963,43 @@ def fit_map(
                 _format_float(float(np.max(covariance_diag))),
             )
 
-    diagnostics: InferenceDiagnostics = {
-        "optimizer": mode_result.optimizer,
-        "success": success,
-        "status": status,
-        "n_iters": nit,
-        "n_function_evals": nfev,
-        "objective_at_mode": mode_objective,
-        "mode_log_posterior": mode_log_posterior,
-        "mode_log_likelihood": mode_log_likelihood,
-        "mode_log_prior": mode_log_prior,
-        "mode_grad_norm": mode_result.final_grad_norm,
-        "mode_inner_solver": _solver_label(mode_inner["solver_kind"]),
-        "mode_inner_iterations": mode_inner["n_iterations"],
-        "mode_inner_accepted_steps": mode_inner["n_accepted_steps"],
-        "mode_inner_rel_change": mode_inner["final_rel_change"],
-        "mode_inner_damping": mode_inner["final_damping"],
-        "mode_inner_step_alpha": mode_inner["final_step_alpha"],
-        "mode_inner_step_norm": mode_inner["final_step_norm"],
-        "mode_inner_log_joint_gain": _inner_log_joint_gain(mode_inner),
-        "mode_inner_laplace_logdet": mode_inner["laplace_logdet"],
-        "mode_inner_min_chol_diag": mode_inner["min_chol_diag"],
-        "init_log_posterior_best": mode_result.init_log_posterior_best,
-        "n_init_samples": n_init_samples,
-        "n_ieks_iters": n_ieks_iters,
-        "compute_parameter_hessian": compute_parameter_hessian,
-        "parameter_posterior_strategy": parameter_posterior_strategy,
-        "parameter_covariance_method": parameter_covariance_method
+    diagnostics: WarmupDiagnostics = WarmupDiagnostics(
+        optimizer=mode_result.optimizer,
+        success=success,
+        status=status,
+        n_iters=nit,
+        n_function_evals=nfev,
+        objective_at_mode=mode_objective,
+        mode_log_posterior=mode_log_posterior,
+        mode_log_likelihood=mode_log_likelihood,
+        mode_log_prior=mode_log_prior,
+        mode_grad_norm=mode_result.final_grad_norm,
+        mode_inner_solver=_solver_label(mode_inner["solver_kind"]),
+        mode_inner_iterations=mode_inner["n_iterations"],
+        mode_inner_accepted_steps=mode_inner["n_accepted_steps"],
+        mode_inner_rel_change=mode_inner["final_rel_change"],
+        mode_inner_damping=mode_inner["final_damping"],
+        mode_inner_step_alpha=mode_inner["final_step_alpha"],
+        mode_inner_step_norm=mode_inner["final_step_norm"],
+        mode_inner_log_joint_gain=_inner_log_joint_gain(mode_inner),
+        mode_inner_laplace_logdet=mode_inner["laplace_logdet"],
+        mode_inner_min_chol_diag=mode_inner["min_chol_diag"],
+        init_log_posterior_best=mode_result.init_log_posterior_best,
+        n_init_samples=n_init_samples,
+        n_ieks_iters=n_ieks_iters,
+        compute_parameter_hessian=compute_parameter_hessian,
+        parameter_posterior_strategy=parameter_posterior_strategy,
+        parameter_covariance_method=parameter_covariance_method
         if compute_parameter_hessian
         else "mode_only",
-        "hessian_jitter": hessian_jitter,
-        "hessian_condition_number": hessian_condition_number,
-        "parameter_hessian_min_eig": parameter_hessian_min_eig,
-        "parameter_hessian_max_eig": parameter_hessian_max_eig,
-        "covariance_diag": np.asarray(jnp.diag(covariance)).tolist(),
-        # Full parameter covariance in the flat unconstrained layout used by
-        # the auxiliary-Kalman bundle. Downstream MCMC methods can use this as
-        # the residual-NUTS mass matrix for `hybrid_gibbs_nuts`.
-        "parameter_covariance": np.asarray(covariance),
-        "likelihood_backend": backend,
-    }
+        hessian_jitter=hessian_jitter,
+        hessian_condition_number=hessian_condition_number,
+        parameter_hessian_min_eig=parameter_hessian_min_eig,
+        parameter_hessian_max_eig=parameter_hessian_max_eig,
+        covariance_diag=tuple(np.asarray(jnp.diag(covariance)).tolist()),
+        parameter_covariance=np.asarray(covariance),
+        likelihood_backend=backend,
+    )
 
     logger.info(
         "MAP complete: success=%s status=%s nit=%s nfev=%s loglik=%.3f logpost=%.3f",
@@ -1036,7 +1021,6 @@ __all__ = [
     "LaplaceModeOptimizationResult",
     "_build_map_laplace_bundle",
     "_draw_laplace_init_candidates",
-    "_elapsed_seconds",
     "_format_float",
     "_hostify_inner_eval_diagnostics",
     "_hostify_outer_eval_diagnostics",
@@ -1052,3 +1036,87 @@ __all__ = [
     "_solver_label",
     "fit_map",
 ]
+
+
+def _build_eval_fns(
+    panel: BoundPanel,
+    parameters: ParameterTransform,
+    likelihood_backend: LaplaceLikelihood,
+) -> tuple[
+    Callable[..., jax.Array],
+    Callable[[jax.Array], jax.Array],
+    Callable[..., tuple[jax.Array, LaplaceEvaluationResult]],
+]:
+    """Build initialization evaluators with explicit observations, times and solver state."""
+    model = panel.model
+    runtime_registry = build_site_registry(model)
+
+    def _inputs(
+        z: jax.Array, times: jax.Array
+    ) -> tuple[
+        StochasticContinuousTimeStateEvolution,
+        MeasurementParams,
+        MultivariateNormal,
+        LikelihoodExtraParams | None,
+        jax.Array,
+    ]:
+        dynamics, measurement, initial, extra = assemble_likelihood_inputs(
+            parameters.constrain(z),
+            model,
+            registry=runtime_registry,
+            intervention=initialization_input_intervention(panel, times),
+            input_values=panel.input_values,
+        )
+        intervals = (
+            jnp.diff(times, prepend=times[0]).at[0].set(jnp.asarray(MIN_DT, dtype=times.dtype))
+        )
+        return dynamics, measurement, initial, extra, intervals
+
+    def _total(lnc: jax.Array) -> jax.Array:
+        total = lnc if lnc.ndim == 0 else lnc[-1]
+        return jnp.where(jnp.isfinite(total), total, -jnp.inf)
+
+    def _log_likelihood(
+        z: jax.Array,
+        observations: jax.Array,
+        times: jax.Array,
+        *,
+        solver_state: LaplaceSolverState = EMPTY_LAPLACE_STATE,
+    ) -> jax.Array:
+        dynamics, measurement, initial, extra, intervals = _inputs(z, times)
+        return _total(
+            likelihood_backend.compute_log_likelihood(
+                dynamics,
+                measurement,
+                initial,
+                observations,
+                intervals,
+                extra_params=extra,
+                solver_state=solver_state,
+            )
+        )
+
+    def _log_likelihood_with_aux(
+        z: jax.Array,
+        observations: jax.Array,
+        times: jax.Array,
+        *,
+        solver_state: LaplaceSolverState = EMPTY_LAPLACE_STATE,
+    ) -> tuple[jax.Array, LaplaceEvaluationResult]:
+        dynamics, measurement, initial, extra, intervals = _inputs(z, times)
+        evaluated = likelihood_backend.compute_log_likelihood_with_aux(
+            dynamics,
+            measurement,
+            initial,
+            observations,
+            intervals,
+            extra_params=extra,
+            solver_state=solver_state,
+        )
+        return _total(evaluated.log_likelihood), evaluated
+
+    # Only the value path is rematerialized; solver state remains explicit in aux.
+    value_fn = (
+        jax.checkpoint(_log_likelihood) if likelihood_backend.checkpoint_loglik else _log_likelihood
+    )
+    return value_fn, parameters.log_prior, _log_likelihood_with_aux

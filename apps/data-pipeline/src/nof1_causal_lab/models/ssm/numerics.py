@@ -1,506 +1,106 @@
-"""Numerical views derived from the one scientific ModelSpec.
-
-No numerical view is a second model definition or a persisted specification.
-These functions read canonical components and produce only the arrays,
-blocks, and axis selections needed by an operation.
-"""
+"""Total numerical accessors over resolved compiler-owned facts."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import jax.numpy as jnp
 import numpy as np
-
-from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
-from nof1_causal_lab.compilation_errors import IncompleteModelError
-from nof1_causal_lab.models.model_parameters import coefficient_value, execution_coefficient_uses
-from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
-from nof1_causal_lab.models.ssm.structure import (
-    DiffusionBlockSpec,
-    ManifestCholBlockSpec,
-    SparseMatrixBlockSpec,
-    SparseVectorBlockSpec,
-    T0CholBlockSpec,
-)
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.identity import ConstructId, IndicatorId
-    from nof1_causal_lab.artifacts.indicator import IndicatorSpec
     from nof1_causal_lab.artifacts.likelihood import LinkFunction
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.distributions import DistributionFamily
-    from nof1_causal_lab.models.ssm.dynamics.expression import ExpressionComponentSpec
-
-
-def state_ids(model: ModelSpec) -> list[ConstructId]:
-    return list(model.state_order)
-
-
-def state_names(model: ModelSpec) -> list[str]:
-    return [model.get_construct(identity).name for identity in state_ids(model)]
-
-
-def n_states(model: ModelSpec) -> int:
-    return len(state_ids(model))
-
-
-def observed_indicators(model: ModelSpec) -> tuple[IndicatorSpec, ...]:
-    return tuple(model.indicator(identity) for identity in model.manifest_indicator_order)
-
-
-def observation_ids(model: ModelSpec) -> list[IndicatorId]:
-    return [indicator.id for indicator in observed_indicators(model)]
-
-
-def observation_names(model: ModelSpec) -> list[str]:
-    return [indicator.name for indicator in observed_indicators(model)]
-
-
-def n_observations(model: ModelSpec) -> int:
-    return len(observed_indicators(model))
-
-
-def _likelihoods(model: ModelSpec):
-    for indicator in observed_indicators(model):
-        if indicator.likelihood is None:
-            raise IncompleteModelError(
-                f"Retained indicator {indicator.name!r} requires a likelihood"
-            )
-        yield indicator.likelihood
-
-
-def observation_families(model: ModelSpec) -> list[DistributionFamily]:
-    return [likelihood.law.family for likelihood in _likelihoods(model)]
-
-
-def observation_links(model: ModelSpec) -> list[LinkFunction]:
-    return [likelihood.terms.link for likelihood in _likelihoods(model)]
-
-
-def observation_level_counts(model: ModelSpec) -> list[int]:
-    from nof1_causal_lab.models.ssm.compile.support import (
-        build_manifest_level_counts_from_model,
-    )
-
-    counts = build_manifest_level_counts_from_model(
-        observation_names(model), observation_families(model), model=model
-    )
-    return [0] * n_observations(model) if counts is None else counts
-
-
-def observation_standardized(model: ModelSpec) -> list[bool]:
-    return [likelihood.standardized for likelihood in _likelihoods(model)]
-
-
-def _structural_support(model: ModelSpec):
-    from nof1_causal_lab.models.ssm.compile.support import (
-        build_structural_support_from_model,
-    )
-
-    return build_structural_support_from_model(
-        state_names(model),
-        observation_names(model),
-        n_states(model),
-        n_observations(model),
-        manifest_dists=observation_families(model),
-        model=model,
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
+    from nof1_causal_lab.models.ssm.structure import (
+        DiffusionBlockSpec,
+        ManifestCholBlockSpec,
+        SparseMatrixBlockSpec,
+        SparseVectorBlockSpec,
+        T0CholBlockSpec,
     )
 
 
-def categorical_anchors(model: ModelSpec) -> list[bool]:
-    return _structural_support(model)[3].tolist()
+def state_ids(model: CompiledModel) -> tuple[ConstructId, ...]:
+    return tuple(state.id for state in model.states)
 
 
-def quantity_position(model: ModelSpec, parameter) -> tuple[int, ...]:
-    """Locate a scientific scalar by its owners in the derived execution axes."""
-    state = {key: i for i, key in enumerate(state_ids(model))}
-    observation = {key: i for i, key in enumerate(observation_ids(model))}
-    owners = {owner.id for owner in parameter.owners}
-
-    def one(axis):
-        matches = [index for key, index in axis.items() if key in owners]
-        if len(matches) != 1:
-            raise ValueError(f"Quantity {parameter.slot!r} needs one owner on this axis")
-        return matches[0]
-
-    kind = parameter.quantity
-    if kind == SiteKind.LOADING:
-        return (one(observation), one(state))
-    if kind in {SiteKind.DIFFUSION_LOWER, SiteKind.T0_VAR_LOWER}:
-        pair = sorted(index for key, index in state.items() if key in owners)
-        if len(pair) != 2:
-            raise ValueError(
-                f"Covariance quantity {parameter.slot!r} requires two distinct state owners"
-            )
-        return (pair[1], pair[0])
-    if kind in {SiteKind.MANIFEST_MEANS, SiteKind.MANIFEST_VAR_DIAG}:
-        return (one(observation),)
-    if kind == SiteKind.STATIC_STATE_SD:
-        from nof1_causal_lab.models.model_parameters import baseline_factor_groups
-
-        matches = [
-            index
-            for index, group in enumerate(baseline_factor_groups(model))
-            if owners & {construct.id for construct in group}
-        ]
-        if len(matches) != 1:
-            raise ValueError("A baseline scale must belong to one identifiable factor")
-        return (matches[0],)
-    return (one(state),)
+def state_names(model: CompiledModel) -> tuple[str, ...]:
+    return tuple(state.name for state in model.states)
 
 
-def _quantity_values(model: ModelSpec, kind: SiteKind, template, support, *, diagonal=False):
-    """Apply explicit scalar definitions to the scientific default policy."""
-    values = np.array(template, dtype=float, copy=True)
-    free = np.array(support, dtype=bool, copy=True)
-    occupied = {}
-    for parameter in execution_coefficient_uses(model):
-        if parameter.quantity != kind:
-            continue
-        if kind == SiteKind.T0_MEANS and not any(
-            owner.id in state_ids(model) for owner in parameter.owners
-        ):
-            continue
-        position = quantity_position(model, parameter)
-        value = coefficient_value(parameter.value)
-        if (
-            kind in {SiteKind.DIFFUSION_DIAG, SiteKind.DIFFUSION_LOWER}
-            and any(time_invariant_mask(model)[index] for index in position)
-            and value != 0.0
-        ):
-            raise ValueError("Time-invariant constructs cannot have innovations")
-        if kind in {SiteKind.DIFFUSION_LOWER, SiteKind.T0_VAR_LOWER}:
-            expected_kind = (
-                "innovation_correlation"
-                if kind == SiteKind.DIFFUSION_LOWER
-                else "initial_state_correlation"
-            )
-            pair = {state_ids(model)[index] for index in position}
-            if not any(
-                kind == expected_kind and {first, second} == pair
-                for first, second, kind in model.induced_dependencies
-            ):
-                raise ValueError(
-                    "Correlated quantities require an explicit latent confounder in the scientific DAG"
-                )
-        if (
-            value is not None
-            and kind
-            in {
-                SiteKind.DIFFUSION_DIAG,
-                SiteKind.MANIFEST_VAR_DIAG,
-                SiteKind.T0_VAR_DIAG,
-                SiteKind.STATIC_STATE_SD,
-            }
-            and value < 0
-        ):
-            raise ValueError("A fixed standard deviation cannot be negative")
-        if kind == SiteKind.STATIC_STATE_SD and occupied.get(position) == parameter.value:
-            continue
-        if position in occupied:
-            raise ValueError(f"Multiple scientific definitions for {kind.value} at {position}")
-        occupied[position] = parameter.value
-        index = (position[0], position[0]) if diagonal else position
-        support_index = index if free.ndim == len(index) else position
-        free[support_index] = value is None
-        if value is not None:
-            values[index] = value
-    return values, free
+def observation_ids(model: CompiledModel) -> tuple[IndicatorId, ...]:
+    return tuple(observation.id for observation in model.observations)
 
 
-def loading_block(model: ModelSpec) -> SparseMatrixBlockSpec:
-    _, template, support, _ = _structural_support(model)
-    template, support = _quantity_values(model, SiteKind.LOADING, template, np.zeros_like(support))
-    return SparseMatrixBlockSpec(
-        n_rows=n_observations(model),
-        n_cols=n_states(model),
-        free_support=support,
-        template=jnp.asarray(template),
-        free_site_name="lambda_free",
-        det_site_name="lambda",
-        support=SupportClass.REAL,
-        site_kind=SiteKind.LOADING,
-        assembly_group="lambda",
-        fixed_spec_field="lambda_mat",
-        priors_field="lambda_free",
-    )
+def observation_names(model: CompiledModel) -> tuple[str, ...]:
+    return tuple(observation.name for observation in model.observations)
 
 
-def observation_mean_block(model: ModelSpec) -> SparseVectorBlockSpec:
-    template, support = _quantity_values(
-        model,
-        SiteKind.MANIFEST_MEANS,
-        np.zeros(n_observations(model)),
-        np.zeros(n_observations(model), dtype=bool),
-    )
-    return SparseVectorBlockSpec(
-        n=n_observations(model),
-        free_support=support,
-        template=jnp.asarray(template),
-        free_site_name="manifest_means_free",
-        det_site_name="manifest_means",
-        support=SupportClass.REAL,
-        site_kind=SiteKind.MANIFEST_MEANS,
-        assembly_group="manifest",
-        fixed_spec_field="manifest_means",
-        priors_field="manifest_means",
-    )
+def observation_families(model: CompiledModel) -> tuple[DistributionFamily, ...]:
+    return tuple(observation.likelihood.family for observation in model.observations)
 
 
-def observation_noise_block(model: ModelSpec) -> ManifestCholBlockSpec:
-    from nof1_causal_lab.models.ssm.compile.support import (
-        build_manifest_variance_from_model,
-    )
-
-    template, support = build_manifest_variance_from_model(
-        state_names(model),
-        observation_names(model),
-        observation_families(model),
-        model=model,
-    )
-    template, support = _quantity_values(
-        model, SiteKind.MANIFEST_VAR_DIAG, template, np.zeros_like(support), diagonal=True
-    )
-    return ManifestCholBlockSpec(
-        n_manifest=n_observations(model), diag_support=support, template=jnp.asarray(template)
-    )
+def observation_links(model: CompiledModel) -> tuple[LinkFunction, ...]:
+    return tuple(observation.likelihood.link for observation in model.observations)
 
 
-def time_invariant_mask(model: ModelSpec) -> np.ndarray:
-    return np.asarray(
-        [
-            model.get_construct(identity).temporal_status == "time_invariant"
-            for identity in state_ids(model)
-        ],
-        dtype=bool,
-    )
+def observation_level_counts(model: CompiledModel) -> tuple[int, ...]:
+    return tuple(len(observation.levels) for observation in model.observations)
 
 
-def input_mask(model: ModelSpec) -> np.ndarray:
-    """Coordinates read from the panel instead of generated under a state law."""
-    return np.asarray(
-        [model.get_construct(identity).role == "exogenous" for identity in state_ids(model)],
-        dtype=bool,
-    )
+def observation_standardized(model: CompiledModel) -> tuple[bool, ...]:
+    return tuple(observation.standardized for observation in model.observations)
 
 
-def diffusion_families(model: ModelSpec) -> list[DistributionFamily]:
-    from nof1_causal_lab.distributions import DistributionFamily
-
-    result = []
-    for identity in state_ids(model):
-        construct = model.get_construct(identity)
-        if construct.role == "exogenous" or construct.temporal_status == "time_invariant":
-            result.append(DistributionFamily.GAUSSIAN)
-        elif construct.coefficient("diffusion_scale") is None:
-            raise IncompleteModelError(f"Construct {construct.name!r} requires a diffusion scale")
-        else:
-            result.append(construct.innovation_family)
-    return result
+def categorical_anchors(model: CompiledModel) -> tuple[bool, ...]:
+    return tuple(observation.categorical_anchor for observation in model.observations)
 
 
-def diffusion_block(model: ModelSpec) -> DiffusionBlockSpec:
-    count = n_states(model)
-    support = np.eye(count, dtype=bool)
-    axis = {identity: index for index, identity in enumerate(state_ids(model))}
-    for first_id, second_id, kind in model.induced_dependencies:
-        if kind == "innovation_correlation":
-            first, second = axis[first_id], axis[second_id]
-            support[max(first, second), min(first, second)] = True
-    static = time_invariant_mask(model) | input_mask(model)
-    support[static, :] = False
-    support[:, static] = False
-    template, support = _quantity_values(
-        model, SiteKind.DIFFUSION_DIAG, np.eye(count), np.zeros_like(support), diagonal=True
-    )
-    template, support = _quantity_values(model, SiteKind.DIFFUSION_LOWER, template, support)
-    template[static, :] = 0.0
-    template[:, static] = 0.0
-    support[static, :] = False
-    support[:, static] = False
-    return DiffusionBlockSpec(
-        n_latent=count,
-        diffusion_chol_support=support,
-        diffusion_chol_template=jnp.asarray(template),
-        time_invariant_mask=static if static.any() else None,
-    )
+def time_invariant_mask(model: CompiledModel) -> np.ndarray:
+    return np.asarray([state.time_invariant for state in model.states], dtype=bool)
 
 
-def initial_mean_block(model: ModelSpec) -> SparseVectorBlockSpec:
-    support = np.zeros(n_states(model), dtype=bool)
-    template, support = _quantity_values(
-        model, SiteKind.T0_MEANS, np.zeros(n_states(model)), support
-    )
-    return SparseVectorBlockSpec(
-        n=n_states(model),
-        free_support=support,
-        template=jnp.asarray(template),
-        free_site_name="t0_means_free",
-        det_site_name="t0_means",
-        support=SupportClass.REAL,
-        site_kind=SiteKind.T0_MEANS,
-        assembly_group="t0",
-        fixed_spec_field="t0_means",
-        priors_field="t0_means",
-    )
+def input_mask(model: CompiledModel) -> np.ndarray:
+    return np.asarray([state.is_input for state in model.states], dtype=bool)
 
 
-def initial_covariance_block(model: ModelSpec) -> T0CholBlockSpec:
-    count = n_states(model)
-    support = np.zeros(count, dtype=bool)
-    std, support = _quantity_values(model, SiteKind.T0_VAR_DIAG, np.ones(count), support)
-    std[input_mask(model)] = 0.0
-    correlations, correlation_support = _quantity_values(
-        model, SiteKind.T0_VAR_LOWER, np.eye(count), np.zeros((count, count), dtype=bool)
-    )
-    lower = np.tril(np.asarray(correlations), -1)
-    corr = np.eye(count) + lower + lower.T
-    template = jnp.asarray(np.asarray(std)[:, None] * np.linalg.cholesky(corr))
-    return T0CholBlockSpec(
-        n_latent=count,
-        diag_support=support,
-        correlation_support=correlation_support,
-        template=jnp.asarray(template),
-    )
+def diffusion_families(model: CompiledModel) -> tuple[DistributionFamily, ...]:
+    return tuple(state.innovation_family for state in model.states)
 
 
-def static_factor_ids(model: ModelSpec) -> list[ConstructId]:
-    from nof1_causal_lab.models.model_parameters import baseline_factor_groups
-
-    return [group[0].id for group in baseline_factor_groups(model)]
+def static_factor_ids(model: CompiledModel) -> tuple[ConstructId, ...]:
+    return tuple(state.id for state in model.static_factors)
 
 
-def static_factor_names(model: ModelSpec) -> list[str]:
-
-    names = []
-    for identity in static_factor_ids(model):
-        construct = model.get_construct(identity)
-        coefficient = construct.coefficient("initial_scale")
-        assert coefficient is not None
-        names.append(
-            model.parameter(coefficient).name if isinstance(coefficient, str) else construct.name
-        )
-    return names
+def static_factor_names(model: CompiledModel) -> tuple[str, ...]:
+    return tuple(state.name for state in model.static_factors)
 
 
-def _static_structure(model: ModelSpec):
-    from nof1_causal_lab.models.ssm.compile.support import _build_static_factor_structure
-
-    return _build_static_factor_structure(model, state_names(model))
+def n_states(model: CompiledModel) -> int:
+    return len(model.states)
 
 
-def static_factor_loadings(model: ModelSpec) -> jnp.ndarray:
-    return jnp.asarray(_static_structure(model)[2])
+def n_observations(model: CompiledModel) -> int:
+    return len(model.observations)
 
 
-def static_scale_block(model: ModelSpec) -> SparseVectorBlockSpec:
-    support, values, _, _ = _static_structure(model)
-    values, support = _quantity_values(model, SiteKind.STATIC_STATE_SD, values, support)
-    return SparseVectorBlockSpec(
-        n=len(values),
-        free_support=support,
-        template=values,
-        free_site_name="static_state_sd_free",
-        det_site_name="static_state_sds",
-        support=SupportClass.POSITIVE,
-        site_kind=SiteKind.STATIC_STATE_SD,
-        assembly_group="t0",
-        fixed_spec_field="static_state_sds",
-        priors_field="static_state_sd",
-    )
-
-
-def dynamics_expressions(model: ModelSpec) -> tuple[ExpressionComponentSpec, ...]:
-    from nof1_causal_lab.models.ssm.compile.mechanisms import lower_mechanisms
-
-    return lower_mechanisms(model)
-
-
-def dynamics_components(model: ModelSpec) -> DynamicsSpec:
-    return DynamicsSpec(n_latent=n_states(model), components=dynamics_expressions(model))
-
-
-def parameter_blocks(model: ModelSpec):
+def parameter_blocks(
+    model: CompiledModel,
+) -> tuple[
+    DiffusionBlockSpec,
+    SparseMatrixBlockSpec,
+    SparseVectorBlockSpec,
+    ManifestCholBlockSpec,
+    SparseVectorBlockSpec,
+    T0CholBlockSpec,
+    SparseVectorBlockSpec,
+]:
     return (
-        diffusion_block(model),
-        loading_block(model),
-        observation_mean_block(model),
-        observation_noise_block(model),
-        initial_mean_block(model),
-        initial_covariance_block(model),
-        static_scale_block(model),
+        model.diffusion_block,
+        model.loading_block,
+        model.observation_mean_block,
+        model.observation_noise_block,
+        model.initial_mean_block,
+        model.initial_covariance_block,
+        model.static_scale_block,
     )
-
-
-def iter_sample_sites(model: ModelSpec):
-    for index, component in enumerate(dynamics_expressions(model)):
-        yield from component.iter_sites(prefix=f"vf_{index}", n_latent=n_states(model))
-    for block in parameter_blocks(model):
-        yield from block.iter_sites()
-
-
-def validate_execution(model: ModelSpec) -> None:
-    """Check numerical execution requirements."""
-    model.require_execution_structure()
-    from nof1_causal_lab.distributions import DistributionFamily
-    from nof1_causal_lab.models.ssm.compile.support import (
-        NumericalSupportError,
-        _build_manifest_intercept_support,
-    )
-    from nof1_causal_lab.models.ssm.execution.observation_families import (
-        supported_distribution_families,
-    )
-
-    def require_hyperparameter(coefficient, label):
-        if not isinstance(coefficient, str):
-            raise IncompleteModelError(f"{label} requires a prior parameter")
-
-    _, intercept_errors = _build_manifest_intercept_support(
-        model, observation_names(model), observation_standardized(model)
-    )
-    if intercept_errors:
-        raise NumericalSupportError(intercept_errors)
-    for identity in state_ids(model):
-        construct = model.get_construct(identity)
-        if construct.role == "exogenous":
-            continue
-        if any(construct.coefficient(role) is None for role in ("initial_mean", "initial_scale")):
-            raise IncompleteModelError(
-                f"Construct {construct.name!r} requires initial-state coefficients"
-            )
-        if (
-            construct.temporal_status == "time_varying"
-            and construct.coefficient("diffusion_scale") is None
-        ):
-            raise IncompleteModelError(
-                f"Construct {construct.name!r} requires an innovation distribution"
-            )
-        if construct.innovation_family == DistributionFamily.STUDENT_T:
-            require_hyperparameter(
-                construct.coefficient("process_degrees_of_freedom"),
-                f"{construct.name}.process_degrees_of_freedom",
-            )
-    supported = supported_distribution_families()
-    for indicator in observed_indicators(model):
-        likelihood = indicator.likelihood
-        if likelihood is None:
-            raise IncompleteModelError(
-                f"Retained indicator {indicator.name!r} requires a likelihood"
-            )
-        if likelihood.law.family not in supported:
-            raise NumericalSupportError(
-                [f"Indicator {indicator.name!r} has no native emission function"]
-            )
-        terms = likelihood.terms
-        missing = [operand.role for operand in terms.operands if operand.value is None]
-        if missing:
-            raise IncompleteModelError(
-                f"Indicator {indicator.name!r} requires explicit measurement coefficients: {missing}"
-            )
-        for operand in terms.auxiliary:
-            if operand.role != "observation_scale":
-                require_hyperparameter(operand.value, f"{indicator.name}.likelihood.{operand.role}")
-    observation_level_counts(model)
-    parameter_blocks(model)
-    dynamics_components(model)

@@ -4,7 +4,9 @@ from __future__ import annotations
 
 from enum import StrEnum
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import Field, model_validator
+
+from nof1_causal_lab.artifacts.base import Value
 
 from .identity import ConstructRef, EdgeRef, IndicatorRef
 
@@ -24,12 +26,10 @@ class StructuralDisposition(StrEnum):
     UNSUPPORTED = "unsupported"
 
 
-class StructuralItemDisposition(BaseModel):
+class StructuralItemDisposition(Value):
     """An item disposition explains the compilation decision for one identified authored
     entity.
     """
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     target: ConstructRef | EdgeRef | IndicatorRef = Field(discriminator="kind")
     disposition: StructuralDisposition

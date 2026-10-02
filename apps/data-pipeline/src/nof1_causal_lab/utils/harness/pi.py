@@ -12,8 +12,11 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from time import perf_counter
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
+from pydantic import ValidationError
+
+from nof1_causal_lab.actions.errors import execution_failure_handler
 from nof1_causal_lab.utils.agent_session import AgentResult, TurnResult
 from nof1_causal_lab.utils.harness.pi_tool_bridge import serve_pi_tools_http
 from nof1_causal_lab.utils.harness.stream_json import (
@@ -28,7 +31,7 @@ from nof1_causal_lab.utils.harness.streaming import drain_newline_delimited_stre
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
 
-    from nof1_causal_lab.json_types import JsonObject
+    from nof1_causal_lab.json_types import JsonObject, JsonValue
     from nof1_causal_lab.utils.openrouter_client import Tool
 
 logger = logging.getLogger(__name__)
@@ -189,6 +192,7 @@ class PiHarnessSession:
     def raw_events(self) -> list[JsonObject]:
         return list(self._state.raw_events)
 
+    @execution_failure_handler
     async def turn(self, user_message: str) -> TurnResult:
         pre_event_count = len(self._state.raw_events)
         started = perf_counter()
@@ -252,12 +256,11 @@ class PiHarnessSession:
         if not line:
             return
         try:
-            event = json.loads(line)
-        except json.JSONDecodeError as exc:
+            event = parse_stream_event(line)
+        except ValidationError as exc:
             raise RuntimeError(f"Pi emitted non-JSON on stdout: {line[:200]!r}") from exc
         if not isinstance(event, dict):
             raise RuntimeError(f"Pi emitted non-object JSON on stdout: {line[:200]!r}")
-        event = parse_stream_event(event)
         log_line = format_pi_event_for_log(event)
         if log_line is not None:
             logger.info("[%s] %s", self._log_label, log_line)
@@ -290,13 +293,13 @@ class PiHarnessSession:
         )
 
     @staticmethod
-    def _result_text(result: Any) -> str:
+    def _result_text(result: JsonValue) -> str:
         if isinstance(result, str):
             return result
-        if isinstance(result, dict) and isinstance(result.get("content"), list):
+        if isinstance(result, dict) and isinstance(content := result.get("content"), list):
             return "".join(
                 str(block.get("text") or "")
-                for block in result["content"]
+                for block in content
                 if isinstance(block, dict) and block.get("type") == "text"
             )
         return json.dumps(result) if result is not None else ""

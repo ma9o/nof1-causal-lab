@@ -78,9 +78,7 @@ def test_model_input_identity_preserves_findings_and_original_pins():
     panel = ArtifactRecord(artifact_id="panel", revision=git_oid(1))
     state = StudyState().with_artifacts([model, panel])
     assert not is_stale(state, "panel")
-    changed = type(model).model_validate(
-        {**model.model_dump(), "revision": git_oid(3), "model_inputs": {}}
-    )
+    changed = model.revised(revision=git_oid(3), model_inputs={})
     assert not is_stale(state.with_artifacts([changed]), "panel")
 
 
@@ -100,11 +98,7 @@ def test_statistical_enrichment_preserves_structural_and_measurement_inputs():
 
     changed = input_fingerprints(
         measured.revised(
-            edges=(
-                type(measured.edges[0]).model_validate(
-                    {**measured.edges[0].model_dump(), "description": "Revised causal assumption"}
-                ),
-            )
+            edges=(measured.edges[0].revised(description="Revised causal assumption"),)
         )
     )
     assert changed["observations"] == before["observations"]

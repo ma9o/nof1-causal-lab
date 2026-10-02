@@ -2,11 +2,14 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from collections.abc import Mapping
+from typing import Literal, Self
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 
-from .checks import PredictiveCheckFinding, SpecificationReport
+from nof1_causal_lab.artifacts.base import Value
+
+from .checks import Evaluated, PredictiveAssessment, SpecificationReport
 from .identity import GitOid
 from .posterior_diagnostics import PosteriorPredictiveChecks
 from .predictive_provenance import PredictiveLawProvenance
@@ -19,13 +22,12 @@ type PredictiveCheckReason = Literal[
     "NO_COMPATIBLE_PANEL",
     "INSUFFICIENT_OBSERVATION_TIMES",
     "SIMULATION_UNSUPPORTED",
+    "ARCHIVED_MEASUREMENT_NOT_RETAINED",
 ]
 
 
-class ModelPredictiveReport(BaseModel):
+class ModelPredictiveReport(Value):
     """One automatic, reproducible battery over the full model's current laws."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
 
     input_key: str
     model_revision: GitOid
@@ -37,16 +39,43 @@ class ModelPredictiveReport(BaseModel):
     draws: int = Field(ge=1)
     seed: int = Field(ge=0)
     law: PredictiveLawProvenance
-    findings: tuple[PredictiveCheckFinding, ...] = ()
+    findings: tuple[PredictiveAssessment, ...] = ()
     predictive_checks: PosteriorPredictiveChecks | None = None
 
+    def not_evaluated(self, reason: PredictiveCheckReason, detail: str | None = None) -> Self:
+        return self.model_copy(
+            update={"status": "not_evaluated", "reason": reason, "detail": detail}
+        )
 
-class ModelCheckReport(BaseModel):
+    def evaluated(
+        self,
+        design: SimulationSpec,
+        findings: tuple[PredictiveAssessment, ...],
+        predictive_checks: PosteriorPredictiveChecks | None = None,
+    ) -> Self:
+        failed = any(isinstance(f, Evaluated) and f.outcome == "failed" for f in findings) or (
+            predictive_checks is not None
+            and any(
+                isinstance(f, Evaluated) and f.outcome != "passed"
+                for f in predictive_checks.per_variable_warnings
+            )
+        )
+        return self.model_copy(
+            update={
+                "status": "failed" if failed else "passed",
+                "reason": None,
+                "detail": None,
+                "design": design,
+                "findings": findings,
+                "predictive_checks": predictive_checks,
+            }
+        )
+
+
+class ModelCheckReport(Value):
     """Checks selected by their consumed inputs, retained with the study snapshot."""
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    input_keys: dict[CheckGroup, str]
+    input_keys: Mapping[CheckGroup, str]
     specification: SpecificationReport
     predictive: ModelPredictiveReport | None = None
     reused: tuple[CheckGroup | Literal["predictive"], ...] = Field(default=())

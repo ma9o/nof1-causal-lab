@@ -21,9 +21,11 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Final
 
-from nof1_causal_lab.distributions import (
+from nof1_causal_lab.artifacts.likelihood import (
     OBSERVATION_FAMILY_SPECS,
     OBSERVATION_LINK_VALUES_BY_DISTRIBUTION,
+)
+from nof1_causal_lab.distributions import (
     PRIOR_FAMILY_SPECS,
     VALID_LIKELIHOODS_FOR_DTYPE,
     DistributionFamily,
@@ -238,7 +240,11 @@ def _render_distribution_families_prose() -> str:
 
 def _render_link_functions_prose() -> str:
     links = list(
-        dict.fromkeys(f"`{link}`" for spec in OBSERVATION_FAMILY_SPECS for link in spec.links)
+        dict.fromkeys(
+            f"`{link}`"
+            for links in OBSERVATION_LINK_VALUES_BY_DISTRIBUTION.values()
+            for link in links
+        )
     )
     return (
         "`LinkFunction` names the internal responses derived from conditional expressions: "

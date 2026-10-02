@@ -19,9 +19,11 @@ from nof1_causal_lab.actions.contracts import (
     PrepareDataRequest,
     SimulateRequest,
 )
+from nof1_causal_lab.actions.results import CompletedPoll
 from nof1_causal_lab.actions.temporal.workflow import StudyWorkflow
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.study.history import StudyRepository
+from nof1_causal_lab.study.records import EditAttempt, FitAttempt, Rejected
 from nof1_causal_lab.study.store import ArtifactStore, read_model
 from tests.git_fixtures import git_oid
 from tests.helpers import graph_constructs
@@ -222,13 +224,13 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                     assert set(receipt.model_dump()) == {"attempt_id"}
                     await handle.get_update_handle(str(receipt.attempt_id)).result()
                     polled = await study_api.read_action_poll(workspace_id, receipt.attempt_id)
-                    assert polled.done
+                    assert isinstance(polled, CompletedPoll)
                     record = StudyRepository(workspace_id).dispatched_attempt(receipt.attempt_id)
                     assert record is not None
-                    assert (polled.body is not None) == (record.status == "applied")
+                    assert polled.attempt == record.record.attempt
                     assert polled.messages[0].label == f"{request.action.upper()}_STARTED"
                     assert polled.messages[-1].level == (
-                        "info" if record.status == "applied" else "error"
+                        "info" if record.record.attempt.outcome.status == "applied" else "error"
                     )
                     return record
 
@@ -244,8 +246,9 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                         model=ModelSpec(question=_QUESTION),
                     )
                 )
-                assert rejected.status == "rejected"
-                assert rejected.reason
+                assert rejected.record.attempt.outcome.status == "rejected"
+                assert isinstance(rejected.record.attempt.outcome, Rejected)
+                assert rejected.record.attempt.outcome.detail
 
                 initial = await execute(
                     EditModelRequest(
@@ -253,9 +256,9 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                         model=ModelSpec(question=_QUESTION),
                     )
                 )
-                assert initial.status == "applied"
+                assert initial.record.attempt.outcome.status == "applied"
                 prepared = await execute(PrepareDataRequest(input=_PREPARATION))
-                assert prepared.status == "applied", prepared
+                assert prepared.record.attempt.outcome.status == "applied", prepared
                 assert state(prepared).has("panel")
                 assert state(prepared).has("data_profile")
                 edited = await execute(
@@ -264,7 +267,7 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                         model=ModelSpec.model_validate(_measured_model()),
                     )
                 )
-                assert edited.status == "applied", edited
+                assert edited.record.attempt.outcome.status == "applied", edited
                 model_revision = state(edited).current["model"].revision
                 before = state().current
 
@@ -276,8 +279,8 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                     SimulateRequest(model_revision=model_revision, start=0, end=1),
                 ):
                     raised = await execute(request)
-                    assert raised.status == "raised", raised
-                    assert raised.error_type == "IncompleteModelError", raised.error_message
+                    assert isinstance(raised.record.attempt.outcome, Rejected), raised
+                    assert raised.record.attempt.outcome.reason == "scientific_inputs"
                     assert state().current == before
 
                 status = await study_api.get_study(workspace_id)
@@ -301,8 +304,8 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                 rewritten = await execute(
                     EditModelRequest(expected_revision=model_revision, model=revised)
                 )
-                assert rewritten.status == "applied", rewritten
-                assert rewritten.seq == recovered.seq + 1
+                assert rewritten.record.attempt.outcome.status == "applied", rewritten
+                assert rewritten.record.seq == recovered.seq + 1
                 status = await study_api.get_study(workspace_id)
                 stale = {a.artifact_id for a in status.artifacts if a.stale}
                 assert "panel" not in stale
@@ -310,16 +313,16 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                 assert "raw_data" not in stale
 
                 records = StudyRepository(workspace_id).attempts()
-                assert [record.status for record in records] == [
+                assert [record.record.attempt.outcome.status for record in records] == [
                     "rejected",
                     "applied",
                     "applied",
                     "applied",
-                    "raised",
-                    "raised",
+                    "rejected",
+                    "rejected",
                     "applied",
                 ]
-                assert [record.action for record in records] == [
+                assert [record.record.attempt.action for record in records] == [
                     "edit_model",
                     "edit_model",
                     "prepare_data",
@@ -328,10 +331,14 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                     "simulate",
                     "edit_model",
                 ]
-                assert ModelSpec.model_validate(
-                    records[3].inputs["model"]
-                ) == ModelSpec.model_validate(_measured_model())
-                assert records[4].inputs["model_revision"] == model_revision
+                assert isinstance(records[3].record.attempt, EditAttempt)
+                assert records[3].record.attempt.request is not None
+                assert records[3].record.attempt.request.model == ModelSpec.model_validate(
+                    _measured_model()
+                )
+                assert isinstance(records[4].record.attempt, FitAttempt)
+                assert records[4].record.attempt.request is not None
+                assert records[4].record.attempt.request.model_revision == model_revision
                 assert all("move" not in record.model_dump() for record in records)
                 assert (
                     read_model(store, state(initial).current["model"].revision).question

@@ -4,14 +4,12 @@ import math
 from typing import assert_never
 
 import polars as pl
-from pydantic import BaseModel, Field, ValidationError
+from pydantic import Field, ValidationError
 from typing_extensions import TypedDict
 
+from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.artifacts.identity import IndicatorId
 from nof1_causal_lab.measurement_types import MeasurementDtype
-from nof1_causal_lab.utils.causal_design import (
-    get_measurement_indicator_info as _get_measurement_indicator_info,
-)
 from nof1_causal_lab.utils.observation_semantics import normalize_level_label
 from nof1_causal_lab.workers.context import MeasurementContext
 
@@ -24,7 +22,7 @@ class ExtractionRow(TypedDict):
     timestamp: str
 
 
-class WindowExtraction(BaseModel):
+class WindowExtraction(Value):
     """A single extracted observation for an indicator within a support window."""
 
     window_start: str = Field(
@@ -36,11 +34,11 @@ class WindowExtraction(BaseModel):
     )
 
 
-class WorkerOutput(BaseModel):
+class WorkerOutput(Value):
     """Complete output from a worker processing a chunk of support windows."""
 
-    extractions: list[WindowExtraction] = Field(
-        default_factory=list,
+    extractions: tuple[WindowExtraction, ...] = Field(
+        default_factory=tuple,
         description="Extracted observations for indicators (one per support window per indicator)",
     )
 
@@ -115,7 +113,7 @@ def validate_worker_output(
 
     Args:
         data: Dictionary to validate as WorkerOutput
-        measurement_structure: The MeasurementStructure dict to validate against
+        measurement_structure: The owned observation definitions to validate against
         expected_window_starts: If provided, validate that extractions only
             reference these support-window starts.
 
@@ -134,8 +132,8 @@ def validate_worker_output(
         errors.append("'extractions' must be a list")
         extractions = []
 
-    # Build set of valid indicator names and their dtypes
-    indicator_info = _get_measurement_indicator_info(measurement_structure)
+    # Keep the pinned observation definitions indexed by identity.
+    indicator_info = {indicator.id: indicator for indicator in measurement_structure.indicators}
     expected_window_start_set = set(expected_window_starts) if expected_window_starts else None
 
     # Validate each extraction
@@ -190,7 +188,7 @@ def validate_worker_output(
         seen_pairs.add(pair)
 
         # Check dtype match
-        expected_dtype = indicator_info[ind_name]["dtype"]
+        expected_dtype = indicator_info[ind_name].measurement_dtype
         if not _check_dtype_match(value, expected_dtype):
             errors.append(
                 f"extractions[{i}]: value {value!r} for '{ind_name}' doesn't match "
@@ -199,8 +197,8 @@ def validate_worker_output(
             continue
 
         if expected_dtype == "categorical" and isinstance(value, str):
-            levels = indicator_info[ind_name].get("categorical_levels") or []
-            if normalize_level_label(value) not in {
+            levels = indicator_info[ind_name].categorical_levels
+            if levels is not None and normalize_level_label(value) not in {
                 normalize_level_label(label) for label in levels
             }:
                 errors.append(
@@ -209,14 +207,14 @@ def validate_worker_output(
                 continue
 
         if expected_dtype == "ordinal" and value is not None:
-            ordinal_levels = indicator_info[ind_name].get("ordinal_levels") or []
+            ordinal_levels = indicator_info[ind_name].ordinal_levels
             ordinal_code = int(value)
             if ordinal_code < 0:
                 errors.append(
                     f"extractions[{i}]: ordinal value {value!r} for '{ind_name}' must be >= 0"
                 )
                 continue
-            if ordinal_levels and ordinal_code >= len(ordinal_levels):
+            if ordinal_levels is not None and ordinal_code >= len(ordinal_levels):
                 errors.append(
                     f"extractions[{i}]: ordinal value {value!r} for '{ind_name}' "
                     f"must be in 0..{len(ordinal_levels) - 1}"
@@ -224,8 +222,11 @@ def validate_worker_output(
                 continue
             value = ordinal_code
 
-        ext.value = value
-        valid_extractions.append(ext)
+        valid_extractions.append(
+            WindowExtraction(
+                window_start=ext.window_start, indicator_id=ext.indicator_id, value=value
+            )
+        )
 
     if expected_window_start_set is not None:
         expected_pairs = {
@@ -240,6 +241,6 @@ def validate_worker_output(
 
     # If no errors, build and return the output
     if not errors:
-        return WorkerOutput(extractions=valid_extractions), []
+        return WorkerOutput(extractions=tuple(valid_extractions)), []
 
     return None, errors

@@ -22,37 +22,35 @@
             "likelihood": {
               "law": {
                 "distribution": "Normal",
-                "arguments": {
-                  "loc": {
+                "loc": {
+                  "kind": "binary",
+                  "operator": "add",
+                  "left": {
+                    "kind": "coefficient",
+                    "role": "observation_intercept",
+                    "value": 0.0,
+                    "construct_ids": []
+                  },
+                  "right": {
                     "kind": "binary",
-                    "operator": "add",
+                    "operator": "multiply",
                     "left": {
                       "kind": "coefficient",
-                      "role": "observation_intercept",
-                      "value": 0.0,
+                      "role": "loading",
+                      "value": 1.0,
                       "construct_ids": []
                     },
                     "right": {
-                      "kind": "binary",
-                      "operator": "multiply",
-                      "left": {
-                        "kind": "coefficient",
-                        "role": "loading",
-                        "value": 1.0,
-                        "construct_ids": []
-                      },
-                      "right": {
-                        "kind": "state",
-                        "construct_id": "construct:98907cc586bfcf98c836"
-                      }
+                      "kind": "state",
+                      "construct_id": "construct:98907cc586bfcf98c836"
                     }
-                  },
-                  "scale": {
-                    "kind": "coefficient",
-                    "role": "observation_scale",
-                    "value": 1.0,
-                    "construct_ids": []
                   }
+                },
+                "scale": {
+                  "kind": "coefficient",
+                  "role": "observation_scale",
+                  "value": 1.0,
+                  "construct_ids": []
                 }
               },
               "standardized": true,
@@ -74,37 +72,35 @@
             "likelihood": {
               "law": {
                 "distribution": "Poisson",
-                "arguments": {
-                  "rate": {
-                    "kind": "call",
-                    "function": "exp",
-                    "arguments": [
-                      {
+                "rate": {
+                  "kind": "call",
+                  "function": "exp",
+                  "arguments": [
+                    {
+                      "kind": "binary",
+                      "operator": "add",
+                      "left": {
+                        "kind": "coefficient",
+                        "role": "observation_intercept",
+                        "value": 0.0,
+                        "construct_ids": []
+                      },
+                      "right": {
                         "kind": "binary",
-                        "operator": "add",
+                        "operator": "multiply",
                         "left": {
                           "kind": "coefficient",
-                          "role": "observation_intercept",
-                          "value": 0.0,
+                          "role": "loading",
+                          "value": 1.0,
                           "construct_ids": []
                         },
                         "right": {
-                          "kind": "binary",
-                          "operator": "multiply",
-                          "left": {
-                            "kind": "coefficient",
-                            "role": "loading",
-                            "value": 1.0,
-                            "construct_ids": []
-                          },
-                          "right": {
-                            "kind": "state",
-                            "construct_id": "construct:98907cc586bfcf98c836"
-                          }
+                          "kind": "state",
+                          "construct_id": "construct:98907cc586bfcf98c836"
                         }
                       }
-                    ]
-                  }
+                    }
+                  ]
                 }
               },
               "standardized": false,
@@ -250,9 +246,10 @@
       "id": "parameter:b1241c64c6725161208f058e435593183e279665a4be74507ca2f0ebf4b5952d",
       "name": "parameter:b1241c64c6725161208f058e435593183e279665a4be74507ca2f0ebf4b5952d",
       "description": "Fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:c285095b1ab30d7549c535768eca525864138895b893e00d5d168f231bc9e58a",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     }
   ],
   "distributions": {

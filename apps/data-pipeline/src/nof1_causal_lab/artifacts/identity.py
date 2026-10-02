@@ -4,114 +4,87 @@ from __future__ import annotations
 
 import hashlib
 import json
-from dataclasses import dataclass
-from typing import TYPE_CHECKING, Annotated, Literal, NewType, cast, get_args, overload
+import re
+from typing import TYPE_CHECKING, Annotated, ClassVar, Literal, Self, get_args, overload
 
-from pydantic import BaseModel, ConfigDict, Field, GetCoreSchemaHandler
+from pydantic import Field, GetCoreSchemaHandler, GetJsonSchemaHandler
+from pydantic_core import core_schema
+
+from .base import Value
 
 if TYPE_CHECKING:
-    from pydantic_core import core_schema
+    from pydantic.json_schema import JsonSchemaValue
 
 
-@dataclass(frozen=True)
-class _IdentitySchema:
-    """Keep nominal string IDs named in JSON Schema and generated clients."""
+class _IdentityString(str):
+    """A nominal ID validates the same grammar on public and parsed construction."""
 
-    name: str
+    _pattern: ClassVar[str]
+    _prefix: ClassVar[str | None] = None
 
+    def __new__(cls, value: str) -> Self:
+        if re.fullmatch(cls._pattern, value) is None:
+            raise ValueError(f"Invalid {cls.__name__}: {value!r}")
+        return str.__new__(cls, value)
+
+    @classmethod
     def __get_pydantic_core_schema__(
-        self, source: type[str], handler: GetCoreSchemaHandler
+        cls, source: object, handler: GetCoreSchemaHandler
     ) -> core_schema.CoreSchema:
-        schema = cast("core_schema.StringSchema", handler(source))
-        schema["ref"] = self.name
-        return schema
+        return core_schema.no_info_after_validator_function(
+            cls,
+            core_schema.str_schema(pattern=cls._pattern),
+            ref=cls.__name__,
+            serialization=core_schema.to_string_ser_schema(),
+        )
+
+    @classmethod
+    def __get_pydantic_json_schema__(
+        cls, schema: core_schema.CoreSchema, handler: GetJsonSchemaHandler
+    ) -> JsonSchemaValue:
+        result = handler(schema)
+        if cls._prefix is not None:
+            result["tsType"] = f"`{cls._prefix}:${{string}}`"
+        return result
 
 
-GitOid = NewType(
-    "GitOid",
-    Annotated[str, Field(pattern=r"^[0-9a-f]{40}$"), _IdentitySchema("GitOid")],
-)
+class GitOid(_IdentityString):
+    _pattern = r"^[0-9a-f]{40}$"
 
 
-ConstructId = NewType(
-    "ConstructId",
-    Annotated[
-        str,
-        Field(
-            pattern=r"^construct:[A-Za-z0-9_.-]+$",
-            json_schema_extra={"tsType": "`construct:${string}`"},
-        ),
-        _IdentitySchema("ConstructId"),
-    ],
-)
-EdgeId = NewType(
-    "EdgeId",
-    Annotated[
-        str,
-        Field(pattern=r"^edge:[A-Za-z0-9_.-]+$", json_schema_extra={"tsType": "`edge:${string}`"}),
-        _IdentitySchema("EdgeId"),
-    ],
-)
-IndicatorId = NewType(
-    "IndicatorId",
-    Annotated[
-        str,
-        Field(
-            pattern=r"^indicator:[A-Za-z0-9_.-]+$",
-            json_schema_extra={"tsType": "`indicator:${string}`"},
-        ),
-        _IdentitySchema("IndicatorId"),
-    ],
-)
-
-MechanismId = NewType(
-    "MechanismId",
-    Annotated[
-        str,
-        Field(
-            pattern=r"^mechanism:[A-Za-z0-9_.-]+$",
-            json_schema_extra={"tsType": "`mechanism:${string}`"},
-        ),
-        _IdentitySchema("MechanismId"),
-    ],
-)
-
-DistributionId = NewType(
-    "DistributionId",
-    Annotated[
-        str,
-        Field(
-            pattern=r"^distribution:[A-Za-z0-9_.-]+$",
-            description="A native law whose membership is defined by the model's scientific quantities.",
-            json_schema_extra={"tsType": "`distribution:${string}`"},
-        ),
-        _IdentitySchema("DistributionId"),
-    ],
-)
+class ConstructId(_IdentityString):
+    _prefix = "construct"
+    _pattern = r"^construct:[A-Za-z0-9_.-]+$"
 
 
-ParameterId = NewType(
-    "ParameterId",
-    Annotated[
-        str,
-        Field(
-            pattern=r"^parameter:[0-9a-f]{64}$",
-            json_schema_extra={"tsType": "`parameter:${string}`"},
-        ),
-        _IdentitySchema("ParameterId"),
-    ],
-)
+class EdgeId(_IdentityString):
+    _prefix = "edge"
+    _pattern = r"^edge:[A-Za-z0-9_.-]+$"
 
-ParameterElementId = NewType(
-    "ParameterElementId",
-    Annotated[
-        str,
-        Field(
-            pattern=r"^element:[0-9a-f]{64}$", json_schema_extra={"tsType": "`element:${string}`"}
-        ),
-        _IdentitySchema("ParameterElementId"),
-    ],
-)
+
+class IndicatorId(_IdentityString):
+    _prefix = "indicator"
+    _pattern = r"^indicator:[A-Za-z0-9_.-]+$"
+
+
+class MechanismId(_IdentityString):
+    _prefix = "mechanism"
+    _pattern = r"^mechanism:[A-Za-z0-9_.-]+$"
+
+
+class DistributionId(_IdentityString):
+    _prefix = "distribution"
+    _pattern = r"^distribution:[A-Za-z0-9_.-]+$"
+
+
+class ParameterId(_IdentityString):
+    _prefix = "parameter"
+    _pattern = r"^parameter:[0-9a-f]{64}$"
+
+
+class ParameterElementId(_IdentityString):
+    _prefix = "element"
+    _pattern = r"^element:[0-9a-f]{64}$"
 
 
 type ArtifactId = Literal[
@@ -131,13 +104,7 @@ ARTIFACT_IDS: tuple[ArtifactId, ...] = get_args(ArtifactId.__value__)
 SCIENTIFIC_ACTION_IDS: tuple[ScientificActionId, ...] = get_args(ScientificActionId.__value__)
 
 
-class IdentityRef(BaseModel):
-    """References distinguish identity from the authored values at a particular revision."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-
-class GitRef(IdentityRef):
+class GitRef(Value):
     """An exact file in a study's Git object database: repository, object, and path."""
 
     workspace_id: str = Field(min_length=1)
@@ -145,7 +112,7 @@ class GitRef(IdentityRef):
     path: str = Field(min_length=1, pattern=r"^[A-Za-z0-9_][A-Za-z0-9_./-]*$")
 
 
-class ConstructRef(IdentityRef):
+class ConstructRef(Value):
     """A construct reference identifies a construct independently of its current name or
     revision.
     """
@@ -154,7 +121,7 @@ class ConstructRef(IdentityRef):
     id: ConstructId
 
 
-class EdgeRef(IdentityRef):
+class EdgeRef(Value):
     """An edge reference identifies a causal relationship independently of edits to its
     definition.
     """
@@ -163,7 +130,7 @@ class EdgeRef(IdentityRef):
     id: EdgeId
 
 
-class IndicatorRef(IdentityRef):
+class IndicatorRef(Value):
     """An indicator reference identifies a measurement definition independently of its name or
     revision.
     """
@@ -172,14 +139,14 @@ class IndicatorRef(IdentityRef):
     id: IndicatorId
 
 
-class MechanismRef(IdentityRef):
+class MechanismRef(Value):
     """A particular additive term, independently of its position or coefficient values."""
 
     kind: Literal["mechanism"] = "mechanism"
     id: MechanismId
 
 
-class ParameterRef(IdentityRef):
+class ParameterRef(Value):
     """A scalar finding identifies its scientific parameter and declared logical component."""
 
     parameter_id: ParameterId
@@ -225,4 +192,21 @@ def scientific_id(prefix: str, payload: object) -> str: ...
 
 def scientific_id(prefix: str, payload: object) -> str:
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
-    return f"{prefix}:{hashlib.sha256(encoded.encode()).hexdigest()}"
+    value = f"{prefix}:{hashlib.sha256(encoded.encode()).hexdigest()}"
+    match prefix:
+        case "construct":
+            return ConstructId(value)
+        case "edge":
+            return EdgeId(value)
+        case "indicator":
+            return IndicatorId(value)
+        case "mechanism":
+            return MechanismId(value)
+        case "distribution":
+            return DistributionId(value)
+        case "parameter":
+            return ParameterId(value)
+        case "element":
+            return ParameterElementId(value)
+        case _:
+            return value

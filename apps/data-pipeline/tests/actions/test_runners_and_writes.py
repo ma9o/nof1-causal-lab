@@ -9,14 +9,16 @@ import pytest
 from pydantic import ValidationError
 
 from nof1_causal_lab.actions.contracts import EditModelRequest
+from nof1_causal_lab.actions.temporal.messages import FailedExtractionChunk
 from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.artifacts.likelihood import DeltaLawSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.validation_report import ValidationReportArtifact
 from nof1_causal_lab.models.identification import identify_model
-from nof1_causal_lab.models.model_inputs import observation_input
 from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.state import StudyState, apply_effects
 from nof1_causal_lab.study.store import ArtifactStore
-from tests.action_fixtures import edit_and_check
+from tests.action_fixtures import applied_record, edit_and_check
 from tests.data_fixtures import metadata_for_model
 from tests.git_fixtures import artifact_revision
 from tests.helpers import make_model
@@ -44,23 +46,20 @@ def _model():
 
 def _exact_measurement(model):
     from nof1_causal_lab.artifacts.expressions import state
-    from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec, ObservationLawSpec
+    from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec
 
     owner = model.constructs[0]
-    indicator = type(owner.indicators[0]).model_validate(
-        {
-            **owner.indicators[0].model_dump(),
-            "likelihood": LikelihoodSpec(
-                law=ObservationLawSpec(distribution="Delta", arguments={"v": state(owner.id)}),
-                reasoning="An exact observation of the construct",
-            ),
-        }
+    indicator = owner.indicators[0].revised(
+        likelihood=LikelihoodSpec(
+            law=DeltaLawSpec(v=state(owner.id)),
+            reasoning="An exact observation of the construct",
+        )
     )
     return model.revised(
         edges=replace_constructs(
             model.edges,
             (
-                type(owner).model_validate({**owner.model_dump(), "indicators": (indicator,)}),
+                owner.revised(indicators=(indicator,)),
                 *model.constructs[1:],
             ),
         )
@@ -80,23 +79,37 @@ def _write(store, artifact_id, payload, pins=None):
 
 def test_identification_records_positive_and_absent_queries():
     report = identify_model(_model())
-    assert report.estimable_treatments == [_model().constructs[0].id]
+    assert report.estimable_treatments == (_model().constructs[0].id,)
     assert report.outcome == _model().constructs[1].id
     absent = identify_model(_model().revised(default_outcome=None))
     assert absent.outcome is None
-    assert absent.estimable_treatments == []
+    assert absent.estimable_treatments == ()
 
 
 def test_identification_preserves_negative_findings(monkeypatch):
+    from dataclasses import replace
+
     from nof1_causal_lab.models import identification
+    from nof1_causal_lab.utils.identifiability import UnidentifiedQuery
+
+    model = _model()
+    result = identification.check_identifiability(
+        model.constructs,
+        model.edges,
+        default_outcome=model.default_outcome,
+        observed_constructs={construct.name for construct in model.constructs},
+    )
 
     monkeypatch.setattr(
         identification,
         "check_identifiability",
-        lambda *_, **__: {
-            "identifiable_treatments": {},
-            "non_identifiable_treatments": {"Stress": {"confounders": [], "notes": "Unidentified"}},
-        },
+        lambda *_, **__: replace(
+            result,
+            identifiable_treatments={},
+            non_identifiable_treatments={
+                "Stress": UnidentifiedQuery(confounders=(), notes="Unidentified")
+            },
+        ),
     )
     report = identify_model(_model())
     assert not report.estimable_treatments
@@ -109,7 +122,6 @@ def test_extraction_requires_some_observations(workspace, tmp_path, nonempty):
         finalize_measurements_activity,
     )
     from nof1_causal_lab.actions.temporal.messages import (
-        ExtractionChunkResult,
         MeasurementsFinalizeInput,
     )
 
@@ -120,11 +132,19 @@ def test_extraction_requires_some_observations(workspace, tmp_path, nonempty):
         [raw, _write(store, "model", model.model_dump(mode="json"))]
     )
     pins: dict[ArtifactId, GitOid] = {"raw_data": raw.revision}
+    from nof1_causal_lab.workers.context import MeasurementContext
+
+    metadata = metadata_for_model(model)
+    context = MeasurementContext(
+        source=metadata.source,
+        model_clock=model.measurement_clock,
+        indicators=metadata.preparation.variables,
+    )
     path = tmp_path / "plan.json"
     path.write_text(
         json.dumps(
             {
-                "measurement_structure": observation_input(model),
+                "measurement_structure": context.model_dump(mode="json"),
                 "preparation": {
                     "source": {"files": ["observations.csv"]},
                     "definition": metadata_for_model(model).preparation.model_dump(mode="json"),
@@ -139,7 +159,7 @@ def test_extraction_requires_some_observations(workspace, tmp_path, nonempty):
                 if nonempty
                 else [],
                 "empty_output": {"extractions": []},
-                "chunks": [{"worker_id": 7}],
+                "chunks": [{"worker_id": 7, "n_windows": 1, "spec_ref": "unused.json"}],
             }
         )
     )
@@ -150,7 +170,7 @@ def test_extraction_requires_some_observations(workspace, tmp_path, nonempty):
             plan_ref=str(path),
             pins=pins,
             chunk_results=[
-                ExtractionChunkResult(
+                FailedExtractionChunk(
                     worker_id=7,
                     status="failed",
                     n_extractions=0,
@@ -170,36 +190,27 @@ def test_extraction_requires_some_observations(workspace, tmp_path, nonempty):
 
     assert ("panel" in {info.artifact_id for info in effects.produced}) == nonempty
     assert "measurements" not in {info.artifact_id for info in effects.produced}
-    assert effects.diagnostics["workers"] == [
-        {
-            "worker_id": 7,
-            "status": "failed",
-            "n_extractions": 0,
-            "n_windows": 1,
-            "error": "No usable extraction",
-            "n_llm_calls": 0,
-            "reused": False,
-        }
-    ]
-    assert effects.diagnostics["n_observations"] == int(nonempty)
+    assert len(effects.workers) == 1
+    worker = effects.workers[0]
+    assert (worker.worker_id, worker.status, worker.n_extractions, worker.n_windows) == (
+        7,
+        "failed",
+        0,
+        1,
+    )
+    assert worker.status == "failed"
+    assert worker.error == "No usable extraction"
+    assert worker.n_llm_calls == 0
+    assert worker.reused is False
+    assert effects.n_observations == int(nonempty)
     from nof1_causal_lab.study.history import StudyRepository
-    from nof1_causal_lab.study.records import AttemptRecord
 
     journal = StudyRepository(workspace)
-    record = AttemptRecord(
-        seq=1,
-        ts="2026-01-01T00:00:00Z",
-        trace_ids=[],
-        action="prepare_data",
-        inputs={},
-        status="applied",
-        produced=effects.produced,
-        retracted=effects.retracted,
-        diagnostics=effects.diagnostics,
-        checks=effects.checks,
-    )
+    record = applied_record(effects, seq=1, ts="2026-01-01T00:00:00Z", trace_ids=[])
     journal.append(record)
-    assert journal.attempts()[0].diagnostics == effects.diagnostics
+    outcome = journal.attempts()[0].record.attempt.outcome
+    assert outcome.status == "applied"
+    assert outcome.result == effects
     current = apply_effects(state, effects.produced, effects.retracted)
     if not nonempty:
         assert not current.has("panel")
@@ -280,9 +291,9 @@ def test_model_edit_reports_stale_extraction(workspace):
         },
     )
     from nof1_causal_lab.actions.data_checks import evaluate_data_checks
-    from nof1_causal_lab.actions.effects import ActionEffects
+    from nof1_causal_lab.study.records import DataPreparationResult
 
-    checked_data = evaluate_data_checks(workspace, state, ActionEffects(produced=[panel]))
+    checked_data = evaluate_data_checks(workspace, state, DataPreparationResult(produced=[panel]))
     state = state.with_artifacts([*checked_data.produced, validation])
     changed = model.revised(measurement_clock="2d")
     effects = edit_and_check(
@@ -296,10 +307,10 @@ def test_model_edit_reports_stale_extraction(workspace):
         state,
     )
     report = next(item for item in effects.produced if item.artifact_id == "validation_report")
-    payload = store.read_json_file("validation_report", report.revision, "validation_report.json")
-    assert any(
-        issue["issue_type"] == "measurement_definitions" for issue in payload["dataset_issues"]
+    payload = store.read_value(
+        "validation_report", report.revision, "validation_report.json", ValidationReportArtifact
     )
+    assert any(issue.issue_type == "measurement_definitions" for issue in payload.dataset_issues)
     assert "panel" not in {item.artifact_id for item in effects.produced}
 
 

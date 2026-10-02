@@ -15,17 +15,22 @@ from __future__ import annotations
 import argparse
 import os
 from pathlib import Path
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from fsspec.spec import AbstractFileSystem
 
 
-def _dest_fs():
+def _dest_fs() -> AbstractFileSystem:
     import fsspec
 
-    return fsspec.filesystem(
+    filesystem: AbstractFileSystem = fsspec.filesystem(
         "s3",
         endpoint_url=os.environ["R2_ENDPOINT_URL"],
         key=os.environ["R2_ACCESS_KEY_ID"],
         secret=os.environ["R2_SECRET_ACCESS_KEY"],
     )
+    return filesystem
 
 
 def _is_publishable(rel: str) -> bool:

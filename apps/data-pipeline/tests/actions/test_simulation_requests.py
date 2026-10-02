@@ -9,7 +9,8 @@ from nof1_causal_lab.actions.contracts import SimulateRequest
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.scenarios import InterventionSpec
 from nof1_causal_lab.artifacts.simulation import SimulationReport, SimulationSpec
-from tests.model_fixtures import compile_fit_fixture
+from tests.inference_fixtures import particle_posterior
+from tests.model_fixtures import compile_model_fixture
 
 pytestmark = pytest.mark.contract
 
@@ -26,12 +27,7 @@ def test_simulation_defaults_to_an_unintervened_model_continuation():
         "interventions",
     }
     with pytest.raises(ValidationError, match="Extra inputs"):
-        SimulateRequest.model_validate(
-            {
-                **request.model_dump(),
-                "comparison_panel_revision": "b" * 40,
-            }
-        )
+        request.revised(comparison_panel_revision="b" * 40)
 
 
 def test_interventions_round_trip_with_absolute_times():
@@ -237,7 +233,6 @@ def test_runner_derives_origin_and_reliability_from_current_panel_or_fit(
     from nof1_causal_lab.models.ssm.inference.persistence import condition_model
     from nof1_causal_lab.models.ssm.inference.types import (
         JointPosteriorDraws,
-        ParticleMCMCPosterior,
     )
     from nof1_causal_lab.study.history import StudyRepository
     from nof1_causal_lab.study.state import StudyState
@@ -271,8 +266,9 @@ def test_runner_derives_origin_and_reliability_from_current_panel_or_fit(
     fit_origin = datetime(2024, 1, 2, tzinfo=UTC)
     if kind in {"fitted", "unknown"}:
         model = condition_model(
-            compile_fit_fixture(model),
-            ParticleMCMCPosterior(
+            model,
+            compile_model_fixture(model),
+            particle_posterior(
                 JointPosteriorDraws(parameter_draws(model, 2), jnp.zeros((2, 2, 2)))
             ),
             times=jnp.array([0.0, 1.0]),
@@ -286,17 +282,43 @@ def test_runner_derives_origin_and_reliability_from_current_panel_or_fit(
             json_files={"model.json": model.model_dump(mode="json")},
         )
         if kind == "fitted":
-            fit = inference_log(
-                model, revision=record.revision, prior_revision=prior.revision, seq=1
+            from nof1_causal_lab.artifacts.identity import GitRef
+            from nof1_causal_lab.models.ssm.inference.convergence import parameter_convergence
+            from nof1_causal_lab.study.records import ModelFitResult
+            from tests.action_fixtures import applied_record
+
+            fit = inference_log(model).record.attempt.outcome.result.report.revised(
+                **{"time_origin": fit_origin}
             )
-            fit.diagnostics["report"]["time_origin"] = fit_origin.isoformat()
             if reliable == "unconverged":
-                fit.diagnostics["report"]["inference_diagnostics"]["mcmc"]["per_parameter"][0][
-                    "r_hat"
-                ] = 1.2
+                diagnostics = fit.inference_diagnostics
+                assert diagnostics is not None
+                poor = diagnostics.revised(
+                    **{
+                        "per_parameter": tuple(
+                            row.revised(**{"r_hat": 1.2}) for row in diagnostics.per_parameter
+                        )
+                    }
+                )
+                fit = fit.revised(
+                    **{
+                        "inference_diagnostics": poor,
+                        "convergence": parameter_convergence(poor),
+                    }
+                )
             StudyRepository("ORIGIN").append(
-                type(fit).model_validate(
-                    {**fit.model_dump(), "produced": [prior, fit_panel, record]}
+                applied_record(
+                    ModelFitResult(
+                        model=GitRef(
+                            workspace_id="ORIGIN", revision=prior.revision, path="model.json"
+                        ),
+                        panel=GitRef(
+                            workspace_id="ORIGIN", revision=fit_panel.revision, path="panel.parquet"
+                        ),
+                        produced=(prior, fit_panel, record),
+                        report=fit,
+                    ),
+                    seq=1,
                 )
             )
     current_origin = datetime(2026, 1, 1, tzinfo=UTC)
@@ -306,9 +328,7 @@ def test_runner_derives_origin_and_reliability_from_current_panel_or_fit(
         derived_from={},
         produced_by="prepare_data",
         json_files={
-            "metadata.json": type(metadata)
-            .model_validate({**metadata.model_dump(), "time_origin": current_origin})
-            .model_dump(mode="json")
+            "metadata.json": metadata.revised(time_origin=current_origin).model_dump(mode="json")
         },
     )
     state = StudyState().with_artifacts([record, panel] if current_panel else [record])
@@ -321,15 +341,10 @@ def test_runner_derives_origin_and_reliability_from_current_panel_or_fit(
     def generate(_model, _design, *, revision, time_origin, fit_reliability, **_kwargs):
         assert time_origin == expected_origin
         assert fit_reliability == reliable
-        return type(response).model_validate(
-            {
-                **response.model_dump(),
-                "model": revision,
-                "time_origin": time_origin,
-                "predictive": type(response.predictive).model_validate(
-                    {**response.predictive.model_dump(), "fit_reliability": fit_reliability}
-                ),
-            }
+        return response.revised(
+            model=revision,
+            time_origin=time_origin,
+            predictive=response.predictive.revised(fit_reliability=fit_reliability),
         )
 
     monkeypatch.setattr(import_module("nof1_causal_lab.actions.simulate"), "simulate", generate)
@@ -339,18 +354,21 @@ def test_runner_derives_origin_and_reliability_from_current_panel_or_fit(
     effects = run_async(
         run_action(
             "ORIGIN",
-            SimulateRequest.model_validate(
-                {**response.design.model_dump(), "model_revision": record.revision}
+            SimulateRequest(
+                model_revision=record.revision,
+                start=response.design.start,
+                end=response.design.end,
+                interventions=response.design.interventions,
             ),
             state,
         )
     )
-    saved = SimulationReport.model_validate(effects.diagnostics["report"])
+    saved = effects.report
     assert saved.time_origin == expected_origin
     assert saved.origin_panel_revision == expected_panel
     assert saved.predictive.fit_reliability == reliable
     assert saved.law is not None
     assert saved.law.kind == kind
-    assert effects.diagnostics["input_pins"].get("panel") == (
+    assert (effects.panel.revision if effects.panel is not None else None) == (
         panel.revision if current_panel else None
     )

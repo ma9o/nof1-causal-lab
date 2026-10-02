@@ -8,18 +8,18 @@ import logging
 import os
 import pathlib
 import re
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Annotated, Any
 from uuid import UUID, uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Path, Query, Response, UploadFile
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import Field, TypeAdapter
 
 from nof1_causal_lab.actions.contracts import ScientificActionRequest
-from nof1_causal_lab.actions.data_diff import DataDiffReport, DataDiffRequest
 from nof1_causal_lab.actions.progress import ProgressEvent, read_events
-from nof1_causal_lab.actions.results import ActionPoll, ActionReceipt, RunningAction
-from nof1_causal_lab.actions.revisions import ModelDiffReport, RevisionCatalog
+from nof1_causal_lab.actions.results import ActionPoll, ActionReceipt, CompletedPoll, RunningAction
 from nof1_causal_lab.actions.status import StudyStatus
+from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec
 from nof1_causal_lab.artifacts.identity import (
     SCIENTIFIC_ACTION_IDS,
@@ -33,8 +33,11 @@ from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 from nof1_causal_lab.artifacts.posterior import InferenceReport
 from nof1_causal_lab.artifacts.validation_report import DataProfileArtifact
 from nof1_causal_lab.json_types import JsonObject
+from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.records import (
+    Applied,
+    DataDiffAttempt,
     RecordDependency,
     StudyRevision,
     record_dependencies,
@@ -42,7 +45,6 @@ from nof1_causal_lab.study.records import (
 from nof1_causal_lab.study.snapshot_models import ModelSnapshot, Sourced
 from nof1_causal_lab.study.snapshots import (
     ModelReader,
-    SnapshotRevisionNotFound,
 )
 from nof1_causal_lab.study.state import ArtifactRecord, freshness_report
 from nof1_causal_lab.study.store import (
@@ -50,7 +52,13 @@ from nof1_causal_lab.study.store import (
     read_attempt_trace,
     read_current_state,
 )
-from nof1_causal_lab.study.view_models import ArtifactViewResponse
+from nof1_causal_lab.study.view_models import (
+    ArtifactViewResponse,
+    DataDiffReport,
+    DataDiffRequest,
+    ModelDiffReport,
+    RevisionCatalog,
+)
 from nof1_causal_lab.study.visual_models import (
     MechanismCurves,
     MechanismViewRequest,
@@ -64,6 +72,10 @@ from nof1_causal_lab.utils.llm import LLMTrace
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
+    from temporalio.client import Client, WorkflowHandle
+
+    from nof1_causal_lab.actions.temporal.workflow import StudyWorkflow
 
 logger = logging.getLogger(__name__)
 
@@ -99,7 +111,7 @@ def _cached_read(
 _SNAPSHOT_JSON = TypeAdapter(ModelSnapshot)
 _MODEL_JSON = TypeAdapter(ModelSpec)
 _MODEL_DIFF_JSON = TypeAdapter(ModelDiffReport)
-_ACTION_POLL_JSON = TypeAdapter(ActionPoll)
+_ACTION_POLL_JSON: TypeAdapter[ActionPoll] = TypeAdapter(ActionPoll)
 _INFERENCE_REPORT_JSON = TypeAdapter(Sourced[InferenceReport] | None)
 _OBSERVATION_HISTORY_JSON = TypeAdapter(ObservationHistory | None)
 _PREDICTIVE_HISTORY_JSON = TypeAdapter(PredictiveHistory | None)
@@ -114,53 +126,43 @@ workspaces_router = APIRouter(prefix="/api")
 uploads_router = APIRouter(prefix="/api")
 
 
-class CapabilitiesResponse(BaseModel):
+class CapabilitiesResponse(Value):
     """This response tells clients whether the study facade supports scientific actions."""
-
-    model_config = ConfigDict(extra="forbid")
 
     actions_enabled: bool
 
 
-class WorkspaceEntry(BaseModel):
+class WorkspaceEntry(Value):
     """A workspace entry identifies an available model workspace and its research question."""
-
-    model_config = ConfigDict(extra="forbid")
 
     href: str
     question: str | None = None
     workspaceId: str
 
 
-class WorkspaceList(BaseModel):
+class WorkspaceList(Value):
     """A workspace list provides the available model workspaces for client navigation."""
 
-    model_config = ConfigDict(extra="forbid")
-
-    workspaces: list[WorkspaceEntry]
+    workspaces: tuple[WorkspaceEntry, ...]
 
 
-class UploadResponse(BaseModel):
+class UploadResponse(Value):
     """An upload response identifies the stored location of an accepted data upload."""
-
-    model_config = ConfigDict(extra="forbid")
 
     path: str
 
 
-class ArtifactEnvelope(BaseModel):
+class ArtifactEnvelope(Value):
     """An artifact envelope delivers a stored payload with its revision and file
     list.
     """
-
-    model_config = ConfigDict(extra="forbid")
 
     workspace_id: str
     artifact_id: ArtifactId
     revision: GitOid
     meta: ArtifactRecord
     payload: JsonObject
-    binary_files: list[str]
+    binary_files: tuple[str, ...]
 
 
 def actions_enabled() -> bool:
@@ -229,7 +231,7 @@ def list_workspaces() -> WorkspaceList:
                 workspaceId=workspace_id,
             )
         )
-    return WorkspaceList(workspaces=workspaces)
+    return WorkspaceList(workspaces=tuple(workspaces))
 
 
 @uploads_router.post("/upload", response_model=UploadResponse)
@@ -260,10 +262,10 @@ async def upload_file(
 # ---------------------------------------------------------------------------
 
 _client_lock = asyncio.Lock()
-_client: Any = None
+_client: Client | None = None
 
 
-async def _get_client():
+async def _get_client() -> Client:
     global _client
     async with _client_lock:
         if _client is None:
@@ -273,7 +275,7 @@ async def _get_client():
         return _client
 
 
-async def _study_handle(workspace_id: str):
+async def _study_handle(workspace_id: str) -> WorkflowHandle[StudyWorkflow, None]:
     """Start-or-attach the study workflow for a workspace."""
     from temporalio.common import WorkflowIDConflictPolicy
 
@@ -342,18 +344,17 @@ async def _dispatch_action(
     from temporalio.client import WorkflowUpdateStage
 
     from nof1_causal_lab.actions.temporal.messages import ActionRequest
-    from nof1_causal_lab.actions.temporal.workflow import StudyWorkflow
 
     _require_actions_enabled()
     workspace_id = _safe_workspace_id(workspace_id)
     try:
         head = StudyRepository(workspace_id).head(branch)
-    except ValueError as exc:
+    except StudyLookupError as exc:
         raise HTTPException(404, str(exc)) from exc
     attempt_id = uuid4()
     handle = await _study_handle(workspace_id)
     update = await handle.start_update(
-        StudyWorkflow.execute_action,
+        "execute_action",
         ActionRequest(
             branch=branch,
             expected_head=head if isinstance(body, DataDiffRequest) else expected_head,
@@ -361,6 +362,7 @@ async def _dispatch_action(
             attempt_id=attempt_id,
         ),
         id=str(attempt_id),
+        result_type=ActionReceipt,
         wait_for_stage=WorkflowUpdateStage.ACCEPTED,
     )
     # Temporal can return a rejected update at ACCEPTED without raising. The SDK
@@ -381,10 +383,9 @@ async def _dispatch_action(
 
 @router.get("/{workspace_id}/actions/{attempt_id}", response_model=ActionPoll)
 async def poll_scientific_action(workspace_id: str, attempt_id: UUID) -> ActionPoll | Response:
-    """Read accumulated labels and the final scientific body without dispatching work."""
+    """Read progress or the completed attempt's typed outcome without dispatching work."""
     from temporalio.service import RPCError, RPCStatusCode
 
-    from nof1_causal_lab.actions.reads import read_action_body
     from nof1_causal_lab.actions.temporal.client import study_workflow_id
     from nof1_causal_lab.actions.temporal.workflow import StudyWorkflow
 
@@ -392,18 +393,16 @@ async def poll_scientific_action(workspace_id: str, attempt_id: UUID) -> ActionP
     record = StudyRepository(workspace_id).dispatched_attempt(attempt_id)
     if record is not None:
         journaled = record
-        # A journaled attempt never changes; build its body off the event loop once.
+        # A journaled attempt never changes; render its owned outcome off the event loop once.
         return await asyncio.to_thread(
             _cached_read,
             workspace_id,
             ("action", str(attempt_id)),
             _ACTION_POLL_JSON,
-            lambda: ActionPoll(
-                done=True,
-                body=read_action_body(workspace_id, journaled)
-                if journaled.status == "applied"
-                else None,
-                messages=journaled.messages,
+            lambda: CompletedPoll(
+                commit_id=journaled.commit_id,
+                attempt=journaled.record.attempt,
+                messages=journaled.record.messages,
             ),
         )
     if not actions_enabled():
@@ -440,17 +439,15 @@ def _study_status(
     repository = StudyRepository(workspace_id)
     commit_id = repository.head(branch)
     state = repository.state(commit_id)
-    return StudyStatus.model_validate(
-        {
-            "workspace_id": workspace_id,
-            "branch": branch,
-            "commit_id": commit_id,
-            "seq": repository.latest_seq(),
-            "state": state.model_dump(mode="json"),
-            "artifacts": [status.model_dump(mode="json") for status in freshness_report(state)],
-            "actions": list(SCIENTIFIC_ACTION_IDS),
-            "running": running,
-        }
+    return StudyStatus(
+        workspace_id=workspace_id,
+        branch=branch,
+        commit_id=commit_id,
+        seq=repository.latest_seq(),
+        state=state,
+        artifacts=tuple(freshness_report(state)),
+        actions=SCIENTIFIC_ACTION_IDS,
+        running=running,
     )
 
 
@@ -473,7 +470,7 @@ def model_reader(
 ) -> ModelReader:
     try:
         return ModelReader(workspace_id, at=at, branch=branch)
-    except SnapshotRevisionNotFound as exc:
+    except StudyLookupError as exc:
         raise HTTPException(404, str(exc)) from exc
 
 
@@ -499,12 +496,12 @@ def get_revisions(workspace_id: str) -> RevisionCatalog:
     committed = {
         (info.artifact_id, info.revision): info
         for record in records
-        if record.status == "applied"
-        for info in record.produced
+        if isinstance(record.record.attempt.outcome, Applied)
+        for info in record.record.attempt.outcome.result.produced
     }
     return RevisionCatalog(
         **{
-            field: [info for (aid, _), info in committed.items() if aid == identity]
+            field: tuple(info for (aid, _), info in committed.items() if aid == identity)
             for field, identity in (
                 ("models", "model"),
                 ("panels", "panel"),
@@ -551,7 +548,7 @@ def get_model_diff(
             _MODEL_DIFF_JSON,
             lambda: model_diff(workspace_id, before, after),
         )
-    except SnapshotRevisionNotFound as exc:
+    except StudyLookupError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
@@ -582,16 +579,16 @@ async def post_data_diff(
 
 @router.get("/{workspace_id}/data-diff/{commit_id}", response_model=DataDiffReport)
 def get_data_diff(workspace_id: str, commit_id: GitOid) -> Response:
-    """Read a comparison's saved evidence; timeline records contain no report payload."""
-    try:
-        return Response(
-            content=StudyRepository(_safe_workspace_id(workspace_id)).read_file(
-                commit_id, "logs/data-diff.json"
-            ),
-            media_type="application/json",
-        )
-    except (KeyError, FileNotFoundError) as exc:
-        raise HTTPException(404, "No comparison report recorded at this commit") from exc
+    """Read the comparison report retained by its applied outcome."""
+    record = StudyRepository(_safe_workspace_id(workspace_id)).record(commit_id).record
+    if not isinstance(record.attempt, DataDiffAttempt) or not isinstance(
+        record.attempt.outcome, Applied
+    ):
+        raise HTTPException(404, "No comparison report recorded at this commit")
+    return Response(
+        content=record.attempt.outcome.result.report.model_dump_json(),
+        media_type="application/json",
+    )
 
 
 @router.get(
@@ -609,7 +606,9 @@ def read_data_profile(workspace_id: str, panel_revision: GitOid) -> DataProfileA
 
 
 @router.get("/{workspace_id}/model/definition", response_model=Sourced[ModelSpec] | None)
-def get_model_definition(reader: Annotated[ModelReader, Depends(model_reader)]):
+def get_model_definition(
+    reader: Annotated[ModelReader, Depends(model_reader)],
+) -> Sourced[ModelSpec] | None:
     """The canonical scientific value selected by this journal revision."""
     return reader.fact(reader.model, "model", "") if reader.model is not None else None
 
@@ -635,13 +634,11 @@ def get_observation_history(
     indicator_id: IndicatorId, reader: Annotated[ModelReader, Depends(model_reader)]
 ) -> Response:
     """All prepared observations on their recorded temporal support."""
-    from nof1_causal_lab.study.visuals import observation_history
-
     return _cached_read(
         reader.workspace_id,
         ("observation-history", reader.commit_id, indicator_id),
         _OBSERVATION_HISTORY_JSON,
-        lambda: observation_history(reader, indicator_id),
+        lambda: reader.observation_history(indicator_id),
     )
 
 
@@ -653,13 +650,11 @@ def get_predictive_history(
     indicator_id: IndicatorId, reader: Annotated[ModelReader, Depends(model_reader)]
 ) -> Response:
     """Saved predictive paths on the exact schedule of their pinned inputs."""
-    from nof1_causal_lab.study.visuals import predictive_history
-
     return _cached_read(
         reader.workspace_id,
         ("predictive-history", reader.commit_id, indicator_id),
         _PREDICTIVE_HISTORY_JSON,
-        lambda: predictive_history(reader, indicator_id),
+        lambda: reader.predictive_history(indicator_id),
     )
 
 
@@ -670,29 +665,25 @@ def get_simulation_paths(
     count: Annotated[int, Query(ge=1, le=128)] = 24,
 ) -> Response:
     """A contiguous page of original simulation draws, without time thinning."""
-    from nof1_causal_lab.study.visuals import simulation_paths
-
     try:
         return _cached_read(
             reader.workspace_id,
             ("simulation-paths", reader.commit_id, str(start), str(count)),
             _SIMULATION_PATHS_JSON,
-            lambda: simulation_paths(reader, start=start, count=count),
+            lambda: reader.simulation_paths(start=start, count=count),
         )
-    except ValueError as exc:
+    except StudyLookupError as exc:
         raise HTTPException(422, str(exc)) from exc
 
 
 @router.get("/{workspace_id}/model/visuals/parameters", response_model=ParameterDraws)
 def get_parameter_draws(reader: Annotated[ModelReader, Depends(model_reader)]) -> Response:
     """All coordinates and all draws of the retained joint posterior."""
-    from nof1_causal_lab.study.visuals import parameter_draws
-
     return _cached_read(
         reader.workspace_id,
         ("parameter-draws", reader.commit_id),
         _PARAMETER_DRAWS_JSON,
-        lambda: parameter_draws(reader),
+        lambda: reader.parameter_draws(),
     )
 
 
@@ -701,39 +692,45 @@ def get_mechanism_curves(
     request: MechanismViewRequest, reader: Annotated[ModelReader, Depends(model_reader)]
 ) -> Response:
     """Read conditional drift curves using the exact model equations; creates no scientific action."""
-    from nof1_causal_lab.study.mechanism_views import mechanism_curves
-
     try:
         return _cached_read(
             reader.workspace_id,
             ("mechanism-curves", reader.commit_id, request.model_dump_json()),
             _MECHANISM_CURVES_JSON,
-            lambda: mechanism_curves(reader, request),
+            lambda: reader.mechanism_curves(request),
         )
-    except ValueError as exc:
+    except StudyLookupError as exc:
         raise HTTPException(422, str(exc)) from exc
 
 
 @router.get("/{workspace_id}/model/constructs", response_model=tuple[ConstructSpec, ...])
-def get_model_constructs(reader: Annotated[ModelReader, Depends(model_reader)]):
+def get_model_constructs(
+    reader: Annotated[ModelReader, Depends(model_reader)],
+) -> tuple[ConstructSpec, ...]:
     """Authored constructs, using their canonical domain type."""
     return reader.constructs()
 
 
 @router.get("/{workspace_id}/model/edges", response_model=tuple[CausalEdgeSpec, ...])
-def get_model_edges(reader: Annotated[ModelReader, Depends(model_reader)]):
+def get_model_edges(
+    reader: Annotated[ModelReader, Depends(model_reader)],
+) -> tuple[CausalEdgeSpec, ...]:
     """Authored edges, using their canonical domain type."""
     return reader.edges()
 
 
 @router.get("/{workspace_id}/model/indicators", response_model=tuple[IndicatorSpec, ...])
-def get_model_indicators(reader: Annotated[ModelReader, Depends(model_reader)]):
+def get_model_indicators(
+    reader: Annotated[ModelReader, Depends(model_reader)],
+) -> tuple[IndicatorSpec, ...]:
     """Authored indicators whose owners survive at the selected revision."""
     return reader.indicators()
 
 
 @router.get("/{workspace_id}/model/parameters", response_model=tuple[ParameterSpec, ...])
-def get_model_parameters(reader: Annotated[ModelReader, Depends(model_reader)]):
+def get_model_parameters(
+    reader: Annotated[ModelReader, Depends(model_reader)],
+) -> tuple[ParameterSpec, ...]:
     """Scientific parameter definitions from the selected model, without inference execution."""
     return reader.parameters()
 
@@ -744,30 +741,28 @@ def get_model_view(
     artifact_id: str,
     branch: str = "main",
     at: GitOid | None = None,
-):
+) -> ArtifactViewResponse:
     """One display projection from the selected committed model revision."""
     try:
         reader = ModelReader(workspace_id, at=at, branch=branch)
-    except SnapshotRevisionNotFound as exc:
+    except StudyLookupError as exc:
         raise HTTPException(404, str(exc)) from exc
     try:
         value = reader.artifact_view(artifact_id)
-    except KeyError as exc:
+    except StudyLookupError as exc:
         raise HTTPException(404, f"Unknown artifact view {artifact_id}") from exc
     if value is None:
         raise HTTPException(404, f"No compatible {artifact_id} view at {reader.commit_id}")
-    return ArtifactViewResponse.model_validate(value)
+    return value
 
 
-class TimelineResponse(BaseModel):
+class TimelineResponse(Value):
     """Typed attempt journal returned by the study read plane."""
 
-    model_config = ConfigDict(extra="forbid")
-
     workspace_id: str
-    attempts: list[StudyRevision]
-    branches: dict[str, GitOid]
-    dependencies: list[RecordDependency]
+    attempts: tuple[StudyRevision, ...]
+    branches: Mapping[str, GitOid]
+    dependencies: tuple[RecordDependency, ...]
 
 
 @router.get("/{workspace_id}/timeline", response_model=TimelineResponse)
@@ -784,15 +779,13 @@ def get_timeline(workspace_id: str) -> TimelineResponse:
     records = repository.attempts()
     return TimelineResponse(
         workspace_id=workspace_id,
-        attempts=records,
+        attempts=tuple(records),
         branches=repository.branches(),
-        dependencies=record_dependencies(records),
+        dependencies=tuple(record_dependencies(records)),
     )
 
 
-class CreateBranchBody(BaseModel):
-    model_config = ConfigDict(extra="forbid")
-
+class CreateBranchBody(Value):
     name: str = Field(min_length=1)
     at: GitOid
 
@@ -812,7 +805,7 @@ def create_branch(workspace_id: str, body: CreateBranchBody) -> GitOid:
         return StudyRepository(_safe_workspace_id(workspace_id)).create_branch(
             body.name, at=body.at
         )
-    except ValueError as exc:
+    except StudyLookupError as exc:
         raise HTTPException(400, str(exc)) from exc
     except (pygit2.AlreadyExistsError, pygit2.GitError) as exc:
         raise HTTPException(409, str(exc)) from exc
@@ -822,15 +815,15 @@ def create_branch(workspace_id: str, body: CreateBranchBody) -> GitOid:
 def get_attempt_log(workspace_id: str, commit_id: GitOid) -> StudyRevision:
     try:
         return StudyRepository(workspace_id).record(commit_id)
-    except (KeyError, ValueError) as exc:
+    except StudyLookupError as exc:
         raise HTTPException(404, f"No action log at {commit_id}") from exc
 
 
-class EventsResponse(BaseModel):
+class EventsResponse(Value):
     """An events response pages one running attempt's live progress."""
 
     workspace_id: str
-    events: list[ProgressEvent]
+    events: tuple[ProgressEvent, ...]
 
 
 @router.get("/{workspace_id}/events", response_model=EventsResponse)
@@ -842,7 +835,7 @@ def get_events(workspace_id: str, attempt_id: UUID, after: str | None = None) ->
     """
     return EventsResponse(
         workspace_id=workspace_id,
-        events=read_events(_safe_workspace_id(workspace_id), attempt_id, after=after),
+        events=tuple(read_events(_safe_workspace_id(workspace_id), attempt_id, after=after)),
     )
 
 
@@ -868,7 +861,7 @@ def get_artifact(
 
     try:
         filenames = store.filenames(artifact_id, revision)
-    except (KeyError, ValueError) as exc:
+    except StudyLookupError as exc:
         raise HTTPException(404, f"No {artifact_id} tree at {revision}") from exc
     payload: JsonObject = {}
     binary_files: list[str] = []
@@ -884,18 +877,16 @@ def get_artifact(
         revision=revision,
         meta=store.read_meta(artifact_id, revision),
         payload=payload,
-        binary_files=sorted(binary_files),
+        binary_files=tuple(sorted(binary_files)),
     )
 
 
-class AttemptTraceIndex(BaseModel):
+class AttemptTraceIndex(Value):
     """Promoted traces identified by their committed execution sequence."""
-
-    model_config = ConfigDict(extra="forbid")
 
     workspace_id: str
     commit_id: GitOid
-    trace_ids: list[str]
+    trace_ids: tuple[str, ...]
 
 
 @router.get("/{workspace_id}/artifacts/{artifact_id}/traces", response_model=AttemptTraceIndex)
@@ -915,16 +906,16 @@ def get_artifact_traces(
             )
         revision = info.revision
     for record in reversed(StudyRepository(workspace_id).attempts()):
-        if record.status != "applied":
+        if not isinstance(record.record.attempt.outcome, Applied):
             continue
         if any(
             item.artifact_id == artifact_id and item.revision == revision
-            for item in record.produced
+            for item in record.record.attempt.outcome.result.produced
         ):
             return AttemptTraceIndex(
                 workspace_id=workspace_id,
                 commit_id=record.commit_id,
-                trace_ids=record.trace_ids,
+                trace_ids=record.record.trace_ids,
             )
     raise HTTPException(404, f"No applied attempt produced {artifact_id} v{revision}")
 
@@ -936,7 +927,7 @@ def get_trace(workspace_id: str, commit_id: GitOid, subroutine_id: str) -> LLMTr
         raise HTTPException(400, f"Invalid subroutine id {subroutine_id!r}")
     try:
         return LLMTrace.model_validate(read_attempt_trace(workspace_id, commit_id, subroutine_id))
-    except FileNotFoundError as exc:
+    except StudyLookupError as exc:
         raise HTTPException(404, str(exc)) from exc
 
 

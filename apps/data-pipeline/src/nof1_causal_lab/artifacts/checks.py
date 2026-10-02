@@ -1,42 +1,113 @@
-"""Submission-time findings, independent of authoring progression."""
+"""Producer-specialized assessments, independent of authoring progression."""
 
 from __future__ import annotations
 
-from typing import Literal
+from enum import StrEnum
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import Field
 
-from .identity import ConstructId
+from nof1_causal_lab.artifacts.base import Value
+
+from .identity import ConstructId, EntityRef, IndicatorRef, ParameterRef
+
+type NotEvaluatedReason = Literal[
+    "MODEL_INCOMPLETE",
+    "MODEL_NOT_EXECUTABLE",
+    "NO_COMPATIBLE_PANEL",
+    "INSUFFICIENT_OBSERVATION_TIMES",
+    "SIMULATION_UNSUPPORTED",
+    "NONFINITE_EMISSION_MEAN",
+    "INSUFFICIENT_TIMES",
+    "NO_RELAXATION_TERM",
+    "EDGE_CONTRASTS_EXPLICIT",
+    "NO_OBSERVATION_SUPPORT",
+    "NO_OBSERVATIONS",
+    "STATIC_CONSTRUCT",
+    "INSUFFICIENT_OBSERVATIONS",
+    "ZERO_RESIDUAL_VARIANCE",
+    "ZERO_OBSERVED_VARIANCE",
+    "NONFINITE_PATHS",
+    "NONFINITE_SIGNAL",
+    "COMPARISON_INPUTS_MISSING",
+    "INSUFFICIENT_CHAIN_SAMPLES",
+    "NO_RETAINED_CHAINS",
+    "ARCHIVED_MEASUREMENT_NOT_RETAINED",
+    "ARCHIVED_ENGINE_NOT_RETAINED",
+]
 
 
-class SpecificationFinding(BaseModel):
-    """One model-only check and its current evaluation status."""
+class Evaluated[Subject, Evidence](Value):
+    """One producer's measured outcome and the evidence supporting it."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    check: str
-    status: Literal["passed", "failed", "not_evaluated"]
-    message: str
-
-
-class SpecificationReport(BaseModel):
-    """Model-only findings; data compatibility has its own paired input references."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    findings: tuple[SpecificationFinding, ...]
+    kind: Literal["evaluated"] = "evaluated"
+    subject: Subject
+    outcome: Literal["passed", "failed", "warning", "error"]
+    evidence: Evidence
 
 
-class PredictiveCheckFinding(BaseModel):
-    """One measured simulation check, independent of its authoring or simulation context."""
+class NotEvaluated[Subject](Value):
+    """An explicit absence of evaluation, with a closed producer reason."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
+    kind: Literal["not_evaluated"] = "not_evaluated"
+    subject: Subject
+    reason: NotEvaluatedReason
+    detail: str = ""
+
+
+type Assessment[Subject, Evidence] = Annotated[
+    Evaluated[Subject, Evidence] | NotEvaluated[Subject], Field(discriminator="kind")
+]
+
+
+class ConvergenceCriterion(StrEnum):
+    R_HAT = "r_hat"
+    ESS_BULK = "ess_bulk"
+    ESS_TAIL = "ess_tail"
+
+
+class NumericCriterionEvidence(Value):
+    """A measured scalar and the producer's numerical acceptance region."""
+
+    criterion: str
+    value: float
+    lower: float | None = None
+    upper: float | None = None
+    lower_inclusive: bool = True
+    upper_inclusive: bool = True
+    note: str = ""
+    display_value: str = ""
+    band_label: str = ""
+
+
+class PredictiveSubject(Value):
+    """One named check and its stable target in a construct's scientific context."""
 
     check: str
     construct_id: ConstructId | None = None
-    target: str
-    value: str
-    band: str
-    passed: bool | None
-    note: str
-    reason: str | None = None
+    target: EntityRef | Literal["whole_model", "observations"]
+
+
+class IndicatorCheckSubject(Value):
+    """The indicator and criterion remain present when evaluation is unavailable."""
+
+    target: IndicatorRef
+    check: Literal["calibration", "autocorrelation", "variance"]
+
+
+class ConvergenceSubject(Value):
+    """A convergence criterion on one stable scientific scalar."""
+
+    parameter: ParameterRef
+    criterion: ConvergenceCriterion
+    label: str
+
+
+type SpecificationAssessment = Assessment[str, str]
+type PredictiveAssessment = Assessment[PredictiveSubject, tuple[NumericCriterionEvidence, ...]]
+
+
+class SpecificationReport(Value):
+    """Model-only findings; compatibility reports have their own paired input references."""
+
+    findings: tuple[SpecificationAssessment, ...]

@@ -12,7 +12,7 @@ from nof1_causal_lab.artifacts.expressions import StateExpression
 from nof1_causal_lab.models.ssm import numerics as numeric
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
 
 
 @dataclass(frozen=True)
@@ -35,26 +35,26 @@ class ExactStateConstraints:
 
 
 def compile_exact_state_constraints(
-    spec: ModelSpec, observations: jnp.ndarray, *, input_values: jnp.ndarray | None = None
+    spec: CompiledModel, observations: jnp.ndarray, *, input_values: jnp.ndarray | None = None
 ) -> ExactStateConstraints | None:
     """Condition direct state bindings without discarding their dynamics density."""
     exact = [
-        (index, indicator, indicator.likelihood)
-        for index, indicator in enumerate(numeric.observed_indicators(spec))
-        if indicator.likelihood is not None and indicator.likelihood.law.distribution == "Delta"
+        (index, indicator)
+        for index, indicator in enumerate(spec.observations)
+        if indicator.likelihood.family.value == "delta"
     ]
     if not exact:
         return None
     observed = np.asarray(observations)
     values = np.full((len(observed), numeric.n_states(spec)), np.nan, dtype=observed.dtype)
-    state_indices = {identity: index for index, identity in enumerate(spec.state_order)}
-    for column, indicator, likelihood in exact:
-        if spec.indicator_owner(indicator.id).role == "exogenous":
+    state_indices = {identity: index for index, identity in enumerate(numeric.state_ids(spec))}
+    for column, indicator in exact:
+        if spec.states[indicator.state_index].is_input:
             if input_values is None:
                 raise ValueError("Exogenous inputs require a replayed panel path")
             continue
-        expression = likelihood.law.arguments["v"]
-        if indicator.support_kind != "point" or not isinstance(expression, StateExpression):
+        expression = indicator.likelihood.predictor
+        if indicator.support.support_kind != "point" or not isinstance(expression, StateExpression):
             raise ValueError(
                 f"Delta indicator {indicator.name!r} requires a direct point binding "
                 "Delta(v=state(...)) for particle inference; affine and interval constraints "

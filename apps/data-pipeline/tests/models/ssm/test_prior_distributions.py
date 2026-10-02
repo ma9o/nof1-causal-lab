@@ -21,7 +21,7 @@ from nof1_causal_lab.prior_distributions import (
     persistence_to_decay,
     prior_reference_value,
 )
-from tests.model_fixtures import compile_fit_fixture
+from tests.model_fixtures import compile_fit_fixture, compile_model_fixture
 
 _ADAPTER = TypeAdapter(NumPyroDistribution)
 
@@ -211,8 +211,8 @@ def test_scientific_roundtrip_preserves_distinct_native_coordinate_laws():
     )
     restored = ModelSpec.model_validate_json(model.model_dump_json())
     assert restored == model
-    before = compile_priors(model)[0]["t0_means_free"]
-    after = compile_priors(restored)[0]["t0_means_free"]
+    before = compile_priors(compile_model_fixture(model), model)[0]["t0_means_free"]
+    after = compile_priors(compile_model_fixture(restored), restored)[0]["t0_means_free"]
     value = jnp.array([-1.2, 0.5])
     np.testing.assert_allclose(after.log_prob(value), before.log_prob(value), atol=2e-6)
     key = jax.random.PRNGKey(7)
@@ -225,7 +225,6 @@ def test_compiler_and_dynestyx_parameter_trace_use_the_exact_persistence_law():
 
     from nof1_causal_lab.artifacts.parameter import SiteKind
     from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
-    from nof1_causal_lab.models.ssm.model import SSMModel
 
     definition = ModelSpec.model_validate_json(
         (
@@ -247,12 +246,16 @@ def test_compiler_and_dynestyx_parameter_trace_use_the_exact_persistence_law():
         ).read_text()
     )
     restored = ModelSpec.model_validate_json(definition.model_dump_json())
-    model = SSMModel(compile_fit_fixture(restored))
-    binding = next(b for b in parameter_bindings(restored)[0] if b.parameter_id == decay.id)
+    model = compile_fit_fixture(restored)
+    binding = next(
+        b
+        for b in parameter_bindings(compile_model_fixture(restored))[0]
+        if b.parameter_id == decay.id
+    )
     value = jnp.array(0.2)
     with handlers.substitute(data={binding.site_name: value}):
-        trace = handlers.trace(model._sample_runtime_dynamics).get_trace(
-            jnp.eye(1), jnp.array([0.0])
+        trace = handlers.trace(model.compiled.dynamics.sample_params).get_trace(
+            model.prior_runtime_bundle.priors.__getitem__
         )
     law = trace[binding.site_name]["fn"]
     expected = dist.Beta(2.0, 3.0).log_prob(jnp.exp(-7.0 * value)) + jnp.log(7.0) - 7.0 * value

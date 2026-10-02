@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import TYPE_CHECKING, Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 
+from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.artifacts.data_preparation import (
     FilePreparationSpec,
     SimulationReplicateRef,
@@ -15,11 +16,12 @@ from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.posterior import FitSettingsSpec
 from nof1_causal_lab.artifacts.simulation import SimulationSpec
 
+if TYPE_CHECKING:
+    from nof1_causal_lab.actions.tool_definition import ToolDefinition
 
-class EditModelRequest(BaseModel):
+
+class EditModelRequest(Value):
     """Replace one named base revision with a validated scientific definition."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     action: Literal["edit_model"] = "edit_model"
     expected_revision: GitOid | None
@@ -28,19 +30,15 @@ class EditModelRequest(BaseModel):
     )
 
 
-class PrepareDataRequest(BaseModel):
+class PrepareDataRequest(Value):
     """Prepare uploaded sources or a simulation replicate without a model."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     action: Literal["prepare_data"] = "prepare_data"
     input: FilePreparationSpec | SimulationReplicateRef
 
 
-class FitRequest(BaseModel):
+class FitRequest(Value):
     """Condition explicitly selected model and observation revisions."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     action: Literal["fit"] = "fit"
     model_revision: GitOid = Field()
@@ -50,8 +48,6 @@ class FitRequest(BaseModel):
 
 class SimulateRequest(SimulationSpec):
     """Generate through end with optional start and interventions; compare saved data with data_diff."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     action: Literal["simulate"] = "simulate"
     model_revision: GitOid = Field()
@@ -63,7 +59,7 @@ type ScientificActionRequest = Annotated[
 ]
 
 
-def scientific_tool_contracts():
+def scientific_tool_contracts() -> list[ToolDefinition]:
     """Expose the same typed requests through the tool and study transports."""
     from nof1_causal_lab.actions.results import ActionPoll, ActionReceipt, PollActionRequest
     from nof1_causal_lab.actions.tool_definition import ToolDefinition

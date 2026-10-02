@@ -14,8 +14,9 @@ import time
 import uuid
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, TypeAdapter
+from pydantic import Field, TypeAdapter
 
+from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
 
@@ -23,19 +24,15 @@ type ProgressStep = Literal["ingestion", "extraction"]
 type StepStatus = Literal["running", "completed", "failed"]
 
 
-class ProgressEventModel(BaseModel):
+class ProgressEventModel(Value):
     """One attempt's immutable event record, with a cursor added only on reads."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     attempt_id: uuid.UUID
     cursor: str = ""
 
 
-class StepError(BaseModel):
+class StepError(Value):
     """The error type and message of a failed step."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     type: str
     message: str

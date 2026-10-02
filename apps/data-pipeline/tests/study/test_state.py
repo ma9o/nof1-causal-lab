@@ -68,7 +68,7 @@ class TestStaleness:
             derived_from={"model": git_oid(1), "panel": git_oid(1)},
             produced_by="fit",
         )
-        model = ArtifactRecord.model_validate({**model.model_dump(), "model_inputs": inputs})
+        model = model.revised(model_inputs=inputs)
         dependents = [
             _version("identification_report", derived_from={"model": git_oid(1)}),
         ]
@@ -76,12 +76,9 @@ class TestStaleness:
             model,
             _version("panel"),
             *[
-                type(item).model_validate(
-                    {
-                        **item.model_dump(),
-                        "consumed_model_inputs": {
-                            MODEL_INPUTS[item.artifact_id]: inputs[MODEL_INPUTS[item.artifact_id]]
-                        },
+                item.revised(
+                    consumed_model_inputs={
+                        MODEL_INPUTS[item.artifact_id]: inputs[MODEL_INPUTS[item.artifact_id]]
                     }
                 )
                 for item in dependents
@@ -106,11 +103,7 @@ class TestStaleness:
     def test_republishing_identification_preserves_conditioned_science(self):
         state = self._fitted_chain()
         current = state.with_artifacts(
-            [
-                type(state.current["identification_report"]).model_validate(
-                    {**state.current["identification_report"].model_dump(), "revision": git_oid(2)}
-                )
-            ]
+            [state.current["identification_report"].revised(revision=git_oid(2))]
         )
         assert inference_is_current(current)
 

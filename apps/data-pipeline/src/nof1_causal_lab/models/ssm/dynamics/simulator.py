@@ -21,6 +21,8 @@ from jax import Array
 from .vector_field import VectorFieldArgs
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from .intervention import Intervention
     from .vector_field import VectorField
 
@@ -70,12 +72,12 @@ class _IndexedBrownianPath(dfx.AbstractBrownianPath[Array | dfx.BrownianIncremen
 
     # Diffrax declares these through Equinox AbstractVar. Ty currently models
     # AbstractVar as a class variable even though Diffrax requires instance fields.
-    t0: Array  # ty: ignore[invalid-attribute-override] - Diffrax requires instance fields; ty treats Equinox AbstractVar as a class variable.
-    t1: Array  # ty: ignore[invalid-attribute-override] - Diffrax requires instance fields; ty treats Equinox AbstractVar as a class variable.
+    t0: Array  # pyright: ignore[reportIncompatibleVariableOverride] - Diffrax AbstractVar requires an instance field. # ty: ignore[invalid-attribute-override] - Diffrax requires instance fields; ty treats Equinox AbstractVar as a class variable.
+    t1: Array  # pyright: ignore[reportIncompatibleVariableOverride] - Diffrax AbstractVar requires an instance field. # ty: ignore[invalid-attribute-override] - Diffrax requires instance fields; ty treats Equinox AbstractVar as a class variable.
     shape: tuple[int, ...] = eqx.field(static=True)
     key: Array
     step_size: Array
-    levy_area: type[dfx.BrownianIncrement] = eqx.field(
+    levy_area: type[dfx.BrownianIncrement] = eqx.field(  # pyright: ignore[reportIncompatibleVariableOverride] - Equinox AbstractVar is implemented by this concrete static field.
         static=True, default=dfx.BrownianIncrement, kw_only=True
     )
 
@@ -99,7 +101,7 @@ class _IndexedBrownianPath(dfx.AbstractBrownianPath[Array | dfx.BrownianIncremen
 
 def simulate(
     vector_field: VectorField,
-    params: tuple[dict[str, Array], ...],
+    params: tuple[Mapping[str, Array], ...],
     intervention: Intervention,
     initial_state: Array,
     time_grid: Array,
@@ -221,7 +223,8 @@ def simulate_model_path(
         throw=False,
         adjoint=adjoint,
     )
-    return solution.ys
+    path: Array = solution.ys  # pyright: ignore[reportAssignmentType] - Array y0 and SaveAt(ts=...) produce an array-valued solution.
+    return path
 
 
 def _latent_observation(x, u, t):

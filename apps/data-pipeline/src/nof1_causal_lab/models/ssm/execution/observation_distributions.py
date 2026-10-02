@@ -26,14 +26,14 @@ def point_observation_scales(covariance: jax.Array) -> jax.Array:
     return jnp.sqrt(jnp.maximum(jnp.diag(covariance), NUMERICAL_EPSILON))
 
 
-def categorical_distribution(probs: jax.Array) -> dist.Distribution:
+def categorical_distribution(probs: jax.Array) -> dist.CategoricalLogits:
     """Logits preserve exact zero probabilities, including padded categories."""
-    return dist.Categorical(logits=jnp.log(probs))
+    return dist.CategoricalLogits(logits=jnp.log(probs))
 
 
-def binary_logits_distribution(logits: jax.Array) -> dist.Distribution:
+def binary_logits_distribution(logits: jax.Array) -> dist.CategoricalLogits:
     """Stable predictor tails with the same binary categorical law as mean space."""
-    return dist.Categorical(
+    return dist.CategoricalLogits(
         logits=jnp.stack([jax.nn.log_sigmoid(-logits), jax.nn.log_sigmoid(logits)], axis=-1)
     )
 
@@ -50,9 +50,11 @@ _MEAN_DOMAINS = {
 }
 
 
-def safe_observation_mean(family: DistributionFamily, mean: jax.Array):
+def safe_observation_mean(
+    family: DistributionFamily, mean: jax.Array
+) -> tuple[jax.Array, jax.Array]:
     """Preserve valid means; use interior placeholders only for invalid channels."""
-    valid = jnp.isfinite(mean) & _MEAN_DOMAINS[family](mean)
+    valid = jnp.isfinite(mean) & jnp.asarray(_MEAN_DOMAINS[family](mean), dtype=bool)
     return jnp.where(valid, mean, 0.5), valid
 
 
@@ -106,7 +108,13 @@ def mean_parameter_distribution(
             raise ValueError(f"Mean-parameter observations are not defined for {family.value!r}")
 
 
-def sample_mean_observation(family, key, mean, scale, extra_params):
+def sample_mean_observation(
+    family: DistributionFamily,
+    key: jnp.ndarray,
+    mean: jnp.ndarray,
+    scale: jax.Array | float,
+    extra_params: LikelihoodExtraParams,
+) -> jax.Array:
     safe_mean, valid = safe_observation_mean(family, mean)
     draw = mean_parameter_distribution(family, safe_mean, scale, extra_params).sample(key)
     return jnp.where(valid, draw, jnp.nan)
@@ -126,7 +134,7 @@ def mean_observation_variance(
     safe_mean, valid = safe_observation_mean(family, mean)
     law = mean_parameter_distribution(family, safe_mean, scale, extra_params)
     variance = (
-        dist.Bernoulli(probs=law.probs[..., 1]).variance
+        dist.BernoulliProbs(probs=safe_mean).variance
         if family == DistributionFamily.BERNOULLI
         else law.variance
     )

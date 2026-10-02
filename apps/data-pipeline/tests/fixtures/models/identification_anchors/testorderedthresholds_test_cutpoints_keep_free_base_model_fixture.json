@@ -26,49 +26,47 @@
             "likelihood": {
               "law": {
                 "distribution": "OrderedLogistic",
-                "arguments": {
-                  "predictor": {
+                "predictor": {
+                  "kind": "binary",
+                  "operator": "add",
+                  "left": {
+                    "kind": "coefficient",
+                    "role": "observation_intercept",
+                    "value": 0.0,
+                    "construct_ids": []
+                  },
+                  "right": {
                     "kind": "binary",
-                    "operator": "add",
+                    "operator": "multiply",
                     "left": {
                       "kind": "coefficient",
-                      "role": "observation_intercept",
-                      "value": 0.0,
+                      "role": "loading",
+                      "value": 1.0,
                       "construct_ids": []
                     },
                     "right": {
-                      "kind": "binary",
-                      "operator": "multiply",
-                      "left": {
-                        "kind": "coefficient",
-                        "role": "loading",
-                        "value": 1.0,
-                        "construct_ids": []
-                      },
-                      "right": {
-                        "kind": "state",
-                        "construct_id": "construct:98907cc586bfcf98c836"
-                      }
+                      "kind": "state",
+                      "construct_id": "construct:98907cc586bfcf98c836"
                     }
-                  },
-                  "cutpoints": {
-                    "kind": "call",
-                    "function": "ordered_cutpoints",
-                    "arguments": [
-                      {
-                        "kind": "coefficient",
-                        "role": "cutpoint_base",
-                        "value": "parameter:1c1b753017256ab204421204af3aefa0af079afb9dbefe3ed744357d2c4dab94",
-                        "construct_ids": []
-                      },
-                      {
-                        "kind": "coefficient",
-                        "role": "cutpoint_gaps",
-                        "value": "parameter:dd3992a70b7a8d566acd95e538b9991eefe818a143b267a7530a774678dbfc28",
-                        "construct_ids": []
-                      }
-                    ]
                   }
+                },
+                "cutpoints": {
+                  "kind": "call",
+                  "function": "ordered_cutpoints",
+                  "arguments": [
+                    {
+                      "kind": "coefficient",
+                      "role": "cutpoint_base",
+                      "value": "parameter:1c1b753017256ab204421204af3aefa0af079afb9dbefe3ed744357d2c4dab94",
+                      "construct_ids": []
+                    },
+                    {
+                      "kind": "coefficient",
+                      "role": "cutpoint_gaps",
+                      "value": "parameter:dd3992a70b7a8d566acd95e538b9991eefe818a143b267a7530a774678dbfc28",
+                      "construct_ids": []
+                    }
+                  ]
                 }
               },
               "standardized": false,
@@ -198,49 +196,55 @@
       "id": "parameter:e7e20d74af8aa47e58ffca403670f3912bcddafed670860906dee61462d2c669",
       "name": "parameter:e7e20d74af8aa47e58ffca403670f3912bcddafed670860906dee61462d2c669",
       "description": "Fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:4aca7dfa6f1b5e5e96daf4e0f6ee2ffa83e03759c22c1af544d80a9dcd5e1a52",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:428e7de5d18c796563860ab8173a48433fdbf81b7aecf44b01d76044d80d5c10",
       "name": "parameter:428e7de5d18c796563860ab8173a48433fdbf81b7aecf44b01d76044d80d5c10",
       "description": "Fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:b58954baa704ad5ddc92db893300309e874c54365f3526674f27362589587169",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:ee44072a88945905188a2251e020e6a450956ad7231815920b1261fe09e02430",
       "name": "parameter:ee44072a88945905188a2251e020e6a450956ad7231815920b1261fe09e02430",
       "description": "Fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:24b256ef9d59de25a35d8d1550a6d865dc124bde628cbd7f082f559c21212426",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:f76097c73161c6cd52bf8da579d1f81d5e335f458a73237c793253bf8fb475a8",
       "name": "parameter:f76097c73161c6cd52bf8da579d1f81d5e335f458a73237c793253bf8fb475a8",
       "description": "Fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:5930f73e92e15e366f4fef0b7b9c21f6b99976dee09ff1e790ed8009eac5a57d",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:1c1b753017256ab204421204af3aefa0af079afb9dbefe3ed744357d2c4dab94",
       "name": "obs_ordered_base_manifest_0",
       "description": "likelihood.cutpoint base for obs_ordered_base_manifest_0",
-      "distribution_transform": "identity",
       "distribution": "distribution:c7ea8ac32c921869b13ec029f4d6b8dbe20a0ffbb993e82f9d3223f7e653de7d",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:dd3992a70b7a8d566acd95e538b9991eefe818a143b267a7530a774678dbfc28",
       "name": "obs_ordered_gaps_manifest_0",
       "description": "likelihood.cutpoint gaps for obs_ordered_gaps_manifest_0",
-      "distribution_transform": "identity",
       "distribution": "distribution:183242b14c94b98f404ead7e6d4bd4bf0a9e6ec38c4a9478df61f098425bce5d",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     }
   ],
   "distributions": {

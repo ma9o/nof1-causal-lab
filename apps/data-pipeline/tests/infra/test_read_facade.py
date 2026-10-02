@@ -4,7 +4,9 @@ import pytest
 from fastapi.testclient import TestClient
 
 from nof1_causal_lab.read_facade import create_read_facade_app
+from nof1_causal_lab.study.records import DataPreparationResult, ModelEditResult
 from nof1_causal_lab.utils import data as data_module
+from tests.action_fixtures import applied_record
 from tests.git_fixtures import artifact_revision, commit_id, git_oid
 
 pytestmark = pytest.mark.contract
@@ -25,7 +27,11 @@ def test_read_facade_serves_reads_and_rejects_actions(monkeypatch, tmp_path):
 
     action = client.post(
         "/api/studies/WS-READONLY/actions",
-        json={"action": "prepare_data", "source": "files"},
+        json={
+            "action": "fit",
+            "model_revision": str(git_oid(1)),
+            "panel_revision": str(git_oid(2)),
+        },
     )
     assert action.status_code == 403
     upload = client.post(
@@ -38,7 +44,6 @@ def test_read_facade_serves_reads_and_rejects_actions(monkeypatch, tmp_path):
 
 def test_artifact_endpoint_serves_pinned_versions(monkeypatch, tmp_path):
     from nof1_causal_lab.study.history import StudyRepository
-    from nof1_causal_lab.study.records import AttemptRecord
     from nof1_causal_lab.study.store import ArtifactStore
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
@@ -66,13 +71,10 @@ def test_artifact_endpoint_serves_pinned_versions(monkeypatch, tmp_path):
     # not become the current revision until an applied action records the effect.
     assert client.get("/api/studies/WS-ART/artifacts/model").status_code == 404
     StudyRepository("WS-ART").append(
-        AttemptRecord(
+        applied_record(
+            ModelEditResult(produced=[question]),
             seq=1,
             ts="2026-07-09T00:00:00+00:00",
-            action="edit_model",
-            inputs={"expected_revision": None},
-            status="applied",
-            produced=[question],
             trace_ids=[],
         )
     )
@@ -85,7 +87,6 @@ def test_artifact_endpoint_serves_pinned_versions(monkeypatch, tmp_path):
 
 def test_trace_endpoints_join_artifact_version_to_promoted_trace(monkeypatch, tmp_path):
     from nof1_causal_lab.study.history import StudyRepository
-    from nof1_causal_lab.study.records import AttemptRecord
     from nof1_causal_lab.study.store import ArtifactStore, collect_run_traces
     from nof1_causal_lab.utils import storage
     from nof1_causal_lab.utils.llm import LLMTrace, TraceMessage
@@ -107,13 +108,10 @@ def test_trace_endpoints_join_artifact_version_to_promoted_trace(monkeypatch, tm
     )
     logs = collect_run_traces("WS-TRACE", 1)
     StudyRepository("WS-TRACE").append(
-        AttemptRecord(
+        applied_record(
+            DataPreparationResult(produced=[raw_data]),
             seq=1,
             ts="2026-07-09T00:00:00+00:00",
-            action="prepare_data",
-            inputs={},
-            status="applied",
-            produced=[raw_data],
             trace_ids=["raw-data"],
         ),
         logs=logs,
@@ -130,7 +128,6 @@ def test_trace_endpoints_join_artifact_version_to_promoted_trace(monkeypatch, tm
 
 def test_workspaces_endpoint_lists_study_questions(monkeypatch, tmp_path):
     from nof1_causal_lab.study.history import StudyRepository
-    from nof1_causal_lab.study.records import AttemptRecord
     from nof1_causal_lab.study.store import ArtifactStore
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
@@ -144,13 +141,10 @@ def test_workspaces_endpoint_lists_study_questions(monkeypatch, tmp_path):
         json_files={"model.json": {"question": "does X cause Y?"}},
     )
     StudyRepository("WS-LIST").append(
-        AttemptRecord(
+        applied_record(
+            ModelEditResult(produced=[question]),
             seq=1,
             ts="2026-07-09T00:00:00+00:00",
-            action="edit_model",
-            inputs={"expected_revision": None},
-            status="applied",
-            produced=[question],
             trace_ids=[],
         )
     )

@@ -33,7 +33,7 @@ Usage::
 from __future__ import annotations
 
 from abc import ABC, abstractmethod
-from typing import TYPE_CHECKING, Any, NotRequired, TypedDict, overload, override
+from typing import TYPE_CHECKING, Any, overload, override
 
 import numpyro
 import numpyro.distributions as dist
@@ -48,13 +48,7 @@ from numpyro.infer.reparam import (
 if TYPE_CHECKING:
     from collections.abc import Callable
 
-
-class ReparamSite(TypedDict):
-    """NumPyro sample-site fields consumed by reparameterization strategies."""
-
-    name: str
-    fn: dist.Distribution
-    is_observed: NotRequired[bool]
+    from numpyro.primitives import Message
 
 
 class Strategy(ABC):
@@ -74,7 +68,7 @@ class Strategy(ABC):
         self.config: dict[str, Reparam | None] = {}
 
     @abstractmethod
-    def configure(self, msg: ReparamSite) -> Reparam | None:
+    def configure(self, msg: Message) -> Reparam | None:
         """Input a sample site and return a Reparam or None.
 
         Called only on first model execution per site; subsequent
@@ -90,14 +84,14 @@ class Strategy(ABC):
         raise NotImplementedError
 
     @overload
-    def __call__(self, msg_or_fn: ReparamSite) -> Reparam | None: ...
+    def __call__(self, msg_or_fn: Message) -> Reparam | None: ...
 
     @overload
     def __call__[**P, R](self, msg_or_fn: Callable[P, R]) -> Callable[P, R]: ...
 
     def __call__(
         self,
-        msg_or_fn: ReparamSite | Callable[..., Any],
+        msg_or_fn: Message | Callable[..., Any],
     ) -> Any:
         """Use as config callable or model decorator.
 
@@ -153,7 +147,7 @@ class AutoReparam(Strategy):
         self.centered = centered
 
     @override
-    def configure(self, msg: ReparamSite) -> Reparam | None:
+    def configure(self, msg: Message) -> Reparam | None:
         fn = msg["fn"]
         if not msg.get("is_observed", False):
             # Unwrap through known wrapper types only (Independent,
@@ -179,7 +173,7 @@ class AutoReparam(Strategy):
                 return result
 
         # Fallback to minimal reparameterization.
-        return _minimal_reparam(fn, msg.get("is_observed", False))
+        return _minimal_reparam(fn, is_observed=msg.get("is_observed", False))
 
 
 def _loc_scale_reparam(
@@ -203,7 +197,7 @@ def _loc_scale_reparam(
     return LocScaleReparam(centered=centered, shape_params=shape_params)
 
 
-def _minimal_reparam(fn: dist.Distribution, is_observed: bool) -> Reparam | None:
+def _minimal_reparam(fn: dist.Distribution, *, is_observed: bool) -> Reparam | None:
     """Apply minimal reparameterization for distributions that need it."""
     if is_observed:
         return None
@@ -212,7 +206,7 @@ def _minimal_reparam(fn: dist.Distribution, is_observed: bool) -> Reparam | None
     inner = fn
     while True:
         if isinstance(inner, dist.TransformedDistribution):
-            if _minimal_reparam(inner.base_dist, is_observed) is None:
+            if _minimal_reparam(inner.base_dist, is_observed=is_observed) is None:
                 return None
             return TransformReparam()
         if isinstance(
@@ -228,7 +222,7 @@ def _minimal_reparam(fn: dist.Distribution, is_observed: bool) -> Reparam | None
     return None
 
 
-def _is_unconstrained(constraint: constraints.Constraint) -> bool:
+def _is_unconstrained(constraint: constraints.Constraint | None) -> bool:
     """Check if a constraint is unconstrained (real-valued)."""
     while isinstance(constraint, constraints.independent):
         constraint = constraint.base_constraint

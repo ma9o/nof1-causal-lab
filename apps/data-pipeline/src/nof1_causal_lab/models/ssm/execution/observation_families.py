@@ -16,6 +16,7 @@ Each entry fully describes one observation family's behavior at every dispatch s
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal
 
 import jax
@@ -57,7 +58,7 @@ from .observation_kernel_helpers import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterable, Sequence
+    from collections.abc import Callable, Iterable, Mapping, Sequence
 
 type EmissionLogProbFn = Callable[
     [jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray],
@@ -92,9 +93,9 @@ class ObservationFamilySpec:
     """Whether this family requires hydrated manifest_level_counts."""
 
     # --- emissions.py concerns ---
-    emission_fns: dict[LinkFunction, EmissionFactory]
+    emission_fns: Mapping[LinkFunction, EmissionFactory]
     """link -> factory(extra_params) -> log_prob(y, eta, R, mask)."""
-    score_weight_fns: dict[LinkFunction, ScoreWeightFactory]
+    score_weight_fns: Mapping[LinkFunction, ScoreWeightFactory]
     """link -> factory(extra_params) -> score_weight_fn | None."""
 
     # --- kernels.py concerns ---
@@ -104,8 +105,15 @@ class ObservationFamilySpec:
     """One of 'gaussian', 'student_t', 'glm', or 'delta' (no smooth density)."""
     make_response_fn: ResponseFactory | None
     """(extra_params) -> response_fn, or None to use _RESPONSE_FNS[link]."""
-    posterior_predictive_fns: dict[LinkFunction, PosteriorPredictiveFn]
+    posterior_predictive_fns: Mapping[LinkFunction, PosteriorPredictiveFn]
     """link -> posterior predictive branch used by lax.switch."""
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "emission_fns", MappingProxyType(dict(self.emission_fns)))
+        object.__setattr__(self, "score_weight_fns", MappingProxyType(dict(self.score_weight_fns)))
+        object.__setattr__(
+            self, "posterior_predictive_fns", MappingProxyType(dict(self.posterior_predictive_fns))
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -189,7 +197,7 @@ def _build_link_dispatch_map[T: Callable[..., object]](
     default_link: LinkFunction,
     default_fn: T,
     *,
-    overrides: dict[LinkFunction, T] | None = None,
+    overrides: Mapping[LinkFunction, T] | None = None,
 ) -> dict[LinkFunction, T]:
     return {
         **dict.fromkeys(_ordered_links(dist, default_link), default_fn),
@@ -428,44 +436,44 @@ def _response_factory_categorical(params: LikelihoodExtraParams):
 
 
 def _sample_discrete_from_probs(key: jax.Array, probs: jnp.ndarray) -> jnp.ndarray:
-    return categorical_distribution(probs).sample(key).astype(jnp.float32)
+    return jnp.asarray(categorical_distribution(probs).sample(key), dtype=jnp.float32)
 
 
 def _ppc_delta(
     loc, key, _std, _df, _shape, _r, _phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
-):
+) -> jnp.ndarray:
     return sample_mean_observation(DistributionFamily.DELTA, key, loc, 0.0, {})
 
 
 def _ppc_gaussian(
     loc, key, std, _df, _shape, _r, _phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
-):
+) -> jnp.ndarray:
     return sample_mean_observation(DistributionFamily.GAUSSIAN, key, loc, std, {})
 
 
 def _ppc_student_t(
     loc, key, std, df, _shape, _r, _phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
-):
+) -> jnp.ndarray:
     return sample_mean_observation(DistributionFamily.STUDENT_T, key, loc, std, {"obs_df": df})
 
 
 def _ppc_poisson(
     loc, key, _std, _df, _shape, _r, _phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
-):
+) -> jnp.ndarray:
     rate = jnp.exp(loc)
     return sample_mean_observation(DistributionFamily.POISSON, key, rate, 1.0, {})
 
 
 def _ppc_gamma_log(
     loc, key, _std, _df, shape, _r, _phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
-):
+) -> jnp.ndarray:
     mean = jnp.exp(loc)
     return sample_mean_observation(DistributionFamily.GAMMA, key, mean, 1.0, {"obs_shape": shape})
 
 
 def _ppc_gamma_inverse(
     loc, key, _std, _df, shape, _r, _phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
-):
+) -> jnp.ndarray:
     valid_loc = jnp.isfinite(loc) & (loc > 0.0)
     safe_loc = jnp.where(valid_loc, loc, 1.0)
     mean = 1.0 / safe_loc
@@ -475,13 +483,13 @@ def _ppc_gamma_inverse(
 
 def _ppc_bernoulli_logit(
     loc, key, _std, _df, _shape, _r, _phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
-):
-    return binary_logits_distribution(logits=loc).sample(key).astype(jnp.float32)
+) -> jnp.ndarray:
+    return jnp.asarray(binary_logits_distribution(logits=loc).sample(key), dtype=jnp.float32)
 
 
 def _ppc_bernoulli_probit(
     loc, key, _std, _df, _shape, _r, _phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
-):
+) -> jnp.ndarray:
     return sample_mean_observation(
         DistributionFamily.BERNOULLI, key, jax.scipy.stats.norm.cdf(loc), 1.0, {}
     )
@@ -489,14 +497,14 @@ def _ppc_bernoulli_probit(
 
 def _ppc_negative_binomial(
     loc, key, _std, _df, _shape, r, _phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
-):
+) -> jnp.ndarray:
     mu = jnp.exp(loc)
     return sample_mean_observation(DistributionFamily.NEGATIVE_BINOMIAL, key, mu, 1.0, {"obs_r": r})
 
 
 def _ppc_beta_logit(
     loc, key, _std, _df, _shape, _r, phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
-):
+) -> jnp.ndarray:
     mean = jax.nn.sigmoid(loc)
     return sample_mean_observation(
         DistributionFamily.BETA, key, mean, 1.0, {"obs_concentration": phi}
@@ -505,7 +513,7 @@ def _ppc_beta_logit(
 
 def _ppc_beta_probit(
     loc, key, _std, _df, _shape, _r, phi, _level_count, _cutpoints, _cat_intercepts, _cat_slopes
-):
+) -> jnp.ndarray:
     mean = jax.scipy.stats.norm.cdf(loc)
     return sample_mean_observation(
         DistributionFamily.BETA, key, mean, 1.0, {"obs_concentration": phi}
@@ -524,7 +532,7 @@ def _ppc_ordered_logistic(
     cutpoints,
     _cat_intercepts,
     _cat_slopes,
-):
+) -> jnp.ndarray:
     probs = ordered_logistic_probabilities(
         jnp.asarray([loc]),
         cutpoints[None, :],
@@ -545,7 +553,7 @@ def _ppc_categorical(
     _cutpoints,
     cat_intercepts,
     cat_slopes,
-):
+) -> jnp.ndarray:
     probs = categorical_probabilities(
         jnp.asarray([loc]),
         cat_intercepts[None, :],
@@ -839,21 +847,21 @@ def _validate_registry_links() -> None:
                 f"ObservationFamilySpec for {dist.value} has default link "
                 f"{spec.default_link.value!r} not in expected {sorted(expected)}"
             )
-        emission_keys = set(spec.emission_fns)
+        emission_keys = frozenset(spec.emission_fns)
         if emission_keys != expected:
             raise ValueError(
                 f"ObservationFamilySpec for {dist.value} has emission links {sorted(emission_keys)} "
                 f"but expected {sorted(expected)}"
             )
 
-        score_weight_keys = set(spec.score_weight_fns)
+        score_weight_keys = frozenset(spec.score_weight_fns)
         if spec.grad_hess_strategy == "glm" and score_weight_keys != expected:
             raise ValueError(
                 f"ObservationFamilySpec for {dist.value} has score-weight links "
                 f"{sorted(score_weight_keys)} but expected {sorted(expected)}"
             )
 
-        posterior_predictive_keys = set(spec.posterior_predictive_fns)
+        posterior_predictive_keys = frozenset(spec.posterior_predictive_fns)
         if posterior_predictive_keys != expected:
             raise ValueError(
                 f"ObservationFamilySpec for {dist.value} has posterior predictive links "
@@ -868,7 +876,7 @@ POSTERIOR_PREDICTIVE_SWITCH_ORDER: tuple[tuple[DistributionFamily, LinkFunction]
     (dist, link) for dist, spec in FAMILY_REGISTRY.items() for link in spec.posterior_predictive_fns
 )
 
-POSTERIOR_PREDICTIVE_SWITCH_BRANCHES = tuple(
+POSTERIOR_PREDICTIVE_SWITCH_BRANCHES: tuple[PosteriorPredictiveFn, ...] = tuple(
     FAMILY_REGISTRY[dist].posterior_predictive_fns[link]
     for dist, link in POSTERIOR_PREDICTIVE_SWITCH_ORDER
 )

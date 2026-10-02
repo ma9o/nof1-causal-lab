@@ -1,50 +1,26 @@
-"""Wire projections shared by extraction workers and stored extraction plans.
+"""Extraction context composes owned definitions, fixed windows and source references."""
 
-Domain definitions are validated by DataPreparationSpec/ModelSpec before projection.
-Stored worker contexts are decoded with the adapter at their read boundary.
-"""
+from __future__ import annotations
 
-from typing import Literal, NotRequired
+from pydantic import Field
 
-from polars._typing import FillNullStrategy
-from typing_extensions import TypedDict
-
-from nof1_causal_lab.artifacts.identity import IndicatorId
-from nof1_causal_lab.measurement_types import AggregationFunction, MeasurementDtype
+from nof1_causal_lab.artifacts.base import Value
+from nof1_causal_lab.artifacts.data_preparation import DataVariableSpec, FileSourceRef
+from nof1_causal_lab.artifacts.duration import Duration
 
 
-class MeasurementIndicator(TypedDict):
-    id: IndicatorId
-    name: NotRequired[str]
-    measurement_dtype: MeasurementDtype
-    aggregation: AggregationFunction
-    observation_window: NotRequired[str | None]
-    how_to_measure: NotRequired[str]
-    source_columns: NotRequired[list[str]]
-    computed_rule: NotRequired[str | None]
-    extraction_mode: NotRequired[Literal["computed", "semantic"]]
-    fill_null: NotRequired[FillNullStrategy | float | None]
-    fill_null_limit: NotRequired[int | None]
-    ordinal_levels: NotRequired[list[str] | None]
-    categorical_levels: NotRequired[list[str] | None]
-    support_kind: NotRequired[str]
-    summary_operator: NotRequired[str]
-    anchor_policy: NotRequired[str]
-    construct_id: NotRequired[str]
-    construct_name: NotRequired[str]
-    source_id: NotRequired[str]
+class MeasurementContext(Value):
+    """One extraction selection, retaining its authored variables and source span."""
 
+    source: FileSourceRef
+    model_clock: Duration
+    indicators: tuple[DataVariableSpec, ...] = Field(min_length=1)
 
-class MeasurementContext(TypedDict):
-    model_clock: str | None
-    indicators: list[MeasurementIndicator]
+    def window(self, indicator: DataVariableSpec) -> Duration:
+        return indicator.observation_window or self.model_clock
 
-
-class IndicatorMeasurementInfo(TypedDict):
-    dtype: MeasurementDtype
-    ordinal_levels: list[str] | None
-    categorical_levels: list[str] | None
-    support_kind: str
-    summary_operator: str
-    anchor_policy: str
-    observation_window: str | None
+    def select(self, indicator: DataVariableSpec) -> MeasurementContext:
+        """A chunk carries the same source and one actual observation definition."""
+        return MeasurementContext(
+            source=self.source, model_clock=self.model_clock, indicators=(indicator,)
+        )

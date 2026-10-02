@@ -8,52 +8,30 @@ from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.ssm import numerics as numeric
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.models.ssm.model import SSMModel
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
 
 def build_laplace_backend(
-    spec: ModelSpec,
+    spec: CompiledModel,
     n_ieks_iters: int,
     observation_support: ObservationSupportRuntime | None = None,
 ):
     """Construct a Laplace likelihood backend for a compiled spec."""
     from nof1_causal_lab.models.ssm.inference.targets.laplace import LaplaceLikelihood
-    from nof1_causal_lab.models.ssm.spec_metadata import (
-        get_per_channel_links,
-        get_per_channel_manifest,
-    )
 
     # Gaussian smoothing is an initialization view only. Its existing covariance
     # regularization lets it seed exact observations; the particle initialization
     # then substitutes their exact values and every retained draw uses Delta.
     warmup_families = [
         DistributionFamily.GAUSSIAN if family == DistributionFamily.DELTA else family
-        for family in get_per_channel_manifest(spec)
+        for family in numeric.observation_families(spec)
     ]
     return LaplaceLikelihood(
         n_latent=numeric.n_states(spec),
         n_manifest=numeric.n_observations(spec),
         manifest_dists=warmup_families,
-        manifest_links=get_per_channel_links(spec),
+        manifest_links=list(numeric.observation_links(spec)),
         n_ieks_iters=n_ieks_iters,
         observation_support=observation_support,
-    )
-
-
-def get_laplace_backend(model: SSMModel, n_ieks_iters: int):
-    """Construct or reuse the warmup-only Laplace backend for one model."""
-    return model.get_cached_artifact(
-        (
-            "backend",
-            "laplace",
-            n_ieks_iters,
-            id(model.observation_support),
-        ),
-        lambda: build_laplace_backend(
-            model.spec,
-            n_ieks_iters,
-            observation_support=model.observation_support,
-        ),
     )

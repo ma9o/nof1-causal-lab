@@ -22,37 +22,35 @@
             "likelihood": {
               "law": {
                 "distribution": "Normal",
-                "arguments": {
-                  "loc": {
+                "loc": {
+                  "kind": "binary",
+                  "operator": "add",
+                  "left": {
+                    "kind": "coefficient",
+                    "role": "observation_intercept",
+                    "value": 0.0,
+                    "construct_ids": []
+                  },
+                  "right": {
                     "kind": "binary",
-                    "operator": "add",
+                    "operator": "multiply",
                     "left": {
                       "kind": "coefficient",
-                      "role": "observation_intercept",
-                      "value": 0.0,
+                      "role": "loading",
+                      "value": 1.0,
                       "construct_ids": []
                     },
                     "right": {
-                      "kind": "binary",
-                      "operator": "multiply",
-                      "left": {
-                        "kind": "coefficient",
-                        "role": "loading",
-                        "value": 1.0,
-                        "construct_ids": []
-                      },
-                      "right": {
-                        "kind": "state",
-                        "construct_id": "construct:bbc87212909e45b9e6c3"
-                      }
+                      "kind": "state",
+                      "construct_id": "construct:bbc87212909e45b9e6c3"
                     }
-                  },
-                  "scale": {
-                    "kind": "coefficient",
-                    "role": "observation_scale",
-                    "value": 0.0,
-                    "construct_ids": []
                   }
+                },
+                "scale": {
+                  "kind": "coefficient",
+                  "role": "observation_scale",
+                  "value": 0.0,
+                  "construct_ids": []
                 }
               },
               "standardized": true,
@@ -198,17 +196,20 @@
       "id": "parameter:3dd6b7c9eb6876093f9fe0c1c1ce2864fd4a8c53e6dac3d6a1e5538016e1fdff",
       "name": "rho_mood",
       "description": "stiffness of rho_mood",
-      "distribution_transform": "dt_persistence_to_ct_decay",
       "distribution": "distribution:2eff23efd9f2c90b12d3fab727df449314c576dbed7ec15919f20bf81841a9b9",
-      "reference_interval_days": 7.0
+      "transform": {
+        "kind": "dt_persistence_to_ct_decay",
+        "interval_days": 7.0
+      }
     },
     {
       "id": "parameter:ea7fd5ac08160569f35431da4d1741f5ac0606585c802a602de991f3e3a51263",
       "name": "sigma_mood",
       "description": "innovation.scale for sigma_mood",
-      "distribution_transform": "identity",
       "distribution": "distribution:b4dc0c968ac82b7a968d154b7fd9c17cfc407e1d6f7b44a4a1d3eddd2d99bce7",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     }
   ],
   "distributions": {

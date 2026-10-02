@@ -9,8 +9,9 @@ from nof1_causal_lab.artifacts.expressions import (
     expression_states,
     linear_coefficient,
 )
-from nof1_causal_lab.compilation_errors import IncompleteModelError
+from nof1_causal_lab.compilation_errors import AggregatedCompileError, IncompleteModelError
 from nof1_causal_lab.models.model_parameters import coefficient_value
+from nof1_causal_lab.models.model_structure import selected_edges, selected_state_ids
 from nof1_causal_lab.models.ssm.dynamics.expression import ExpressionComponentSpec
 
 if TYPE_CHECKING:
@@ -31,14 +32,14 @@ def _is_projected_loading(
         return False
     weight = coefficient_value(linear_coefficient(mechanism.expression, owner.cause.id))
     if weight is None:
-        raise ValueError("Marginalized confounders support fixed linear loadings")
+        raise AggregatedCompileError(["Marginalized confounders support fixed linear loadings"])
     return True
 
 
 def lower_mechanisms(model: ModelSpec) -> tuple[ExpressionComponentSpec, ...]:
     """Require executable coverage, then bind every scalar expression without kind dispatch."""
-    states = set(model.state_order)
-    retained_edges = {edge.id for edge in model.execution_edges}
+    states = set(selected_state_ids(model))
+    retained_edges = {edge.id for edge in selected_edges(model)}
     modeled_edges: set[str] = set()
     modeled_nodes: set[str] = set()
     for owner, mechanism in model.iter_mechanisms():
@@ -67,7 +68,9 @@ def lower_mechanisms(model: ModelSpec) -> tuple[ExpressionComponentSpec, ...]:
             f"missing states={sorted(expected_nodes - modeled_nodes)}, "
             f"missing edges={sorted(retained_edges - modeled_edges)}"
         )
-    return tuple(component for _, component in iter_mechanism_components(model, model.state_order))
+    return tuple(
+        component for _, component in iter_mechanism_components(model, selected_state_ids(model))
+    )
 
 
 def iter_mechanism_components(

@@ -10,46 +10,115 @@ practical parameter identification or a full nonlinear relaxation timescale.
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal, assert_never
 
 import numpy as np
 
-from nof1_causal_lab.artifacts.checks import PredictiveCheckFinding
+from nof1_causal_lab.artifacts.checks import (
+    Assessment,
+    Evaluated,
+    NotEvaluated,
+    NotEvaluatedReason,
+    NumericCriterionEvidence,
+    PredictiveAssessment,
+    PredictiveSubject,
+)
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.identity import ConstructId
+    from collections.abc import Mapping
+
+    from nof1_causal_lab.artifacts.identity import ConstructId, EntityRef
 
 
 @dataclass(frozen=True)
 class CheckResult:
-    """One reachability check outcome (a measurement, not a recommendation)."""
+    """A measured assessment plus private plot buffers for the scientific workers."""
 
-    check: str
     target: str
-    value: str
-    band: str
-    passed: bool | None
-    note: str
+    assessment: Assessment[str, tuple[NumericCriterionEvidence, ...]]
     diagnosis: tuple[str, ...] = ()
-    evidence: dict[str, np.ndarray | float] | None = None
-    reason: str | None = None
+    evidence: Mapping[str, np.ndarray | float] | None = None
 
     @classmethod
-    def unevaluated(cls, check: str, target: str, reason: str, note: str) -> CheckResult:
-        return cls(check, target, "not_evaluated", "", None, note, reason=reason)
-
-    def finding(self, construct_id: ConstructId, target: str) -> PredictiveCheckFinding:
-        """Project the measured fields while retaining numerical evidence in the runtime."""
-        return PredictiveCheckFinding(
-            check=self.check,
-            construct_id=construct_id,
-            target=target,
-            value=self.value,
-            band=self.band,
-            passed=self.passed,
-            note=self.note,
-            reason=self.reason,
+    def measured(
+        cls,
+        check: str,
+        target: str,
+        value: str,
+        band: str,
+        note: str,
+        diagnosis: tuple[str, ...] = (),
+        evidence: Mapping[str, np.ndarray | float] | None = None,
+        *,
+        outcome: Literal["passed", "failed"],
+        measurements: tuple[NumericCriterionEvidence, ...],
+    ) -> CheckResult:
+        return cls(
+            target,
+            Evaluated(
+                subject=check,
+                outcome=outcome,
+                evidence=tuple(
+                    NumericCriterionEvidence(
+                        criterion=item.criterion,
+                        value=item.value,
+                        lower=item.lower,
+                        upper=item.upper,
+                        lower_inclusive=item.lower_inclusive,
+                        upper_inclusive=item.upper_inclusive,
+                        note=note,
+                        display_value=value,
+                        band_label=band,
+                    )
+                    for item in measurements
+                ),
+            ),
+            diagnosis,
+            evidence,
         )
+
+    @classmethod
+    def unevaluated(
+        cls, check: str, target: str, reason: NotEvaluatedReason, note: str
+    ) -> CheckResult:
+        return cls(target, NotEvaluated(subject=check, reason=reason, detail=note))
+
+    @property
+    def check(self) -> str:
+        return self.assessment.subject
+
+    @property
+    def value(self) -> str:
+        return (
+            self.assessment.evidence[0].display_value
+            if self.assessment.kind == "evaluated"
+            else "not_evaluated"
+        )
+
+    @property
+    def band(self) -> str:
+        return self.assessment.evidence[0].band_label if self.assessment.kind == "evaluated" else ""
+
+    @property
+    def passed(self) -> bool | None:
+        return self.assessment.outcome == "passed" if self.assessment.kind == "evaluated" else None
+
+    @property
+    def note(self) -> str:
+        return (
+            self.assessment.evidence[0].note
+            if self.assessment.kind == "evaluated"
+            else self.assessment.detail
+        )
+
+    def finding(self, construct_id: ConstructId, target: EntityRef) -> PredictiveAssessment:
+        subject = PredictiveSubject(check=self.check, construct_id=construct_id, target=target)
+        match self.assessment:
+            case Evaluated(outcome=outcome, evidence=evidence):
+                return Evaluated(subject=subject, outcome=outcome, evidence=evidence)
+            case NotEvaluated(reason=reason, detail=detail):
+                return NotEvaluated(subject=subject, reason=reason, detail=detail)
+        assert_never(self.assessment)
 
 
 def _robust_scale(values: np.ndarray, *, axis: int | tuple[int, ...] | None = None) -> np.ndarray:
@@ -129,25 +198,38 @@ def check_confinement(
             "(diffusion, incoming edges)",
         )
     return [
-        CheckResult(
+        CheckResult.measured(
             "C1a finiteness",
             name,
             f"nonfinite {_nonfinite:.1%}",
             "0%",
-            _nonfinite == 0.0,
             f"simulation of {name} produced non-finite values — dependent measurements cannot be evaluated.",
             _diag_a,
             _ev,
+            outcome="passed" if _nonfinite == 0.0 else "failed",
+            measurements=(
+                NumericCriterionEvidence(
+                    criterion="nonfinite_fraction", value=_nonfinite, upper=0.0
+                ),
+            ),
         ),
-        CheckResult(
+        CheckResult.measured(
             "C1b confinement",
             name,
             f"P(late/early amplitude > {growth_ratio:g}) {_explode:.1%}",
             f"<{max_explosive_frac:.1%} (self-calibrating growth)",
-            _explode < max_explosive_frac,
             f"trajectories of {name} grow without settling within the study window.",
             _diag_b,
             _ev,
+            outcome="passed" if _explode < max_explosive_frac else "failed",
+            measurements=(
+                NumericCriterionEvidence(
+                    criterion="explosive_fraction",
+                    value=_explode,
+                    upper=max_explosive_frac,
+                    upper_inclusive=False,
+                ),
+            ),
         ),
     ]
 
@@ -183,16 +265,20 @@ def check_scale(
             "emission-to-data compatibility is evaluated separately by the C5 replicated-data "
             "checks",
         )
-    return CheckResult(
+    return CheckResult.measured(
         "C2 latent scale",
         name,
         f"median sd {_med:.2f} (5–95%: {_q05:.2f}–{_q95:.2f})",
         f"[{_lo:.2f}, {_hi:.2f}] ({anchor_src})",
-        _ok,
-        f"marginal predictive scale of {name} is inconsistent with the standardized latent "
-        f"convention ({anchor_src}).",
+        f"marginal predictive scale of {name} is inconsistent with the standardized latent convention ({anchor_src}).",
         _diag,
         _ev,
+        outcome="passed" if _ok else "failed",
+        measurements=(
+            NumericCriterionEvidence(
+                criterion="median_latent_sd", value=_med, lower=_lo, upper=_hi
+            ),
+        ),
     )
 
 
@@ -207,15 +293,20 @@ def check_resolvability(
     _tau = np.asarray(tau_draws, dtype=float)
     _times = np.unique(np.asarray(observation_times, dtype=float))
     if _times.size < 2:
-        return CheckResult(
+        return CheckResult.measured(
             "C3 resolvability",
             name,
             f"{_times.size} distinct observation time(s)",
             ">= 2 distinct times",
-            False,
             f"the schedule for {name} contains too few distinct observations to resolve dynamics.",
             ("no temporal contrast is available for this construct",),
             {"observation_times": _times},
+            outcome="failed",
+            measurements=(
+                NumericCriterionEvidence(
+                    criterion="distinct_observation_times", value=float(_times.size), lower=2.0
+                ),
+            ),
         )
     _gaps = np.diff(_times)
     _span = float(np.ptp(_times))
@@ -249,16 +340,20 @@ def check_resolvability(
             "times — the process is near-frozen over the record, so its timescale and "
             "stationary law are not resolvable by this design",
         )
-    return CheckResult(
+    return CheckResult.measured(
         "C3 resolvability",
         name,
         f"sampled τ median {_med:.2f} d (10–90% {_q10:.2f}–{_q90:.2f}); {_frac_in:.0%} resolvable",
         f">= {min_resolvable_mass:.0%} of draws resolved by actual gaps and span",
-        _ok,
-        f"the timescale posited for {name} lies outside the window this sampling design can "
-        "resolve under the declared decay-coefficient screen.",
+        f"the timescale posited for {name} lies outside the window this sampling design can resolve under the declared decay-coefficient screen.",
         _diag,
         _ev,
+        outcome="passed" if _ok else "failed",
+        measurements=(
+            NumericCriterionEvidence(
+                criterion="resolvable_mass", value=_frac_in, lower=min_resolvable_mass
+            ),
+        ),
     )
 
 
@@ -295,16 +390,20 @@ def check_edge_share(
             "rises when the child's own stiffness/diffusion contribute little",
         )
     return [
-        CheckResult(
+        CheckResult.measured(
             "C4b edge overwhelm",
             edge_label,
             f"edge path displacement / child scale: median {_med:.1%}",
             "median ≤ 95%",
-            bool(_med <= 0.95),
-            f"the {edge_label} input dominates the child's temporal variation; its self-dynamics "
-            "are left uninformed.",
+            f"the {edge_label} input dominates the child's temporal variation; its self-dynamics are left uninformed.",
             _diag_b,
             _ev,
+            outcome="passed" if bool(_med <= 0.95) else "failed",
+            measurements=(
+                NumericCriterionEvidence(
+                    criterion="median_edge_displacement_share", value=_med, upper=0.95
+                ),
+            ),
         ),
     ]
 
@@ -346,16 +445,20 @@ def check_saturation(
             "dependence: inspect the EC50 law against the parent's realized range, or drop "
             "the Hill form for a linear edge if the bend is not exercised",
         )
-    return CheckResult(
+    return CheckResult.measured(
         "C4c saturation",
         edge_label,
         f"EC50 median {_med:.2f}; bend exercised in {_exercised_mass:.0%} of paired draws",
         f">= {min_exercised_mass:.0%} of paired draws exercise the bend",
-        _ok,
-        f"the saturating edge {edge_label} is not exercised over the parent's predictive range; "
-        "its nonlinearity is either a dead linear arm or a flat saturated response.",
+        f"the saturating edge {edge_label} is not exercised over the parent's predictive range; its nonlinearity is either a dead linear arm or a flat saturated response.",
         _diag,
         _ev,
+        outcome="passed" if _ok else "failed",
+        measurements=(
+            NumericCriterionEvidence(
+                criterion="bend_exercised_mass", value=_exercised_mass, lower=min_exercised_mass
+            ),
+        ),
     )
 
 
@@ -404,6 +507,14 @@ def check_coverage(
         _obs_width = float(-np.sum(_obs_freq * np.log(_obs_freq + _eps)))
         _width_band = _band(_rep_width)
         _width_ok = _inside(_obs_width, _width_band)
+        _width_measurements = (
+            NumericCriterionEvidence(
+                criterion="observed_width",
+                value=_obs_width,
+                lower=_width_band[0],
+                upper=_width_band[1],
+            ),
+        )
         _location_value = f"frequency TV from predictive center {_obs_location:.2f}"
         _location_band_text = f"≤ {_location_band[1]:.2f} (99% replicate envelope)"
         _width_value = f"category entropy {_obs_width:.2f}"
@@ -420,6 +531,20 @@ def check_coverage(
         _obs_zero = float(np.mean(_obs == 0))
         _zero_band = _band(_rep_zero)
         _width_ok = _inside(_obs_variance, _variance_band) and _inside(_obs_zero, _zero_band)
+        _width_measurements = (
+            NumericCriterionEvidence(
+                criterion="observed_variance",
+                value=_obs_variance,
+                lower=_variance_band[0],
+                upper=_variance_band[1],
+            ),
+            NumericCriterionEvidence(
+                criterion="observed_zero_fraction",
+                value=_obs_zero,
+                lower=_zero_band[0],
+                upper=_zero_band[1],
+            ),
+        )
         _location_value = f"observed mean {_obs_location:.2f}"
         _location_band_text = (
             f"[{_location_band[0]:.2f}, {_location_band[1]:.2f}] replicate envelope"
@@ -438,6 +563,14 @@ def check_coverage(
         _obs_width = float(_robust_scale(_obs))
         _width_band = _band(_rep_width)
         _width_ok = _inside(_obs_width, _width_band)
+        _width_measurements = (
+            NumericCriterionEvidence(
+                criterion="observed_width",
+                value=_obs_width,
+                lower=_width_band[0],
+                upper=_width_band[1],
+            ),
+        )
         _location_value = f"observed median {_obs_location:.2f}"
         _location_band_text = (
             f"[{_location_band[0]:.2f}, {_location_band[1]:.2f}] replicate envelope"
@@ -467,25 +600,34 @@ def check_coverage(
             "the family-specific statistic avoids ratios against a zero empirical IQR",
         )
     return [
-        CheckResult(
+        CheckResult.measured(
             "C5a location reach",
             indicator,
             _location_value,
             _location_band_text,
-            _location_ok,
             f"the predictive puts little mass near the location of {indicator}.",
             _diag_a,
             _ev,
+            outcome="passed" if _location_ok else "failed",
+            measurements=(
+                NumericCriterionEvidence(
+                    criterion="observed_location",
+                    value=_obs_location,
+                    lower=_location_band[0],
+                    upper=_location_band[1],
+                ),
+            ),
         ),
-        CheckResult(
+        CheckResult.measured(
             "C5b width",
             indicator,
             _width_value,
             _width_band_text,
-            _width_ok,
             f"predictive spread for {indicator} is out of proportion to the observed spread.",
             _diag_b,
             _ev,
+            outcome="passed" if _width_ok else "failed",
+            measurements=_width_measurements,
         ),
     ]
 
@@ -535,15 +677,19 @@ def check_transmission(
             raise ValueError("conditional observation variance must be non-negative")
         if np.any(np.isnan(_conditional)):
             undefined = float(np.mean(np.isnan(_conditional).any(axis=1)))
-            return CheckResult(
+            return CheckResult.measured(
                 "C5c transmission",
                 indicator,
                 f"undefined conditional variance in {undefined:.1%} of draws",
                 "Defined conditional observation moments",
-                False,
-                "The observation law has undefined moments, so a variance-based temporal "
-                "signal share cannot be reported for these draws.",
+                "The observation law has undefined moments, so a variance-based temporal signal share cannot be reported for these draws.",
                 evidence={"undefined_moment_fraction": undefined},
+                outcome="failed",
+                measurements=(
+                    NumericCriterionEvidence(
+                        criterion="undefined_moment_fraction", value=undefined, upper=0.0
+                    ),
+                ),
             )
         _signal_variance = np.var(_sig, axis=1)
         _conditional_variance = np.mean(_conditional, axis=1)
@@ -569,14 +715,12 @@ def check_transmission(
             "dependence: C2 constrains the latent scale and C5b checks total predictive width; "
             "C5c decomposes that width into temporal signal and conditional observation variance",
         )
-    return CheckResult(
+    return CheckResult.measured(
         "C5c transmission",
         indicator,
         _transmit_value,
         _transmit_band,
-        _trans_ok,
-        f"the emission for {indicator} carries little temporal latent information relative "
-        "to its conditional observation variance.",
+        f"the emission for {indicator} carries little temporal latent information relative to its conditional observation variance.",
         _diag,
         {
             "signal_fraction": _signal_fraction,
@@ -584,4 +728,10 @@ def check_transmission(
             "conditional_variance": _conditional_variance,
             "min_signal_fraction": min_signal_fraction,
         },
+        outcome="passed" if _trans_ok else "failed",
+        measurements=(
+            NumericCriterionEvidence(
+                criterion="median_temporal_signal_share", value=_transmit, lower=min_signal_fraction
+            ),
+        ),
     )

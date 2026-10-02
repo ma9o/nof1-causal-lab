@@ -10,9 +10,12 @@ filenames independently.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from nof1_causal_lab.artifacts.identity import ArtifactId
 
 
@@ -20,11 +23,15 @@ if TYPE_CHECKING:
 class ArtifactFileSpec:
     """An artifact file specification declares its JSON payloads and tables."""
 
-    json: dict[str, str] = field(default_factory=dict)
-    parquet: dict[str, str] = field(default_factory=dict)
+    json: Mapping[str, str] = field(default_factory=dict)
+    parquet: Mapping[str, str] = field(default_factory=dict)
 
     def all_filenames(self) -> frozenset[str]:
         return frozenset([*self.json.values(), *self.parquet.values()])
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "json", MappingProxyType(dict(self.json)))
+        object.__setattr__(self, "parquet", MappingProxyType(dict(self.parquet)))
 
 
 ARTIFACT_FILE_SPECS: dict[ArtifactId, ArtifactFileSpec] = {

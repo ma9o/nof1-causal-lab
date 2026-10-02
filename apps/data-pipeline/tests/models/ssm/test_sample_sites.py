@@ -7,7 +7,7 @@ from pathlib import Path
 import pytest
 
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.models.ssm import numerics as numeric
+from tests.model_fixtures import compile_model_fixture
 
 pytestmark = pytest.mark.contract
 
@@ -20,4 +20,4 @@ def test_all_fixed_spec_yields_no_sites():
             / "sample_sites/all_fixed_spec_yields_no_sites__all_fixed_spec.json"
         ).read_text()
     )
-    assert list(numeric.iter_sample_sites(spec)) == []
+    assert list(compile_model_fixture(spec).site_registry) == []

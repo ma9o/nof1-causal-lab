@@ -14,11 +14,10 @@ from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.posterior import FitSettingsSpec
 from nof1_causal_lab.compilation_errors import IncompleteModelError
 from nof1_causal_lab.study.history import StudyRepository
-from nof1_causal_lab.study.records import AttemptRecord
 from nof1_causal_lab.study.snapshots import ModelReader
 from nof1_causal_lab.study.state import StudyState
 from nof1_causal_lab.study.store import ArtifactStore
-from tests.action_fixtures import edit_and_check
+from tests.action_fixtures import applied_record, edit_and_check
 from tests.data_fixtures import metadata_for_model
 from tests.git_fixtures import artifact_revision
 from tests.helpers import make_model, run_async
@@ -49,10 +48,7 @@ def test_partial_model_revisions_remain_readable_with_capability_findings(worksp
     )
     missing_law = complete.revised(
         distributions={},
-        parameters=tuple(
-            type(p).model_validate({**p.model_dump(), "distribution": None})
-            for p in complete.parameters
-        ),
+        parameters=tuple(p.revised(distribution=None) for p in complete.parameters),
     )
     journal = StudyRepository(workspace)
     state = StudyState()
@@ -75,30 +71,19 @@ def test_partial_model_revisions_remain_readable_with_capability_findings(worksp
             state,
         )
         state = state.with_artifacts(effects.produced)
-        state = type(state).model_validate({**state.model_dump(), "checks": effects.checks})
+        state = state.revised(checks=effects.checks)
         journal.append(
-            AttemptRecord(
-                seq=revision,
-                ts="2026-09-14T12:00:00Z",
-                action="edit_model",
-                inputs={
-                    "expected_revision": state.current["model"].revision
-                    if state.has("model")
-                    else None
-                },
-                status="applied",
-                produced=effects.produced,
-                diagnostics=effects.diagnostics,
-                checks=effects.checks,
-                trace_ids=[],
-            )
+            applied_record(effects, seq=revision, ts="2026-09-14T12:00:00Z", trace_ids=[])
         )
         snapshot = ModelReader(workspace).snapshot()
         assert snapshot.model is not None
         assert snapshot.model.value == model
         assert snapshot.findings.specification is not None
         execution = snapshot.findings.specification.value.findings[0]
-        assert execution.status == ("passed" if revision == 2 else "not_evaluated")
+        assert execution.kind == ("evaluated" if revision == 2 else "not_evaluated")
+        if revision == 2:
+            assert execution.kind == "evaluated"
+            assert execution.outcome == "passed"
         assert "execution" not in snapshot.findings.model_dump()
         assert "execution_readiness" not in snapshot.model.value.model_dump()
         assert snapshot.context.can_simulate == (revision == 2)
@@ -180,13 +165,15 @@ def test_refit_after_question_edit_uses_selected_model_and_preserves_current_que
         parquet_files={"panel.parquet": pl.DataFrame({"value": [1.0]})},
     )
 
+    from nof1_causal_lab.artifacts.posterior_diagnostics import ParticleMCMCEvidence
+    from tests.inference_fixtures import _report
+
     def fit(**kwargs):
         assert kwargs["model_spec"] == edited
         return {
             "_model": kwargs["model_spec"].revised(time_points=(0.0, 1.0)),
-            "engine_evidence": {},
-            "time_origin": kwargs["time_origin"],
-            "inference_metadata": {"method": "mock", "n_samples": 1, "duration_seconds": 0.0},
+            "engine_evidence": ParticleMCMCEvidence(),
+            "report": _report(kwargs["model_spec"]),
         }
 
     monkeypatch.setattr(flow, "fit", fit)
@@ -196,5 +183,5 @@ def test_refit_after_question_edit_uses_selected_model_and_preserves_current_que
     }
     effects = run_async(_run_fit(store, pins, FitSettingsSpec()))
     assert effects.produced[0].derived_from == pins
-    assert effects.diagnostics["input_pins"] == pins
+    assert {"model": effects.model.revision, "panel": effects.panel.revision} == pins
     assert read_model(store, artifact_revision(workspace, "model", 4)).question == edited.question

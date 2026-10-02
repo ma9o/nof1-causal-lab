@@ -11,7 +11,6 @@ from pydantic import TypeAdapter, ValidationError
 
 from nof1_causal_lab.artifacts.construct import (
     CausalEdgeSpec,
-    ConstructSpec,
     Role,
     TemporalStatus,
     replace_constructs,
@@ -21,7 +20,7 @@ from nof1_causal_lab.artifacts.data_preparation import (
     WindowExpression,
     check_semantic_collisions,
 )
-from nof1_causal_lab.artifacts.duration import parse_duration_to_hours
+from nof1_causal_lab.artifacts.duration import Duration
 from nof1_causal_lab.artifacts.identity import (
     ConstructId,
     DistributionId,
@@ -50,7 +49,7 @@ class TestConstruct:
         construct = construct_factory("mood")
         assert "is_outcome" not in construct.model_dump()
         with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
-            ConstructSpec.model_validate({**construct.model_dump(), "is_outcome": True})
+            construct.revised(is_outcome=True)
 
 
 class TestModel:
@@ -378,6 +377,10 @@ class TestDataVariable:
         )
         assert ind.extraction_mode == "computed"
         assert ind.computed_rule is not None
+        assert ind.computed_rule.dependencies == frozenset({"systolic_bp", "diastolic_bp"})
+        assert ind.computed_rule.summary_operator == SummaryOperator.MEAN
+        assert TypeAdapter(WindowExpression).validate_python(ind.computed_rule) is ind.computed_rule
+        assert ind.model_dump(mode="json")["computed_rule"] == ind.computed_rule.source
 
     def test_computed_rule_rejects_semantic_mode(self):
         """computed_rule is only valid when extraction_mode='computed'."""
@@ -389,7 +392,7 @@ class TestDataVariable:
                 measurement_dtype="binary",
                 aggregation="last",
                 source_columns=["spo2_pct"],
-                computed_rule="1 if any(spo2_pct < 92) else (0 if count_non_null(spo2_pct) > 0 else None)",
+                computed_rule="last(spo2_pct)",
                 extraction_mode="semantic",
             )
 
@@ -417,7 +420,7 @@ class TestDataVariable:
                 measurement_dtype="binary",
                 aggregation="last",
                 source_columns=["spo2_pct"],
-                computed_rule="1",
+                computed_rule="last(1)",
                 extraction_mode="computed",
             )
 
@@ -459,7 +462,7 @@ class TestModelContainment:
         result = model.revised(
             edges=replace_constructs(
                 model.edges,
-                (observed, type(latent).model_validate({**latent.model_dump(), "indicators": ()})),
+                (observed, latent.revised(indicators=())),
             )
         )
         assert result.get_construct(latent.id).indicators == ()
@@ -491,54 +494,63 @@ class TestModelContainment:
         payload["edges"][0]["lagged"] = True
         with pytest.raises(ValidationError, match="lagged"):
             ModelSpec.model_validate(payload)
-        assert model.model_clock_days == 0.25
+        from nof1_causal_lab.models.ssm.compile.support import get_construct_dt_days
+
+        assert get_construct_dt_days(model) == 0.25
 
 
-class TestParseDurationToHours:
-    """Tests for parse_duration_to_hours function."""
+class TestDuration:
+    """Tests for fixed duration parsing and lowering."""
 
     def test_seconds(self):
-        assert parse_duration_to_hours("3600s") == 1.0
+        assert Duration("3600s").seconds / 3600 == 1.0
+        duration = TypeAdapter(Duration).validate_python("03600s")
+        assert duration.seconds == 3600
+        assert TypeAdapter(Duration).validate_python(duration) is duration
+        assert TypeAdapter(Duration).dump_json(duration) == b'"03600s"'
 
     def test_minutes(self):
-        assert parse_duration_to_hours("60m") == 1.0
+        assert Duration("60m").seconds / 3600 == 1.0
 
     def test_hours(self):
-        assert parse_duration_to_hours("4h") == 4.0
-        assert parse_duration_to_hours("1h") == 1.0
+        assert Duration("4h").seconds / 3600 == 4.0
+        assert Duration("1h").seconds / 3600 == 1.0
 
     def test_days(self):
-        assert parse_duration_to_hours("1d") == 24.0
-        assert parse_duration_to_hours("7d") == 168.0
+        assert Duration("1d").seconds / 3600 == 24.0
+        assert Duration("7d").seconds / 3600 == 168.0
 
     def test_weeks(self):
-        assert parse_duration_to_hours("1w") == 168.0
-        assert parse_duration_to_hours("2w") == 336.0
+        assert Duration("1w").seconds / 3600 == 168.0
+        assert Duration("2w").seconds / 3600 == 336.0
 
-    def test_months(self):
-        assert parse_duration_to_hours("1mo") == 720.0
+    def test_months_are_rejected(self):
+        with pytest.raises(ValueError, match="Invalid duration"):
+            Duration("1mo")
 
-    def test_quarters(self):
-        assert parse_duration_to_hours("1q") == 2160.0
+    def test_quarters_are_rejected(self):
+        with pytest.raises(ValueError, match="Invalid duration"):
+            Duration("1q")
 
-    def test_years(self):
-        assert parse_duration_to_hours("1y") == 8760.0
+    def test_years_are_rejected(self):
+        with pytest.raises(ValueError, match="Invalid duration"):
+            Duration("1y")
 
     def test_invalid_format(self):
         with pytest.raises(ValueError, match="Invalid duration"):
-            parse_duration_to_hours("abc")
+            Duration("abc")
 
     def test_invalid_unit(self):
         with pytest.raises(ValueError, match="Invalid duration"):
-            parse_duration_to_hours("5x")
+            Duration("5x")
 
     def test_zero_duration(self):
         with pytest.raises(ValueError, match="positive"):
-            parse_duration_to_hours("0d")
+            Duration("0d")
 
     def test_no_number(self):
         with pytest.raises(ValueError, match="Invalid duration"):
-            parse_duration_to_hours("d")
+            Duration("d")
 
     def test_invalid_model_clock(self):
         with pytest.raises(ValueError, match="Invalid duration"):
@@ -549,19 +561,19 @@ class TestDeriveObservationSemantics:
     """Tests for derive_indicator_observation_semantics."""
 
     def test_first_maps_to_point_at_window_start(self):
-        semantics = derive_indicator_observation_semantics("first", "continuous")
+        semantics = derive_indicator_observation_semantics(SummaryOperator.FIRST, "continuous")
         assert semantics.support_kind == SupportKind.POINT
         assert semantics.summary_operator == SummaryOperator.FIRST
         assert semantics.anchor_policy == AnchorPolicy.SUPPORT_START
 
     def test_last_maps_to_point_at_window_end(self):
-        semantics = derive_indicator_observation_semantics("last", "continuous")
+        semantics = derive_indicator_observation_semantics(SummaryOperator.LAST, "continuous")
         assert semantics.support_kind == SupportKind.POINT
         assert semantics.summary_operator == SummaryOperator.LAST
         assert semantics.anchor_policy == AnchorPolicy.SUPPORT_END
 
     def test_interval_summary_operator_maps_to_interval_support(self):
-        semantics = derive_indicator_observation_semantics("sum", "count")
+        semantics = derive_indicator_observation_semantics(SummaryOperator.SUM, "count")
         assert semantics.support_kind == SupportKind.INTERVAL
         assert semantics.summary_operator == SummaryOperator.SUM
         assert semantics.anchor_policy == AnchorPolicy.SUPPORT_END
@@ -570,17 +582,25 @@ class TestDeriveObservationSemantics:
         with pytest.raises(
             ValueError, match="aggregation 'std' requires measurement_dtype='continuous'"
         ):
-            derive_indicator_observation_semantics("std", "count")
+            derive_indicator_observation_semantics(SummaryOperator.STD, "count")
 
     def test_ordinal_indicators_only_support_point_operators(self):
         with pytest.raises(
             ValueError, match="ordinal indicators currently support only first/last"
         ):
-            derive_indicator_observation_semantics("mean", "ordinal")
+            derive_indicator_observation_semantics(SummaryOperator.MEAN, "ordinal")
 
     def test_unsupported_aggregations_fail_fast(self):
-        with pytest.raises(ValueError, match="not yet supported by the measurement structure"):
-            derive_indicator_observation_semantics("median", "continuous")
+        with pytest.raises(ValueError, match="aggregation"):
+            DataVariableSpec.model_validate(
+                {
+                    "id": "indicator:mood",
+                    "name": "mood",
+                    "how_to_measure": "Median score",
+                    "measurement_dtype": "continuous",
+                    "aggregation": "median",
+                }
+            )
 
 
 class TestSemanticCollisions:
@@ -588,23 +608,29 @@ class TestSemanticCollisions:
 
     def test_count_text_mean_agg_collision(self):
         """'count' in how_to_measure + mean aggregation → warning."""
-        warnings = check_semantic_collisions("Count the number of exercise sessions", "mean")
+        warnings = check_semantic_collisions(
+            "Count the number of exercise sessions", SummaryOperator.MEAN
+        )
         assert len(warnings) >= 1
         assert "counting" in warnings[0].lower() or "count" in warnings[0].lower()
 
     def test_no_collision(self):
         """Consistent text and aggregation → no warnings."""
-        warnings = check_semantic_collisions("Average daily mood rating", "mean")
+        warnings = check_semantic_collisions("Average daily mood rating", SummaryOperator.MEAN)
         assert len(warnings) == 0
 
     def test_total_text_mean_agg_collision(self):
         """'total' in text + mean aggregation → warning."""
-        warnings = check_semantic_collisions("Total steps walked during the day", "mean")
+        warnings = check_semantic_collisions(
+            "Total steps walked during the day", SummaryOperator.MEAN
+        )
         assert len(warnings) >= 1
 
     def test_last_text_sum_agg_collision(self):
         """'most recent' in text + sum aggregation → warning."""
-        warnings = check_semantic_collisions("The most recent blood pressure reading", "sum")
+        warnings = check_semantic_collisions(
+            "The most recent blood pressure reading", SummaryOperator.SUM
+        )
         assert len(warnings) >= 1
 
 
@@ -632,7 +658,7 @@ class TestIndicatorObservationSemantics:
         assert ind.anchor_policy == AnchorPolicy.SUPPORT_END
 
     def test_unsupported_aggregation_is_rejected_on_indicator(self, indicator_factory):
-        with pytest.raises(ValueError, match="not yet supported by the measurement structure"):
+        with pytest.raises(ValueError, match="aggregation"):
             indicator_factory("median_hr", aggregation="median", dtype="continuous")
 
     def test_ordinal_interval_summary_is_rejected_on_indicator(self, indicator_factory):
@@ -646,21 +672,22 @@ class TestIndicatorObservationWindow:
     def test_valid_observation_window(self):
         indicator = DataVariableSpec(
             id="indicator:b41c85c254676b4bc588",
-            name="monthly_mood",
-            how_to_measure="Average mood over the last month",
+            name="fortnightly_mood",
+            how_to_measure="Average mood over two weeks",
             measurement_dtype="continuous",
             aggregation="mean",
-            observation_window="1mo",
+            observation_window="2w",
         )
 
-        assert indicator.observation_window == "1mo"
+        assert indicator.observation_window is not None
+        assert indicator.observation_window.source == "2w"
 
     def test_invalid_observation_window(self):
         with pytest.raises(ValueError, match="Invalid duration"):
             DataVariableSpec(
                 id="indicator:b41c85c254676b4bc588",
-                name="monthly_mood",
-                how_to_measure="Average mood over the last month",
+                name="fortnightly_mood",
+                how_to_measure="Average mood over two weeks",
                 measurement_dtype="continuous",
                 aggregation="mean",
                 observation_window="monthly",

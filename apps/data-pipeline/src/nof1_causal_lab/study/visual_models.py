@@ -2,28 +2,29 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Literal
 
 from pydantic import AwareDatetime, Field, FiniteFloat, model_validator
 
+from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.artifacts.identity import ConstructId, IndicatorId, ParameterRef
 from nof1_causal_lab.artifacts.posterior_diagnostics import PPCOverlay
-from nof1_causal_lab.study.view_models import ViewValue
 
 
-class RecordedPath(ViewValue):
+class RecordedPath(Value):
     draw: int
     values: tuple[FiniteFloat | None, ...]
 
 
-class PathSeries(ViewValue):
+class PathSeries(Value):
     label: str
     action: tuple[RecordedPath, ...]
     reference: tuple[RecordedPath, ...] = ()
     levels: tuple[str, ...] | None = None
 
 
-class SimulationPaths(ViewValue):
+class SimulationPaths(Value):
     """Contiguous pages of original draws, with every recorded time point intact."""
 
     times: tuple[FiniteFloat, ...]
@@ -31,18 +32,18 @@ class SimulationPaths(ViewValue):
     total_draws: int
     start: int
     count: int
-    states: dict[ConstructId, PathSeries]
-    indicators: dict[IndicatorId, PathSeries]
+    states: Mapping[ConstructId, PathSeries]
+    indicators: Mapping[IndicatorId, PathSeries]
     effect: PathSeries | None = None
 
 
-class EmpiricalPoint(ViewValue):
+class EmpiricalPoint(Value):
     value: FiniteFloat
     probability: FiniteFloat
     count: int
 
 
-class ObservationHistory(ViewValue):
+class ObservationHistory(Value):
     """All prepared observations, their true anchors and their measurement support."""
 
     indicator_id: IndicatorId
@@ -56,7 +57,7 @@ class ObservationHistory(ViewValue):
     empirical: tuple[EmpiricalPoint, ...]
 
 
-class PredictiveHistory(ViewValue):
+class PredictiveHistory(Value):
     """A saved check on the exact schedule and scale used to evaluate it."""
 
     times: tuple[FiniteFloat, ...]
@@ -65,26 +66,26 @@ class PredictiveHistory(ViewValue):
     overlay: PPCOverlay
 
 
-class ParameterDrawColumn(ViewValue):
+class ParameterDrawColumn(Value):
     label: str
     subject: ParameterRef
     values: tuple[FiniteFloat, ...]
     empirical: tuple[EmpiricalPoint, ...]
 
 
-class ParameterDraws(ViewValue):
+class ParameterDraws(Value):
     """Every retained parameter coordinate, without thinning or pair selection."""
 
     columns: tuple[ParameterDrawColumn, ...]
     unavailable_reason: str | None = None
 
 
-class MechanismViewRequest(ViewValue):
+class MechanismViewRequest(Value):
     owner_id: str
     axis: ConstructId | None = None
     lower: FiniteFloat = -3
     upper: FiniteFloat = 3
-    held: dict[ConstructId, FiniteFloat] = Field(default_factory=dict)
+    held: Mapping[ConstructId, FiniteFloat] = Field(default_factory=dict)
     moderator: ConstructId | None = None
     levels: tuple[FiniteFloat, ...] = Field(default=(-1, 0, 1), min_length=1, max_length=5)
     start: int = Field(default=0, ge=0)
@@ -92,7 +93,7 @@ class MechanismViewRequest(ViewValue):
     points: int = Field(default=201, ge=21, le=1001)
 
     @model_validator(mode="after")
-    def range_order(self):
+    def range_order(self) -> MechanismViewRequest:
         if self.upper <= self.lower:
             raise ValueError("Response range must increase")
         return self
@@ -102,14 +103,14 @@ class ResponseCurve(RecordedPath):
     level: FiniteFloat | None = None
 
 
-class MechanismCurves(ViewValue):
+class MechanismCurves(Value):
     """Exact conditional drift contributions, not marginal or total causal effects."""
 
     axis: ConstructId
     axis_label: str
     target_label: str
-    states: dict[ConstructId, str]
-    held: dict[ConstructId, FiniteFloat]
+    states: Mapping[ConstructId, str]
+    held: Mapping[ConstructId, FiniteFloat]
     moderator: ConstructId | None
     x: tuple[FiniteFloat, ...]
     curves: tuple[ResponseCurve, ...]

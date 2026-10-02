@@ -13,16 +13,19 @@ from functools import cached_property
 from typing import TYPE_CHECKING, Annotated, Any, cast, overload
 
 import jax
+import jax.numpy as jnp
 import numpy as np
 import numpyro.distributions as dist
 from numpyro.distributions import constraints, transforms
-from pydantic import GetPydanticSchema, ValidationInfo
+from pydantic import GetCoreSchemaHandler, GetPydanticSchema, ValidationInfo
 from pydantic_core import core_schema
 
 from nof1_causal_lab.json_types import JsonValue
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
+
+    from jax.typing import ArrayLike
 
 _NATIVE_MODULES = {
     "distribution": (dist, dist.Distribution),
@@ -40,7 +43,10 @@ class _StoredDistribution(dist.Distribution):
     values. Numerical consumers materialize the native law before JAX tracing.
     """
 
-    def __init__(self, constructor: dict[str, JsonValue], loader: ArrayLoader | None):
+    constructor: dict[str, JsonValue]
+    loader: ArrayLoader | None
+
+    def __init__(self, constructor: dict[str, JsonValue], loader: ArrayLoader | None) -> None:
         self.constructor = constructor
         self.loader = loader
 
@@ -51,28 +57,28 @@ class _StoredDistribution(dist.Distribution):
             raise ValueError("Expected a native distribution")
         return value
 
-    def __getattr__(self, name: str):
+    def __getattr__(self, name: str) -> object:
         if name.startswith("__"):
             raise AttributeError(name)
         return getattr(self.native, name)
 
-    def sample(self, key, sample_shape=()):
+    def sample(self, key: jax.Array | None, sample_shape: tuple[int, ...] = ()) -> ArrayLike:
         return self.native.sample(key, sample_shape)
 
-    def log_prob(self, value):
-        return self.native.log_prob(value)
+    def log_prob(self, value: ArrayLike, intermediates: list[Any] | None = None) -> ArrayLike:
+        return self.native.log_prob(value, intermediates)
 
     @property
-    def support(self):
+    def support(self) -> constraints.Constraint | None:
         return self.native.support
 
     @property
-    def mean(self):
-        return self.native.mean
+    def mean(self) -> jax.Array:
+        return jnp.asarray(self.native.mean)
 
     @property
-    def variance(self):
-        return self.native.variance
+    def variance(self) -> jax.Array:
+        return jnp.asarray(self.native.variance)
 
 
 def materialize_distribution(value: dist.Distribution) -> dist.Distribution:
@@ -94,14 +100,14 @@ def distribution_shape(value: dist.Distribution) -> tuple[tuple[int, ...], tuple
             and isinstance(atoms, dict)
             and "array_ref" in atoms
         ):
-            shape = tuple(atoms["shape"])[len(atoms["index"]) :]
+            shape = tuple(int(n) for n in atoms["shape"])[len(atoms["index"]) :]
             event_dim = component["params"]["event_dim"]
             if not isinstance(event_dim, int) or event_dim < 0 or event_dim >= len(shape):
                 raise ValueError("Invalid native Delta event dimensions")
             # The component's rightmost batch axis enumerates the mixture's atoms.
             return shape[: len(shape) - event_dim - 1], shape[len(shape) - event_dim :]
     native = materialize_distribution(value)
-    return native.batch_shape, native.event_shape
+    return tuple(int(n) for n in native.batch_shape), tuple(int(n) for n in native.event_shape)
 
 
 def empirical_distribution(
@@ -124,9 +130,9 @@ def empirical_distribution(
             return _encode(array)
         return {
             "array_ref": array_writer(array),
-            "shape": list(array.shape),
+            "shape": [int(n) for n in array.shape],
             "dtype": str(array.dtype),
-            "index": [],
+            "index": list[int](),
         }
 
     constructor: dict[str, JsonValue] = {
@@ -207,7 +213,7 @@ def _validate_stored_tree(value: JsonValue) -> None:
 
 def _constructor_arguments(value: object) -> dict[str, object]:
     cls = type(value)
-    arguments = value.get_args() if isinstance(value, dist.Distribution) else {}
+    arguments: dict[str, object] = value.get_args() if isinstance(value, dist.Distribution) else {}
     # NumPyro caches equivalent matrix parameterizations. A constructor accepts
     # just one; its stored Cholesky factor preserves the native law directly.
     if "scale_tril" in arguments:
@@ -239,13 +245,16 @@ def rebuild_distribution(distribution: dist.Distribution) -> dist.Distribution:
     Arrays stay in JAX; this operation does not serialize or detach gradients.
     """
 
-    def rebuild(value):
+    def rebuild[NativeValue](value: NativeValue) -> NativeValue:
         if isinstance(value, (dist.Distribution, transforms.Transform, constraints.Constraint)):
-            return type(value)(
-                **{name: rebuild(item) for name, item in _constructor_arguments(value).items()}
+            return cast(
+                "NativeValue",
+                type(value)(
+                    **{name: rebuild(item) for name, item in _constructor_arguments(value).items()}
+                ),
             )
         if isinstance(value, (tuple, list)):
-            return type(value)(rebuild(item) for item in value)
+            return cast("NativeValue", type(value)(rebuild(item) for item in value))
         return value
 
     return rebuild(distribution)
@@ -265,16 +274,20 @@ def _encode(value: object) -> JsonValue:
     for tag, (module, base) in _NATIVE_MODULES.items():
         if isinstance(value, base):
             cls = type(value)
-            if getattr(module, cls.__name__, None) is not cls:
+            constructor_name: str = cls.__name__
+            if getattr(module, constructor_name, None) is not cls:
                 raise ValueError(f"{cls.__name__} is not a native NumPyro {tag} constructor")
             arguments = _constructor_arguments(value)
-            if "validate_args" in inspect.signature(cls).parameters:
+            if (
+                isinstance(value, dist.Distribution)
+                and "validate_args" in inspect.signature(cls).parameters
+            ):
                 # Preserve native execution settings. In particular, exact
                 # categorical zeros use -inf logits, outside real_vector's
                 # finite-only argument check despite defining a valid law.
                 arguments["validate_args"] = value._validate_args
             return {
-                tag: cls.__name__,
+                tag: constructor_name,
                 "params": {name: _encode(item) for name, item in arguments.items()},
             }
     if isinstance(value, (jax.Array, np.ndarray, np.generic)):
@@ -295,7 +308,7 @@ def _encode(value: object) -> JsonValue:
     raise ValueError(f"Cannot serialize native distribution argument {type(value).__name__}")
 
 
-def _decode(value: JsonValue, array_loader: ArrayLoader | None = None) -> Any:
+def _decode(value: JsonValue, array_loader: ArrayLoader | None = None) -> object:
     if isinstance(value, list):
         return [_decode(item, array_loader) for item in value]
     if not isinstance(value, dict):
@@ -324,7 +337,7 @@ def _decode(value: JsonValue, array_loader: ArrayLoader | None = None) -> Any:
                 arguments.setdefault("validate_args", True)
             try:
                 decoded = cls(**arguments)
-            except TypeError as exc:
+            except TypeError as exc:  # noqa: ERR001 -- Native NumPyro constructors document TypeError for argument mismatch; only that call is wrapped.
                 raise ValueError(f"Invalid {cls.__name__} constructor arguments: {exc}") from exc
             return (
                 _validate_distribution(decoded)
@@ -373,7 +386,7 @@ def _validate_distribution(value: dist.Distribution) -> dist.Distribution:
     return value
 
 
-def _distribution_schema(_source, handler):
+def _distribution_schema(_source: object, handler: GetCoreSchemaHandler) -> core_schema.CoreSchema:
     wire = core_schema.typed_dict_schema(
         {
             "distribution": core_schema.typed_dict_field(core_schema.str_schema()),
@@ -383,7 +396,7 @@ def _distribution_schema(_source, handler):
         ref="NumPyroDistribution",
     )
 
-    def decode(value, info: ValidationInfo):
+    def decode(value: dict[str, JsonValue], info: ValidationInfo) -> dist.Distribution:
         return decode_distribution(
             value, array_loader=(info.context or {}).get("distribution_array_loader")
         )

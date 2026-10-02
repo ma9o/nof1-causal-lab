@@ -7,11 +7,13 @@ from typing import TYPE_CHECKING
 
 import polars as pl
 
+from nof1_causal_lab.artifacts.identity import IndicatorId
+
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.construct import ConstructSpec
     from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.json_types import JsonObject
+    from nof1_causal_lab.artifacts.observations import ObservationSpec
 
 from nof1_causal_lab.actions.validation.rules import (
     COMPATIBILITY_RULES,
@@ -33,7 +35,7 @@ def validate_extraction(
     dataframes: list[pl.DataFrame],
     *,
     data_profile: DataProfileArtifact | None = None,
-) -> JsonObject:
+) -> DataProfileArtifact:
     """Validate semantic properties of extracted data.
 
     Runs the model compatibility rules against the extracted data and reduces findings
@@ -58,27 +60,21 @@ def validate_extraction(
     if combined.is_empty():
         return no_data_validation_result()
 
-    from nof1_causal_lab.models.model_inputs import identification_input
-
-    inputs = identification_input(model)
-    indicators = inputs["observations"]["indicators"]
-    indicator_ids: set[str] = {ind["id"] for ind in indicators}
-    indicator_lookup = {ind["id"]: ind for ind in indicators}
+    indicators = model.indicators
+    indicator_ids: set[IndicatorId] = {ind.id for ind in indicators}
+    indicator_lookup: dict[IndicatorId, ObservationSpec] = {ind.id: ind for ind in indicators}
     combined = combined.filter(pl.col("indicator_id").is_in(list(indicator_ids)))
     if combined.is_empty():
         return no_data_validation_result()
 
-    construct_lookup: dict[str, ConstructSpec] = {c.id: c for c in model.constructs}
+    construct_lookup: dict[str, ConstructSpec] = {
+        indicator.id: construct for construct, indicator in model.iter_indicators()
+    }
 
-    model_clock_str = inputs["observations"]["model_clock"]
+    model_clock = model.measurement_clock
     model_clock_hours: float | None = None
-    if model_clock_str:
-        import contextlib
-
-        from nof1_causal_lab.artifacts.duration import parse_duration_to_hours
-
-        with contextlib.suppress(ValueError):
-            model_clock_hours = parse_duration_to_hours(model_clock_str)
+    if model_clock is not None:
+        model_clock_hours = model_clock.seconds / 3600
 
     validation_ctx = ValidationContext(
         combined=combined,
@@ -107,17 +103,10 @@ def validate_extraction(
     for identity, audit in indicator_audits.items():
         source = profile.indicators.get(identity)
         if source is not None:
-            audit.issues = [*source.issues, *audit.issues]
-            audit.checks = {**source.checks, **audit.checks}
-            audit.profile = source.profile
+            indicator_audits[identity] = audit.with_source(source)
         else:
-            audit.checks["data_availability"] = "not_evaluated"
-    return DataProfileArtifact.model_validate(
-        {
-            "indicators": indicator_audits,
-            "dataset_issues": dataset_issues,
-        }
-    ).model_dump(mode="json")
+            indicator_audits[identity] = audit.without_data()
+    return DataProfileArtifact(indicators=indicator_audits, dataset_issues=tuple(dataset_issues))
 
 
 def profile_data(
@@ -125,10 +114,10 @@ def profile_data(
 ) -> DataProfileArtifact:
     """Measure observed data without consulting any model or authoring state."""
     if data.is_empty():
-        return DataProfileArtifact.model_validate(no_data_validation_result())
-    definitions = [item.model_dump(mode="json") for item in metadata.variables] if metadata else []
-    lookup = {item["id"]: item for item in definitions}
-    identities = set(data["indicator_id"].unique()) | set(lookup)
+        return no_data_validation_result()
+    definitions = metadata.variables if metadata is not None else ()
+    lookup: dict[IndicatorId, ObservationSpec] = {item.id: item for item in definitions}
+    identities = {IndicatorId(value) for value in data["indicator_id"].unique()} | set(lookup)
     context = ValidationContext(data, definitions, identities, lookup, {}, None)
     issues, health, dataset_issues = run_rules(context, indicator_rules=DATA_RULES)
     audits = build_indicator_audits(
@@ -161,7 +150,7 @@ def profile_data(
                 for value in values
                 if value is not None and math.isfinite(value)
             ):
-                audits[variable.id].issues.append(
+                audits[variable.id] = audits[variable.id].with_issue(
                     ValidationIssue(
                         indicator_id=variable.id,
                         issue_type="codebook_bounds",
@@ -170,7 +159,7 @@ def profile_data(
                     )
                 )
             if not values.is_finite().all():
-                audits[variable.id].issues.append(
+                audits[variable.id] = audits[variable.id].with_issue(
                     ValidationIssue(
                         indicator_id=variable.id,
                         issue_type="nonfinite_values",
@@ -183,7 +172,7 @@ def profile_data(
 
         for variable in metadata.preparation.variables:
             for message in check_semantic_collisions(variable.how_to_measure, variable.aggregation):
-                audits[variable.id].issues.append(
+                audits[variable.id] = audits[variable.id].with_issue(
                     ValidationIssue(
                         indicator_id=variable.id,
                         issue_type="scoring_semantics",
@@ -191,9 +180,4 @@ def profile_data(
                         message=message,
                     )
                 )
-    return DataProfileArtifact.model_validate(
-        {
-            "indicators": audits,
-            "dataset_issues": dataset_issues,
-        }
-    )
+    return DataProfileArtifact(indicators=audits, dataset_issues=tuple(dataset_issues))

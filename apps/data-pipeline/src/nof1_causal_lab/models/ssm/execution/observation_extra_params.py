@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from types import MappingProxyType
 from typing import TYPE_CHECKING, overload
 
 import jax.numpy as jnp
@@ -73,4 +74,4 @@ def slice_observation_extra_params(
                 f"{key} must have leading dimension {source_channel_count}; got shape {value.shape}"
             )
         sliced[key] = value[index_array]
-    return sliced
+    return MappingProxyType(sliced)

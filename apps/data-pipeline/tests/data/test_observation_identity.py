@@ -6,8 +6,10 @@ import polars as pl
 import pytest
 
 from nof1_causal_lab.actions.validation.flow import validate_extraction
+from nof1_causal_lab.artifacts.observations import ObservationSpec
 from nof1_causal_lab.utils.aggregations import compute_indicators
-from nof1_causal_lab.utils.data import annotate_observation_rows
+from nof1_causal_lab.utils.observation_rows import annotate_observation_rows
+from nof1_causal_lab.workers.context import MeasurementContext
 from nof1_causal_lab.workers.schemas import validate_worker_output
 from tests.helpers import make_model
 
@@ -49,20 +51,23 @@ def test_one_observation_definition_is_shared_by_preparation_and_model():
 
 
 def _measurement(name="Mood"):
-    return {
-        "model_clock": "1d",
-        "indicators": [
-            {
-                "id": "indicator:mood",
-                "construct_id": "construct:mood",
-                "name": name,
-                "measurement_dtype": "continuous",
-                "aggregation": "mean",
-                "source_columns": ["score"],
-                "extraction_mode": "computed",
-            }
-        ],
-    }
+    return MeasurementContext.model_validate(
+        {
+            "source": {"files": ["source.csv"]},
+            "model_clock": "1d",
+            "indicators": [
+                {
+                    "id": "indicator:mood",
+                    "how_to_measure": "Mean score",
+                    "name": name,
+                    "measurement_dtype": "continuous",
+                    "aggregation": "mean",
+                    "source_columns": ["score"],
+                    "extraction_mode": "computed",
+                }
+            ],
+        }
+    )
 
 
 def test_computed_and_semantic_extraction_preserve_the_same_subject_after_rename():
@@ -70,7 +75,7 @@ def test_computed_and_semantic_extraction_preserve_the_same_subject_after_rename
     outputs = []
     for label in ("Mood", "Renamed mood"):
         measurement = _measurement(label)
-        computed = compute_indicators(raw, measurement["indicators"], "1d", "timestamp")
+        computed = compute_indicators(raw, measurement, "timestamp")
         assert computed["indicator_id"].to_list() == ["indicator:mood"]
         worker, errors = validate_worker_output(
             {
@@ -88,7 +93,20 @@ def test_computed_and_semantic_extraction_preserve_the_same_subject_after_rename
         assert worker is not None
         semantic = worker.to_dataframe()
         assert semantic["indicator_id"].to_list() == ["indicator:mood"]
-        outputs.append(annotate_observation_rows(semantic, measurement))
+        outputs.append(
+            annotate_observation_rows(
+                semantic,
+                (
+                    ObservationSpec(
+                        id="indicator:mood",
+                        name=label,
+                        measurement_dtype="continuous",
+                        aggregation="mean",
+                        observation_window="1d",
+                    ),
+                ),
+            )
+        )
     assert outputs[0].equals(outputs[1])
 
 
@@ -97,9 +115,20 @@ def test_observation_producers_reject_owners_outside_the_pinned_measurement():
         {"indicator_id": ["indicator:absent"], "value": [1.0], "timestamp": ["2026-01-01T00:00:00"]}
     )
     with pytest.raises(ValueError, match="unknown indicators"):
-        annotate_observation_rows(rows, _measurement())
+        annotate_observation_rows(
+            rows,
+            (
+                ObservationSpec(
+                    id="indicator:mood",
+                    name="Mood",
+                    measurement_dtype="continuous",
+                    aggregation="mean",
+                    observation_window="1d",
+                ),
+            ),
+        )
     report = validate_extraction(make_model(["mood"]), [rows])
-    assert not report["is_valid"]
+    assert not report.is_valid
     worker, errors = validate_worker_output(
         {
             "extractions": [

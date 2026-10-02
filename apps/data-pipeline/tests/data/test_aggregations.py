@@ -1,26 +1,48 @@
 """Tests for aggregation utility functions.
 
-Covers: _build_agg_expr, _build_map_groups_fn, _encode_non_continuous, compute_indicators.
+Covers: _build_agg_expr, _encode_non_continuous, compute_indicators.
 """
 
 from datetime import datetime
-from typing import TYPE_CHECKING
 
 import polars as pl
 import pytest
 
+from nof1_causal_lab.artifacts.data_preparation import FilePreparationSpec
 from nof1_causal_lab.artifacts.identity import IndicatorId
 from nof1_causal_lab.utils.aggregations import (
     _build_agg_expr,
-    _build_map_groups_fn,
     _encode_non_continuous,
-    compute_indicators,
 )
-
-if TYPE_CHECKING:
-    from nof1_causal_lab.workers.context import MeasurementIndicator
+from nof1_causal_lab.utils.aggregations import (
+    compute_indicators as _compute_indicators,
+)
+from nof1_causal_lab.utils.observation_semantics import SummaryOperator
 
 pytestmark = pytest.mark.contract
+
+
+def compute_indicators(raw_df, indicators, model_clock, time_col, **kwargs):
+    variables = [
+        {"how_to_measure": ind["name"], "extraction_mode": "computed", **ind} for ind in indicators
+    ]
+    if not variables:
+        variables = [
+            {
+                "id": "indicator:unused",
+                "name": "unused",
+                "how_to_measure": "Unused semantic variable",
+                "measurement_dtype": "continuous",
+                "aggregation": "mean",
+            }
+        ]
+    preparation = FilePreparationSpec.model_validate(
+        {
+            "source": {"files": ["source.csv"], **kwargs},
+            "definition": {"default_window": model_clock, "variables": variables},
+        }
+    )
+    return _compute_indicators(raw_df, preparation.extraction_context(), time_col)
 
 
 def _make_df(values: list[float]) -> pl.DataFrame:
@@ -37,20 +59,11 @@ class TestBuildAggExpr:
     @pytest.mark.parametrize(
         ("agg_name", "values", "expected"),
         [
-            ("mean", [1.0, 2.0, 3.0], 2.0),
-            ("sum", [1.0, 2.0, 3.0], 6.0),
-            ("min", [3.0, 1.0, 2.0], 1.0),
-            ("max", [3.0, 1.0, 2.0], 3.0),
-            ("count", [1.0, 2.0, 3.0], 3.0),
-            ("median", [1.0, 5.0, 3.0], 3.0),
-            ("first", [7.0, 2.0, 3.0], 7.0),
-            ("last", [7.0, 2.0, 9.0], 9.0),
-            ("range", [1.0, 5.0, 3.0], 4.0),
-            ("p25", [1.0, 2.0, 3.0, 4.0], 2.0),
-            ("p75", [1.0, 2.0, 3.0, 4.0], 3.0),
-            ("iqr", [1.0, 2.0, 3.0, 4.0], 1.0),
-            ("cv", [10.0, 12.0, 8.0], 0.2),
-            ("instability", [1.0, 3.0, 2.0, 4.0], 3.0),
+            (SummaryOperator.MEAN, [1.0, 2.0, 3.0], 2.0),
+            (SummaryOperator.SUM, [1.0, 2.0, 3.0], 6.0),
+            (SummaryOperator.COUNT, [1.0, 2.0, 3.0], 3.0),
+            (SummaryOperator.FIRST, [7.0, 2.0, 3.0], 7.0),
+            (SummaryOperator.LAST, [7.0, 2.0, 9.0], 9.0),
         ],
     )
     def test_supported_aggregations(self, agg_name, values, expected):
@@ -60,68 +73,23 @@ class TestBuildAggExpr:
 
     def test_std(self):
         df = _make_df([1.0, 2.0, 3.0])
-        result = df.select(_build_agg_expr("std"))
+        result = df.select(_build_agg_expr(SummaryOperator.STD))
         assert result["value"][0] == pytest.approx(1.0)  # sample std (ddof=1)
 
     @pytest.mark.parametrize(
         ("agg_name", "expected"),
         [
-            ("mean", 42.0),
-            ("sum", 42.0),
-            ("min", 42.0),
-            ("max", 42.0),
-            ("count", 1.0),
-            ("median", 42.0),
-            ("first", 42.0),
-            ("last", 42.0),
+            (SummaryOperator.MEAN, 42.0),
+            (SummaryOperator.SUM, 42.0),
+            (SummaryOperator.COUNT, 1.0),
+            (SummaryOperator.FIRST, 42.0),
+            (SummaryOperator.LAST, 42.0),
         ],
     )
     def test_single_value(self, agg_name, expected):
         """Aggregating a single value works for the basic scalar reducers."""
         result = _make_df([42.0]).select(_build_agg_expr(agg_name))
         assert result["value"][0] == pytest.approx(expected), f"{agg_name} failed on single value"
-
-    def test_cv_zero_mean(self):
-        """CV with zero mean returns null (guarded by abs(mean) > 1e-15)."""
-        df = _make_df([-1.0, 1.0])  # mean = 0
-        result = df.select(_build_agg_expr("cv"))
-        assert result["value"][0] is None
-
-    def test_unknown_raises(self):
-        with pytest.raises(ValueError, match="Unknown aggregation"):
-            _build_agg_expr("nonexistent_agg")
-
-
-# =============================================================================
-# _build_map_groups_fn
-# =============================================================================
-
-
-class TestBuildMapGroupsFn:
-    def test_trend_positive_slope(self):
-        """Increasing values should give positive slope."""
-        fn = _build_map_groups_fn("trend")
-        df = pl.DataFrame({"value": [1.0, 2.0, 3.0, 4.0], "group": ["a"] * 4})
-        result = fn(df)
-        assert result["value"][0] > 0
-
-    def test_trend_zero_slope(self):
-        """Constant values should give zero slope."""
-        fn = _build_map_groups_fn("trend")
-        df = pl.DataFrame({"value": [5.0, 5.0, 5.0], "group": ["a"] * 3})
-        result = fn(df)
-        assert abs(result["value"][0]) < 1e-10
-
-    def test_trend_single_point(self):
-        """Single data point should give zero slope."""
-        fn = _build_map_groups_fn("trend")
-        df = pl.DataFrame({"value": [5.0], "group": ["a"]})
-        result = fn(df)
-        assert abs(result["value"][0]) < 1e-10
-
-    def test_unknown_raises(self):
-        with pytest.raises(ValueError, match="Unknown map_groups"):
-            _build_map_groups_fn("nonexistent")
 
 
 # =============================================================================
@@ -252,7 +220,7 @@ class TestComputeIndicators:
     def test_single_mean(self):
         """Mean of heart_rate across 3 daily ticks."""
         df = _make_raw_df()
-        indicators: list[MeasurementIndicator] = [
+        indicators = [
             {
                 "measurement_dtype": "continuous",
                 "id": IndicatorId("indicator:c21b43949b3712e734c8"),
@@ -271,7 +239,7 @@ class TestComputeIndicators:
     def test_sum_aggregation(self):
         """Sum of steps across daily ticks."""
         df = _make_raw_df()
-        indicators: list[MeasurementIndicator] = [
+        indicators = [
             {
                 "measurement_dtype": "continuous",
                 "id": IndicatorId("indicator:a0ce08437c19d06aafd1"),
@@ -288,7 +256,7 @@ class TestComputeIndicators:
     def test_multiple_indicators(self):
         """Two computed indicators in one call."""
         df = _make_raw_df()
-        indicators: list[MeasurementIndicator] = [
+        indicators = [
             {
                 "measurement_dtype": "continuous",
                 "id": IndicatorId("indicator:c21b43949b3712e734c8"),
@@ -315,7 +283,7 @@ class TestComputeIndicators:
     def test_output_schema(self):
         """Output columns are exactly {indicator, value, timestamp} as Utf8."""
         df = _make_raw_df()
-        indicators: list[MeasurementIndicator] = [
+        indicators = [
             {
                 "measurement_dtype": "continuous",
                 "id": IndicatorId("indicator:c21b43949b3712e734c8"),
@@ -337,8 +305,8 @@ class TestComputeIndicators:
         assert result.columns == ["indicator_id", "value", "timestamp"]
         assert len(result) == 0
 
-    def test_trend_aggregation(self):
-        """Trend (map_groups path) computes OLS slope."""
+    def test_unsupported_aggregation_rejected_at_observation_boundary(self):
+        """Computed extraction cannot bypass the owned summary vocabulary."""
         df = pl.DataFrame(
             {
                 "timestamp": [
@@ -349,7 +317,7 @@ class TestComputeIndicators:
                 "hr": [70.0, 75.0, 80.0],  # increasing → positive slope
             }
         )
-        indicators: list[MeasurementIndicator] = [
+        indicators = [
             {
                 "measurement_dtype": "continuous",
                 "id": IndicatorId("indicator:cacaf060b8afc7a952d9"),
@@ -358,14 +326,13 @@ class TestComputeIndicators:
                 "aggregation": "trend",
             }
         ]
-        result = compute_indicators(df, indicators, "1d", "timestamp")
-        assert len(result) == 1
-        assert float(result["value"][0]) > 0  # positive slope
+        with pytest.raises(ValueError, match="aggregation"):
+            compute_indicators(df, indicators, "1d", "timestamp")
 
     def test_missing_source_column(self):
         """Missing source column is skipped with warning, not crash."""
         df = _make_raw_df()
-        indicators: list[MeasurementIndicator] = [
+        indicators = [
             {
                 "measurement_dtype": "continuous",
                 "id": IndicatorId("indicator:938f71ec0999bbbe342c"),
@@ -389,7 +356,7 @@ class TestComputeIndicators:
                 "hr": [72.0, None, 68.0],
             }
         )
-        indicators: list[MeasurementIndicator] = [
+        indicators = [
             {
                 "measurement_dtype": "continuous",
                 "id": IndicatorId("indicator:c21b43949b3712e734c8"),
@@ -415,12 +382,13 @@ class TestComputeIndicators:
                 "care_setting": [None, "home", "clinic"],
             }
         )
-        indicators: list[MeasurementIndicator] = [
+        indicators = [
             {
                 "id": IndicatorId("indicator:c0486b3cc6b5559e95d0"),
                 "name": "first_setting",
                 "source_columns": ["care_setting"],
                 "measurement_dtype": "categorical",
+                "categorical_levels": ["home", "clinic"],
                 "aggregation": "first",
             }
         ]
@@ -440,12 +408,13 @@ class TestComputeIndicators:
                 "care_setting": ["home", "clinic"],
             }
         )
-        indicators: list[MeasurementIndicator] = [
+        indicators = [
             {
                 "id": IndicatorId("indicator:c664114dcb2ded460d6e"),
                 "name": "last_setting",
                 "source_columns": ["care_setting"],
                 "measurement_dtype": "categorical",
+                "categorical_levels": ["home", "clinic"],
                 "aggregation": "last",
             }
         ]
@@ -465,7 +434,7 @@ class TestComputeIndicators:
                 "mood_label": ["bad", "good"],
             }
         )
-        indicators: list[MeasurementIndicator] = [
+        indicators = [
             {
                 "id": IndicatorId("indicator:5dc4b94693df7e0aef53"),
                 "name": "closing_mood",
@@ -492,7 +461,7 @@ class TestComputeIndicators:
                 "message_text": ["alpha", None, "beta"],
             }
         )
-        indicators: list[MeasurementIndicator] = [
+        indicators = [
             {
                 "id": IndicatorId("indicator:6a123c22171bbe49ee54"),
                 "name": "text_events",
@@ -519,7 +488,7 @@ class TestComputeIndicators:
                 "diastolic_bp": [80.0, 90.0, 70.0],
             }
         )
-        indicators: list[MeasurementIndicator] = [
+        indicators = [
             {
                 "id": IndicatorId("indicator:46df40a36557ed795b7b"),
                 "name": "map",
@@ -551,7 +520,7 @@ class TestComputeIndicators:
                 "admin_status": ["missed", "taken", None, "taken", None],
             }
         )
-        indicators: list[MeasurementIndicator] = [
+        indicators = [
             {
                 "id": IndicatorId("indicator:097d80d6767b143a71b4"),
                 "name": "missed_doses",
@@ -583,7 +552,7 @@ class TestComputeIndicators:
                 "score": [5.0, None, 7.0],
             }
         )
-        indicators: list[MeasurementIndicator] = [
+        indicators = [
             {
                 "id": IndicatorId("indicator:e8bcfd4304d709a5cce3"),
                 "name": "event_count",
@@ -624,7 +593,7 @@ class TestComputeIndicators:
                 "title": ["stress spike", "ordinary update", "another ordinary update"],
             }
         )
-        indicators: list[MeasurementIndicator] = [
+        indicators = [
             {
                 "id": IndicatorId("indicator:42b9030df461ee342451"),
                 "name": "stress_mentions",
@@ -660,7 +629,7 @@ class TestComputeIndicators:
                 "spo2_pct": [95.0, 94.0, 91.0, 95.0, None, None],
             }
         )
-        indicators: list[MeasurementIndicator] = [
+        indicators = [
             {
                 "id": IndicatorId("indicator:86e4453f8f098e1007ef"),
                 "name": "low_spo2",
@@ -709,7 +678,7 @@ class TestComputeIndicators:
                 ],
             }
         )
-        indicators: list[MeasurementIndicator] = [
+        indicators = [
             {
                 "id": IndicatorId("indicator:cce51902cd8da81b8457"),
                 "name": "social_media_hits",
@@ -752,7 +721,7 @@ class TestComputeIndicators:
                 ],
             }
         )
-        indicators: list[MeasurementIndicator] = [
+        indicators = [
             {
                 "id": IndicatorId("indicator:1d23877d34bd268f1d4d"),
                 "name": "stress_content_count",
@@ -775,7 +744,7 @@ class TestComputeIndicators:
     def test_timestamp_format_matches_bucket_by_clock(self):
         """Computed timestamps match the ISO format from bucket_by_clock."""
         df = _make_raw_df()
-        indicators: list[MeasurementIndicator] = [
+        indicators = [
             {
                 "measurement_dtype": "continuous",
                 "id": IndicatorId("indicator:c21b43949b3712e734c8"),
@@ -800,7 +769,7 @@ class TestComputeIndicators:
                 "heart_rate": [72.0, 84.0, 90.0],
             }
         )
-        indicators: list[MeasurementIndicator] = [
+        indicators = [
             {
                 "measurement_dtype": "continuous",
                 "id": IndicatorId("indicator:c21b43949b3712e734c8"),
@@ -818,7 +787,7 @@ class TestComputeIndicators:
     def test_hourly_clock(self):
         """Hourly model_clock produces every support tick in the observed span."""
         df = _make_raw_df()
-        indicators: list[MeasurementIndicator] = [
+        indicators = [
             {
                 "measurement_dtype": "continuous",
                 "id": IndicatorId("indicator:c21b43949b3712e734c8"),
@@ -836,7 +805,7 @@ class TestComputeIndicators:
     def test_indicator_specific_observation_window_overrides_model_clock(self):
         """Computed indicators bucket by their own support window, not the global clock."""
         df = _make_raw_df()
-        indicators: list[MeasurementIndicator] = [
+        indicators = [
             {
                 "measurement_dtype": "continuous",
                 "id": IndicatorId("indicator:f56b7b4807d8c6627ccb"),
@@ -856,7 +825,7 @@ class TestComputeIndicators:
     def test_col_name_parameter(self):
         """_build_agg_expr with custom col_name works correctly."""
         df = pl.DataFrame({"heart_rate": [72.0, 85.0, 68.0]})
-        expr = _build_agg_expr("mean", "heart_rate")
+        expr = _build_agg_expr(SummaryOperator.MEAN, "heart_rate")
         result = df.select(expr)
         assert abs(result["value"][0] - 75.0) < 0.01
 
@@ -923,8 +892,6 @@ def test_fill_null_uses_polars_after_window_aggregation(fields, aggregation, exp
     assert result["value"].cast(pl.Float64).to_list() == expected
     # Conversions precede filling, which also covers explicit null readings.
     if fields == {"fill_null": "forward"} and aggregation == "last":
-        converted = type(indicator).model_validate(
-            {**indicator.model_dump(), "computed_rule": "last(reading) / 2"}
-        )
+        converted = indicator.revised(computed_rule="last(reading) / 2")
         result = compute_indicators(raw, [converted.model_dump(mode="json")], "1d", "timestamp")
         assert result["value"].cast(pl.Float64).to_list() == [None, 2.0, 2.0, 2.0, 2.0, 2.0, 4.0]

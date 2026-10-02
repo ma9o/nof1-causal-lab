@@ -3,11 +3,11 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
-from time import perf_counter_ns
 from typing import TYPE_CHECKING
 
 import numpy as np
 
+from nof1_causal_lab.artifacts.checks import NumericCriterionEvidence
 from nof1_causal_lab.artifacts.expressions import (
     LiteralExpression,
     expression_states,
@@ -15,8 +15,8 @@ from nof1_causal_lab.artifacts.expressions import (
     hill_applications,
     restoring_coefficients,
 )
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.ssm import numerics as numeric
+from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel, CompiledState
 from nof1_causal_lab.models.ssm.dynamics.expression import (
     SCALAR_OPERATIONS,
     apply_expression_function,
@@ -40,15 +40,12 @@ from nof1_causal_lab.models.ssm.reachability import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
+    from collections.abc import Callable, Mapping, Sequence
 
     import jax.numpy as jnp
 
-    from nof1_causal_lab.artifacts.construct import (
-        ConstructSpec,
-    )
     from nof1_causal_lab.artifacts.expressions import CoefficientExpression
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel, CompiledState
     from nof1_causal_lab.models.ssm.dynamics.expression import ExpressionComponentSpec
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
     from nof1_causal_lab.models.ssm.predictive.types import PredictiveDraws
@@ -58,7 +55,7 @@ if TYPE_CHECKING:
 class ConstructSimulationTarget:
     """One construct and its incoming mechanisms measured in an existing simulation."""
 
-    construct: ConstructSpec
+    construct: CompiledState
     edge_parents: tuple[str, ...] = ()
     hill_parents: tuple[str, ...] = ()
 
@@ -77,11 +74,11 @@ class MeasurementTiming:
     checks: tuple[str, ...] = ()
 
 
-def _edge_components(spec: ModelSpec, source: int, target: int):
+def _edge_components(spec: CompiledModel, source: int, target: int):
     """Every additive native term belonging to one causal edge."""
     return [
         (i, component)
-        for i, component in enumerate(numeric.dynamics_expressions(spec))
+        for i, component in enumerate(spec.dynamics.spec.components)
         if component.edge_owned and source in component.sources and component.target == target
     ]
 
@@ -149,10 +146,6 @@ class _EdgeOffTarget:
     components: tuple[int, ...] = ()
 
 
-def _elapsed_ms(started_ns: int) -> float:
-    return (perf_counter_ns() - started_ns) / 1_000_000
-
-
 def _coefficient_draws(
     operand: CoefficientExpression,
     component: ExpressionComponentSpec,
@@ -169,7 +162,7 @@ def _coefficient_draws(
 
 
 def measure_construct_simulation(
-    spec: ModelSpec,
+    spec: CompiledModel,
     pred: PredictiveDraws,
     design: DesignInfo,
     target: ConstructSimulationTarget,
@@ -177,44 +170,48 @@ def measure_construct_simulation(
     dynamics: bool = True,
     measurement: bool = True,
     edge_contrasts: bool = True,
+    clock: Callable[[], float],
 ) -> tuple[list[CheckResult], list[MeasurementTiming]]:
     """Execute selected check groups over a shared predictive batch."""
     results: list[CheckResult] = []
     timings: list[MeasurementTiming] = []
     if dynamics:
         checked, measured = measure_construct_dynamics(
-            spec, pred, design, target, edge_contrasts=edge_contrasts
+            spec, pred, design, target, edge_contrasts=edge_contrasts, clock=clock
         )
         results.extend(checked)
         timings.extend(measured)
     if measurement:
-        checked, measured = measure_construct_measurement(spec, pred, design, target)
+        checked, measured = measure_construct_measurement(spec, pred, design, target, clock=clock)
         results.extend(checked)
         timings.extend(measured)
     return results, timings
 
 
 def measure_construct_dynamics(
-    spec: ModelSpec,
+    spec: CompiledModel,
     pred: PredictiveDraws,
     design: DesignInfo,
     target: ConstructSimulationTarget,
     *,
     edge_contrasts: bool = True,
+    clock: Callable[[], float],
 ) -> tuple[list[CheckResult], list[MeasurementTiming]]:
     """Measure confinement, scale, resolvability, edge contrasts and saturation."""
     latent_names = numeric.state_names(spec)
     d = latent_names.index(target.name)
     x = np.asarray(pred.trajectory.latents[:, :, d])
     times = np.asarray(design.t_grid, dtype=float)
-    indicator_names = tuple(indicator.id for indicator in target.construct.indicators)
+    indicator_names = tuple(
+        observation.id for observation in spec.observations if observation.state_index == d
+    )
     target_obs = design.observation_indices_for(indicator_names)
     structural_indices = target_obs if target_obs.size else np.arange(times.size)
 
     results: list[CheckResult] = []
     timings: list[MeasurementTiming] = []
 
-    started = perf_counter_ns()
+    started = clock()
     phase_results = (
         list(
             check_confinement(
@@ -227,13 +224,20 @@ def measure_construct_dynamics(
         )
         if times.size >= 4
         else [
-            CheckResult(
+            CheckResult.measured(
                 "C1a finiteness",
                 target.name,
                 f"nonfinite {float(np.mean(~np.isfinite(x))):.1%}",
                 "0%",
-                bool(np.isfinite(x).all()),
                 "Finite-value scan; confinement requires at least four times.",
+                outcome="passed" if bool(np.isfinite(x).all()) else "failed",
+                measurements=(
+                    NumericCriterionEvidence(
+                        criterion="nonfinite_fraction",
+                        value=float(np.mean(~np.isfinite(x))),
+                        upper=0.0,
+                    ),
+                ),
             )
         ]
     )
@@ -250,7 +254,10 @@ def measure_construct_dynamics(
     if not np.isfinite(x).all():
         results.extend(
             CheckResult.unevaluated(
-                check, target.name, "NONFINITE_PATHS", "The latent paths contain non-finite values."
+                check,
+                target.name,
+                "NONFINITE_PATHS",
+                "The latent paths contain non-finite values.",
             )
             for check in (
                 "C2 latent scale",
@@ -264,19 +271,19 @@ def measure_construct_dynamics(
         MeasurementTiming(
             phase="c1_confinement",
             label="C1 confinement",
-            duration_ms=_elapsed_ms(started),
+            duration_ms=(clock() - started) * 1000.0,
             checks=tuple(result.check for result in phase_results),
         )
     )
 
-    started = perf_counter_ns()
+    started = clock()
     result = check_scale(target.name, x)
     results.append(result)
     timings.append(
         MeasurementTiming(
             phase="c2_latent_scale",
             label="C2 latent scale",
-            duration_ms=_elapsed_ms(started),
+            duration_ms=(clock() - started) * 1000.0,
             checks=(result.check,),
         )
     )
@@ -284,13 +291,13 @@ def measure_construct_dynamics(
     # C3 resolvability uses the declared stiffness, whether fixed or estimated.
     potentials = [
         (i, comp, operand)
-        for i, comp in enumerate(numeric.dynamics_expressions(spec))
+        for i, comp in enumerate(spec.dynamics.spec.components)
         if comp.target == d and not comp.edge_owned
         for operand in restoring_coefficients(comp.expression, comp.state_ids[d], kind=comp.kind)
         if operand.role == "decay"
     ]
     if potentials:
-        started = perf_counter_ns()
+        started = clock()
         stiffness = sum(
             _coefficient_draws(operand, comp, pred, f"vf_{i}") for i, comp, operand in potentials
         )
@@ -301,7 +308,7 @@ def measure_construct_dynamics(
             MeasurementTiming(
                 phase="c3_resolvability",
                 label="C3 resolvability",
-                duration_ms=_elapsed_ms(started),
+                duration_ms=(clock() - started) * 1000.0,
                 checks=(result.check,),
             )
         )
@@ -327,7 +334,7 @@ def measure_construct_dynamics(
             for parent in target.edge_parents
         )
     for parent in target.edge_parents if edge_contrasts else ():
-        started = perf_counter_ns()
+        started = clock()
         edge_target = _incoming_edge_off_target(
             spec, replace(target, edge_parents=(parent,)), latent_names, d
         )
@@ -351,7 +358,7 @@ def measure_construct_dynamics(
             MeasurementTiming(
                 phase=f"c4b_edge_overwhelm:{edge_label}",
                 label=f"C4b edge-off resimulation: {parent} → {target.name}",
-                duration_ms=_elapsed_ms(started),
+                duration_ms=(clock() - started) * 1000.0,
                 checks=tuple(result.check for result in phase_results),
             )
         )
@@ -368,7 +375,7 @@ def measure_construct_dynamics(
         if not applications:
             raise ValueError(f"No Hill expression for {parent!r} -> {target.name!r}")
         for comp_idx, comp, source, ec50, exponent in applications:
-            started = perf_counter_ns()
+            started = clock()
             parent_vals = fold_expression(
                 source,
                 literal=lambda value: np.asarray(value),
@@ -379,7 +386,7 @@ def measure_construct_dynamics(
                     _coefficient_draws(operand, comp, pred, f"vf_{comp_idx}")
                 ).reshape(-1, 1),
                 binary=lambda operation, left, right: SCALAR_OPERATIONS[operation](left, right),
-                call=apply_expression_function,
+                call=lambda name, arguments: np.asarray(apply_expression_function(name, arguments)),
             )
             result = check_saturation(
                 f"{parent}->{target.name}",
@@ -392,7 +399,7 @@ def measure_construct_dynamics(
                 MeasurementTiming(
                     phase=f"c4c_saturation:{parent}->{target.name}",
                     label=f"C4c saturation: {parent} → {target.name}",
-                    duration_ms=_elapsed_ms(started),
+                    duration_ms=(clock() - started) * 1000.0,
                     checks=(result.check,),
                 )
             )
@@ -401,25 +408,28 @@ def measure_construct_dynamics(
 
 
 def measure_construct_measurement(
-    spec: ModelSpec,
+    spec: CompiledModel,
     pred: PredictiveDraws,
     design: DesignInfo,
     target: ConstructSimulationTarget,
+    *,
+    clock: Callable[[], float],
 ) -> tuple[list[CheckResult], list[MeasurementTiming]]:
     """Measure observation coverage and exact-law temporal transmission."""
     d = numeric.state_names(spec).index(target.name)
     results: list[CheckResult] = []
     timings: list[MeasurementTiming] = []
-    time_invariant_mask = numeric.diffusion_block(spec).time_invariant_mask
+    time_invariant_mask = spec.diffusion_block.time_invariant_mask
     target_is_time_invariant = bool(
         time_invariant_mask is not None and np.asarray(time_invariant_mask, dtype=bool)[d]
     )
 
     # C5a/C5b coverage for every indicator; C5c transmission only for dynamic constructs.
-    for indicator in target.construct.indicators:
+    for indicator in spec.observations:
+        if indicator.state_index != d:
+            continue
         lik = indicator.likelihood
-        assert lik is not None
-        started = perf_counter_ns()
+        started = clock()
         var = indicator.id
         observed = np.asarray(design.values_by_indicator[var])
         m = design.manifest_ids.index(var)
@@ -439,13 +449,20 @@ def measure_construct_measurement(
         if not np.isfinite(pred.trajectory.latents).all() or not np.isfinite(pp_y).all():
             if not np.isfinite(pp_y).all():
                 results.append(
-                    CheckResult(
+                    CheckResult.measured(
                         "C1a finiteness",
                         var,
                         f"nonfinite {float(np.mean(~np.isfinite(pp_y))):.1%}",
                         "0%",
-                        False,
                         "The sampled emission contains non-finite values.",
+                        outcome="failed",
+                        measurements=(
+                            NumericCriterionEvidence(
+                                criterion="nonfinite_fraction",
+                                value=float(np.mean(~np.isfinite(pp_y))),
+                                upper=0.0,
+                            ),
+                        ),
                     )
                 )
             results.extend(
@@ -466,7 +483,7 @@ def measure_construct_measurement(
                     indicator.name,
                     pp_y,
                     observed,
-                    distribution=lik.law.family.value,
+                    distribution=lik.family.value,
                     level_count=level_count,
                 )
             ]
@@ -504,7 +521,7 @@ def measure_construct_measurement(
             MeasurementTiming(
                 phase=f"c5_coverage:{var}",
                 label=f"C5 emission reachability: {var}",
-                duration_ms=_elapsed_ms(started),
+                duration_ms=(clock() - started) * 1000.0,
                 checks=tuple(result.check for result in phase_results),
             )
         )
@@ -513,9 +530,9 @@ def measure_construct_measurement(
 
 
 def _incoming_edge_off_target(
-    spec: ModelSpec,
+    spec: CompiledModel,
     contribution: ConstructSimulationTarget,
-    latent_names: list[str],
+    latent_names: Sequence[str],
     target: int,
 ) -> _EdgeOffTarget:
     """Compiled vector-field components for incoming edges."""
@@ -533,7 +550,7 @@ def _incoming_edge_off_target(
 
 
 def _resimulate_edge_off(
-    spec: ModelSpec,
+    spec: CompiledModel,
     pred: PredictiveDraws,
     t_grid: jnp.ndarray,
     edge_target: _EdgeOffTarget,
@@ -550,7 +567,7 @@ def _resimulate_edge_off(
     )
 
     samples = pred.parameters
-    natural = numeric.dynamics_expressions(spec)
+    natural = spec.dynamics.spec.components
     intervention_dynamics = DynamicsSpec(
         n_latent=numeric.n_states(spec),
         components=tuple(

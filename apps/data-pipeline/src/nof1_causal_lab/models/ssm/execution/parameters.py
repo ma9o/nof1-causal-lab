@@ -20,7 +20,7 @@ if TYPE_CHECKING:
 
     import numpyro.distributions as dist
 
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
     from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
 
 
@@ -32,7 +32,7 @@ def sample_sites(
 
 
 def assemble_model_matrices(
-    spec: ModelSpec, samples: dict[str, jnp.ndarray]
+    spec: CompiledModel, samples: dict[str, jnp.ndarray]
 ) -> tuple[dict[str, jnp.ndarray], jnp.ndarray]:
     """Assemble one parameter draw, including the initial covariance constraint.
 
@@ -45,15 +45,13 @@ def assemble_model_matrices(
         for block in numeric.parameter_blocks(spec)
         for site in block.iter_sites()
     }
-    manifest_chol = numeric.observation_noise_block(spec).assemble(
-        values.get("manifest_var_diag_free")
-    )
-    static_sds = numeric.static_scale_block(spec).assemble(values.get("static_state_sd_free"))
-    covariance = numeric.initial_covariance_block(spec).assemble_cov(
+    manifest_chol = spec.observation_noise_block.assemble(values.get("manifest_var_diag_free"))
+    static_sds = spec.static_scale_block.assemble(values.get("static_state_sd_free"))
+    covariance = spec.initial_covariance_block.assemble_cov(
         values.get("t0_var_diag_free"), values.get("t0_var_lower_free")
     )
     if static_sds.size:
-        loadings = jnp.asarray(numeric.static_factor_loadings(spec))
+        loadings = jnp.asarray(spec.static_factor_loadings)
         covariance = covariance + loadings @ jnp.diag(static_sds**2) @ loadings.T
     endogenous = jnp.asarray(np.flatnonzero(~numeric.input_mask(spec)))
     endogenous_covariance, min_eigenvalue = stabilize_covariance_for_cholesky(
@@ -64,15 +62,13 @@ def assemble_model_matrices(
         jnp.zeros_like(covariance).at[jnp.ix_(endogenous, endogenous)].set(endogenous_covariance)
     )
     return {
-        "diffusion": numeric.diffusion_block(spec).assemble(
+        "diffusion": spec.diffusion_block.assemble(
             values.get("diffusion_diag_free"), values.get("diffusion_lower_free")
         ),
-        "lambda": numeric.loading_block(spec).assemble(values.get("lambda_free")),
-        "manifest_means": numeric.observation_mean_block(spec).assemble(
-            values.get("manifest_means_free")
-        ),
+        "lambda": spec.loading_block.assemble(values.get("lambda_free")),
+        "manifest_means": spec.observation_mean_block.assemble(values.get("manifest_means_free")),
         "manifest_cov": manifest_chol @ manifest_chol.T,
-        "t0_means": numeric.initial_mean_block(spec).assemble(values.get("t0_means_free")),
+        "t0_means": spec.initial_mean_block.assemble(values.get("t0_means_free")),
         "t0_cov": initial_covariance,
         "static_state_sds": static_sds,
     }, min_eigenvalue

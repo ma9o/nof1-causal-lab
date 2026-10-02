@@ -3,7 +3,7 @@
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING, cast, override
+from typing import override
 
 import jax.numpy as jnp
 import numpy as np
@@ -12,59 +12,62 @@ import pytest
 
 from nof1_causal_lab.actions.inference import fit as stage5_inference
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.models.ssm.execution.planning import InferenceStructurePlan
+from nof1_causal_lab.models.ssm.compile.inputs import CompiledFitInputs
 from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior
 from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
-from nof1_causal_lab.models.ssm.model import SSMModel
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
-from nof1_causal_lab.models.ssm.runtime import PreparedModelRuntime
+from nof1_causal_lab.models.ssm.runtime import BoundPanel
+from nof1_causal_lab.sampler_config import SamplerSpec
 from tests.model_fixtures import (
+    bind_panel_fixture,
     compile_fit_fixture,
 )
 
 pytestmark = pytest.mark.contract
 
-if TYPE_CHECKING:
-    from nof1_causal_lab.sampler_config import SamplerConfigOverride
-
 
 class _FakeResult(ParticleMCMCPosterior):
     def __init__(self) -> None:
-        self.method = "marginal_particle_gibbs"
-        self.diagnostics = {"marginal_particle_gibbs": {"experimental_metric": [0.25, None]}}
-        self.draws = JointPosteriorDraws(parameters={"theta": jnp.zeros((4, 1), dtype=jnp.float32)})
+        from tests.inference_fixtures import particle_posterior
+
+        fixture = particle_posterior(
+            JointPosteriorDraws(parameters={"theta": jnp.zeros((4, 1), dtype=jnp.float32)})
+        )
+        super().__init__(draws=fixture.draws, diagnostics=fixture.diagnostics)
 
     @override
-    def get_smc_diagnostics(self):
-        return {"n_levels": 3}
+    def get_inference_diagnostics(self, references):
+        from nof1_causal_lab.artifacts.posterior_diagnostics import ChainDiagnostics
+
+        return ChainDiagnostics(num_chains=1, num_samples=4, per_parameter=())
 
     @override
-    def get_loo_diagnostics(
-        self,
-        *,
-        observations: jnp.ndarray,
-    ):
-        return {"elpd_loo": -12.3}
+    def get_chain_detail(self, references):
+        return (), ()
 
     @override
-    def get_posterior_marginals(self, n_bins: int = 50):
-        del n_bins
-        return []
+    def get_loo_diagnostics(self, *, observations):
+        from nof1_causal_lab.artifacts.posterior_diagnostics import LOODiagnostics
+
+        return LOODiagnostics(elpd_loo=-12.3, p_loo=1, se=0.2, n_data_points=2), ()
 
     @override
-    def get_posterior_pairs(self, max_params: int = 6, max_samples: int = 200):
-        del max_params, max_samples
-        return []
+    def get_posterior_marginals(self, references, n_bins: int = 50):
+        return ()
+
+    @override
+    def get_posterior_pairs(self, references, max_params: int = 6):
+        return ()
 
 
 def _make_observation_support_runtime() -> ObservationSupportRuntime:
     return ObservationSupportRuntime(
-        manifest_names=["sleep_avg", "energy"],
+        manifest_names=("sleep_avg", "energy"),
         anchor_times=np.array([0.0, 1.5]),
-        support_kinds=["interval", "point"],
-        summary_operators=["mean", None],
-        anchor_policies=["end", "end"],
-        observation_windows=["1d", None],
+        support_kinds=("interval", "point"),
+        summary_operators=("mean", None),
+        anchor_policies=("end", "end"),
+        observation_windows=("1d", None),
         support_start_times=np.array([[np.nan, np.nan], [0.0, np.nan]]),
         support_end_times=np.array([[np.nan, np.nan], [1.5, np.nan]]),
         interval_prev_coeffs=np.array(
@@ -89,49 +92,31 @@ def _make_observation_support_runtime() -> ObservationSupportRuntime:
     )
 
 
-def _make_runtime(model: SSMModel) -> PreparedModelRuntime:
-    return PreparedModelRuntime(
-        model=model,
-        sampler_config=cast(
-            "SamplerConfigOverride",
-            {"method": "marginal_particle_gibbs"},
-        ),
-        wide_data=pl.DataFrame(
-            {
-                "time": [0.0, 1.5],
-                "sleep_avg": [0.2, None],
-                "energy": [0.8, 0.5],
-            }
-        ),
-        observation_data=None,
-        observation_support=_make_observation_support_runtime(),
-        inference_structure=InferenceStructurePlan(
-            structural_backend="laplace",
-            resolved_method="marginal_particle_gibbs",
-            method_override=None,
-        ),
-        observations=jnp.array([[0.2, 0.8], [jnp.nan, 0.5]], dtype=jnp.float32),
-        times=jnp.array([0.0, 1.5], dtype=jnp.float32),
+def _make_panel(inputs: CompiledFitInputs) -> BoundPanel:
+    return bind_panel_fixture(
+        inputs.compiled,
+        jnp.array([[0.2, 0.8], [jnp.nan, 0.5]], dtype=jnp.float32),
+        jnp.array([0.0, 1.5], dtype=jnp.float32),
+        support=_make_observation_support_runtime(),
     )
 
 
 def test_fit_model_logs_runtime_summary_and_diagnostic_boundaries(monkeypatch, caplog):
     fake_result = _FakeResult()
-    fake_model = SSMModel(
-        compile_fit_fixture(
-            ModelSpec.model_validate_json(
-                (
-                    Path(__file__).resolve().parents[2]
-                    / "fixtures/models"
-                    / "inference/sleep_state_model.json"
-                ).read_text()
-            )
-        )
+    spec = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "inference/sleep_state_model.json"
+        ).read_text()
     )
-    runtime = _make_runtime(fake_model)
+    fake_model = compile_fit_fixture(spec)
+    runtime = _make_panel(fake_model)
 
-    monkeypatch.setattr(stage5_inference, "prepare_model_runtime", lambda **_kwargs: runtime)
-    monkeypatch.setattr(stage5_inference, "fit_prepared_model", lambda _runtime: fake_result)
+    monkeypatch.setattr(stage5_inference, "bind_panel", lambda **_kwargs: runtime)
+    monkeypatch.setattr(
+        stage5_inference, "fit_prepared_model", lambda _inputs, _panel, **_kwargs: fake_result
+    )
 
     data_for_model = pl.DataFrame(
         {
@@ -147,29 +132,20 @@ def test_fit_model_logs_runtime_summary_and_diagnostic_boundaries(monkeypatch, c
 
     with caplog.at_level(logging.INFO, logger=stage5_inference.logger.name):
         result = stage5_inference.fit_model(
-            fake_model.spec,
+            spec,
             data_for_model,
             time_origin=datetime(2024, 1, 1, tzinfo=UTC),
-            sampler_config=cast(
-                "SamplerConfigOverride",
-                {"method": "marginal_particle_gibbs"},
-            ),
+            sampler=SamplerSpec(),
         )
 
     assert result["fitted"]
     assert result["result"] is fake_result
-    assert result["runtime"] is runtime
-    assert result["inference_diagnostics"] == {
-        "smc": {"n_levels": 3},
-        "marginal_particle_gibbs": {"experimental_metric": [0.25, None]},
-    }
+    assert result["panel"] is runtime
+    assert result["inference_diagnostics"].num_samples == 4
+    assert result["inference_diagnostics"].per_parameter == ()
     assert "Prepared runtime in" in caplog.text
-    assert "support=interval(1: sleep_avg) max_active_windows=2" in caplog.text
+    assert "support=interval(1: manifest_0) max_active_windows=1" in caplog.text
     assert "Manifest order: manifest_0, manifest_1" in caplog.text
-    assert (
-        "Inference route: requested_method=marginal_particle_gibbs resolved_method=marginal_particle_gibbs "
-        "structural_backend=laplace method_override=none"
-    ) in caplog.text
     assert "Starting inference kernel..." in caplog.text
     assert "Collecting sampler diagnostics..." in caplog.text
     assert "Computing leave-one-measurement-row-out diagnostics..." in caplog.text
@@ -180,21 +156,20 @@ def test_fit_model_logs_runtime_summary_and_diagnostic_boundaries(monkeypatch, c
 
 def test_fit_model_can_skip_loo_diagnostics(monkeypatch, caplog):
     fake_result = _FakeResult()
-    fake_model = SSMModel(
-        compile_fit_fixture(
-            ModelSpec.model_validate_json(
-                (
-                    Path(__file__).resolve().parents[2]
-                    / "fixtures/models"
-                    / "inference/sleep_state_model.json"
-                ).read_text()
-            )
-        )
+    spec = ModelSpec.model_validate_json(
+        (
+            Path(__file__).resolve().parents[2]
+            / "fixtures/models"
+            / "inference/sleep_state_model.json"
+        ).read_text()
     )
-    runtime = _make_runtime(fake_model)
+    fake_model = compile_fit_fixture(spec)
+    runtime = _make_panel(fake_model)
 
-    monkeypatch.setattr(stage5_inference, "prepare_model_runtime", lambda **_kwargs: runtime)
-    monkeypatch.setattr(stage5_inference, "fit_prepared_model", lambda _runtime: fake_result)
+    monkeypatch.setattr(stage5_inference, "bind_panel", lambda **_kwargs: runtime)
+    monkeypatch.setattr(
+        stage5_inference, "fit_prepared_model", lambda _inputs, _panel, **_kwargs: fake_result
+    )
 
     data_for_model = pl.DataFrame(
         {
@@ -206,13 +181,10 @@ def test_fit_model_can_skip_loo_diagnostics(monkeypatch, caplog):
 
     with caplog.at_level(logging.INFO, logger=stage5_inference.logger.name):
         result = stage5_inference.fit_model(
-            fake_model.spec,
+            spec,
             data_for_model,
             time_origin=datetime(2024, 1, 1, tzinfo=UTC),
-            sampler_config=cast(
-                "SamplerConfigOverride",
-                {"method": "marginal_particle_gibbs"},
-            ),
+            sampler=SamplerSpec(),
             compute_loo_diagnostics=False,
         )
 

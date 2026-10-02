@@ -2,39 +2,68 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict, Field
+
+from nof1_causal_lab.artifacts.base import Value
 
 from .identity import DistributionId, ParameterId
 from .parameter import PriorAuthoringTransform
 
 
-class ParameterSpec(BaseModel):
+class IdentityTransformSpec(Value):
+    """Keep the authored probability law on the scientific quantity's native scale."""
+
+    kind: Literal[PriorAuthoringTransform.IDENTITY] = PriorAuthoringTransform.IDENTITY
+
+
+class PersistenceTransformSpec(Value):
+    """Map persistence p to -log(p) divided by its explicit interval in days."""
+
+    kind: Literal[PriorAuthoringTransform.DT_PERSISTENCE_TO_CT_DECAY] = (
+        PriorAuthoringTransform.DT_PERSISTENCE_TO_CT_DECAY
+    )
+    interval_days: Annotated[float, Field(gt=0, allow_inf_nan=False)] | Literal["model_clock"]
+
+
+class IntervalEffectTransformSpec(Value):
+    """Divide an interval effect by its explicit duration in days."""
+
+    kind: Literal[PriorAuthoringTransform.DT_EFFECT_TO_CT_RATE] = (
+        PriorAuthoringTransform.DT_EFFECT_TO_CT_RATE
+    )
+    interval_days: Annotated[float, Field(gt=0, allow_inf_nan=False)] | Literal["model_clock"]
+
+
+class InitialCorrelationTransformSpec(Value):
+    """Constrain an initial-state correlation to its scientific support [-1, 1]."""
+
+    kind: Literal[PriorAuthoringTransform.INITIAL_STATE_CORRELATION] = (
+        PriorAuthoringTransform.INITIAL_STATE_CORRELATION
+    )
+
+
+type ParameterTransformSpec = Annotated[
+    IdentityTransformSpec
+    | PersistenceTransformSpec
+    | IntervalEffectTransformSpec
+    | InitialCorrelationTransformSpec,
+    Field(discriminator="kind"),
+]
+
+
+class ParameterSpec(Value):
     """A named uncertain quantity; fixed coefficients are literals in component slots."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+    model_config = ConfigDict(revalidate_instances="always")
 
     id: ParameterId
     name: str = Field(description="Authored parameter label; relationships use its persistent ID")
     description: str = Field(
         description="Human-readable description of what this parameter represents"
     )
-    distribution_transform: Literal[
-        PriorAuthoringTransform.IDENTITY,
-        PriorAuthoringTransform.DT_PERSISTENCE_TO_CT_DECAY,
-        PriorAuthoringTransform.DT_EFFECT_TO_CT_RATE,
-        PriorAuthoringTransform.INITIAL_STATE_CORRELATION,
-    ] = Field(
-        default=PriorAuthoringTransform.IDENTITY,
-        description=(
-            "Mapping from the authored law to the model quantity: identity leaves its scale "
-            "unchanged; dt_persistence_to_ct_decay maps persistence p to -log(p) / interval; "
-            "dt_effect_to_ct_rate divides an interval effect by its duration in days; "
-            "initial_state_correlation applies the correlation support [-1, 1]. "
-            "Joint laws require identity."
-        ),
-    )
+    transform: ParameterTransformSpec = Field(default_factory=IdentityTransformSpec)
     distribution: DistributionId | None = Field(
         default=None,
         description=(
@@ -42,12 +71,11 @@ class ParameterSpec(BaseModel):
             "None means the law has not been assigned yet."
         ),
     )
-    reference_interval_days: float | None = Field(
-        default=None,
-        gt=0,
-        description=(
-            "Positive duration in days over which an authored persistence or interval-effect "
-            "law is defined, before conversion to continuous-time decay or rate. "
-            "When omitted, persistence and interval effects use the model measurement clock."
-        ),
-    )
+
+    def conditioned(self, identity: DistributionId) -> ParameterSpec:
+        return self.model_copy(
+            update={
+                "distribution": identity,
+                "transform": IdentityTransformSpec(),
+            }
+        )

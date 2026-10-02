@@ -1,7 +1,6 @@
 """Inference backends for SSM models.
 
-Separates inference from model definition. SSMModel defines the probabilistic
-model; this module provides fit() to run inference with the supported backends.
+Separates inference from model definition. CompiledModel owns the numerical model; this module provides fit() to run inference with the supported backends.
 
 Method:
 - Marginalized Particle Gibbs: collapsed joint parameter/trajectory updates
@@ -11,12 +10,17 @@ Method:
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Unpack
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from nof1_causal_lab.models.ssm.parameterization import PriorRuntimeBundle
+    from nof1_causal_lab.models.ssm.runtime import BoundPanel
+
+from typing import TYPE_CHECKING, Literal
 
 from nof1_causal_lab.models.ssm.autoreparam import AutoReparam
-from nof1_causal_lab.models.ssm.inference.shared import (
-    select_default_method as select_default_method,
-)
 from nof1_causal_lab.models.ssm.inference.types import (
     ParticleMCMCPosterior as ParticleMCMCPosterior,
 )
@@ -28,97 +32,61 @@ from nof1_causal_lab.models.ssm.preflight import (
 )
 
 if TYPE_CHECKING:
-    import jax.numpy as jnp
-
-    from nof1_causal_lab.models.ssm.inference.types import (
-        InferenceMethod,
-    )
-    from nof1_causal_lab.models.ssm.model import SSMModel
+    from nof1_causal_lab.models.ssm.autoreparam import Strategy
     from nof1_causal_lab.models.ssm.predictive.types import PredictiveDraws
-    from nof1_causal_lab.sampler_config import MarginalParticleGibbsOptions
+    from nof1_causal_lab.sampler_config import SamplerInitialization, SamplerSpec
 
 __all__ = [
     "ParticleMCMCPosterior",
     "WarmupProposal",
     "fit",
     "prior_predictive",
-    "select_default_method",
     "validate_observations_for_fit",
 ]
 
-# Sentinel for "use AutoReparam with method-appropriate centering".
-_AUTO_REPARAM = object()
-
-
-def _resolve_reparam(reparam, method: InferenceMethod):
-    """Resolve _AUTO_REPARAM sentinel to a concrete AutoReparam config."""
-    del method
-    if reparam is not _AUTO_REPARAM:
-        return reparam
-    return AutoReparam(centered=0.0)  # fully decentered
-
 
 def fit(
-    model: SSMModel,
-    observations: jnp.ndarray,
-    times: jnp.ndarray,
-    method: InferenceMethod = "marginal_particle_gibbs",
-    reparam=_AUTO_REPARAM,
-    **kwargs: Unpack[MarginalParticleGibbsOptions],
+    priors: PriorRuntimeBundle,
+    panel: BoundPanel,
+    *,
+    sampler: SamplerSpec,
+    initialization: SamplerInitialization | None = None,
+    reparam: Strategy | Literal["auto"] | None = "auto",
+    clock: Callable[[], float],
 ) -> ParticleMCMCPosterior:
-    """Fit an SSM using the specified inference method.
-
-    Args:
-        model: SSMModel instance defining the probabilistic model
-        observations: (N, n_manifest) observed data
-        times: (N,) observation times
-        method: Inference method.
-        reparam: Reparameterization config. Can be:
-            - ``_AUTO_REPARAM`` (default): Uses ``AutoReparam`` with method-appropriate
-              centering.
-            - A ``Strategy`` instance (e.g., ``AutoReparam(centered=0.0)``)
-            - A dict mapping site names to ``Reparam`` instances
-            - None: no reparameterization
-        **kwargs: Method-specific arguments
-
-    Returns:
-        ParticleMCMCPosterior with posterior samples and diagnostics
-    """
-    validate_observations_for_fit(model, observations)
-    reparam = _resolve_reparam(reparam, method)
+    """Run the production particle sampler on resolved numerical controls."""
+    validate_observations_for_fit(priors, panel)
+    resolved_reparam = AutoReparam(centered=0.0) if reparam == "auto" else reparam
     from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs import (
         fit_marginal_particle_gibbs,
     )
 
-    return fit_marginal_particle_gibbs(model, observations, times, reparam=reparam, **kwargs)
+    return fit_marginal_particle_gibbs(
+        priors,
+        panel,
+        sampler=sampler,
+        initialization=initialization,
+        reparam=resolved_reparam,
+        clock=clock,
+    )
 
 
 def prior_predictive(
-    model: SSMModel,
-    times: jnp.ndarray,
+    priors: PriorRuntimeBundle,
+    panel: BoundPanel,
     num_samples: int = 100,
     seed: int = 0,
 ) -> PredictiveDraws:
-    """Sample from the prior predictive distribution.
-
-    Args:
-        model: SSMModel instance
-        times: (T,) time points
-        num_samples: Number of prior samples
-        seed: Random seed
-
-    Returns:
-        Aligned parameter, likelihood and trajectory draws
-    """
+    """Sample the prior predictive distribution on the bound model's time grid."""
     from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
         sample_prior_predictive_from_runtime,
     )
 
     return sample_prior_predictive_from_runtime(
-        model.spec,
-        model.get_prior_runtime_bundle(),
-        times,
+        panel.model,
+        priors,
+        panel.times,
         num_samples=num_samples,
         seed=seed,
-        input_events=model.input_events,
+        input_events=panel.input_events,
     )

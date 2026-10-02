@@ -21,7 +21,9 @@ from __future__ import annotations
 
 import logging
 import re
-from typing import TYPE_CHECKING, Literal, NotRequired, TypedDict
+from dataclasses import dataclass
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Literal
 
 import networkx as nx
 from y0.algorithm.identify import identify_outcomes
@@ -36,38 +38,52 @@ from nof1_causal_lab.utils.causal_design import (
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
+    from collections.abc import Mapping, Sequence
 
     from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec
     from nof1_causal_lab.artifacts.identity import ConstructId
 
 
-class IdentifiedQuery(TypedDict):
+@dataclass(frozen=True, kw_only=True)
+class IdentifiedQuery:
     method: Literal["do_calculus", "instrumental_variable"]
     estimand: str
-    marginalized_confounders: list[str]
-    instruments: NotRequired[list[str]]
+    marginalized_confounders: tuple[str, ...]
+    instruments: tuple[str, ...] = ()
 
 
-class UnidentifiedQuery(TypedDict):
-    confounders: list[str]
-    notes: NotRequired[str]
+@dataclass(frozen=True, kw_only=True)
+class UnidentifiedQuery:
+    confounders: tuple[str, ...]
+    notes: str | None = None
 
 
-class IdentificationGraphInfo(TypedDict):
-    observed_constructs: list[str]
+@dataclass(frozen=True, kw_only=True)
+class IdentificationGraphInfo:
+    observed_constructs: tuple[str, ...]
     total_constructs: int
-    unobserved_confounders: list[str]
+    unobserved_confounders: tuple[str, ...]
     n_directed_edges: int
-    iv_allowed: NotRequired[bool]
+    iv_allowed: bool = False
 
 
-class IdentificationResult(TypedDict):
-    """y0 query output; names are resolved to canonical IDs by the report producer."""
+@dataclass(frozen=True, kw_only=True)
+class IdentificationResult:
+    "y0 query output; names are resolved to canonical IDs by the report producer."
 
-    identifiable_treatments: dict[str, IdentifiedQuery]
-    non_identifiable_treatments: dict[str, UnidentifiedQuery]
+    identifiable_treatments: Mapping[str, IdentifiedQuery]
+    non_identifiable_treatments: Mapping[str, UnidentifiedQuery]
     graph_info: IdentificationGraphInfo
+
+    def __post_init__(self) -> None:
+        object.__setattr__(
+            self, "identifiable_treatments", MappingProxyType(dict(self.identifiable_treatments))
+        )
+        object.__setattr__(
+            self,
+            "non_identifiable_treatments",
+            MappingProxyType(dict(self.non_identifiable_treatments)),
+        )
 
 
 logger = logging.getLogger(__name__)
@@ -132,20 +148,19 @@ def check_identifiability(
     # If outcome itself is unobserved, no effects are identifiable
     if outcome not in observed_constructs:
         for treatment in all_treatments:
-            non_identifiable_treatments[treatment] = {
-                "confounders": [outcome],
-                "notes": "outcome is unobserved",
-            }
-        return {
-            "identifiable_treatments": identifiable_treatments,
-            "non_identifiable_treatments": non_identifiable_treatments,
-            "graph_info": {
-                "observed_constructs": sorted(observed_constructs),
-                "total_constructs": len(constructs),
-                "unobserved_confounders": [],
-                "n_directed_edges": 0,
-            },
-        }
+            non_identifiable_treatments[treatment] = UnidentifiedQuery(
+                confounders=(outcome,), notes="outcome is unobserved"
+            )
+        return IdentificationResult(
+            identifiable_treatments=identifiable_treatments,
+            non_identifiable_treatments=non_identifiable_treatments,
+            graph_info=IdentificationGraphInfo(
+                observed_constructs=tuple(sorted(observed_constructs)),
+                total_constructs=len(constructs),
+                unobserved_confounders=(),
+                n_directed_edges=0,
+            ),
+        )
 
     # Convert DAG to ADMG via 2-timestep unrolling
     admg, unobserved_confounders = dag_to_admg(constructs, edges, observed_constructs)
@@ -162,72 +177,64 @@ def check_identifiability(
         treatment_var = Variable(treatment_node)
         outcome_var = Variable(outcome_node)
 
-        try:
-            estimand = identify_outcomes(
-                admg,
-                treatments={treatment_var},
-                outcomes={outcome_var},
+        estimand = identify_outcomes(
+            admg,
+            treatments={treatment_var},
+            outcomes={outcome_var},
+        )
+        if estimand is not None:  # ty: ignore[redundant-condition-strict]  # pyright: ignore[reportUnnecessaryComparison] - y0 returns None for unidentifiable queries; static analysis narrows its exception path incorrectly.
+            # Map estimand back to original names for readability
+            estimand_str = _canonicalize_estimand_string(str(estimand))
+            identifiable_treatments[treatment] = IdentifiedQuery(
+                method="do_calculus",
+                estimand=estimand_str,
+                marginalized_confounders=tuple(sorted(unobserved_confounders)),
             )
-
-            if estimand is not None:  # ty: ignore[redundant-condition-strict]  # pyright: ignore[reportUnnecessaryComparison] - y0 returns None for unidentifiable queries; static analysis narrows its exception path incorrectly.
-                # Map estimand back to original names for readability
-                estimand_str = _canonicalize_estimand_string(str(estimand))
-                identifiable_treatments[treatment] = {
-                    "method": "do_calculus",
-                    "estimand": estimand_str,
-                    "marginalized_confounders": sorted(unobserved_confounders),
-                }
-            else:
-                # y0's nonparametric check failed; optionally report IV
-                # identification under the caller's parametric assumption.
-                instruments = (
-                    find_instruments(constructs, edges, observed_constructs, treatment, outcome)
-                    if iv_allowed
-                    else []
+        else:
+            # y0's nonparametric check failed; optionally report IV
+            # identification under the caller's parametric assumption.
+            instruments = (
+                find_instruments(constructs, edges, observed_constructs, treatment, outcome)
+                if iv_allowed
+                else []
+            )
+            if instruments:
+                # IV identification available under the caller's linearity assumption.
+                iv_list = ", ".join(instruments)
+                identifiable_treatments[treatment] = IdentifiedQuery(
+                    method="instrumental_variable",
+                    estimand=f"IV({iv_list}) [requires linearity]",
+                    marginalized_confounders=tuple(sorted(unobserved_confounders)),
+                    instruments=tuple(instruments),
                 )
-                if instruments:
-                    # IV identification available under the caller's linearity assumption.
-                    iv_list = ", ".join(instruments)
-                    identifiable_treatments[treatment] = {
-                        "method": "instrumental_variable",
-                        "estimand": f"IV({iv_list}) [requires linearity]",
-                        "marginalized_confounders": sorted(unobserved_confounders),
-                        "instruments": instruments,
-                    }
+            else:
+                if treatment_node == _node_name(treatment, "{t-1}"):
+                    blockers = find_blocking_confounders_for_query(
+                        constructs,
+                        edges,
+                        observed_constructs,
+                        treatment_node=treatment_node,
+                        outcome_node=outcome_node,
+                    )
                 else:
-                    if treatment_node == _node_name(treatment, "{t-1}"):
-                        blockers = find_blocking_confounders_for_query(
-                            constructs,
-                            edges,
-                            observed_constructs,
-                            treatment_node=treatment_node,
-                            outcome_node=outcome_node,
-                        )
-                    else:
-                        blockers = find_blocking_confounders(
-                            constructs, edges, observed_constructs, treatment, outcome
-                        )
-                    non_identifiable_treatments[treatment] = {
-                        "confounders": blockers,
-                    }
-        except (ValueError, KeyError, nx.NetworkXError) as e:
-            logger.warning("Identifiability check for treatment '%s' failed: %s", treatment, e)
-            non_identifiable_treatments[treatment] = {
-                "confounders": ["unknown (graph error)"],
-                "notes": f"graph projection failed: {e}",
-            }
+                    blockers = find_blocking_confounders(
+                        constructs, edges, observed_constructs, treatment, outcome
+                    )
+                non_identifiable_treatments[treatment] = UnidentifiedQuery(
+                    confounders=tuple(blockers)
+                )
 
-    return {
-        "identifiable_treatments": identifiable_treatments,
-        "non_identifiable_treatments": non_identifiable_treatments,
-        "graph_info": {
-            "observed_constructs": sorted(observed_constructs),
-            "total_constructs": len(constructs),
-            "unobserved_confounders": sorted(unobserved_confounders),
-            "n_directed_edges": len(list(admg.directed.edges())),
-            "iv_allowed": iv_allowed,
-        },
-    }
+    return IdentificationResult(
+        identifiable_treatments=identifiable_treatments,
+        non_identifiable_treatments=non_identifiable_treatments,
+        graph_info=IdentificationGraphInfo(
+            observed_constructs=tuple(sorted(observed_constructs)),
+            total_constructs=len(constructs),
+            unobserved_confounders=tuple(sorted(unobserved_confounders)),
+            n_directed_edges=len(list(admg.directed.edges())),
+            iv_allowed=iv_allowed,
+        ),
+    )
 
 
 def _is_time_varying(constructs: Sequence[ConstructSpec], construct_name: str) -> bool:
@@ -384,7 +391,7 @@ def dag_to_admg(
     all_constructs = {construct.name for construct in constructs}
     unobserved = all_constructs - observed_constructs
 
-    unobserved_confounders = set()
+    unobserved_confounders: set[str] = set()
     for node in dag.nodes():
         if not dag.nodes[node].get("hidden", False):
             continue

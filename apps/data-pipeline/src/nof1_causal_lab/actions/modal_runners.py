@@ -9,16 +9,18 @@ path. Version stamps come back as plain dicts (Modal pickles across an image bou
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import modal
 from pydantic import TypeAdapter
 
 if TYPE_CHECKING:
+    from fastapi import FastAPI
+
     from nof1_causal_lab.actions.contracts import FitRequest
-    from nof1_causal_lab.actions.effects import ActionEffects
     from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid
     from nof1_causal_lab.json_types import JsonObject
+    from nof1_causal_lab.study.records import ModelFitResult
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Modal images
@@ -69,7 +71,7 @@ secrets = modal.Secret.from_name("nof1-causal-lab-pipeline-secrets")
 async def _run_fit_gpu(
     workspace_id: str,
     request: JsonObject,
-    pins: dict[str, str],
+    pins: dict[ArtifactId, GitOid],
 ) -> JsonObject:
     """Run a fit on Modal GPU compute against the R2 artifact store."""
     from nof1_causal_lab.actions.contracts import FitRequest
@@ -81,7 +83,8 @@ async def _run_fit_gpu(
         FitRequest.model_validate(request),
         TypeAdapter(dict[ArtifactId, GitOid]).validate_python(pins),
     )
-    return cast("JsonObject", result.model_dump(mode="json"))
+    payload: JsonObject = result.model_dump(mode="json")
+    return payload
 
 
 @app.function(
@@ -90,7 +93,7 @@ async def _run_fit_gpu(
     secrets=[secrets],
 )
 @modal.asgi_app()
-def read_facade():
+def read_facade() -> FastAPI:
     """The hosted viewer's backend: journal reads over the R2 store, no moves."""
     from nof1_causal_lab.read_facade import create_read_facade_app
 
@@ -106,9 +109,9 @@ async def run_fit_on_modal(
     workspace_id: str,
     request: FitRequest,
     pins: dict[ArtifactId, GitOid],
-) -> ActionEffects:
+) -> ModelFitResult:
     """Run a fit remotely; credentials come from the Modal secret block."""
-    from nof1_causal_lab.actions.effects import ActionEffects
+    from nof1_causal_lab.study.records import ModelFitResult
 
     raw = await _run_fit_gpu.remote.aio(workspace_id, request.model_dump(mode="json"), dict(pins))
-    return ActionEffects.model_validate(raw)
+    return ModelFitResult.from_remote(raw)

@@ -90,7 +90,7 @@ async def _append_user_message(
     conversation_ref: str,
     user_message_index: int,
 ) -> str:
-    appended = await workflow.execute_activity(
+    appended: AppendLLMUserMessageResult = await workflow.execute_activity(
         "append_llm_user_message_activity",
         AppendLLMUserMessageInput(
             workspace_id=input.workspace_id,
@@ -136,7 +136,7 @@ async def _execute_harness_turn(
     )
 
     if not start.tools:
-        return await workflow.execute_activity(
+        result: HarnessTurnResult = await workflow.execute_activity(
             "run_harness_turn_activity",
             harness_input,
             result_type=HarnessTurnResult,
@@ -146,8 +146,9 @@ async def _execute_harness_turn(
             retry_policy=_HARNESS_TURN_RETRY,
             summary=f"Harness {llm.harness} {input.subroutine_id} {user_label}",
         )
+        return result
 
-    harness_handle = workflow.start_activity(
+    harness_handle: workflow.ActivityHandle[HarnessTurnResult] = workflow.start_activity(
         "run_harness_turn_activity",
         harness_input,
         result_type=HarnessTurnResult,
@@ -199,7 +200,7 @@ async def _execute_openrouter_call(
         )
 
     try:
-        call = await workflow.execute_activity(
+        call: OpenRouterCallResult = await workflow.execute_activity(
             "call_openrouter_activity",
             _call(turn_label, conversation_ref),
             result_type=OpenRouterCallResult,
@@ -213,7 +214,7 @@ async def _execute_openrouter_call(
         if not start.tools:
             raise
         repair_label = f"{turn_label}-repair-001"
-        repaired = await workflow.execute_activity(
+        repaired: AppendLLMRepairMessageResult = await workflow.execute_activity(
             "append_llm_repair_message_activity",
             AppendLLMRepairMessageInput(
                 workspace_id=input.workspace_id,
@@ -229,7 +230,7 @@ async def _execute_openrouter_call(
             retry_policy=_LOCAL_RETRY,
             summary=f"Append LLM repair message {input.subroutine_id} {turn_label}",
         )
-        call = await workflow.execute_activity(
+        repaired_call: OpenRouterCallResult = await workflow.execute_activity(
             "call_openrouter_activity",
             _call(repair_label, repaired.conversation_ref),
             result_type=OpenRouterCallResult,
@@ -238,7 +239,7 @@ async def _execute_openrouter_call(
             retry_policy=_OPENROUTER_CALL_RETRY,
             summary=f"OpenRouter {input.subroutine_id} {repair_label}",
         )
-        return call, 2
+        return repaired_call, 2
 
 
 @workflow.defn
@@ -252,7 +253,7 @@ class LLMSubroutineWorkflow:
 
     @workflow.run
     async def run(self, input: LLMSubroutineInput) -> LLMSubroutineResult:
-        start = await workflow.execute_activity(
+        start: LLMSubroutineStart = await workflow.execute_activity(
             "start_llm_subroutine_activity",
             LLMSubroutineStartInput(
                 workspace_id=input.workspace_id,
@@ -298,7 +299,7 @@ class LLMSubroutineWorkflow:
                     if not call.tool_calls:
                         break
 
-                    tool_execution = await workflow.execute_activity(
+                    tool_execution: LLMToolExecutionResult = await workflow.execute_activity(
                         "execute_llm_tool_calls_activity",
                         LLMToolExecutionInput(
                             workspace_id=input.workspace_id,
@@ -350,7 +351,7 @@ class LLMSubroutineWorkflow:
             if harness.result_ref is not None:
                 last_result_ref = harness.result_ref
 
-        trace = await workflow.execute_activity(
+        trace: LLMSubroutineTraceResult = await workflow.execute_activity(
             "finalize_llm_subroutine_trace_activity",
             LLMSubroutineTraceInput(
                 workspace_id=input.workspace_id,

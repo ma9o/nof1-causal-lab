@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING
 
 import numpy as np
 
-from nof1_causal_lab.artifacts.identity import scientific_id
+from nof1_causal_lab.artifacts.checks import (
+    Evaluated,
+    NotEvaluated,
+    NumericCriterionEvidence,
+    PredictiveSubject,
+)
+from nof1_causal_lab.artifacts.identity import IndicatorRef, scientific_id
 from nof1_causal_lab.artifacts.model_checks import ModelPredictiveReport
+from nof1_causal_lab.artifacts.predictive_provenance import FittedLawProvenance, MixedLawProvenance
 from nof1_causal_lab.artifacts.simulation import SimulationSpec
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.study.lineage import fitted_law_report, law_provenance, read_data_metadata
@@ -38,7 +46,7 @@ def check_model_predictive(
     record = state.current["model"]
     panel = state.get("panel")
     panel_revision = panel.revision if panel is not None else None
-    from nof1_causal_lab.actions.data_checks import data_binding_issues
+    from nof1_causal_lab.models.model_inputs import data_binding_issues
 
     compatible = (
         panel is not None
@@ -70,93 +78,61 @@ def check_model_predictive(
         status="not_evaluated",
         law=law,
     )
-    execution = next(f for f in specification.findings if f.check == "model_execution")
-    if execution.status != "passed":
-        return type(report).model_validate(
-            {
-                **report.model_dump(),
-                "reason": "MODEL_INCOMPLETE"
-                if execution.status == "not_evaluated"
-                else "MODEL_NOT_EXECUTABLE",
-            }
+    execution = next(f for f in specification.findings if f.subject == "model_execution")
+    if isinstance(execution, NotEvaluated) or execution.outcome != "passed":
+        return report.not_evaluated(
+            "MODEL_INCOMPLETE" if isinstance(execution, NotEvaluated) else "MODEL_NOT_EXECUTABLE"
         ), False
     if not compatible:
-        return type(report).model_validate(
-            {**report.model_dump(), "reason": "NO_COMPATIBLE_PANEL"}
-        ), False
+        return report.not_evaluated("NO_COMPATIBLE_PANEL"), False
 
     from nof1_causal_lab.artifacts.likelihood import DistributionFamily
-    from nof1_causal_lab.models.ssm.predictive.parameters import validate_simulation_laws
+    from nof1_causal_lab.models.ssm.compile.inputs import compile_executable_model
 
-    if any(family != DistributionFamily.GAUSSIAN for family in numeric.diffusion_families(model)):
-        return type(report).model_validate(
-            {
-                **report.model_dump(),
-                "reason": "SIMULATION_UNSUPPORTED",
-                "detail": "Exact forward simulation requires Gaussian process diffusion.",
-            }
+    compiled = compile_executable_model(model)
+    if any(
+        family != DistributionFamily.GAUSSIAN for family in numeric.diffusion_families(compiled)
+    ):
+        return report.not_evaluated(
+            "SIMULATION_UNSUPPORTED",
+            "Exact forward simulation requires Gaussian process diffusion.",
         ), False
-    # Validate authored laws at their capability boundary. The simulation itself
-    # is deliberately outside this handler: implementation/worker failures fail the action.
-    try:
-        validate_simulation_laws(model)
-    except ValueError as exc:
-        return type(report).model_validate(
-            {
-                **report.model_dump(),
-                "reason": "SIMULATION_UNSUPPORTED",
-                "detail": str(exc),
-            }
-        ), False
-
-    from nof1_causal_lab.models.ssm.observation_support import (
-        augment_wide_data_with_support_boundaries,
-        validate_discrete_manifest_metadata,
-        validate_observation_support,
-    )
-    from nof1_causal_lab.models.ssm.runtime import prepare_fit_inputs, project_observation_data
+    from nof1_causal_lab.models.ssm.preflight import ObservationPreflightError
+    from nof1_causal_lab.models.ssm.runtime import PanelPreparationFailure, bind_panel
 
     assert panel_revision is not None
     data = store.read_parquet_file("panel", panel_revision, "panel.parquet")
     try:
         time_origin = read_data_metadata(store, panel_revision).time_origin
-        if law.fitted_model_revision is not None:
+        if isinstance(law, (FittedLawProvenance, MixedLawProvenance)):
             from nof1_causal_lab.study.history import StudyRepository
 
             fit_origin = fitted_law_report(
                 StudyRepository(store.workspace_id).attempts(), law.fitted_model_revision
             ).time_origin
             if (time_origin is None) != (fit_origin is None):
-                raise ValueError(
+                raise ObservationPreflightError(
                     "Calendar-free laws and calendar-bound observations cannot be aligned"
                 )
             time_origin = fit_origin
-        wide, rows = project_observation_data(data, model_spec=model, time_origin=time_origin)
-        names = numeric.observation_names(model)
-        missing = set(names) - set(wide.columns)
-        if missing:
-            raise ValueError(f"No observations for model indicators: {sorted(missing)}")
-        wide = augment_wide_data_with_support_boundaries(rows, wide, names, time_origin=time_origin)
-        validate_discrete_manifest_metadata(model, wide)
-        validate_observation_support(model, wide)
-        _, times, _, _ = prepare_fit_inputs(model, wide)
-        if len(times) and law.fitted_model_revision is not None and times[0] < model.time_points[0]:
-            raise ValueError("The current panel begins before the fit's first retained state")
-    except ValueError as exc:
-        return type(report).model_validate(
-            {
-                **report.model_dump(),
-                "reason": "NO_COMPATIBLE_PANEL",
-                "detail": str(exc),
-            }
-        ), False
+        bound = bind_panel(data, model=compiled, time_origin=time_origin)
+        if isinstance(bound, PanelPreparationFailure):
+            return report.not_evaluated("NO_COMPATIBLE_PANEL", bound.message), False
+        times = bound.times
+        if (
+            len(times)
+            and isinstance(law, (FittedLawProvenance, MixedLawProvenance))
+            and times[0] < model.time_points[0]
+        ):
+            raise ObservationPreflightError(
+                "The current panel begins before the fit's first retained state"
+            )
+    except ObservationPreflightError as exc:
+        return report.not_evaluated("NO_COMPATIBLE_PANEL", str(exc)), False
     times = np.asarray(times)
     if len(times) < 2 or not np.isfinite(times).all() or not np.all(np.diff(times) > 0):
-        return type(report).model_validate(
-            {**report.model_dump(), "reason": "INSUFFICIENT_OBSERVATION_TIMES"}
-        ), False
+        return report.not_evaluated("INSUFFICIENT_OBSERVATION_TIMES"), False
     design = SimulationSpec(start=float(times[0]), end=float(times[-1]))
-    from nof1_causal_lab.artifacts.checks import PredictiveCheckFinding
     from nof1_causal_lab.models.predictive_simulation import PredictiveObservationMeanOverflow
     from nof1_causal_lab.models.ssm.predictive.simulation import (
         generate_simulation_batch,
@@ -165,64 +141,50 @@ def check_model_predictive(
 
     try:
         batch = generate_simulation_batch(
-            model,
+            bound,
             design,
-            comparison_data=data,
-            time_origin=time_origin,
-            times=times,
             draws=PREDICTIVE_DRAWS,
             seed=PREDICTIVE_SEED,
         )
     except PredictiveObservationMeanOverflow as exc:
         # This typed scientific failure is raised before an unsafe emission draw.
         # Other generator exceptions still fail the action.
-        return type(report).model_validate(
-            {
-                **report.model_dump(),
-                "status": "failed",
-                "design": design,
-                "findings": (
-                    *(
-                        PredictiveCheckFinding(
+        return report.evaluated(
+            design,
+            (
+                *(
+                    Evaluated(
+                        subject=PredictiveSubject(
                             check="C1a finiteness",
                             construct_id=construct.id,
-                            target=indicator.id,
-                            value=f"{len(exc.failing_draw_indices)}/{exc.n_draws} draws overflow",
-                            band="0 non-finite emission means",
-                            passed=False,
-                            note=str(exc),
-                            reason="NONFINITE_EMISSION_MEAN",
-                        )
-                        for construct in model.constructs
-                        for indicator in construct.indicators
-                        if indicator.name in exc.bad_manifest_names
-                    ),
-                    PredictiveCheckFinding(
-                        check="predictive_measurements",
-                        target="whole_model",
-                        value="not_evaluated",
-                        band="A complete finite predictive batch",
-                        passed=None,
-                        reason="NONFINITE_EMISSION_MEAN",
-                        note="Emission overflow prevented completion of the shared batch.",
-                    ),
+                            target=IndicatorRef(id=indicator.id),
+                        ),
+                        outcome="failed",
+                        evidence=(
+                            NumericCriterionEvidence(
+                                criterion="overflow_draw_count",
+                                value=float(len(exc.failing_draw_indices)),
+                                upper=0.0,
+                                note=str(exc),
+                                display_value=f"{len(exc.failing_draw_indices)}/{exc.n_draws} draws overflow",
+                                band_label="0 non-finite emission means",
+                            ),
+                        ),
+                    )
+                    for construct in model.constructs
+                    for indicator in construct.indicators
+                    if indicator.name in exc.bad_manifest_names
                 ),
-            }
+                NotEvaluated(
+                    subject=PredictiveSubject(
+                        check="predictive_measurements", target="whole_model"
+                    ),
+                    reason="NONFINITE_EMISSION_MEAN",
+                    detail="Emission overflow prevented completion of the shared batch.",
+                ),
+            ),
         ), False
     findings, checks = measure_simulation_batch(
-        model, batch, groups=("dynamics", "measurement", "data_comparison")
+        compiled, batch, groups=("dynamics", "measurement", "data_comparison"), clock=time.monotonic
     )
-    return type(report).model_validate(
-        {
-            **report.model_dump(),
-            "status": "failed"
-            if any(f.passed is False for f in findings)
-            or (
-                checks is not None and any(not item.passed for item in checks.per_variable_warnings)
-            )
-            else "passed",
-            "design": design,
-            "findings": findings,
-            "predictive_checks": checks,
-        }
-    ), False
+    return report.evaluated(design, findings, checks), False

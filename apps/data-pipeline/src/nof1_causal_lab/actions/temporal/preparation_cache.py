@@ -13,7 +13,7 @@ if TYPE_CHECKING:
 
 # Bump the corresponding version when prompts, tools, schemas, or validation change.
 INGESTION_POLICY_VERSION = "ingestion-v1"
-EXTRACTION_POLICY_VERSION = "extraction-v3"
+EXTRACTION_POLICY_VERSION = "extraction-v4"
 
 
 def preparation_cache_path(

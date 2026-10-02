@@ -11,14 +11,19 @@ from nof1_causal_lab.artifacts.expressions import (
 from nof1_causal_lab.artifacts.expressions import (
     state as expr_state,
 )
-from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
+from nof1_causal_lab.artifacts.mechanism import DriftMechanismSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.models.model_structure import StructuralCompilationError
+from nof1_causal_lab.models.model_structure import (
+    StructuralCompilationError,
+    selected_state_ids,
+    validate_execution_structure,
+)
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.simulation_checks import (
     ConstructSimulationTarget,
     _incoming_edge_off_target,
 )
+from tests.model_fixtures import compile_model_fixture
 
 pytestmark = pytest.mark.contract
 
@@ -39,9 +44,9 @@ def retained():
 def test_retained_model_exposes_previously_omitted_required_structure(retained):
     model, expected = retained
     before = model.model_dump(mode="json")
-    assert set(expected["state_ids"]) < set(model.state_order)
+    assert set(expected["state_ids"]) < set(selected_state_ids(model))
     with pytest.raises(StructuralCompilationError, match="static-target edge"):
-        model.check_execution()
+        validate_execution_structure(model)
     dispositions = model.structural_dispositions
     assert any(item.disposition == "unsupported" for item in dispositions)
     assert model.model_dump(mode="json") == before
@@ -54,7 +59,7 @@ def test_retired_execution_arrays_do_not_override_scientific_parameter_identity(
     }
     for identity in expected["input_ids"]:
         construct = model.get_construct(identity)
-        assert identity in model.state_order
+        assert identity in selected_state_ids(model)
         assert any(
             ind.likelihood is not None and ind.likelihood.law.family == "delta"
             for ind in construct.indicators
@@ -74,40 +79,33 @@ def test_edge_off_targets_every_additive_contribution_without_running_a_simulati
         ).read_text()
     )
     edge = model.edges[0]
-    fixed_hill = DynamicsMechanismSpec(
+    fixed_hill = DriftMechanismSpec(
         id="mechanism:fixed-hill-a",
-        expression=expr_hill(
-            expr_state(edge.cause.id),
-            emax=0.4,
-            ec50=1,
-            n=2,
-        ),
+        expression=expr_hill(expr_state(edge.cause.id), emax=0.4, ec50=1, n=2),
     )
     model = model.revised(
         edges=(
-            type(edge).model_validate(
-                {
-                    **edge.model_dump(),
-                    "mechanisms": (
-                        *edge.mechanisms,
-                        fixed_hill,
-                        type(fixed_hill).model_validate(
-                            {**fixed_hill.model_dump(), "id": "mechanism:fixed-hill-b"}
-                        ),
-                    ),
-                }
+            edge.revised(
+                mechanisms=(
+                    *edge.mechanisms,
+                    fixed_hill,
+                    fixed_hill.revised(id="mechanism:fixed-hill-b"),
+                )
             ),
         )
     )
     native = model
     target = model.get_construct(edge.effect.id)
     source = model.get_construct(edge.cause.id)
-    contribution = ConstructSimulationTarget(construct=target, edge_parents=(source.name,))
-    assert numeric.state_names(native) is not None
+    contribution = ConstructSimulationTarget(
+        construct=compile_model_fixture(model).states[selected_state_ids(model).index(target.id)],
+        edge_parents=(source.name,),
+    )
+    assert numeric.state_names(compile_model_fixture(native)) is not None
     off = _incoming_edge_off_target(
-        native,
+        compile_model_fixture(native),
         contribution,
-        numeric.state_names(native),
-        numeric.state_names(native).index(target.name),
+        numeric.state_names(compile_model_fixture(native)),
+        numeric.state_names(compile_model_fixture(native)).index(target.name),
     )
     assert len(off.components) == 3

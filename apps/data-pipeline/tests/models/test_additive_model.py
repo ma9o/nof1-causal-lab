@@ -4,7 +4,7 @@ from pathlib import Path
 
 import numpyro.distributions as dist
 import pytest
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from nof1_causal_lab.artifacts.construct import (
     replace_constructs,
@@ -14,9 +14,10 @@ from nof1_causal_lab.artifacts.identity import ConstructId, IndicatorId, scienti
 from nof1_causal_lab.artifacts.likelihood import (
     ObservationLawSpec,
 )
-from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
+from nof1_causal_lab.artifacts.mechanism import DriftMechanismSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from tests.helpers import graph_constructs
+from tests.model_fixtures import compile_model_fixture
 
 pytestmark = pytest.mark.contract
 
@@ -62,18 +63,15 @@ def _model():
                     },
                     "description": "X influences Y",
                     "mechanisms": [
-                        DynamicsMechanismSpec(
+                        DriftMechanismSpec(
                             id="mechanism:linear",
                             expression=coefficient(weight["id"], "weight")
                             * state(ConstructId("construct:x")),
                         ).model_dump(mode="json"),
-                        DynamicsMechanismSpec(
+                        DriftMechanismSpec(
                             id="mechanism:hill",
                             expression=hill(
-                                state(ConstructId("construct:x")),
-                                emax=emax["id"],
-                                ec50=1,
-                                n=2,
+                                state(ConstructId("construct:x")), emax=emax["id"], ec50=1, n=2
                             ),
                         ).model_dump(mode="json"),
                     ],
@@ -88,13 +86,15 @@ def test_entities_gain_detail_with_one_owner_and_native_prior():
     before = _model()
     payload = before.model_dump(mode="python")
     graph_constructs(payload)[1]["indicators"][0]["likelihood"] = {
-        "law": ObservationLawSpec.model_validate_json(
+        "law": TypeAdapter(ObservationLawSpec)
+        .validate_json(
             (
                 Path(__file__).resolve().parents[1]
                 / "fixtures/models"
                 / "common/y_gaussian_observation_law.json"
             ).read_text()
-        ).model_dump(mode="json"),
+        )
+        .model_dump(mode="json"),
         "reasoning": "Continuous measurement",
     }
 
@@ -133,7 +133,7 @@ def test_partial_model_is_valid_but_operation_requirements_are_explicit():
     assert initial.edges == initial.constructs == ()
     assert ModelSpec.model_validate({}).edges == ()
     with pytest.raises(ValueError, match="clock"):
-        initial.check_execution()
+        compile_model_fixture(initial)
     partial = _model()
     with pytest.raises(ValueError, match="clock"):
         partial.require_measurements()
@@ -166,7 +166,7 @@ def test_inconsistent_enrichment_is_rejected(change):
         graph_constructs(payload)[0]["indicators"] = graph_constructs(payload)[1]["indicators"]
     else:
         graph_constructs(payload)[1]["indicators"][0]["likelihood"] = {
-            "law": ObservationLawSpec.model_validate_json(
+            "law": TypeAdapter(ObservationLawSpec).validate_json(
                 (
                     Path(__file__).resolve().parents[1]
                     / "fixtures/models"
@@ -195,11 +195,7 @@ def test_shared_endpoints_round_trip_once_and_resolve_forward_references():
     changed = model.revised(
         edges=replace_constructs(
             model.edges,
-            [
-                type(model.edges[0].effect).model_validate(
-                    {**model.edges[0].effect.model_dump(), "name": "Renamed Y"}
-                )
-            ],
+            [model.edges[0].effect.revised(name="Renamed Y")],
         )
     )
     assert changed.edges[0].effect is changed.edges[1].effect

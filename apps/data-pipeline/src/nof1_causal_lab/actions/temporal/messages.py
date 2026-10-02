@@ -7,7 +7,7 @@ polars, or jax.
 
 from __future__ import annotations
 
-from typing import Annotated, Literal
+from typing import Annotated, Literal, TypedDict
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -19,32 +19,34 @@ from nof1_causal_lab.actions.contracts import (
     ScientificActionRequest,
     SimulateRequest,
 )
-from nof1_causal_lab.actions.data_diff import DataDiffRequest
 from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.actions.progress import ProgressEvent
+from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.artifacts.data_preparation import (
     FilePreparationSpec,
     FileSourceRef,
 )
 from nof1_causal_lab.artifacts.identity import (
-    ActionId,
     ArtifactId,
     GitOid,
-    ScientificActionId,
 )
-from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
 from nof1_causal_lab.json_types import JsonObject
 from nof1_causal_lab.llm_specs import (
     EmbeddedLLMSpec,
     HarnessLLMSpec,
     LLMProfileSpec,
 )
-from nof1_causal_lab.study.records import ActionMessage, JournalStatus
+from nof1_causal_lab.study.records import (
+    AttemptRecord,
+    CompletedExtractionWorker,
+    FailedExtractionChunk,
+)
 from nof1_causal_lab.study.state import (
-    ArtifactRecord,
-    RetractedArtifact,
     StudyState,
 )
+from nof1_causal_lab.study.view_models import DataDiffRequest
+from nof1_causal_lab.workers.context import MeasurementContext
+from nof1_causal_lab.workers.schemas import ExtractionRow, WorkerOutput
 
 LLMSubroutineContextKind = Literal[
     "measurement_extraction",
@@ -81,7 +83,8 @@ class ActionInput(BaseModel):
 
     workspace_id: str
     request: Annotated[
-        FitRequest | SimulateRequest | PrepareDataRequest, Field(discriminator="action")
+        FitRequest | SimulateRequest | PrepareDataRequest | DataDiffRequest,
+        Field(discriminator="action"),
     ]
     state: StudyState
 
@@ -413,20 +416,20 @@ class ExtractionChunkFinalizeInput(BaseModel):
     conversation_ref: str
     n_llm_calls: int
     spec_ref: str
-    reused: bool = False
+    reused: bool | None = False
 
 
-class ExtractionChunkResult(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
+class CompletedExtractionChunk(CompletedExtractionWorker):
+    """The worker's execution envelope adds only its transient result path."""
 
-    worker_id: int
-    status: Literal["completed", "failed"]
-    n_extractions: int
-    n_windows: int
-    n_llm_calls: int = 0
-    result_ref: str | None = None
-    error: str | None = None
-    reused: bool = False
+    n_llm_calls: int | None = 0
+    reused: bool | None = False
+    result_ref: str
+
+
+type ExtractionChunkResult = Annotated[
+    CompletedExtractionChunk | FailedExtractionChunk, Field(discriminator="status")
+]
 
 
 class MeasurementsFinalizeInput(BaseModel):
@@ -447,31 +450,39 @@ class EditModelInput(BaseModel):
     state: StudyState
 
 
-class EvaluateChecksInput[ActionT: ScientificActionId](BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
+class EvaluateChecksInput[ResultT: ActionEffects](Value):
     workspace_id: str
-    action: ActionT
     state: StudyState
-    effects: ActionEffects
+    effects: ResultT
 
 
-class JournalInput(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
+class AttemptPublication(Value):
+    """The writer receives the same record; Git publication identity is computed outside it."""
 
     workspace_id: str
-    branch: str = "main"
-    expected_head: GitOid | None = None
-    seq: int
-    action: ActionId
-    inputs: JsonObject
-    status: JournalStatus
-    reason: str | None = None
-    error_type: str | None = None
-    error_message: str | None = None
-    diagnostics: JsonObject = Field(default_factory=dict)
-    checks: ModelCheckReport | None = None
-    produced: list[ArtifactRecord] = Field(default_factory=list)
-    retracted: list[RetractedArtifact] = Field(default_factory=list)
-    attempt_id: UUID | None = None
-    messages: tuple[ActionMessage, ...] = ()
+    expected_head: GitOid | None
+    record: AttemptRecord
+
+
+class MeasurementChunkContext(BaseModel):
+    """Stored input of one foreign extraction subroutine, composing its measurement owner."""
+
+    question: str
+    window_text: str
+    window_starts: list[str]
+    measurement_structure: MeasurementContext
+    cache_ref: str | None = None
+
+
+class MeasurementsFile(BaseModel):
+    """Materialization inputs retained by the existing plan's scratch transport."""
+
+    measurement_structure: MeasurementContext
+    preparation: FilePreparationSpec
+    computed_dicts: list[ExtractionRow]
+    empty_output: WorkerOutput
+    chunks: list[MeasurementChunkRef]
+
+
+class StoredConversation(TypedDict):
+    messages: list[JsonObject]

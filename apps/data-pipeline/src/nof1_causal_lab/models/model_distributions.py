@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from nof1_causal_lab.models.ssm.compile.inputs import compile_executable_model
+
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
@@ -25,7 +27,7 @@ def validate_distribution_memberships(model: ModelSpec) -> None:
             if len(parameters) != 1 or constructs:
                 raise ValueError("A scalar distribution must belong to exactly one parameter")
             continue
-        bindings, _ = parameter_bindings(model)
+        bindings, _ = parameter_bindings(compile_executable_model(model))
         layout = JointLawLayout.from_bindings(
             bindings,
             parameters=parameters,

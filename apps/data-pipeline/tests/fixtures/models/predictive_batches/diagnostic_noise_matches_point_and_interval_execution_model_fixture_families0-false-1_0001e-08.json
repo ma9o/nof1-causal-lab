@@ -21,37 +21,35 @@
             "likelihood": {
               "law": {
                 "distribution": "Normal",
-                "arguments": {
-                  "loc": {
+                "loc": {
+                  "kind": "binary",
+                  "operator": "add",
+                  "left": {
+                    "kind": "coefficient",
+                    "role": "observation_intercept",
+                    "value": 0.0,
+                    "construct_ids": []
+                  },
+                  "right": {
                     "kind": "binary",
-                    "operator": "add",
+                    "operator": "multiply",
                     "left": {
                       "kind": "coefficient",
-                      "role": "observation_intercept",
-                      "value": 0.0,
+                      "role": "loading",
+                      "value": 1.0,
                       "construct_ids": []
                     },
                     "right": {
-                      "kind": "binary",
-                      "operator": "multiply",
-                      "left": {
-                        "kind": "coefficient",
-                        "role": "loading",
-                        "value": 1.0,
-                        "construct_ids": []
-                      },
-                      "right": {
-                        "kind": "state",
-                        "construct_id": "construct:98907cc586bfcf98c836"
-                      }
+                      "kind": "state",
+                      "construct_id": "construct:98907cc586bfcf98c836"
                     }
-                  },
-                  "scale": {
-                    "kind": "coefficient",
-                    "role": "observation_scale",
-                    "value": "parameter:3eabd5ae1b7ca15eca2772cdf8298293985fe28dedeec57e8d543a043b9c2597",
-                    "construct_ids": []
                   }
+                },
+                "scale": {
+                  "kind": "coefficient",
+                  "role": "observation_scale",
+                  "value": "parameter:3eabd5ae1b7ca15eca2772cdf8298293985fe28dedeec57e8d543a043b9c2597",
+                  "construct_ids": []
                 }
               },
               "standardized": false,
@@ -181,34 +179,69 @@
       "id": "parameter:428e7de5d18c796563860ab8173a48433fdbf81b7aecf44b01d76044d80d5c10",
       "name": "parameter:428e7de5d18c796563860ab8173a48433fdbf81b7aecf44b01d76044d80d5c10",
       "description": "Fixture quantity",
-      "distribution_transform": "identity",
-      "distribution": null,
-      "reference_interval_days": null
+      "distribution": "distribution:6bbcc6530d30b7047a9232a9f85ac4c291df198857e92cbaa2b6a87f718be3a4",
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:ee44072a88945905188a2251e020e6a450956ad7231815920b1261fe09e02430",
       "name": "parameter:ee44072a88945905188a2251e020e6a450956ad7231815920b1261fe09e02430",
       "description": "Fixture quantity",
-      "distribution_transform": "identity",
-      "distribution": null,
-      "reference_interval_days": null
+      "distribution": "distribution:a7ffde8dd9d9963518bc2ebe62ba9e41e53ee39bca8f4fa9d4d105004c82f5d1",
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:f76097c73161c6cd52bf8da579d1f81d5e335f458a73237c793253bf8fb475a8",
       "name": "parameter:f76097c73161c6cd52bf8da579d1f81d5e335f458a73237c793253bf8fb475a8",
       "description": "Fixture quantity",
-      "distribution_transform": "identity",
-      "distribution": null,
-      "reference_interval_days": null
+      "distribution": "distribution:e9b0f86010c60b0e69c22ed8d0c1d7f416881c51406b24202ec0007c519d2aeb",
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:3eabd5ae1b7ca15eca2772cdf8298293985fe28dedeec57e8d543a043b9c2597",
       "name": "parameter:3eabd5ae1b7ca15eca2772cdf8298293985fe28dedeec57e8d543a043b9c2597",
       "description": "Fixture quantity",
-      "distribution_transform": "identity",
-      "distribution": null,
-      "reference_interval_days": null
+      "distribution": "distribution:e00bc5d0d99932524d21f2db2e76aa813087b7b29e2a3195d42f8b28199798d8",
+      "transform": {
+        "kind": "identity"
+      }
     }
   ],
-  "measurement_clock": "1d"
+  "measurement_clock": "1d",
+  "distributions": {
+    "distribution:6bbcc6530d30b7047a9232a9f85ac4c291df198857e92cbaa2b6a87f718be3a4": {
+      "distribution": "HalfNormal",
+      "params": {
+        "scale": 1.0,
+        "validate_args": false
+      }
+    },
+    "distribution:a7ffde8dd9d9963518bc2ebe62ba9e41e53ee39bca8f4fa9d4d105004c82f5d1": {
+      "distribution": "Normal",
+      "params": {
+        "loc": 0.0,
+        "scale": 1.0,
+        "validate_args": false
+      }
+    },
+    "distribution:e9b0f86010c60b0e69c22ed8d0c1d7f416881c51406b24202ec0007c519d2aeb": {
+      "distribution": "HalfNormal",
+      "params": {
+        "scale": 1.0,
+        "validate_args": false
+      }
+    },
+    "distribution:e00bc5d0d99932524d21f2db2e76aa813087b7b29e2a3195d42f8b28199798d8": {
+      "distribution": "HalfNormal",
+      "params": {
+        "scale": 1.0,
+        "validate_args": false
+      }
+    }
+  }
 }

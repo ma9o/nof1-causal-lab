@@ -4,11 +4,13 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+import jax.numpy as jnp
 import numpy as np
 
 from nof1_causal_lab.actions.simulation_summaries import paired_effect_trajectory
 from nof1_causal_lab.artifacts.scenarios import CausalEffectResult
 from nof1_causal_lab.models.causal_proofs import (
+    CausalCertificationError,
     CertifiedCausalAnalysis,
     certify_identified_estimand,
 )
@@ -18,7 +20,7 @@ from nof1_causal_lab.models.ssm.counterfactual.estimands import summarize_draws
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.simulation import SimulationReport
-    from nof1_causal_lab.study.records import AttemptRecord
+    from nof1_causal_lab.study.records import StudyRevision
     from nof1_causal_lab.study.store import ArtifactStore
 
 
@@ -27,17 +29,14 @@ def summarize_causal_simulation(
     report: SimulationReport,
     *,
     store: ArtifactStore,
-    inference: AttemptRecord | None,
+    inference: StudyRevision | None,
 ) -> SimulationReport:
     """Report numeric causal effects only when identification and exact-fit evidence support them."""
     if not report.design.interventions:
         return report
     if inference is None or model.default_outcome is None:
-        return type(report).model_validate(
-            {
-                **report.model_dump(),
-                "causal_unavailable_reason": "Causal effects require an identified model outcome and a committed production fit for this model revision.",
-            }
+        return report.without_causal_result(
+            "Causal effects require an identified model outcome and a committed production fit for this model revision."
         )
     outcome = model.default_outcome
     try:
@@ -58,20 +57,15 @@ def summarize_causal_simulation(
             ),
             inference=inference,
         )
-    except ValueError as exc:
-        return type(report).model_validate(
-            {**report.model_dump(), "causal_unavailable_reason": str(exc)}
-        )
+    except CausalCertificationError as exc:
+        return report.without_causal_result(str(exc))
     assert report.reference_latent_paths is not None
     assert report.reference_observations is not None
     reference = store.read_array(report.reference_latent_paths)
     action = store.read_array(report.latent_paths)
     if not np.isfinite(reference).all() or not np.isfinite(action).all():
-        return type(report).model_validate(
-            {
-                **report.model_dump(),
-                "causal_unavailable_reason": "Non-finite histories do not support numeric causal effects.",
-            }
+        return report.without_causal_result(
+            "Non-finite histories do not support numeric causal effects."
         )
     effects = (
         action[:, :, report.state_ids.index(outcome)]
@@ -90,15 +84,15 @@ def summarize_causal_simulation(
     result = CausalEffectResult(
         outcome=outcome,
         labels={construct.id: construct.name for construct in model.constructs},
-        summary=summarize_draws(effects[:, -1]),
+        summary=summarize_draws(jnp.asarray(effects[:, -1])),
         effect_trajectory=trajectory,
         trajectory_peak=trajectory_peak,
         manifest_effects=manifest,
         reference_mean=float(reference[:, -1, report.state_ids.index(outcome)].mean()),
-        warnings=[]
+        warnings=()
         if len(manifest) == len(report.observation_layout.indicator_ids)
-        else [
-            "Some indicator contrasts are unavailable because their measurement windows extend before simulation start."
-        ],
+        else (
+            "Some indicator contrasts are unavailable because their measurement windows extend before simulation start.",
+        ),
     )
-    return type(report).model_validate({**report.model_dump(), "causal_result": result})
+    return report.with_causal_result(result)

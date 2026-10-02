@@ -13,7 +13,7 @@ from numpyro import handlers
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
 from nof1_causal_lab.models.ssm import parameterization
-from nof1_causal_lab.models.ssm.model import SSMModel
+from nof1_causal_lab.models.ssm.model import sample_parameters
 from nof1_causal_lab.models.ssm.structure.sites import make_site
 from tests.model_fixtures import compile_fit_fixture
 
@@ -52,7 +52,7 @@ def test_parameter_trace_preserves_site_order_shapes_and_public_deterministics()
             / "common/two_state_gaussian_model.json"
         ).read_text()
     )
-    model = SSMModel(compile_fit_fixture(spec))
+    model = compile_fit_fixture(spec)
     values = {
         "diffusion_diag_free": jnp.array([0.4, 0.6]),
         "diffusion_lower_free": jnp.array([0.25]),
@@ -62,7 +62,9 @@ def test_parameter_trace_preserves_site_order_shapes_and_public_deterministics()
         "t0_var_lower_free": jnp.array([0.25]),
     }
     with handlers.substitute(data=values):
-        trace = handlers.trace(model._sample_parameters).get_trace()
+        trace = handlers.trace(sample_parameters).get_trace(
+            model.compiled, model.prior_runtime_bundle
+        )
     sampled_names = [name for name, site in trace.items() if name in values]
     assert sampled_names == list(values)
     for name, value in values.items():

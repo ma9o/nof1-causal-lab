@@ -10,11 +10,16 @@ from contextlib import asynccontextmanager
 from typing import TYPE_CHECKING
 
 import uvicorn
+from pydantic import ValidationError
 
+from nof1_causal_lab.actions.errors import execution_failure_handler
 from nof1_causal_lab.utils.harness.networking import find_free_port, run_uvicorn_server
+from nof1_causal_lab.utils.harness.stream_json import parse_stream_event
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
+
+    from starlette.types import Receive, Scope, Send
 
     from nof1_causal_lab.json_types import JsonObject
     from nof1_causal_lab.utils.openrouter_client import Tool
@@ -22,7 +27,7 @@ if TYPE_CHECKING:
 logger = logging.getLogger(__name__)
 
 
-async def _request_body(receive) -> bytes:
+async def _request_body(receive: Receive) -> bytes:
     chunks: list[bytes] = []
     while True:
         message = await receive()
@@ -36,7 +41,7 @@ async def _request_body(receive) -> bytes:
     return b"".join(chunks)
 
 
-async def _send_json(send, status: int, payload: JsonObject) -> None:
+async def _send_json(send: Send, status: int, payload: JsonObject) -> None:
     body = json.dumps(payload).encode()
     await send(
         {
@@ -64,13 +69,14 @@ async def serve_pi_tools_http(
     path = f"/{token}"
     tool_map = {tool.name: tool for tool in tools}
 
-    async def _asgi(scope, receive, send) -> None:
+    @execution_failure_handler
+    async def _asgi(scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http" or scope.get("method") != "POST" or scope.get("path") != path:
             await _send_json(send, 404, {"error": "not found"})
             return
         try:
-            request = json.loads((await _request_body(receive)).decode())
-        except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+            request = parse_stream_event(await _request_body(receive))
+        except ValidationError as exc:
             await _send_json(send, 400, {"error": f"invalid request: {exc}"})
             return
         if not isinstance(request, dict):
@@ -78,7 +84,7 @@ async def serve_pi_tools_http(
             return
         name = request.get("name")
         arguments = request.get("arguments") or {}
-        tool = tool_map.get(name)
+        tool = tool_map.get(name) if isinstance(name, str) else None
         if tool is None or not isinstance(arguments, dict):
             await _send_json(send, 400, {"error": "unknown tool or invalid arguments"})
             return

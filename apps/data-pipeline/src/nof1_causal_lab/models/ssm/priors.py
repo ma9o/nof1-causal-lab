@@ -9,6 +9,7 @@ import numpyro.distributions as dist
 from numpyro.distributions import constraints
 
 from nof1_causal_lab.artifacts.parameter import SupportClass
+from nof1_causal_lab.compilation_errors import AggregatedCompileError
 from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.prior_distributions import (
     distribution_from_params,
@@ -57,7 +58,7 @@ DEFAULT_PRIORS_BY_FIELD: dict[str, dist.Distribution] = {
 def default_prior_for_descriptor(site: SiteDescriptor) -> dist.Distribution:
     """Return the scientific default for an active site."""
     if site.priors_field is None:
-        raise ValueError(f"Site {site.name!r} has no prior field")
+        raise AggregatedCompileError([f"Site {site.name!r} has no prior field"])
     return DEFAULT_PRIORS_BY_FIELD[site.priors_field]
 
 
@@ -73,7 +74,7 @@ def site_constraint(site: SiteDescriptor) -> constraints.Constraint:
 def validate_site_prior(site: SiteDescriptor, prior: dist.Distribution) -> None:
     """Check a native law against the site's scientific value domain."""
     if prior.event_shape:
-        raise ValueError(f"Site {site.name!r} requires scalar coordinate laws")
+        raise AggregatedCompileError([f"Site {site.name!r} requires scalar coordinate laws"])
     if isinstance(prior, (dist.ExpandedDistribution, dist.MaskedDistribution)):
         validate_site_prior(site, prior.base_dist)
         return
@@ -83,11 +84,15 @@ def validate_site_prior(site: SiteDescriptor, prior: dist.Distribution) -> None:
         return
     lower, upper = distribution_support_bounds(prior)
     if site.support == SupportClass.POSITIVE and np.any(np.asarray(lower) < 0.0):
-        raise ValueError(f"Prior for positive site {site.name!r} has non-positive support")
+        raise AggregatedCompileError(
+            [f"Prior for positive site {site.name!r} has non-positive support"]
+        )
     if site.support == SupportClass.CORRELATION and (
         np.any(np.asarray(lower) < -1.0) or np.any(np.asarray(upper) > 1.0)
     ):
-        raise ValueError(f"Correlation prior for {site.name!r} requires support within [-1, 1]")
+        raise AggregatedCompileError(
+            [f"Correlation prior for {site.name!r} requires support within [-1, 1]"]
+        )
 
 
 def resolve_site_priors(
@@ -98,7 +103,7 @@ def resolve_site_priors(
     supplied = {} if priors is None else priors
     unknown = set(supplied) - {site.name for site in sites}
     if unknown:
-        raise ValueError(f"Priors refer to inactive sample sites: {sorted(unknown)}")
+        raise AggregatedCompileError([f"Priors refer to inactive sample sites: {sorted(unknown)}"])
     result = {}
     for site in sites:
         prior = supplied[site.name] if site.name in supplied else default_prior_for_descriptor(site)

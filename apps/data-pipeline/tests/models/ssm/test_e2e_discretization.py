@@ -5,7 +5,6 @@ and parameter identity.
 """
 
 import math
-from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
@@ -24,7 +23,7 @@ from nof1_causal_lab.models.ssm.compile.inputs import (
 )
 from nof1_causal_lab.prior_distributions import prior_reference_value
 from tests.helpers import graph_constructs
-from tests.model_fixtures import compile_fit_fixture
+from tests.model_fixtures import compile_fit_fixture, compile_model_fixture
 
 pytestmark = pytest.mark.contract
 
@@ -35,7 +34,9 @@ def _compile_structure(payload: dict[str, Any]) -> ModelSpec:
 
 
 def _compile_priors_for_test(scientific_model: ModelSpec):
-    prior_registry, index_maps, _diagnostics = compile_ssm_priors(scientific_model)
+    prior_registry, index_maps, _diagnostics = compile_ssm_priors(
+        compile_model_fixture(scientific_model), scientific_model
+    )
     return prior_registry, index_maps
 
 
@@ -44,8 +45,8 @@ def _prior_reference_value(prior, flat_index: int = 0) -> float:
 
 
 def _decay_reference_values(spec: ModelSpec, prior_registry) -> np.ndarray:
-    values = np.zeros(numeric.n_states(spec), dtype=float)
-    for index, component in enumerate(numeric.dynamics_expressions(spec)):
+    values = np.zeros(numeric.n_states(compile_model_fixture(spec)), dtype=float)
+    for index, component in enumerate(compile_model_fixture(spec).dynamics.spec.components):
         for _, site in component.parameter_sites(f"vf_{index}"):
             if site.site_kind == SiteKind.DYNAMICS_DECAY:
                 values[component.target] += _prior_reference_value(prior_registry[site.name])
@@ -53,7 +54,7 @@ def _decay_reference_values(spec: ModelSpec, prior_registry) -> np.ndarray:
 
 
 def _linear_edge_weight(spec: ModelSpec, prior_registry, *, source: int, target: int) -> float:
-    for index, component in enumerate(numeric.dynamics_expressions(spec)):
+    for index, component in enumerate(compile_model_fixture(spec).dynamics.spec.components):
         if component.source == source and component.target == target:
             for _, site in component.parameter_sites(f"vf_{index}"):
                 if site.site_kind == SiteKind.DYNAMICS_WEIGHT:
@@ -62,8 +63,8 @@ def _linear_edge_weight(spec: ModelSpec, prior_registry, *, source: int, target:
 
 
 def _decay_support(spec: ModelSpec) -> np.ndarray:
-    mask = np.zeros(numeric.n_states(spec), dtype=bool)
-    for component in numeric.dynamics_expressions(spec):
+    mask = np.zeros(numeric.n_states(compile_model_fixture(spec)), dtype=bool)
+    for component in compile_model_fixture(spec).dynamics.spec.components:
         if any(
             operand.role == "decay" for operand in expression_coefficients(component.expression)
         ):
@@ -72,8 +73,14 @@ def _decay_support(spec: ModelSpec) -> np.ndarray:
 
 
 def _linear_edge_support(spec: ModelSpec) -> np.ndarray:
-    mask = np.zeros((numeric.n_states(spec), numeric.n_states(spec)), dtype=bool)
-    for component in numeric.dynamics_expressions(spec):
+    mask = np.zeros(
+        (
+            numeric.n_states(compile_model_fixture(spec)),
+            numeric.n_states(compile_model_fixture(spec)),
+        ),
+        dtype=bool,
+    )
+    for component in compile_model_fixture(spec).dynamics.spec.components:
         if component.source is not None and any(
             operand.role == "weight" for operand in expression_coefficients(component.expression)
         ):
@@ -82,8 +89,8 @@ def _linear_edge_support(spec: ModelSpec) -> np.ndarray:
 
 
 def _state_intercept_mask(spec: ModelSpec) -> np.ndarray:
-    mask = np.zeros(numeric.n_states(spec), dtype=bool)
-    for component in numeric.dynamics_expressions(spec):
+    mask = np.zeros(numeric.n_states(compile_model_fixture(spec)), dtype=bool)
+    for component in compile_model_fixture(spec).dynamics.spec.components:
         if not component.edge_owned and any(
             operand.role in {"center", "intercept"} for _, operand in component.parameters
         ):
@@ -169,7 +176,7 @@ def two_construct_model(two_construct_structure) -> ModelSpec:
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# PHASE 1: First-order DT→CT with reference_interval_days
+# PHASE 1: First-order DT→CT with interval_days
 # ═══════════════════════════════════════════════════════════════════════
 
 
@@ -180,11 +187,11 @@ class TestE2ESpecToDiscretization:
         """Compilation produces correct ModelSpec from DAG structure."""
 
         # Dimensions
-        assert numeric.n_states(two_construct_model) == 2  # mood, stress
+        assert numeric.n_states(compile_model_fixture(two_construct_model)) == 2  # mood, stress
         assert (
-            numeric.n_observations(two_construct_model) == 3
+            numeric.n_observations(compile_model_fixture(two_construct_model)) == 3
         )  # mood_rating, stress_self_report, stress_cortisol
-        assert numeric.state_names(two_construct_model) == ["stress", "mood"]
+        assert numeric.state_names(compile_model_fixture(two_construct_model)) == ["stress", "mood"]
 
         # Dynamics support: diagonal decay (AR) + stress→mood linear edge.
         np.testing.assert_array_equal(_decay_support(two_construct_model), [True, True])
@@ -193,15 +200,17 @@ class TestE2ESpecToDiscretization:
         assert not edge_support[0, 1]  # no mood→stress edge
 
         # Lambda mask: stress_cortisol has free loading for stress
-        assert numeric.loading_block(two_construct_model).free_support is not None
+        assert compile_model_fixture(two_construct_model).loading_block.free_support is not None
         # mood_rating loads on mood (fixed=1.0), stress_self_report loads on stress (fixed=1.0)
         # stress_cortisol loads on stress (free)
-        manifest_names = numeric.observation_names(two_construct_model)
+        manifest_names = numeric.observation_names(compile_model_fixture(two_construct_model))
         assert manifest_names is not None
         stress_cortisol_idx = manifest_names.index("stress_cortisol")
-        assert numeric.state_names(two_construct_model) is not None
-        stress_latent_idx = numeric.state_names(two_construct_model).index("stress")
-        assert numeric.loading_block(two_construct_model).free_support[
+        assert numeric.state_names(compile_model_fixture(two_construct_model)) is not None
+        stress_latent_idx = numeric.state_names(compile_model_fixture(two_construct_model)).index(
+            "stress"
+        )
+        assert compile_model_fixture(two_construct_model).loading_block.free_support[
             stress_cortisol_idx, stress_latent_idx
         ]
 
@@ -212,16 +221,15 @@ class TestE2ESpecToDiscretization:
             edges=replace_constructs(
                 model.edges,
                 tuple(
-                    type(c).model_validate({**c.model_dump(), "name": "renamed"})
-                    if c.name == "mood"
-                    else c
-                    for c in model.constructs
+                    c.revised(name="renamed") if c.name == "mood" else c for c in model.constructs
                 ),
             )
         )
         spec = renamed
-        assert numeric.state_names(spec) == ["stress", "renamed"]
-        assert numeric.state_ids(spec) == [c.id for c in model.constructs]
+        assert numeric.state_names(compile_model_fixture(spec)) == ("stress", "renamed")
+        assert numeric.state_ids(compile_model_fixture(spec)) == tuple(
+            c.id for c in model.constructs
+        )
         assert [p.id for p in renamed.parameters] == [p.id for p in model.parameters]
 
     def test_time_invariant_states_drop_static_target_dynamics_and_diffusion_support(self):
@@ -235,12 +243,16 @@ class TestE2ESpecToDiscretization:
         )
         spec = model
         assert not model.constructs[0].dynamics
-        static_index = numeric.state_names(spec).index("baseline")
-        dynamic_index = numeric.state_names(spec).index("mood")
+        static_index = numeric.state_names(compile_model_fixture(spec)).index("baseline")
+        dynamic_index = numeric.state_names(compile_model_fixture(spec)).index("mood")
         assert not _decay_support(spec)[static_index]
         assert _decay_support(spec)[dynamic_index]
-        assert not numeric.diffusion_block(spec).diffusion_chol_support[static_index, static_index]
-        assert numeric.diffusion_block(spec).diffusion_chol_support[dynamic_index, dynamic_index]
+        assert not compile_model_fixture(spec).diffusion_block.diffusion_chol_support[
+            static_index, static_index
+        ]
+        assert compile_model_fixture(spec).diffusion_block.diffusion_chol_support[
+            dynamic_index, dynamic_index
+        ]
         assert not _linear_edge_support(spec)[static_index].any()
         assert not _state_intercept_mask(spec)[static_index]
 
@@ -261,22 +273,9 @@ class TestE2ESpecToDiscretization:
         two_construct_model,
     ):
         """Compiled artifacts preserve the grounded latent and measurement layout."""
-        from nof1_causal_lab.models.model_checks import check_execution
-        from nof1_causal_lab.models.ssm.runtime import build_ssm_model
-        from nof1_causal_lab.utils.data import pivot_to_wide
 
         typed_scientific_model = ModelSpec.model_validate(two_construct_model)
-        check_execution(
-            ModelSpec.model_validate_json(
-                (
-                    Path(__file__).resolve().parents[2]
-                    / "fixtures/models"
-                    / "e2e_discretization/weekly_reference_intervals.json"
-                ).read_text()
-            ),
-        )
-
-        assert numeric.state_names(
+        compile_model_fixture(
             ModelSpec.model_validate_json(
                 (
                     Path(__file__).resolve().parents[2]
@@ -284,8 +283,20 @@ class TestE2ESpecToDiscretization:
                     / "e2e_discretization/weekly_reference_intervals.json"
                 ).read_text()
             )
+        )
+
+        assert numeric.state_names(
+            compile_model_fixture(
+                ModelSpec.model_validate_json(
+                    (
+                        Path(__file__).resolve().parents[2]
+                        / "fixtures/models"
+                        / "e2e_discretization/weekly_reference_intervals.json"
+                    ).read_text()
+                )
+            )
         ) == ["stress", "mood"]
-        assert numeric.observation_names(typed_scientific_model) == [
+        assert numeric.observation_names(compile_model_fixture(typed_scientific_model)) == [
             "stress_self_report",
             "stress_cortisol",
             "mood_rating",
@@ -301,12 +312,14 @@ class TestE2ESpecToDiscretization:
                 "flat_index": binding.flat_index,
             }
             for binding in parameter_bindings(
-                ModelSpec.model_validate_json(
-                    (
-                        Path(__file__).resolve().parents[2]
-                        / "fixtures/models"
-                        / "e2e_discretization/weekly_reference_intervals.json"
-                    ).read_text()
+                compile_model_fixture(
+                    ModelSpec.model_validate_json(
+                        (
+                            Path(__file__).resolve().parents[2]
+                            / "fixtures/models"
+                            / "e2e_discretization/weekly_reference_intervals.json"
+                        ).read_text()
+                    )
                 )
             )[0]
         ]
@@ -345,38 +358,35 @@ class TestE2ESpecToDiscretization:
         data_for_model = data_for_model.with_columns(
             pl.col("indicator").replace_strict(indicator_ids).alias("indicator_id")
         ).drop("indicator")
-        model = build_ssm_model(
-            pivot_to_wide(data_for_model, time_origin=datetime(2024, 1, 1, tzinfo=UTC)).rename(
-                {i.id: i.name for i in typed_scientific_model.indicators}
-            ),
-            inputs=compile_fit_fixture(
-                ModelSpec.model_validate_json(
-                    (
-                        Path(__file__).resolve().parents[2]
-                        / "fixtures/models"
-                        / "e2e_discretization/weekly_reference_intervals.json"
-                    ).read_text()
-                )
-            ),
+        model = compile_fit_fixture(
+            ModelSpec.model_validate_json(
+                (
+                    Path(__file__).resolve().parents[2]
+                    / "fixtures/models"
+                    / "e2e_discretization/weekly_reference_intervals.json"
+                ).read_text()
+            )
         )
-        spec = model.spec
-        assert numeric.state_names(spec) == ["stress", "mood"]
+        spec = model.compiled
+        assert numeric.state_names(compile_model_fixture(spec)) == ["stress", "mood"]
         edge_support = _linear_edge_support(spec)
         assert edge_support[1, 0]
         assert not edge_support[0, 1]
-        assert numeric.loading_block(spec).free_support is not None
-        assert numeric.loading_block(spec).free_support[1, 0]
-        runtime = model.get_prior_runtime_bundle()
+        assert compile_model_fixture(spec).loading_block.free_support is not None
+        assert compile_model_fixture(spec).loading_block.free_support[1, 0]
+        runtime = model.prior_runtime_bundle
         assert runtime.priors["vf_0_p0"].batch_shape == ()
         assert runtime.priors["vf_1_p0"].batch_shape == ()
         assert model.parameter_bindings == tuple(
             parameter_bindings(
-                ModelSpec.model_validate_json(
-                    (
-                        Path(__file__).resolve().parents[2]
-                        / "fixtures/models"
-                        / "e2e_discretization/weekly_reference_intervals.json"
-                    ).read_text()
+                compile_model_fixture(
+                    ModelSpec.model_validate_json(
+                        (
+                            Path(__file__).resolve().parents[2]
+                            / "fixtures/models"
+                            / "e2e_discretization/weekly_reference_intervals.json"
+                        ).read_text()
+                    )
                 )
             )[0]
         )
@@ -398,16 +408,16 @@ class TestE2ESpecToDiscretization:
 
         np.testing.assert_allclose(ssm_priors["diffusion_diag_free"].scale, [0.9, 0.1])
 
-    def test_dt_to_ct_uses_reference_interval_days(
+    def test_dt_to_ct_uses_interval_days(
         self,
         two_construct_structure,
         two_construct_model,
     ):
-        """Priors with reference_interval_days use that dt.
+        """Priors with interval_days use that dt.
 
-        rho_mood has reference_interval_days=7 → dt=7
-        rho_stress has no reference_interval_days → falls back to dt=1
-        beta_stress_mood has reference_interval_days=7 → dt=7
+        rho_mood has interval_days=7 → dt=7
+        rho_stress has interval_days="model_clock" → daily dt=1
+        beta_stress_mood has interval_days=7 → dt=7
         """
         ssm_priors, _idx = _compile_priors_for_test(
             ModelSpec.model_validate_json(
@@ -419,7 +429,7 @@ class TestE2ESpecToDiscretization:
             )
         )
 
-        # --- rho_mood: Beta(3,2) → E=0.6, reference_interval_days=7 ---
+        # --- rho_mood: Beta(3,2) → E=0.6, interval_days=7 ---
         # dynamics decay for mood = -ln(0.6) / 7 ≈ 0.073
         mu_ar_mood = 3.0 / 5.0  # E[Beta(3,2)] = 0.6
         expected_dynamics_mood = -math.log(mu_ar_mood) / 7.0
@@ -427,10 +437,10 @@ class TestE2ESpecToDiscretization:
         mu_mood = mu_dynamics[1]
         assert abs(mu_mood - expected_dynamics_mood) < 0.01, (
             f"mood dynamics: got {mu_mood}, expected {expected_dynamics_mood} "
-            f"(using reference_interval_days=7)"
+            f"(using interval_days=7)"
         )
 
-        # --- rho_stress: Beta(2,2) → E=0.5, no reference_interval_days → daily dt=1 ---
+        # --- rho_stress: Beta(2,2) → E=0.5, interval_days="model_clock" → daily dt=1 ---
         # dynamics decay for stress = -ln(0.5) / 1.0 ≈ 0.693
         mu_ar_stress = 0.5
         expected_dynamics_stress = -math.log(mu_ar_stress) / 1.0
@@ -440,13 +450,13 @@ class TestE2ESpecToDiscretization:
             f"(fallback to daily dt=1)"
         )
 
-        # --- beta_stress_mood: Normal(0.3, 0.15), reference_interval_days=7 ---
+        # --- beta_stress_mood: Normal(0.3, 0.15), interval_days=7 ---
         # linear-edge weight = 0.3 / 7 ≈ 0.043
         expected_offdiag = 0.3 / 7.0
         mu_offdiag_val = _linear_edge_weight(two_construct_model, ssm_priors, source=0, target=1)
         assert abs(mu_offdiag_val - expected_offdiag) < 0.01, (
             f"stress→mood dynamics: got {mu_offdiag_val}, expected {expected_offdiag} "
-            f"(using reference_interval_days=7)"
+            f"(using interval_days=7)"
         )
 
     def test_different_intervals_produce_different_rates(self, two_construct_model):

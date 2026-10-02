@@ -7,14 +7,14 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
+from nof1_causal_lab.artifacts.identity import IndicatorId
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorPredictiveChecks
 from nof1_causal_lab.models.posterior_predictive import measure_predictive_checks
-from nof1_causal_lab.models.ssm.model import SSMModel
 from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
     sample_prior_predictive_from_runtime,
 )
-from tests.model_fixtures import compile_fit_fixture
+from tests.model_fixtures import compile_fit_fixture, compile_model_fixture
 
 pytestmark = pytest.mark.inference(concern="predictive")
 
@@ -29,9 +29,11 @@ def test_predictive_draws_feed_mixed_family_diagnostics():
             / "posterior_predictive_integration/predictive_draws_feed_mixed_family_diagnostics_model_fixture.json"
         ).read_text()
     )
-    runtime = SSMModel(compile_fit_fixture(spec)).get_prior_runtime_bundle()
+    runtime = compile_fit_fixture(spec).prior_runtime_bundle
     times = jnp.array([0.0, 0.1, 0.25, 0.4, 0.7, 1.0], dtype=jnp.float32)
-    samples = sample_prior_predictive_from_runtime(spec, runtime, times, num_samples=3, seed=7)
+    samples = sample_prior_predictive_from_runtime(
+        compile_model_fixture(spec), runtime, times, num_samples=3, seed=7
+    )
     assert samples.trajectory.latents.shape == (3, 6, 1)
     assert samples.trajectory.observations.shape == (3, 6, 2)
     assert samples.trajectory.observations_mask.shape == (3, 6, 2)
@@ -45,7 +47,7 @@ def test_predictive_draws_feed_mixed_family_diagnostics():
     observations = jnp.array(
         [[0.2, 1.0], [jnp.nan, 2.0], [-0.1, 0.0], [0.1, 3.0], [-0.2, 2.0], [0.3, 4.0]]
     )
-    indicator_ids = ["indicator:signal", "indicator:count"]
+    indicator_ids = [IndicatorId("indicator:signal"), IndicatorId("indicator:count")]
     result = measure_predictive_checks(samples.trajectory.observations, observations, indicator_ids)
 
     assert isinstance(result, PosteriorPredictiveChecks)
@@ -54,7 +56,8 @@ def test_predictive_draws_feed_mixed_family_diagnostics():
     assert [overlay.indicator_id for overlay in result.overlays] == indicator_ids
     assert len(result.test_stats) == 8
     assert {
-        (warning.indicator_id, warning.check_type) for warning in result.per_variable_warnings
+        (warning.subject.target.id, warning.subject.check)
+        for warning in result.per_variable_warnings
     } == {
         (indicator_id, check)
         for indicator_id in indicator_ids

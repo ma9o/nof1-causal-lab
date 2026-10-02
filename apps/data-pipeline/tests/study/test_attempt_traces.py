@@ -5,8 +5,9 @@ import asyncio
 import pytest
 
 from nof1_causal_lab.actions.temporal.activities import journal_activity, read_branch_activity
-from nof1_causal_lab.actions.temporal.messages import JournalInput, ReadBranchInput
+from nof1_causal_lab.actions.temporal.messages import AttemptPublication, ReadBranchInput
 from nof1_causal_lab.study.history import StudyRepository
+from nof1_causal_lab.study.records import AttemptRecord, EditAttempt, Raised
 from nof1_causal_lab.study.store import collect_run_traces, read_attempt_trace, trace_log_path
 from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
@@ -56,26 +57,28 @@ def test_raised_attempt_discovers_trace_and_retry_no_longer_needs_scratch(data_r
     del data_root
     base = asyncio.run(read_branch_activity(ReadBranchInput(workspace_id="ws-trace")))
     _scratch_trace("ws-trace", 1, "latent-structure")
-    input = JournalInput(
+    input = AttemptPublication(
         workspace_id="ws-trace",
         expected_head=base.commit_id,
-        seq=1,
-        action="edit_model",
-        inputs={},
-        status="raised",
-        error_type="LLMSubroutineError",
-        error_message="validation failed",
+        record=AttemptRecord(
+            seq=1,
+            ts="2026-10-01T00:00:00Z",
+            attempt=EditAttempt(
+                request=None,
+                outcome=Raised(error_type="LLMSubroutineError", error_message="validation failed"),
+            ),
+        ),
     )
 
-    commit_id = asyncio.run(journal_activity(input))
+    publication = asyncio.run(journal_activity(input))
     assert StudyRepository("ws-trace").head() == base.commit_id
     storage.rm_tree(data_module.scratch_run_dir("ws-trace", "seq-000001"))
     asyncio.run(journal_activity(input))
 
     record = StudyRepository("ws-trace").read_attempt(1)
     assert record is not None
-    assert record.status == "raised"
-    assert record.trace_ids == ["latent-structure"]
-    assert read_attempt_trace("ws-trace", commit_id, "latent-structure")["model"] == (
+    assert record.record.attempt.outcome.status == "raised"
+    assert record.record.trace_ids == ("latent-structure",)
+    assert read_attempt_trace("ws-trace", publication.commit_id, "latent-structure")["model"] == (
         "openrouter/test-model"
     )

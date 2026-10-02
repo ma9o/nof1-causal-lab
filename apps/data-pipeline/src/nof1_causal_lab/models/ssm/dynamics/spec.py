@@ -8,7 +8,7 @@ from typing import TYPE_CHECKING
 from .vector_field import VectorField
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator
+    from collections.abc import Callable, Iterator, Mapping
 
     import numpyro.distributions as dist
     from jax import Array
@@ -97,7 +97,7 @@ def iter_dynamics_semantic_bindings(
 
 def pack_component_params_from_samples(
     spec: DynamicsSpec,
-    samples: dict[str, Array],
+    samples: Mapping[str, Array],
     *,
     prefix: str = "vf",
 ) -> tuple[dict[str, Array], ...]:

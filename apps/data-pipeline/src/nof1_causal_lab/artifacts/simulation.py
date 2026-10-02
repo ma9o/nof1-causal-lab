@@ -2,22 +2,23 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from itertools import pairwise
 from typing import Annotated, Literal, Self
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, FiniteFloat, model_validator
+from pydantic import AwareDatetime, Field, FiniteFloat, model_validator
 
-from .checks import PredictiveCheckFinding
+from nof1_causal_lab.artifacts.base import Value
+
+from .checks import PredictiveAssessment
 from .identity import ConstructId, GitOid, GitRef, IndicatorId
 from .observations import ObservationSpec
 from .predictive_provenance import PredictiveLawProvenance
 from .scenarios import CausalEffectResult, InterventionSpec
 
 
-class SimulationSpec(BaseModel):
+class SimulationSpec(Value):
     """Generate through end, optionally starting earlier and applying dated interventions."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     end: FiniteFloat = Field(description="Absolute end time in model days.")
     start: FiniteFloat | None = Field(
@@ -25,6 +26,9 @@ class SimulationSpec(BaseModel):
         description="Absolute start time in model days; omitted uses the model's latest state time, or zero for its initial-state law.",
     )
     interventions: tuple[InterventionSpec, ...] = ()
+
+    def starting_at(self, start: float) -> SimulationSpec:
+        return SimulationSpec(start=start, end=self.end, interventions=self.interventions)
 
     @model_validator(mode="after")
     def validate_window(self) -> Self:
@@ -40,10 +44,8 @@ class SimulationSpec(BaseModel):
         return self
 
 
-class SimulationObservationLayout(BaseModel):
+class SimulationObservationLayout(Value):
     """Saved observation semantics and coordinates; generation truths remain separate."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     variables: tuple[ObservationSpec, ...]
     support_start_times: str
@@ -64,10 +66,8 @@ class SimulationObservationLayout(BaseModel):
         return self
 
 
-class TrajectorySummary(BaseModel):
+class TrajectorySummary(Value):
     """Pointwise means and fixed 95% quantiles across generated numeric draws."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     kind: Literal["numeric"] = "numeric"
     mean: tuple[FiniteFloat | None, ...]
@@ -76,13 +76,11 @@ class TrajectorySummary(BaseModel):
     n_draws: tuple[int, ...]
 
 
-class CategoryProbabilitySummary(BaseModel):
+class CategoryProbabilitySummary(Value):
     """Predictive probabilities for each declared level; unobserved anchors are null."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
     kind: Literal["categorical"] = "categorical"
-    probabilities: dict[str, tuple[FiniteFloat | None, ...]]
+    probabilities: Mapping[str, tuple[FiniteFloat | None, ...]]
     n_draws: tuple[int, ...]
 
 
@@ -91,10 +89,8 @@ type PredictiveSummary = Annotated[
 ]
 
 
-class SimulationSeriesSummary(BaseModel):
+class SimulationSeriesSummary(Value):
     """One state's or indicator's generated distribution in each simulated arm."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     label: str
     action: PredictiveSummary
@@ -104,20 +100,16 @@ class SimulationSeriesSummary(BaseModel):
 type FitReliability = Literal["not_fitted", "converged", "unconverged", "unknown"]
 
 
-class SimulationPredictiveReport(BaseModel):
+class SimulationPredictiveReport(Value):
     """Model implications, independently of whether a causal contrast is certified."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True)
-
-    states: dict[ConstructId, SimulationSeriesSummary]
-    indicators: dict[IndicatorId, SimulationSeriesSummary]
+    states: Mapping[ConstructId, SimulationSeriesSummary]
+    indicators: Mapping[IndicatorId, SimulationSeriesSummary]
     fit_reliability: FitReliability
 
 
-class SimulationReport(BaseModel):
+class SimulationReport(Value):
     """Generated histories and derived findings with their resolved execution coordinates."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     model: GitRef
     design: SimulationSpec
@@ -132,17 +124,28 @@ class SimulationReport(BaseModel):
         description="Panel that supplied the time origin: the fit's panel for fitted laws, otherwise the current panel when present.",
     )
     state_ids: tuple[ConstructId, ...]
-    parameter_draws: dict[str, str]
+    parameter_draws: Mapping[str, str]
     latent_paths: str
     observations: str
     observation_layout: SimulationObservationLayout
     law: PredictiveLawProvenance | None = None
     reference_latent_paths: str | None = None
     reference_observations: str | None = None
-    findings: tuple[PredictiveCheckFinding, ...] = ()
+    findings: tuple[PredictiveAssessment, ...] = ()
     predictive: SimulationPredictiveReport
     causal_result: CausalEffectResult | None = None
     causal_unavailable_reason: str | None = None
+
+    def with_provenance(
+        self, *, law: PredictiveLawProvenance, origin_panel_revision: GitOid | None
+    ) -> Self:
+        return self.model_copy(update={"law": law, "origin_panel_revision": origin_panel_revision})
+
+    def with_causal_result(self, result: CausalEffectResult) -> Self:
+        return self.model_copy(update={"causal_result": result, "causal_unavailable_reason": None})
+
+    def without_causal_result(self, reason: str) -> Self:
+        return self.model_copy(update={"causal_result": None, "causal_unavailable_reason": reason})
 
     @model_validator(mode="after")
     def validate_histories(self) -> Self:

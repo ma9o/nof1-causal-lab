@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from nof1_causal_lab.models.model_structure import reference_indicators, selected_state_ids
+
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
@@ -17,7 +19,7 @@ def validate_parameter_anchors(model: ModelSpec) -> None:
     if model.measurement_clock is None or not model.indicators:
         return
 
-    for identity in model.state_order:
+    for identity in selected_state_ids(model):
         construct = model.get_construct(identity)
         initial_mean = construct.coefficient("initial_mean")
         channels = [
@@ -30,7 +32,7 @@ def validate_parameter_anchors(model: ModelSpec) -> None:
         if any(
             operand.value is None
             for _, likelihood in channels
-            for operand in likelihood.terms.loadings.values()
+            for operand in likelihood.parsed.loadings.values()
         ):
             continue
         centers = [
@@ -49,7 +51,7 @@ def validate_parameter_anchors(model: ModelSpec) -> None:
             likelihood.standardized
             or (
                 likelihood.law.distribution == "Delta"
-                and isinstance(likelihood.law.arguments["v"], StateExpression)
+                and isinstance(likelihood.law.v, StateExpression)
             )
             for indicator, likelihood in channels
         )
@@ -65,7 +67,7 @@ def validate_parameter_anchors(model: ModelSpec) -> None:
         all_categorical = True
         for indicator, likelihood in channels:
             categorical = likelihood.law.family == DistributionFamily.CATEGORICAL
-            loading = likelihood.terms.loadings[identity].value
+            loading = likelihood.parsed.loadings[identity].value
             value = None if isinstance(loading, str) else loading
             if categorical and value is None:
                 raise ValueError(
@@ -75,20 +77,8 @@ def validate_parameter_anchors(model: ModelSpec) -> None:
             all_categorical &= categorical
             fixed_scale |= not categorical and value is not None and value != 0.0
         if not fixed_scale and not all_categorical:
-            reference = model.indicator(model.reference_indicator_ids[identity])
+            reference = model.indicator(reference_indicators(model)[identity])
             raise ValueError(
                 f"Construct {construct.name!r} has no scale anchor "
                 f"(reference indicator {reference.name!r})"
             )
-
-
-def check_execution(
-    model: ModelSpec,
-) -> None:
-    """Require a complete, executable model."""
-    from nof1_causal_lab.models.ssm import numerics as numeric
-    from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
-
-    model.require_priors()
-    numeric.validate_execution(model)
-    parameter_bindings(model)

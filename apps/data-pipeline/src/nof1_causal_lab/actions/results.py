@@ -1,137 +1,41 @@
-"""Dispatch receipts, scientific result bodies, and timestamped action labels."""
+"""Dispatch receipts and disjoint running/completed poll contracts."""
 
 from typing import Annotated, Literal
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
 
-from nof1_causal_lab.actions.data_diff import DataDiffReport
-from nof1_causal_lab.artifacts.checks import SpecificationReport
-from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata
-from nof1_causal_lab.artifacts.identification import IdentificationReport
-from nof1_causal_lab.artifacts.identity import ActionId, GitOid, GitRef
-from nof1_causal_lab.artifacts.model_checks import ModelPredictiveReport
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.artifacts.posterior import InferenceReport
-from nof1_causal_lab.artifacts.simulation import SimulationReport
-from nof1_causal_lab.artifacts.validation_report import (
-    DataProfileArtifact,
-    ValidationReportArtifact,
-)
-from nof1_causal_lab.study.records import ActionMessage
-from nof1_causal_lab.study.view_models import MeasurementsData
+from nof1_causal_lab.artifacts.base import Value
+from nof1_causal_lab.artifacts.identity import ActionId, GitOid
+from nof1_causal_lab.study.records import ActionAttempt, ActionMessage
 
 
-class ActionReceipt(BaseModel):
-    """A durable dispatch acknowledgment, without a scientific result body."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
+class ActionReceipt(Value):
     attempt_id: UUID
 
 
-class ModelEditResult(BaseModel):
-    """The committed scientific model and checks produced by an edit."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    action: Literal["edit_model"] = "edit_model"
-    commit_id: GitOid
-    model_revision: GitOid
-    model: ModelSpec
-    specification: SpecificationReport
-    predictive: ModelPredictiveReport
-    identification: IdentificationReport
-    validation: ValidationReportArtifact | None = None
-
-
-class DataPreparationResult(BaseModel):
-    """Prepared observations and their committed revision, with data-quality findings."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    action: Literal["prepare_data"] = "prepare_data"
-    commit_id: GitOid
-    data_revision: GitRef
-    data: MeasurementsData
-    metadata: PreparedDataMetadata
-    profile: DataProfileArtifact
-
-
-class ModelFitResult(BaseModel):
-    """The committed model, inference report, and checks produced by a fit."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    action: Literal["fit"] = "fit"
-    commit_id: GitOid
-    model_revision: GitOid
-    model: ModelSpec
-    report: InferenceReport
-    specification: SpecificationReport
-    identification: IdentificationReport
-
-
-class ModelSimulationResult(BaseModel):
-    """A committed trajectory or causal simulation report for its selected model and design."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    action: Literal["simulate"] = "simulate"
-    commit_id: GitOid
-    report: SimulationReport
-
-
-class DataComparisonResult(BaseModel):
-    """A recorded comparison of saved observations; the branch and model are unchanged."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    action: Literal["data_diff"] = "data_diff"
-    commit_id: GitOid
-    report: DataDiffReport
-
-
-type ActionBody = Annotated[
-    ModelEditResult
-    | DataPreparationResult
-    | ModelFitResult
-    | ModelSimulationResult
-    | DataComparisonResult,
-    Field(
-        discriminator="action",
-        description=(
-            "The scientific result published by a successful action, including immutable "
-            "revision references and the resulting model, data, or simulation findings."
-        ),
-    ),
-]
-
-
-class ActionPoll(BaseModel):
-    """Read an attempt: messages accumulate; a successful commit supplies the body."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    done: bool
-    body: ActionBody | None = None
+class RunningPoll(Value):
+    kind: Literal["running"] = "running"
     messages: tuple[ActionMessage, ...] = ()
 
 
-class RunningAction(BaseModel):
-    """The attempt a study is executing, with the labels it has emitted so far."""
+class CompletedPoll(Value):
+    kind: Literal["completed"] = "completed"
+    # Failure before publication is still a completed typed outcome.
+    commit_id: GitOid | None
+    attempt: ActionAttempt
+    messages: tuple[ActionMessage, ...] = ()
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
 
+type ActionPoll = Annotated[RunningPoll | CompletedPoll, Field(discriminator="kind")]
+
+
+class RunningAction(Value):
     attempt_id: UUID
     action: ActionId
     branch: str
     messages: tuple[ActionMessage, ...]
 
 
-class PollActionRequest(BaseModel):
-    """Read one previously dispatched action through the scientific tool interface."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
+class PollActionRequest(Value):
     attempt_id: UUID

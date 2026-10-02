@@ -6,402 +6,161 @@ and Polars aggregation expression builders used by the pipeline's stage 2 logic.
 
 from __future__ import annotations
 
-import ast
 import logging
-from datetime import date
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, assert_never
 
-import numpy as np
 import polars as pl
 
-from nof1_causal_lab.utils.data import ensure_datetime_column, support_window_tick_frame
+from nof1_causal_lab.utils.observation_rows import ensure_datetime_column, support_window_tick_frame
 from nof1_causal_lab.utils.observation_semantics import (
-    derive_indicator_observation_semantics,
+    SummaryOperator,
     normalize_level_label,
 )
+from nof1_causal_lab.utils.window_expressions import WindowExpression, WindowOperator
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping, Sequence
+
     from polars._typing import FillNullStrategy
 
-    from nof1_causal_lab.workers.context import MeasurementIndicator
+    from nof1_causal_lab.workers.context import MeasurementContext
+
 
 logger = logging.getLogger(__name__)
 
-# Aggregations that require map_groups (cannot be expressed as a single Polars expr)
-_MAP_GROUPS_AGGREGATIONS = {"trend"}
-COMPUTED_RULE_FUNCTIONS = {
-    "abs",
-    "all",
-    "any",
-    "coalesce",
-    "contains",
-    "contains_any",
-    "count_non_null",
-    "count_true",
-    "first",
-    "last",
-    "lower",
-    "max",
-    "mean",
-    "min",
-    "std",
-    "sum",
-}
+
+def _compile_computed_rule_expr(window_expr: WindowExpression) -> pl.Expr:
+    """Lower the retained window grammar without parsing or reconstruction."""
+    return window_expr.fold(
+        literal=pl.lit,
+        column=pl.col,
+        collection=lambda values: pl.lit(list(values)),
+        operation=_compile_window_operation,
+    )
 
 
-def _compile_computed_rule_expr(window_expr: str, *, allowed_names: set[str]) -> pl.Expr:
-    """Compile a deterministic computed-rule expression to a Polars expression."""
-    try:
-        parsed = ast.parse(window_expr, mode="eval")
-    except SyntaxError as exc:
-        raise ValueError(f"Invalid computed_rule: {exc.msg}") from exc
-    return _compile_computed_rule_node(parsed.body, allowed_names=allowed_names)
-
-
-def _compile_computed_rule_node(node: ast.AST, *, allowed_names: set[str]) -> pl.Expr:
-    """Recursively compile an allowed AST node into a Polars expression."""
-    if isinstance(node, ast.Constant):
-        return pl.lit(node.value)
-
-    if isinstance(node, ast.Name):
-        if node.id not in allowed_names:
-            raise ValueError(f"computed_rule references unknown source column '{node.id}'")
-        return pl.col(node.id)
-
-    if isinstance(node, ast.BinOp):
-        left = _compile_computed_rule_node(node.left, allowed_names=allowed_names)
-        right = _compile_computed_rule_node(node.right, allowed_names=allowed_names)
-        if isinstance(node.op, ast.Add):
-            return left + right
-        if isinstance(node.op, ast.Sub):
-            return left - right
-        if isinstance(node.op, ast.Mult):
-            return left * right
-        if isinstance(node.op, ast.Div):
-            return left / right
-        if isinstance(node.op, ast.Mod):
-            return left % right
-        if isinstance(node.op, ast.Pow):
-            return left.pow(right)
-        raise ValueError(f"Unsupported computed_rule binary operator: {type(node.op).__name__}")
-
-    if isinstance(node, ast.UnaryOp):
-        operand = _compile_computed_rule_node(node.operand, allowed_names=allowed_names)
-        if isinstance(node.op, ast.USub):
-            return -operand
-        if isinstance(node.op, ast.UAdd):
-            return operand
-        if isinstance(node.op, ast.Not):
-            return ~operand.fill_null(False)
-        raise ValueError(f"Unsupported computed_rule unary operator: {type(node.op).__name__}")
-
-    if isinstance(node, ast.BoolOp):
-        values = [
-            _compile_computed_rule_node(value, allowed_names=allowed_names) for value in node.values
-        ]
-        if not values:
-            raise ValueError("computed_rule boolean expressions cannot be empty")
-        result = values[0]
-        if isinstance(node.op, ast.And):
-            for value in values[1:]:
-                result = result & value
+def _compile_window_operation(operator: WindowOperator, args: tuple[pl.Expr, ...]) -> pl.Expr:
+    match operator:
+        case WindowOperator.ADD:
+            return args[0] + args[1]
+        case WindowOperator.SUBTRACT:
+            return args[0] - args[1]
+        case WindowOperator.MULTIPLY:
+            return args[0] * args[1]
+        case WindowOperator.DIVIDE:
+            return args[0] / args[1]
+        case WindowOperator.MODULO:
+            return args[0] % args[1]
+        case WindowOperator.POWER:
+            return args[0].pow(args[1])
+        case WindowOperator.NEGATE:
+            return -args[0]
+        case WindowOperator.POSITIVE:
+            return args[0]
+        case WindowOperator.NOT:
+            return ~args[0].fill_null(False)
+        case WindowOperator.AND | WindowOperator.OR:
+            result = args[0]
+            for arg in args[1:]:
+                result = result & arg if operator == WindowOperator.AND else result | arg
             return result
-        if isinstance(node.op, ast.Or):
-            for value in values[1:]:
-                result = result | value
-            return result
-        raise ValueError(f"Unsupported computed_rule boolean operator: {type(node.op).__name__}")
-
-    if isinstance(node, ast.Compare):
-        return _compile_computed_rule_compare(node, allowed_names=allowed_names)
-
-    if isinstance(node, ast.IfExp):
-        return (
-            pl.when(_compile_computed_rule_node(node.test, allowed_names=allowed_names))
-            .then(_compile_computed_rule_node(node.body, allowed_names=allowed_names))
-            .otherwise(_compile_computed_rule_node(node.orelse, allowed_names=allowed_names))
-        )
-
-    if isinstance(node, ast.Call):
-        return _compile_computed_rule_call(node, allowed_names=allowed_names)
-
-    raise ValueError(f"Unsupported computed_rule syntax: {type(node).__name__}")
-
-
-def _compile_computed_rule_compare(node: ast.Compare, *, allowed_names: set[str]) -> pl.Expr:
-    """Compile comparison expressions, including chained comparisons."""
-    left = _compile_computed_rule_node(node.left, allowed_names=allowed_names)
-    result: pl.Expr | None = None
-    current_left = left
-
-    for op, comparator_node in zip(node.ops, node.comparators, strict=True):
-        if isinstance(op, (ast.In, ast.NotIn)):
-            values = _literal_values_from_ast(comparator_node)
-            current = current_left.is_in(values)
-            if isinstance(op, ast.NotIn):
-                current = ~current
-        elif isinstance(op, (ast.Is, ast.IsNot)):
-            if not _is_none_literal(comparator_node):
-                raise ValueError("computed_rule only supports 'is None' and 'is not None'")
-            current = (
-                current_left.is_null() if isinstance(op, ast.Is) else current_left.is_not_null()
+        case WindowOperator.EQ:
+            return args[0] == args[1]
+        case WindowOperator.NE:
+            return args[0] != args[1]
+        case WindowOperator.LT:
+            return args[0] < args[1]
+        case WindowOperator.LE:
+            return args[0] <= args[1]
+        case WindowOperator.GT:
+            return args[0] > args[1]
+        case WindowOperator.GE:
+            return args[0] >= args[1]
+        case WindowOperator.IN:
+            return args[0].is_in(args[1])
+        case WindowOperator.NOT_IN:
+            return ~args[0].is_in(args[1])
+        case WindowOperator.IS:
+            return args[0].is_null()
+        case WindowOperator.IS_NOT:
+            return args[0].is_not_null()
+        case WindowOperator.IF:
+            return pl.when(args[0]).then(args[1]).otherwise(args[2])
+        case WindowOperator.CONTAINS:
+            return (
+                args[0]
+                .cast(pl.Utf8, strict=False)
+                .str.to_lowercase()
+                .str.contains(args[1].str.to_lowercase(), literal=True)
             )
-        else:
-            comparator = _compile_computed_rule_node(comparator_node, allowed_names=allowed_names)
-            if isinstance(op, ast.Eq):
-                current = current_left == comparator
-            elif isinstance(op, ast.NotEq):
-                current = current_left != comparator
-            elif isinstance(op, ast.Lt):
-                current = current_left < comparator
-            elif isinstance(op, ast.LtE):
-                current = current_left <= comparator
-            elif isinstance(op, ast.Gt):
-                current = current_left > comparator
-            elif isinstance(op, ast.GtE):
-                current = current_left >= comparator
-            else:
-                raise ValueError(
-                    f"Unsupported computed_rule comparison operator: {type(op).__name__}"
-                )
-            current_left = comparator
-
-        result = current if result is None else result & current
-
-    if result is None:
-        raise ValueError("computed_rule comparison cannot be empty")
-    return result
-
-
-def _compile_computed_rule_call(node: ast.Call, *, allowed_names: set[str]) -> pl.Expr:
-    """Compile supported helper functions used in computed_rule."""
-    if not isinstance(node.func, ast.Name):
-        raise ValueError("computed_rule only supports simple function calls")
-    name = node.func.id
-    if name not in COMPUTED_RULE_FUNCTIONS:
-        available = ", ".join(sorted(COMPUTED_RULE_FUNCTIONS))
-        raise ValueError(f"Unsupported computed_rule function '{name}'. Available: {available}")
-    if node.keywords:
-        raise ValueError("computed_rule does not support keyword arguments")
-
-    if name == "contains" and len(node.args) != 2:
-        raise ValueError("computed_rule function 'contains' expects exactly 2 arguments")
-    if name == "contains_any" and len(node.args) != 2:
-        raise ValueError("computed_rule function 'contains_any' expects exactly 2 arguments")
-    if name == "coalesce" and len(node.args) < 2:
-        raise ValueError("computed_rule function 'coalesce' expects at least 2 arguments")
-
-    if name == "contains":
-        haystack = _compile_computed_rule_node(node.args[0], allowed_names=allowed_names)
-        pattern = _string_literal_from_ast(node.args[1], fn_name="contains")
-        return (
-            haystack.cast(pl.Utf8, strict=False)
-            .str.to_lowercase()
-            .str.contains(pattern.lower(), literal=True)
-        )
-    if name == "contains_any":
-        haystack = _compile_computed_rule_node(node.args[0], allowed_names=allowed_names)
-        patterns = _string_list_literal_from_ast(node.args[1], fn_name="contains_any")
-        if not patterns:
-            return pl.lit(False)
-        result: pl.Expr | None = None
-        haystack = haystack.cast(pl.Utf8, strict=False).str.to_lowercase()
-        for pattern in patterns:
-            current = haystack.str.contains(pattern.lower(), literal=True)
-            result = current if result is None else result | current
-        if result is None:
-            return pl.lit(False)
-        return result
-
-    args = [_compile_computed_rule_node(arg, allowed_names=allowed_names) for arg in node.args]
-    if (
-        name
-        in {
-            "abs",
-            "all",
-            "any",
-            "count_non_null",
-            "count_true",
-            "first",
-            "last",
-            "lower",
-            "max",
-            "mean",
-            "min",
-            "std",
-            "sum",
-        }
-        and len(args) != 1
-    ):
-        raise ValueError(f"computed_rule function '{name}' expects exactly 1 argument")
-
-    if name == "abs":
-        return args[0].abs()
-    if name == "all":
-        return (
-            pl.when(args[0].is_not_null().any())
-            .then(args[0].fill_null(False).all())
-            .otherwise(None)
-        )
-    if name == "any":
-        return args[0].fill_null(False).any()
-    if name == "coalesce":
-        return pl.coalesce(args)
-    if name == "count_non_null":
-        return args[0].is_not_null().cast(pl.Int64).sum()
-    if name == "count_true":
-        return args[0].fill_null(False).cast(pl.Int64).sum()
-    if name == "first":
-        return args[0].drop_nulls().first()
-    if name == "last":
-        return args[0].drop_nulls().last()
-    if name == "lower":
-        return args[0].cast(pl.Utf8, strict=False).str.to_lowercase()
-    if name == "max":
-        return args[0].max()
-    if name == "mean":
-        return args[0].mean()
-    if name == "min":
-        return args[0].min()
-    if name == "std":
-        return args[0].std()
-    if name == "sum":
-        return pl.when(args[0].is_not_null().any()).then(args[0].sum()).otherwise(None)
-
-    raise ValueError(f"Unhandled computed_rule function '{name}'")
+        case WindowOperator.CONTAINS_ANY:
+            return (
+                args[0]
+                .cast(pl.Utf8, strict=False)
+                .str.to_lowercase()
+                .str.contains_any(args[1].list.eval(pl.element().str.to_lowercase()))
+            )
+        case WindowOperator.ABS:
+            return args[0].abs()
+        case WindowOperator.ALL:
+            return (
+                pl.when(args[0].is_not_null().any())
+                .then(args[0].fill_null(False).all())
+                .otherwise(None)
+            )
+        case WindowOperator.ANY:
+            return args[0].fill_null(False).any()
+        case WindowOperator.COALESCE:
+            return pl.coalesce(args)
+        case WindowOperator.COUNT_NON_NULL:
+            return args[0].is_not_null().cast(pl.Int64).sum()
+        case WindowOperator.COUNT_TRUE:
+            return args[0].fill_null(False).cast(pl.Int64).sum()
+        case WindowOperator.FIRST:
+            return args[0].drop_nulls().first()
+        case WindowOperator.LAST:
+            return args[0].drop_nulls().last()
+        case WindowOperator.LOWER:
+            return args[0].cast(pl.Utf8, strict=False).str.to_lowercase()
+        case WindowOperator.MAX:
+            return args[0].max()
+        case WindowOperator.MEAN:
+            return args[0].mean()
+        case WindowOperator.MIN:
+            return args[0].min()
+        case WindowOperator.STD:
+            return args[0].std()
+        case WindowOperator.SUM:
+            return pl.when(args[0].is_not_null().any()).then(args[0].sum()).otherwise(None)
+        case _:
+            assert_never(operator)
 
 
-def _literal_values_from_ast(node: ast.AST) -> list[object]:
-    """Extract a literal list/tuple/set from an AST node."""
-    if not isinstance(node, (ast.List, ast.Tuple, ast.Set)):
-        raise ValueError("computed_rule 'in' comparisons require a literal list/tuple/set")
-    values: list[object] = []
-    for element in node.elts:
-        if not isinstance(element, ast.Constant):
-            raise ValueError("computed_rule literal collections support only constant values")
-        values.append(element.value)
-    return values
-
-
-def _string_literal_from_ast(node: ast.AST, *, fn_name: str) -> str:
-    """Extract a literal string from an AST node."""
-    if not isinstance(node, ast.Constant) or not isinstance(node.value, str):
-        raise ValueError(f"computed_rule function '{fn_name}' requires a literal string pattern")
-    return node.value
-
-
-def _string_list_literal_from_ast(node: ast.AST, *, fn_name: str) -> list[str]:
-    """Extract a literal list of strings from an AST node."""
-    values = _literal_values_from_ast(node)
-    if not all(isinstance(value, str) for value in values):
-        raise ValueError(f"computed_rule function '{fn_name}' requires a literal list of strings")
-    return [str(value) for value in values]
-
-
-def _is_none_literal(node: ast.AST) -> bool:
-    """Return whether an AST node is the literal None."""
-    return isinstance(node, ast.Constant) and node.value is None
-
-
-def _build_agg_expr(agg_name: str, col_name: str = "value") -> pl.Expr:
-    """Map an aggregation name to a Polars expression over a named column.
-
-    Supports 23 of 24 aggregation functions as expressions. The 'trend'
-    aggregation requires map_groups and is handled separately via
-    _build_map_groups_fn.
-
-    Args:
-        agg_name: Name of the aggregation function.
-        col_name: Column to aggregate (default: "value").
-
-    Returns:
-        Polars expression aliased to "value".
-    """
+def _build_agg_expr(operator: SummaryOperator, col_name: str = "value") -> pl.Expr:
+    """Lower the owned summary vocabulary to a Polars reduction."""
     col = pl.col(col_name)
-
-    simple = {
-        "mean": col.mean(),
-        "sum": pl.when(col.is_not_null().any()).then(col.sum()).otherwise(None),
-        "min": col.min(),
-        "max": col.max(),
-        "std": col.std(),
-        "var": col.var(),
-        "last": col.drop_nulls().last(),
-        "first": col.drop_nulls().first(),
-        "count": col.drop_nulls().count(),
-        "median": col.median(),
-        "n_unique": col.n_unique(),
-        "skew": col.skew(),
-        "kurtosis": col.kurtosis(),
-        "entropy": col.entropy(),
-    }
-
-    if agg_name in simple:
-        return simple[agg_name].alias("value")
-
-    # Percentiles
-    percentiles = {
-        "p10": 0.10,
-        "p25": 0.25,
-        "p75": 0.75,
-        "p90": 0.90,
-        "p99": 0.99,
-    }
-    if agg_name in percentiles:
-        q = percentiles[agg_name]
-        return col.quantile(q).alias("value")
-
-    # Composite aggregations
-    if agg_name == "range":
-        return (col.max() - col.min()).alias("value")
-
-    if agg_name == "iqr":
-        return (col.quantile(0.75) - col.quantile(0.25)).alias("value")
-
-    if agg_name == "cv":
-        return (
-            pl.when(col.mean().abs() > 1e-15).then(col.std() / col.mean()).otherwise(None)
-        ).alias("value")
-
-    # MSSD: mean squared successive differences
-    if agg_name == "instability":
-        return (col.diff().pow(2).mean()).alias("value")
-
-    raise ValueError(f"Unknown aggregation function: '{agg_name}'")
-
-
-def _build_map_groups_fn(agg_name: str):
-    """Return a callable for use with group_by().map_groups().
-
-    Used for aggregations that cannot be expressed as a single Polars expression.
-    """
-    if agg_name == "trend":
-
-        def _ols_slope(df: pl.DataFrame) -> pl.DataFrame:
-            values = df["value"].drop_nulls().to_numpy()
-            n = len(values)
-            if n == 0:
-                slope = None
-            elif n < 2:
-                slope = 0.0
-            else:
-                x = np.arange(n, dtype=np.float64)
-                slope = float(np.polyfit(x, values, 1)[0])
-            return df.head(1).with_columns(pl.lit(slope).alias("value"))
-
-        return _ols_slope
-
-    raise ValueError(f"Unknown map_groups aggregation: '{agg_name}'")
+    match operator:
+        case SummaryOperator.MEAN:
+            expr = col.mean()
+        case SummaryOperator.SUM:
+            expr = pl.when(col.is_not_null().any()).then(col.sum()).otherwise(None)
+        case SummaryOperator.STD:
+            expr = col.std()
+        case SummaryOperator.LAST:
+            expr = col.drop_nulls().last()
+        case SummaryOperator.FIRST:
+            expr = col.drop_nulls().first()
+        case SummaryOperator.COUNT:
+            expr = col.drop_nulls().count()
+        case _:
+            assert_never(operator)
+    return expr.alias("value")
 
 
 def compute_indicators(
     raw_df: pl.DataFrame,
-    indicators: list[MeasurementIndicator],
-    model_clock: str,
+    measurement_structure: MeasurementContext,
     time_col: str,
-    *,
-    start: date | None = None,
-    end: date | None = None,
 ) -> pl.DataFrame:
     """Compute indicator values directly via Polars aggregation.
 
@@ -416,16 +175,18 @@ def compute_indicators(
 
     Args:
         raw_df: Raw wide-format DataFrame with actual column names.
-        indicators: List of indicator dicts with extraction_mode="computed".
-            Each must have exactly one directly aggregated source column.
-        model_clock: Global fallback duration string for truncation (e.g., "1d").
+        measurement_structure: Owned variable definitions, fallback clock and source span.
         time_col: Name of the datetime column in raw_df.
 
     Returns:
         Long-format DataFrame with columns: indicator (Utf8), value (Utf8),
         timestamp (Utf8). Matches the schema produced by the semantic path.
     """
+    start, end = measurement_structure.source.start, measurement_structure.source.end
     output_schema = {"indicator_id": pl.Utf8, "value": pl.Utf8, "timestamp": pl.Utf8}
+    indicators = tuple(
+        ind for ind in measurement_structure.indicators if ind.extraction_mode == "computed"
+    )
     if not indicators:
         return pl.DataFrame(schema=output_schema)
 
@@ -433,10 +194,10 @@ def compute_indicators(
 
     frames: list[pl.DataFrame] = []
     for ind in indicators:
-        name = ind["name"]
-        agg_name = ind["aggregation"]
-        measurement_dtype = ind.get("measurement_dtype", "continuous")
-        observation_window = ind.get("observation_window") or model_clock
+        name = ind.id
+        agg_name = ind.aggregation
+        measurement_dtype = ind.measurement_dtype
+        observation_window = measurement_structure.window(ind).source
         tick_frame = support_window_tick_frame(
             df, observation_window, time_col, start=start, end=end
         )
@@ -445,16 +206,10 @@ def compute_indicators(
             .join(tick_frame, on="__tick__", how="semi")
             .drop("__tick__")
         )
-        source_columns = list(ind.get("source_columns", []))
-        computed_rule = ind.get("computed_rule")
-        fill_null = ind.get("fill_null")
+        source_columns = list(ind.source_columns)
+        computed_rule = ind.computed_rule
+        fill_null = ind.fill_null
 
-        if not source_columns:
-            logger.warning(
-                "Computed indicator '%s': no source_columns declared, skipping",
-                name,
-            )
-            continue
         missing_source_cols = [column for column in source_columns if column not in df.columns]
         if missing_source_cols:
             logger.warning(
@@ -465,7 +220,6 @@ def compute_indicators(
             continue
 
         if computed_rule:
-            derive_indicator_observation_semantics(agg_name, measurement_dtype, computed_rule)
             prepared = _prepare_computed_rule_frame(
                 selected,
                 time_col=time_col,
@@ -474,10 +228,7 @@ def compute_indicators(
             )
             prepared = _with_dense_support_rows(prepared, tick_frame)
             expr = _missing_window_guard(
-                _compile_computed_rule_expr(
-                    computed_rule,
-                    allowed_names=set(source_columns),
-                ),
+                _compile_computed_rule_expr(computed_rule),
             )
             agg_df = prepared.group_by("__tick__", maintain_order=True).agg(expr)
         else:
@@ -488,60 +239,22 @@ def compute_indicators(
                 source_col=source_col,
                 observation_window=observation_window,
                 measurement_dtype=measurement_dtype,
-                ordinal_levels=ind.get("ordinal_levels"),
+                ordinal_levels=ind.ordinal_levels,
             )
             prepared = _with_dense_support_rows(prepared, tick_frame)
 
-            if agg_name in _MAP_GROUPS_AGGREGATIONS:
-                # trend etc: rename source_col → "value" for map_groups function
-                fn = _build_map_groups_fn(agg_name)
-                agg_df = (
-                    prepared.select(
-                        "__tick__",
-                        pl.col("__value__").cast(pl.Float64, strict=False).alias("value"),
-                    )
-                    .sort("__tick__")
-                    .group_by("__tick__", maintain_order=True)
-                    .map_groups(fn)
-                )
-            else:
-                expr = _missing_window_guard(_build_agg_expr(agg_name, "__value__"))
-                agg_df = prepared.group_by("__tick__", maintain_order=True).agg(expr)
+            expr = _missing_window_guard(_build_agg_expr(agg_name, "__value__"))
+            agg_df = prepared.group_by("__tick__", maintain_order=True).agg(expr)
 
-        if fill_null is not None and not (fill_null == "forward" and start is not None):
+        if fill_null is not None:
             agg_df = agg_df.sort("__tick__").with_columns(
-                fill_null_expression(pl.col("value"), fill_null, limit=ind.get("fill_null_limit"))
+                fill_null_expression(pl.col("value"), fill_null, limit=ind.fill_null_limit)
             )
         agg_df = agg_df.select(
-            pl.lit(ind["id"]).alias("indicator_id"),
+            pl.lit(ind.id).alias("indicator_id"),
             pl.col("value").cast(pl.Utf8).alias("value"),
             pl.col("__tick__").dt.to_string("%Y-%m-%dT%H:%M:%S").alias("timestamp"),
         )
-        if fill_null == "forward" and start is not None and not agg_df.is_empty():
-            # Seed the selected span with its last eligible reading, including
-            # records preceding the first window (for example a recorded dose).
-            first = cast("str", agg_df["timestamp"].min())
-            history = (
-                compute_indicators(
-                    df,
-                    [{**ind, "fill_null": None, "fill_null_limit": None}],
-                    model_clock,
-                    time_col,
-                    end=date.fromisoformat(first[:10]),
-                )
-                .filter(pl.col("timestamp") < first)
-                .drop_nulls("value")
-                .tail(1)
-            )
-            agg_df = (
-                pl.concat([history, agg_df])
-                .with_columns(
-                    fill_null_expression(
-                        pl.col("value"), "forward", limit=ind.get("fill_null_limit")
-                    )
-                )
-                .filter(pl.col("timestamp") >= first)
-            )
         frames.append(agg_df)
 
     if not frames:
@@ -572,7 +285,7 @@ def _prepare_computed_indicator_frame(
     source_col: str,
     observation_window: str,
     measurement_dtype: str,
-    ordinal_levels: list[str] | None,
+    ordinal_levels: Sequence[str] | None,
 ) -> pl.DataFrame:
     """Prepare a computed indicator's source values for deterministic aggregation."""
     value_expr = _computed_value_expr(
@@ -612,7 +325,7 @@ def _computed_value_expr(
     source_col: str,
     *,
     measurement_dtype: str,
-    ordinal_levels: list[str] | None,
+    ordinal_levels: Sequence[str] | None,
 ) -> pl.Expr:
     """Build the deterministic source-value expression for a computed indicator."""
     source = pl.col(source_col)
@@ -649,13 +362,11 @@ def _coerce_ordinal_code(
         normalized = normalize_level_label(value)
         if not normalized:
             return None
-        try:
-            numeric = float(normalized)
-        except ValueError:
+        numeric = pl.Series([normalized]).cast(pl.Float64, strict=False).item()
+        if numeric is None:
             code = label_map.get(normalized)
-        else:
-            if numeric.is_integer():
-                code = int(numeric)
+        elif numeric.is_integer():
+            code = int(numeric)
 
     if code is None:
         return None
@@ -673,8 +384,8 @@ _BINARY_FALSE = {"false", "no", "0", "0.0", "f", "n"}
 def _encode_non_continuous(
     df: pl.DataFrame,
     dtype_lookup: dict[str, str],
-    ordinal_levels_lookup: dict[str, list[str]] | None = None,
-    categorical_levels_lookup: dict[str, list[str]] | None = None,
+    ordinal_levels_lookup: Mapping[str, Sequence[str]] | None = None,
+    categorical_levels_lookup: Mapping[str, Sequence[str]] | None = None,
 ) -> pl.DataFrame:
     """Encode non-continuous indicator values to numeric before Float64 cast.
 

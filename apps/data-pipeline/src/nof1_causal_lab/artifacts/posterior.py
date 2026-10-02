@@ -1,23 +1,31 @@
 """Persisted posterior results and sampling metadata."""
 
-from typing import Self
+from collections.abc import Mapping
 
-from pydantic import AwareDatetime, BaseModel, ConfigDict, Field
+from pydantic import AwareDatetime, Field
 
-from nof1_causal_lab.json_types import JsonObject
+from nof1_causal_lab.artifacts.base import Value
 
+from .checks import Assessment
 from .identity import ConstructId
 from .posterior_diagnostics import (
+    ChainDiagnostics,
     LOODiagnostics,
+    LOOPITPoint,
+    ParameterConvergenceReport,
+    ParetoKPoint,
+    ParticleMCMCEvidence,
+    ParticleSamplerDiagnostics,
     PosteriorMarginal,
     PosteriorPair,
+    RankHistogram,
+    TemperingDiagnostics,
+    TraceSeries,
 )
 
 
-class FitSettingsSpec(BaseModel):
+class FitSettingsSpec(Value):
     """Optional numerical controls applied to the configured particle sampler."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     num_samples: int | None = Field(default=None, ge=1)
     num_warmup: int | None = Field(default=None, ge=0)
@@ -26,67 +34,52 @@ class FitSettingsSpec(BaseModel):
     seed: int | None = Field(default=None, ge=0)
 
 
-class InferenceMetadata(BaseModel):
+class InferenceMetadata(Value):
     """Inference metadata records the sampling method, sample count, and run duration."""
-
-    model_config = ConfigDict(extra="forbid")
 
     method: str
     n_samples: int
     duration_seconds: float
 
 
-class PosteriorDrawsInfo(BaseModel):
+class PosteriorDrawsInfo(Value):
     """Axes of aligned joint draws stored in the posterior's fitted payload."""
 
-    model_config = ConfigDict(extra="forbid")
-
     n_draws: int = Field(ge=1)
-    parameter_shapes: dict[str, list[int]]
+    parameter_shapes: Mapping[str, tuple[int, ...]]
     state_ids: tuple[ConstructId, ...] = ()
     latent_shape: tuple[int, int] | None = Field(
         default=None, description="Time and state axis lengths per retained latent draw."
     )
 
 
-# Per-draw and per-time-point arrays among the engine-defined diagnostics.
-_DETAIL_DIAGNOSTICS = frozenset(
-    {"trace_data", "rank_histograms", "initial_latent_delta", "final_latent_delta"}
-)
+class InferenceReportCore(Value):
+    """Compact scientific report shared by snapshots and the full report."""
 
-
-def _without_detail(value: JsonObject) -> JsonObject:
-    return {
-        key: _without_detail(item) if isinstance(item, dict) else item
-        for key, item in value.items()
-        if key not in _DETAIL_DIAGNOSTICS
-    }
-
-
-class InferenceReport(BaseModel):
-    """Display findings recorded by a fit, separate from ModelSpec."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-    time_origin: AwareDatetime | None = Field(
-        description="Known calendar instant of model day zero."
-    )
+    time_origin: AwareDatetime | None
     inference_metadata: InferenceMetadata
-    inference_diagnostics: JsonObject = Field(
-        default_factory=dict,
-        description="Engine-reported telemetry for this fit; keys and values are engine-defined.",
-    )
+    engine: Assessment[str, ParticleMCMCEvidence]
+    inference_diagnostics: ChainDiagnostics | None
+    sampler_diagnostics: ParticleSamplerDiagnostics | None
+    convergence: ParameterConvergenceReport
     loo_diagnostics: LOODiagnostics | None = None
-    posterior_marginals: list[PosteriorMarginal] | None = None
-    posterior_pairs: list[PosteriorPair] | None = None
+    posterior_marginals: tuple[PosteriorMarginal, ...] | None = None
 
-    def summary(self) -> Self:
-        """The report without per-draw diagnostic arrays or pair samples.
 
-        Snapshots and diffs carry this; the inference report endpoint serves the rest.
-        """
-        return self.model_copy(
-            update={
-                "inference_diagnostics": _without_detail(self.inference_diagnostics),
-                "posterior_pairs": None,
-            }
-        )
+class InferenceReportDetail(Value):
+    """Retained plot series served in full by the report endpoint."""
+
+    tempering: TemperingDiagnostics | None = None
+    trace_data: tuple[TraceSeries, ...] = ()
+    rank_histograms: tuple[RankHistogram, ...] = ()
+    pareto_k: tuple[ParetoKPoint, ...] = ()
+    loo_pit: tuple[LOOPITPoint, ...] = ()
+    posterior_pairs: tuple[PosteriorPair, ...] | None = None
+    initial_latent_delta: tuple[tuple[float, ...], ...] | None = None
+    final_latent_delta: tuple[tuple[float, ...], ...] | None = None
+
+
+class InferenceReport(InferenceReportCore):
+    """The compact core composed with retained detail, without filtering or re-parsing."""
+
+    detail: InferenceReportDetail

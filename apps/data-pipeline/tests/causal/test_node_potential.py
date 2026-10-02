@@ -9,6 +9,7 @@ import pytest
 
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind
+from nof1_causal_lab.models.model_structure import selected_edges
 from nof1_causal_lab.models.ssm.dynamics import (
     ConstantValueFn,
     Intervention,
@@ -114,15 +115,11 @@ def test_directed_edges_cannot_be_reinterpreted_as_potentials():
             / "node_potential/directed_edges_cannot_be_reinterpreted_as_potentials_model_fixture.json"
         ).read_text()
     )
-    edge = model.execution_edges[0]
-    changed = type(edge).model_validate(
-        {
-            **edge.model_dump(),
-            "mechanisms": tuple(
-                type(term).model_validate({**term.model_dump(), "kind": "potential"})
+    edge = selected_edges(model)[0]
+    with pytest.raises(ValueError, match="literal_error"):
+        edge.revised(
+            mechanisms=tuple(
+                {"id": term.id, "kind": "potential", "expression": term.expression}
                 for term in edge.mechanisms
-            ),
-        }
-    )
-    with pytest.raises(ValueError, match="Potentials belong to nodes"):
-        model.revised(edges=tuple(changed if item.id == edge.id else item for item in model.edges))
+            )
+        )

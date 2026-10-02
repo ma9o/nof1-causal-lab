@@ -9,18 +9,33 @@ import pygit2
 import pytest
 from scripts.migrations.squash_study_history import copy_squashed, plan_squash
 
-from nof1_causal_lab.artifacts.checks import SpecificationReport
+from nof1_causal_lab.artifacts.checks import NotEvaluated, SpecificationReport
 from nof1_causal_lab.artifacts.identity import GitOid, GitRef
 from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.artifacts.posterior import InferenceReport
+from nof1_causal_lab.artifacts.posterior import (
+    InferenceMetadata,
+    InferenceReport,
+    InferenceReportDetail,
+)
 from nof1_causal_lab.artifacts.simulation import SimulationReport, SimulationSpec
+from nof1_causal_lab.models.ssm.inference.convergence import parameter_convergence
 from nof1_causal_lab.study.history import StudyRepository
-from nof1_causal_lab.study.records import AttemptRecord
+from nof1_causal_lab.study.records import (
+    AttemptRecord,
+    DataPreparationResult,
+    EditAttempt,
+    ModelEditResult,
+    ModelFitResult,
+    ModelSimulationResult,
+    Raised,
+    Rejected,
+)
 from nof1_causal_lab.study.snapshots import ModelReader
 from nof1_causal_lab.study.state import RetractedArtifact
 from nof1_causal_lab.study.store import ArtifactStore
 from nof1_causal_lab.utils import data
+from tests.action_fixtures import applied_record
 
 pytestmark = pytest.mark.contract
 
@@ -33,19 +48,48 @@ def study(tmp_path, monkeypatch):
     return source, destination, ArtifactStore("study"), StudyRepository("study")
 
 
-def _append(history, action="edit_model", **fields):
+def _append(history, result=None, *, outcome=None, branch="main", logs=None):
     seq = history.latest_seq() + 1
-    return history.append(
-        AttemptRecord(
+    metadata = {
+        "seq": seq,
+        "attempt_id": uuid4(),
+        "branch": branch,
+        "ts": f"2026-09-30T12:00:{seq:02d}Z",
+    }
+    record = (
+        applied_record(result if result is not None else ModelEditResult(), **metadata)
+        if outcome is None
+        else AttemptRecord(
             seq=seq,
-            attempt_id=uuid4(),
-            ts=f"2026-09-30T12:00:{seq:02d}Z",
-            action=action,
-            status=fields.pop("status", "applied"),
-            trace_ids=[],
-            **fields,
+            attempt_id=metadata["attempt_id"],
+            branch=branch,
+            ts=metadata["ts"],
+            attempt=EditAttempt(request=None, outcome=outcome),
+        )
+    )
+    return history.append(
+        record,
+        logs={
+            "notes.json": b'[ { "saved": true } ]\n',
+            "worker.txt": b"original log\n",
+            **(logs or {}),
+        },
+    ).commit_id
+
+
+def _report():
+    return InferenceReport(
+        time_origin=None,
+        inference_metadata=InferenceMetadata(method="test", n_samples=3, duration_seconds=1),
+        engine=NotEvaluated(
+            subject="production_engine",
+            reason="ARCHIVED_ENGINE_NOT_RETAINED",
+            detail="No inference executes in this fixture",
         ),
-        logs={"notes.json": b'[ { "saved": true } ]\n', "worker.txt": b"original log\n"},
+        inference_diagnostics=None,
+        sampler_diagnostics=None,
+        convergence=parameter_convergence(None),
+        detail=InferenceReportDetail(),
     )
 
 
@@ -73,9 +117,11 @@ def _edit(store, history, *, model=None, retracted=()):
     artifact = _model(store, history, model=model)
     return _append(
         history,
-        produced=[artifact],
-        checks=_checks(history.latest_seq() + 1),
-        retracted=list(retracted),
+        ModelEditResult(
+            produced=(artifact,),
+            checks=_checks(history.latest_seq() + 1),
+            retracted=tuple(retracted),
+        ),
     )
 
 
@@ -100,9 +146,10 @@ def _prepare(store, history):
     )
     return _append(
         history,
-        "prepare_data",
-        produced=[raw, panel, profile],
-        diagnostics={"input_pins": {"raw_data": raw.revision}},
+        DataPreparationResult(
+            produced=(raw, panel, profile),
+            raw_data=GitRef(workspace_id="study", revision=raw.revision, path="data.json"),
+        ),
     )
 
 
@@ -111,20 +158,15 @@ def _fit(store, history, *, model=None, pins=None):
         state = history.state(history.head())
         pins = {key: state.current[key].revision for key in ("model", "panel")}
     artifact = _model(store, history, model=model, fit=True, pins=pins)
-    report = InferenceReport(
-        time_origin=None,
-        inference_metadata={
-            "method": "marginal_particle_gibbs",
-            "n_samples": 3,
-            "duration_seconds": 1,
-        },
-    )
     return _append(
         history,
-        "fit",
-        produced=[artifact],
-        checks=_checks(history.latest_seq() + 1),
-        diagnostics={"input_pins": pins, "report": report.model_dump(mode="json")},
+        ModelFitResult(
+            produced=(artifact,),
+            checks=_checks(history.latest_seq() + 1),
+            model=GitRef(workspace_id="study", revision=pins["model"], path="model.json"),
+            panel=GitRef(workspace_id="study", revision=pins["panel"], path="panel.parquet"),
+            report=_report(),
+        ),
     )
 
 
@@ -154,13 +196,17 @@ def _simulate(history, *, model_revision=None):
     )
     return _append(
         history,
-        "simulate",
-        diagnostics={"input_pins": pins, "report": report.model_dump(mode="json")},
+        ModelSimulationResult(
+            report=report,
+            panel=GitRef(workspace_id="study", revision=pins["panel"], path="panel.parquet")
+            if "panel" in pins
+            else None,
+        ),
     )
 
 
 def _kept_seqs(plan):
-    return [r.seq for r in plan.records if r.commit_id in plan.kept]
+    return [r.record.seq for r in plan.records if r.commit_id in plan.kept]
 
 
 def _refs(repo):
@@ -201,9 +247,13 @@ def test_example_preserves_boundary_suffix_objects_and_attempt_identity(study, m
     edit = _edit(store, history)  # 5: its authorship base is exempt.
     stale_simulation = _simulate(history)  # 6
     boundary = _space_checks(history, _fit(store, history))  # 7
-    failure = _append(history, status="rejected", reason="Saved rejection")  # 8
+    failure = _append(
+        history, outcome=Rejected(reason="recorded_rejection", detail="Saved rejection")
+    )  # 8
     later = _edit(store, history)  # 9
-    last_failure = _append(history, status="raised", error_type="SavedError")  # 10
+    last_failure = _append(
+        history, outcome=Raised(error_type="SavedError", error_message="Saved failure")
+    )  # 10
     arrays = source / "store/arrays"
     arrays.mkdir(parents=True)
     (arrays / "saved").write_bytes(b"saved numerical bytes")
@@ -220,7 +270,7 @@ def test_example_preserves_boundary_suffix_objects_and_attempt_identity(study, m
     retained = {old: GitOid(new) for old, new in mapping.items() if new is not None}
     monkeypatch.setattr(data, "_DATA_URI", str(destination.parent))
     squashed = StudyRepository("study")
-    assert [r.seq for r in squashed.attempts()] == [3, 5, 7, 8, 9, 10]
+    assert [r.record.seq for r in squashed.attempts()] == [3, 5, 7, 8, 9, 10]
     assert mapping[stale_simulation] is None
     assert json.loads((destination / "squash-mapping.json").read_text()) == mapping
     for old in (boundary, failure, later, last_failure):
@@ -232,7 +282,7 @@ def test_example_preserves_boundary_suffix_objects_and_attempt_identity(study, m
     for record in history.attempts():
         new = mapping[record.commit_id]
         if new is None:
-            assert f"refs/actions/{record.attempt_id}" not in squashed.repo.references
+            assert f"refs/actions/{record.record.attempt_id}" not in squashed.repo.references
             continue
         original = history.repo[record.commit_id].peel(pygit2.Commit)
         rewritten = squashed.repo[new].peel(pygit2.Commit)
@@ -242,12 +292,12 @@ def test_example_preserves_boundary_suffix_objects_and_attempt_identity(study, m
             rewritten.committer,
             rewritten.message,
         )
-        assert record.attempt_id is not None
-        receipt = squashed.dispatched_attempt(record.attempt_id)
+        assert record.record.attempt_id is not None
+        receipt = squashed.dispatched_attempt(record.record.attempt_id)
         assert receipt is not None
         assert receipt.commit_id == new
-    assert squashed.record(retained[failure]).parent_ids == [retained[boundary]]
-    assert squashed.record(retained[last_failure]).parent_ids == [retained[later]]
+    assert squashed.record(retained[failure]).parent_ids == (retained[boundary],)
+    assert squashed.record(retained[last_failure]).parent_ids == (retained[later],)
     # The authored base survives as an artifact, while the visible parent changes.
     edited = history.state(edit).current["model"]
     assert store.read_meta("model", edited.derived_from["model"])
@@ -277,7 +327,7 @@ def test_only_latest_fresh_simulation_survives_and_old_findings_do_not_resurface
     _simulate(history)  # 3, both discarded if stale at R.
     if stale:
         _edit(store, history)  # 4
-    _append(history, status="rejected")
+    _append(history, outcome=Rejected(reason="recorded_rejection", detail="Saved rejection"))
     boundary = _prepare(store, history)  # R is always retained; failures before it are dropped.
     before = ModelReader("study", at=boundary).simulation()
     plan = plan_squash(source, at=boundary)
@@ -376,11 +426,15 @@ def test_reused_report_does_not_pull_its_old_model_producer_and_retractions_are_
         derived_from={"model": old_model.revision},
         json_files={"report.json": {}},
     )
-    _append(history, produced=[report])  # 2
+    _append(history, ModelEditResult(produced=(report,)))  # 2
     current = _model(store, history)
-    _append(history, produced=[current, report], checks=_checks(3))  # 3 re-emits the report.
+    _append(
+        history, ModelEditResult(produced=(current, report), checks=_checks(3))
+    )  # 3 re-emits the report.
     retract = RetractedArtifact(artifact_id="validation_report", reason_ref="saved finding")
-    _append(history, retracted=[retract])  # 4 redundant absence still counts as a write.
+    _append(
+        history, ModelEditResult(retracted=(retract,))
+    )  # 4 redundant absence still counts as a write.
     boundary = _simulate(history)  # 5
     assert _kept_seqs(plan_squash(source, at=boundary)) == [3, 4, 5]
     mapping = copy_squashed(plan_squash(source, at=boundary), destination)
@@ -401,9 +455,21 @@ def test_refusals_happen_before_destination_creation(study, unsupported):
     if unsupported == "format":
         history.repo.config["nof1.format"] = 5
     elif unsupported == "legacy":
-        _append(history, diagnostics={"prior_predictive": {"samples": {}, "diagnostics": []}})
+        _append(history, logs={"retained-metadata.json": b'{"old_authoring_measurements": {}}'})
     elif unsupported == "report_only":
-        _append(history, diagnostics={"retention": "report_only"})
+        _append(
+            history,
+            ModelFitResult(
+                model=GitRef(
+                    workspace_id="study",
+                    revision=history.state(boundary).current["model"].revision,
+                    path="model.json",
+                ),
+                panel=GitRef(workspace_id="study", revision=boundary, path="panel.parquet"),
+                report=_report(),
+                retention="report_only",
+            ),
+        )
     elif unsupported in {"branch", "deleted_branch"}:
         history.create_branch("other", at=boundary)
         if unsupported == "deleted_branch":
@@ -421,7 +487,7 @@ def test_refusals_happen_before_destination_creation(study, unsupported):
         uncommitted = _model(store, history)
         _simulate(history, model_revision=uncommitted.revision)
     with pytest.raises(
-        ValueError, match=r"Migrate|Legacy|branch|simulation replicate|no recorded producer"
+        ValueError, match=r"Migrate|Archived|branch|simulation replicate|no recorded producer"
     ):
         copy_squashed(plan_squash(source, at=boundary), destination)
     assert not destination.exists()
@@ -430,7 +496,9 @@ def test_refusals_happen_before_destination_creation(study, unsupported):
 def test_boundary_must_be_applied_and_destination_must_be_new(study):
     source, destination, store, history = study
     boundary = _edit(store, history)
-    failure = _append(history, status="raised")
+    failure = _append(
+        history, outcome=Raised(error_type="SavedError", error_message="Saved failure")
+    )
     with pytest.raises(ValueError, match="applied action"):
         copy_squashed(plan_squash(source, at=failure), destination)
     with pytest.raises(ValueError, match="new destination"):

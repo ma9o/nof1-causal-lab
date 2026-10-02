@@ -39,14 +39,16 @@
 from __future__ import annotations
 
 import math
+from types import MappingProxyType
+from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
 from jax import random
 
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._contract import (
-    _DSMC_LEAF_PROPOSAL_PAID_MIX,
     MPGibbsLatentSmootherResult,
+    SmootherContext,
 )
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._math import (
     _masked_normal_log_prob,
@@ -54,8 +56,13 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._math 
     _observation_log_probs_by_param,
 )
 
+if TYPE_CHECKING:
+    from collections.abc import Callable
 
-def step(ctx, key, x_ref):
+    from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleContext
+
+
+def step(ctx: SmootherContext, key: jax.Array, x_ref: jax.Array) -> MPGibbsLatentSmootherResult:
     """Conditional de-sequentialized SMC sweep over the posterior parameter mixture."""
     contexts = ctx.contexts
     logpi = ctx.initial_label_log_probs
@@ -69,11 +76,9 @@ def step(ctx, key, x_ref):
     latent_dtype = ctx.latent_dtype
     traj_dtype = ctx.traj_dtype
     latent_dim = int(x_ref.shape[-1])
-    dsmc_leaf_proposal = ctx.dsmc_leaf_proposal
     # Both leaves (amala_exact, paid_mix) draw the auxiliary trajectory z and pay its
     # pseudo-observation potential; paid_mix additionally mixes in the fixed pilot
     # and wide components (whose reference-independence needs no payment).
-    is_paid_mix = dsmc_leaf_proposal == _DSMC_LEAF_PROPOSAL_PAID_MIX
     amala_delta = jnp.asarray(ctx.amala_delta, dtype=latent_dtype)
     proposal_var_by_t = jnp.asarray(0.5, dtype=latent_dtype) * amala_delta
     proposal_scale_by_t = jnp.sqrt(proposal_var_by_t)
@@ -98,23 +103,26 @@ def step(ctx, key, x_ref):
         proposal_mask = ctx.latent_free_mask
 
     def _clip_gradient(grad: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
-        norm = jnp.linalg.norm(grad)
+        norm: jnp.ndarray = jnp.linalg.norm(grad)
         multiplier = jnp.minimum(
             jnp.asarray(1.0, dtype=latent_dtype),
             grad_clip / jnp.maximum(norm, jnp.asarray(1e-12, dtype=latent_dtype)),
         )
         return (grad * multiplier).astype(latent_dtype), norm.astype(traj_dtype)
 
-    def _obs_value_grad_by_param(particle_t: jnp.ndarray, time_idx: jnp.ndarray):
-        def _one_context(context):
-            return jax.value_and_grad(
+    def _obs_value_grad_by_param(
+        particle_t: jnp.ndarray, time_idx: jnp.ndarray
+    ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        def _one_context(context: ParticleContext) -> tuple[jnp.ndarray, jnp.ndarray]:
+            evaluate: Callable[[jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]] = jax.value_and_grad(
                 lambda particle: obs_increment_fn(
                     context,
                     particle,
                     time_idx,
                     runtime_observations,
                 )
-            )(particle_t)
+            )
+            return evaluate(particle_t)
 
         value, grad = jax.vmap(_one_context)(contexts)
         return value.astype(traj_dtype), grad.astype(latent_dtype)
@@ -137,23 +145,7 @@ def step(ctx, key, x_ref):
     # particles. Both normal densities below are paid only on that subspace.
     lin_pts = jnp.where(proposal_mask, lin_pts, x_ref)
 
-    if is_paid_mix:
-        pilot_means = ctx.pilot_means
-        pilot_vars = ctx.pilot_vars
-        pilot_wide_vars = ctx.pilot_wide_vars
-        pilot_scales = jnp.sqrt(pilot_vars)
-        pilot_wide_scales = jnp.sqrt(pilot_wide_vars)
-        mix_weights = jnp.asarray(
-            [
-                ctx.paid_mix_z_weight,
-                ctx.paid_mix_pilot_weight,
-                1.0 - ctx.paid_mix_z_weight - ctx.paid_mix_pilot_weight,
-            ],
-            dtype=latent_dtype,
-        )
-        mix_log_weights = jnp.log(mix_weights)
-
-    def _gradient_leaf_proposal_stats(time_idx: jnp.ndarray):
+    def _gradient_leaf_proposal_stats(time_idx: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
         particle_t = lin_pts[time_idx]
         obs_lp, obs_grad = _obs_value_grad_by_param(particle_t, time_idx)
         init_prior_lp, init_prior_grad = _initial_prior_value_grad_by_param(particle_t)
@@ -199,7 +191,28 @@ def step(ctx, key, x_ref):
         jnp.arange(num_steps, dtype=jnp.int32)
     )
 
-    def _leaf(time_idx, leaf_key):
+    pilot = (
+        None
+        if ctx.pilot_moments is None
+        else (
+            *ctx.pilot_moments,
+            jnp.sqrt(ctx.pilot_moments[1]),
+            jnp.sqrt(ctx.pilot_moments[2]),
+        )
+    )
+    mix_weights = jnp.asarray(
+        [
+            ctx.paid_mix_z_weight,
+            ctx.paid_mix_pilot_weight,
+            1.0 - ctx.paid_mix_z_weight - ctx.paid_mix_pilot_weight,
+        ],
+        dtype=latent_dtype,
+    )
+    mix_log_weights = jnp.log(mix_weights)
+
+    def _leaf(
+        time_idx: jnp.ndarray, leaf_key: jax.Array
+    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
         component_key, sample_key = random.split(leaf_key, 2)
         noise = random.normal(
             sample_key,
@@ -207,7 +220,8 @@ def step(ctx, key, x_ref):
             dtype=latent_dtype,
         )
         z_component = proposal_centers[time_idx] + proposal_scale_by_t[time_idx] * noise
-        if is_paid_mix:
+        if pilot is not None:
+            pilot_means, _, _, pilot_scales, pilot_wide_scales = pilot
             component = random.categorical(
                 component_key, mix_log_weights, shape=(num_free_particles,)
             )
@@ -237,7 +251,8 @@ def step(ctx, key, x_ref):
             proposal_var_by_t[time_idx],
             proposal_mask[time_idx],
         )
-        if is_paid_mix:
+        if pilot is not None:
+            pilot_means, pilot_vars, pilot_wide_vars, _, _ = pilot
             pilot_lp = _masked_normal_log_prob(
                 particles, pilot_means[time_idx], pilot_vars[time_idx], proposal_mask[time_idx]
             )
@@ -278,7 +293,7 @@ def step(ctx, key, x_ref):
         )
         return particles.astype(latent_dtype), psi, origin, log_weights
 
-    def _phantom_leaf():
+    def _phantom_leaf() -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
         """Evidence-free padding leaf: psi = 0, uniform weights, sliced off the output."""
         particles = jnp.zeros((num_particles, latent_dim), dtype=latent_dtype)
         psi = jnp.zeros((num_particles, num_parameter_particles), dtype=traj_dtype)
@@ -288,17 +303,23 @@ def step(ctx, key, x_ref):
         log_weights = jnp.full((num_particles,), -math.log(num_particles), dtype=traj_dtype)
         return particles, psi, origin, log_weights
 
-    def _multinomial(draw_key, logits, num_draws):
+    def _multinomial(draw_key: jax.Array, logits: jnp.ndarray, num_draws: int) -> jnp.ndarray:
         probabilities = jax.nn.softmax(logits)
         cumulative = jnp.cumsum(probabilities)
         uniforms = random.uniform(draw_key, (num_draws,), dtype=cumulative.dtype)
         indices = jnp.searchsorted(cumulative, uniforms, side="right")
         return jnp.minimum(indices, logits.shape[0] - 1).astype(jnp.int32)
 
-    def _selected_transition_log_probs(prev_particles, next_particles, seam):
+    def _selected_transition_log_probs(
+        prev_particles: jnp.ndarray, next_particles: jnp.ndarray, seam: jnp.ndarray | int
+    ) -> jnp.ndarray:
         return ctx.selected_transition_log_probs(prev_particles, next_particles, seam)
 
-    def _stitch_logits(left, right, seam):
+    def _stitch_logits(
+        left: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray],
+        right: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray],
+        seam: jnp.ndarray | int,
+    ) -> jnp.ndarray:
         _, left_last, left_psi, _, left_weights = left
         right_first, _, right_psi, _, right_weights = right
         transition_lp = ctx.pairwise_transition_log_probs(left_last, right_first, seam)
@@ -312,7 +333,12 @@ def step(ctx, key, x_ref):
         pair_logits = left_weights[:, None] + right_weights[None, :] + seam_coupling
         return pair_logits.astype(traj_dtype)
 
-    def _combine(left, right, seam, combine_key):
+    def _combine(
+        left: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray],
+        right: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray],
+        seam: jnp.ndarray,
+        combine_key: jax.Array,
+    ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
         pair_logits = _stitch_logits(left, right, seam)
         free_pairs = _multinomial(combine_key, pair_logits.reshape(-1), num_free_particles)
         selected = jnp.concatenate([jnp.zeros((1,), dtype=jnp.int32), free_pairs], axis=0)
@@ -417,5 +443,5 @@ def step(ctx, key, x_ref):
         latent_path=latent_path,
         final_label_log_probs=final_label_log_probs,
         origin_path=origin_path.astype(jnp.int32),
-        diagnostics=diagnostics,
+        diagnostics=MappingProxyType(diagnostics),
     )

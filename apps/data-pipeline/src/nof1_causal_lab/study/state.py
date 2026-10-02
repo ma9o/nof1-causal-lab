@@ -11,13 +11,16 @@ cross serialization boundaries verbatim: Temporal update/activity payloads
 
 from __future__ import annotations
 
-from pydantic import BaseModel, ConfigDict, Field
+from collections.abc import Mapping, Sequence
 
+from pydantic import Field
+
+from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS, ArtifactId, GitOid
 from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
 
 
-class ArtifactRecord(BaseModel):
+class ArtifactRecord(Value):
     """Artifact revision metadata records how a stored artifact was produced and which inputs it
     used.
 
@@ -27,18 +30,16 @@ class ArtifactRecord(BaseModel):
     code, where wall-clock time is non-deterministic.
     """
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
     artifact_id: ArtifactId
     revision: GitOid
-    derived_from: dict[ArtifactId, GitOid] = Field(default_factory=dict)
-    model_inputs: dict[str, str] = Field(default_factory=dict)
-    consumed_model_inputs: dict[str, str] = Field(default_factory=dict)
+    derived_from: Mapping[ArtifactId, GitOid] = Field(default_factory=dict)
+    model_inputs: Mapping[str, str] = Field(default_factory=dict)
+    consumed_model_inputs: Mapping[str, str] = Field(default_factory=dict)
     produced_by: str | None = None
     created_at: str = ""
 
 
-class StudyState(BaseModel):
+class StudyState(Value):
     """Study state projects the artifact trees selected by one Git commit.
 
     ``current`` maps artifact id → the revision info that is *current* for the
@@ -46,9 +47,7 @@ class StudyState(BaseModel):
     or produced-when-nonempty semantics withheld it).
     """
 
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    current: dict[ArtifactId, ArtifactRecord] = Field(default_factory=dict)
+    current: Mapping[ArtifactId, ArtifactRecord] = Field(default_factory=dict)
     checks: ModelCheckReport | None = None
 
     def get(self, artifact_id: ArtifactId) -> ArtifactRecord | None:
@@ -76,7 +75,7 @@ class StudyState(BaseModel):
             for artifact_id in inputs
         )
 
-    def with_artifacts(self, infos: list[ArtifactRecord]) -> StudyState:
+    def with_artifacts(self, infos: Sequence[ArtifactRecord]) -> StudyState:
         """Return a new state with ``infos`` installed as current versions."""
         merged = dict(self.current)
         for info in infos:
@@ -84,6 +83,9 @@ class StudyState(BaseModel):
         return self.model_copy(
             update={"current": {aid: merged[aid] for aid in ARTIFACT_IDS if aid in merged}}
         )
+
+    def with_checks(self, checks: ModelCheckReport) -> StudyState:
+        return self.model_copy(update={"checks": checks})
 
     def without(self, artifact_ids: list[ArtifactId]) -> StudyState:
         """Return a new state with the given artifacts removed from ``current``.
@@ -101,10 +103,8 @@ class StudyState(BaseModel):
         )
 
 
-class RetractedArtifact(BaseModel):
+class RetractedArtifact(Value):
     """A current artifact removed by an action, with the finding that caused it."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
 
     artifact_id: ArtifactId
     reason_ref: str
@@ -120,8 +120,8 @@ def validate_model_base(state: StudyState, expected_revision: GitOid | None) -> 
 
 def apply_effects(
     state: StudyState,
-    produced: list[ArtifactRecord],
-    retracted: list[RetractedArtifact] | None = None,
+    produced: Sequence[ArtifactRecord],
+    retracted: Sequence[RetractedArtifact] | None = None,
     checks: ModelCheckReport | None = None,
 ) -> StudyState:
     """Install produced versions and retractions into a new state."""
@@ -129,7 +129,7 @@ def apply_effects(
     if retracted:
         next_state = next_state.without([item.artifact_id for item in retracted])
     if checks is not None:
-        next_state = type(next_state).model_validate({**next_state.model_dump(), "checks": checks})
+        next_state = next_state.with_checks(checks)
     return next_state
 
 
@@ -148,7 +148,7 @@ def _staleness(state: StudyState, artifact_id: ArtifactId, visiting: frozenset[A
     info = state.get(artifact_id)
     if info is None or artifact_id in visiting:
         return False
-    marked = visiting | {artifact_id}
+    marked = visiting.union((artifact_id,))
     for input_id in info.derived_from:
         current = state.get(input_id)
         if current is None or not state.matches_inputs(artifact_id, input_id):
@@ -158,9 +158,7 @@ def _staleness(state: StudyState, artifact_id: ArtifactId, visiting: frozenset[A
     return False
 
 
-class ArtifactFreshness(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
+class ArtifactFreshness(Value):
     artifact_id: ArtifactId
     exists: bool
     stale: bool

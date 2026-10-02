@@ -2,7 +2,9 @@
 
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import Field
+
+from nof1_causal_lab.artifacts.base import Value
 
 type HarnessName = Literal["none", "claude-code", "codex", "pi"]
 type EmbeddedReasoningEffort = Literal["none", "minimal", "low", "medium", "high", "xhigh"]
@@ -10,10 +12,8 @@ type HarnessEffort = Literal["low", "medium", "high", "xhigh", "max"]
 type PiThinking = Literal["off", "minimal", "low", "medium", "high", "xhigh"]
 
 
-class EmbeddedLLMSpec(BaseModel):
+class EmbeddedLLMSpec(Value):
     """OpenRouter model and its optional generation controls."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
 
     harness: Literal["none"] = "none"
     model: str
@@ -22,10 +22,8 @@ class EmbeddedLLMSpec(BaseModel):
     reasoning_effort: EmbeddedReasoningEffort | None = None
 
 
-class ClaudeCodeLLMSpec(BaseModel):
+class ClaudeCodeLLMSpec(Value):
     """Claude Code model and subprocess controls."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
 
     harness: Literal["claude-code"] = "claude-code"
     model: str
@@ -36,10 +34,8 @@ class ClaudeCodeLLMSpec(BaseModel):
     fallback_model: str | None = None
 
 
-class CodexLLMSpec(BaseModel):
+class CodexLLMSpec(Value):
     """Codex model and subprocess controls."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
 
     harness: Literal["codex"] = "codex"
     model: str
@@ -49,10 +45,8 @@ class CodexLLMSpec(BaseModel):
     service_tier: str | None = None
 
 
-class PiLLMSpec(BaseModel):
+class PiLLMSpec(Value):
     """Pi provider, model, and subprocess controls."""
-
-    model_config = ConfigDict(frozen=True, extra="forbid")
 
     harness: Literal["pi"] = "pi"
     model: str

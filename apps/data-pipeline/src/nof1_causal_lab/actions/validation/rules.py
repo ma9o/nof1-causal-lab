@@ -5,7 +5,7 @@ from __future__ import annotations
 import logging
 import math
 from dataclasses import dataclass, field
-from typing import TYPE_CHECKING, Any, Literal, TypedDict, cast
+from typing import TYPE_CHECKING, Literal, TypedDict, cast
 
 import polars as pl
 
@@ -22,17 +22,18 @@ from nof1_causal_lab.actions.validation.checks import (
     timestamp_issue_specs,
 )
 from nof1_causal_lab.artifacts.validation_report import (
+    DataProfileArtifact,
     IndicatorAudit,
     IndicatorEmpiricalProfile,
     ValidationIssue,
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Sequence
+    from collections.abc import Callable, Iterator, Mapping, Sequence
 
     from nof1_causal_lab.artifacts.construct import ConstructSpec
-    from nof1_causal_lab.json_types import JsonObject
-    from nof1_causal_lab.workers.context import MeasurementIndicator
+    from nof1_causal_lab.artifacts.identity import IndicatorId
+    from nof1_causal_lab.artifacts.observations import ObservationSpec
 
 logger = logging.getLogger(__name__)
 
@@ -52,7 +53,7 @@ class HealthMetrics(TypedDict, total=False):
 
 @dataclass(frozen=True)
 class Issue:
-    indicator: str | None
+    indicator: IndicatorId | None
     issue_type: str
     severity: Literal["error", "warning", "info"]
     message: str
@@ -62,12 +63,12 @@ class Issue:
 @dataclass
 class ValidationFindings:
     issues: list[Issue] = field(default_factory=list)
-    metrics: HealthMetrics = field(default_factory=dict)
+    metrics: HealthMetrics = field(default_factory=HealthMetrics)
 
 
 @dataclass
 class IndicatorContext:
-    name: str
+    name: IndicatorId
     ind_data: pl.DataFrame
     values: pl.Series
     n_obs: int
@@ -82,7 +83,7 @@ class IndicatorContext:
 
 @dataclass(frozen=True)
 class IndicatorRuleInput:
-    name: str
+    name: IndicatorId
     ind_data: pl.DataFrame
     ctx: IndicatorContext | None
 
@@ -90,13 +91,15 @@ class IndicatorRuleInput:
 @dataclass(frozen=True)
 class ValidationContext:
     combined: pl.DataFrame
-    indicators: list[MeasurementIndicator]
-    indicator_ids: set[str]
-    indicator_lookup: dict[str, MeasurementIndicator]
-    construct_lookup: dict[str, ConstructSpec]
+    indicators: Sequence[ObservationSpec]
+    indicator_ids: set[IndicatorId]
+    indicator_lookup: Mapping[IndicatorId, ObservationSpec]
+    construct_lookup: Mapping[str, ConstructSpec]
     model_clock_hours: float | None
 
-    def iter_indicators(self):
+    def iter_indicators(
+        self,
+    ) -> Iterator[tuple[IndicatorId, pl.DataFrame, IndicatorContext | None]]:
         for indicator_id in sorted(self.indicator_ids):
             ind_data = self.combined.filter(pl.col("indicator_id") == indicator_id)
             if ind_data.is_empty():
@@ -152,22 +155,20 @@ def issues_from_raw(
     return issues
 
 
-def no_data_validation_result() -> JsonObject:
+def no_data_validation_result() -> DataProfileArtifact:
     from nof1_causal_lab.artifacts.validation_report import DataProfileArtifact
 
-    return DataProfileArtifact.model_validate(
-        {
-            "indicators": {},
-            "dataset_issues": [
-                ValidationIssue(
-                    indicator_id=None,
-                    issue_type="no_data",
-                    severity="error",
-                    message="No data extracted",
-                )
-            ],
-        }
-    ).model_dump(mode="json")
+    return DataProfileArtifact(
+        indicators={},
+        dataset_issues=(
+            ValidationIssue(
+                indicator_id=None,
+                issue_type="no_data",
+                severity="error",
+                message="No data extracted",
+            ),
+        ),
+    )
 
 
 def _rule_missing(entry: IndicatorRuleInput) -> ValidationFindings:
@@ -312,7 +313,7 @@ def _rule_hallucination_signals(entry: IndicatorRuleInput) -> ValidationFindings
 
 
 def _rule_construct_correlations(ctx: ValidationContext) -> ValidationFindings:
-    raw_issues = check_construct_correlations(ctx.combined, ctx.indicators)
+    raw_issues = check_construct_correlations(ctx.combined, ctx.construct_lookup)
     return ValidationFindings(issues=issues_from_raw(raw_issues, cell_key=""))
 
 
@@ -374,7 +375,7 @@ def reduce_findings(
             if (
                 issue.cell_key in cell_statuses
                 and cell_statuses[issue.cell_key] != "error"
-                and issue.severity in {"error", "warning"}
+                and (issue.severity == "error" or issue.severity == "warning")
             ):
                 cell_statuses[issue.cell_key] = issue.severity
 
@@ -384,10 +385,10 @@ def reduce_findings(
 
 
 def _build_indicator_context(
-    indicator_id: str,
+    indicator_id: IndicatorId,
     ind_data: pl.DataFrame,
-    indicator_lookup: dict[str, MeasurementIndicator],
-    construct_lookup: dict[str, ConstructSpec],
+    indicator_lookup: Mapping[IndicatorId, ObservationSpec],
+    construct_lookup: Mapping[str, ConstructSpec],
     model_clock_hours: float | None,
 ) -> IndicatorContext | None:
     values_df = ind_data.select(pl.col("value").cast(pl.Float64, strict=False)).drop_nulls()
@@ -396,20 +397,13 @@ def _build_indicator_context(
         return None
 
     values = values_df["value"]
-    variance: float | None = None
-    try:
-        variance = cast("float | None", values.var())
-    except (ValueError, ZeroDivisionError, ArithmeticError):
-        logger.info("Variance calculation failed for indicator %s", indicator_id, exc_info=True)
+    variance = cast("float | None", values.var())
 
-    indicator_meta = indicator_lookup.get(indicator_id, {})
-    dtype = indicator_meta.get("measurement_dtype")
-    if window := indicator_meta.get("observation_window"):
-        from nof1_causal_lab.artifacts.duration import parse_duration_to_hours
-
-        model_clock_hours = parse_duration_to_hours(window)
-    construct_id = indicator_meta.get("construct_id")
-    construct_meta = construct_lookup.get(construct_id) if construct_id else None
+    indicator_meta = indicator_lookup.get(indicator_id)
+    dtype = indicator_meta.measurement_dtype if indicator_meta is not None else None
+    if indicator_meta is not None and (window := indicator_meta.observation_window) is not None:
+        model_clock_hours = window.seconds / 3600
+    construct_meta = construct_lookup.get(indicator_id)
     is_time_invariant = (
         construct_meta is not None and construct_meta.temporal_status == "time_invariant"
     )
@@ -432,20 +426,16 @@ def _build_indicator_context(
     )
 
 
-def _float_or_none(value: Any) -> float | None:
+def _float_or_none(value: float | None) -> float | None:
     if value is None:
         return None
-    try:
-        numeric = float(value)
-    except (TypeError, ValueError):
-        return None
-    return None if math.isnan(numeric) else numeric
+    return None if math.isnan(value) else value
 
 
 def _compute_empirical_profile(
-    indicator_id: str,
+    indicator_id: IndicatorId,
     model_data: pl.DataFrame,
-    indicator_lookup: dict[str, MeasurementIndicator],
+    indicator_lookup: Mapping[IndicatorId, ObservationSpec],
     health_metrics: HealthMetrics,
 ) -> IndicatorEmpiricalProfile | None:
     ind_model = model_data.filter(pl.col("indicator_id") == indicator_id)
@@ -455,17 +445,21 @@ def _compute_empirical_profile(
         return None
 
     values = values_df["value"]
-    mean = _float_or_none(values.mean())
-    variance = _float_or_none(values.var())
-    min_value = _float_or_none(values.min())
-    max_value = _float_or_none(values.max())
+    mean = _float_or_none(cast("float | None", values.mean()))
+    variance = _float_or_none(cast("float | None", values.var()))
+    min_value = _float_or_none(cast("float | None", values.min()))
+    max_value = _float_or_none(cast("float | None", values.max()))
     numeric_values = [float(v) for v in values.to_list()]
 
     return IndicatorEmpiricalProfile(
-        measurement_dtype=indicator_lookup.get(indicator_id, {}).get("measurement_dtype"),
+        measurement_dtype=(
+            indicator_lookup[indicator_id].measurement_dtype
+            if indicator_id in indicator_lookup
+            else None
+        ),
         n_obs=n_obs,
         mean=mean,
-        std=_float_or_none(values.std()),
+        std=_float_or_none(cast("float | None", values.std())),
         min=min_value,
         max=max_value,
         q25=_float_or_none(values.quantile(0.25)),
@@ -500,19 +494,19 @@ def _compute_empirical_profile(
 
 def build_indicator_audits(
     *,
-    indicator_ids: set[str],
-    indicator_lookup: dict[str, MeasurementIndicator],
+    indicator_ids: set[IndicatorId],
+    indicator_lookup: Mapping[IndicatorId, ObservationSpec],
     model_data: pl.DataFrame,
     indicator_issues: list[ValidationIssue],
     indicator_health: dict[str, HealthMetrics],
-) -> dict[str, IndicatorAudit]:
+) -> dict[IndicatorId, IndicatorAudit]:
     issues_by_indicator: dict[str, list[ValidationIssue]] = {name: [] for name in indicator_ids}
     for issue in indicator_issues:
         issue_indicator = issue.indicator_id
         if issue_indicator is not None and issue_indicator in issues_by_indicator:
             issues_by_indicator[issue_indicator].append(issue)
 
-    audits: dict[str, IndicatorAudit] = {}
+    audits: dict[IndicatorId, IndicatorAudit] = {}
     for indicator_id in sorted(indicator_ids):
         health_metrics = indicator_health.get(indicator_id, {})
         audits[indicator_id] = IndicatorAudit(
@@ -522,7 +516,7 @@ def build_indicator_audits(
                 indicator_lookup,
                 health_metrics,
             ),
-            issues=issues_by_indicator.get(indicator_id, []),
+            issues=tuple(issues_by_indicator.get(indicator_id, [])),
             checks=dict(health_metrics.get("cell_statuses", {})),
         )
     return audits

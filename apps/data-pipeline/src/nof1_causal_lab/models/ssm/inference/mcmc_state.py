@@ -3,13 +3,18 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import TYPE_CHECKING, NamedTuple
 
 import jax
 import jax.numpy as jnp
-from blackjax.adaptation.step_size import DualAveragingAdaptationState
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    from blackjax.adaptation.step_size import DualAveragingAdaptationState
+    from jax.typing import DTypeLike
+
     from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleContext
 
 
@@ -51,13 +56,13 @@ def _clip_scale(
 class TrajectoryMCMCResult:
     """MCMC-compatible view of particle posterior samples."""
 
-    chain_samples: dict[str, jnp.ndarray]
-    chain_extra_fields: dict[str, jnp.ndarray]
+    chain_samples: Mapping[str, jnp.ndarray]
+    chain_extra_fields: Mapping[str, jnp.ndarray]
     num_chains: int
     num_samples: int
     backend: str = "marginal_particle_gibbs"
 
-    def get_samples(self, group_by_chain: bool = False) -> dict[str, jnp.ndarray]:
+    def get_samples(self, *, group_by_chain: bool = False) -> Mapping[str, jnp.ndarray]:
         if group_by_chain:
             return self.chain_samples
         return {
@@ -65,13 +70,19 @@ class TrajectoryMCMCResult:
             for name, values in self.chain_samples.items()
         }
 
-    def get_extra_fields(self, group_by_chain: bool = False) -> dict[str, jnp.ndarray]:
+    def get_extra_fields(self, *, group_by_chain: bool = False) -> Mapping[str, jnp.ndarray]:
         if group_by_chain:
             return self.chain_extra_fields
         return {
             name: values.reshape((self.num_chains * self.num_samples, *values.shape[2:]))
             for name, values in self.chain_extra_fields.items()
         }
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "chain_samples", MappingProxyType(dict(self.chain_samples)))
+        object.__setattr__(
+            self, "chain_extra_fields", MappingProxyType(dict(self.chain_extra_fields))
+        )
 
 
 def _adapt_scale(
@@ -97,7 +108,7 @@ def _adapt_scale(
 def _latent_summary_from_chain_moments(
     chain_means: jnp.ndarray,
     chain_stds: jnp.ndarray,
-) -> dict[str, jnp.ndarray]:
+) -> Mapping[str, jnp.ndarray]:
     pooled_mean = jnp.mean(chain_means, axis=0)
     pooled_second_moment = jnp.mean(chain_stds * chain_stds + chain_means * chain_means, axis=0)
     pooled_var = jnp.maximum(pooled_second_moment - pooled_mean * pooled_mean, 0.0)
@@ -119,31 +130,36 @@ def _clip_dual_averaging_state(
         return da_state
 
     log_min = (
-        None if min_scale is None else jnp.log(jnp.asarray(min_scale, dtype=da_state.mu.dtype))
+        None
+        if min_scale is None
+        else jnp.log(jnp.asarray(min_scale, dtype=jnp.asarray(da_state.mu).dtype))
     )
     log_max = (
-        None if max_scale is None else jnp.log(jnp.asarray(max_scale, dtype=da_state.mu.dtype))
+        None
+        if max_scale is None
+        else jnp.log(jnp.asarray(max_scale, dtype=jnp.asarray(da_state.mu).dtype))
     )
 
-    def _clip_log_value(value: jnp.ndarray) -> jnp.ndarray:
-        clipped = value
+    def _clip_log_value(value: float | jnp.ndarray) -> jnp.ndarray:
+        clipped = jnp.asarray(value)
         if log_min is not None:
             clipped = jnp.maximum(clipped, log_min)
         if log_max is not None:
             clipped = jnp.minimum(clipped, log_max)
         return clipped
 
-    return DualAveragingAdaptationState(
+    return da_state._replace(
         log_step_size=_clip_log_value(da_state.log_step_size),
         log_step_size_avg=_clip_log_value(da_state.log_step_size_avg),
-        step=da_state.step,
-        avg_error=da_state.avg_error,
         mu=_clip_log_value(da_state.mu),
     )
 
 
 def _stack_chain_states(states: list[TrajectoryMCMCState]) -> TrajectoryMCMCState:
-    return jax.tree_util.tree_map(lambda *values: jnp.stack(values, axis=0), *states)
+    stacked: TrajectoryMCMCState = jax.tree_util.tree_map(
+        lambda *values: jnp.stack(values, axis=0), *states
+    )
+    return stacked
 
 
 def _stack_sample_history(
@@ -151,7 +167,7 @@ def _stack_sample_history(
     *,
     num_chains: int,
     trailing_shape: tuple[int, ...],
-    dtype,
+    dtype: DTypeLike,
 ) -> jnp.ndarray:
     if not history:
         return jnp.zeros((num_chains, 0, *trailing_shape), dtype=dtype)

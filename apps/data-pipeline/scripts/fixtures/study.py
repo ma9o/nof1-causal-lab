@@ -16,24 +16,27 @@ from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
-from nof1_causal_lab.actions.revisions import (
-    compare_model_definitions,
-    compare_model_graph,
-    compare_parameters,
-)
 from nof1_causal_lab.artifacts.expressions import (
     coefficient,
 )
 from nof1_causal_lab.artifacts.expressions import state as expr_state
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorPredictiveChecks
 from nof1_causal_lab.models.model_inputs import input_fingerprints
+from nof1_causal_lab.models.model_structure import (
+    compare_model_definitions,
+    compare_model_graph,
+    compare_parameters,
+)
 from nof1_causal_lab.study.git_objects import object_tree
 from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.lineage import inference_is_current
+from nof1_causal_lab.study.records import Applied, FitAttempt
 from nof1_causal_lab.study.snapshots import ModelReader
 from nof1_causal_lab.study.state import is_stale
 from nof1_causal_lab.study.store import ArtifactStore, trace_log_path
 from nof1_causal_lab.utils import data as data_module
+from nof1_causal_lab.utils.llm import LLMTrace
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.identity import ArtifactId
@@ -42,6 +45,7 @@ if TYPE_CHECKING:
 ROOT = Path(__file__).resolve().parents[4]
 DEMO_ROOT = ROOT / "data" / "DEMO"
 WORKBENCH_OUTPUT = ROOT / "apps/web/src/components/__fixtures__/workbench-comparisons.json"
+SIMULATION_REPORTS = ROOT / "apps/web/src/components/dag/__fixtures__/simulation-reports.json"
 
 ARTIFACTS: dict[ArtifactId, str] = {
     "model": "model.json",
@@ -68,19 +72,31 @@ def read_fixture_files(repository: StudyRepository, state: StudyState) -> dict[s
         trace, record = next(
             (trace, record)
             for record in reversed(records)
-            for trace in sorted(record.trace_ids)
+            for trace in sorted(record.record.trace_ids)
             if trace.startswith(prefix)
         )
-        files[f"traces/{name}.json"] = repository.read_file(
-            record.commit_id, f"logs/{trace_log_path(trace)}"
-        )
-    record = next(record for record in reversed(records) if record.action == "fit")
-    files["inference.json"] = (json.dumps(record.diagnostics, indent=2) + "\n").encode()
+        raw_trace = repository.read_file(record.commit_id, f"logs/{trace_log_path(trace)}")
+        files[f"traces/{name}.json"] = (
+            LLMTrace.model_validate_json(raw_trace).model_dump_json(indent=2) + "\n"
+        ).encode()
+    record = next(
+        record
+        for record in reversed(records)
+        if isinstance(record.record.attempt, FitAttempt)
+        and isinstance(record.record.attempt.outcome, Applied)
+    )
+    assert isinstance(record.record.attempt, FitAttempt)
+    assert record.record.attempt.outcome.status == "applied"
+    files["inference.json"] = (
+        json.dumps(record.record.attempt.outcome.result.model_dump(mode="json"), indent=2) + "\n"
+    ).encode()
     # Archived summaries may survive after their original arrays are lost.
     if "logs/predictive_checks.json" in object_tree(repository.repo, record.commit_id):
-        files["predictive_checks.json"] = repository.read_file(
-            record.commit_id, "logs/predictive_checks.json"
-        )
+        raw_checks = repository.read_file(record.commit_id, "logs/predictive_checks.json")
+        files["predictive_checks.json"] = (
+            PosteriorPredictiveChecks.model_validate_json(raw_checks).model_dump_json(indent=2)
+            + "\n"
+        ).encode()
     # Check external payload closure as well as the native Git objects.
     for aid, info in state.current.items():
         for filename in store.filenames(aid, info.revision):
@@ -141,20 +157,13 @@ def workbench_comparisons(snapshot, history):
     edge = next(item for item in free.edges if item.id == "edge:9df1507c29b9de944a33")
     pinned = free.revised(
         edges=tuple(
-            type(item).model_validate(
-                {
-                    **item.model_dump(),
-                    "mechanisms": tuple(
-                        type(mechanism).model_validate(
-                            {
-                                **mechanism.model_dump(),
-                                "expression": coefficient(0.0, "weight")
-                                * expr_state(edge.cause.id),
-                            }
-                        )
-                        for mechanism in item.mechanisms
-                    ),
-                }
+            item.revised(
+                mechanisms=tuple(
+                    mechanism.revised(
+                        expression=coefficient(0.0, "weight") * expr_state(edge.cause.id)
+                    )
+                    for mechanism in item.mechanisms
+                )
             )
             if item.id == edge.id
             else item
@@ -212,7 +221,7 @@ def build_outputs():
             capture_output=True,
         )
         subprocess.run(
-            ["git", "--git-dir", str(history), "config", "nof1.format", "9"],
+            ["git", "--git-dir", str(history), "config", "nof1.format", "12"],
             check=True,
             capture_output=True,
         )
@@ -220,7 +229,7 @@ def build_outputs():
         reader = ModelReader("DEMO")
         repository = StudyRepository("DEMO")
         commits = {0: reader.records[0].parent_ids[0]}
-        commits.update({record.seq: record.commit_id for record in reader.records})
+        commits.update({record.record.seq: record.commit_id for record in reader.records})
         outputs = {
             DEMO_ROOT / "fixture" / name: json.loads(content)
             for name, content in read_fixture_files(repository, reader.state).items()
@@ -245,7 +254,67 @@ def build_outputs():
         outputs[WORKBENCH_OUTPUT.with_name("workbench-visuals.json")] = workbench_visuals(
             reader, json.loads(WORKBENCH_OUTPUT.with_name("workbench-simulation.json").read_text())
         )
+        from nof1_causal_lab.artifacts.simulation import SimulationReport
+
+        outputs[SIMULATION_REPORTS] = [
+            SimulationReport.model_validate(value).model_dump(mode="json")
+            for value in json.loads(SIMULATION_REPORTS.read_text())
+        ]
         return outputs
+
+
+def rendered_fixtures(outputs):
+    """Render fixtures and name their contracts; JSON imports otherwise widen tags/IDs.
+
+    These declarations contain no payloads or shadow schemas. Fixture regeneration
+    establishes the types at their Python producers; fixture:check owns their drift.
+    """
+    contracts = {
+        DEMO_ROOT / "fixture/model_snapshot.json": "Domain.ModelSnapshot",
+        DEMO_ROOT
+        / "fixture/model_history.json": "Readonly<Partial<Record<number, Domain.ModelSnapshot>>>",
+        DEMO_ROOT / "fixture/inference.json": "Domain.ModelFitResult",
+        DEMO_ROOT / "fixture/predictive_checks.json": "Domain.PosteriorPredictiveChecks",
+        SIMULATION_REPORTS: "readonly Domain.SimulationReport[]",
+        WORKBENCH_OUTPUT: """Readonly<{
+  pinned_model: Domain.ModelSpec;
+  pinned_inputs: Domain.ArtifactRecord["model_inputs"];
+  comparisons: Readonly<Partial<Record<string, Pick<Domain.ModelDiffReport, "graph" | "parameters" | "changed_inputs" | "definition_changes">>>>;
+}>""",
+        WORKBENCH_OUTPUT.with_name("workbench-visuals.json"): """Readonly<{
+  note: string;
+  report: Domain.SimulationReport;
+  simulation: Domain.SimulationPaths;
+  observations: Readonly<Partial<Record<Domain.IndicatorId, Domain.ObservationHistory>>>;
+  parameters: Domain.ParameterDraws;
+  mechanisms: Readonly<Partial<Record<string, Domain.MechanismCurves>>>;
+}>""",
+    }
+    contracts.update(
+        {DEMO_ROOT / f"fixture/traces/{name}.json": "Domain.LLMTrace" for name in TRACES}
+    )
+    contents = {
+        path: json.dumps(value, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
+        for path, value in outputs.items()
+    }
+    for path, contract in contracts.items():
+        assert path in outputs
+        declaration = path.with_name(path.stem + ".d.json.ts")
+        contents[declaration] = (
+            "/** AUTO-GENERATED by fixture:build from the production fixture owner. */\n"
+            'import type * as Domain from "@nof1-causal-lab/api-types";\n'
+            f"declare const value: {contract};\nexport default value;\n"
+        )
+    for path, content in contents.items():
+        if path == SIMULATION_REPORTS or path.suffix == ".ts":
+            content = subprocess.run(
+                ["bun", "x", "--no-install", "biome", "format", "--stdin-file-path", str(path)],
+                input=content,
+                text=True,
+                capture_output=True,
+                check=True,
+            ).stdout
+        yield path, content
 
 
 def main() -> None:
@@ -267,10 +336,9 @@ def main() -> None:
 
     outputs = build_outputs()
     mismatches = []
-    for path, value in outputs.items():
-        rendered = json.dumps(value, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
+    for path, rendered in rendered_fixtures(outputs):
         if args.check:
-            if path.read_text() != rendered:
+            if not path.exists() or path.read_text() != rendered:
                 mismatches.append(str(path))
         else:
             path.parent.mkdir(parents=True, exist_ok=True)

@@ -3,10 +3,12 @@
 from __future__ import annotations
 
 import sys
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeAliasType
+
+from pydantic import BaseModel
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.json_types import JsonObject
+    from nof1_causal_lab.json_types import JsonValue
 
 # Group exported types by their owning subject.
 CONCERNS = {
@@ -24,6 +26,7 @@ CONCERNS = {
             "artifacts.mechanism",
             "measurement_types",
             "utils.observation_semantics",
+            "utils.window_expressions",
             "artifacts.parameter_spec",
             "artifacts.expressions",
             "artifacts.parameter",
@@ -79,6 +82,11 @@ CONCERNS = {
 # Aliases and dataclasses need explicit role sentences: JSON Schema does not carry
 # their Python docstrings. These describe concepts, never infer prose from field names.
 ROLE_SENTENCES = {
+    "ActionPoll": "A poll is either running labels or a completed typed attempt with its optional publication identity.",
+    "ActionAttempt": "A closed action attempt pairs its request with only that action's successful result or failure outcome.",
+    "ActionBody": "An action result carries its owned scientific payload before Git publication.",
+    "FailedOutcome": "A failed outcome is an expected rejection or an opaque execution failure.",
+    "RejectionReason": "A rejection reason identifies the expected input or publication condition that prevented the action.",
     "CheckGroup": "A group of model checks is selected by the inputs it consumes.",
     "PredictiveCheckReason": "A predictive check reason explains why a battery could not be evaluated for the selected model and observations.",
     "GitOid": "A native Git object identity for an immutable tree or commit.",
@@ -88,7 +96,6 @@ ROLE_SENTENCES = {
     "Expression": "A scalar expression composes supported arithmetic with scientific state and coefficient references.",
     "NumPyroDistribution": "A native NumPyro probability distribution serialized by its constructor tree.",
     "DynamicsMechanismSpec": "A dynamics mechanism declares one contribution to continuous-time drift.",
-    "AggregationFunction": "An aggregation function summarizes observations within a measurement window.",
     "ArtifactFreshness": "An artifact's presence and freshness are derived from the selected journal revision.",
     "ArtifactId": "An artifact identity selects one node in the study's artifact graph.",
     "ConstructId": "A persistent construct identity survives changes to its display name.",
@@ -99,7 +106,6 @@ ROLE_SENTENCES = {
     "MechanismId": "A persistent mechanism identity distinguishes additive terms through reordering and revision.",
     "ParameterId": "A scientific parameter identity connects component coefficients to one parameter definition.",
     "ParameterElementId": "A parameter element identity identifies a logical scalar component across model revisions.",
-    "JournalStatus": "A journal status distinguishes applied revisions from rejected or failed attempts.",
     "JsonArray": "A JSON array transports an ordered collection of recursively typed values.",
     "JsonObject": "A JSON object transports string-keyed recursively typed values.",
     "JsonScalar": "A JSON scalar transports a string, number, boolean, or null.",
@@ -130,6 +136,21 @@ def _module_for(name: str) -> str:
         value = vars(module).get(name)
         if value is not None and getattr(value, "__module__", None) == module_name:
             return module_name
+        for value in tuple(vars(module).values()):
+            if (
+                isinstance(value, TypeAliasType)
+                and value.__module__ == module_name
+                and name.startswith(value.__name__ + "_")
+            ):
+                return module_name
+            if (
+                isinstance(value, type)
+                and issubclass(value, BaseModel)
+                and value.__module__ == module_name
+                and value.__pydantic_generic_metadata__["parameters"]
+                and name.startswith(value.__name__ + "_")
+            ):
+                return module_name
     raise ValueError(f"Exported type {name} has no declared Python owner")
 
 
@@ -175,7 +196,12 @@ def _layer_for(name: str, module: str) -> str:
     }:
         return "findings"
     if module.startswith("nof1_causal_lab.artifacts.") or module.endswith(
-        ("distributions", "measurement_types", "utils.observation_semantics")
+        (
+            "distributions",
+            "measurement_types",
+            "utils.observation_semantics",
+            "utils.window_expressions",
+        )
     ):
         return "authored"
     if module.startswith("nof1_causal_lab.actions."):
@@ -192,7 +218,7 @@ def _concern_for(name: str, module: str) -> str:
     raise ValueError(f"Exported type {name} in {module} has no declared concern")
 
 
-def annotate_definitions(definitions: dict[str, JsonObject]) -> None:
+def annotate_definitions(definitions: dict[str, dict[str, JsonValue]]) -> None:
     """Require an owning Python module, role, and concern for every exported type."""
     for name, definition in definitions.items():
         module = (

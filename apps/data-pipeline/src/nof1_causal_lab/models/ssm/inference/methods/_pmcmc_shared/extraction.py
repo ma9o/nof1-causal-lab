@@ -8,6 +8,8 @@ from nof1_causal_lab.models.ssm.inference.mcmc_state import TrajectoryMCMCResult
 from nof1_causal_lab.models.ssm.inference.utils import extract_constrained_samples
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     import jax.numpy as jnp
 
     from nof1_causal_lab.models.ssm.inference.problem import ParticleProblem
@@ -16,7 +18,7 @@ if TYPE_CHECKING:
 def build_pmcmc_mcmc_result(
     *,
     chain_samples: dict[str, jnp.ndarray],
-    chain_extra_fields: dict[str, jnp.ndarray],
+    chain_extra_fields: Mapping[str, jnp.ndarray],
     num_chains: int,
     num_samples: int,
     backend: str,

@@ -2,21 +2,22 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, fields
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
+import numpy as np
+
 from nof1_causal_lab.compilation_errors import AggregatedCompileError, IncompleteModelError
+from nof1_causal_lab.distributions import DistributionFamily
+from nof1_causal_lab.models.model_parameters import execution_parameters
+from nof1_causal_lab.models.model_structure import selected_edges
 from nof1_causal_lab.models.ssm.compile.prior_compilation import (
     bind_parameters,
     compile_priors,
 )
 from nof1_causal_lab.models.ssm.compile.prior_indexing import (
-    SemanticBindingRegistry,
     build_semantic_prior_bindings,
-)
-from nof1_causal_lab.models.ssm.compile.support import (
-    build_structural_support_from_model,
-    get_construct_dt_days,
 )
 from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
 from nof1_causal_lab.models.ssm.parameterization import (
@@ -25,26 +26,112 @@ from nof1_causal_lab.models.ssm.parameterization import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
+    import jax
+    import numpyro.distributions as dist
+
+    from nof1_causal_lab.artifacts.identity import (
+        ConstructId,
+        EdgeId,
+        IndicatorId,
+    )
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.parameter import ParameterCoordinate
     from nof1_causal_lab.artifacts.prior import PriorValidationResult
+    from nof1_causal_lab.models.likelihoods import LikelihoodTerms
     from nof1_causal_lab.models.ssm.compile.bindings import CompiledParameterBinding
+    from nof1_causal_lab.models.ssm.dynamics.spec import CompiledDynamics
+    from nof1_causal_lab.models.ssm.joint_layout import JointLawLayout
+    from nof1_causal_lab.models.ssm.structure import (
+        DiffusionBlockSpec,
+        ManifestCholBlockSpec,
+        SparseMatrixBlockSpec,
+        SparseVectorBlockSpec,
+        T0CholBlockSpec,
+    )
+    from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
+    from nof1_causal_lab.utils.observation_semantics import IndicatorObservationSemantics
+
+
+@dataclass(frozen=True)
+class CompiledState:
+    """One state coordinate and its execution semantics."""
+
+    id: ConstructId
+    name: str
+    is_input: bool
+    time_invariant: bool
+    innovation_family: DistributionFamily
+    incoming_edges: tuple[tuple[int, EdgeId], ...]
+
+
+@dataclass(frozen=True)
+class CompiledObservation:
+    """One emission coordinate, with its state binding and support semantics."""
+
+    id: IndicatorId
+    name: str
+    state_index: int
+    likelihood: LikelihoodTerms
+    levels: tuple[str, ...]
+    standardized: bool
+    categorical_anchor: bool
+    support: IndicatorObservationSemantics
+    window_days: float
+    observation_window: str
+
+
+@dataclass(frozen=True)
+class CompiledLaw:
+    """One native law and the scientific coordinates sampled together from it."""
+
+    sample_index: int
+    distribution: dist.Distribution
+    layout: JointLawLayout
+
+
+@dataclass(frozen=True, eq=False)
+class CompiledModel:
+    """Ordered execution records; authored entities remain at the compiler boundary."""
+
+    clock_days: float
+    states: tuple[CompiledState, ...]
+    observations: tuple[CompiledObservation, ...]
+    static_factors: tuple[CompiledState, ...]
+    diffusion_block: DiffusionBlockSpec
+    loading_block: SparseMatrixBlockSpec
+    observation_mean_block: SparseVectorBlockSpec
+    observation_noise_block: ManifestCholBlockSpec
+    initial_mean_block: SparseVectorBlockSpec
+    initial_covariance_block: T0CholBlockSpec
+    static_scale_block: SparseVectorBlockSpec
+    static_factor_loadings: jax.Array
+    dynamics: CompiledDynamics
+    site_registry: tuple[SiteDescriptor, ...]
+    parameter_layout: SSMParameterLayout
+    bindings: tuple[CompiledParameterBinding, ...]
+    auxiliary_coordinates: tuple[ParameterCoordinate, ...]
+    laws: tuple[CompiledLaw, ...]
+
+    @property
+    def state_index(self) -> Mapping[ConstructId, int]:
+        return MappingProxyType({state.id: index for index, state in enumerate(self.states)})
+
+    @property
+    def indicator_index(self) -> Mapping[IndicatorId, int]:
+        return MappingProxyType(
+            {observation.id: index for index, observation in enumerate(self.observations)}
+        )
 
 
 @dataclass(frozen=True)
 class CompiledFitInputs:
-    """Compiler-owned fit capability, independent of later panel compatibility.
+    """Fit-specific prior capability for one compiled numerical model."""
 
-    Collections are read-only interfaces, not deep immutability. Native NumPyro
-    distributions and JAX payloads are shared as values and must not be mutated.
-    """
-
-    spec: ModelSpec
+    compiled: CompiledModel
     prior_runtime_bundle: PriorRuntimeBundle
-    parameter_layout: SSMParameterLayout
-    bindings: tuple[CompiledParameterBinding, ...]
     diagnostics: tuple[PriorValidationResult, ...]
-    auxiliary_coordinates: tuple[ParameterCoordinate, ...]
 
 
 @dataclass(frozen=True)
@@ -67,7 +154,7 @@ class UnsupportedFit:
 
 def _attach_compile_binding_provenance(
     diagnostics: list[PriorValidationResult],
-    bindings: list[CompiledParameterBinding],
+    bindings: tuple[CompiledParameterBinding, ...],
 ) -> list[PriorValidationResult]:
     """Attach direct-writer parameter provenance to compile diagnostics when possible."""
     binding_index: dict[tuple[str, int], list[str]] = {}
@@ -76,16 +163,203 @@ def _attach_compile_binding_provenance(
             binding.parameter_id
         )
 
+    resolved: list[PriorValidationResult] = []
     for diagnostic in diagnostics:
         if diagnostic.compiled_site_name is None or diagnostic.compiled_flat_index is None:
+            resolved.append(diagnostic)
             continue
         related_parameters = binding_index.get(
             (diagnostic.compiled_site_name, diagnostic.compiled_flat_index)
         )
         if related_parameters:
-            diagnostic.related_parameters = related_parameters
+            diagnostic = diagnostic.with_parameter_provenance(tuple(related_parameters))
+        resolved.append(diagnostic)
 
-    return diagnostics
+    return resolved
+
+
+def compile_model(model: ModelSpec) -> CompiledModel | IncompleteModel | UnsupportedFit:
+    """Compile shared execution facts without imposing fitting's prior-engine limits."""
+    from nof1_causal_lab.models.ssm.compile import support as numeric
+    from nof1_causal_lab.models.ssm.dynamics.spec import compile_dynamics
+
+    try:
+        numeric._require_execution_choices(model)
+        model.require_priors()
+        state_ids = tuple(numeric.state_ids(model))
+        indicators = numeric.observed_indicators(model)
+        blocks = numeric.parameter_blocks(model)
+        # Detach every NumPy builder before publishing a compiled block or mask.
+        for block in blocks:
+            for descriptor in fields(block):
+                value = getattr(block, descriptor.name)
+                if isinstance(value, np.ndarray):
+                    value.setflags(write=False)
+        dynamics_spec = numeric.dynamics_components(model)
+        static_names = tuple(numeric.static_factor_names(model))
+        sites = tuple(
+            sorted(
+                (
+                    *(
+                        site
+                        for index, component in enumerate(dynamics_spec.components)
+                        for site in component.iter_sites(f"vf_{index}", n_latent=len(state_ids))
+                    ),
+                    *(site for block in blocks for site in block.iter_sites()),
+                    *numeric.likelihood_sites(model),
+                ),
+                key=lambda site: site.name,
+            )
+        )
+        state_index = {identity: index for index, identity in enumerate(state_ids)}
+        states = tuple(
+            CompiledState(
+                identity,
+                model.get_construct(identity).name,
+                model.get_construct(identity).role == "exogenous",
+                model.get_construct(identity).temporal_status == "time_invariant",
+                family,
+                tuple(
+                    (state_index[edge.cause.id], edge.id)
+                    for edge in selected_edges(model)
+                    if edge.effect.id == identity
+                ),
+            )
+            for identity, family in zip(state_ids, numeric.diffusion_families(model), strict=True)
+        )
+        state_index = {state.id: index for index, state in enumerate(states)}
+        anchors = numeric.categorical_anchors(model)
+        clock_days = numeric.get_construct_dt_days(model)
+        assert model.measurement_clock is not None
+
+        observations = tuple(
+            CompiledObservation(
+                indicator.id,
+                indicator.name,
+                state_index[model.indicator_owner(indicator.id).id],
+                indicator.likelihood.parsed,
+                (indicator.ordinal_levels or indicator.categorical_levels or ())
+                if indicator.likelihood.law.family
+                in {
+                    DistributionFamily.ORDERED_LOGISTIC,
+                    DistributionFamily.CATEGORICAL,
+                }
+                else (),
+                indicator.likelihood.standardized,
+                anchor,
+                indicator._observation_semantics(),
+                (indicator.observation_window or model.measurement_clock).days,
+                (indicator.observation_window or model.measurement_clock).source,
+            )
+            for indicator, anchor in zip(indicators, anchors, strict=True)
+            if indicator.likelihood is not None
+        )
+        bindings, auxiliary = bind_parameters(
+            build_semantic_prior_bindings(model, sites, dynamics_spec.components),
+            model,
+            execution_parameters(model),
+            sites,
+        )
+        return CompiledModel(
+            clock_days=clock_days,
+            states=states,
+            observations=observations,
+            static_factors=tuple(
+                CompiledState(identity, name, False, True, DistributionFamily.GAUSSIAN, ())
+                for identity, name in zip(
+                    numeric.static_factor_ids(model), static_names, strict=True
+                )
+            ),
+            diffusion_block=blocks[0],
+            loading_block=blocks[1],
+            observation_mean_block=blocks[2],
+            observation_noise_block=blocks[3],
+            initial_mean_block=blocks[4],
+            initial_covariance_block=blocks[5],
+            static_scale_block=blocks[6],
+            static_factor_loadings=numeric.static_factor_loadings(model),
+            dynamics=compile_dynamics(dynamics_spec),
+            site_registry=sites,
+            parameter_layout=SSMParameterLayout.from_sites(sites, static_names),
+            bindings=bindings,
+            auxiliary_coordinates=auxiliary,
+            laws=_compile_laws(model, bindings, states),
+        )
+    except IncompleteModelError as exc:
+        return IncompleteModel(str(exc))
+    except AggregatedCompileError as exc:
+        return UnsupportedFit(tuple(dict.fromkeys(exc.errors)))
+
+
+def _compile_laws(
+    model: ModelSpec,
+    bindings: tuple[CompiledParameterBinding, ...],
+    states: tuple[CompiledState, ...],
+) -> tuple[CompiledLaw, ...]:
+    from nof1_causal_lab.artifacts.parameter import PriorAuthoringTransform
+    from nof1_causal_lab.models.ssm.compile.prior_compilation import quantity_parameter_law
+    from nof1_causal_lab.models.ssm.joint_layout import JointLawLayout
+    from nof1_causal_lab.numpyro_json import distribution_shape
+
+    parameters = execution_parameters(model)
+    endogenous = tuple(state.id for state in states if not state.is_input)
+    active = {
+        member.distribution
+        for member in (*parameters, *(model.get_construct(identity) for identity in endogenous))
+        if member.distribution is not None
+    }
+    result = []
+    retained = set()
+    for index, (identity, law) in enumerate(sorted(model.distributions.items())):
+        if identity not in active:
+            continue
+        members = tuple(parameter for parameter in parameters if parameter.distribution == identity)
+        trajectories = tuple(
+            state for state in endogenous if model.get_construct(state).distribution == identity
+        )
+        retained.update(trajectories)
+        layout = JointLawLayout.from_bindings(
+            bindings,
+            parameters=tuple(parameter.id for parameter in members),
+            constructs=trajectories,
+            time_points=model.time_points if trajectories else (),
+        )
+        batch_shape, event_shape = distribution_shape(law)
+        if not batch_shape and not event_shape:
+            parameter = members[0]
+            law, _ = quantity_parameter_law(model, parameter)
+        elif any(
+            parameter.transform.kind != PriorAuthoringTransform.IDENTITY for parameter in members
+        ):
+            raise AggregatedCompileError(
+                ["Joint probability laws must use native scientific coordinates"]
+            )
+        result.append(CompiledLaw(index, law, layout))
+    if retained and retained != set(endogenous):
+        raise AggregatedCompileError(
+            ["Conditional simulation requires a joint draw for every state"]
+        )
+    return tuple(result)
+
+
+def compile_executable_model(model: ModelSpec) -> CompiledModel:
+    """Parse the authored execution boundary for callers whose contract requires success.
+
+    Fit readiness consumes compile_model's alternatives directly. At an
+    executing shell/owner boundary these specific semantic errors preserve the
+    same failure distinction while returning the resolved input to the caller.
+    """
+    from typing import assert_never
+
+    outcome = compile_model(model)
+    match outcome:
+        case CompiledModel():
+            return outcome
+        case IncompleteModel():
+            raise IncompleteModelError(outcome.message)
+        case UnsupportedFit():
+            raise AggregatedCompileError(list(outcome.errors))
+    return assert_never(outcome)
 
 
 def compile_ssm_inputs_from_model(
@@ -96,39 +370,33 @@ def compile_ssm_inputs_from_model(
     Only the compiler's expected diagnostic exceptions become variants. Broken
     internal assumptions (including other ValueErrors) still propagate.
     """
-    from nof1_causal_lab.models.ssm import numerics as numeric
+    from typing import assert_never
 
+    compiled = compile_model(model)
+    match compiled:
+        case IncompleteModel() | UnsupportedFit():
+            return compiled
+        case CompiledModel():
+            pass
+        case _:
+            assert_never(compiled)
+    return compile_fit_inputs(compiled, model)
+
+
+def compile_fit_inputs(
+    compiled: CompiledModel, model: ModelSpec
+) -> CompiledFitInputs | IncompleteModel | UnsupportedFit:
+    """Resolve fitting laws once against the already compiled shared execution facts."""
     try:
-        model.require_priors()
-        numeric.validate_execution(model)
-        prior_registry, index_maps, diagnostics = compile_priors(model)
-        bindings, auxiliary = bind_parameters(index_maps, model, model.execution_parameters)
-        diagnostics = _attach_compile_binding_provenance(diagnostics, bindings)
-        prior_runtime_bundle = build_prior_runtime_bundle(model, prior_registry)
-        parameter_layout = SSMParameterLayout.from_spec(model)
+        prior_registry, _, diagnostics = compile_priors(compiled, model)
+        diagnostics = _attach_compile_binding_provenance(diagnostics, compiled.bindings)
+        prior_runtime_bundle = build_prior_runtime_bundle(compiled, prior_registry)
     except IncompleteModelError as exc:
         return IncompleteModel(str(exc))
     except AggregatedCompileError as exc:
-        return UnsupportedFit(tuple(exc.errors))
+        return UnsupportedFit(tuple(dict.fromkeys(exc.errors)))
     return CompiledFitInputs(
-        spec=model,
+        compiled=compiled,
         prior_runtime_bundle=prior_runtime_bundle,
-        parameter_layout=parameter_layout,
-        bindings=tuple(bindings),
         diagnostics=tuple(diagnostics),
-        auxiliary_coordinates=tuple(auxiliary),
     )
-
-
-__all__ = [
-    "CompiledFitInputs",
-    "IncompleteModel",
-    "UnsupportedFit",
-    "SemanticBindingRegistry",
-    "bind_parameters",
-    "build_structural_support_from_model",
-    "build_semantic_prior_bindings",
-    "compile_priors",
-    "compile_ssm_inputs_from_model",
-    "get_construct_dt_days",
-]

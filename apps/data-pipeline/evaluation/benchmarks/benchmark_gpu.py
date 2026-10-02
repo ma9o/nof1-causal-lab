@@ -167,8 +167,6 @@ def _run_benchmark(
     *,
     profile_dir: str | None,
     profile_compile_analysis: bool,
-    profile_trace_start_step: int,
-    profile_trace_steps: int,
     warmup_steps: int,
     sample_steps: int,
     num_parameter_particles: int,
@@ -183,6 +181,7 @@ def _run_benchmark(
     import jax
     import jax.random as random
     from evaluation.fixtures.synthetic_nonlinear import (
+        bind_synthetic_nonlinear_panel,
         load_synthetic_nonlinear_model,
         simulate_synthetic_nonlinear_data,
     )
@@ -199,13 +198,10 @@ def _run_benchmark(
     total_steps = warmup_steps + sample_steps
     print("JAX devices:", jax.devices(), "| config:", cfg.tag, flush=True)
     data = simulate_synthetic_nonlinear_data(T=cfg.t_steps, seed=71, diffusion_scale=1.0)
-    model = load_synthetic_nonlinear_model(
-        data, include_interval_support=False, diffusion_scale=1.0
-    )
+    model = load_synthetic_nonlinear_model(diffusion_scale=1.0)
     bundle = build_particle_problem(
-        model,
-        data.observations,
-        data.times,
+        model.prior_runtime_bundle,
+        bind_synthetic_nonlinear_panel(model, data),
         scheme=LATENT_TRANSITION_EULER_MARUYAMA,
         trace_key=random.PRNGKey(0),
         reparam=None,
@@ -221,28 +217,39 @@ def _run_benchmark(
         latent_block_coords=cfg.block_coords,
     )
     started = time.monotonic()
-    run = run_marginal_particle_gibbs(
-        bundle.runtime,
-        kernel=kernel,
-        num_warmup=warmup_steps,
-        num_samples=sample_steps,
-        num_chains=1,
-        seed=0,
-        adaptation_rate=0.0,
-        init_scale=0.05,
-        latent_delta=0.2,
-        retain_latent_paths=False,
-        compute_latent_posterior_summary=False,
-        adaptation_scheme="simple",
-        profile_dir=profile_dir,
-        profile_compile_analysis=profile_compile_analysis,
-        profile_runtime_trace=cfg.trace,
-        profile_trace_start_step=profile_trace_start_step,
-        profile_trace_steps=profile_trace_steps,
+    from nof1_causal_lab.actions.inference.fit import (
+        dump_compiled_analysis,
+        resolve_profile_dir,
+        start_trace,
+        stop_trace,
     )
+
+    output_dir = resolve_profile_dir(profile_dir)
+    trace_dir = output_dir if cfg.trace else None
+    start_trace(trace_dir, label="run_loop")
+    try:
+        run = run_marginal_particle_gibbs(
+            bundle.runtime,
+            kernel=kernel,
+            num_warmup=warmup_steps,
+            num_samples=sample_steps,
+            num_chains=1,
+            seed=0,
+            adaptation_rate=0.0,
+            init_scale=0.05,
+            latent_delta=0.2,
+            retain_latent_paths=False,
+            compute_latent_posterior_summary=False,
+            adaptation_scheme="simple",
+            clock=time.monotonic,
+        )
+    finally:
+        stop_trace(trace_dir)
+    if profile_compile_analysis:
+        dump_compiled_analysis(run.compiled_step, profile_dir=output_dir, label="run_batched_step")
     wall = time.monotonic() - started
-    first = float(run["first_step_seconds"])
-    loop = float(run["sampling_loop_seconds"])
+    first = float(run.first_step_seconds)
+    loop = float(run.sampling_loop_seconds)
     steady_ms = 1000.0 * (loop - first) / max(total_steps - 1, 1)
     row = {
         "smoother": cfg.smoother,
@@ -257,7 +264,7 @@ def _run_benchmark(
         "wall_s": round(wall, 2),
         "compile_analyzed": bool(profile_dir and profile_compile_analysis),
         "traced": bool(profile_dir and cfg.trace),
-        "trace_steps": profile_trace_steps if profile_dir and cfg.trace else 0,
+        "trace_steps": total_steps if profile_dir and cfg.trace else 0,
     }
     print("OK  ", cfg.tag, "->", row, flush=True)
     return row
@@ -278,8 +285,6 @@ def run_config(
     cfg: BenchmarkConfig,
     gpu_tag: str,
     profile_compile_analysis: bool,
-    profile_trace_start_step: int,
-    profile_trace_steps: int,
     cuda_graphs: bool = False,
 ) -> BenchmarkRecord:
     """Modal GPU worker: profile the headline config to the Volume; time the rest."""
@@ -316,8 +321,6 @@ def run_config(
             cfg,
             profile_dir=profile_dir,
             profile_compile_analysis=profile_compile_analysis,
-            profile_trace_start_step=profile_trace_start_step,
-            profile_trace_steps=profile_trace_steps,
             warmup_steps=WARMUP_STEPS,
             sample_steps=SAMPLE_STEPS,
             num_parameter_particles=NUM_PARAMETER_PARTICLES,
@@ -344,8 +347,6 @@ def main(
     force_build: bool = False,
     trace: bool = True,
     compile_analysis: bool = True,
-    trace_start_step: int = 0,
-    trace_steps: int = 3,
     cuda_graphs: bool = False,
 ):
     # GPU is chosen via the BENCHMARK_GPU env var (see module docstring). --headline-only
@@ -376,8 +377,6 @@ def main(
             kwargs={
                 "gpu_tag": gpu_tag,
                 "profile_compile_analysis": compile_analysis,
-                "profile_trace_start_step": trace_start_step,
-                "profile_trace_steps": trace_steps,
                 "cuda_graphs": cuda_graphs,
             },
         )
@@ -454,8 +453,6 @@ def _run_local() -> int:
     parser.add_argument(
         "--no-compile-analysis", action="store_true", help="skip the HLO/cost/access dump"
     )
-    parser.add_argument("--trace-start-step", type=int, default=0)
-    parser.add_argument("--trace-steps", type=int, default=2)
     cli = parser.parse_args()
     if not cli.local:
         parser.error("Direct execution is local-only; pass --local (use `modal run ...` for GPU).")
@@ -482,17 +479,15 @@ def _run_local() -> int:
             cfg,
             profile_dir=profile_dir,
             profile_compile_analysis=not cli.no_compile_analysis,
-            profile_trace_start_step=cli.trace_start_step,
-            profile_trace_steps=cli.trace_steps,
             warmup_steps=cli.warmup,
             sample_steps=cli.samples,
             num_parameter_particles=cli.p,
         )
-    except Exception:  # noqa: BLE001 — report, but the pre-loop static dump is already on disk
+    except Exception:  # noqa: BLE001 — report, but report the failed benchmark execution
         traceback.print_exc()
         print(
             f"\nExecution failed (likely OOM at this shape). The compile-time static "
-            f"analysis, if reached, was written to {profile_dir}/ before the loop ran.",
+            f"analysis is written to {profile_dir}/ after a successful run.",
             flush=True,
         )
         return 1

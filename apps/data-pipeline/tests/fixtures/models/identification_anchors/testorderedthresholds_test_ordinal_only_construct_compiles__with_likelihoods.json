@@ -26,49 +26,47 @@
             "likelihood": {
               "law": {
                 "distribution": "OrderedLogistic",
-                "arguments": {
-                  "predictor": {
+                "predictor": {
+                  "kind": "binary",
+                  "operator": "add",
+                  "left": {
+                    "kind": "coefficient",
+                    "role": "observation_intercept",
+                    "value": 0.0,
+                    "construct_ids": []
+                  },
+                  "right": {
                     "kind": "binary",
-                    "operator": "add",
+                    "operator": "multiply",
                     "left": {
                       "kind": "coefficient",
-                      "role": "observation_intercept",
-                      "value": 0.0,
+                      "role": "loading",
+                      "value": 1.0,
                       "construct_ids": []
                     },
                     "right": {
-                      "kind": "binary",
-                      "operator": "multiply",
-                      "left": {
-                        "kind": "coefficient",
-                        "role": "loading",
-                        "value": 1.0,
-                        "construct_ids": []
-                      },
-                      "right": {
-                        "kind": "state",
-                        "construct_id": "construct:bbc87212909e45b9e6c3"
-                      }
+                      "kind": "state",
+                      "construct_id": "construct:bbc87212909e45b9e6c3"
                     }
-                  },
-                  "cutpoints": {
-                    "kind": "call",
-                    "function": "ordered_cutpoints",
-                    "arguments": [
-                      {
-                        "kind": "coefficient",
-                        "role": "cutpoint_base",
-                        "value": "parameter:021787eea83322d6ac67c97aef7894dddba7a12916d4bfabbe80d2069b94e118",
-                        "construct_ids": []
-                      },
-                      {
-                        "kind": "coefficient",
-                        "role": "cutpoint_gaps",
-                        "value": "parameter:be49c9aed275b821456769827b085cb5f560917fda19461531c191b2eee2c619",
-                        "construct_ids": []
-                      }
-                    ]
                   }
+                },
+                "cutpoints": {
+                  "kind": "call",
+                  "function": "ordered_cutpoints",
+                  "arguments": [
+                    {
+                      "kind": "coefficient",
+                      "role": "cutpoint_base",
+                      "value": "parameter:021787eea83322d6ac67c97aef7894dddba7a12916d4bfabbe80d2069b94e118",
+                      "construct_ids": []
+                    },
+                    {
+                      "kind": "coefficient",
+                      "role": "cutpoint_gaps",
+                      "value": "parameter:be49c9aed275b821456769827b085cb5f560917fda19461531c191b2eee2c619",
+                      "construct_ids": []
+                    }
+                  ]
                 }
               },
               "standardized": false,
@@ -214,33 +212,38 @@
       "id": "parameter:3dd6b7c9eb6876093f9fe0c1c1ce2864fd4a8c53e6dac3d6a1e5538016e1fdff",
       "name": "rho_mood",
       "description": "stiffness of rho_mood",
-      "distribution_transform": "dt_persistence_to_ct_decay",
-      "distribution": null,
-      "reference_interval_days": null
+      "distribution": "distribution:180f0d57d4bc50a086c6f0f89527c6485cbf55a1177a18c8dbd5b0429158fd41",
+      "transform": {
+        "kind": "dt_persistence_to_ct_decay",
+        "interval_days": "model_clock"
+      }
     },
     {
       "id": "parameter:ea7fd5ac08160569f35431da4d1741f5ac0606585c802a602de991f3e3a51263",
       "name": "sigma_mood",
       "description": "innovation.scale for sigma_mood",
-      "distribution_transform": "identity",
-      "distribution": null,
-      "reference_interval_days": null
+      "distribution": "distribution:2cf146fa915507aa42a7b63772ad16479aa4cbb18828a90beb23ee9c2b0edaa5",
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:021787eea83322d6ac67c97aef7894dddba7a12916d4bfabbe80d2069b94e118",
       "name": "obs_ordered_base_mood_level",
       "description": "likelihood.cutpoint base for obs_ordered_base_mood_level",
-      "distribution_transform": "identity",
       "distribution": "distribution:0d9d74b1e7e3b7237cc6955277cd5538d4bf36f9c7bdc8bf39f17b8c402dfc0b",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:be49c9aed275b821456769827b085cb5f560917fda19461531c191b2eee2c619",
       "name": "obs_ordered_gaps_mood_level",
       "description": "likelihood.cutpoint gaps for obs_ordered_gaps_mood_level",
-      "distribution_transform": "identity",
       "distribution": "distribution:dacdeba9244340a4f76845c1fbd38d30beda3c59a1206c8e7a9d36f9601b30d8",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     }
   ],
   "distributions": {
@@ -253,6 +256,21 @@
       }
     },
     "distribution:dacdeba9244340a4f76845c1fbd38d30beda3c59a1206c8e7a9d36f9601b30d8": {
+      "distribution": "HalfNormal",
+      "params": {
+        "scale": 1.0,
+        "validate_args": false
+      }
+    },
+    "distribution:180f0d57d4bc50a086c6f0f89527c6485cbf55a1177a18c8dbd5b0429158fd41": {
+      "distribution": "Beta",
+      "params": {
+        "concentration1": 2.0,
+        "concentration0": 2.0,
+        "validate_args": false
+      }
+    },
+    "distribution:2cf146fa915507aa42a7b63772ad16479aa4cbb18828a90beb23ee9c2b0edaa5": {
       "distribution": "HalfNormal",
       "params": {
         "scale": 1.0,

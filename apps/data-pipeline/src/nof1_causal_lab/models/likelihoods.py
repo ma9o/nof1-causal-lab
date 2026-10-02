@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from nof1_causal_lab.artifacts.expressions import (
@@ -20,6 +21,8 @@ from nof1_causal_lab.artifacts.likelihood import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from nof1_causal_lab.artifacts.expressions import (
         CoefficientRole,
         Expression,
@@ -59,7 +62,7 @@ class LikelihoodTerms:
     link: LinkFunction
     predictor: Expression
     intercept: CoefficientExpression
-    loadings: dict[ConstructId, CoefficientExpression]
+    loadings: Mapping[ConstructId, CoefficientExpression]
     auxiliary: tuple[CoefficientExpression, ...]
 
     @property
@@ -126,54 +129,50 @@ def _response(
 
 
 def likelihood_terms(law: ObservationLawSpec) -> LikelihoodTerms:
-    args = law.arguments
     auxiliary: list[CoefficientExpression] = []
     family = law.family
     match law.distribution:
         case "Delta":
-            predictor, link = args["v"], LinkFunction.IDENTITY
+            predictor, link = law.v, LinkFunction.IDENTITY
         case "Normal" | "StudentT":
-            predictor, link = args["loc"], LinkFunction.IDENTITY
-            auxiliary.append(_operand(args["scale"], "observation_scale"))
+            predictor, link = law.loc, LinkFunction.IDENTITY
+            auxiliary.append(_operand(law.scale, "observation_scale"))
             if law.distribution == "StudentT":
-                auxiliary.append(_operand(args["df"], "degrees_of_freedom"))
+                auxiliary.append(_operand(law.df, "degrees_of_freedom"))
         case "Poisson":
-            predictor, link = _response(args["rate"], (LinkFunction.LOG,))
-        case "Bernoulli":
-            if "logits" in args:
-                predictor, link = args["logits"], LinkFunction.LOGIT
-            else:
-                predictor, link = _response(
-                    args["probs"], (LinkFunction.PROBIT, LinkFunction.LOGIT)
-                )
+            predictor, link = _response(law.rate, (LinkFunction.LOG,))
+        case "BernoulliLogits":
+            predictor, link = law.logits, LinkFunction.LOGIT
+        case "BernoulliProbs":
+            predictor, link = _response(law.probs, (LinkFunction.PROBIT, LinkFunction.LOGIT))
         case "Gamma":
-            shape = _operand(args["concentration"], "shape")
-            rate = _binary_argument(args["rate"], "divide")
+            shape = _operand(law.concentration, "shape")
+            rate = _binary_argument(law.rate, "divide")
             if rate.left != shape:
                 raise ValueError("Gamma rate must divide its concentration by the response mean")
             predictor, link = _response(rate.right, (LinkFunction.LOG, LinkFunction.INVERSE))
             auxiliary.append(shape)
         case "NegativeBinomial2":
-            predictor, link = _response(args["mean"], (LinkFunction.LOG,))
-            auxiliary.append(_operand(args["concentration"], "dispersion"))
+            predictor, link = _response(law.mean, (LinkFunction.LOG,))
+            auxiliary.append(_operand(law.concentration, "dispersion"))
         case "Beta":
-            alpha = _binary_argument(args["concentration1"], "multiply")
+            alpha = _binary_argument(law.concentration1, "multiply")
             concentration = _operand(alpha.right, "concentration")
             expected = (LiteralExpression(value=1) - alpha.left) * concentration
-            if args["concentration0"] != expected:
+            if law.concentration0 != expected:
                 raise ValueError(
                     "Beta concentrations must express complementary means and one concentration"
                 )
             predictor, link = _response(alpha.left, (LinkFunction.LOGIT, LinkFunction.PROBIT))
             auxiliary.append(concentration)
         case "OrderedLogistic":
-            predictor, link = args["predictor"], LinkFunction.CUMULATIVE_LOGIT
-            base, gaps = _call(args["cutpoints"], "ordered_cutpoints")
+            predictor, link = law.predictor, LinkFunction.CUMULATIVE_LOGIT
+            base, gaps = _call(law.cutpoints, "ordered_cutpoints")
             auxiliary.append(_operand(base, "cutpoint_base"))
             if gaps != LiteralExpression(value=0):
                 auxiliary.append(_operand(gaps, "cutpoint_gaps"))
         case "Categorical":
-            predictor, intercepts, slopes = _call(args["logits"], "category_logits")
+            predictor, intercepts, slopes = _call(law.logits, "category_logits")
             link = LinkFunction.SOFTMAX
             auxiliary.extend(
                 (_operand(intercepts, "category_intercepts"), _operand(slopes, "category_slopes"))
@@ -181,4 +180,6 @@ def likelihood_terms(law: ObservationLawSpec) -> LikelihoodTerms:
     intercept, loadings = _affine_terms(predictor)
     if link not in VALID_LINKS_FOR_DISTRIBUTION[family]:
         raise ValueError(f"Unsupported response for {law.distribution}")
-    return LikelihoodTerms(family, link, predictor, intercept, loadings, tuple(auxiliary))
+    return LikelihoodTerms(
+        family, link, predictor, intercept, MappingProxyType(loadings), tuple(auxiliary)
+    )

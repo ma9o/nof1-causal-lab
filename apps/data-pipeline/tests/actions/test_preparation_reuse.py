@@ -9,11 +9,13 @@ from uuid import uuid4
 import polars as pl
 import pyarrow as pa
 import pytest
+from pydantic import TypeAdapter
 
 from nof1_causal_lab.actions.temporal.ingestion_activities import (
     finalize_ingestion_activity,
     plan_ingestion_activity,
 )
+from nof1_causal_lab.actions.temporal.llm_subroutine_storage import read_subroutine_json
 from nof1_causal_lab.actions.temporal.measurement_activities import (
     finalize_extraction_chunk_activity,
     plan_measurements_activity,
@@ -22,16 +24,19 @@ from nof1_causal_lab.actions.temporal.messages import (
     ExtractionChunkFinalizeInput,
     IngestionFinalizeInput,
     IngestionWorkflowInput,
+    MeasurementChunkContext,
     MeasurementsWorkflowInput,
 )
 from nof1_causal_lab.artifacts.data_preparation import (
     DataPreparationSpec,
     DataVariableSpec,
     FilePreparationSpec,
+    FileSourceRef,
 )
 from nof1_causal_lab.study.store import ArtifactStore
 from nof1_causal_lab.utils import data, storage
 from nof1_causal_lab.utils.aggregations import compute_indicators
+from nof1_causal_lab.workers.schemas import ExtractionRow
 from tests.helpers import run_async
 
 pytestmark = pytest.mark.contract
@@ -104,9 +109,9 @@ def test_extraction_cache_is_shared_and_only_changed_effective_requests_miss(tmp
     first = plan("first", (_variable("x"),), "2026-01-03")
     assert len(first.chunks) == 2
     for chunk in first.chunks:
-        spec = storage.read_json(chunk.spec_ref)
+        spec = read_subroutine_json(chunk.spec_ref, MeasurementChunkContext)
         assert chunk.n_windows == 1
-        assert len(spec["measurement_structure"]["indicators"]) == 1
+        assert len(spec.measurement_structure.indicators) == 1
         result_ref = chunk.spec_ref + ".result"
         storage.write_text(
             result_ref,
@@ -116,7 +121,7 @@ def test_extraction_cache_is_shared_and_only_changed_effective_requests_miss(tmp
                         {
                             "indicator_id": "indicator:x",
                             "value": 7,
-                            "window_start": spec["window_starts"][0],
+                            "window_start": spec.window_starts[0],
                         }
                     ]
                 }
@@ -143,7 +148,12 @@ def test_extraction_cache_is_shared_and_only_changed_effective_requests_miss(tmp
             storage.read_json(again.result_ref)["dataframe"]
             == storage.read_json(completed.result_ref)["dataframe"]
         )
-        assert storage.read_json(again.result_ref)["dataframe"][0]["value"] == "7"
+        assert (
+            TypeAdapter[list[ExtractionRow]](list[ExtractionRow]).validate_python(
+                storage.read_json(again.result_ref)["dataframe"]
+            )[0]["value"]
+            == "7"
+        )
     same = plan("second", (_variable("x"),), "2026-01-03")
     assert all(chunk.cached_result_ref for chunk in same.chunks)
     expanded = plan("third", (_variable("x"), _variable("y")), "2026-01-04")
@@ -231,7 +241,7 @@ def test_ingestion_reuse_preserves_arrow_metadata_and_source_order(tmp_path, mon
             )
         )
     )
-    assert effects.diagnostics["ingestion_reused"] is True
+    assert effects.ingestion_reused is True
     saved = ArtifactStore("second").read_parquet_table(
         "raw_data", effects.produced[0].revision, "raw.parquet"
     )
@@ -260,30 +270,25 @@ def test_ingestion_reuse_preserves_arrow_metadata_and_source_order(tmp_path, mon
 
 def test_span_keeps_complete_windows_and_never_fills_from_excluded_history():
     raw = pl.DataFrame({"timestamp": [datetime(2026, 1, 1), datetime(2026, 1, 3)], "x": [9, 2]})
-    variable = DataVariableSpec.model_validate(
-        {**_variable("x").model_dump(), "extraction_mode": "computed", "fill_null": "forward"}
-    )
-    bounded = compute_indicators(
-        raw,
-        [variable.model_dump(mode="json")],
-        "1d",
-        "timestamp",
-        start=date(2026, 1, 2),
-        end=date(2026, 1, 4),
-    )
+    variable = _variable("x").revised(extraction_mode="computed", fill_null="forward")
+    context = FilePreparationSpec(
+        source=FileSourceRef(files=("source.csv",), start=date(2026, 1, 2), end=date(2026, 1, 4)),
+        definition=DataPreparationSpec(default_window="1d", variables=(variable,)),
+    ).extraction_context()
+    bounded = compute_indicators(raw, context, "timestamp")
     assert bounded["timestamp"].to_list() == ["2026-01-02T00:00:00", "2026-01-03T00:00:00"]
     assert bounded["value"].to_list() == [None, "2"]
     from nof1_causal_lab.actions.extraction.planning import prepare_semantic_chunks
 
+    semantic_context = FilePreparationSpec(
+        source=context.source,
+        definition=DataPreparationSpec(default_window="1d", variables=(_variable("x"),)),
+    ).extraction_context()
     texts, windows, _, empty_output = prepare_semantic_chunks(
         raw_df=raw,
-        semantic_inds=[_variable("x").model_dump(mode="json")],
-        measurement_structure={"model_clock": "1d", "indicators": []},
-        model_clock="1d",
+        measurement_structure=semantic_context,
         time_col="timestamp",
         max_events_per_window=300,
-        start=date(2026, 1, 2),
-        end=date(2026, 1, 4),
     )
     assert windows == [["2026-01-03T00:00:00"]]
     assert len(texts) == 1
@@ -319,9 +324,7 @@ def test_multiday_span_and_empty_semantic_windows_materialize_without_requests(
     artifact = store.write_artifact(
         "raw_data", derived_from={}, produced_by="prepare_data", parquet_files={"raw.parquet": raw}
     )
-    variable = DataVariableSpec.model_validate(
-        {**_variable("x").model_dump(), "aggregation": aggregation}
-    )
+    variable = _variable("x").revised(aggregation=aggregation)
     preparation = FilePreparationSpec(
         source={"files": ["scores.csv"], "start": "2026-01-02", "end": "2026-01-10"},
         definition=DataPreparationSpec(default_window="2d", variables=(variable,)),
@@ -339,8 +342,8 @@ def test_multiday_span_and_empty_semantic_windows_materialize_without_requests(
     )
     assert len(plan.chunks) == 1  # All-null Jan 3 and no-row Jan 7 never become LLM requests.
     chunk = plan.chunks[0]
-    spec = storage.read_json(chunk.spec_ref)
-    assert spec["window_starts"] == ["2026-01-05T00:00:00"]
+    spec = read_subroutine_json(chunk.spec_ref, MeasurementChunkContext)
+    assert spec.window_starts == ["2026-01-05T00:00:00"]
     result_ref = chunk.spec_ref + ".result"
     storage.write_text(
         result_ref,
@@ -349,7 +352,7 @@ def test_multiday_span_and_empty_semantic_windows_materialize_without_requests(
                 "extractions": [
                     {
                         "indicator_id": "indicator:x",
-                        "window_start": spec["window_starts"][0],
+                        "window_start": spec.window_starts[0],
                         "value": 2,
                     }
                 ]
@@ -391,20 +394,23 @@ def test_multiday_span_and_empty_semantic_windows_materialize_without_requests(
     assert read_data_metadata(store, revision).time_origin == datetime(2026, 1, 2, tzinfo=UTC)
     assert len(list((tmp_path / ".preparation-cache/measurement_extraction").iterdir())) == 1
 
-    computed = compute_indicators(
-        raw,
-        [
-            type(variable)
-            .model_validate({**variable.model_dump(), "extraction_mode": "computed"})
-            .model_dump(mode="json")
-        ],
-        "2d",
-        "timestamp",
-        start=preparation.source.start,
-        end=preparation.source.end,
+    computed_variable = DataVariableSpec(
+        id=variable.id,
+        name=variable.name,
+        measurement_dtype=variable.measurement_dtype,
+        aggregation=variable.aggregation,
+        observation_window=variable.observation_window,
+        how_to_measure=variable.how_to_measure,
+        source_columns=variable.source_columns,
+        extraction_mode="computed",
     )
-    from nof1_causal_lab.utils.data import annotate_observation_rows
+    computed_context = FilePreparationSpec(
+        source=preparation.source,
+        definition=DataPreparationSpec(default_window="2d", variables=(computed_variable,)),
+    ).extraction_context()
+    computed = compute_indicators(raw, computed_context, "timestamp")
+    from nof1_causal_lab.utils.observation_rows import annotate_observation_rows
 
-    rows = annotate_observation_rows(computed, preparation.definition.extraction_context())
+    rows = annotate_observation_rows(computed, preparation.definition.observation_schema())
     assert rows["anchor_time"].to_list() == [value.isoformat() for value in panel["anchor_time"]]
     assert computed["value"].to_list() == [None, "2", None]

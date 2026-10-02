@@ -2,18 +2,21 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 from nof1_causal_lab.artifacts.parameter import PriorAuthoringTransform, SiteKind
 from nof1_causal_lab.compilation_errors import AggregatedCompileError
-from nof1_causal_lab.models.ssm import numerics as numeric
-from nof1_causal_lab.models.ssm.parameterization import build_site_registry
+from nof1_causal_lab.models.ssm.compile import support as numeric
 from nof1_causal_lab.models.ssm.structure.sites import SemanticBinding
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from nof1_causal_lab.artifacts.identity import ParameterId
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.models.ssm.dynamics.expression import ExpressionComponentSpec
     from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor, SitePosition
 
 
@@ -27,16 +30,16 @@ class PriorIndexingError(AggregatedCompileError):
 class SemanticBindingRegistry:
     """Parameter-ID keyed bindings; runtime aliases are display metadata only."""
 
-    by_parameter: dict[ParameterId, SemanticBinding] = field(default_factory=dict)
+    by_parameter: Mapping[ParameterId, SemanticBinding]
 
 
-def _native_dynamics_bindings(model: ModelSpec) -> dict[ParameterId, SemanticBinding]:
+def _native_dynamics_bindings(
+    model: ModelSpec, components: tuple[ExpressionComponentSpec, ...]
+) -> dict[ParameterId, SemanticBinding]:
     """Bind coefficient references within the native component emitted by their own term."""
-    from nof1_causal_lab.models.ssm.compile.mechanisms import iter_mechanism_components
-
     state_ids = numeric.state_ids(model)
     result = {}
-    for index, (_, component) in enumerate(iter_mechanism_components(model, state_ids)):
+    for index, component in enumerate(components):
         for identity, site in component.parameter_sites(f"vf_{index}"):
             if identity in result:
                 raise PriorIndexingError(
@@ -48,7 +51,7 @@ def _native_dynamics_bindings(model: ModelSpec) -> dict[ParameterId, SemanticBin
                 site_name=site.name,
                 flat_index=0,
                 site_kind=site.site_kind,
-                transform=parameter.distribution_transform,
+                transform=parameter.transform.kind,
                 prior_field=site.priors_field,
                 construct_names=tuple(
                     model.get_construct(key).name
@@ -65,19 +68,20 @@ def _native_dynamics_bindings(model: ModelSpec) -> dict[ParameterId, SemanticBin
 
 def build_semantic_prior_bindings(
     model: ModelSpec,
+    sites: tuple[SiteDescriptor, ...],
+    components: tuple[ExpressionComponentSpec, ...],
 ) -> SemanticBindingRegistry:
     """Bind by mechanism coefficient references, quantities, and scientific owner IDs."""
     from nof1_causal_lab.models.ssm.compile.parameter_identity import SHARED_OBSERVATION_FAMILIES
 
-    bindings = _native_dynamics_bindings(model)
+    bindings = _native_dynamics_bindings(model, components)
     latent = {identity: index for index, identity in enumerate(numeric.state_ids(model))}
     manifest = {identity: index for index, identity in enumerate(numeric.observation_ids(model))}
-    sites = build_site_registry(model)
     errors: list[str] = []
     latent_names = numeric.state_names(model)
     manifest_names = numeric.observation_names(model)
 
-    for parameter in model.execution_parameters:
+    for parameter in model.parameters:
         if parameter.id in bindings:
             continue
         kind = model.parameter_context(parameter.id).quantity
@@ -88,7 +92,7 @@ def build_semantic_prior_bindings(
         state_indices = {latent[key] for key in construct_ids if key in latent}
         indicator_indices = {manifest[key] for key in indicator_ids if key in manifest}
         position: SitePosition | None = None
-        transform = parameter.distribution_transform
+        transform = parameter.transform.kind
         if kind in SHARED_OBSERVATION_FAMILIES or kind == SiteKind.PROC_DF:
             matches = [(site, 0) for site in sites if site.site_kind == kind]
             transform = PriorAuthoringTransform.SITE_WIDE
@@ -108,7 +112,10 @@ def build_semantic_prior_bindings(
             if kind == SiteKind.STATIC_STATE_SD:
                 factor_ids = construct_ids & set(numeric.static_factor_ids(model))
                 if len(factor_ids) == 1:
-                    position = numeric.static_factor_ids(model).index(next(iter(factor_ids)))
+                    position = {
+                        identity: index
+                        for index, identity in enumerate(numeric.static_factor_ids(model))
+                    }[next(iter(factor_ids))]
             elif kind == SiteKind.LOADING:
                 if len(indicator_indices) == 1 and len(state_indices) == 1:
                     position = (next(iter(indicator_indices)), next(iter(state_indices)))
@@ -150,7 +157,7 @@ def build_semantic_prior_bindings(
         )
     if errors:
         raise PriorIndexingError(errors)
-    return SemanticBindingRegistry(bindings)
+    return SemanticBindingRegistry(MappingProxyType(bindings))
 
 
 __all__ = [

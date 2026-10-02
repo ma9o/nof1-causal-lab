@@ -2,268 +2,46 @@
 
 from __future__ import annotations
 
-import json
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
-from pydantic import BaseModel, ConfigDict
-
-from nof1_causal_lab.artifacts.checks import SpecificationReport
-from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec
-from nof1_causal_lab.artifacts.execution import StructuralItemDisposition
 from nof1_causal_lab.artifacts.identity import (
-    ConstructId,
-    ConstructRef,
-    EdgeId,
     GitOid,
     GitRef,
-    ParameterId,
 )
-from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
-from nof1_causal_lab.artifacts.posterior import InferenceReport
-from nof1_causal_lab.artifacts.simulation import SimulationReport
-from nof1_causal_lab.json_types import JsonValue
-from nof1_causal_lab.study.state import ArtifactRecord
+from nof1_causal_lab.models.model_structure import (
+    compare_model_definitions,
+    compare_model_graph,
+    compare_parameters,
+)
+from nof1_causal_lab.study.view_models import (
+    ModelDiffReport,
+)
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
-
-
-class RevisionCatalog(BaseModel):
-    """A revision catalog lists immutable model, source and observation inputs for selection."""
-
-    model_config = ConfigDict(extra="forbid")
-    models: list[ArtifactRecord]
-    raw_data: list[ArtifactRecord]
-    panels: list[ArtifactRecord]
-
-
-class ParameterChange(BaseModel):
-    """A parameter change compares one parameter's law across model revisions."""
-
-    model_config = ConfigDict(extra="forbid")
-    parameter_id: ParameterId
-    before: ParameterSpec | None
-    after: ParameterSpec | None
-    change: str
-
-
-class ConstructComparison(BaseModel):
-    """A construct's presence and time-slice topology in two model revisions."""
-
-    model_config = ConfigDict(extra="forbid")
-    construct_id: ConstructId
-    before: ConstructSpec | None
-    after: ConstructSpec | None
-    change: Literal["added", "removed", "revised", "unchanged"]
-    before_disposition: StructuralItemDisposition | None
-    after_disposition: StructuralItemDisposition | None
-
-
-class ComparisonConnection(BaseModel):
-    """Endpoint references and description for one side of a causal edge comparison."""
-
-    model_config = ConfigDict(extra="forbid")
-    cause: ConstructRef
-    effect: ConstructRef
-    description: str
-
-
-class EdgeComparison(BaseModel):
-    """An explicit causal edge's presence and endpoints in two model revisions."""
-
-    model_config = ConfigDict(extra="forbid")
-    edge_id: EdgeId
-    before: ComparisonConnection | None
-    after: ComparisonConnection | None
-    change: Literal["added", "removed", "revised", "unchanged"]
-    before_disposition: StructuralItemDisposition | None
-    after_disposition: StructuralItemDisposition | None
-
-
-class ModelGraphComparison(BaseModel):
-    """Identity-aligned topology changes, excluding laws and other entity attributes."""
-
-    model_config = ConfigDict(extra="forbid")
-    constructs: list[ConstructComparison]
-    edges: list[EdgeComparison]
-    before_dynamic_construct_ids: list[ConstructId]
-    after_dynamic_construct_ids: list[ConstructId]
-
-
-class ModelDefinitionChange(BaseModel):
-    """One changed field in identity-keyed scientific model definitions."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
-    path: str
-    change: Literal["added", "removed", "revised"]
-    before: JsonValue
-    after: JsonValue
-
-
-class ModelDiffReport(BaseModel):
-    """A model diff joins definition changes and evidence at two model revisions or checkpoints."""
-
-    model_config = ConfigDict(extra="forbid")
-    before: GitRef
-    after: GitRef
-    definition_changes: list[ModelDefinitionChange]
-    parameters: list[ParameterChange]
-    graph: ModelGraphComparison
-    changed_inputs: list[str]
-    before_checks: SpecificationReport
-    after_checks: SpecificationReport
-    before_fit: InferenceReport | None
-    after_fit: InferenceReport | None
-    before_simulation: SimulationReport | None
-    after_simulation: SimulationReport | None
-
-
-def compare_parameters(left: ModelSpec, right: ModelSpec) -> list[ParameterChange]:
-    """Compare native parameter decisions and law contents by persistent identity."""
-    old, new = {p.id: p for p in left.parameters}, {p.id: p for p in right.parameters}
-    old_laws = left.model_dump(mode="json")["distributions"]
-    new_laws = right.model_dump(mode="json")["distributions"]
-    changes = []
-    for identity in sorted(old.keys() | new.keys()):
-        a, b = old.get(identity), new.get(identity)
-        if a == b and (
-            a is None
-            or a.distribution is None
-            or json.dumps(old_laws[a.distribution], sort_keys=True)
-            == json.dumps(new_laws[a.distribution], sort_keys=True)
-        ):
-            continue
-        change = "added" if a is None else "removed" if b is None else "revised"
-        changes.append(ParameterChange(parameter_id=identity, before=a, after=b, change=change))
-    return changes
-
-
-def compare_model_definitions(left: ModelSpec, right: ModelSpec) -> list[ModelDefinitionChange]:
-    """Compare every authored field, aligning entities by ID rather than list position."""
-
-    def definition(model: ModelSpec) -> JsonValue:
-        value = model.model_dump(mode="json", exclude={"edges", "parameters"})
-        value["constructs"] = {item.id: item.model_dump(mode="json") for item in model.constructs}
-        value["parameters"] = {item.id: item.model_dump(mode="json") for item in model.parameters}
-        value["edges"] = {
-            item.id: {
-                **item.model_dump(mode="json", exclude={"cause", "effect"}),
-                "cause": item.cause.id,
-                "effect": item.effect.id,
-            }
-            for item in model.edges
-        }
-        for construct in value["constructs"].values():
-            construct["indicators"] = {item["id"]: item for item in construct["indicators"]}
-        return value
-
-    changes = []
-
-    def walk(before: JsonValue, after: JsonValue, path: str) -> None:
-        if isinstance(before, dict) and isinstance(after, dict):
-            for key in sorted(before.keys() | after.keys()):
-                pointer = path + "/" + key.replace("~", "~0").replace("/", "~1")
-                if key not in before or key not in after:
-                    changes.append(
-                        ModelDefinitionChange(
-                            path=pointer,
-                            change="added" if key in after else "removed",
-                            before=before.get(key),
-                            after=after.get(key),
-                        )
-                    )
-                else:
-                    walk(before[key], after[key], pointer)
-        elif before != after:
-            changes.append(
-                ModelDefinitionChange(path=path, change="revised", before=before, after=after)
-            )
-
-    walk(definition(left), definition(right), "")
-    return changes
-
-
-def compare_model_graph(left: ModelSpec, right: ModelSpec) -> ModelGraphComparison:
-    """Compare displayed nodes and connections, including their time-slice topology."""
-    from nof1_causal_lab.models.model_structure import model_graph_entities
-
-    graphs = [model_graph_entities(model) for model in (left, right)]
-    dispositions = [
-        {item.target.id: item for item in model.structural_dispositions}
-        if model.measurement_clock is not None and model.indicators
-        else {}
-        for model in (left, right)
-    ]
-
-    def topology(entity: ConstructSpec | CausalEdgeSpec):
-        if isinstance(entity, CausalEdgeSpec):
-            return entity.cause.id, entity.cause.is_dynamic, entity.effect.id
-        return entity.is_dynamic
-
-    def entities(before, after, comparison_type, identity_field):
-        old, new = {item.id: item for item in before}, {item.id: item for item in after}
-        result = []
-        for identity in sorted(old.keys() | new.keys()):
-            a, b = old.get(identity), new.get(identity)
-            change = (
-                "added"
-                if a is None
-                else "removed"
-                if b is None
-                else "revised"
-                if topology(a) != topology(b)
-                else "unchanged"
-            )
-            result.append(
-                comparison_type(
-                    **{
-                        identity_field: identity,
-                        "before": read(a),
-                        "after": read(b),
-                        "change": change,
-                        "before_disposition": dispositions[0].get(identity),
-                        "after_disposition": dispositions[1].get(identity),
-                    }
-                )
-            )
-        return result
-
-    def read(entity):
-        if isinstance(entity, CausalEdgeSpec):
-            return ComparisonConnection(
-                cause=ConstructRef(id=entity.cause.id),
-                effect=ConstructRef(id=entity.effect.id),
-                description=entity.description,
-            )
-        return entity
-
-    return ModelGraphComparison(
-        before_dynamic_construct_ids=[item.id for item in graphs[0][0] if item.is_dynamic],
-        after_dynamic_construct_ids=[item.id for item in graphs[1][0] if item.is_dynamic],
-        constructs=entities(graphs[0][0], graphs[1][0], ConstructComparison, "construct_id"),
-        edges=entities(graphs[0][1], graphs[1][1], EdgeComparison, "edge_id"),
-    )
+    from nof1_causal_lab.artifacts.posterior import InferenceReportCore
+    from nof1_causal_lab.artifacts.simulation import SimulationReport
 
 
 def _model_revision(
     workspace_id: str, revision: GitOid
-) -> tuple[ModelSpec, GitRef, InferenceReport | None, SimulationReport | None]:
+) -> tuple[ModelSpec, GitRef, InferenceReportCore | None, SimulationReport | None]:
     """Select an exact model tree or the model and recorded evidence at a Git commit."""
     import pygit2
 
-    from nof1_causal_lab.study.snapshots import ModelReader, SnapshotRevisionNotFound
+    from nof1_causal_lab.study.errors import StudyLookupError
+    from nof1_causal_lab.study.snapshots import ModelReader
     from nof1_causal_lab.study.store import ArtifactStore, read_model
 
     store = ArtifactStore(workspace_id)
-    try:
-        obj = store.repo[pygit2.Oid(hex=revision)]
-    except KeyError as exc:
-        raise SnapshotRevisionNotFound(f"Unknown model revision {revision}") from exc
+    oid = pygit2.Oid(hex=revision)
+    if oid not in store.repo:
+        raise StudyLookupError(f"Unknown model revision {revision}")
+    obj = store.repo[oid]
     if isinstance(obj, pygit2.Tree):
-        try:
-            model = read_model(store, revision)
-        except (KeyError, ValueError) as exc:
-            raise SnapshotRevisionNotFound("The selected tree is not a model artifact") from exc
+        if "model.json" not in obj:
+            raise StudyLookupError("The selected tree is not a model artifact")
+        model = read_model(store, revision)
         return (
             model,
             GitRef(workspace_id=workspace_id, revision=revision, path="model.json"),
@@ -271,10 +49,10 @@ def _model_revision(
             None,
         )
     if obj.type != pygit2.GIT_OBJECT_COMMIT:
-        raise SnapshotRevisionNotFound("Select a model artifact tree or a study commit")
+        raise StudyLookupError("Select a model artifact tree or a study commit")
     reader = ModelReader(workspace_id, at=revision)
     if reader.model is None:
-        raise SnapshotRevisionNotFound("The selected checkpoint contains no model")
+        raise StudyLookupError("The selected checkpoint contains no model")
     fit, simulation = reader.inference_report, reader.simulation()
     return (
         reader.model,
@@ -298,16 +76,16 @@ def model_diff(workspace_id: str, before_id: GitOid, after_id: GitOid) -> ModelD
     return ModelDiffReport(
         before=before,
         after=after,
-        definition_changes=compare_model_definitions(left, right),
-        parameters=changes,
+        definition_changes=tuple(compare_model_definitions(left, right)),
+        parameters=tuple(changes),
         graph=compare_model_graph(left, right),
         before_checks=check_specification(left),
         after_checks=check_specification(right),
-        before_fit=before_fit.summary() if before_fit else None,
-        after_fit=after_fit.summary() if after_fit else None,
+        before_fit=before_fit,
+        after_fit=after_fit,
         before_simulation=before_simulation,
         after_simulation=after_simulation,
-        changed_inputs=[
+        changed_inputs=tuple(
             key for key, value in input_fingerprints(right).items() if value != fingerprints[key]
-        ],
+        ),
     )

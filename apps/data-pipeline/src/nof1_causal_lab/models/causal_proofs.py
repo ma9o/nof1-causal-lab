@@ -5,11 +5,20 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
+from nof1_causal_lab.study.records import Applied, FitAttempt
+
+
+class CausalCertificationError(Exception):
+    """Owned causal inputs do not supply the evidence required for a numeric claim."""
+
+
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.identification import IdentificationReport
     from nof1_causal_lab.artifacts.identity import GitRef
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.study.records import AttemptRecord
+    from nof1_causal_lab.artifacts.posterior import InferenceReport
+    from nof1_causal_lab.artifacts.posterior_diagnostics import ParticleMCMCEvidence
+    from nof1_causal_lab.study.records import StudyRevision
 
 
 @dataclass(frozen=True, slots=True)
@@ -31,21 +40,23 @@ class CertifiedCausalAnalysis:
     model_revision: GitRef
     identification: IdentificationReport
     estimands: tuple[IdentifiedEstimand, ...]
-    inference: AttemptRecord
+    inference: StudyRevision
 
     def __post_init__(self) -> None:
         if not self.estimands:
-            raise ValueError("at least one identified estimand is required")
+            raise CausalCertificationError("at least one identified estimand is required")
         certify_conditioned_model(self.model, self.model_revision, self.inference)
         outcomes = {estimand.outcome for estimand in self.estimands}
         if len(outcomes) != 1:
-            raise ValueError("all identified estimands must target the same outcome")
+            raise CausalCertificationError("all identified estimands must target the same outcome")
         treatments = [estimand.treatment for estimand in self.estimands]
         if len(treatments) != len(set(treatments)):
-            raise ValueError("identified estimands must not contain duplicate treatments")
+            raise CausalCertificationError(
+                "identified estimands must not contain duplicate treatments"
+            )
         for estimand in self.estimands:
             if estimand.model != self.model_revision:
-                raise ValueError(
+                raise CausalCertificationError(
                     "identification evidence and posterior provenance reference different "
                     "model revisions"
                 )
@@ -57,7 +68,9 @@ class CertifiedCausalAnalysis:
                 outcome=estimand.outcome,
             )
             if expected != estimand:
-                raise ValueError("identification evidence does not match the model findings")
+                raise CausalCertificationError(
+                    "identification evidence does not match the model findings"
+                )
 
     @property
     def treatments(self) -> list[str]:
@@ -92,15 +105,15 @@ def certify_identified_estimand(
         or outcome != declared_outcome
         or identification.outcome != default_outcome
     ):
-        raise ValueError(
+        raise CausalCertificationError(
             f"{outcome!r} does not match the outcome covered by the model identification"
         )
     construct_ids = {construct.name: construct.id for construct in model.constructs}
     if treatment not in construct_ids:
-        raise ValueError(f"{treatment!r} is not a construct in the model")
+        raise CausalCertificationError(f"{treatment!r} is not a construct in the model")
     details = identification.treatments.get(construct_ids[treatment])
     if details is None or details.status != "identified":
-        raise ValueError(f"effect of {treatment!r} on {outcome!r} is not identified")
+        raise CausalCertificationError(f"effect of {treatment!r} on {outcome!r} is not identified")
     return IdentifiedEstimand(
         model=model_revision,
         treatment=treatment,
@@ -110,31 +123,46 @@ def certify_identified_estimand(
     )
 
 
-def certify_conditioned_model(model: ModelSpec, revision: GitRef, record: AttemptRecord) -> None:
+def certify_conditioned_model(model: ModelSpec, revision: GitRef, record: StudyRevision) -> None:
     """Join the current scientific value to committed, converged exact-engine evidence."""
-    from nof1_causal_lab.artifacts.posterior import InferenceReport
     from nof1_causal_lab.models.model_inputs import input_fingerprints
     from nof1_causal_lab.models.ssm.inference.convergence import convergence_failures
-    from nof1_causal_lab.study.lineage import inference_record
+    from nof1_causal_lab.study.records import inference_record
 
     if inference_record([record], revision.revision) is None:
-        raise ValueError("Causal reporting requires the committed fit for this model revision")
-    produced = next(info for info in record.produced if info.artifact_id == "model")
-    if produced.model_inputs["belief"] != input_fingerprints(model)["belief"]:
-        raise ValueError("The model value differs from the revision certified by the inference log")
-    from pydantic import TypeAdapter
+        raise CausalCertificationError(
+            "Causal reporting requires the committed fit for this model revision"
+        )
+    from nof1_causal_lab.study.records import FitAttempt
 
-    evidence = TypeAdapter(dict[str, str]).validate_python(record.diagnostics["engine_evidence"])
-    if evidence["engine"] != "marginal_particle_gibbs":
-        raise ValueError("Inference did not use the production particle-MCMC target")
-    if evidence["latent_transition"] != "euler_maruyama":
-        raise ValueError("Inference did not target the nonlinear Euler-Maruyama transition")
+    assert isinstance(record.record.attempt, FitAttempt)
+    assert isinstance(record.record.attempt.outcome, Applied)
+    produced = next(
+        info
+        for info in record.record.attempt.outcome.result.produced
+        if info.artifact_id == "model"
+    )
+    if produced.model_inputs["belief"] != input_fingerprints(model)["belief"]:
+        raise CausalCertificationError(
+            "The model value differs from the revision certified by the inference log"
+        )
+    report, _evidence = read_fit_evidence(record)
     if not model.distributions or not model.time_points:
-        raise ValueError("The model has no retained joint uncertainty")
-    report = InferenceReport.model_validate(record.diagnostics["report"])
-    if failures := convergence_failures(report.inference_diagnostics):
-        raise ValueError(
+        raise CausalCertificationError("The model has no retained joint uncertainty")
+    if failures := convergence_failures(report.convergence):
+        raise CausalCertificationError(
             "The fit did not pass its convergence checks: "
             + "; ".join(failures)
             + ". Revise the model before reporting causal effects."
         )
+
+
+def read_fit_evidence(record: StudyRevision) -> tuple[InferenceReport, ParticleMCMCEvidence]:
+    """Consume the already-owned engine assessment; no journal report reconstruction."""
+    attempt = record.record.attempt
+    assert isinstance(attempt, FitAttempt)
+    assert attempt.outcome.status == "applied"
+    report = attempt.outcome.result.report
+    if report.engine.kind != "evaluated":
+        raise CausalCertificationError("The recorded fit has no retained exact-engine evidence")
+    return report, report.engine.evidence

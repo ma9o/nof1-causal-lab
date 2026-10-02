@@ -44,17 +44,11 @@ pytestmark = pytest.mark.contract
 
 
 def _get_estimand(result: IdentificationResult, treatment: str) -> str:
-    details = result.get("identifiable_treatments", {}).get(treatment, {})
-    if isinstance(details, dict):
-        return details.get("estimand", "")
-    return ""
+    return result.identifiable_treatments[treatment].estimand
 
 
-def _get_blockers(result: IdentificationResult, treatment: str) -> list[str]:
-    details = result.get("non_identifiable_treatments", {}).get(treatment, {})
-    if isinstance(details, dict):
-        return details.get("confounders", [])
-    return []
+def _get_blockers(result: IdentificationResult, treatment: str) -> tuple[str, ...]:
+    return result.non_identifiable_treatments[treatment].confounders
 
 
 def _run_checks(
@@ -78,19 +72,19 @@ def _run_checks(
         kind = check[0]
         if kind == "identifiable":
             (_, t) = check
-            assert t in result["identifiable_treatments"], (
+            assert t in result.identifiable_treatments, (
                 f"{t} should be identifiable. Result: {result}"
             )
         elif kind == "not_identifiable":
             (_, t) = check
-            assert t in result["non_identifiable_treatments"], (
+            assert t in result.non_identifiable_treatments, (
                 f"{t} should NOT be identifiable. Result: {result}"
             )
         elif kind == "blocked_by":
             (_, t, blocker) = check
-            details = result["non_identifiable_treatments"].get(t)
+            details = result.non_identifiable_treatments.get(t)
             assert details, f"{t} should have blocking confounders. Result: {result}"
-            blockers = details.get("confounders", []) if isinstance(details, dict) else []
+            blockers = details.confounders
             assert blocker in blockers, f"{t} should be blocked by {blocker}. Blockers: {blockers}"
         elif kind == "estimand_contains":
             (_, t, sub) = check
@@ -104,8 +98,8 @@ def _run_checks(
             )
         elif kind == "treatment_absent":
             (_, t) = check
-            assert t not in result["identifiable_treatments"]
-            assert t not in result["non_identifiable_treatments"]
+            assert t not in result.identifiable_treatments
+            assert t not in result.non_identifiable_treatments
         elif kind == "blocker_in":
             (_, t, candidates) = check
             blockers = _get_blockers(result, t)
@@ -113,10 +107,10 @@ def _run_checks(
                 f"{t} blockers should include one of {candidates}. Got: {blockers}"
             )
         elif kind == "no_treatments_at_all":
-            assert len(result["identifiable_treatments"]) == 0
-            assert len(result["non_identifiable_treatments"]) == 0
+            assert len(result.identifiable_treatments) == 0
+            assert len(result.non_identifiable_treatments) == 0
         elif kind == "no_identifiable_treatments":
-            assert len(result["identifiable_treatments"]) == 0
+            assert len(result.identifiable_treatments) == 0
         else:
             raise AssertionError(f"Unknown check kind: {kind}")
 
@@ -1681,15 +1675,10 @@ def test_marginalization(case):
         edges=replace_constructs(
             model.edges,
             tuple(
-                type(construct).model_validate(
-                    {
-                        **construct.model_dump(),
-                        "role": "endogenous",
-                        "temporal_status": "time_invariant",
-                        "indicators": construct.indicators
-                        if construct.name in case["observed"]
-                        else (),
-                    }
+                construct.revised(
+                    role="endogenous",
+                    temporal_status="time_invariant",
+                    indicators=construct.indicators if construct.name in case["observed"] else (),
                 )
                 for construct in model.constructs
             ),

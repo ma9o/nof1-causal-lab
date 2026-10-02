@@ -1,31 +1,8 @@
-"""Fit-time consistency checks between observed data, spec, and priors.
-
-The semantic pipeline layers (model-spec auto-standardization, prior-predictive
-scale gates) only protect models that pass through them. Callers that drive
-``inference.fit()`` directly — benchmarks, notebooks, manual runs — can hand
-the sampler a configuration whose ground truth has essentially zero prior
-density (e.g. a raw-scale Gaussian indicator mean of 87 under the canonical
-``Normal(0, 2)`` manifest-mean prior). The posterior then concentrates on the
-best compromise reachable within the priors and every coupled coordinate
-distorts to absorb the misfit, which is indistinguishable from a sampler
-failure in recovery summaries.
-
-These checks run unconditionally at the ``fit()`` boundary and fail loudly:
-
-- A channel marked ``manifest_standardized`` must actually arrive standardized
-  (column mean near 0 and column sd near 1).
-- A free manifest mean on an unstandardized identity-link location channel must
-  have the observed column mean within reach of its prior.
-
-Scope is deliberately limited to checks that cannot false-positive on a
-legitimately authored model: fixed manifest means, non-identity links, and
-non-location families are not judged here — scale plausibility for those
-configurations belongs to the prior-predictive checks.
-"""
+"""Check prior reach against model-bound observations before numerical fitting."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 import numpy as np
 import numpyro.distributions as dist
@@ -34,11 +11,10 @@ from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunctio
 from nof1_causal_lab.models.ssm import numerics as numeric
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.models.ssm.model import SSMModel
+    from nof1_causal_lab.models.ssm.parameterization import PriorRuntimeBundle
+    from nof1_causal_lab.models.ssm.runtime import BoundPanel
 
 LOCATION_REACH_SIGMAS = 6.0
-STANDARDIZED_MEAN_SD_RATIO = 0.5
-STANDARDIZED_SD_BAND = (0.5, 2.0)
 
 _LOCATION_FAMILIES = (DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T)
 
@@ -47,16 +23,15 @@ class ObservationPreflightError(ValueError):
     """Observed data is inconsistent with the spec/prior configuration."""
 
 
-def validate_observation_support_for_fit(model: SSMModel) -> None:
+def validate_observation_support_for_fit(panel: BoundPanel) -> None:
     """Reject observation semantics the particle target cannot represent."""
-    support = model.observation_support
     intervals = [
         indicator.name
-        for indicator in numeric.observed_indicators(model.spec)
-        if indicator.support_kind == "interval"
-        and model.spec.indicator_owner(indicator.id).role == "endogenous"
+        for indicator in panel.model.observations
+        if indicator.support.support_kind == "interval"
+        and not panel.model.states[indicator.state_index].is_input
     ]
-    if support is not None and intervals:
+    if intervals:
         names = ", ".join(intervals)
         raise ObservationPreflightError(
             "Particle inference supports only point measurements; "
@@ -71,7 +46,7 @@ def _prior_loc_scale(
         prior = prior.component_distributions[free_idx]
     while isinstance(prior, (dist.ExpandedDistribution, dist.MaskedDistribution)):
         prior = prior.base_dist
-    family = type(prior).__name__
+    family: str = type(prior).__name__
     if isinstance(prior, dist.TwoSidedTruncatedDistribution):
         prior = prior.base_dist
         family = "TruncatedNormal"
@@ -82,34 +57,24 @@ def _prior_loc_scale(
     return family, float(mu[free_idx]), float(sigma[free_idx])
 
 
-def validate_observations_for_fit(model: SSMModel, observations: Any) -> None:
+def validate_observations_for_fit(priors: PriorRuntimeBundle, panel: BoundPanel) -> None:
     """Validate (spec, priors, observations) consistency before fitting.
 
     Raises:
         ObservationPreflightError: listing every violating channel.
     """
-    validate_observation_support_for_fit(model)
-    spec = model.spec
-    obs = np.asarray(observations, dtype=np.float64)
-    if obs.ndim != 2 or obs.shape[1] != numeric.n_observations(spec):
-        raise ObservationPreflightError(
-            f"observations must have shape (N, {numeric.n_observations(spec)}), got {obs.shape}"
-        )
-
+    validate_observation_support_for_fit(panel)
+    spec = panel.model
+    obs = np.asarray(panel.observations, dtype=np.float64)
     dists = numeric.observation_families(spec)
-    if not dists:
-        return
-
     links = numeric.observation_links(spec)
     standardized = numeric.observation_standardized(spec)
     names = numeric.observation_names(spec)
 
-    means_block = numeric.observation_mean_block(spec)
+    means_block = spec.observation_mean_block
     free_support = np.asarray(means_block.free_support, dtype=bool)
     n_free = int(free_support.sum())
-    free_prior = (
-        model.get_prior_runtime_bundle().priors[means_block.free_site_name] if n_free else None
-    )
+    free_prior = priors.priors[means_block.free_site_name] if n_free else None
 
     problems: list[str] = []
     for j in range(numeric.n_observations(spec)):
@@ -117,22 +82,8 @@ def validate_observations_for_fit(model: SSMModel, observations: Any) -> None:
         if finite.size == 0:
             continue
         mean_j = float(finite.mean())
-        sd_j = float(finite.std())
 
         if bool(standardized[j]):
-            if abs(mean_j) > STANDARDIZED_MEAN_SD_RATIO * sd_j + 1e-4:
-                problems.append(
-                    f"{names[j]}: marked standardized but the observed column mean is "
-                    f"{mean_j:.4g} (sd {sd_j:.4g}); apply standardization to the data before "
-                    "fit (production applies it in prepare_model_runtime)"
-                )
-            sd_lo, sd_hi = STANDARDIZED_SD_BAND
-            if finite.size >= 2 and sd_j > 0.0 and not (sd_lo <= sd_j <= sd_hi):
-                problems.append(
-                    f"{names[j]}: marked standardized but the observed column sd is "
-                    f"{sd_j:.4g} (expected ~1); apply standardization to the data before "
-                    "fit (production applies it in prepare_model_runtime)"
-                )
             continue
 
         if DistributionFamily(dists[j]) not in _LOCATION_FAMILIES:

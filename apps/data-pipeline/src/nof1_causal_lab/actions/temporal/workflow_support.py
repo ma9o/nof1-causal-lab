@@ -2,21 +2,22 @@
 
 from __future__ import annotations
 
+import json
 from datetime import timedelta
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ActivityError, ApplicationError, ChildWorkflowError
 
 from nof1_causal_lab.actions.temporal.messages import ProgressEventInput
+from nof1_causal_lab.study.records import Raised
 
 if TYPE_CHECKING:
     from nof1_causal_lab.actions.progress import ProgressEvent
 
 EVENT_TIMEOUT = timedelta(seconds=30)
 EVENT_RETRY = RetryPolicy(initial_interval=timedelta(seconds=1), maximum_attempts=5)
-type TemporalFailureDiagnostics = dict[str, Any]
 
 
 async def emit_progress(workspace_id: str, event: ProgressEvent) -> None:
@@ -29,19 +30,22 @@ async def emit_progress(workspace_id: str, event: ProgressEvent) -> None:
     )
 
 
-def temporal_failure_details(
-    exc: BaseException,
-) -> tuple[str, str, TemporalFailureDiagnostics]:
-    """Unwrap a Temporal cause chain into a stable runtime error payload."""
+def temporal_failure(exc: BaseException) -> Raised:
+    """Only execution-failure handlers consume this foreign transport payload."""
     cause = exc
     while not isinstance(cause, ApplicationError):
-        next_cause = cause.__cause__
+        next_cause = (
+            cause.cause
+            if isinstance(cause, (ActivityError, ChildWorkflowError))
+            else cause.__cause__
+        )
         if next_cause is None:
             break
         cause = next_cause
     if isinstance(cause, ApplicationError):
-        diagnostics = (
-            cause.details[0] if cause.details and isinstance(cause.details[0], dict) else {}
+        return Raised(
+            error_type=cause.type or "ApplicationError",
+            error_message=cause.message,
+            details=tuple(json.dumps(value, sort_keys=True) for value in cause.details),
         )
-        return cause.type or "ApplicationError", cause.message, dict(diagnostics)
-    return type(cause).__name__, str(cause), {}
+    return Raised(error_type=type(cause).__name__, error_message=str(cause))

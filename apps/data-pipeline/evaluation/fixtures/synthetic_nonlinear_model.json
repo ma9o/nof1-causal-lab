@@ -113,37 +113,35 @@
             "likelihood": {
               "law": {
                 "distribution": "Normal",
-                "arguments": {
-                  "loc": {
+                "loc": {
+                  "kind": "binary",
+                  "operator": "add",
+                  "left": {
+                    "kind": "coefficient",
+                    "role": "observation_intercept",
+                    "value": 0.20000000298023224,
+                    "construct_ids": []
+                  },
+                  "right": {
                     "kind": "binary",
-                    "operator": "add",
+                    "operator": "multiply",
                     "left": {
                       "kind": "coefficient",
-                      "role": "observation_intercept",
-                      "value": 0.20000000298023224,
+                      "role": "loading",
+                      "value": 0.75,
                       "construct_ids": []
                     },
                     "right": {
-                      "kind": "binary",
-                      "operator": "multiply",
-                      "left": {
-                        "kind": "coefficient",
-                        "role": "loading",
-                        "value": 0.75,
-                        "construct_ids": []
-                      },
-                      "right": {
-                        "kind": "state",
-                        "construct_id": "construct:affective_state"
-                      }
+                      "kind": "state",
+                      "construct_id": "construct:affective_state"
                     }
-                  },
-                  "scale": {
-                    "kind": "coefficient",
-                    "role": "observation_scale",
-                    "value": "parameter:e6e449bbcfa8f8600c43b6210cb3f6da2f7961978a65e39d5822f7b37d36c9f6",
-                    "construct_ids": []
                   }
+                },
+                "scale": {
+                  "kind": "coefficient",
+                  "role": "observation_scale",
+                  "value": "parameter:e6e449bbcfa8f8600c43b6210cb3f6da2f7961978a65e39d5822f7b37d36c9f6",
+                  "construct_ids": []
                 }
               },
               "standardized": false,
@@ -165,43 +163,41 @@
             "likelihood": {
               "law": {
                 "distribution": "NegativeBinomial2",
-                "arguments": {
-                  "mean": {
-                    "kind": "call",
-                    "function": "exp",
-                    "arguments": [
-                      {
+                "mean": {
+                  "kind": "call",
+                  "function": "exp",
+                  "arguments": [
+                    {
+                      "kind": "binary",
+                      "operator": "add",
+                      "left": {
+                        "kind": "coefficient",
+                        "role": "observation_intercept",
+                        "value": "parameter:17cbc157086e379ab0f79726ceda91ecfdfdab21b0b01b95f9dbfeda6a129a80",
+                        "construct_ids": []
+                      },
+                      "right": {
                         "kind": "binary",
-                        "operator": "add",
+                        "operator": "multiply",
                         "left": {
                           "kind": "coefficient",
-                          "role": "observation_intercept",
-                          "value": "parameter:17cbc157086e379ab0f79726ceda91ecfdfdab21b0b01b95f9dbfeda6a129a80",
+                          "role": "loading",
+                          "value": "parameter:9b2fc1354fa82aba33ffe91fe9bdc526c523eea7b59db260e4b03fe880e2b330",
                           "construct_ids": []
                         },
                         "right": {
-                          "kind": "binary",
-                          "operator": "multiply",
-                          "left": {
-                            "kind": "coefficient",
-                            "role": "loading",
-                            "value": "parameter:9b2fc1354fa82aba33ffe91fe9bdc526c523eea7b59db260e4b03fe880e2b330",
-                            "construct_ids": []
-                          },
-                          "right": {
-                            "kind": "state",
-                            "construct_id": "construct:affective_state"
-                          }
+                          "kind": "state",
+                          "construct_id": "construct:affective_state"
                         }
                       }
-                    ]
-                  },
-                  "concentration": {
-                    "kind": "coefficient",
-                    "role": "dispersion",
-                    "value": "parameter:e72638eadfbc4808dff2da0d50aa4e15ce849387527175e0b32d8d5ad7f89144",
-                    "construct_ids": []
-                  }
+                    }
+                  ]
+                },
+                "concentration": {
+                  "kind": "coefficient",
+                  "role": "dispersion",
+                  "value": "parameter:e72638eadfbc4808dff2da0d50aa4e15ce849387527175e0b32d8d5ad7f89144",
+                  "construct_ids": []
                 }
               },
               "standardized": false,
@@ -223,37 +219,35 @@
             "likelihood": {
               "law": {
                 "distribution": "Normal",
-                "arguments": {
-                  "loc": {
+                "loc": {
+                  "kind": "binary",
+                  "operator": "add",
+                  "left": {
+                    "kind": "coefficient",
+                    "role": "observation_intercept",
+                    "value": 2.0,
+                    "construct_ids": []
+                  },
+                  "right": {
                     "kind": "binary",
-                    "operator": "add",
+                    "operator": "multiply",
                     "left": {
                       "kind": "coefficient",
-                      "role": "observation_intercept",
-                      "value": 2.0,
+                      "role": "loading",
+                      "value": "parameter:f79d969731996adf3bfbd5ab92a49ff987ada316d6612ece587ea1cc7b932ade",
                       "construct_ids": []
                     },
                     "right": {
-                      "kind": "binary",
-                      "operator": "multiply",
-                      "left": {
-                        "kind": "coefficient",
-                        "role": "loading",
-                        "value": "parameter:f79d969731996adf3bfbd5ab92a49ff987ada316d6612ece587ea1cc7b932ade",
-                        "construct_ids": []
-                      },
-                      "right": {
-                        "kind": "state",
-                        "construct_id": "construct:affective_state"
-                      }
+                      "kind": "state",
+                      "construct_id": "construct:affective_state"
                     }
-                  },
-                  "scale": {
-                    "kind": "coefficient",
-                    "role": "observation_scale",
-                    "value": "parameter:79662f96615e2ff9d35538f7d07b942328c296ea052d1dbb5d3539f31629401d",
-                    "construct_ids": []
                   }
+                },
+                "scale": {
+                  "kind": "coefficient",
+                  "role": "observation_scale",
+                  "value": "parameter:79662f96615e2ff9d35538f7d07b942328c296ea052d1dbb5d3539f31629401d",
+                  "construct_ids": []
                 }
               },
               "standardized": false,
@@ -275,37 +269,35 @@
             "likelihood": {
               "law": {
                 "distribution": "Normal",
-                "arguments": {
-                  "loc": {
+                "loc": {
+                  "kind": "binary",
+                  "operator": "add",
+                  "left": {
+                    "kind": "coefficient",
+                    "role": "observation_intercept",
+                    "value": 4.0,
+                    "construct_ids": []
+                  },
+                  "right": {
                     "kind": "binary",
-                    "operator": "add",
+                    "operator": "multiply",
                     "left": {
                       "kind": "coefficient",
-                      "role": "observation_intercept",
-                      "value": 4.0,
+                      "role": "loading",
+                      "value": "parameter:938216054a753a32b53f26518bee9bfa853c676eac9aa8d519a6575557da5410",
                       "construct_ids": []
                     },
                     "right": {
-                      "kind": "binary",
-                      "operator": "multiply",
-                      "left": {
-                        "kind": "coefficient",
-                        "role": "loading",
-                        "value": "parameter:938216054a753a32b53f26518bee9bfa853c676eac9aa8d519a6575557da5410",
-                        "construct_ids": []
-                      },
-                      "right": {
-                        "kind": "state",
-                        "construct_id": "construct:affective_state"
-                      }
+                      "kind": "state",
+                      "construct_id": "construct:affective_state"
                     }
-                  },
-                  "scale": {
-                    "kind": "coefficient",
-                    "role": "observation_scale",
-                    "value": "parameter:4e7e46ec84bea6a6f0910900aaba1b61d3e4b787f4a99e004f1e651ba899862e",
-                    "construct_ids": []
                   }
+                },
+                "scale": {
+                  "kind": "coefficient",
+                  "role": "observation_scale",
+                  "value": "parameter:4e7e46ec84bea6a6f0910900aaba1b61d3e4b787f4a99e004f1e651ba899862e",
+                  "construct_ids": []
                 }
               },
               "standardized": false,
@@ -327,37 +319,35 @@
             "likelihood": {
               "law": {
                 "distribution": "Normal",
-                "arguments": {
-                  "loc": {
+                "loc": {
+                  "kind": "binary",
+                  "operator": "add",
+                  "left": {
+                    "kind": "coefficient",
+                    "role": "observation_intercept",
+                    "value": 5.0,
+                    "construct_ids": []
+                  },
+                  "right": {
                     "kind": "binary",
-                    "operator": "add",
+                    "operator": "multiply",
                     "left": {
                       "kind": "coefficient",
-                      "role": "observation_intercept",
-                      "value": 5.0,
+                      "role": "loading",
+                      "value": "parameter:52d33186fb0652fa7db42e38230e89085d8451cfcc97adf8b0c3fc857e50b032",
                       "construct_ids": []
                     },
                     "right": {
-                      "kind": "binary",
-                      "operator": "multiply",
-                      "left": {
-                        "kind": "coefficient",
-                        "role": "loading",
-                        "value": "parameter:52d33186fb0652fa7db42e38230e89085d8451cfcc97adf8b0c3fc857e50b032",
-                        "construct_ids": []
-                      },
-                      "right": {
-                        "kind": "state",
-                        "construct_id": "construct:affective_state"
-                      }
+                      "kind": "state",
+                      "construct_id": "construct:affective_state"
                     }
-                  },
-                  "scale": {
-                    "kind": "coefficient",
-                    "role": "observation_scale",
-                    "value": "parameter:40c239055ce178cb451abf794b24d54cd565904ee240f44270408a9a64dcc55f",
-                    "construct_ids": []
                   }
+                },
+                "scale": {
+                  "kind": "coefficient",
+                  "role": "observation_scale",
+                  "value": "parameter:40c239055ce178cb451abf794b24d54cd565904ee240f44270408a9a64dcc55f",
+                  "construct_ids": []
                 }
               },
               "standardized": false,
@@ -484,37 +474,35 @@
             "likelihood": {
               "law": {
                 "distribution": "Normal",
-                "arguments": {
-                  "loc": {
+                "loc": {
+                  "kind": "binary",
+                  "operator": "add",
+                  "left": {
+                    "kind": "coefficient",
+                    "role": "observation_intercept",
+                    "value": 7.099999904632568,
+                    "construct_ids": []
+                  },
+                  "right": {
                     "kind": "binary",
-                    "operator": "add",
+                    "operator": "multiply",
                     "left": {
                       "kind": "coefficient",
-                      "role": "observation_intercept",
-                      "value": 7.099999904632568,
+                      "role": "loading",
+                      "value": 0.3499999940395355,
                       "construct_ids": []
                     },
                     "right": {
-                      "kind": "binary",
-                      "operator": "multiply",
-                      "left": {
-                        "kind": "coefficient",
-                        "role": "loading",
-                        "value": 0.3499999940395355,
-                        "construct_ids": []
-                      },
-                      "right": {
-                        "kind": "state",
-                        "construct_id": "construct:sleep_quality"
-                      }
+                      "kind": "state",
+                      "construct_id": "construct:sleep_quality"
                     }
-                  },
-                  "scale": {
-                    "kind": "coefficient",
-                    "role": "observation_scale",
-                    "value": "parameter:23cac41aa8995c84bc64222605bfbfe11b2419c48fda7c2c1c27378e8b3cf701",
-                    "construct_ids": []
                   }
+                },
+                "scale": {
+                  "kind": "coefficient",
+                  "role": "observation_scale",
+                  "value": "parameter:23cac41aa8995c84bc64222605bfbfe11b2419c48fda7c2c1c27378e8b3cf701",
+                  "construct_ids": []
                 }
               },
               "standardized": false,
@@ -536,37 +524,35 @@
             "likelihood": {
               "law": {
                 "distribution": "Normal",
-                "arguments": {
-                  "loc": {
+                "loc": {
+                  "kind": "binary",
+                  "operator": "add",
+                  "left": {
+                    "kind": "coefficient",
+                    "role": "observation_intercept",
+                    "value": 87.0,
+                    "construct_ids": []
+                  },
+                  "right": {
                     "kind": "binary",
-                    "operator": "add",
+                    "operator": "multiply",
                     "left": {
                       "kind": "coefficient",
-                      "role": "observation_intercept",
-                      "value": 87.0,
+                      "role": "loading",
+                      "value": "parameter:bffbbdc39752a89d49bd56ba8c18069e6747d2f85140b214ecbcf4442b868937",
                       "construct_ids": []
                     },
                     "right": {
-                      "kind": "binary",
-                      "operator": "multiply",
-                      "left": {
-                        "kind": "coefficient",
-                        "role": "loading",
-                        "value": "parameter:bffbbdc39752a89d49bd56ba8c18069e6747d2f85140b214ecbcf4442b868937",
-                        "construct_ids": []
-                      },
-                      "right": {
-                        "kind": "state",
-                        "construct_id": "construct:sleep_quality"
-                      }
+                      "kind": "state",
+                      "construct_id": "construct:sleep_quality"
                     }
-                  },
-                  "scale": {
-                    "kind": "coefficient",
-                    "role": "observation_scale",
-                    "value": "parameter:a66e136944bf38a9e47bdebc82523108eaa83d5cafb5f7741130b7055f66054e",
-                    "construct_ids": []
                   }
+                },
+                "scale": {
+                  "kind": "coefficient",
+                  "role": "observation_scale",
+                  "value": "parameter:a66e136944bf38a9e47bdebc82523108eaa83d5cafb5f7741130b7055f66054e",
+                  "construct_ids": []
                 }
               },
               "standardized": false,
@@ -588,52 +574,50 @@
             "likelihood": {
               "law": {
                 "distribution": "Gamma",
-                "arguments": {
-                  "concentration": {
+                "concentration": {
+                  "kind": "coefficient",
+                  "role": "shape",
+                  "value": "parameter:bac97683557f7dace2e2cd5dd012ab554cbf5e6ee48c4382aa3dd82da226269e",
+                  "construct_ids": []
+                },
+                "rate": {
+                  "kind": "binary",
+                  "operator": "divide",
+                  "left": {
                     "kind": "coefficient",
                     "role": "shape",
                     "value": "parameter:bac97683557f7dace2e2cd5dd012ab554cbf5e6ee48c4382aa3dd82da226269e",
                     "construct_ids": []
                   },
-                  "rate": {
-                    "kind": "binary",
-                    "operator": "divide",
-                    "left": {
-                      "kind": "coefficient",
-                      "role": "shape",
-                      "value": "parameter:bac97683557f7dace2e2cd5dd012ab554cbf5e6ee48c4382aa3dd82da226269e",
-                      "construct_ids": []
-                    },
-                    "right": {
-                      "kind": "call",
-                      "function": "exp",
-                      "arguments": [
-                        {
+                  "right": {
+                    "kind": "call",
+                    "function": "exp",
+                    "arguments": [
+                      {
+                        "kind": "binary",
+                        "operator": "add",
+                        "left": {
+                          "kind": "coefficient",
+                          "role": "observation_intercept",
+                          "value": 2.890371799468994,
+                          "construct_ids": []
+                        },
+                        "right": {
                           "kind": "binary",
-                          "operator": "add",
+                          "operator": "multiply",
                           "left": {
                             "kind": "coefficient",
-                            "role": "observation_intercept",
-                            "value": 2.890371799468994,
+                            "role": "loading",
+                            "value": -0.25,
                             "construct_ids": []
                           },
                           "right": {
-                            "kind": "binary",
-                            "operator": "multiply",
-                            "left": {
-                              "kind": "coefficient",
-                              "role": "loading",
-                              "value": -0.25,
-                              "construct_ids": []
-                            },
-                            "right": {
-                              "kind": "state",
-                              "construct_id": "construct:sleep_quality"
-                            }
+                            "kind": "state",
+                            "construct_id": "construct:sleep_quality"
                           }
                         }
-                      ]
-                    }
+                      }
+                    ]
                   }
                 }
               },
@@ -656,37 +640,35 @@
             "likelihood": {
               "law": {
                 "distribution": "Normal",
-                "arguments": {
-                  "loc": {
+                "loc": {
+                  "kind": "binary",
+                  "operator": "add",
+                  "left": {
+                    "kind": "coefficient",
+                    "role": "observation_intercept",
+                    "value": 45.0,
+                    "construct_ids": []
+                  },
+                  "right": {
                     "kind": "binary",
-                    "operator": "add",
+                    "operator": "multiply",
                     "left": {
                       "kind": "coefficient",
-                      "role": "observation_intercept",
-                      "value": 45.0,
+                      "role": "loading",
+                      "value": "parameter:e2b7144357cf3ffdec11c43b60e5f647cb7aa7e19caa3425123e7bb7c514ba2e",
                       "construct_ids": []
                     },
                     "right": {
-                      "kind": "binary",
-                      "operator": "multiply",
-                      "left": {
-                        "kind": "coefficient",
-                        "role": "loading",
-                        "value": "parameter:e2b7144357cf3ffdec11c43b60e5f647cb7aa7e19caa3425123e7bb7c514ba2e",
-                        "construct_ids": []
-                      },
-                      "right": {
-                        "kind": "state",
-                        "construct_id": "construct:sleep_quality"
-                      }
+                      "kind": "state",
+                      "construct_id": "construct:sleep_quality"
                     }
-                  },
-                  "scale": {
-                    "kind": "coefficient",
-                    "role": "observation_scale",
-                    "value": "parameter:f0e6a45f2b8fb2d3a199ace9fa221aad3472020d87fa36e152b353925f553050",
-                    "construct_ids": []
                   }
+                },
+                "scale": {
+                  "kind": "coefficient",
+                  "role": "observation_scale",
+                  "value": "parameter:f0e6a45f2b8fb2d3a199ace9fa221aad3472020d87fa36e152b353925f553050",
+                  "construct_ids": []
                 }
               },
               "standardized": false,
@@ -940,43 +922,41 @@
             "likelihood": {
               "law": {
                 "distribution": "NegativeBinomial2",
-                "arguments": {
-                  "mean": {
-                    "kind": "call",
-                    "function": "exp",
-                    "arguments": [
-                      {
+                "mean": {
+                  "kind": "call",
+                  "function": "exp",
+                  "arguments": [
+                    {
+                      "kind": "binary",
+                      "operator": "add",
+                      "left": {
+                        "kind": "coefficient",
+                        "role": "observation_intercept",
+                        "value": "parameter:437cce46204011d1627f262cc843e9151f3d784f72e35e92f931f40aa6bee453",
+                        "construct_ids": []
+                      },
+                      "right": {
                         "kind": "binary",
-                        "operator": "add",
+                        "operator": "multiply",
                         "left": {
                           "kind": "coefficient",
-                          "role": "observation_intercept",
-                          "value": "parameter:437cce46204011d1627f262cc843e9151f3d784f72e35e92f931f40aa6bee453",
+                          "role": "loading",
+                          "value": 0.25,
                           "construct_ids": []
                         },
                         "right": {
-                          "kind": "binary",
-                          "operator": "multiply",
-                          "left": {
-                            "kind": "coefficient",
-                            "role": "loading",
-                            "value": 0.25,
-                            "construct_ids": []
-                          },
-                          "right": {
-                            "kind": "state",
-                            "construct_id": "construct:physical_activity"
-                          }
+                          "kind": "state",
+                          "construct_id": "construct:physical_activity"
                         }
                       }
-                    ]
-                  },
-                  "concentration": {
-                    "kind": "coefficient",
-                    "role": "dispersion",
-                    "value": "parameter:e72638eadfbc4808dff2da0d50aa4e15ce849387527175e0b32d8d5ad7f89144",
-                    "construct_ids": []
-                  }
+                    }
+                  ]
+                },
+                "concentration": {
+                  "kind": "coefficient",
+                  "role": "dispersion",
+                  "value": "parameter:e72638eadfbc4808dff2da0d50aa4e15ce849387527175e0b32d8d5ad7f89144",
+                  "construct_ids": []
                 }
               },
               "standardized": false,
@@ -998,37 +978,35 @@
             "likelihood": {
               "law": {
                 "distribution": "Normal",
-                "arguments": {
-                  "loc": {
+                "loc": {
+                  "kind": "binary",
+                  "operator": "add",
+                  "left": {
+                    "kind": "coefficient",
+                    "role": "observation_intercept",
+                    "value": 28.0,
+                    "construct_ids": []
+                  },
+                  "right": {
                     "kind": "binary",
-                    "operator": "add",
+                    "operator": "multiply",
                     "left": {
                       "kind": "coefficient",
-                      "role": "observation_intercept",
-                      "value": 28.0,
+                      "role": "loading",
+                      "value": "parameter:06977a873ad9f2b46eb0dd3d5aaa958c3af16c99fd1bc86502bcf0c0a293437c",
                       "construct_ids": []
                     },
                     "right": {
-                      "kind": "binary",
-                      "operator": "multiply",
-                      "left": {
-                        "kind": "coefficient",
-                        "role": "loading",
-                        "value": "parameter:06977a873ad9f2b46eb0dd3d5aaa958c3af16c99fd1bc86502bcf0c0a293437c",
-                        "construct_ids": []
-                      },
-                      "right": {
-                        "kind": "state",
-                        "construct_id": "construct:physical_activity"
-                      }
+                      "kind": "state",
+                      "construct_id": "construct:physical_activity"
                     }
-                  },
-                  "scale": {
-                    "kind": "coefficient",
-                    "role": "observation_scale",
-                    "value": "parameter:bd61d018625d16171a3b76957057724fd9b29d92afc6e318bc30eb550b5939a6",
-                    "construct_ids": []
                   }
+                },
+                "scale": {
+                  "kind": "coefficient",
+                  "role": "observation_scale",
+                  "value": "parameter:bd61d018625d16171a3b76957057724fd9b29d92afc6e318bc30eb550b5939a6",
+                  "construct_ids": []
                 }
               },
               "standardized": false,
@@ -1430,11 +1408,9 @@
             "likelihood": {
               "law": {
                 "distribution": "Delta",
-                "arguments": {
-                  "v": {
-                    "kind": "state",
-                    "construct_id": "construct:serotonergic_exposure"
-                  }
+                "v": {
+                  "kind": "state",
+                  "construct_id": "construct:serotonergic_exposure"
                 }
               },
               "standardized": false,
@@ -1564,11 +1540,9 @@
             "likelihood": {
               "law": {
                 "distribution": "Delta",
-                "arguments": {
-                  "v": {
-                    "kind": "state",
-                    "construct_id": "construct:seasonal_load"
-                  }
+                "v": {
+                  "kind": "state",
+                  "construct_id": "construct:seasonal_load"
                 }
               },
               "standardized": false,
@@ -1598,281 +1572,316 @@
       "id": "parameter:f9329f55922d7cec9641aad10828eb1af206abdedcc7f2b119ee7e6b12612755",
       "name": "parameter:f9329f55922d7cec9641aad10828eb1af206abdedcc7f2b119ee7e6b12612755",
       "description": "Synthetic fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:806e2fc0553cabcc4da1f80b1a62d24bb5f44f8d612a9531a989bc8dc6ec2913",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:e6e449bbcfa8f8600c43b6210cb3f6da2f7961978a65e39d5822f7b37d36c9f6",
       "name": "parameter:e6e449bbcfa8f8600c43b6210cb3f6da2f7961978a65e39d5822f7b37d36c9f6",
       "description": "Synthetic fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:4b8ccf66da62bd5b52097cd8a7e492da3e6b1fb36a87e12dbc8c0aad012da952",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:9b2fc1354fa82aba33ffe91fe9bdc526c523eea7b59db260e4b03fe880e2b330",
       "name": "parameter:9b2fc1354fa82aba33ffe91fe9bdc526c523eea7b59db260e4b03fe880e2b330",
       "description": "Synthetic fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:f356e132753783dbd37b260291cb08fe3b386d4f459f16bc820a6d8aa2f0d95e",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:17cbc157086e379ab0f79726ceda91ecfdfdab21b0b01b95f9dbfeda6a129a80",
       "name": "parameter:17cbc157086e379ab0f79726ceda91ecfdfdab21b0b01b95f9dbfeda6a129a80",
       "description": "Synthetic fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:953e1ec75150bb35e26426b9725a2d461e3577fae02ecb29c266563d0e485026",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:f79d969731996adf3bfbd5ab92a49ff987ada316d6612ece587ea1cc7b932ade",
       "name": "parameter:f79d969731996adf3bfbd5ab92a49ff987ada316d6612ece587ea1cc7b932ade",
       "description": "Synthetic fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:bb8a45575a64b7eab57da63a5922c8ba589a03249554b8a2cff8318326d014cb",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:79662f96615e2ff9d35538f7d07b942328c296ea052d1dbb5d3539f31629401d",
       "name": "parameter:79662f96615e2ff9d35538f7d07b942328c296ea052d1dbb5d3539f31629401d",
       "description": "Synthetic fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:545ade3f4eefde0cb82468862977df31e9d30e0ed3a5ec7c5d9ce53dd32e73a1",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:938216054a753a32b53f26518bee9bfa853c676eac9aa8d519a6575557da5410",
       "name": "parameter:938216054a753a32b53f26518bee9bfa853c676eac9aa8d519a6575557da5410",
       "description": "Synthetic fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:fb4b7e214c18329af023bf502879cc8ed7a1b35b610885faec1336eaa9b559ca",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:4e7e46ec84bea6a6f0910900aaba1b61d3e4b787f4a99e004f1e651ba899862e",
       "name": "parameter:4e7e46ec84bea6a6f0910900aaba1b61d3e4b787f4a99e004f1e651ba899862e",
       "description": "Synthetic fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:9ceec88c7df2f899458ae0cb8320dca97a2c0e0e676be256017b8b5a3806cb9c",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:52d33186fb0652fa7db42e38230e89085d8451cfcc97adf8b0c3fc857e50b032",
       "name": "parameter:52d33186fb0652fa7db42e38230e89085d8451cfcc97adf8b0c3fc857e50b032",
       "description": "Synthetic fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:6c3e59d03781e2b89baab0c459ba3f0bc8ed7f83c962ab8d4fcca372fb684b9f",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:40c239055ce178cb451abf794b24d54cd565904ee240f44270408a9a64dcc55f",
       "name": "parameter:40c239055ce178cb451abf794b24d54cd565904ee240f44270408a9a64dcc55f",
       "description": "Synthetic fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:da73efc26f6edec4d6d6dbb46bb2b5c955b8fa6771c18d6595d01584b2eaccb8",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:aac881031457a2ca0da1eb858c7353fd970047e4038fe2e08ee3a67b3faa4777",
       "name": "parameter:aac881031457a2ca0da1eb858c7353fd970047e4038fe2e08ee3a67b3faa4777",
       "description": "Synthetic fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:98893d95688b8d2460e3efa98b7384d6e4e644717a8007b63d5d31c7f47de891",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:e3b1a91b4ec3a028f12b8fa29628f3d8fc7f26377211715764684586c05f9466",
       "name": "parameter:e3b1a91b4ec3a028f12b8fa29628f3d8fc7f26377211715764684586c05f9466",
       "description": "Synthetic fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:0d7921a71a587cb7ece0b10d4117bb68a9577a0b643deb6b449d23f3db54e466",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:23cac41aa8995c84bc64222605bfbfe11b2419c48fda7c2c1c27378e8b3cf701",
       "name": "parameter:23cac41aa8995c84bc64222605bfbfe11b2419c48fda7c2c1c27378e8b3cf701",
       "description": "Synthetic fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:635a69b68c121cdd830df0055201475141774d5e3c050040dcb8d7823698c492",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:bffbbdc39752a89d49bd56ba8c18069e6747d2f85140b214ecbcf4442b868937",
       "name": "parameter:bffbbdc39752a89d49bd56ba8c18069e6747d2f85140b214ecbcf4442b868937",
       "description": "Synthetic fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:01be7748ac6faba4625d4fc6733c314cc94cd2cae51cee44b9cb6ae1e0138200",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:a66e136944bf38a9e47bdebc82523108eaa83d5cafb5f7741130b7055f66054e",
       "name": "parameter:a66e136944bf38a9e47bdebc82523108eaa83d5cafb5f7741130b7055f66054e",
       "description": "Synthetic fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:bf5b16a933696e13e747f63e4073326c9c85f981f2f5efee5040a892fd66aabf",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:e2b7144357cf3ffdec11c43b60e5f647cb7aa7e19caa3425123e7bb7c514ba2e",
       "name": "parameter:e2b7144357cf3ffdec11c43b60e5f647cb7aa7e19caa3425123e7bb7c514ba2e",
       "description": "Synthetic fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:425b37528e4988f7d475d01f380227dddb920d8995b445f4e474a427eedf6c09",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:f0e6a45f2b8fb2d3a199ace9fa221aad3472020d87fa36e152b353925f553050",
       "name": "parameter:f0e6a45f2b8fb2d3a199ace9fa221aad3472020d87fa36e152b353925f553050",
       "description": "Synthetic fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:46c886012079004a9437099d6ad1cd1e02d3ae36ba5707aff01f0be688d156d7",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:31a4dc12b5597ca5a3ebdf934d0e2a3acc5dacb64a134782e35fc6b92a19fb3f",
       "name": "parameter:31a4dc12b5597ca5a3ebdf934d0e2a3acc5dacb64a134782e35fc6b92a19fb3f",
       "description": "Synthetic fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:c1044c496142b3bfb2da72ea67aa805f966957d03d23aeacb15ec8a01347f26d",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:c932e837ec942dba3c4a597f0882e3ba78807672d7bef0a56253c2b135dc4fe2",
       "name": "parameter:c932e837ec942dba3c4a597f0882e3ba78807672d7bef0a56253c2b135dc4fe2",
       "description": "Synthetic fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:f6e470dbf72f59c8ef8c1893d3892801bdfad186d5eb87ca0f8e2182c79fe528",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:437cce46204011d1627f262cc843e9151f3d784f72e35e92f931f40aa6bee453",
       "name": "parameter:437cce46204011d1627f262cc843e9151f3d784f72e35e92f931f40aa6bee453",
       "description": "Synthetic fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:b17d9c54114a9dfb5b4fcb0a1b82dcde0fa5027bc1cafd10dcda1b0ed56cc8c3",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:06977a873ad9f2b46eb0dd3d5aaa958c3af16c99fd1bc86502bcf0c0a293437c",
       "name": "parameter:06977a873ad9f2b46eb0dd3d5aaa958c3af16c99fd1bc86502bcf0c0a293437c",
       "description": "Synthetic fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:c33dfd26bfb2cd5d82a412c0d0e9d2bd2aab1bd9a1760e1fada73592fd582eb3",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:bd61d018625d16171a3b76957057724fd9b29d92afc6e318bc30eb550b5939a6",
       "name": "parameter:bd61d018625d16171a3b76957057724fd9b29d92afc6e318bc30eb550b5939a6",
       "description": "Synthetic fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:9eab7c7c7239b25b2ba0273518ab70f8c422d3c7320fa126534127086dad49a5",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:79b94d28e412d5b54e0df56609bd424bbc4c0df150768dc6e5f2e821254eeffc",
       "name": "parameter:79b94d28e412d5b54e0df56609bd424bbc4c0df150768dc6e5f2e821254eeffc",
       "description": "Synthetic fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:4173cda2f69ecb6c01d5bd1880ab128b607fc3fd39df2474165a4b3506974409",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:af62141ec5b978f94974b219c4fba409d7122631139f4b38c07d4a01bb3c4324",
       "name": "parameter:af62141ec5b978f94974b219c4fba409d7122631139f4b38c07d4a01bb3c4324",
       "description": "Synthetic fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:78b4eb7e6f760c97a3ff1c62191d8897265b1b5bfd7a24e9dc2b67227cb9fb58",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:790b7d2189c6d19046a490df6348c5d6743a616ccc41846defc137c21f0a739f",
       "name": "parameter:790b7d2189c6d19046a490df6348c5d6743a616ccc41846defc137c21f0a739f",
       "description": "Synthetic fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:7f5a7d1b0923909d2fa09e152735f345473b2ceeccef0fbb9b4eb46395f04a18",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:04437277afe25527c2c2d5a7c7ab597534f7536eeb13d6ef691c28bd7ee907ea",
       "name": "parameter:04437277afe25527c2c2d5a7c7ab597534f7536eeb13d6ef691c28bd7ee907ea",
       "description": "Synthetic fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:62d741a8906642e3668b99bb63d665deb2cb87b7c2da0173263949656f9abb06",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:a1cb5d62c1569bf14c945a819f1b095c93b9b62913bbc9d2161d098b2bf9a24e",
       "name": "parameter:a1cb5d62c1569bf14c945a819f1b095c93b9b62913bbc9d2161d098b2bf9a24e",
       "description": "Synthetic fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:9d611cc646d751830f127579caed2367ce447052d3d114ace9e234e81d84c45c",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:3e3cb1e41e8f02d678738914ec6d72c132a2e249f8264ecd2d1a7942f9a4ad25",
       "name": "parameter:3e3cb1e41e8f02d678738914ec6d72c132a2e249f8264ecd2d1a7942f9a4ad25",
       "description": "Synthetic fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:6c9f48d75745da97067d9fbdc8c814e3dbc680ed94bb8666d789788eaa5cac46",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:99d806dcc7d3279022e1c9a02eb70df503574d09db6c6d0edcca3e11f61e6d22",
       "name": "parameter:99d806dcc7d3279022e1c9a02eb70df503574d09db6c6d0edcca3e11f61e6d22",
       "description": "Synthetic fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:434a2a09dd63da9d5a749acb994935410f814eb5308ea416056f6df6df82c798",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:0a305927c8e9d9bb0fa97889c5cdc40b1e862977babd5164a4525ca5cb0c433c",
       "name": "parameter:0a305927c8e9d9bb0fa97889c5cdc40b1e862977babd5164a4525ca5cb0c433c",
       "description": "Synthetic fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:16d325a1f07196ed3ea3eafc7ff3813668d3ef9711bffe23e1ad31e769619590",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:b8a8f399253a70d211c2f5a03eb96d53342272076acc657780bd4babd9f5e599",
       "name": "parameter:b8a8f399253a70d211c2f5a03eb96d53342272076acc657780bd4babd9f5e599",
       "description": "Synthetic fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:5d49bd0ba775d2a1009a450d127b7b7990e1ce017f1481aea7d66c78d17056c1",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:777fc1870f45492bb2729e3d3c0ddbffbe477cf7d0ceb39de132d9fafc50c486",
       "name": "parameter:777fc1870f45492bb2729e3d3c0ddbffbe477cf7d0ceb39de132d9fafc50c486",
       "description": "Synthetic fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:182a136f74cccace45bf97b82a240b4464c3d702d646782f136abed40b91fa24",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:a97392ee3b7af8589636d7d2e8d0f88560ea69c29cd7d72c5052627f30e78efa",
       "name": "parameter:a97392ee3b7af8589636d7d2e8d0f88560ea69c29cd7d72c5052627f30e78efa",
       "description": "Synthetic fixture quantity",
-      "distribution_transform": "identity",
       "distribution": "distribution:0f3ad37ab74297050f87f45216d20f718646c9da8fee1029e7cfbe2db35efc06",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:e72638eadfbc4808dff2da0d50aa4e15ce849387527175e0b32d8d5ad7f89144",
       "name": "obs_r",
       "description": "dispersion for obs_r",
-      "distribution_transform": "identity",
       "distribution": "distribution:d4e849f468b99afbc0e3ffa301d28666f7c4f08729c0c9b26630bd008884d6f3",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:bac97683557f7dace2e2cd5dd012ab554cbf5e6ee48c4382aa3dd82da226269e",
       "name": "obs_shape",
       "description": "shape for obs_shape",
-      "distribution_transform": "identity",
       "distribution": "distribution:bcd14ba72ab5a1e0ec09e071e70b33a2f8bbb2b93808fb4c19e6281c9401e362",
-      "reference_interval_days": null
+      "transform": {
+        "kind": "identity"
+      }
     }
   ],
   "distributions": {

@@ -13,17 +13,32 @@ Gaussians are seeds, never the reported posterior.
 
 from __future__ import annotations
 
+from typing import TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from collections.abc import Callable
+
+    from jax.typing import DTypeLike
+
+    from nof1_causal_lab.models.ssm.autoreparam import Strategy
+    from nof1_causal_lab.models.ssm.parameterization import PriorRuntimeBundle
+    from nof1_causal_lab.models.ssm.runtime import BoundPanel
+
 import logging
-import time
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal, TypedDict
+from typing import TYPE_CHECKING, Literal
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 
+from nof1_causal_lab.artifacts.posterior_diagnostics import (
+    ParameterWarmupDiagnostics,
+    ParticleInitializationDiagnostics,
+    ParticlePreconditionerDiagnostics,
+    PathfinderDiagnostics,
+)
 from nof1_causal_lab.models.ssm.inference.warmup.scipy_pathfinder import (
-    InitializationDiagnostics,
     ScipyPathfinderResult,
     run_scipy_pathfinder_approximation,
     sample_scipy_pathfinder_init_positions,
@@ -31,30 +46,12 @@ from nof1_causal_lab.models.ssm.inference.warmup.scipy_pathfinder import (
 )
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.json_types import JsonObject
     from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleTarget
     from nof1_causal_lab.models.ssm.inference.types import WarmupProposal
-    from nof1_causal_lab.models.ssm.inference.warmup.scipy_pathfinder import PathfinderDiagnostics
-    from nof1_causal_lab.models.ssm.model import SSMModel
 
 logger = logging.getLogger(__name__)
 
 DEFAULT_PRIOR_RELEASED_SITE_NAMES: tuple[str, ...] = ("obs_df",)
-
-
-class RandomInitializationDiagnostics(TypedDict):
-    init_method: str
-
-
-class PreconditionerDiagnostics(TypedDict, total=False):
-    auto_preconditioner: bool
-    auto_preconditioner_method: str
-    auto_preconditioner_device: str
-    auto_preconditioner_n_pathfinder_starts: int
-    auto_preconditioner_n_pathfinder_starts_finite: int
-    auto_preconditioner_best_pathfinder_elbo: float
-    auto_preconditioner_pathfinder_elbo_spread: float
-    auto_preconditioner_maxiter: int
 
 
 @dataclass(frozen=True)
@@ -62,23 +59,19 @@ class ParameterWarmupResult:
     """Resolved parameter initialisation and preconditioning artifacts."""
 
     init_positions: jnp.ndarray | None
-    init_diagnostics: InitializationDiagnostics | RandomInitializationDiagnostics
+    init_diagnostics: ParticleInitializationDiagnostics
     preconditioner_chol: jnp.ndarray | None
-    preconditioner_diagnostics: PreconditionerDiagnostics
-    warmup_diagnostics: JsonObject
+    preconditioner_diagnostics: ParticlePreconditionerDiagnostics
+    warmup_diagnostics: ParameterWarmupDiagnostics
     pathfinder_state: ScipyPathfinderResult | None
     pathfinder_diagnostics: PathfinderDiagnostics | None
-
-
-def _phase_elapsed(t0: float) -> float:
-    return time.monotonic() - t0
 
 
 def _laplace_preconditioner_chol_from_map_result(
     map_result: WarmupProposal, jitter: float = 1e-6
 ) -> jnp.ndarray:
     """Build a parameter-kernel preconditioner Cholesky from ``fit_map`` covariance."""
-    covariance = np.asarray(map_result.diagnostics["parameter_covariance"])
+    covariance = np.asarray(map_result.diagnostics.parameter_covariance)
     covariance = 0.5 * (covariance + covariance.T)
     covariance = covariance + jitter * np.eye(covariance.shape[0], dtype=covariance.dtype)
     return jnp.asarray(np.linalg.cholesky(covariance), dtype=jnp.float32)
@@ -89,7 +82,7 @@ def _validate_initial_positions_override(
     *,
     num_chains: int,
     dim: int,
-    dtype,
+    dtype: DTypeLike,
 ) -> jnp.ndarray:
     init_positions = jnp.asarray(initial_positions_override, dtype=dtype)
     if init_positions.shape != (num_chains, dim):
@@ -102,24 +95,20 @@ def _validate_initial_positions_override(
 
 def _pathfinder_preconditioner_diagnostics(
     pathfinder_diagnostics: PathfinderDiagnostics,
-) -> PreconditionerDiagnostics:
-    return {
-        "auto_preconditioner": True,
-        "auto_preconditioner_method": "pathfinder",
-        "auto_preconditioner_device": jax.default_backend(),
-        "auto_preconditioner_n_pathfinder_starts": int(
-            pathfinder_diagnostics["n_pathfinder_starts"]
+) -> ParticlePreconditionerDiagnostics:
+    return ParticlePreconditionerDiagnostics(
+        auto_preconditioner=True,
+        auto_preconditioner_method="pathfinder",
+        auto_preconditioner_device=jax.default_backend(),
+        auto_preconditioner_n_pathfinder_starts=int(pathfinder_diagnostics.n_pathfinder_starts),
+        auto_preconditioner_n_pathfinder_starts_finite=int(
+            pathfinder_diagnostics.n_pathfinder_starts_finite
         ),
-        "auto_preconditioner_n_pathfinder_starts_finite": int(
-            pathfinder_diagnostics["n_pathfinder_starts_finite"]
+        auto_preconditioner_best_pathfinder_elbo=float(pathfinder_diagnostics.best_pathfinder_elbo),
+        auto_preconditioner_pathfinder_elbo_spread=float(
+            pathfinder_diagnostics.pathfinder_elbo_spread
         ),
-        "auto_preconditioner_best_pathfinder_elbo": float(
-            pathfinder_diagnostics["best_pathfinder_elbo"]
-        ),
-        "auto_preconditioner_pathfinder_elbo_spread": float(
-            pathfinder_diagnostics["pathfinder_elbo_spread"]
-        ),
-    }
+    )
 
 
 def _log_pathfinder_completion(
@@ -127,28 +116,28 @@ def _log_pathfinder_completion(
     phase_label: str,
     started_at: float,
     pathfinder_diagnostics: PathfinderDiagnostics,
+    clock: Callable[[], float],
 ) -> None:
-    best_elbo = pathfinder_diagnostics["best_pathfinder_elbo"]
-    elbo_spread = pathfinder_diagnostics["pathfinder_elbo_spread"]
+    best_elbo = pathfinder_diagnostics.best_pathfinder_elbo
+    elbo_spread = pathfinder_diagnostics.pathfinder_elbo_spread
     logger.info(
         "%s: scipy_pathfinder complete in %.1fs "
         "(setup=%.1fs, jax_compile=%.1fs, runtime=%.1fs, best_elbo=%s, "
         "elbo_spread=%s, n_starts_finite=%s)",
         phase_label,
-        _phase_elapsed(started_at),
-        pathfinder_diagnostics["pathfinder_setup_seconds"],
-        pathfinder_diagnostics["pathfinder_jax_compile_seconds"],
-        pathfinder_diagnostics["pathfinder_runtime_seconds"],
+        (clock() - started_at),
+        pathfinder_diagnostics.pathfinder_setup_seconds,
+        pathfinder_diagnostics.pathfinder_jax_compile_seconds,
+        pathfinder_diagnostics.pathfinder_runtime_seconds,
         f"{best_elbo:.2f}",
         f"{elbo_spread:.2f}",
-        pathfinder_diagnostics["n_pathfinder_starts_finite"],
+        pathfinder_diagnostics.n_pathfinder_starts_finite,
     )
 
 
 def prepare_parameter_warmup(
-    model: SSMModel,
-    observations: jnp.ndarray,
-    times: jnp.ndarray,
+    priors: PriorRuntimeBundle,
+    panel: BoundPanel,
     *,
     bundle: ParticleTarget,
     method_label: str,
@@ -156,7 +145,7 @@ def prepare_parameter_warmup(
     trace_key: jnp.ndarray,
     pathfinder_key: jnp.ndarray,
     sample_key: jnp.ndarray,
-    reparam,
+    reparam: Strategy | None,
     seed: int,
     n_ieks_iters: int,
     num_chains: int,
@@ -174,6 +163,7 @@ def prepare_parameter_warmup(
     prior_released_sites: tuple[str, ...] = DEFAULT_PRIOR_RELEASED_SITE_NAMES,
     prior_release_scale: float = 0.05,
     release_jitter_key: jnp.ndarray | None = None,
+    clock: Callable[[], float],
 ) -> ParameterWarmupResult:
     """Resolve parameter init positions and the parameter-kernel preconditioner.
 
@@ -181,14 +171,14 @@ def prepare_parameter_warmup(
     initialization and preconditioning, this function runs the fit once and hands
     the same best-ELBO Gaussian to both consumers.
     """
-    total_t0 = time.monotonic()
+    total_t0 = clock()
     dim = int(bundle.initial_position.shape[0])
     dtype = bundle.initial_position.dtype
     pathfinder_state: ScipyPathfinderResult | None = None
     pathfinder_diagnostics: PathfinderDiagnostics | None = None
     init_positions: jnp.ndarray | None = None
-    init_diagnostics: InitializationDiagnostics | RandomInitializationDiagnostics
-    preconditioner_diagnostics: PreconditionerDiagnostics
+    init_diagnostics: ParticleInitializationDiagnostics
+    preconditioner_diagnostics: ParticlePreconditionerDiagnostics
     preconditioner_chol = parameter_preconditioner_chol
 
     pathfinder_consumers: list[str] = []
@@ -198,7 +188,7 @@ def prepare_parameter_warmup(
         pathfinder_consumers.append("preconditioner")
 
     if pathfinder_consumers:
-        pathfinder_t0 = time.monotonic()
+        pathfinder_t0 = clock()
         logger.info(
             "%s: running scipy_pathfinder for %s (n_starts=%d, maxiter=%d, "
             "n_ieks_iters=%d, elbo_samples=%d, parallel_workers=%s)...",
@@ -211,9 +201,8 @@ def prepare_parameter_warmup(
             pathfinder_parallel_workers if pathfinder_parallel_workers is not None else "starts",
         )
         pathfinder_state, pathfinder_diagnostics = run_scipy_pathfinder_approximation(
-            model,
-            observations,
-            times,
+            priors,
+            panel,
             trace_key=trace_key,
             pathfinder_key=pathfinder_key,
             reparam=reparam,
@@ -222,16 +211,18 @@ def prepare_parameter_warmup(
             maxiter=pathfinder_maxiter,
             n_pathfinder_starts=n_pathfinder_starts,
             pathfinder_parallel_workers=pathfinder_parallel_workers,
+            clock=clock,
         )
         _log_pathfinder_completion(
             phase_label=phase_label,
             started_at=pathfinder_t0,
             pathfinder_diagnostics=pathfinder_diagnostics,
+            clock=clock,
         )
     else:
         logger.info("%s: scipy_pathfinder skipped", phase_label)
 
-    init_t0 = time.monotonic()
+    init_t0 = clock()
     if initial_positions_override is not None:
         init_positions = _validate_initial_positions_override(
             initial_positions_override,
@@ -239,7 +230,7 @@ def prepare_parameter_warmup(
             dim=dim,
             dtype=dtype,
         )
-        init_diagnostics = {"init_method": "user_provided"}
+        init_diagnostics = ParticleInitializationDiagnostics(init_method="user_provided")
         init_source = "user_provided"
     elif init_method == "pathfinder":
         if pathfinder_state is None or pathfinder_diagnostics is None:
@@ -259,16 +250,16 @@ def prepare_parameter_warmup(
         )
         init_source = "pathfinder"
     else:
-        init_diagnostics = {"init_method": "random"}
+        init_diagnostics = ParticleInitializationDiagnostics(init_method="random")
         init_source = "random"
     logger.info(
         "%s: parameter init source=%s ready in %.1fs",
         phase_label,
         init_source,
-        _phase_elapsed(init_t0),
+        (clock() - init_t0),
     )
 
-    preconditioner_t0 = time.monotonic()
+    preconditioner_t0 = clock()
     if parameter_preconditioner_chol is None:
         if auto_preconditioner_method == "pathfinder":
             if pathfinder_state is None or pathfinder_diagnostics is None:
@@ -284,72 +275,70 @@ def prepare_parameter_warmup(
             from nof1_causal_lab.models.ssm.inference.warmup.map import fit_map
 
             map_result = fit_map(
-                model,
-                observations,
-                times,
+                priors,
+                panel,
                 num_samples=1,
                 seed=seed,
                 n_ieks_iters=n_ieks_iters,
                 maxiter=auto_preconditioner_maxiter,
                 parameter_covariance_method="optimizer_hess_inv",
                 reparam=reparam,
+                clock=clock,
             )
             preconditioner_chol = _laplace_preconditioner_chol_from_map_result(map_result)
-            preconditioner_diagnostics = {
-                "auto_preconditioner": True,
-                "auto_preconditioner_method": "map",
-                "auto_preconditioner_maxiter": int(auto_preconditioner_maxiter),
-            }
+            preconditioner_diagnostics = ParticlePreconditionerDiagnostics(
+                auto_preconditioner=True,
+                auto_preconditioner_method="map",
+                auto_preconditioner_maxiter=int(auto_preconditioner_maxiter),
+            )
             preconditioner_source = "map"
         else:
-            preconditioner_diagnostics = {
-                "auto_preconditioner": False,
-                "auto_preconditioner_method": "none",
-            }
+            preconditioner_diagnostics = ParticlePreconditionerDiagnostics(
+                auto_preconditioner=False, auto_preconditioner_method="none"
+            )
             preconditioner_source = "none"
     else:
-        preconditioner_diagnostics = {"auto_preconditioner": False}
+        preconditioner_diagnostics = ParticlePreconditionerDiagnostics(auto_preconditioner=False)
         preconditioner_source = "caller_provided"
     logger.info(
         "%s: parameter preconditioner source=%s ready in %.1fs",
         phase_label,
         preconditioner_source,
-        _phase_elapsed(preconditioner_t0),
+        (clock() - preconditioner_t0),
     )
 
-    warmup_diagnostics: JsonObject = {
-        "pathfinder_ran": bool(pathfinder_consumers),
-        "pathfinder_run_count": 1 if pathfinder_consumers else 0,
-        "pathfinder_consumers": [*pathfinder_consumers],
-        "init_source": init_source,
-        "preconditioner_source": preconditioner_source,
-        "auto_preconditioner_method": auto_preconditioner_method,
-        "dim": dim,
-        "duration_seconds": _phase_elapsed(total_t0),
-        "init_scale": float(init_scale),
-        "pathfinder_init_scale": pathfinder_init_scale,
-    }
-    if pathfinder_diagnostics is not None:
-        warmup_diagnostics.update(
-            {
-                "pathfinder_setup_seconds": pathfinder_diagnostics.get("pathfinder_setup_seconds"),
-                "pathfinder_jax_compile_seconds": pathfinder_diagnostics.get(
-                    "pathfinder_jax_compile_seconds"
-                ),
-                "pathfinder_runtime_seconds": pathfinder_diagnostics.get(
-                    "pathfinder_runtime_seconds"
-                ),
-                "pathfinder_total_seconds": pathfinder_diagnostics.get("pathfinder_total_seconds"),
-                "pathfinder_jax_compile_batch_sizes": [
-                    *pathfinder_diagnostics["pathfinder_jax_compile_batch_sizes"]
-                ],
-            }
-        )
+    warmup_diagnostics = ParameterWarmupDiagnostics(
+        pathfinder_ran=bool(pathfinder_consumers),
+        pathfinder_run_count=1 if pathfinder_consumers else 0,
+        pathfinder_consumers=tuple(pathfinder_consumers),
+        init_source=init_source,
+        preconditioner_source=preconditioner_source,
+        auto_preconditioner_method=auto_preconditioner_method,
+        dim=dim,
+        duration_seconds=(clock() - total_t0),
+        init_scale=float(init_scale),
+        pathfinder_init_scale=pathfinder_init_scale,
+        pathfinder_setup_seconds=pathfinder_diagnostics.pathfinder_setup_seconds
+        if pathfinder_diagnostics
+        else None,
+        pathfinder_jax_compile_seconds=pathfinder_diagnostics.pathfinder_jax_compile_seconds
+        if pathfinder_diagnostics
+        else None,
+        pathfinder_runtime_seconds=pathfinder_diagnostics.pathfinder_runtime_seconds
+        if pathfinder_diagnostics
+        else None,
+        pathfinder_total_seconds=pathfinder_diagnostics.pathfinder_total_seconds
+        if pathfinder_diagnostics
+        else None,
+        pathfinder_jax_compile_batch_sizes=pathfinder_diagnostics.pathfinder_jax_compile_batch_sizes
+        if pathfinder_diagnostics
+        else None,
+    )
     logger.info(
         "%s: parameter warmup complete in %.1fs (pathfinder_runs=%d, init=%s, preconditioner=%s)",
         phase_label,
-        warmup_diagnostics["duration_seconds"],
-        warmup_diagnostics["pathfinder_run_count"],
+        warmup_diagnostics.duration_seconds,
+        warmup_diagnostics.pathfinder_run_count,
         init_source,
         preconditioner_source,
     )

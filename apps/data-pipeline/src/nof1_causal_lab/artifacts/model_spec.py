@@ -9,15 +9,16 @@ from functools import cached_property
 from typing import TYPE_CHECKING, cast, override
 
 from pydantic import (
-    BaseModel,
-    ConfigDict,
     Field,
     FiniteFloat,
+    SerializerFunctionWrapHandler,
+    ValidatorFunctionWrapHandler,
     field_serializer,
     field_validator,
     model_validator,
 )
 
+from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.compilation_errors import IncompleteModelError
 from nof1_causal_lab.numpyro_json import NumPyroDistribution
 
@@ -31,7 +32,7 @@ from .construct import (
     endpoint_serialization_scope,
     endpoint_validation_scope,
 )
-from .duration import parse_duration_to_hours
+from .duration import Duration
 from .expressions import expression_states
 from .identity import (
     ConstructId,
@@ -46,6 +47,7 @@ from .parameter_spec import ParameterSpec
 if TYPE_CHECKING:
     from collections.abc import Iterator
 
+    from nof1_causal_lab.models.model_parameters import ParameterContext
     from nof1_causal_lab.models.model_structure import DependencyKey
 
     from .execution import StructuralItemDisposition
@@ -54,10 +56,8 @@ if TYPE_CHECKING:
     from .mechanism import DynamicsMechanismSpec
 
 
-class ModelSpec(BaseModel):
+class ModelSpec(Value):
     """An evolving research question and connected causal graph with owned scientific detail."""
-
-    model_config = ConfigDict(extra="forbid", frozen=True)
 
     question: str | None = Field(default=None, min_length=1)
     edges: tuple[CausalEdgeSpec, ...] = ()
@@ -71,7 +71,7 @@ class ModelSpec(BaseModel):
         ),
     )
     time_points: tuple[FiniteFloat, ...] = ()
-    measurement_clock: str | None = None
+    measurement_clock: Duration | None = None
     default_outcome: ConstructId | None = None
 
     @field_validator("question")
@@ -86,14 +86,20 @@ class ModelSpec(BaseModel):
 
     @field_validator("edges", mode="wrap")
     @classmethod
-    def resolve_endpoints(cls, value, handler):
+    def resolve_endpoints(
+        cls, value: object, handler: ValidatorFunctionWrapHandler
+    ) -> tuple[CausalEdgeSpec, ...]:
         with endpoint_validation_scope(value):
-            return handler(value)
+            edges: tuple[CausalEdgeSpec, ...] = handler(value)
+            return edges
 
     @field_serializer("edges", mode="wrap")
-    def serialize_edges(self, value, handler):
+    def serialize_edges(  # noqa: ANN201 -- Pydantic wrap serialization must retain the edge field schema; a return annotation replaces it.
+        self, value: tuple[CausalEdgeSpec, ...], handler: SerializerFunctionWrapHandler
+    ):
         with endpoint_serialization_scope():
-            return handler(value)
+            edges: tuple[CausalEdgeSpec, ...] = handler(value)
+            return edges
 
     @property
     def constructs(self) -> tuple[ConstructSpec, ...]:
@@ -103,16 +109,9 @@ class ModelSpec(BaseModel):
     @override
     def __eq__(self, other: object) -> bool:
         """Scientific equality excludes derived caches and their references back to this model."""
-        return isinstance(other, ModelSpec) and self.model_dump(mode="json") == other.model_dump(
-            mode="json"
+        return isinstance(other, ModelSpec) and bool(
+            self.model_dump(mode="json") == other.model_dump(mode="json")
         )
-
-    @field_validator("measurement_clock")
-    @classmethod
-    def validate_clock(cls, value: str | None) -> str | None:
-        if value is not None:
-            parse_duration_to_hours(value)
-        return value
 
     @cached_property
     def _constructs(self) -> dict[ConstructId, ConstructSpec]:
@@ -141,53 +140,6 @@ class ModelSpec(BaseModel):
         return {item.id: item for _, item in self.iter_mechanisms()}
 
     @cached_property
-    def state_order(self) -> tuple[ConstructId, ...]:
-        """Execution axes retain measured constructs connected to the selected outcome."""
-        from nof1_causal_lab.models.model_structure import retained_construct_ids
-
-        self.require_measurements()
-        selected = retained_construct_ids(self)
-        retained = [item for item in self.constructs if item.id in selected]
-        return tuple(
-            item.id
-            for static in (False, True)
-            for item in retained
-            if (item.temporal_status == TemporalStatus.TIME_INVARIANT) == static
-        )
-
-    @cached_property
-    def execution_edges(self) -> tuple[CausalEdgeSpec, ...]:
-        states = set(self.state_order)
-        return tuple(
-            edge for edge in self.edges if edge.cause.id in states and edge.effect.id in states
-        )
-
-    @cached_property
-    def execution_parameters(self) -> tuple[ParameterSpec, ...]:
-        """Parameters referenced by the retained numerical model."""
-        from nof1_causal_lab.models.model_parameters import execution_coefficient_uses
-
-        referenced = {use.value for use in execution_coefficient_uses(self)}
-        return tuple(parameter for parameter in self.parameters if parameter.id in referenced)
-
-    @cached_property
-    def manifest_indicator_order(self) -> tuple[IndicatorId, ...]:
-        states = set(self.state_order)
-        return tuple(
-            indicator.id for owner, indicator in self.iter_indicators() if owner.id in states
-        )
-
-    @cached_property
-    def reference_indicator_ids(self) -> Mapping[ConstructId, IndicatorId]:
-        from nof1_causal_lab.utils.causal_design import choose_reference_indicator
-
-        references = {}
-        for identity in self.state_order:
-            indicator = choose_reference_indicator(self.get_construct(identity).indicators)
-            references[identity] = indicator.id
-        return references
-
-    @cached_property
     def marginalized_construct_ids(self) -> frozenset[ConstructId]:
         from nof1_causal_lab.models.model_structure import marginalized_construct_ids
 
@@ -205,18 +157,13 @@ class ModelSpec(BaseModel):
 
         return structural_dispositions(self)
 
-    def require_execution_structure(self) -> None:
-        from nof1_causal_lab.models.model_structure import validate_execution_structure
-
-        validate_execution_structure(self)
-
     @cached_property
-    def _parameter_contexts(self):
+    def _parameter_contexts(self) -> Mapping[ParameterId, ParameterContext]:
         from nof1_causal_lab.models.model_parameters import parameter_contexts
 
         return parameter_contexts(self)
 
-    def parameter_context(self, identity: ParameterId):
+    def parameter_context(self, identity: ParameterId) -> ParameterContext:
         return self._parameter_contexts[identity]
 
     def get_construct(self, identity: ConstructId) -> ConstructSpec:
@@ -281,18 +228,6 @@ class ModelSpec(BaseModel):
     def indicators(self) -> tuple[IndicatorSpec, ...]:
         return tuple(indicator for _, indicator in self.iter_indicators())
 
-    @property
-    def model_clock_days(self) -> float:
-        if self.measurement_clock is None:
-            raise ValueError("The model has no measurement clock")
-        return parse_duration_to_hours(self.measurement_clock) / 24.0
-
-    def revised(self, **changes: object) -> ModelSpec:
-        """Validate a whole candidate; cached indexes belong only to their original value."""
-        return ModelSpec.model_validate(
-            {**{name: getattr(self, name) for name in type(self).model_fields}, **changes}
-        )
-
     @model_validator(mode="after")
     def validate_references(self) -> ModelSpec:
         references = {
@@ -340,10 +275,6 @@ class ModelSpec(BaseModel):
             if unknown := dependencies - self._constructs.keys():
                 raise ValueError(f"Expression references unknown constructs: {sorted(unknown)}")
             if isinstance(owner, CausalEdgeSpec):
-                if mechanism.kind == "potential":
-                    raise ValueError(
-                        "Potentials belong to nodes; directed edges require drift terms"
-                    )
                 if owner.cause.id not in dependencies:
                     raise ValueError("An edge expression must reference its causal source")
                 allowed = {owner.effect.id} | {
@@ -356,7 +287,7 @@ class ModelSpec(BaseModel):
             elif dependencies - {owner.id}:
                 raise ValueError("Intrinsic dynamics may reference only their owning construct")
         for indicator, likelihood in self.iter_likelihoods():
-            owners = set(likelihood.terms.loadings)
+            owners = set(likelihood.parsed.loadings)
             unknown = owners - self._constructs.keys()
             if unknown:
                 raise ValueError(f"Likelihood references unknown constructs: {sorted(unknown)}")
@@ -391,7 +322,7 @@ class ModelSpec(BaseModel):
             quantity = context.quantity
             parameter = self.parameter(identity)
             if (
-                parameter.distribution_transform == "dt_persistence_to_ct_decay"
+                parameter.transform.kind == "dt_persistence_to_ct_decay"
                 and quantity.value != "dynamics_decay"
             ):
                 raise ValueError("Persistence coordinates describe a dynamics decay quantity")
@@ -409,15 +340,12 @@ class ModelSpec(BaseModel):
             raise IncompleteModelError("Measurements require a measurement clock and indicators")
 
     def require_priors(self) -> None:
+        from nof1_causal_lab.models.model_parameters import execution_parameters
+
         missing = [
             parameter.id
-            for parameter in self.execution_parameters
+            for parameter in execution_parameters(self)
             if parameter.distribution is None
         ]
         if missing:
             raise IncompleteModelError(f"Compilation requires declared prior laws for {missing}")
-
-    def check_execution(self) -> None:
-        from nof1_causal_lab.models.model_checks import check_execution
-
-        check_execution(self)

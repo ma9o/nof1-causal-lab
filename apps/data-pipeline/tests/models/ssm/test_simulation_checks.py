@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import time
 from pathlib import Path
 
 import jax.numpy as jnp
@@ -21,6 +22,7 @@ from nof1_causal_lab.models.ssm.simulation_checks import (
 from tests.helpers import (
     fixture_entity_id,
 )
+from tests.model_fixtures import compile_model_fixture
 
 pytestmark = pytest.mark.inference(concern="predictive")
 
@@ -90,16 +92,19 @@ def test_time_invariant_construct_omits_temporal_transmission_check():
         },
     )
     target = ConstructSimulationTarget(
-        construct=spec.get_construct(numeric.state_ids(spec)[0]),
+        construct=compile_model_fixture(spec).states[0],
     )
 
-    results, _timings = measure_construct_simulation(spec, pred, design, target)
+    results, _timings = measure_construct_simulation(
+        compile_model_fixture(spec), pred, design, target, clock=time.monotonic
+    )
     checks = {result.check for result in results}
     assert {"C5a location reach", "C5b width"} <= checks
-    assert (
-        next(result for result in results if result.check == "C5c transmission").reason
-        == "STATIC_CONSTRUCT"
-    )
+    transmission = next(
+        result for result in results if result.check == "C5c transmission"
+    ).assessment
+    assert transmission.kind == "not_evaluated"
+    assert transmission.reason == "STATIC_CONSTRUCT"
 
 
 @pytest.mark.parametrize(
@@ -157,7 +162,7 @@ def test_fixed_hill_coefficients_participate_in_checks_and_edge_off(
         ),
     )
     captured = []
-    original = numeric.dynamics_expressions(spec)[2]
+    original = compile_model_fixture(spec).dynamics.spec.components[2]
 
     def exact_resimulation(intervened_spec, samples, _times, **_kwargs):
         component = _kwargs["dynamics"].components[2]
@@ -176,27 +181,30 @@ def test_fixed_hill_coefficients_participate_in_checks_and_edge_off(
         manifest_ids=(fixture_entity_id("indicator", "x1"), indicator_id),
         t_grid=jnp.arange(ticks, dtype=float),
         obs_index_by_indicator={
-            identity: np.arange(ticks) for identity in numeric.observation_ids(spec)
+            identity: np.arange(ticks)
+            for identity in numeric.observation_ids(compile_model_fixture(spec))
         },
         values_by_indicator={
-            identity: np.linspace(0.2, 2, ticks) for identity in numeric.observation_ids(spec)
+            identity: np.linspace(0.2, 2, ticks)
+            for identity in numeric.observation_ids(compile_model_fixture(spec))
         },
         n_draws=draws,
     )
     results, _ = measure_construct_simulation(
-        spec,
+        compile_model_fixture(spec),
         predictive,
         design,
         ConstructSimulationTarget(
-            construct=spec.get_construct(numeric.state_ids(spec)[1]),
+            construct=compile_model_fixture(spec).states[1],
             edge_parents=("X",),
             hill_parents=("X",),
         ),
         dynamics=dynamics,
         measurement=measurement,
+        clock=time.monotonic,
     )
     assert len(captured) == int(dynamics)
-    assert numeric.dynamics_expressions(spec)[2] == original
+    assert compile_model_fixture(spec).dynamics.spec.components[2] == original
     assert len(tuple(hill_applications(original.expression))) == 1
     checks = {result.check: result for result in results}
     assert ("C5c transmission" in checks) == measurement

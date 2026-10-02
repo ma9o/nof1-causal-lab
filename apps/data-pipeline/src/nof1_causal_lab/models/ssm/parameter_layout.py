@@ -13,17 +13,17 @@ call sites narrow, not to encode the topology a second time.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from dataclasses import dataclass
+from types import MappingProxyType
 from typing import TYPE_CHECKING, cast
 
 from nof1_causal_lab.artifacts.parameter import SiteKind
-from nof1_causal_lab.models.ssm import numerics as numeric
+from nof1_causal_lab.models.ssm.structure.sites import SitePosition
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping, Sequence
+    from collections.abc import Mapping
 
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor, SitePosition
+    from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
 
 
 @dataclass(frozen=True)
@@ -31,18 +31,19 @@ class SSMParameterLayout:
     """Cached index over a spec's sample-site descriptors."""
 
     sites: tuple[SiteDescriptor, ...]
-    by_name: dict[str, SiteDescriptor]
-    static_factor_name_index: dict[str, int] = field(default_factory=dict)
+    by_name: Mapping[str, SiteDescriptor]
+    static_factor_name_index: Mapping[str, int]
 
     @classmethod
-    def from_spec(cls, spec: ModelSpec) -> SSMParameterLayout:
-        sites = tuple(numeric.iter_sample_sites(spec))
+    def from_sites(
+        cls, sites: tuple[SiteDescriptor, ...], static_names: tuple[str, ...]
+    ) -> SSMParameterLayout:
         return cls(
             sites=sites,
-            by_name={s.name: s for s in sites},
-            static_factor_name_index={
-                name: idx for idx, name in enumerate(numeric.static_factor_names(spec))
-            },
+            by_name=MappingProxyType({site.name: site for site in sites}),
+            static_factor_name_index=MappingProxyType(
+                {name: index for index, name in enumerate(static_names)}
+            ),
         )
 
     # ------------------------------------------------------------------
@@ -54,51 +55,55 @@ class SSMParameterLayout:
 
     def site_by_kind(self, site_kind: SiteKind) -> SiteDescriptor | None:
         sites = self.sites_by_kind(site_kind)
-        if not sites:
-            return None
-        if len(sites) > 1:
-            raise ValueError(
-                f"Expected one active site of kind {site_kind.value!r}, got "
-                f"{[site.name for site in sites]}"
-            )
-        return sites[0]
+        match sites:
+            case ():
+                return None
+            case (site,):
+                return site
+            case _:
+                raise ValueError(
+                    f"Expected one active site of kind {site_kind.value!r}, got "
+                    f"{[site.name for site in sites]}"
+                )
 
-    def _positions_for_kind(self, site_kind: SiteKind) -> list[SitePosition]:
+    def _positions_for_kind(self, site_kind: SiteKind) -> tuple[SitePosition, ...]:
         site = self.site_by_kind(site_kind)
-        return list(site.positions) if site is not None else []
+        return site.positions if site is not None else ()
 
     def _count_for_kind(self, site_kind: SiteKind) -> int:
         site = self.site_by_kind(site_kind)
         return len(site.positions) if site is not None else 0
 
-    def _index_for_kind(self, site_kind: SiteKind) -> dict[SitePosition, int]:
+    def _index_for_kind(self, site_kind: SiteKind) -> Mapping[SitePosition, int]:
         site = self.site_by_kind(site_kind)
         if site is None:
-            return {}
-        return {position: flat_idx for flat_idx, position in enumerate(site.positions)}
+            return MappingProxyType[SitePosition, int]({})
+        return MappingProxyType(
+            {position: flat_idx for flat_idx, position in enumerate(site.positions)}
+        )
 
-    def _vector_positions_for_kind(self, site_kind: SiteKind) -> list[int]:
-        return list(cast("Sequence[int]", self._positions_for_kind(site_kind)))
+    def _vector_positions_for_kind(self, site_kind: SiteKind) -> tuple[int, ...]:
+        return cast("tuple[int, ...]", self._positions_for_kind(site_kind))
 
-    def _vector_index_for_kind(self, site_kind: SiteKind) -> dict[int, int]:
-        return dict(cast("Mapping[int, int]", self._index_for_kind(site_kind)))
+    def _vector_index_for_kind(self, site_kind: SiteKind) -> Mapping[int, int]:
+        return cast("Mapping[int, int]", self._index_for_kind(site_kind))
 
-    def _matrix_positions_for_kind(self, site_kind: SiteKind) -> list[tuple[int, int]]:
-        return list(cast("Sequence[tuple[int, int]]", self._positions_for_kind(site_kind)))
+    def _matrix_positions_for_kind(self, site_kind: SiteKind) -> tuple[tuple[int, int], ...]:
+        return cast("tuple[tuple[int, int], ...]", self._positions_for_kind(site_kind))
 
-    def _matrix_index_for_kind(self, site_kind: SiteKind) -> dict[tuple[int, int], int]:
-        return dict(cast("Mapping[tuple[int, int], int]", self._index_for_kind(site_kind)))
+    def _matrix_index_for_kind(self, site_kind: SiteKind) -> Mapping[tuple[int, int], int]:
+        return cast("Mapping[tuple[int, int], int]", self._index_for_kind(site_kind))
 
     # ------------------------------------------------------------------
     # Named positions / index / count accessors (derived from SiteKind)
     # ------------------------------------------------------------------
 
     @property
-    def static_state_sd_free_positions(self) -> list[int]:
+    def static_state_sd_free_positions(self) -> tuple[int, ...]:
         return self._vector_positions_for_kind(SiteKind.STATIC_STATE_SD)
 
     @property
-    def static_state_sd_free_index(self) -> dict[int, int]:
+    def static_state_sd_free_index(self) -> Mapping[int, int]:
         return self._vector_index_for_kind(SiteKind.STATIC_STATE_SD)
 
     @property
@@ -106,11 +111,11 @@ class SSMParameterLayout:
         return self._count_for_kind(SiteKind.STATIC_STATE_SD)
 
     @property
-    def diffusion_diag_positions(self) -> list[int]:
+    def diffusion_diag_positions(self) -> tuple[int, ...]:
         return self._vector_positions_for_kind(SiteKind.DIFFUSION_DIAG)
 
     @property
-    def diffusion_diag_index(self) -> dict[int, int]:
+    def diffusion_diag_index(self) -> Mapping[int, int]:
         return self._vector_index_for_kind(SiteKind.DIFFUSION_DIAG)
 
     @property
@@ -118,11 +123,11 @@ class SSMParameterLayout:
         return self._count_for_kind(SiteKind.DIFFUSION_DIAG)
 
     @property
-    def diffusion_lower_positions(self) -> list[tuple[int, int]]:
+    def diffusion_lower_positions(self) -> tuple[tuple[int, int], ...]:
         return self._matrix_positions_for_kind(SiteKind.DIFFUSION_LOWER)
 
     @property
-    def diffusion_lower_index(self) -> dict[tuple[int, int], int]:
+    def diffusion_lower_index(self) -> Mapping[tuple[int, int], int]:
         return self._matrix_index_for_kind(SiteKind.DIFFUSION_LOWER)
 
     @property
@@ -130,11 +135,11 @@ class SSMParameterLayout:
         return self._count_for_kind(SiteKind.DIFFUSION_LOWER)
 
     @property
-    def lambda_free_positions(self) -> list[tuple[int, int]]:
+    def lambda_free_positions(self) -> tuple[tuple[int, int], ...]:
         return self._matrix_positions_for_kind(SiteKind.LOADING)
 
     @property
-    def lambda_free_index(self) -> dict[tuple[int, int], int]:
+    def lambda_free_index(self) -> Mapping[tuple[int, int], int]:
         return self._matrix_index_for_kind(SiteKind.LOADING)
 
     @property
@@ -142,11 +147,11 @@ class SSMParameterLayout:
         return self._count_for_kind(SiteKind.LOADING)
 
     @property
-    def manifest_means_free_positions(self) -> list[int]:
+    def manifest_means_free_positions(self) -> tuple[int, ...]:
         return self._vector_positions_for_kind(SiteKind.MANIFEST_MEANS)
 
     @property
-    def manifest_means_free_index(self) -> dict[int, int]:
+    def manifest_means_free_index(self) -> Mapping[int, int]:
         return self._vector_index_for_kind(SiteKind.MANIFEST_MEANS)
 
     @property
@@ -154,11 +159,11 @@ class SSMParameterLayout:
         return self._count_for_kind(SiteKind.MANIFEST_MEANS)
 
     @property
-    def manifest_var_free_positions(self) -> list[int]:
+    def manifest_var_free_positions(self) -> tuple[int, ...]:
         return self._vector_positions_for_kind(SiteKind.MANIFEST_VAR_DIAG)
 
     @property
-    def manifest_var_free_index(self) -> dict[int, int]:
+    def manifest_var_free_index(self) -> Mapping[int, int]:
         return self._vector_index_for_kind(SiteKind.MANIFEST_VAR_DIAG)
 
     @property
@@ -166,11 +171,11 @@ class SSMParameterLayout:
         return self._count_for_kind(SiteKind.MANIFEST_VAR_DIAG)
 
     @property
-    def t0_means_free_positions(self) -> list[int]:
+    def t0_means_free_positions(self) -> tuple[int, ...]:
         return self._vector_positions_for_kind(SiteKind.T0_MEANS)
 
     @property
-    def t0_means_free_index(self) -> dict[int, int]:
+    def t0_means_free_index(self) -> Mapping[int, int]:
         return self._vector_index_for_kind(SiteKind.T0_MEANS)
 
     @property
@@ -178,11 +183,11 @@ class SSMParameterLayout:
         return self._count_for_kind(SiteKind.T0_MEANS)
 
     @property
-    def t0_diag_free_positions(self) -> list[int]:
+    def t0_diag_free_positions(self) -> tuple[int, ...]:
         return self._vector_positions_for_kind(SiteKind.T0_VAR_DIAG)
 
     @property
-    def t0_diag_free_index(self) -> dict[int, int]:
+    def t0_diag_free_index(self) -> Mapping[int, int]:
         return self._vector_index_for_kind(SiteKind.T0_VAR_DIAG)
 
     @property
@@ -190,11 +195,11 @@ class SSMParameterLayout:
         return self._count_for_kind(SiteKind.T0_VAR_DIAG)
 
     @property
-    def t0_correlation_positions(self) -> list[tuple[int, int]]:
+    def t0_correlation_positions(self) -> tuple[tuple[int, int], ...]:
         return self._matrix_positions_for_kind(SiteKind.T0_VAR_LOWER)
 
     @property
-    def t0_correlation_index(self) -> dict[tuple[int, int], int]:
+    def t0_correlation_index(self) -> Mapping[tuple[int, int], int]:
         return self._matrix_index_for_kind(SiteKind.T0_VAR_LOWER)
 
     @property

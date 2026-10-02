@@ -21,7 +21,10 @@ import os
 import time
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal, cast
+from typing import TYPE_CHECKING, Any, Literal, cast
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.models.ssm.inference.types import ParticleMCMCPosterior
 
 LeafProposal = Literal["amala_exact", "paid_mix"]
 LEAF_PROPOSALS: tuple[LeafProposal, ...] = ("amala_exact", "paid_mix")
@@ -97,83 +100,89 @@ def _json_ready(value: Any) -> Any:
     return array.tolist()
 
 
-def _diagnostic_summary(result: Any) -> BenchmarkRecord:
-    diagnostics = result.diagnostics["marginal_particle_gibbs"]
-    fields = (
-        "latent_kernel",
-        "latent_smoother",
-        "latent_smoother_selection",
-        "dsmc_leaf_proposal",
-        "latent_transition_kind",
-        "parameter_kernel",
-        "parameter_preconditioned",
-        "parameter_accept_rate",
-        "latent_update_fraction",
-        "latent_frozen_fraction",
-        "latent_block_coords",
-        "mcmc_phase_seconds",
-        "diagnostic_metrics",
-        "diagnostic_summary_phase",
-        "final_param_step_size",
-        "final_latent_delta",
-    )
-    return {field: _json_ready(diagnostics.get(field)) for field in fields}
+def _diagnostic_summary(result: ParticleMCMCPosterior) -> BenchmarkRecord:
+    diagnostics = result.diagnostics.marginal_particle_gibbs
+    assert diagnostics is not None
+    return {
+        "latent_kernel": _json_ready(diagnostics.latent_kernel),
+        "latent_smoother": _json_ready(diagnostics.latent_smoother),
+        "latent_smoother_selection": _json_ready(diagnostics.latent_smoother_selection),
+        "dsmc_leaf_proposal": _json_ready(diagnostics.dsmc_leaf_proposal),
+        "latent_transition_kind": _json_ready(diagnostics.latent_transition_kind),
+        "parameter_kernel": _json_ready(diagnostics.parameter_kernel),
+        "parameter_preconditioned": _json_ready(diagnostics.parameter_preconditioned),
+        "parameter_accept_rate": _json_ready(diagnostics.parameter_accept_rate),
+        "latent_update_fraction": _json_ready(diagnostics.latent_update_fraction),
+        "latent_frozen_fraction": _json_ready(diagnostics.latent_frozen_fraction),
+        "latent_block_coords": _json_ready(diagnostics.latent_block_coords),
+        "mcmc_phase_seconds": _json_ready(diagnostics.mcmc_phase_seconds),
+        "diagnostic_metrics": _json_ready(diagnostics.diagnostic_metrics),
+        "diagnostic_summary_phase": _json_ready(diagnostics.diagnostic_summary_phase),
+        "final_param_step_size": _json_ready(diagnostics.final_param_step_size),
+        "latent_delta": _json_ready(diagnostics.latent_delta),
+    }
 
 
 def _run_one(
     *,
     proposal: LeafProposal,
     model: Any,
-    observations: Any,
-    times: Any,
+    panel: Any,
     args: argparse.Namespace,
 ) -> BenchmarkRecord:
     from evaluation.recovery.extraction import parameter_recovery, scalar_posterior_ess
 
     from nof1_causal_lab.models.ssm.inference import fit
+    from nof1_causal_lab.sampler_config import (
+        MarginalParticleGibbsSpec,
+        SamplerSpec,
+    )
 
     logger.info("starting dSMC/%s", proposal)
     started = time.monotonic()
     result = fit(
-        model,
-        observations,
-        times,
-        method="marginal_particle_gibbs",
-        num_warmup=args.num_warmup,
-        num_samples=args.num_samples,
-        num_chains=args.num_chains,
-        seed=args.seed,
-        n_particles=args.n_particles,
-        n_parameter_particles=args.n_parameter_particles,
-        latent_smoother="dsmc",
-        dsmc_leaf_proposal=proposal,
-        latent_block_coords=args.latent_block_coords,
-        diagnostic_metrics=args.diagnostic_metrics,
-        init_method=args.init_method,
-        init_scale=args.init_scale,
-        pathfinder_num_elbo_samples=args.pathfinder_num_elbo_samples,
-        pathfinder_maxiter=args.pathfinder_maxiter,
-        n_pathfinder_starts=args.n_pathfinder_starts,
-        pathfinder_parallel_workers=args.pathfinder_parallel_workers,
-        pathfinder_init_scale=args.pathfinder_init_scale,
-        auto_preconditioner_method=args.auto_preconditioner_method,
-        auto_preconditioner_maxiter=args.auto_preconditioner_maxiter,
-        n_ieks_iters=args.n_ieks_iters,
-        param_step_size=args.param_step_size,
-        param_step_size_min=args.param_step_size_min,
-        param_step_size_max=args.param_step_size_max,
-        param_target_accept=args.param_target_accept,
-        adaptation_rate=args.adaptation_rate,
-        amala_delta_init=args.amala_delta_init,
-        amala_delta_min=args.amala_delta_min,
-        amala_delta_max=args.amala_delta_max,
-        amala_target_accept=args.amala_target_accept,
-        paid_mix_z_weight=args.paid_mix_z_weight,
-        paid_mix_pilot_weight=args.paid_mix_pilot_weight,
-        paid_mix_pilot_var_scale=args.paid_mix_pilot_var_scale,
-        paid_mix_wide_mult=args.paid_mix_wide_mult,
-        retain_latent_paths=args.retain_latent_paths,
-        compute_latent_posterior_summary=not args.skip_latent_posterior_summary,
+        model.prior_runtime_bundle,
+        panel,
+        sampler=SamplerSpec(
+            num_warmup=args.num_warmup,
+            num_samples=args.num_samples,
+            num_chains=args.num_chains,
+            seed=args.seed,
+            n_particles=args.n_particles,
+            retain_latent_paths=args.retain_latent_paths,
+            marginal_particle_gibbs=MarginalParticleGibbsSpec(
+                n_parameter_particles=args.n_parameter_particles,
+                latent_smoother="dsmc",
+                dsmc_leaf_proposal=proposal,
+                latent_block_coords=args.latent_block_coords,
+                diagnostic_metrics=args.diagnostic_metrics,
+                init_method=args.init_method,
+                init_scale=args.init_scale,
+                pathfinder_num_elbo_samples=args.pathfinder_num_elbo_samples,
+                pathfinder_maxiter=args.pathfinder_maxiter,
+                n_pathfinder_starts=args.n_pathfinder_starts,
+                pathfinder_parallel_workers=args.pathfinder_parallel_workers,
+                pathfinder_init_scale=args.pathfinder_init_scale,
+                auto_preconditioner_method=args.auto_preconditioner_method,
+                auto_preconditioner_maxiter=args.auto_preconditioner_maxiter,
+                n_ieks_iters=args.n_ieks_iters,
+                param_step_size=args.param_step_size,
+                param_step_size_min=args.param_step_size_min,
+                param_step_size_max=args.param_step_size_max,
+                param_target_accept=args.param_target_accept,
+                adaptation_rate=args.adaptation_rate,
+                amala_delta_init=args.amala_delta_init,
+                amala_delta_min=args.amala_delta_min,
+                amala_delta_max=args.amala_delta_max,
+                amala_target_accept=args.amala_target_accept,
+                paid_mix_z_weight=args.paid_mix_z_weight,
+                paid_mix_pilot_weight=args.paid_mix_pilot_weight,
+                paid_mix_pilot_var_scale=args.paid_mix_pilot_var_scale,
+                paid_mix_wide_mult=args.paid_mix_wide_mult,
+                compute_latent_posterior_summary=not args.skip_latent_posterior_summary,
+            ),
+        ),
+        clock=time.monotonic,
     )
     elapsed_seconds = time.monotonic() - started
     logger.info("finished dSMC/%s in %.1fs", proposal, elapsed_seconds)
@@ -256,6 +265,7 @@ def main() -> None:
 
     _configure_jax_cache()
     from evaluation.fixtures.synthetic_nonlinear import (
+        bind_synthetic_nonlinear_panel,
         load_synthetic_nonlinear_model,
         simulate_synthetic_nonlinear_data,
     )
@@ -265,17 +275,13 @@ def main() -> None:
         seed=args.data_seed,
         diffusion_scale=args.diffusion_scale,
     )
-    model = load_synthetic_nonlinear_model(
-        data,
-        include_interval_support=False,
-        diffusion_scale=args.diffusion_scale,
-    )
+    model = load_synthetic_nonlinear_model(diffusion_scale=args.diffusion_scale)
+    panel = bind_synthetic_nonlinear_panel(model, data)
     runs = {
         f"point:{proposal}": _run_one(
             proposal=proposal,
             model=model,
-            observations=data.observations,
-            times=data.times,
+            panel=panel,
             args=args,
         )
         for proposal in args.proposals

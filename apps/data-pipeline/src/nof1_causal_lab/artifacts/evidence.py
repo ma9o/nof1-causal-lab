@@ -1,9 +1,11 @@
 """Literature evidence shared by authored scientific model decisions."""
 
-from pydantic import BaseModel, Field
+from pydantic import Field
+
+from nof1_causal_lab.artifacts.base import Value
 
 
-class LiteratureSource(BaseModel):
+class LiteratureSource(Value):
     """A literature source records cited evidence supporting a scientific modeling decision."""
 
     title: str = Field(description="Title of the source (paper, meta-analysis, textbook, etc.)")

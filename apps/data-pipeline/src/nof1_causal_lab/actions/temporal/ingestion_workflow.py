@@ -7,9 +7,10 @@ from datetime import timedelta
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 
+from nof1_causal_lab.actions.errors import execution_failure_handler
+
 with workflow.unsafe.imports_passed_through():
     # Temporal resolves workflow result annotations when registering the class.
-    from nof1_causal_lab.actions.effects import ActionEffects
     from nof1_causal_lab.actions.progress import StepError, StepEvent, StepStatus
     from nof1_causal_lab.actions.temporal.ingestion_activities import (
         finalize_ingestion_activity,
@@ -23,8 +24,9 @@ with workflow.unsafe.imports_passed_through():
     )
     from nof1_causal_lab.actions.temporal.workflow_support import (
         emit_progress,
-        temporal_failure_details,
+        temporal_failure,
     )
+    from nof1_causal_lab.study.records import DataPreparationResult
 
 _FINALIZE_TIMEOUT = timedelta(minutes=5)
 
@@ -39,7 +41,8 @@ _ACTIVITY_RETRY = RetryPolicy(
 @workflow.defn
 class IngestionWorkflow:
     @workflow.run
-    async def run(self, input: IngestionWorkflowInput) -> ActionEffects:
+    @execution_failure_handler
+    async def run(self, input: IngestionWorkflowInput) -> DataPreparationResult:
         def step(status: StepStatus, error: StepError | None = None) -> StepEvent:
             return StepEvent(
                 attempt_id=input.attempt_id, step="ingestion", status=status, error=error
@@ -96,10 +99,10 @@ class IngestionWorkflow:
                 summary="Finalize raw-data ingestion",
             )
         except Exception as exc:
-            failure_type, failure_message, _ = temporal_failure_details(exc)
+            failure = temporal_failure(exc)
             await emit_progress(
                 input.workspace_id,
-                step("failed", StepError(type=failure_type, message=failure_message)),
+                step("failed", StepError(type=failure.error_type, message=failure.error_message)),
             )
             raise
         await emit_progress(input.workspace_id, step("completed"))

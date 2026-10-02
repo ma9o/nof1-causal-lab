@@ -114,11 +114,11 @@ def _trajectory_runtime_dynamics() -> StochasticContinuousTimeStateEvolution:
 def _interval_mean_support_runtime() -> ObservationSupportRuntime:
     return ObservationSupportRuntime(
         anchor_times=np.array([0.0, 0.50, 1.25], dtype=np.float64),
-        manifest_names=["mean_signal"],
-        support_kinds=["interval"],
-        summary_operators=["mean"],
-        anchor_policies=["support_end"],
-        observation_windows=["previous_interval"],
+        manifest_names=("mean_signal",),
+        support_kinds=("interval",),
+        summary_operators=("mean",),
+        anchor_policies=("support_end",),
+        observation_windows=("previous_interval",),
         support_start_times=np.array([[np.nan], [0.0], [0.50]], dtype=np.float64),
         support_end_times=np.array([[np.nan], [0.50], [1.25]], dtype=np.float64),
         interval_prev_coeffs=np.array([[[0.0]], [[0.25]], [[0.375]]], dtype=np.float64),
@@ -247,9 +247,10 @@ def test_nonlinear_laplace_backends_match_finite_difference(monkeypatch, solver)
             base_dynamics,
             (_structural_drift(base_dynamics).args.params[0], hill_params),
         )
-        return backend.compute_log_likelihood_with_aux(
+        result = backend.compute_log_likelihood_with_aux(
             dynamics, measurement, initial, observations, intervals
         )
+        return result.log_likelihood, result
 
     evaluate = jax.jit(jax.value_and_grad(_objective, has_aux=True))
     emax = jnp.array(0.8, dtype=jnp.float32)
@@ -258,9 +259,9 @@ def test_nonlinear_laplace_backends_match_finite_difference(monkeypatch, solver)
     (plus, _), _ = evaluate(emax + eps)
     (minus, _), _ = evaluate(emax - eps)
     assert np.isfinite(value)
-    assert aux["latent_mode"].shape == (3, 2)
+    assert aux.state.latent_mode.shape == (3, 2)
     assert (
-        int(aux["solver_kind"])
+        int(aux.diagnostics["solver_kind"])
         == {
             "point": LIKELIHOOD_SOLVER_KIND_POINT_IEKS,
             "dense": LIKELIHOOD_SOLVER_KIND_DENSE_SUPPORT,

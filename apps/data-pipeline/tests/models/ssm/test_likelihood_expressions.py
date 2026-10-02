@@ -8,7 +8,7 @@ import jax.numpy as jnp
 import numpy as np
 import numpyro.distributions as dist
 import pytest
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.expressions import (
@@ -18,17 +18,19 @@ from nof1_causal_lab.artifacts.expressions import (
 from nof1_causal_lab.artifacts.identity import ConstructId, scientific_id
 from nof1_causal_lab.artifacts.likelihood import (
     LikelihoodSpec,
+    NormalLawSpec,
     ObservationLawSpec,
+    observation_expressions,
 )
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.compilation_errors import IncompleteModelError
 from nof1_causal_lab.models.likelihoods import function
 from nof1_causal_lab.models.model_parameters import iter_coefficient_uses
-from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.execution.observation_dispatch import get_emission_fn
 from nof1_causal_lab.study.equations import observation_equations
 from tests.helpers import make_model
+from tests.model_fixtures import compile_model_fixture
 
 
 @pytest.mark.inference(concern="sampling")
@@ -198,9 +200,9 @@ def test_native_conditional_law_matches_exact_emission_lowering(
             call=lambda name, arguments: functions[name](*arguments),
         )
 
-    arguments = {name: evaluate(value) for name, value in likelihood.law.arguments.items()}
+    arguments = {name: evaluate(value) for name, value in observation_expressions(likelihood.law)}
     expected = getattr(dist, likelihood.law.distribution)(**arguments).log_prob(observed)
-    terms = likelihood.terms
+    terms = likelihood.parsed
     extra = {
         operand.meaning.quantity.value: values[operand.role]
         for operand in terms.auxiliary
@@ -353,9 +355,9 @@ def test_authored_laws_preserve_coefficient_identities(
             / with_likelihood_coefficients_payload
         ).read_text()
     )
-    assert authored.terms.loadings[ConstructId("construct:x")].value == -1
-    assert authored.terms.intercept.value == scientific_id("parameter", "baseline")
-    assert (authored.terms.family, authored.terms.link) == (family, link)
+    assert authored.parsed.loadings[ConstructId("construct:x")].value == -1
+    assert authored.parsed.intercept.value == scientific_id("parameter", "baseline")
+    assert (authored.parsed.family, authored.parsed.link) == (family, link)
     assert set(authored.model_dump()) == {"law", "standardized", "reasoning", "sources"}
     assert LikelihoodSpec.model_validate_json(authored.model_dump_json()) == authored
 
@@ -379,22 +381,13 @@ def test_completion_binding_equations_and_serialization_follow_the_same_cross_lo
     model = model.revised(
         edges=replace_constructs(
             model.edges,
-            (
-                type(owner).model_validate(
-                    {
-                        **owner.model_dump(),
-                        "indicators": (
-                            type(indicator).model_validate(
-                                {**indicator.model_dump(), "likelihood": revised}
-                            ),
-                        ),
-                    }
-                ),
-            ),
+            (owner.revised(indicators=(indicator.revised(likelihood=revised),)),),
         )
     )
-    model.check_execution()
-    np.testing.assert_allclose(numeric.loading_block(model).template, [[1, 0.25], [0, 1]])
+    compile_model_fixture(model)
+    np.testing.assert_allclose(
+        compile_model_fixture(model).loading_block.template, [[1, 0.25], [0, 1]]
+    )
     uses = [use for use in iter_coefficient_uses(model) if use.quantity == SiteKind.LOADING]
     cross = next(use for use in uses if use.value == 0.25)
     assert {ref.id for ref in cross.owners} == {indicator.id, other.id}
@@ -403,11 +396,7 @@ def test_completion_binding_equations_and_serialization_follow_the_same_cross_lo
     assert r"0.25" in equation
     assert r"\eta_{\text{Y}}(t)" in equation
     assert ModelSpec.model_validate_json(model.model_dump_json()) == model
-    renamed = model.revised(
-        edges=replace_constructs(
-            model.edges, (type(other).model_validate({**other.model_dump(), "name": "Renamed"}),)
-        )
-    )
+    renamed = model.revised(edges=replace_constructs(model.edges, (other.revised(name="Renamed"),)))
     assert r"\eta_{\text{Renamed}}(t)" in observation_equations(renamed)[indicator.id]
     assert {p.id for p in renamed.parameters} == {p.id for p in model.parameters}
 
@@ -415,7 +404,7 @@ def test_completion_binding_equations_and_serialization_follow_the_same_cross_lo
 @pytest.mark.contract
 def test_partial_law_is_explicit_and_unsupported_formulas_fail_before_execution():
     likelihood = LikelihoodSpec(
-        law=ObservationLawSpec.model_validate_json(
+        law=TypeAdapter(ObservationLawSpec).validate_json(
             (
                 Path(__file__).resolve().parents[2]
                 / "fixtures/models"
@@ -424,20 +413,17 @@ def test_partial_law_is_explicit_and_unsupported_formulas_fail_before_execution(
         ),
         reasoning="Partial",
     )
-    assert all(operand.value is None for operand in likelihood.terms.operands)
+    assert all(operand.value is None for operand in likelihood.parsed.operands)
     with pytest.raises(ValidationError, match="affine"):
         LikelihoodSpec(
-            law=ObservationLawSpec(
-                distribution="Normal",
-                arguments={
-                    "loc": function("exp", likelihood.terms.predictor),
-                    "scale": coefficient(None, "observation_scale"),
-                },
+            law=NormalLawSpec(
+                loc=function("exp", likelihood.parsed.predictor),
+                scale=coefficient(None, "observation_scale"),
             ),
             reasoning="Unsupported nonlinear observation predictor",
         )
-    with pytest.raises(ValidationError, match="exactly"):
-        ObservationLawSpec(distribution="Normal", arguments={"rate": likelihood.terms.predictor})
+    with pytest.raises(ValidationError, match="Field required"):
+        NormalLawSpec.model_validate({"rate": likelihood.parsed.predictor})
     with pytest.raises(ValidationError, match="non-negative"):
         coefficient(-1, "observation_scale")
 
@@ -445,7 +431,7 @@ def test_partial_law_is_explicit_and_unsupported_formulas_fail_before_execution(
     owner = model.constructs[0]
     indicator = owner.indicators[0]
     partial = LikelihoodSpec(
-        law=ObservationLawSpec.model_validate_json(
+        law=TypeAdapter(ObservationLawSpec).validate_json(
             (
                 Path(__file__).resolve().parents[2]
                 / "fixtures/models"
@@ -459,36 +445,27 @@ def test_partial_law_is_explicit_and_unsupported_formulas_fail_before_execution(
         return model.revised(
             edges=replace_constructs(
                 model.edges,
-                (
-                    type(owner).model_validate(
-                        {
-                            **owner.model_dump(),
-                            "indicators": (
-                                type(indicator).model_validate(
-                                    {**indicator.model_dump(), "likelihood": law}
-                                ),
-                            ),
-                        }
-                    ),
-                ),
+                (owner.revised(indicators=(indicator.revised(likelihood=law),)),),
             )
         )
 
     unfinished = with_law(partial)
     with pytest.raises(IncompleteModelError):
-        unfinished.check_execution()
+        compile_model_fixture(unfinished)
     assert "?" in observation_equations(unfinished)[indicator.id]
-    ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2]
-            / "fixtures/models"
-            / "likelihood_expressions/partial_law_is_explicit_and_unsupported_formulas_fail_before_execution_complete_test_model.json"
-        ).read_text()
-    ).check_execution()
+    compile_model_fixture(
+        ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "likelihood_expressions/partial_law_is_explicit_and_unsupported_formulas_fail_before_execution_complete_test_model.json"
+            ).read_text()
+        )
+    )
     with pytest.raises(ValidationError, match="unknown constructs"):
         with_law(likelihood)
     wrong_owner = LikelihoodSpec(
-        law=ObservationLawSpec.model_validate_json(
+        law=TypeAdapter(ObservationLawSpec).validate_json(
             (
                 Path(__file__).resolve().parents[2]
                 / "fixtures/models"

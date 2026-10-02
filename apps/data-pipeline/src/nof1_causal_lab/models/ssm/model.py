@@ -10,15 +10,13 @@ Supports:
 
 from __future__ import annotations
 
-from functools import cached_property
 from itertools import chain
-from typing import TYPE_CHECKING, cast
+from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import numpyro
-import numpyro.distributions as dist
 
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.dynamics.intervention import (
@@ -33,24 +31,15 @@ from nof1_causal_lab.models.ssm.execution.dynamical_model import (
 from nof1_causal_lab.models.ssm.execution.parameters import assemble_model_matrices, sample_sites
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
-    from dynestyx import StochasticContinuousTimeStateEvolution
-
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.models.ssm.compile.bindings import CompiledParameterBinding
-    from nof1_causal_lab.models.ssm.compile.inputs import CompiledFitInputs
-    from nof1_causal_lab.models.ssm.counterfactual.orchestration import ResolvedIntervention
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
     from nof1_causal_lab.models.ssm.execution.contracts import InitializationLikelihoodBackend
-    from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
-    from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
+    from nof1_causal_lab.models.ssm.runtime import BoundPanel
 
 from nof1_causal_lab.models.ssm.constants import MIN_DT
 from nof1_causal_lab.models.ssm.covariance_utils import (
     INITIAL_STATE_COV_MIN_EIGENVALUE,
 )
 from nof1_causal_lab.models.ssm.execution.contracts import (
-    LikelihoodExtraParams,
     MeasurementParams,
 )
 from nof1_causal_lab.models.ssm.likelihood_extra_params import (
@@ -80,208 +69,95 @@ def _nan_safe_ll_bwd(is_finite, g):
 _nan_safe_ll.defvjp(_nan_safe_ll_fwd, _nan_safe_ll_bwd)
 
 
-class SSMModel:
-    """NumPyro state-space model definition.
+def sample_parameters(model: CompiledModel, priors: PriorRuntimeBundle) -> dict[str, jnp.ndarray]:
+    """Sample declared sites and emit the canonical scientific matrices."""
+    sites = chain.from_iterable(block.iter_sites() for block in numeric.parameter_blocks(model))
+    matrices, min_eigenvalue = assemble_model_matrices(
+        model, sample_sites(sites, priors.priors.__getitem__)
+    )
+    for name, value in matrices.items():
+        # Empty input/static-factor blocks have no public deterministic site.
+        if name != "static_state_sds" or value.size:
+            numpyro.deterministic(name, value)
+    numpyro.factor(
+        "t0_correlation_positive_definite",
+        jnp.where(
+            min_eigenvalue > INITIAL_STATE_COV_MIN_EIGENVALUE,
+            0.0,
+            -1e6 * (INITIAL_STATE_COV_MIN_EIGENVALUE - min_eigenvalue),
+        ),
+    )
+    return matrices
 
-    Defines the probabilistic model for Bayesian state-space models.
-    Inference is handled externally by ssm.inference.fit().
 
-    Features:
-    - Continuous-time dynamics via stochastic differential equations
-    - Exact particle likelihoods; Gaussian approximations only for sampler initialization
-    """
-
-    def __init__(self, inputs: CompiledFitInputs):
-        """Construct a runtime from the compiler's single owner of fit inputs."""
-        self._inputs = inputs
-        self._artifact_cache: dict[tuple[object, ...], object] = {}
-        self.observation_support: ObservationSupportRuntime | None = None
-        self.input_values: jnp.ndarray | None = None
-        self.input_events: tuple[ResolvedIntervention, ...] = ()
-
-    @property
-    def inputs(self) -> CompiledFitInputs:
-        return self._inputs
-
-    @property
-    def spec(self) -> ModelSpec:
-        return self.inputs.spec
-
-    def get_cached_artifact[T](
-        self,
-        cache_key: tuple[object, ...],
-        factory: Callable[[], T],
-    ) -> T:
-        """Construct an artifact once per model instance and reuse it afterwards."""
-        if cache_key not in self._artifact_cache:
-            self._artifact_cache[cache_key] = factory()
-        return cast("T", self._artifact_cache[cache_key])
-
-    def set_observation_support(
-        self, observation_support: ObservationSupportRuntime | None
-    ) -> None:
-        """Attach prepared observation-support metadata and invalidate backend caches."""
-        self.observation_support = observation_support
-        self._artifact_cache = {
-            key: value
-            for key, value in self._artifact_cache.items()
-            if not (key and key[0] == "backend")
-        }
-
-    def vector_field(self):
-        """Unified dynamics representation as a :class:`VectorField`.
-
-        The vector field derives from the scientific mechanisms and is what consumers
-        (``simulate``, the per-step linearisation in
-        the IEKS/Laplace warmup backend, …) all consume uniformly.
-        """
-
-        def _build():
-            from nof1_causal_lab.models.ssm.dynamics.spec import compile_dynamics
-
-            return compile_dynamics(numeric.dynamics_components(self.spec)).vector_field
-
-        return self.get_cached_artifact(("vector_field",), _build)
-
-    @property
-    def parameter_bindings(self) -> tuple[CompiledParameterBinding, ...]:
-        """Reuse the compiler's scientific coordinates."""
-        return self.inputs.bindings
-
-    @property
-    def parameter_layout(self) -> SSMParameterLayout:
-        return self.inputs.parameter_layout
-
-    def get_prior_runtime_bundle(self) -> PriorRuntimeBundle:
-        return self.inputs.prior_runtime_bundle
-
-    @cached_property
-    def _prior_site_names(self) -> frozenset[str]:
-        return frozenset(site.name for site in self.get_prior_runtime_bundle().registry)
-
-    def _prior_distribution(self, site_name: str) -> dist.Distribution:
-        """Resolve a sample-site prior from canonical runtime semantics."""
-        runtime = self.get_prior_runtime_bundle()
-        if site_name not in self._prior_site_names:
-            raise ValueError(f"Prior runtime bundle has no site named {site_name!r}")
-        return runtime.priors[site_name]
-
-    def _sample_likelihood_extra_params(self, spec: ModelSpec) -> LikelihoodExtraParams:
-        """Sample the shared likelihood-site catalog and assemble its semantics."""
-        return assemble_sampled_extra_params(
-            spec, sample_sites(likelihood_sites(spec), self._prior_distribution)
-        )
-
-    def _sample_parameters(self) -> dict[str, jnp.ndarray]:
-        """Sample declared sites and emit the canonical scientific matrices."""
-        sites = chain.from_iterable(
-            block.iter_sites() for block in numeric.parameter_blocks(self.spec)
-        )
-        matrices, min_eigenvalue = assemble_model_matrices(
-            self.spec, sample_sites(sites, self._prior_distribution)
-        )
-        for name, value in matrices.items():
-            # Empty input/static-factor blocks have no public deterministic site.
-            if name != "static_state_sds" or value.size:
-                numpyro.deterministic(name, value)
-        numpyro.factor(
-            "t0_correlation_positive_definite",
-            jnp.where(
-                min_eigenvalue > INITIAL_STATE_COV_MIN_EIGENVALUE,
-                0.0,
-                -1e6 * (INITIAL_STATE_COV_MIN_EIGENVALUE - min_eigenvalue),
-            ),
-        )
-        return matrices
-
-    def _sample_runtime_dynamics(
-        self,
-        diffusion: jnp.ndarray,
-        times: jnp.ndarray,
-    ) -> StochasticContinuousTimeStateEvolution:
-        """Sample vector-field parameters inside the NumPyro trace."""
-        from nof1_causal_lab.models.ssm.dynamics.spec import compile_dynamics
-
-        compiled = compile_dynamics(numeric.dynamics_components(self.spec))
-        return continuous_state_evolution(
-            vector_field=compiled.vector_field,
-            vf_params=compiled.sample_params(self._prior_distribution),
-            diffusion=diffusion,
-            intervention=self.initialization_input_intervention(times),
-        )
-
-    def initialization_input_intervention(self, times: jnp.ndarray) -> Intervention:
-        """Use the given path in the Gaussian view used only to initialize particles."""
-        if self.input_values is None:
-            return Intervention.none()
-        return Intervention(
-            tuple(
-                VariableOverride(
-                    int(index),
-                    PrecomputedValueFn(times - times[0], self.input_values[:, index]),
-                )
-                for index in np.flatnonzero(numeric.input_mask(self.spec))
+def initialization_input_intervention(panel: BoundPanel, times: jnp.ndarray) -> Intervention:
+    """Use the bound input path in the Gaussian particle-initialization view."""
+    return Intervention(
+        tuple(
+            VariableOverride(
+                int(index),
+                PrecomputedValueFn(times - times[0], panel.input_values[:, index]),
             )
+            for index in np.flatnonzero(numeric.input_mask(panel.model))
         )
+    )
 
-    def model(
-        self,
-        observations: jnp.ndarray,
-        times: jnp.ndarray,
-        likelihood_backend: InitializationLikelihoodBackend,
-    ) -> None:
-        """NumPyro model function.
 
-        Args:
-            observations: (N, n_manifest) observed data
-            times: (N,) observation times
-            likelihood_backend: Laplace likelihood backend instance. Required —
-                construct it in the inference warmup layer.
-        """
-        spec = self.spec
-        sampled = self._sample_parameters()
+def numpyro_model(
+    panel: BoundPanel,
+    priors: PriorRuntimeBundle,
+    likelihood_backend: InitializationLikelihoodBackend,
+) -> None:
+    """Replay compiled priors and the particle-initialization likelihood."""
+    spec = panel.model
+    observations, times = panel.observations, panel.times
+    sampled = sample_parameters(spec, priors)
 
-        diffusion_chol = sampled["diffusion"]
-        lambda_mat = sampled["lambda"]
-        manifest_means = sampled["manifest_means"]
-        t0_means = sampled["t0_means"]
+    diffusion_chol = sampled["diffusion"]
+    lambda_mat = sampled["lambda"]
+    manifest_means = sampled["manifest_means"]
+    t0_means = sampled["t0_means"]
 
-        manifest_cov = sampled["manifest_cov"]
-        t0_cov = sampled["t0_cov"]
-        extra_params = self._sample_likelihood_extra_params(spec)
-        dynamics = self._sample_runtime_dynamics(
-            diffusion_chol,
-            times,
-        )
+    manifest_cov = sampled["manifest_cov"]
+    t0_cov = sampled["t0_cov"]
+    extra_params = assemble_sampled_extra_params(
+        spec, sample_sites(likelihood_sites(spec), priors.priors.__getitem__)
+    )
+    dynamics = continuous_state_evolution(
+        vector_field=spec.dynamics.vector_field,
+        vf_params=spec.dynamics.sample_params(priors.priors.__getitem__),
+        diffusion=diffusion_chol,
+        intervention=initialization_input_intervention(panel, times),
+    )
 
-        meas_params = MeasurementParams(
-            lambda_mat=lambda_mat,
-            manifest_means=manifest_means,
-            manifest_cov=manifest_cov,
-        )
+    meas_params = MeasurementParams(
+        lambda_mat=lambda_mat,
+        manifest_means=manifest_means,
+        manifest_cov=manifest_cov,
+    )
 
-        time_intervals = jnp.diff(times, prepend=times[0])
-        time_intervals = time_intervals.at[0].set(MIN_DT)
+    time_intervals = jnp.diff(times, prepend=times[0])
+    time_intervals = time_intervals.at[0].set(MIN_DT)
 
-        init = initial_state_distribution(spec, t0_means, t0_cov, input_values=self.input_values)
-        lnc = likelihood_backend.compute_log_likelihood(
-            dynamics,
-            meas_params,
-            init,
-            observations,
-            time_intervals,
-            extra_params=extra_params or None,
-        )
+    init = initial_state_distribution(spec, t0_means, t0_cov, input_values=panel.input_values)
+    lnc = likelihood_backend.compute_log_likelihood(
+        dynamics,
+        meas_params,
+        init,
+        observations,
+        time_intervals,
+        extra_params=extra_params or None,
+    )
 
-        # lnc is (T,) cumulative log-normalizing constants from the filter.
-        # lnc[-1] = total log p(y|θ).
-        # diff(lnc) exposes per-timestep contributions to the initialization
-        # objective. Reported LOO uses emission factors on joint particle draws.
-        if lnc.ndim == 0:
-            total_ll = _nan_safe_ll(lnc)
-            numpyro.factor("log_likelihood", total_ll)
-        else:
-            total_ll = _nan_safe_ll(lnc[-1])
-            numpyro.factor("log_likelihood", total_ll)
-            ll_per_timestep = jnp.diff(lnc, prepend=0.0)
-            numpyro.deterministic("ll_per_timestep", ll_per_timestep)
+    # lnc is (T,) cumulative log-normalizing constants from the filter.
+    # lnc[-1] = total log p(y|θ).
+    # diff(lnc) exposes per-timestep contributions to the initialization
+    # objective. Reported LOO uses emission factors on joint particle draws.
+    if lnc.ndim == 0:
+        total_ll = _nan_safe_ll(lnc)
+        numpyro.factor("log_likelihood", total_ll)
+    else:
+        total_ll = _nan_safe_ll(lnc[-1])
+        numpyro.factor("log_likelihood", total_ll)
+        ll_per_timestep = jnp.diff(lnc, prepend=0.0)
+        numpyro.deterministic("ll_per_timestep", ll_per_timestep)

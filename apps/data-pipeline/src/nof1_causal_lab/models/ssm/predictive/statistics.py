@@ -27,14 +27,16 @@ from nof1_causal_lab.models.ssm.execution.observation_extra_params import (
 from nof1_causal_lab.models.ssm.execution.observation_operator import compile_observation_operator
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from collections.abc import Mapping
+
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
     from .types import PredictiveDraws
 
 
 def observation_signal_and_variance(
-    spec: ModelSpec,
+    spec: CompiledModel,
     prediction: PredictiveDraws,
     manifest_index: int,
     time_indices: np.ndarray,
@@ -59,7 +61,7 @@ def observation_signal_and_variance(
         means: jax.Array,
         predictors: jax.Array,
         covariance: jax.Array,
-        extra_params: dict[str, jax.Array],
+        extra_params: Mapping[str, jax.Array],
     ):
         channel_params = slice_observation_extra_params(
             extra_params, [manifest_index], source_channel_count=n_channels

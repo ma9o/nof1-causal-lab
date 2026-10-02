@@ -57,16 +57,6 @@ class DistributionFamily(StrEnum):
         return self in {DistributionFamily.GAUSSIAN, DistributionFamily.STUDENT_T}
 
 
-@dataclass(frozen=True)
-class ObservationFamilyCatalogEntry:
-    """Central observation-family metadata shared across prompts and validation."""
-
-    family: DistributionFamily
-    summary: str
-    links: tuple[str, ...]
-    hyperparameters: tuple[str, ...] = ()
-
-
 class PriorDistributionFamily(StrEnum):
     """This enumeration identifies the probability families permitted in authored prior
     proposals.
@@ -110,8 +100,8 @@ class PriorParameterGuidanceRow:
 
 
 LAGGED_BETA_AUTHORED_INTERVAL_SCALE: Final[str] = (
-    "Authored interval effect (defaults to model interval; use "
-    "`reference_interval_days` when evidence is on another interval)"
+    "Authored interval effect (`transform.interval_days` names a positive duration "
+    "or explicitly selects `model_clock`)"
 )
 
 
@@ -125,8 +115,9 @@ def render_dynamic_prior_scale_guidance() -> str:
         "are invalid here. NumPyro transforms the complete law exactly via "
         "decay = -ln(rho)/dt, including its density Jacobian. "
         "`beta_*` priors should be authored on the interval they mean. For interval-effect "
-        "`beta_*`, set `reference_interval_days` when the evidence is on a different "
-        "interval; otherwise the model interval is assumed. The compiler handles "
+        "`beta_*`, use transform kind `dt_effect_to_ct_rate`; for persistence, use "
+        "`dt_persistence_to_ct_decay`. Both require `interval_days`: the positive "
+        "evidence duration in days, or `model_clock` for the model interval. The compiler handles "
         "interval normalization, CT conversion, and the realised diagonal damping "
         "needed to keep the drift stable. "
         "`t0_mean_*` and `t0_sd_*` live on the latent state scale: do not set them "
@@ -136,75 +127,6 @@ def render_dynamic_prior_scale_guidance() -> str:
 
 
 # ---------------------------------------------------------------------------
-OBSERVATION_FAMILY_SPECS: Final[tuple[ObservationFamilyCatalogEntry, ...]] = (
-    ObservationFamilyCatalogEntry(
-        family=DistributionFamily.GAUSSIAN,
-        summary="Continuous unbounded data, approximately symmetric.",
-        links=("identity",),
-    ),
-    ObservationFamilyCatalogEntry(
-        family=DistributionFamily.STUDENT_T,
-        summary="Continuous data with heavy tails or outliers.",
-        links=("identity",),
-        hyperparameters=("obs_df",),
-    ),
-    ObservationFamilyCatalogEntry(
-        family=DistributionFamily.POISSON,
-        summary="Count data with variance roughly tracking the mean.",
-        links=("log",),
-    ),
-    ObservationFamilyCatalogEntry(
-        family=DistributionFamily.GAMMA,
-        summary="Positive continuous data such as durations or reaction times.",
-        links=("log", "inverse"),
-        hyperparameters=("obs_shape",),
-    ),
-    ObservationFamilyCatalogEntry(
-        family=DistributionFamily.BERNOULLI,
-        summary="Binary outcomes with two possible states.",
-        links=("logit", "probit"),
-    ),
-    ObservationFamilyCatalogEntry(
-        family=DistributionFamily.NEGATIVE_BINOMIAL,
-        summary="Overdispersed count data where variance exceeds the mean.",
-        links=("log",),
-        hyperparameters=("obs_r",),
-    ),
-    ObservationFamilyCatalogEntry(
-        family=DistributionFamily.BETA,
-        summary="Proportions or rates strictly inside the unit interval.",
-        links=("logit", "probit"),
-        hyperparameters=("obs_concentration",),
-    ),
-    ObservationFamilyCatalogEntry(
-        family=DistributionFamily.ORDERED_LOGISTIC,
-        summary=(
-            "Ordered categorical outcomes with ranked levels. Keeps a loading on the "
-            "latent (fixed logistic scale), unlike `categorical`."
-        ),
-        links=("cumulative_logit",),
-        hyperparameters=("obs_ordered_base", "obs_ordered_gaps"),
-    ),
-    ObservationFamilyCatalogEntry(
-        family=DistributionFamily.CATEGORICAL,
-        summary=(
-            "Unordered multi-class outcomes. Choosing it removes the channel's loading "
-            "(the class slopes are exactly redundant with it, so the compiler pins it); "
-            "discrimination moves into `obs_cat_slopes`."
-        ),
-        links=("softmax",),
-        hyperparameters=("obs_cat_intercepts", "obs_cat_slopes"),
-    ),
-    ObservationFamilyCatalogEntry(
-        family=DistributionFamily.DELTA,
-        summary=(
-            "Exact observation of a state or its declared window summary, with no measurement "
-            "noise. Missing observations impose no constraint. Particle inference supports "
-            "direct point bindings; affine and interval constraints are not yet supported."
-        ),
-        links=("identity",),
-    ),
-)
 
 PRIOR_FAMILY_SPECS: Final[tuple[PriorFamilySpec, ...]] = (
     PriorFamilySpec(
@@ -249,10 +171,6 @@ PRIOR_FAMILY_SPECS: Final[tuple[PriorFamilySpec, ...]] = (
     ),
 )
 
-
-OBSERVATION_LINK_VALUES_BY_DISTRIBUTION: Final[dict[DistributionFamily, tuple[str, ...]]] = {
-    spec.family: spec.links for spec in OBSERVATION_FAMILY_SPECS
-}
 
 # Ordered dtype → valid distributions (default first).  Authoritative source
 # for both the validation logic and the generated likelihoods docs.

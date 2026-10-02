@@ -22,37 +22,35 @@
             "likelihood": {
               "law": {
                 "distribution": "Normal",
-                "arguments": {
-                  "loc": {
+                "loc": {
+                  "kind": "binary",
+                  "operator": "add",
+                  "left": {
+                    "kind": "coefficient",
+                    "role": "observation_intercept",
+                    "value": "parameter:92d922b92ba976a8998dd6ec735898f19c4c8c00647b7117eaff5860df72b893",
+                    "construct_ids": []
+                  },
+                  "right": {
                     "kind": "binary",
-                    "operator": "add",
+                    "operator": "multiply",
                     "left": {
                       "kind": "coefficient",
-                      "role": "observation_intercept",
-                      "value": "parameter:92d922b92ba976a8998dd6ec735898f19c4c8c00647b7117eaff5860df72b893",
+                      "role": "loading",
+                      "value": 1.0,
                       "construct_ids": []
                     },
                     "right": {
-                      "kind": "binary",
-                      "operator": "multiply",
-                      "left": {
-                        "kind": "coefficient",
-                        "role": "loading",
-                        "value": 1.0,
-                        "construct_ids": []
-                      },
-                      "right": {
-                        "kind": "state",
-                        "construct_id": "construct:16176a18c25802dee8a1"
-                      }
+                      "kind": "state",
+                      "construct_id": "construct:16176a18c25802dee8a1"
                     }
-                  },
-                  "scale": {
-                    "kind": "coefficient",
-                    "role": "observation_scale",
-                    "value": 0.0,
-                    "construct_ids": []
                   }
+                },
+                "scale": {
+                  "kind": "coefficient",
+                  "role": "observation_scale",
+                  "value": 0.0,
+                  "construct_ids": []
                 }
               },
               "standardized": false,
@@ -198,28 +196,56 @@
       "id": "parameter:09255b7b29502b5a3e120edd335dbfba0d3a200f5c310be7d8bc0f72b371c831",
       "name": "rho_dose",
       "description": "stiffness of rho_dose",
-      "distribution_transform": "dt_persistence_to_ct_decay",
-      "distribution": null,
-      "reference_interval_days": null
+      "distribution": "distribution:1d40ac56616de064109bc60c0b6019f62ade747267ae09f2851e084a09a446d5",
+      "transform": {
+        "kind": "dt_persistence_to_ct_decay",
+        "interval_days": "model_clock"
+      }
     },
     {
       "id": "parameter:92d922b92ba976a8998dd6ec735898f19c4c8c00647b7117eaff5860df72b893",
       "name": "manifest_mean_fill_quantity",
       "description": "Observation intercept for fill_quantity",
-      "distribution_transform": "identity",
-      "distribution": null,
-      "reference_interval_days": null
+      "distribution": "distribution:6d1a304470c5be8599d9d6007928c349817e076476431583608b1676426f3528",
+      "transform": {
+        "kind": "identity"
+      }
     },
     {
       "id": "parameter:e8b6fcb47767c2a0d18576028f66b8aeb704c869fe806432c39096ac478cf1a4",
       "name": "sigma_dose",
       "description": "innovation.scale for sigma_dose",
-      "distribution_transform": "identity",
-      "distribution": null,
-      "reference_interval_days": null
+      "distribution": "distribution:f296bfd29aebc923af872a04ffa7ecb011d77c9462b519dc6d7711f70c86093d",
+      "transform": {
+        "kind": "identity"
+      }
     }
   ],
-  "distributions": {},
+  "distributions": {
+    "distribution:1d40ac56616de064109bc60c0b6019f62ade747267ae09f2851e084a09a446d5": {
+      "distribution": "Beta",
+      "params": {
+        "concentration1": 2.0,
+        "concentration0": 2.0,
+        "validate_args": false
+      }
+    },
+    "distribution:6d1a304470c5be8599d9d6007928c349817e076476431583608b1676426f3528": {
+      "distribution": "Normal",
+      "params": {
+        "loc": 0.0,
+        "scale": 1.0,
+        "validate_args": false
+      }
+    },
+    "distribution:f296bfd29aebc923af872a04ffa7ecb011d77c9462b519dc6d7711f70c86093d": {
+      "distribution": "HalfNormal",
+      "params": {
+        "scale": 1.0,
+        "validate_args": false
+      }
+    }
+  },
   "time_points": [],
   "measurement_clock": "1d",
   "default_outcome": null

@@ -3,7 +3,8 @@
 from __future__ import annotations
 
 import operator
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal
 
 import equinox as eqx
@@ -14,6 +15,7 @@ import numpyro
 from nof1_causal_lab.artifacts.expressions import (
     CoefficientExpression,
     Expression,
+    ExpressionFunction,
     expression_coefficients,
     expression_states,
     fold_expression,
@@ -22,9 +24,10 @@ from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.models.ssm.structure.sites import SemanticBinding, make_site
 
 if TYPE_CHECKING:
-    from collections.abc import Iterator
+    from collections.abc import Iterator, Mapping
 
     from jax import Array
+    from jax.typing import ArrayLike
 
     from nof1_causal_lab.artifacts.identity import ConstructId, ParameterId
     from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
@@ -42,7 +45,7 @@ SCALAR_OPERATIONS = {
 }
 
 
-def apply_expression_function(name, arguments):
+def apply_expression_function(name: ExpressionFunction, arguments: tuple[ArrayLike, ...]) -> Array:
     """Interpret scalar functions; discrete contrasts require observation context."""
     match name:
         case "exp":
@@ -61,29 +64,24 @@ class ExpressionComponent(eqx.Module):
     target: int = eqx.field(static=True)
     edge_owned: bool = eqx.field(static=True)
     expression: Expression = eqx.field(static=True)
-    state_ids: tuple[ConstructId, ...] = eqx.field(static=True)
+    state_index: Mapping[ConstructId, int] = eqx.field(static=True)
+    coefficients: Mapping[CoefficientExpression, float | ParameterId] = eqx.field(static=True)
 
-    def evaluate(self, values, params):
-        def coefficient(operand):
-            reference = operand.value
-            if reference is None:
-                from nof1_causal_lab.compilation_errors import IncompleteModelError
-
-                raise IncompleteModelError(f"Expression requires its {operand.role} coefficient")
-            if isinstance(reference, (int, float)):
-                return jnp.asarray(reference)
-            return params[reference]
+    def evaluate(self, values: Array, params: Mapping[str, Array]) -> Array:
+        def coefficient(operand: CoefficientExpression) -> Array:
+            reference = self.coefficients[operand]
+            return params[reference] if isinstance(reference, str) else jnp.asarray(reference)
 
         return fold_expression(
             self.expression,
             literal=jnp.asarray,
-            state_value=lambda identity: values[self.state_ids.index(identity)],
+            state_value=lambda identity: values[self.state_index[identity]],
             coefficient_value=coefficient,
-            binary=lambda name, left, right: SCALAR_OPERATIONS[name](left, right),
+            binary=lambda name, left, right: jnp.asarray(SCALAR_OPERATIONS[name](left, right)),
             call=apply_expression_function,
         )
 
-    def contribute(self, accumulator, eta, eta_per_edge, _t, params):
+    def contribute(self, accumulator, eta, eta_per_edge, _t, params: Mapping[str, Array]):
         values = eta_per_edge[self.target] if self.edge_owned else eta
         return accumulator.at[self.target].add(self.evaluate(values, params))
 
@@ -98,7 +96,23 @@ class ExpressionComponentSpec:
     source: int | None
     kind: Literal["drift", "potential"] = "drift"
 
-    def __post_init__(self):
+    state_index: Mapping[ConstructId, int] = field(init=False)
+    coefficients: Mapping[CoefficientExpression, float | ParameterId] = field(init=False)
+
+    def __post_init__(self) -> None:
+        from nof1_causal_lab.compilation_errors import IncompleteModelError
+
+        object.__setattr__(
+            self,
+            "state_index",
+            MappingProxyType({identity: index for index, identity in enumerate(self.state_ids)}),
+        )
+        resolved: dict[CoefficientExpression, float | ParameterId] = {}
+        for operand in expression_coefficients(self.expression):
+            if operand.value is None:
+                raise IncompleteModelError(f"Expression requires its {operand.role} coefficient")
+            resolved[operand] = operand.value
+        object.__setattr__(self, "coefficients", MappingProxyType(resolved))
         if self.kind == "potential" and (self.source is not None or self.sources - {self.target}):
             raise ValueError("A node potential may depend only on its owning state")
 
@@ -108,7 +122,7 @@ class ExpressionComponentSpec:
 
     @property
     def sources(self) -> frozenset[int]:
-        return frozenset(self.state_ids.index(key) for key in expression_states(self.expression))
+        return frozenset(self.state_index[key] for key in expression_states(self.expression))
 
     @property
     def parameters(self) -> tuple[tuple[ParameterId, CoefficientExpression], ...]:
@@ -123,7 +137,8 @@ class ExpressionComponentSpec:
             target=self.target,
             edge_owned=self.edge_owned,
             expression=self.expression,
-            state_ids=self.state_ids,
+            state_index=self.state_index,
+            coefficients=self.coefficients,
         )
 
     def parameter_sites(self, prefix: str) -> Iterator[tuple[ParameterId, SiteDescriptor]]:
@@ -182,7 +197,7 @@ class ExpressionComponentSpec:
                 cause_idx=self.source,
             )
 
-    def pack_params(self, prefix: str, samples: dict[str, Array]) -> dict[str, Array]:
+    def pack_params(self, prefix: str, samples: Mapping[str, Array]) -> dict[str, Array]:
         return {
             identity: jnp.asarray(samples[site.name])
             for identity, site in self.parameter_sites(prefix)

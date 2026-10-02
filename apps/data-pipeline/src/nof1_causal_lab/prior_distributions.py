@@ -21,6 +21,8 @@ from nof1_causal_lab.numpyro_json import rebuild_distribution
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
 
+    from jax.typing import ArrayLike
+
 
 _ARGUMENT_ALIASES = {
     "loc": "mu",
@@ -89,7 +91,9 @@ def distribution_support_bounds(distribution: dist.Distribution) -> tuple[Any, A
     raise ValueError(f"Unsupported scalar prior support {support!r}")
 
 
-def persistence_to_decay(distribution: dist.Distribution, interval_days: Any) -> dist.Distribution:
+def persistence_to_decay(
+    distribution: dist.Distribution, interval_days: ArrayLike
+) -> dist.Distribution:
     """Push the authored persistence law through decay = -log(rho) / dt."""
     low, high = distribution_support_bounds(distribution)
     if np.any(np.asarray(low) < 0.0) or np.any(np.asarray(high) > 1.0):
@@ -113,14 +117,17 @@ def persistence_to_decay(distribution: dist.Distribution, interval_days: Any) ->
 
 
 def interval_effect_to_rate(
-    distribution: dist.Distribution, interval_days: Any
+    distribution: dist.Distribution, interval_days: ArrayLike
 ) -> dist.Distribution:
     """Rescale the entire authored effect law, preserving its family and bounds."""
     interval = jnp.asarray(interval_days, dtype=jnp.float32)
     if np.any(np.asarray(interval) <= 0.0):
         raise ValueError("The prior reference interval must be positive")
+    support = distribution.support
+    if support is None:
+        raise ValueError("A scalar prior must declare its support")
     return dist.TransformedDistribution(
-        distribution, transforms.AffineTransform(0.0, 1.0 / interval, domain=distribution.support)
+        distribution, transforms.AffineTransform(0.0, 1.0 / interval, domain=support)
     )
 
 
@@ -142,12 +149,12 @@ def prior_reference_value(distribution: dist.Distribution) -> jax.Array:
             ],
             axis=-1,
         )
-        weights = distribution.mixing_distribution.probs
+        weights = jnp.asarray(distribution.mixing_distribution.probs)
         return (weights * jnp.where(weights > 0, anchors, 0.0)).sum(axis=-1)
     if type(distribution) is dist.TransformedDistribution:
         value = prior_reference_value(distribution.base_dist)
         for transform in distribution.transforms:
-            value = transform(value)
+            value = jnp.asarray(transform(value))
         return value
     return jnp.asarray(distribution.mean)
 

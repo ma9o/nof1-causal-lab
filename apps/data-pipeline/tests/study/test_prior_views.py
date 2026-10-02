@@ -13,7 +13,8 @@ from pydantic import TypeAdapter
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.numpyro_json import NumPyroDistribution
 from nof1_causal_lab.prior_distributions import interval_effect_to_rate, persistence_to_decay
-from nof1_causal_lab.study.prior_views import prior_density, quantity_prior_densities
+from nof1_causal_lab.study.prior_views import prior_density
+from nof1_causal_lab.study.snapshots import quantity_prior_densities
 
 pytestmark = [
     pytest.mark.inference(concern="sampling"),
@@ -54,11 +55,11 @@ def test_quantity_curves_put_authored_laws_on_the_posterior_scale():
         ).read_text()
     )
     curves = quantity_prior_densities(model)
-    transforms = {parameter.distribution_transform for parameter in model.parameters}
+    transforms = {parameter.transform.kind for parameter in model.parameters}
     assert "dt_persistence_to_ct_decay" in transforms
     for parameter in model.parameters:
         law = model.distribution_for(parameter.id)
-        match parameter.distribution_transform:
+        match parameter.transform.kind:
             case "dt_persistence_to_ct_decay":
                 # Posteriors report decay rates, so persistence priors move to that axis.
                 native = persistence_to_decay(law, 1.0)

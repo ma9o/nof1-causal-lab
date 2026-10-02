@@ -6,11 +6,12 @@ import logging
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from datetime import date
+    from collections.abc import Sequence
 
     import polars as pl
 
-    from nof1_causal_lab.workers.context import MeasurementContext, MeasurementIndicator
+    from nof1_causal_lab.artifacts.data_preparation import DataVariableSpec
+    from nof1_causal_lab.workers.context import MeasurementContext
     from nof1_causal_lab.workers.schemas import WorkerOutput
 
 logger = logging.getLogger(__name__)
@@ -18,12 +19,12 @@ logger = logging.getLogger(__name__)
 
 def project_to_source_columns(
     df: pl.DataFrame,
-    indicators: list[MeasurementIndicator],
+    indicators: Sequence[DataVariableSpec],
 ) -> pl.DataFrame:
     """Project DataFrame to only the columns referenced by indicators."""
     source_cols: set[str] = set()
     for indicator in indicators:
-        source_cols.update(indicator.get("source_columns", []))
+        source_cols.update(indicator.source_columns)
 
     if not source_cols:
         return df
@@ -52,40 +53,39 @@ def project_to_source_columns(
 def prepare_semantic_chunks(
     *,
     raw_df: pl.DataFrame,
-    semantic_inds: list[MeasurementIndicator],
     measurement_structure: MeasurementContext,
-    model_clock: str,
     time_col: str,
     max_events_per_window: int,
-    start: date | None = None,
-    end: date | None = None,
 ) -> tuple[list[str], list[list[str]], list[MeasurementContext], WorkerOutput]:
     """Plan requests with source values; empty windows yield deterministic null rows."""
-    from nof1_causal_lab.utils.causal_design import make_measurement_extraction_context
-    from nof1_causal_lab.utils.data import bucket_by_clock
+    from nof1_causal_lab.utils.observation_rows import bucket_by_clock
     from nof1_causal_lab.workers.schemas import WindowExtraction, WorkerOutput
     from nof1_causal_lab.workers.windows import format_window_chunk
 
     chunk_texts: list[str] = []
     chunk_window_starts: list[list[str]] = []
     chunk_contexts: list[MeasurementContext] = []
-    empty_output = WorkerOutput()
+    empty_extractions: list[WindowExtraction] = []
 
+    semantic_inds = (
+        ind for ind in measurement_structure.indicators if ind.extraction_mode == "semantic"
+    )
     for indicator in semantic_inds:
-        observation_window = indicator.get("observation_window") or model_clock
-        semantic_group = [indicator]
-        semantic_spec: MeasurementContext = {
-            **measurement_structure,
-            "model_clock": observation_window,
-            "indicators": semantic_group,
-        }
-        extraction_ctx = make_measurement_extraction_context(semantic_spec)
+        observation_window = measurement_structure.window(indicator)
+        semantic_group = (indicator,)
+        extraction_ctx = measurement_structure.select(indicator)
 
         projected = project_to_source_columns(raw_df, semantic_group)
         if time_col not in projected.columns:
             projected = projected.with_columns(raw_df[time_col])
 
-        windows = bucket_by_clock(projected, observation_window, time_col, start=start, end=end)
+        windows = bucket_by_clock(
+            projected,
+            observation_window.source,
+            time_col,
+            start=measurement_structure.source.start,
+            end=measurement_structure.source.end,
+        )
         logger.info(
             "extraction: bucketed %d rows into %d support windows (window=%s, indicators=%d)",
             len(projected),
@@ -98,13 +98,13 @@ def prepare_semantic_chunks(
             continue
 
         display_cols = [column for column in projected.columns if column != time_col]
-        value_cols = indicator.get("source_columns") or display_cols
+        value_cols = indicator.source_columns or display_cols
         for window in windows:
             window_start, events = window
             if not any(events[column].count() for column in value_cols if column in events.columns):
-                empty_output.extractions.append(
+                empty_extractions.append(
                     WindowExtraction(
-                        indicator_id=indicator["id"], window_start=window_start, value=None
+                        indicator_id=indicator.id, window_start=window_start, value=None
                     )
                 )
                 continue
@@ -115,4 +115,9 @@ def prepare_semantic_chunks(
             chunk_window_starts.append([window_start for window_start, _ in chunk])
             chunk_contexts.append(extraction_ctx)
 
-    return chunk_texts, chunk_window_starts, chunk_contexts, empty_output
+    return (
+        chunk_texts,
+        chunk_window_starts,
+        chunk_contexts,
+        WorkerOutput(extractions=tuple(empty_extractions)),
+    )

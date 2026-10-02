@@ -2,14 +2,15 @@
 
 from __future__ import annotations
 
-from typing import Annotated, get_args
+from typing import Annotated
 
 from polars._typing import (
     FillNullStrategy,
 )
-from pydantic import BaseModel, ConfigDict, Field, FiniteFloat, field_validator, model_validator
+from pydantic import ConfigDict, Field, FiniteFloat, model_validator
 
-from nof1_causal_lab.measurement_types import AggregationFunction, MeasurementDtype
+from nof1_causal_lab.artifacts.base import Value
+from nof1_causal_lab.measurement_types import MeasurementDtype
 from nof1_causal_lab.utils.observation_semantics import (
     AnchorPolicy,
     IndicatorObservationSemantics,
@@ -19,35 +20,32 @@ from nof1_causal_lab.utils.observation_semantics import (
     supported_summary_operators_text,
 )
 
-from .duration import parse_duration_to_hours
+from .duration import Duration
 from .identity import IndicatorId
 
-VALID_AGGREGATIONS: set[str] = set(get_args(AggregationFunction.__value__))
 
-
-class ObservationSpec(BaseModel):
+class ObservationSpec(Value):
     """A stable observed variable, reusable across scientific model definitions."""
 
-    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+    model_config = ConfigDict(revalidate_instances="always")
 
     id: IndicatorId = Field(description="Persistent identity. Preserve when revising or renaming.")
     name: str = Field(description="Indicator name (e.g., 'hrv', 'self_reported_stress')")
     measurement_dtype: MeasurementDtype = Field(
         description="'continuous', 'binary', 'count', 'ordinal', 'categorical'"
     )
-    aggregation: AggregationFunction = Field(
+    aggregation: SummaryOperator = Field(
         description=(
             "Aggregation function applied when bucketing raw extractions within the "
-            "indicator support window. Measurement-structure support is currently limited to: "
-            f"{supported_summary_operators_text()}. A computed_rule must produce this same summary. "
-            f"Available parser operators: {', '.join(sorted(VALID_AGGREGATIONS))}"
+            "indicator support window. Supported operators: "
+            f"{supported_summary_operators_text()}. A computed_rule must produce this same summary."
         ),
     )
-    observation_window: str | None = Field(
+    observation_window: Duration | None = Field(
         default=None,
         description=(
             "Optional duration string describing the support window summarized by this "
-            "indicator (for example '1mo' for a monthly average on a daily model clock). "
+            "indicator, in positive fixed units s, m, h, d or w (for example '2w'). "
             "Resolved by the preparation window or the generative model clock."
         ),
     )
@@ -86,13 +84,18 @@ class ObservationSpec(BaseModel):
         ),
     )
 
-    @field_validator("observation_window")
-    @classmethod
-    def validate_observation_window(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        parse_duration_to_hours(value)
-        return value
+    def resolved(self, window: str | None) -> ObservationSpec:
+        return ObservationSpec(
+            id=self.id,
+            name=self.name,
+            measurement_dtype=self.measurement_dtype,
+            aggregation=self.aggregation,
+            observation_window=Duration(window) if window is not None else None,
+            fill_null=self.fill_null,
+            fill_null_limit=self.fill_null_limit,
+            ordinal_levels=self.ordinal_levels,
+            categorical_levels=self.categorical_levels,
+        )
 
     @model_validator(mode="after")
     def validate_fill_null_limit(self) -> ObservationSpec:
@@ -132,6 +135,20 @@ class ObservationSpec(BaseModel):
 
     def _observation_semantics(self) -> IndicatorObservationSemantics:
         return derive_indicator_observation_semantics(self.aggregation, self.measurement_dtype)
+
+    def observation(self, default_window: Duration) -> ObservationSpec:
+        """Resolve the prepared schema from owned fields without dumping and reparsing."""
+        return ObservationSpec(
+            id=self.id,
+            name=self.name,
+            measurement_dtype=self.measurement_dtype,
+            aggregation=self.aggregation,
+            observation_window=self.observation_window or default_window,
+            fill_null=self.fill_null,
+            fill_null_limit=self.fill_null_limit,
+            ordinal_levels=self.ordinal_levels,
+            categorical_levels=self.categorical_levels,
+        )
 
     @property
     def support_kind(self) -> SupportKind:

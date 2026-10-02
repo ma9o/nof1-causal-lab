@@ -5,6 +5,7 @@ from collections.abc import Callable
 import jax.numpy as jnp
 
 from nof1_causal_lab.artifacts.likelihood import DistributionFamily
+from nof1_causal_lab.models.ssm.execution.contracts import LikelihoodExtraParams
 from nof1_causal_lab.models.ssm.shapes import Array, Float, Int
 
 from .emissions import categorical_moments, ordered_logistic_moments
@@ -18,10 +19,12 @@ type MomentFn = Callable[
 ]
 
 
-def _make_variance_from_distribution(family, extra_params) -> VarianceFn:
+def _make_variance_from_distribution(
+    family: DistributionFamily, extra_params: LikelihoodExtraParams
+) -> VarianceFn:
     """Native observation variance; positive floors only condition initialization."""
 
-    def variance_fn(mean):
+    def variance_fn(mean: jnp.ndarray) -> jnp.ndarray:
         if family in {DistributionFamily.BERNOULLI, DistributionFamily.BETA}:
             safe_mean = jnp.clip(mean, 1e-7, 1.0 - 1e-7)
         else:

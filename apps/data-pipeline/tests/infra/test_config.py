@@ -5,10 +5,12 @@ import textwrap
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
+from nof1_causal_lab.actions.inference.fit import resolve_sampler_spec
 from nof1_causal_lab.actions.temporal.backend_config import llm_backend_config
 from nof1_causal_lab.actions.temporal.messages import LLMSubroutineInput
+from nof1_causal_lab.artifacts.posterior import FitSettingsSpec
 from nof1_causal_lab.llm_specs import CodexLLMSpec, EmbeddedLLMSpec, LLMProfileSpec, PiLLMSpec
-from nof1_causal_lab.sampler_config import validate_sampler_config
+from nof1_causal_lab.sampler_config import MarginalParticleGibbsSpec, SamplerSpec
 from nof1_causal_lab.utils.config import (
     ClaudeCodeDefaults,
     CodexDefaults,
@@ -17,7 +19,6 @@ from nof1_causal_lab.utils.config import (
     InferenceConfig,
     IngestionConfig,
     LLMDefaults,
-    MarginalParticleGibbsConfig,
     PiDefaults,
     PipelineBehaviorConfig,
     PipelineConfig,
@@ -33,89 +34,86 @@ from tests.helpers import run_async
 pytestmark = pytest.mark.contract
 
 # =============================================================================
-# InferenceConfig.to_sampler_config
+# Owned sampler specification and override resolution
 # =============================================================================
 
 
-class TestToSamplerConfig:
+class TestSamplerSpec:
     def test_runtime_contract_rejects_unknown_fields(self):
-        config = InferenceConfig().to_sampler_config()
-
         with pytest.raises(ValidationError, match="Extra inputs are not permitted"):
-            validate_sampler_config({**config, "unknown_option": True})
+            SamplerSpec.model_validate({"unknown_option": True})
 
-    def test_marginal_particle_gibbs_explicit(self):
-        cfg = InferenceConfig(method="marginal_particle_gibbs")
-        result = cfg.to_sampler_config()
-        assert result["method"] == "marginal_particle_gibbs"
-        assert result["n_particles"] == 64
-        assert result["n_parameter_particles"] == 2
-        assert result["latent_smoother"] == "dsmc"
-        assert result["dsmc_leaf_proposal"] == "amala_exact"
-        assert result["latent_delta"] == 0.2
-        assert result["amala_kappa"] == 0.75
-        assert result["amala_grad_clip"] == float("inf")
-        assert result["param_step_size"] == 0.02
-        assert result["param_target_accept"] == 0.35
-        assert result["latent_init_method"] == "predictive"
-        assert result["retain_latent_paths"] is True
+    def test_marginal_particle_gibbs_defaults(self):
+        result = InferenceConfig().sampler
+        assert result.n_particles == 64
+        options = result.marginal_particle_gibbs
+        assert options.n_parameter_particles == 2
+        assert options.latent_smoother == "dsmc"
+        assert options.dsmc_leaf_proposal == "amala_exact"
+        assert options.latent_delta == 0.2
+        assert options.amala_kappa == 0.75
+        assert options.amala_grad_clip == float("inf")
+        assert options.param_step_size == 0.02
+        assert options.param_target_accept == 0.35
+        assert options.latent_init_method == "predictive"
+        assert result.retain_latent_paths is True
 
-    def test_unknown_method_raises(self):
-        cfg = InferenceConfig()
-        with pytest.raises(ValidationError, match="method"):
-            validate_sampler_config({**cfg.to_sampler_config(), "method": "hmc"})
+    def test_public_overrides_resolve_without_mutating_defaults(self, monkeypatch):
+        from nof1_causal_lab.utils import config as config_module
 
-    def test_custom_chains_and_seed(self):
-        cfg = InferenceConfig(num_chains=8, seed=42)
-        result = cfg.to_sampler_config()
-        assert result["num_chains"] == 8
-        assert result["seed"] == 42
-
-    def test_marginal_particle_gibbs_settings(self):
-        cfg = InferenceConfig(
-            method="marginal_particle_gibbs",
-            marginal_particle_gibbs=MarginalParticleGibbsConfig(
-                n_particles=17,
-                n_parameter_particles=3,
-                latent_smoother="dsmc",
-                latent_delta=0.31,
-                amala_kappa=0.25,
-                amala_grad_clip=55.0,
-                param_step_size=0.04,
-                param_step_size_min=1e-5,
-                param_step_size_max=0.5,
-                param_target_accept=0.42,
-                adaptation_rate=0.08,
-                init_method="random",
-                pathfinder_num_elbo_samples=9,
-                pathfinder_maxiter=10,
-                n_pathfinder_starts=2,
-                pathfinder_init_scale=None,
-                auto_preconditioner_method="none",
-                auto_preconditioner_maxiter=11,
+        configured = SamplerSpec(
+            num_warmup=10,
+            num_samples=20,
+            num_chains=2,
+            seed=3,
+            n_particles=8,
+            marginal_particle_gibbs=MarginalParticleGibbsSpec(latent_delta=0.31),
+        )
+        config = _make_pipeline_config()
+        monkeypatch.setattr(
+            config_module,
+            "get_config",
+            lambda: PipelineConfig(
+                ingestion=config.ingestion,
+                structure_proposal=config.structure_proposal,
+                extraction_workers=config.extraction_workers,
+                prior_elicitation=config.prior_elicitation,
+                inference=InferenceConfig(sampler=configured),
             ),
         )
-        result = cfg.to_sampler_config()
-        assert result["method"] == "marginal_particle_gibbs"
-        assert result["n_particles"] == 17
-        assert result["n_parameter_particles"] == 3
-        assert result["latent_smoother"] == "dsmc"
-        assert result["latent_delta"] == 0.31
-        assert result["amala_kappa"] == 0.25
-        assert result["amala_grad_clip"] == 55.0
-        assert result["param_step_size"] == 0.04
-        assert result["param_step_size_min"] == 1e-5
-        assert result["param_step_size_max"] == 0.5
-        assert result["param_target_accept"] == 0.42
-        assert result["adaptation_rate"] == 0.08
-        assert result["init_method"] == "random"
-        assert result["latent_init_method"] == "predictive"
-        assert result["pathfinder_num_elbo_samples"] == 9
-        assert result["pathfinder_maxiter"] == 10
-        assert result["n_pathfinder_starts"] == 2
-        assert result["pathfinder_init_scale"] is None
-        assert result["auto_preconditioner_method"] == "none"
-        assert result["auto_preconditioner_maxiter"] == 11
+        resolved = resolve_sampler_spec(
+            FitSettingsSpec(
+                num_warmup=0,
+                num_samples=30,
+                num_chains=4,
+                seed=0,
+                n_particles=16,
+            )
+        )
+        assert (
+            resolved.num_warmup,
+            resolved.num_samples,
+            resolved.num_chains,
+            resolved.seed,
+            resolved.n_particles,
+        ) == (0, 30, 4, 0, 16)
+        assert resolved.marginal_particle_gibbs is configured.marginal_particle_gibbs
+        assert resolved.marginal_particle_gibbs.latent_delta == 0.31
+        assert (
+            configured.num_warmup,
+            configured.num_samples,
+            configured.num_chains,
+            configured.seed,
+            configured.n_particles,
+        ) == (10, 20, 2, 3, 8)
+        assert resolve_sampler_spec(FitSettingsSpec()) == configured
+        with pytest.raises(ValidationError, match="frozen"):
+            resolved.seed = 8  # ty: ignore[invalid-assignment] -- Exercise runtime rejection of a frozen field.
+
+    def test_custom_chains_and_seed(self):
+        result = InferenceConfig(sampler=SamplerSpec(num_chains=8, seed=42)).sampler
+        assert result.num_chains == 8
+        assert result.seed == 42
 
 
 # =============================================================================
@@ -194,33 +192,32 @@ FULL_CONFIG = textwrap.dedent("""\
         model: openrouter/claude-3
 
     inference:
-      method: marginal_particle_gibbs
-      num_warmup: 500
-      num_samples: 2000
-      num_chains: 2
-      seed: 123
       compute_loo_diagnostics: false
-      map:
-        n_ieks_iters: 10
-      marginal_particle_gibbs:
+      sampler:
+        num_warmup: 500
+        num_samples: 2000
+        num_chains: 2
+        seed: 123
         n_particles: 24
-        n_parameter_particles: 3
-        latent_smoother: dsmc
-        latent_delta: 0.29
-        amala_kappa: 0.2
-        amala_grad_clip: 77.0
-        param_step_size: 0.03
-        param_step_size_min: 0.000001
-        param_step_size_max: 0.7
-        param_target_accept: 0.4
-        adaptation_rate: 0.03
-        init_method: random
-        pathfinder_num_elbo_samples: 7
-        pathfinder_maxiter: 8
-        n_pathfinder_starts: 2
-        pathfinder_init_scale:
-        auto_preconditioner_method: none
-        auto_preconditioner_maxiter: 13
+        marginal_particle_gibbs:
+          n_ieks_iters: 10
+          n_parameter_particles: 3
+          latent_smoother: dsmc
+          latent_delta: 0.29
+          amala_kappa: 0.2
+          amala_grad_clip: 77.0
+          param_step_size: 0.03
+          param_step_size_min: 0.000001
+          param_step_size_max: 0.7
+          param_target_accept: 0.4
+          adaptation_rate: 0.03
+          init_method: random
+          pathfinder_num_elbo_samples: 7
+          pathfinder_maxiter: 8
+          n_pathfinder_starts: 2
+          pathfinder_init_scale:
+          auto_preconditioner_method: none
+          auto_preconditioner_maxiter: 13
 """)
 
 
@@ -231,8 +228,8 @@ class TestLoadConfig:
             "llm:\n  embedded:\n    reasoning_effort: invalid\n",
             "llm:\n  codex:\n    reasoning_effort: invalid\n",
             "inference:\n  method: map\n",
-            "inference:\n  marginal_particle_gibbs:\n    init_method: invalid\n",
-            "inference:\n  num_chains: many\n",
+            "inference:\n  sampler:\n    marginal_particle_gibbs:\n      init_method: invalid\n",
+            "inference:\n  sampler:\n    num_chains: many\n",
             "inference:\n  unknown_setting: true\n",
         ],
     )
@@ -265,7 +262,6 @@ class TestLoadConfig:
         assert cfg.prior_elicitation.llm.model == "openrouter/gpt-4"
         assert cfg.prior_elicitation.max_tool_turns == 40
         # Defaults for optional sections
-        assert cfg.inference.method == "marginal_particle_gibbs"
         assert cfg.llm.embedded.max_tokens == 65536
         assert cfg.llm.codex.reasoning_effort == "xhigh"
         assert cfg.llm.codex.service_tier == "fast"
@@ -292,32 +288,31 @@ class TestLoadConfig:
         assert cfg.extraction_workers.max_tool_turns == 45
         assert cfg.prior_elicitation.max_tool_turns == 100
         assert cfg.prior_elicitation.literature_search.enabled is False
-        assert cfg.inference.method == "marginal_particle_gibbs"
-        assert cfg.inference.num_warmup == 500
-        assert cfg.inference.num_samples == 2000
-        assert cfg.inference.num_chains == 2
-        assert cfg.inference.seed == 123
+        assert cfg.inference.sampler.num_warmup == 500
+        assert cfg.inference.sampler.num_samples == 2000
+        assert cfg.inference.sampler.num_chains == 2
+        assert cfg.inference.sampler.seed == 123
         assert cfg.inference.compute_loo_diagnostics is False
-        assert cfg.inference.map.n_ieks_iters == 10
-        assert cfg.inference.marginal_particle_gibbs.n_particles == 24
-        assert cfg.inference.marginal_particle_gibbs.n_parameter_particles == 3
-        assert cfg.inference.marginal_particle_gibbs.latent_smoother == "dsmc"
-        assert cfg.inference.marginal_particle_gibbs.latent_delta == 0.29
-        assert cfg.inference.marginal_particle_gibbs.amala_kappa == 0.2
-        assert cfg.inference.marginal_particle_gibbs.amala_grad_clip == 77.0
-        assert cfg.inference.marginal_particle_gibbs.param_step_size == 0.03
-        assert cfg.inference.marginal_particle_gibbs.param_step_size_min == 1e-6
-        assert cfg.inference.marginal_particle_gibbs.param_step_size_max == 0.7
-        assert cfg.inference.marginal_particle_gibbs.param_target_accept == 0.4
-        assert cfg.inference.marginal_particle_gibbs.adaptation_rate == 0.03
-        assert cfg.inference.marginal_particle_gibbs.init_method == "random"
-        assert cfg.inference.marginal_particle_gibbs.latent_init_method == "predictive"
-        assert cfg.inference.marginal_particle_gibbs.pathfinder_num_elbo_samples == 7
-        assert cfg.inference.marginal_particle_gibbs.pathfinder_maxiter == 8
-        assert cfg.inference.marginal_particle_gibbs.n_pathfinder_starts == 2
-        assert cfg.inference.marginal_particle_gibbs.pathfinder_init_scale is None
-        assert cfg.inference.marginal_particle_gibbs.auto_preconditioner_method == "none"
-        assert cfg.inference.marginal_particle_gibbs.auto_preconditioner_maxiter == 13
+        assert cfg.inference.sampler.marginal_particle_gibbs.n_ieks_iters == 10
+        assert cfg.inference.sampler.n_particles == 24
+        assert cfg.inference.sampler.marginal_particle_gibbs.n_parameter_particles == 3
+        assert cfg.inference.sampler.marginal_particle_gibbs.latent_smoother == "dsmc"
+        assert cfg.inference.sampler.marginal_particle_gibbs.latent_delta == 0.29
+        assert cfg.inference.sampler.marginal_particle_gibbs.amala_kappa == 0.2
+        assert cfg.inference.sampler.marginal_particle_gibbs.amala_grad_clip == 77.0
+        assert cfg.inference.sampler.marginal_particle_gibbs.param_step_size == 0.03
+        assert cfg.inference.sampler.marginal_particle_gibbs.param_step_size_min == 1e-6
+        assert cfg.inference.sampler.marginal_particle_gibbs.param_step_size_max == 0.7
+        assert cfg.inference.sampler.marginal_particle_gibbs.param_target_accept == 0.4
+        assert cfg.inference.sampler.marginal_particle_gibbs.adaptation_rate == 0.03
+        assert cfg.inference.sampler.marginal_particle_gibbs.init_method == "random"
+        assert cfg.inference.sampler.marginal_particle_gibbs.latent_init_method == "predictive"
+        assert cfg.inference.sampler.marginal_particle_gibbs.pathfinder_num_elbo_samples == 7
+        assert cfg.inference.sampler.marginal_particle_gibbs.pathfinder_maxiter == 8
+        assert cfg.inference.sampler.marginal_particle_gibbs.n_pathfinder_starts == 2
+        assert cfg.inference.sampler.marginal_particle_gibbs.pathfinder_init_scale is None
+        assert cfg.inference.sampler.marginal_particle_gibbs.auto_preconditioner_method == "none"
+        assert cfg.inference.sampler.marginal_particle_gibbs.auto_preconditioner_maxiter == 13
         assert cfg.llm.embedded.max_tokens == 4096
         assert cfg.llm.embedded.reasoning_effort == "low"
         assert cfg.llm.claude_code.effort == "medium"
@@ -338,10 +333,9 @@ class TestLoadConfig:
         monkeypatch.setattr(config_mod, "_find_config_path", lambda: config_file)
 
         cfg = load_config()
-        sampler = cfg.inference.to_sampler_config()
-        assert sampler["method"] == "marginal_particle_gibbs"
-        assert sampler["num_warmup"] == 500
-        assert sampler["n_ieks_iters"] == 10
+        sampler = cfg.inference.sampler
+        assert sampler.num_warmup == 500
+        assert sampler.marginal_particle_gibbs.n_ieks_iters == 10
 
         load_config.cache_clear()
 

@@ -1,9 +1,7 @@
 {
   "distribution": "Delta",
-  "arguments": {
-    "v": {
-      "kind": "state",
-      "construct_id": "construct:beeea6c08f33d811dbd9"
-    }
+  "v": {
+    "kind": "state",
+    "construct_id": "construct:beeea6c08f33d811dbd9"
   }
 }

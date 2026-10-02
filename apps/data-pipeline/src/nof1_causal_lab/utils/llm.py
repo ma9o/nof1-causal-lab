@@ -4,11 +4,15 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal, Protocol
 
-from pydantic import BaseModel, Field
+from pydantic import Field
 from typing_extensions import TypedDict
+
+from nof1_causal_lab.artifacts.base import Value
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
+
+    from nof1_causal_lab.json_types import JsonObject
 
 MAX_TOOL_REPAIR_ERROR_CHARS = 1200
 
@@ -35,7 +39,7 @@ class TraceToolCall(TypedDict):
     function: TraceFunctionCall
 
 
-class TraceMessage(BaseModel):
+class TraceMessage(Value):
     """A trace message records one conversational step, including any reasoning or tool
     interaction.
     """
@@ -43,14 +47,30 @@ class TraceMessage(BaseModel):
     role: str
     content: str
     reasoning: str | None = None
-    tool_calls: list[TraceToolCall] | None = None
+    tool_calls: tuple[TraceToolCall, ...] | None = None
     tool_call_id: str | None = None
     tool_name: str | None = None
     tool_result: str | None = None
     tool_is_error: bool = False
 
+    @classmethod
+    def from_conversation(cls, message: JsonObject) -> TraceMessage:
+        content = str(message.get("content", ""))
+        return cls.model_validate(
+            {
+                "role": message["role"],
+                "content": content,
+                "reasoning": message.get("reasoning"),
+                "tool_calls": message.get("tool_calls"),
+                "tool_call_id": message.get("tool_call_id"),
+                "tool_name": message.get("name"),
+                "tool_result": content if message["role"] == "tool" else None,
+                "tool_is_error": message.get("error") is not None,
+            }
+        )
 
-class TraceUsage(BaseModel):
+
+class TraceUsage(Value):
     """Trace usage records the input, output, and reasoning tokens consumed by a conversation."""
 
     input_tokens: int = 0
@@ -58,10 +78,10 @@ class TraceUsage(BaseModel):
     reasoning_tokens: int | None = None
 
 
-class LLMTrace(BaseModel):
+class LLMTrace(Value):
     """An LLM trace records a conversation, its model, elapsed time, and token usage."""
 
-    messages: list[TraceMessage] = Field(default_factory=list)
+    messages: tuple[TraceMessage, ...] = Field(default_factory=tuple)
     model: str = ""
     total_time_seconds: float = 0.0
     usage: TraceUsage = Field(default_factory=TraceUsage)
@@ -70,7 +90,7 @@ class LLMTrace(BaseModel):
 def _merge_trace(existing: LLMTrace, new_trace: LLMTrace) -> LLMTrace:
     """Append a trace segment onto an existing stage-local trace."""
     return LLMTrace(
-        messages=[*existing.messages, *new_trace.messages],
+        messages=(*existing.messages, *new_trace.messages),
         model=new_trace.model or existing.model,
         total_time_seconds=existing.total_time_seconds + new_trace.total_time_seconds,
         usage=TraceUsage(

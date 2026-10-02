@@ -7,6 +7,7 @@ import jax.random as random
 import numpy as np
 import pytest
 
+from nof1_causal_lab.artifacts.identity import IndicatorId
 from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.posterior_predictive import (
@@ -24,6 +25,7 @@ from nof1_causal_lab.models.ssm.execution.observation_families import (
     get_posterior_predictive_switch_index,
 )
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
+from tests.model_fixtures import compile_model_fixture
 from tests.models.ssm._support import complex_mixed_family_config
 from tests.predictive_fixtures import sample_observation_fixture
 
@@ -61,11 +63,11 @@ class TestForwardSimulation:
         nan = np.nan
         return ObservationSupportRuntime(
             anchor_times=np.array([0.0, 1.0, 2.0], dtype=np.float32),
-            manifest_names=["y"],
-            support_kinds=["interval"],
-            summary_operators=["mean"],
-            anchor_policies=["support_end"],
-            observation_windows=["2d"],
+            manifest_names=("y",),
+            support_kinds=("interval",),
+            summary_operators=("mean",),
+            anchor_policies=("support_end",),
+            observation_windows=("2d",),
             support_start_times=np.array([[nan], [nan], [0.0]], dtype=np.float32),
             support_end_times=np.array([[nan], [nan], [2.0]], dtype=np.float32),
             interval_prev_coeffs=np.array([[[0.0]], [[0.5]], [[0.5]]], dtype=np.float32),
@@ -209,18 +211,20 @@ class TestForwardSimulation:
         samples = {
             **{
                 site.name: jnp.full((n_draws, *site.shape), 0.5)
-                for site in build_site_registry(spec)
+                for site in build_site_registry(compile_model_fixture(spec))
             },
             "obs_ordered_base": ordered_base,
             "obs_ordered_gaps": jnp.ones((n_draws, 2, 1), dtype=jnp.float32),
         }
-        samples.update(assemble_deterministics_from_registry(samples, spec))
+        samples.update(assemble_deterministics_from_registry(samples, compile_model_fixture(spec)))
         captured = {}
 
         def _fake_latents(_spec, _samples, times, **_kwargs):
             return (
-                jnp.zeros((n_draws, times.shape[0], numeric.n_states(spec))),
-                jnp.zeros((n_draws, times.shape[0], numeric.n_observations(spec))),
+                jnp.zeros((n_draws, times.shape[0], numeric.n_states(compile_model_fixture(spec)))),
+                jnp.zeros(
+                    (n_draws, times.shape[0], numeric.n_observations(compile_model_fixture(spec)))
+                ),
             )
 
         def _fake_observations(models, linear_predictors, *_args, **_kwargs):
@@ -240,7 +244,7 @@ class TestForwardSimulation:
         )
 
         registry_runtime.simulate_predictive_draws(
-            spec,
+            compile_model_fixture(spec),
             samples,
             jnp.arange(3, dtype=jnp.float32),
         )
@@ -265,11 +269,11 @@ class TestDiagnosticChecks:
     )
     def test_calibration_reports_exact_coverage_and_ignores_missing_rows(self, thresholds, passed):
         names = [
-            "indicator:under",
-            "indicator:calibrated",
-            "indicator:over",
-            "indicator:short",
-            "indicator:missing",
+            IndicatorId("indicator:under"),
+            IndicatorId("indicator:calibrated"),
+            IndicatorId("indicator:over"),
+            IndicatorId("indicator:short"),
+            IndicatorId("indicator:missing"),
         ]
         y_sim = jnp.broadcast_to(jnp.array([-1.0, 1.0])[:, None, None], (2, 10, 5))
         observations = np.zeros((10, 5))
@@ -281,14 +285,20 @@ class TestDiagnosticChecks:
 
         warnings = _check_calibration(y_sim, jnp.asarray(observations), names, **thresholds)
 
-        assert [warning.indicator_id for warning in warnings] == names[:3]
-        assert [warning.check_type for warning in warnings] == ["calibration"] * 3
-        np.testing.assert_allclose([warning.value for warning in warnings], [0.5, 0.9, 1.0])
-        assert [warning.passed for warning in warnings] == passed
+        assert [warning.subject.target.id for warning in warnings] == names
+        unevaluated = [warning for warning in warnings if warning.kind == "not_evaluated"]
+        assert [warning.subject.target.id for warning in unevaluated] == names[3:]
+        warnings = [warning for warning in warnings if warning.kind == "evaluated"]
+        assert [warning.subject.target.id for warning in warnings] == names[:3]
+        assert [warning.subject.check for warning in warnings] == ["calibration"] * 3
+        np.testing.assert_allclose(
+            [warning.evidence.value for warning in warnings], [0.5, 0.9, 1.0]
+        )
+        assert [(warning.outcome == "passed") for warning in warnings] == passed
 
     def test_autocorrelation_uses_residuals_and_detects_both_signs(self):
-        names: list[str] = [
-            f"indicator:{name}"
+        names: list[IndicatorId] = [
+            IndicatorId(f"indicator:{name}")
             for name in ("trend", "alternating", "uncorrelated", "constant", "short", "missing")
         ]
         mean = np.broadcast_to(np.arange(10)[:, None] * 2.0, (10, 6))
@@ -303,16 +313,21 @@ class TestDiagnosticChecks:
 
         warnings = _check_residual_autocorrelation(y_sim, jnp.asarray(observations), names)
 
-        assert [warning.indicator_id for warning in warnings] == names[:3]
-        assert [warning.check_type for warning in warnings] == ["autocorrelation"] * 3
+        assert [warning.subject.target.id for warning in warnings] == names
+        unevaluated = [warning for warning in warnings if warning.kind == "not_evaluated"]
+        assert [warning.subject.target.id for warning in unevaluated] == names[3:]
+        warnings = [warning for warning in warnings if warning.kind == "evaluated"]
+        assert [warning.subject.target.id for warning in warnings] == names[:3]
+        assert [warning.subject.check for warning in warnings] == ["autocorrelation"] * 3
         np.testing.assert_allclose(
-            [warning.value for warning in warnings], [5 / 7, -1, -1 / 7], atol=1e-6
+            [warning.evidence.value for warning in warnings], [5 / 7, -1, -1 / 7], atol=1e-6
         )
-        assert [warning.passed for warning in warnings] == [False, False, True]
+        assert [(warning.outcome == "passed") for warning in warnings] == [False, False, True]
 
     def test_variance_ratio_uses_temporal_variation_within_each_draw(self):
-        names: list[str] = [
-            f"indicator:{name}" for name in ("low", "matched", "high", "short", "constant")
+        names: list[IndicatorId] = [
+            IndicatorId(f"indicator:{name}")
+            for name in ("low", "matched", "high", "short", "constant")
         ]
         base = np.asarray([-1.0, 1.0] * 4)[:, None]
         temporal = base * np.asarray([0.1, 1.0, 10.0, 1.0, 1.0])
@@ -325,16 +340,20 @@ class TestDiagnosticChecks:
 
         warnings = _check_variance_ratio(y_sim, jnp.asarray(observations), names)
 
-        assert [warning.indicator_id for warning in warnings] == names[:3]
-        assert [warning.check_type for warning in warnings] == ["variance"] * 3
+        assert [warning.subject.target.id for warning in warnings] == names
+        unevaluated = [warning for warning in warnings if warning.kind == "not_evaluated"]
+        assert [warning.subject.target.id for warning in unevaluated] == names[3:]
+        warnings = [warning for warning in warnings if warning.kind == "evaluated"]
+        assert [warning.subject.target.id for warning in warnings] == names[:3]
+        assert [warning.subject.check for warning in warnings] == ["variance"] * 3
         np.testing.assert_allclose(
-            [warning.value for warning in warnings], [0.1, 1.0, 10.0], atol=1e-6
+            [warning.evidence.value for warning in warnings], [0.1, 1.0, 10.0], atol=1e-6
         )
-        assert [warning.passed for warning in warnings] == [False, True, False]
+        assert [(warning.outcome == "passed") for warning in warnings] == [False, True, False]
 
 
 @pytest.mark.inference(concern="predictive")
-def test_overlays_preserve_quantiles_observations_and_selected_trajectories():
+def test_overlays_preserve_quantiles_observations_and_all_trajectories():
     # Draws are deliberately unordered, with different scales across time and
     # variables. Quantiles below are hand-computed linear interpolations.
     draws = jnp.array(
@@ -346,24 +365,24 @@ def test_overlays_preserve_quantiles_observations_and_selected_trajectories():
         ]
     )
     observations = jnp.array([[2.0, 25.0], [jnp.nan, -1.0], [9.0, 27.0]])
-    ids = ["indicator:z", "indicator:a"]
-    result = _compute_overlays(draws, observations, ids, n_spaghetti=2)
+    ids = [IndicatorId("indicator:z"), IndicatorId("indicator:a")]
+    result = _compute_overlays(draws, observations, ids)
 
     assert [overlay.indicator_id for overlay in result] == ids
-    assert [overlay.observed for overlay in result] == [[2.0, None, 9.0], [25.0, -1.0, 27.0]]
+    assert [overlay.observed for overlay in result] == [(2.0, None, 9.0), (25.0, -1.0, 27.0)]
     expected_medians = [[6.0, 13.0, 6.0], [25.0, 6.0, 26.0]]
     for column, overlay in enumerate(result):
         np.testing.assert_allclose(
             np.asarray(overlay.median, dtype=float), expected_medians[column], rtol=1e-6, atol=1e-6
         )
-        np.testing.assert_array_equal(overlay.spaghetti_draws, draws[jnp.array([0, 3]), :, column])
+        np.testing.assert_array_equal(overlay.spaghetti_draws, draws[:, :, column])
 
 
 @pytest.mark.inference(concern="predictive")
-def test_single_draw_has_exact_median_and_caps_requested_trajectories():
+def test_single_draw_has_exact_median_and_one_trajectory():
     draws = jnp.array([[[2.0, -1.0], [4.0, 8.0]]])
     result = _compute_overlays(
-        draws, jnp.zeros((2, 2)), ["indicator:x", "indicator:y"], n_spaghetti=100
+        draws, jnp.zeros((2, 2)), [IndicatorId("indicator:x"), IndicatorId("indicator:y")]
     )
 
     assert len(result) == 2
@@ -385,18 +404,22 @@ def test_test_stats_match_masked_observations_and_each_replicate():
             [[-1.0, 2.0, 20.0], [1.0, -999.0, 21.0], [-999.0, 0.0, 22.0], [3.0, -2.0, 23.0]],
         ]
     )
-    result = _compute_test_stats(draws, observations, ["indicator:x", "indicator:y", "indicator:z"])
+    result = _compute_test_stats(
+        draws,
+        observations,
+        [IndicatorId("indicator:x"), IndicatorId("indicator:y"), IndicatorId("indicator:z")],
+    )
     small_sd, large_sd = np.sqrt(8.0 / 3.0), np.sqrt(32.0 / 3.0)
     # Each entry gives observed value, one statistic per draw, and P(rep >= obs).
     expected = {
-        ("indicator:x", "mean"): (3.0, [4.0, 1.0], 0.5),
-        ("indicator:x", "sd"): (small_sd, [small_sd, small_sd], 1.0),
-        ("indicator:x", "min"): (1.0, [2.0, -1.0], 0.5),
-        ("indicator:x", "max"): (5.0, [6.0, 3.0], 0.5),
-        ("indicator:y", "mean"): (0.0, [2.0, 0.0], 1.0),
-        ("indicator:y", "sd"): (large_sd, [large_sd, small_sd], 0.5),
-        ("indicator:y", "min"): (-4.0, [-2.0, -2.0], 1.0),
-        ("indicator:y", "max"): (4.0, [6.0, 2.0], 0.5),
+        (IndicatorId("indicator:x"), "mean"): (3.0, [4.0, 1.0], 0.5),
+        (IndicatorId("indicator:x"), "sd"): (small_sd, [small_sd, small_sd], 1.0),
+        (IndicatorId("indicator:x"), "min"): (1.0, [2.0, -1.0], 0.5),
+        (IndicatorId("indicator:x"), "max"): (5.0, [6.0, 3.0], 0.5),
+        (IndicatorId("indicator:y"), "mean"): (0.0, [2.0, 0.0], 1.0),
+        (IndicatorId("indicator:y"), "sd"): (large_sd, [large_sd, small_sd], 0.5),
+        (IndicatorId("indicator:y"), "min"): (-4.0, [-2.0, -2.0], 1.0),
+        (IndicatorId("indicator:y"), "max"): (4.0, [6.0, 2.0], 0.5),
     }
     assert len(result) == len(expected)
     assert {(stat.indicator_id, stat.stat_name) for stat in result} == set(expected)
@@ -413,4 +436,4 @@ def test_test_stats_match_masked_observations_and_each_replicate():
 )
 def test_predictive_summaries_require_complete_indicator_axis(compute):
     with pytest.raises(ValueError, match="shorter"):
-        compute(jnp.ones((2, 3, 2)), jnp.ones((3, 2)), ["indicator:x"])
+        compute(jnp.ones((2, 3, 2)), jnp.ones((3, 2)), [IndicatorId("indicator:x")])

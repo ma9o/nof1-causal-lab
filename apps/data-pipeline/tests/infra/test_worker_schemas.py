@@ -4,6 +4,7 @@ import polars as pl
 import pytest
 from polars.testing import assert_frame_equal
 
+from nof1_causal_lab.workers.context import MeasurementContext
 from nof1_causal_lab.workers.schemas import _check_dtype_match, validate_worker_output
 
 pytestmark = pytest.mark.contract
@@ -18,23 +19,28 @@ def _measurement_structure(*indicators):
         "ordinal": "last",
         "categorical": "last",
     }
-    return {
-        "model_clock": "1d",
-        "indicators": [
-            {
-                "name": name,
-                "id": "indicator:" + name,
-                "construct_id": "construct:" + name,
-                "measurement_dtype": dtype,
-                "aggregation": default_aggregations.get(dtype, "last"),
-                **({"ordinal_levels": ["low", "medium", "high"]} if dtype == "ordinal" else {}),
-                **(
-                    {"categorical_levels": ["walking", "running"]} if dtype == "categorical" else {}
-                ),
-            }
-            for name, dtype in indicators
-        ],
-    }
+    return MeasurementContext.model_validate(
+        {
+            "source": {"files": ["source.csv"]},
+            "model_clock": "1d",
+            "indicators": [
+                {
+                    "name": name,
+                    "id": "indicator:" + name,
+                    "how_to_measure": "Measure " + name,
+                    "measurement_dtype": dtype,
+                    "aggregation": default_aggregations.get(dtype, "last"),
+                    **({"ordinal_levels": ["low", "medium", "high"]} if dtype == "ordinal" else {}),
+                    **(
+                        {"categorical_levels": ["walking", "running"]}
+                        if dtype == "categorical"
+                        else {}
+                    ),
+                }
+                for name, dtype in indicators
+            ],
+        }
+    )
 
 
 @pytest.mark.parametrize(

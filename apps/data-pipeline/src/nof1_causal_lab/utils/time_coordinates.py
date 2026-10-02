@@ -1,11 +1,51 @@
-"""Calendar bindings for model days; the epoch only serializes calendar-free histories."""
+"""Calendar instants and relative model days meet only at this binding owner."""
 
-from datetime import UTC, datetime
+from __future__ import annotations
+
+from dataclasses import dataclass
+from datetime import UTC, datetime, timedelta
+
+import polars as pl
 
 SYNTHETIC_EPOCH = datetime(1970, 1, 1, tzinfo=UTC)
 
 
-def serialization_origin(time_origin: datetime | None) -> datetime:
-    """Return a UTC-naive origin for the canonical panel's datetime columns."""
-    origin = SYNTHETIC_EPOCH if time_origin is None else time_origin
-    return origin.astimezone(UTC).replace(tzinfo=None)
+@dataclass(frozen=True)
+class ObservationInstant:
+    """One UTC instant; canonical panel datetimes are UTC with the zone omitted."""
+
+    value: datetime
+
+    def __post_init__(self) -> None:
+        utc = (
+            self.value.replace(tzinfo=UTC)
+            if self.value.tzinfo is None
+            else self.value.astimezone(UTC)
+        )
+        object.__setattr__(self, "value", utc)
+
+    @classmethod
+    def origin(cls, time_origin: datetime | None) -> ObservationInstant:
+        """Bind calendar-free histories to their serialization epoch explicitly."""
+        return cls(SYNTHETIC_EPOCH if time_origin is None else time_origin)
+
+    def relative_to(self, origin: ObservationInstant) -> ModelTime:
+        return ModelTime((self.value - origin.value).total_seconds() / 86400)
+
+
+@dataclass(frozen=True)
+class ModelTime:
+    """A relative time on the engine's day axis, distinct from a calendar instant."""
+
+    days: float
+
+    def at(self, origin: ObservationInstant) -> ObservationInstant:
+        return ObservationInstant(origin.value + timedelta(days=self.days))
+
+    @staticmethod
+    def bind_column(instants: pl.Expr, origin: ObservationInstant) -> pl.Expr:
+        """Lower a canonical UTC-naive datetime column to native model-day numbers."""
+        return (
+            (instants - pl.lit(origin.value.replace(tzinfo=None))).dt.total_microseconds()
+            / 86400000000
+        ).cast(pl.Float64)

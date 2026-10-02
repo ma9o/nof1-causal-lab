@@ -8,20 +8,21 @@ live progress events.
 from __future__ import annotations
 
 import json
-from typing import Any
 
 from pydantic import TypeAdapter
 from temporalio import activity
 
-from nof1_causal_lab.actions.effects import ActionEffects
+from nof1_causal_lab.actions.errors import execution_failure_handler
 from nof1_causal_lab.actions.temporal.activity_errors import (
     as_non_retryable_application_error,
 )
 from nof1_causal_lab.actions.temporal.backend_config import first_config_value
 from nof1_causal_lab.actions.temporal.messages import (
+    CompletedExtractionChunk,
     ExtractionChunkFinalizeInput,
-    ExtractionChunkResult,
+    MeasurementChunkContext,
     MeasurementChunkRef,
+    MeasurementsFile,
     MeasurementsFinalizeInput,
     MeasurementsPlan,
     MeasurementsWorkflowInput,
@@ -31,14 +32,15 @@ from nof1_causal_lab.actions.temporal.messages import (
     ToolCallSummary,
 )
 from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata
-from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid
+from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid, GitRef
 from nof1_causal_lab.artifacts.measurements import ObservationRecord
+from nof1_causal_lab.json_types import JsonObject
 from nof1_causal_lab.llm_specs import EmbeddedLLMSpec
 from nof1_causal_lab.study.artifact_files import json_filename, parquet_filename
+from nof1_causal_lab.study.records import DataPreparationResult
 from nof1_causal_lab.study.store import ArtifactStore
 from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
-from nof1_causal_lab.workers.context import MeasurementContext
 from nof1_causal_lab.workers.schemas import ExtractionRow
 
 
@@ -46,11 +48,11 @@ def _run_root(workspace_id: str, run_id: str) -> str:
     return storage.join(data_module.scratch_run_dir(workspace_id, run_id), "extraction")
 
 
-def _write_json(path: str, value: Any) -> None:
+def _write_json(path: str, value: object) -> None:
     storage.write_text(path, json.dumps(value))
 
 
-def _read_json(path: str) -> Any:
+def _read_json(path: str) -> JsonObject:
     return storage.read_json(path)
 
 
@@ -84,27 +86,18 @@ async def plan_measurements_activity(input: MeasurementsWorkflowInput) -> Measur
     raw_df = pl.DataFrame(raw_table)
     preparation = input.preparation.definition
     question = preparation.context
-    measurement_structure = preparation.extraction_context()
+    measurement_structure = input.preparation.extraction_context()
 
     config = get_config()
     extraction_workers = config.extraction_workers
-    model_clock = preparation.default_window
     time_col = "timestamp"
-    all_indicators = [variable.model_dump(mode="json") for variable in preparation.variables]
-    computed_inds = [i for i in all_indicators if i.get("extraction_mode") == "computed"]
-    semantic_inds = [
-        i for i in all_indicators if i.get("extraction_mode", "semantic") == "semantic"
-    ]
 
     computed_dicts: list[ExtractionRow] = []
-    if computed_inds:
+    if any(ind.extraction_mode == "computed" for ind in measurement_structure.indicators):
         computed_df = compute_indicators(
             raw_df,
-            computed_inds,
-            model_clock,
+            measurement_structure,
             time_col,
-            start=input.preparation.source.start,
-            end=input.preparation.source.end,
         )
         computed_dicts = TypeAdapter(list[ExtractionRow]).validate_python(computed_df.to_dicts())
 
@@ -123,16 +116,12 @@ async def plan_measurements_activity(input: MeasurementsWorkflowInput) -> Measur
 
     chunks: list[MeasurementChunkRef] = []
     empty_output = WorkerOutput()
-    if semantic_inds:
+    if any(ind.extraction_mode == "semantic" for ind in measurement_structure.indicators):
         chunk_texts, chunk_window_starts, chunk_contexts, empty_output = prepare_semantic_chunks(
             raw_df=raw_df,
-            semantic_inds=semantic_inds,
             measurement_structure=measurement_structure,
-            model_clock=model_clock,
             time_col=time_col,
             max_events_per_window=extraction_workers.max_events_per_window,
-            start=input.preparation.source.start,
-            end=input.preparation.source.end,
         )
         for worker_id, (chunk_text, window_starts, chunk_context) in enumerate(
             zip(chunk_texts, chunk_window_starts, chunk_contexts, strict=True)
@@ -145,19 +134,19 @@ async def plan_measurements_activity(input: MeasurementsWorkflowInput) -> Measur
                     "question": question,
                     "window_text": chunk_text,
                     "window_starts": window_starts,
-                    "measurement_structure": chunk_context,
+                    "measurement_structure": chunk_context.model_dump(mode="json"),
                 },
             )
             from nof1_causal_lab.actions.temporal.preparation_cache import preparation_cache_path
             from nof1_causal_lab.utils.content_cache import read
 
-            chunk_spec = _read_json(spec_ref)
+            chunk_spec = dict(_read_json(spec_ref))
             cache_ref = preparation_cache_path(
                 "measurement_extraction",
                 spec_ref,
                 llm,
                 extraction_workers.max_tool_turns,
-                {key: value for key, value in chunk_spec.items() if key != "worker_id"},
+                {"window_starts": window_starts},
             )
             chunk_spec["cache_ref"] = cache_ref
             _write_json(spec_ref, chunk_spec)
@@ -183,7 +172,7 @@ async def plan_measurements_activity(input: MeasurementsWorkflowInput) -> Measur
             "run_id": run_id,
             "pins": pins,
             "question": question,
-            "measurement_structure": measurement_structure,
+            "measurement_structure": measurement_structure.model_dump(mode="json"),
             "preparation": input.preparation.model_dump(mode="json"),
             "computed_dicts": computed_dicts,
             "empty_output": empty_output.model_dump(mode="json"),
@@ -216,12 +205,12 @@ async def call_openrouter_activity(input: OpenRouterCallInput) -> OpenRouterCall
         return ""
 
     conversation = _read_json(input.conversation_ref)
-    messages = list(conversation["messages"])
+    messages = list(TypeAdapter(list[JsonObject]).validate_python(conversation["messages"]))
     tools = [
         Tool(
             name=tool.name,
             description=tool.description,
-            parameters=tool.parameters,
+            parameters=dict(tool.parameters),
             execute=_unused_tool,
             stop_on_success=tool.kind == "terminal",
             success_output=tool.success_output,
@@ -270,21 +259,22 @@ async def call_openrouter_activity(input: OpenRouterCallInput) -> OpenRouterCall
 @activity.defn
 async def finalize_extraction_chunk_activity(
     input: ExtractionChunkFinalizeInput,
-) -> ExtractionChunkResult:
+) -> CompletedExtractionChunk:
     from nof1_causal_lab.utils.content_cache import publish
     from nof1_causal_lab.workers.schemas import WorkerOutput, validate_worker_output
 
     data = _read_json(input.result_ref)
-    spec = _read_json(input.spec_ref)
+    spec = MeasurementChunkContext.model_validate(_read_json(input.spec_ref))
     output, errors = validate_worker_output(
         data,
-        TypeAdapter(MeasurementContext).validate_python(spec["measurement_structure"]),
-        spec["window_starts"],
+        spec.measurement_structure,
+        spec.window_starts,
     )
     if output is None:
         raise ValueError("; ".join(errors))
+    assert spec.cache_ref is not None
     output = WorkerOutput.model_validate_json(
-        publish(spec["cache_ref"], output.model_dump_json().encode())
+        publish(spec.cache_ref, output.model_dump_json().encode())
     )
     dataframe = output.to_dataframe()
 
@@ -301,7 +291,7 @@ async def finalize_extraction_chunk_activity(
             "status": "completed",
         },
     )
-    return ExtractionChunkResult(
+    return CompletedExtractionChunk(
         worker_id=input.worker_id,
         status="completed",
         n_extractions=len(output.extractions),
@@ -313,53 +303,50 @@ async def finalize_extraction_chunk_activity(
 
 
 @activity.defn
-async def finalize_measurements_activity(input: MeasurementsFinalizeInput) -> ActionEffects:
+@execution_failure_handler
+async def finalize_measurements_activity(input: MeasurementsFinalizeInput) -> DataPreparationResult:
     import polars as pl
 
     from nof1_causal_lab.actions.extraction.materialization import (
         materialize_panel,
     )
-    from nof1_causal_lab.artifacts.data_preparation import FilePreparationSpec
-    from nof1_causal_lab.utils.data import annotate_observation_rows
     from nof1_causal_lab.utils.observation_rows import (
+        annotate_observation_rows,
         prepared_time_origin,
         validate_observation_rows,
     )
-    from nof1_causal_lab.workers.schemas import WorkerOutput
 
     try:
-        plan = _read_json(input.plan_ref)
-        measurement_structure = TypeAdapter(MeasurementContext).validate_python(
-            plan["measurement_structure"]
-        )
-        computed_dicts = TypeAdapter(list[ExtractionRow]).validate_python(plan["computed_dicts"])
-        chunk_specs = list(plan.get("chunks") or [])
+        plan = MeasurementsFile.model_validate(_read_json(input.plan_ref))
+        measurement_structure = plan.measurement_structure
+        computed_dicts = plan.computed_dicts
+        chunk_specs = plan.chunks
         results_by_worker = {result.worker_id: result for result in input.chunk_results}
 
         semantic_dicts: list[ExtractionRow] = TypeAdapter(list[ExtractionRow]).validate_python(
-            WorkerOutput.model_validate(plan["empty_output"]).to_dataframe().to_dicts()
+            plan.empty_output.to_dataframe().to_dicts()
         )
 
         for chunk_spec in chunk_specs:
-            worker_id = int(chunk_spec["worker_id"])
+            worker_id = chunk_spec.worker_id
             result = results_by_worker[worker_id]
-            if result.status == "completed" and result.result_ref is not None:
+            if result.status == "completed":
                 chunk_payload = _read_json(result.result_ref)
                 semantic_dicts.extend(
                     TypeAdapter(list[ExtractionRow]).validate_python(chunk_payload["dataframe"])
                 )
 
+        preparation = plan.preparation
+        variables = preparation.definition.observation_schema()
         all_dicts = computed_dicts + semantic_dicts
         observation_rows = TypeAdapter(list[ObservationRecord]).validate_python(
-            annotate_observation_rows(pl.DataFrame(all_dicts), measurement_structure).to_dicts()
+            annotate_observation_rows(pl.DataFrame(all_dicts), variables).to_dicts()
             if all_dicts
             else [],
         )
         panel = materialize_panel(observation_rows, measurement_structure)
         if len(panel) == 0:
             raise ValueError("Extraction produced no observations")
-        preparation = FilePreparationSpec.model_validate(plan["preparation"])
-        variables = preparation.definition.observation_schema()
         panel = validate_observation_rows(panel, variables)
         metadata = PreparedDataMetadata(
             source=preparation.source,
@@ -368,8 +355,8 @@ async def finalize_measurements_activity(input: MeasurementsFinalizeInput) -> Ac
             time_origin=prepared_time_origin(panel, preparation.source.start),
         )
         store = ArtifactStore(input.workspace_id)
-        return ActionEffects(
-            produced=[
+        return DataPreparationResult(
+            produced=(
                 store.write_artifact(
                     "panel",
                     derived_from=input.pins,
@@ -378,21 +365,16 @@ async def finalize_measurements_activity(input: MeasurementsFinalizeInput) -> Ac
                     json_files={
                         json_filename("panel", "metadata"): metadata.model_dump(mode="json")
                     },
-                )
-            ],
-            diagnostics={
-                "workers": [
-                    results_by_worker[int(spec["worker_id"])].model_dump(
-                        mode="json",
-                        exclude={"result_ref"},
-                        exclude_none=True,
-                    )
-                    for spec in chunk_specs
-                ],
-                "input_pins": dict(input.pins),
-                "n_observations": len(panel),
-                "extraction_reused": sum(result.reused for result in input.chunk_results),
-            },
+                ),
+            ),
+            workers=tuple(results_by_worker[spec.worker_id] for spec in chunk_specs),
+            raw_data=GitRef(
+                workspace_id=input.workspace_id,
+                revision=input.pins["raw_data"],
+                path="raw.parquet",
+            ),
+            n_observations=len(panel),
+            extraction_reused=sum(result.reused is True for result in input.chunk_results),
         )
     except Exception as exc:
         raise as_non_retryable_application_error(exc) from exc

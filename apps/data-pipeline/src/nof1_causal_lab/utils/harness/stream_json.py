@@ -23,33 +23,40 @@ but do not fail the parse.
 from __future__ import annotations
 
 import json
+from collections.abc import Mapping
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Protocol
 
 from pydantic import TypeAdapter
 
-from nof1_causal_lab.json_types import JsonObject, JsonValue, UncheckedJsonObject
-from nof1_causal_lab.utils.llm import LLMTrace, TraceMessage, TraceUsage
+from nof1_causal_lab.json_types import JsonObject, JsonValue
+from nof1_causal_lab.utils.llm import LLMTrace, TraceMessage, TraceToolCall, TraceUsage
 
 if TYPE_CHECKING:
     from openai.types.chat import ChatCompletionMessageFunctionToolCallParam
 
 
-_EVENT_ADAPTER = TypeAdapter(JsonObject)
+_EVENT_ADAPTER: TypeAdapter[JsonObject] = TypeAdapter(JsonObject)
+_TOOL_CALL_ADAPTER: TypeAdapter[tuple[TraceToolCall, ...]] = TypeAdapter(tuple[TraceToolCall, ...])
 
 
-def parse_stream_event(event: UncheckedJsonObject) -> JsonObject:
-    """Validate JSON from a CLI stream before retaining or interpreting it."""
-    return _EVENT_ADAPTER.validate_python(event)
+def parse_stream_event(event: str | bytes | JsonObject) -> JsonObject:
+    """Decode a foreign event once, at its transport boundary."""
+    return (
+        _EVENT_ADAPTER.validate_json(event)
+        if isinstance(event, (str, bytes))
+        else _EVENT_ADAPTER.validate_python(event)
+    )
 
 
 def event_object(value: JsonValue) -> JsonObject:
     """Read an optional object in a provider event; reject malformed field shapes."""
     if value is None:
-        return {}
-    if not isinstance(value, dict):
+        return dict[str, JsonValue]()
+    if not isinstance(value, Mapping):
         raise ValueError("Expected an object in a harness event")
-    return value
+    fields: JsonObject = value
+    return fields
 
 
 class _TraceAccumulator(Protocol):
@@ -61,7 +68,7 @@ class _TraceAccumulator(Protocol):
 
 def _materialize_trace(state: _TraceAccumulator) -> LLMTrace:
     return LLMTrace(
-        messages=list(state.messages),
+        messages=tuple(state.messages),
         model=state.model,
         total_time_seconds=state.total_time_seconds,
         usage=state.usage,
@@ -122,7 +129,7 @@ def _claude_assistant_message(message: JsonObject) -> TraceMessage:
     return TraceMessage(
         role="assistant",
         content=text,
-        tool_calls=tool_calls or None,
+        tool_calls=tuple(tool_calls) if tool_calls else None,
     )
 
 
@@ -365,10 +372,7 @@ def format_codex_event_for_log(event: JsonObject) -> str | None:
         # Unknown item type: dump the item as JSON so we can see its shape
         # the next time the formatter falls through here instead of silently
         # emitting a detail-free "codex {item_type}" line.
-        try:
-            payload = json.dumps(item, default=str)
-        except (TypeError, ValueError):
-            payload = str(item)
+        payload = json.dumps(item, default=str)
         return f"codex {item_type}: {_log_text(payload)}"
     if etype in {"tool_call", "mcp_tool_call"}:
         name = event.get("name") or event.get("tool") or "?"
@@ -564,7 +568,7 @@ def apply_codex_event(state: CodexStreamState, event: JsonObject) -> None:
             TraceMessage(
                 role="assistant",
                 content="",
-                tool_calls=[tool_call_entry],
+                tool_calls=_TOOL_CALL_ADAPTER.validate_python([tool_call_entry]),
             )
         )
         state._open_tool_calls[call_id] = tool_call_entry
@@ -714,7 +718,9 @@ def apply_pi_event(state: PiStreamState, event: JsonObject) -> None:
         text = _pi_content_text(content)
         tool_calls = _pi_tool_calls(content)
         state.messages.append(
-            TraceMessage(role="assistant", content=text, tool_calls=tool_calls or None)
+            TraceMessage(
+                role="assistant", content=text, tool_calls=tuple(tool_calls) if tool_calls else None
+            )
         )
         if text:
             state.final_text = text

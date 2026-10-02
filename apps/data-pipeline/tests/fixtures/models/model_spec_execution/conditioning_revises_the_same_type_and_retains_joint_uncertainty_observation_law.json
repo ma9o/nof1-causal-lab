@@ -1,47 +1,45 @@
 {
   "distribution": "Categorical",
-  "arguments": {
-    "logits": {
-      "kind": "call",
-      "function": "category_logits",
-      "arguments": [
-        {
+  "logits": {
+    "kind": "call",
+    "function": "category_logits",
+    "arguments": [
+      {
+        "kind": "binary",
+        "operator": "add",
+        "left": {
+          "kind": "coefficient",
+          "role": "observation_intercept",
+          "value": null,
+          "construct_ids": []
+        },
+        "right": {
           "kind": "binary",
-          "operator": "add",
+          "operator": "multiply",
           "left": {
             "kind": "coefficient",
-            "role": "observation_intercept",
+            "role": "loading",
             "value": null,
             "construct_ids": []
           },
           "right": {
-            "kind": "binary",
-            "operator": "multiply",
-            "left": {
-              "kind": "coefficient",
-              "role": "loading",
-              "value": null,
-              "construct_ids": []
-            },
-            "right": {
-              "kind": "state",
-              "construct_id": "construct:efca9bd7f243a46c0d06"
-            }
+            "kind": "state",
+            "construct_id": "construct:efca9bd7f243a46c0d06"
           }
-        },
-        {
-          "kind": "coefficient",
-          "role": "category_intercepts",
-          "value": null,
-          "construct_ids": []
-        },
-        {
-          "kind": "coefficient",
-          "role": "category_slopes",
-          "value": null,
-          "construct_ids": []
         }
-      ]
-    }
+      },
+      {
+        "kind": "coefficient",
+        "role": "category_intercepts",
+        "value": null,
+        "construct_ids": []
+      },
+      {
+        "kind": "coefficient",
+        "role": "category_slopes",
+        "value": null,
+        "construct_ids": []
+      }
+    ]
   }
 }

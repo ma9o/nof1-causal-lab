@@ -13,8 +13,12 @@ into NumPyro models via numpyro.factor().
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from dataclasses import dataclass
+from types import MappingProxyType
 from typing import TYPE_CHECKING, NamedTuple, Protocol
 
+import jax
 import jax.numpy as jnp
 
 if TYPE_CHECKING:
@@ -30,7 +34,7 @@ NUMERICAL_EPSILON = 1e-10
 PROB_CLIP_MIN = 1e-7
 
 type LikelihoodParameterValue = jnp.ndarray | int | float
-type LikelihoodExtraParams = dict[str, LikelihoodParameterValue]
+type LikelihoodExtraParams = Mapping[str, LikelihoodParameterValue]
 
 LIKELIHOOD_SOLVER_KIND_POINT_IEKS = 1
 LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS = 2
@@ -64,6 +68,38 @@ class InitializationLikelihoodBackend(Protocol):
         *,
         extra_params: LikelihoodExtraParams | None = None,
     ) -> jnp.ndarray: ...
+
+
+@jax.tree_util.register_dataclass
+@dataclass(frozen=True)
+class LaplaceSolverState:
+    """Caller-owned latent mode used only to initialize the next Laplace solve."""
+
+    latent_mode: jax.Array | None = None
+
+
+EMPTY_LAPLACE_STATE = LaplaceSolverState()
+
+
+# Preserve immutable mappings when JAX flattens/rebuilds published numerical values.
+jax.tree_util.register_pytree_node(
+    MappingProxyType,
+    lambda value: (tuple(value.values()), tuple(value.keys())),
+    lambda keys, values: MappingProxyType(dict(zip(keys, values, strict=True))),
+)
+
+
+@jax.tree_util.register_dataclass
+@dataclass(frozen=True)
+class LaplaceEvaluationResult:
+    """One initialization likelihood evaluation and its next explicit solver state."""
+
+    log_likelihood: jax.Array
+    state: LaplaceSolverState
+    diagnostics: Mapping[str, jax.Array]
+
+    def __post_init__(self) -> None:
+        object.__setattr__(self, "diagnostics", MappingProxyType(dict(self.diagnostics)))
 
 
 def build_likelihood_eval_aux(

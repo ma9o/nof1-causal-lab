@@ -5,7 +5,11 @@ from __future__ import annotations
 from typing import assert_never
 
 from nof1_causal_lab.actions.temporal.llm_subroutine_storage import read_subroutine_json
-from nof1_causal_lab.actions.temporal.messages import LLMSubroutineContextKind, LLMToolSpec
+from nof1_causal_lab.actions.temporal.messages import (
+    LLMSubroutineContextKind,
+    LLMToolSpec,
+    MeasurementChunkContext,
+)
 
 
 def subroutine_context_messages(
@@ -15,12 +19,12 @@ def subroutine_context_messages(
     if context_kind == "measurement_extraction":
         from nof1_causal_lab.workers.messages import WorkerMessages
 
-        spec = read_subroutine_json(context_ref)
+        spec = read_subroutine_json(context_ref, MeasurementChunkContext)
         messages = WorkerMessages(
-            question=spec["question"],
-            measurement_structure=spec["measurement_structure"],
-            window_text=spec["window_text"],
-            n_windows=len(spec["window_starts"]),
+            question=spec.question,
+            measurement_structure=spec.measurement_structure,
+            window_text=spec.window_text,
+            n_windows=len(spec.window_starts),
         ).extraction_messages()
         system_prompt = None
         user_messages: list[str] = []

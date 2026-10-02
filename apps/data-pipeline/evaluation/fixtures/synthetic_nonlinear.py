@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 import numpy as np
@@ -12,8 +13,10 @@ import numpyro.distributions as dist
 from nof1_causal_lab.artifacts.likelihood import DistributionFamily, LinkFunction
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import ParameterCoordinate, SiteKind
-from nof1_causal_lab.models.ssm.model import SSMModel
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledFitInputs
 
 LATENT_NAMES = [
     "affective_state",
@@ -181,7 +184,7 @@ EXACT_MEASUREMENT_SUPPORT = np.asarray(
 # locations (e.g. sleep_efficiency_pct ~ 87) sit tens of prior sd outside the
 # canonical Normal(0, 2) manifest-mean prior, so leaving them free makes the
 # truth unreachable and distorts every coupled posterior coordinate. Production
-# removes the raw location via deterministic centering (prepare_model_runtime);
+# removes the raw location via deterministic centering (bind_panel);
 # this fixture bypasses that path, so the location is pinned instead — it is
 # not a recovery axis here. Count intercepts (NegBin/log) stay free: their
 # log-scale truths sit within the canonical prior.
@@ -236,16 +239,12 @@ def load_synthetic_nonlinear_spec(*, diffusion_scale: float = 1.0) -> ModelSpec:
     distributions = dict(model.distributions)
     for parameter in model.parameters:
         if model.parameter_context(parameter.id).quantity == SiteKind.DIFFUSION_DIAG:
+            assert parameter.distribution is not None
             distributions[parameter.distribution] = dist.HalfNormal(0.4 * float(diffusion_scale))
     return model.revised(distributions=distributions)
 
 
-def load_synthetic_nonlinear_model(
-    data: SyntheticNonlinearData | None = None,
-    *,
-    include_interval_support: bool = False,
-    diffusion_scale: float = 1.0,
-) -> SSMModel:
+def load_synthetic_nonlinear_model(*, diffusion_scale: float = 1.0) -> CompiledFitInputs:
     from nof1_causal_lab.models.ssm.compile.inputs import (
         CompiledFitInputs,
         compile_ssm_inputs_from_model,
@@ -255,10 +254,38 @@ def load_synthetic_nonlinear_model(
         load_synthetic_nonlinear_spec(diffusion_scale=diffusion_scale)
     )
     assert isinstance(inputs, CompiledFitInputs), inputs
-    model = SSMModel(inputs)
-    if data is not None and include_interval_support:
-        model.set_observation_support(data.observation_support)
-    return model
+    return inputs
+
+
+def bind_synthetic_nonlinear_panel(inputs: CompiledFitInputs, data: SyntheticNonlinearData):
+    """Bind generated observations through the same canonical row owner as real data."""
+    from datetime import timedelta
+
+    import polars as pl
+
+    from nof1_causal_lab.models.ssm.runtime import BoundPanel, bind_panel
+    from nof1_causal_lab.utils.time_coordinates import SYNTHETIC_EPOCH
+
+    rows = []
+    for i, observation in enumerate(inputs.compiled.observations):
+        for j, time in enumerate(np.asarray(data.times)):
+            anchor = SYNTHETIC_EPOCH + timedelta(days=float(time))
+            rows.append(
+                {
+                    "indicator_id": str(observation.id),
+                    "value": float(data.observations[j, i]),
+                    "anchor_time": anchor,
+                    "support_start": anchor - timedelta(days=observation.window_days),
+                    "support_end": anchor,
+                    "support_kind": observation.support.support_kind.value,
+                    "summary_operator": observation.support.summary_operator.value,
+                    "anchor_policy": observation.support.anchor_policy.value,
+                    "observation_window": observation.observation_window,
+                }
+            )
+    panel = bind_panel(pl.DataFrame(rows), model=inputs.compiled, time_origin=None)
+    assert isinstance(panel, BoundPanel), panel
+    return panel
 
 
 def _build_transition_inputs(T: int) -> np.ndarray:
@@ -507,7 +534,7 @@ def _scalar_recovery_targets() -> dict[str, float]:
     }
     model = load_synthetic_nonlinear_spec()
     targets = {"obs_r": TRUE_OBS_R, "obs_shape": TRUE_OBS_SHAPE}
-    for binding in parameter_bindings(model)[0]:
+    for binding in parameter_bindings(load_synthetic_nonlinear_model().compiled)[0]:
         if binding.component_index is not None:
             mechanism_id = next(
                 ref.id

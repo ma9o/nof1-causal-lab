@@ -9,16 +9,39 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
+import numpy as np
+
+from nof1_causal_lab.artifacts.checks import (
+    Assessment,
+    Evaluated,
+    IndicatorCheckSubject,
+    NotEvaluated,
+    NumericCriterionEvidence,
+)
+from nof1_causal_lab.artifacts.identity import IndicatorId, IndicatorRef
 from nof1_causal_lab.artifacts.posterior_diagnostics import (
     PosteriorPredictiveChecks,
     PPCOverlay,
     PPCTestStat,
-    PPCWarning,
+)
+from nof1_causal_lab.study.view_models import (
+    Added,
+    DataDiffReport,
+    DataPointChange,
+    DataSeries,
+    Dataset,
+    DataStatistic,
+    DataStatisticComparison,
+    DataVariableDiff,
+    Removed,
+    Revised,
 )
 from nof1_causal_lab.utils.histograms import histogram_draws
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
+
+    from nof1_causal_lab.artifacts.observations import ObservationSpec
 
 
 import jax.numpy as jnp
@@ -26,9 +49,6 @@ import jax.numpy as jnp
 # ---------------------------------------------------------------------------
 # PPC models
 # ---------------------------------------------------------------------------
-
-# Individual replicated series each overlay keeps for display.
-PREDICTIVE_SAMPLE_SERIES = 5
 
 # ---------------------------------------------------------------------------
 # Diagnostic checks
@@ -38,10 +58,10 @@ PREDICTIVE_SAMPLE_SERIES = 5
 def _check_calibration(
     y_sim: jnp.ndarray,
     observations: jnp.ndarray,
-    indicator_ids: Sequence[str],
+    indicator_ids: Sequence[IndicatorId],
     low_threshold: float = 0.70,
     high_threshold: float = 0.98,
-) -> list[PPCWarning]:
+) -> list[Assessment[IndicatorCheckSubject, NumericCriterionEvidence]]:
     """Check calibration: % of timepoints where obs falls in [2.5th, 97.5th].
 
     Args:
@@ -49,7 +69,7 @@ def _check_calibration(
         observations: (T, n_manifest)
         indicator_ids: scientific indicator IDs in observation-column order
     """
-    warnings = []
+    warnings: list[Assessment[IndicatorCheckSubject, NumericCriterionEvidence]] = []
     n_manifest = observations.shape[1]
 
     q025 = jnp.percentile(y_sim, 2.5, axis=0)  # (T, m)
@@ -60,6 +80,15 @@ def _check_calibration(
         valid = ~jnp.isnan(obs_j)
         n_valid = jnp.sum(valid)
         if n_valid < 2:
+            warnings.append(
+                NotEvaluated(
+                    subject=IndicatorCheckSubject(
+                        check="calibration", target=IndicatorRef(id=name)
+                    ),
+                    reason="INSUFFICIENT_OBSERVATIONS",
+                    detail="Calibration requires at least two observations.",
+                )
+            )
             continue
 
         in_interval = valid & (obs_j >= q025[:, j]) & (obs_j <= q975[:, j])
@@ -67,32 +96,50 @@ def _check_calibration(
 
         if coverage < low_threshold:
             warnings.append(
-                PPCWarning(
-                    indicator_id=name,
-                    check_type="calibration",
-                    message=f"Undercoverage: {coverage:.0%} of observations fall in 95% PPC interval (expected ~95%)",
-                    value=coverage,
-                    passed=False,
+                Evaluated(
+                    subject=IndicatorCheckSubject(
+                        check="calibration", target=IndicatorRef(id=name)
+                    ),
+                    outcome="warning",
+                    evidence=NumericCriterionEvidence(
+                        criterion="calibration",
+                        value=coverage,
+                        lower=low_threshold,
+                        upper=high_threshold,
+                        note=f"Undercoverage: {coverage:.0%} of observations fall in 95% PPC interval (expected ~95%)",
+                    ),
                 )
             )
         elif coverage > high_threshold:
             warnings.append(
-                PPCWarning(
-                    indicator_id=name,
-                    check_type="calibration",
-                    message=f"Overcoverage: {coverage:.0%} of observations fall in 95% PPC interval (model may be too diffuse)",
-                    value=coverage,
-                    passed=False,
+                Evaluated(
+                    subject=IndicatorCheckSubject(
+                        check="calibration", target=IndicatorRef(id=name)
+                    ),
+                    outcome="warning",
+                    evidence=NumericCriterionEvidence(
+                        criterion="calibration",
+                        value=coverage,
+                        lower=low_threshold,
+                        upper=high_threshold,
+                        note=f"Overcoverage: {coverage:.0%} of observations fall in 95% PPC interval (model may be too diffuse)",
+                    ),
                 )
             )
         else:
             warnings.append(
-                PPCWarning(
-                    indicator_id=name,
-                    check_type="calibration",
-                    message=f"95% CI coverage: {coverage:.1%} (expected ~95%)",
-                    value=coverage,
-                    passed=True,
+                Evaluated(
+                    subject=IndicatorCheckSubject(
+                        check="calibration", target=IndicatorRef(id=name)
+                    ),
+                    outcome="passed",
+                    evidence=NumericCriterionEvidence(
+                        criterion="calibration",
+                        value=coverage,
+                        lower=low_threshold,
+                        upper=high_threshold,
+                        note=f"95% CI coverage: {coverage:.1%} (expected ~95%)",
+                    ),
                 )
             )
 
@@ -102,9 +149,9 @@ def _check_calibration(
 def _check_residual_autocorrelation(
     y_sim: jnp.ndarray,
     observations: jnp.ndarray,
-    indicator_ids: Sequence[str],
+    indicator_ids: Sequence[IndicatorId],
     threshold: float = 0.3,
-) -> list[PPCWarning]:
+) -> list[Assessment[IndicatorCheckSubject, NumericCriterionEvidence]]:
     """Check lag-1 autocorrelation of residuals (obs - posterior predictive mean).
 
     Args:
@@ -112,7 +159,7 @@ def _check_residual_autocorrelation(
         observations: (T, n_manifest)
         indicator_ids: scientific indicator IDs in observation-column order
     """
-    warnings = []
+    warnings: list[Assessment[IndicatorCheckSubject, NumericCriterionEvidence]] = []
     n_manifest = observations.shape[1]
 
     pp_mean = jnp.mean(y_sim, axis=0)  # (T, m)
@@ -125,6 +172,15 @@ def _check_residual_autocorrelation(
         residuals = jnp.where(valid, obs_j - pp_mean[:, j], 0.0)
         n_valid = int(jnp.sum(valid))
         if n_valid < 5:
+            warnings.append(
+                NotEvaluated(
+                    subject=IndicatorCheckSubject(
+                        check="autocorrelation", target=IndicatorRef(id=name)
+                    ),
+                    reason="INSUFFICIENT_OBSERVATIONS",
+                    detail="Autocorrelation requires at least five observations.",
+                )
+            )
             continue
 
         # Compute lag-1 autocorrelation on valid residuals
@@ -137,6 +193,15 @@ def _check_residual_autocorrelation(
         var_r = jnp.mean(centered**2)
 
         if var_r < 1e-12:
+            warnings.append(
+                NotEvaluated(
+                    subject=IndicatorCheckSubject(
+                        check="autocorrelation", target=IndicatorRef(id=name)
+                    ),
+                    reason="ZERO_RESIDUAL_VARIANCE",
+                    detail="Residual autocorrelation is undefined with zero residual variance.",
+                )
+            )
             continue
 
         autocov = jnp.mean(centered[:-1] * centered[1:])
@@ -144,13 +209,19 @@ def _check_residual_autocorrelation(
 
         passed = abs(rho) <= threshold
         warnings.append(
-            PPCWarning(
-                indicator_id=name,
-                check_type="autocorrelation",
-                message=f"Residual autocorrelation at lag 1: {rho:.2f}"
-                + ("" if passed else f" (|rho| > {threshold})"),
-                value=rho,
-                passed=passed,
+            Evaluated(
+                subject=IndicatorCheckSubject(
+                    check="autocorrelation", target=IndicatorRef(id=name)
+                ),
+                outcome="passed" if passed else "warning",
+                evidence=NumericCriterionEvidence(
+                    criterion="autocorrelation",
+                    value=rho,
+                    lower=-threshold,
+                    upper=threshold,
+                    note=f"Residual autocorrelation at lag 1: {rho:.2f}"
+                    + ("" if passed else f" (|rho| > {threshold})"),
+                ),
             )
         )
 
@@ -160,10 +231,10 @@ def _check_residual_autocorrelation(
 def _check_variance_ratio(
     y_sim: jnp.ndarray,
     observations: jnp.ndarray,
-    indicator_ids: Sequence[str],
+    indicator_ids: Sequence[IndicatorId],
     high_ratio: float = 3.0,
     low_ratio: float = 1.0 / 3.0,
-) -> list[PPCWarning]:
+) -> list[Assessment[IndicatorCheckSubject, NumericCriterionEvidence]]:
     """Check posterior predictive std / observed std ratio.
 
     Args:
@@ -171,7 +242,7 @@ def _check_variance_ratio(
         observations: (T, n_manifest)
         indicator_ids: scientific indicator IDs in observation-column order
     """
-    warnings = []
+    warnings: list[Assessment[IndicatorCheckSubject, NumericCriterionEvidence]] = []
     n_manifest = observations.shape[1]
 
     for j, name in zip(range(n_manifest), indicator_ids, strict=True):
@@ -179,11 +250,25 @@ def _check_variance_ratio(
         valid = ~jnp.isnan(obs_j)
         n_valid = int(jnp.sum(valid))
         if n_valid < 3:
+            warnings.append(
+                NotEvaluated(
+                    subject=IndicatorCheckSubject(check="variance", target=IndicatorRef(id=name)),
+                    reason="INSUFFICIENT_OBSERVATIONS",
+                    detail="Variance comparison requires at least three observations.",
+                )
+            )
             continue
 
         valid_idx = jnp.where(valid, size=n_valid)[0]
         obs_std = float(jnp.std(obs_j[valid_idx]))
         if obs_std < 1e-12:
+            warnings.append(
+                NotEvaluated(
+                    subject=IndicatorCheckSubject(check="variance", target=IndicatorRef(id=name)),
+                    reason="ZERO_OBSERVED_VARIANCE",
+                    detail="Variance ratio is undefined with zero observed variance.",
+                )
+            )
             continue
 
         # Compare temporal variation on the same observed schedule. Latent-only
@@ -194,32 +279,44 @@ def _check_variance_ratio(
 
         if ratio > high_ratio:
             warnings.append(
-                PPCWarning(
-                    indicator_id=name,
-                    check_type="variance",
-                    message=f"PPC variance too high: simulated std / observed std = {ratio:.1f}",
-                    value=ratio,
-                    passed=False,
+                Evaluated(
+                    subject=IndicatorCheckSubject(check="variance", target=IndicatorRef(id=name)),
+                    outcome="warning",
+                    evidence=NumericCriterionEvidence(
+                        criterion="variance",
+                        value=ratio,
+                        lower=low_ratio,
+                        upper=high_ratio,
+                        note=f"PPC variance too high: simulated std / observed std = {ratio:.1f}",
+                    ),
                 )
             )
         elif ratio < low_ratio:
             warnings.append(
-                PPCWarning(
-                    indicator_id=name,
-                    check_type="variance",
-                    message=f"PPC variance too low: simulated std / observed std = {ratio:.1f}",
-                    value=ratio,
-                    passed=False,
+                Evaluated(
+                    subject=IndicatorCheckSubject(check="variance", target=IndicatorRef(id=name)),
+                    outcome="warning",
+                    evidence=NumericCriterionEvidence(
+                        criterion="variance",
+                        value=ratio,
+                        lower=low_ratio,
+                        upper=high_ratio,
+                        note=f"PPC variance too low: simulated std / observed std = {ratio:.1f}",
+                    ),
                 )
             )
         else:
             warnings.append(
-                PPCWarning(
-                    indicator_id=name,
-                    check_type="variance",
-                    message=f"Predicted variance {predicted_std:.3f} vs observed {obs_std:.3f} (ratio {ratio:.2f})",
-                    value=ratio,
-                    passed=True,
+                Evaluated(
+                    subject=IndicatorCheckSubject(check="variance", target=IndicatorRef(id=name)),
+                    outcome="passed",
+                    evidence=NumericCriterionEvidence(
+                        criterion="variance",
+                        value=ratio,
+                        lower=low_ratio,
+                        upper=high_ratio,
+                        note=f"Predicted variance {predicted_std:.3f} vs observed {obs_std:.3f} (ratio {ratio:.2f})",
+                    ),
                 )
             )
 
@@ -239,8 +336,7 @@ def _predictive_value(value: jnp.ndarray) -> float | None:
 def _compute_overlays(
     y_sim: jnp.ndarray,
     observations: jnp.ndarray,
-    indicator_ids: Sequence[str],
-    n_spaghetti: int = PREDICTIVE_SAMPLE_SERIES,
+    indicator_ids: Sequence[IndicatorId],
 ) -> list[PPCOverlay]:
     """Compute per-variable medians and spaghetti draws for PPC plots.
 
@@ -248,7 +344,6 @@ def _compute_overlays(
         y_sim: (n_subsample, T, n_manifest)
         observations: (T, n_manifest)
         indicator_ids: scientific indicator IDs in observation-column order
-        n_spaghetti: number of individual y_rep draws to include for spaghetti plots
     """
     overlays = []
     n_manifest = observations.shape[1]
@@ -256,23 +351,21 @@ def _compute_overlays(
 
     q50 = jnp.percentile(y_sim, 50.0, axis=0)  # (T, m)
 
-    # Select evenly-spaced spaghetti draws
-    n_spag = min(n_spaghetti, n_draws)
-    spag_indices = jnp.linspace(0, n_draws - 1, n_spag).astype(int)
-
     for j, name in zip(range(n_manifest), indicator_ids, strict=True):
         obs_j = observations[:, j]
         observed = [None if jnp.isnan(v) else float(v) for v in obs_j]
 
         # Spaghetti: individual draw trajectories for this variable
-        spaghetti = [[_predictive_value(v) for v in y_sim[int(idx), :, j]] for idx in spag_indices]
+        spaghetti = [
+            [_predictive_value(v) for v in y_sim[int(idx), :, j]] for idx in range(n_draws)
+        ]
 
         overlays.append(
             PPCOverlay(
                 indicator_id=name,
-                observed=observed,
-                median=[_predictive_value(v) for v in q50[:, j]],
-                spaghetti_draws=spaghetti,
+                observed=tuple(observed),
+                median=tuple(_predictive_value(v) for v in q50[:, j]),
+                spaghetti_draws=tuple(tuple(draw) for draw in spaghetti),
             )
         )
 
@@ -282,7 +375,7 @@ def _compute_overlays(
 def _compute_test_stats(
     y_sim: jnp.ndarray,
     observations: jnp.ndarray,
-    indicator_ids: Sequence[str],
+    indicator_ids: Sequence[IndicatorId],
 ) -> list[PPCTestStat]:
     """Compute test statistic distributions across y_rep draws.
 
@@ -298,8 +391,7 @@ def _compute_test_stats(
     test_stats = []
     n_manifest = observations.shape[1]
 
-    _StatName = Literal["mean", "sd", "min", "max"]
-    stat_fns: dict[_StatName, Callable[..., jnp.ndarray]] = {
+    stat_fns: dict[Literal["mean", "sd", "min", "max"], Callable[..., jnp.ndarray]] = {
         "mean": jnp.nanmean,
         "sd": lambda x, **kw: jnp.nanstd(x, **kw),
         "min": jnp.nanmin,
@@ -332,9 +424,9 @@ def _compute_test_stats(
                     indicator_id=name,
                     stat_name=stat_name,
                     observed_value=obs_stat,
-                    rep_values=rep_stats,
+                    rep_values=tuple(rep_stats),
                     p_value=sum(value >= obs_stat for value in rep_stats) / len(rep_stats),
-                    histogram=histogram_draws(rep_stats, max_bins=12),
+                    histogram=tuple(histogram_draws(rep_stats, max_bins=12)),
                 )
             )
 
@@ -349,7 +441,7 @@ def _compute_test_stats(
 def measure_predictive_checks(
     y_sim: jnp.ndarray,
     observations: jnp.ndarray,
-    indicator_ids: Sequence[str],
+    indicator_ids: Sequence[IndicatorId],
 ) -> PosteriorPredictiveChecks:
     """Measure an existing predictive batch without generating more trajectories."""
     if y_sim.ndim != 3 or observations.shape != y_sim.shape[1:]:
@@ -359,7 +451,7 @@ def measure_predictive_checks(
     comparable = jnp.where(jnp.isfinite(observations)[None, :, :], y_sim, 0.0)
     if not bool(jnp.isfinite(comparable).all()):
         raise ValueError("Predictive comparisons require finite draws at observed positions")
-    warnings: list[PPCWarning] = []
+    warnings: list[Assessment[IndicatorCheckSubject, NumericCriterionEvidence]] = []
     warnings.extend(_check_calibration(y_sim, observations, indicator_ids))
     warnings.extend(_check_residual_autocorrelation(y_sim, observations, indicator_ids))
     warnings.extend(_check_variance_ratio(y_sim, observations, indicator_ids))
@@ -368,9 +460,222 @@ def measure_predictive_checks(
     test_stats = _compute_test_stats(y_sim, observations, indicator_ids)
 
     return PosteriorPredictiveChecks(
-        per_variable_warnings=warnings,
+        per_variable_warnings=tuple(warnings),
         checked=True,
         n_subsample=int(y_sim.shape[0]),
-        overlays=overlays,
-        test_stats=test_stats,
+        overlays=tuple(overlays),
+        test_stats=tuple(test_stats),
+    )
+
+
+def _semantics(variable: ObservationSpec) -> tuple[object, ...]:
+    if variable.observation_window is None:
+        raise ValueError("Dataset variables must define their measurement windows")
+    return (
+        variable.measurement_dtype,
+        variable.aggregation,
+        variable.support_kind,
+        variable.summary_operator,
+        variable.anchor_policy,
+        variable.ordinal_levels,
+        variable.categorical_levels,
+        variable.observation_window.seconds,
+    )
+
+
+def _statistics(
+    left: tuple[DataSeries, ...], right: tuple[DataSeries, ...]
+) -> tuple[DataStatisticComparison, ...]:
+    def measure(series: DataSeries) -> dict[tuple[DataStatistic, str | None], float | None]:
+        values = np.asarray([point.value for point in series.points if point.value is not None])
+        statistics: dict[tuple[DataStatistic, str | None], float | None] = {
+            ("observed_count", None): float(len(values)),
+            ("missing_count", None): float(len(series.points) - len(values)),
+        }
+        variable = series.variable
+        if variable is None:
+            return statistics
+        levels = variable.categorical_levels or variable.ordinal_levels
+        if levels is not None:
+            statistics.update(
+                {
+                    ("proportion", level): float(np.mean(values == index)) if len(values) else None
+                    for index, level in enumerate(levels)
+                }
+            )
+        else:
+            statistics[("mean", None)] = float(np.mean(values)) if len(values) else None
+            statistics[("sd", None)] = float(np.std(values)) if len(values) else None
+            statistics[("min", None)] = float(np.min(values)) if len(values) else None
+            statistics[("max", None)] = float(np.max(values)) if len(values) else None
+        return statistics
+
+    a, b = tuple(map(measure, left)), tuple(map(measure, right))
+    keys = sorted(set().union(*(item.keys() for item in (*a, *b))))
+    result = []
+    for statistic, level in keys:
+        sides = [tuple(item.get((statistic, level)) for item in side) for side in (a, b)]
+        finite = [[value for value in side if value is not None] for side in sides]
+        result.append(
+            DataStatisticComparison(
+                statistic=statistic,
+                level=level,
+                left=sides[0],
+                right=sides[1],
+                left_histogram=tuple(histogram_draws(finite[0])) if finite[0] else (),
+                right_histogram=tuple(histogram_draws(finite[1])) if finite[1] else (),
+            )
+        )
+    return tuple(result)
+
+
+def _predictive_comparison(
+    identity: IndicatorId, left: Sequence[DataSeries], right: Sequence[DataSeries]
+) -> tuple[Literal["left", "right"] | None, PosteriorPredictiveChecks | None, str | None]:
+    if len(left) == len(right) == 1:
+        return None, None, None
+    if len(left) > 1 and len(right) > 1:
+        return None, None, "Requires one reference history and multiple replicated histories"
+    side: Literal["left", "right"]
+    if len(left) == 1:
+        (reference,) = left
+        side, replicas = "left", right
+    else:
+        (reference,) = right
+        side, replicas = "right", left
+    variable = reference.variable
+    # Shared input problems belong to comparison_issues, not a second PPC reason.
+    if any((item.time_origin is None) != (reference.time_origin is None) for item in replicas):
+        return side, None, None
+    if variable is None or any(item.variable is None for item in replicas):
+        return side, None, None
+    if any(
+        _semantics(item.variable) != _semantics(variable)
+        for item in replicas
+        if item.variable is not None
+    ):
+        return side, None, None
+    if variable.measurement_dtype in {"categorical", "ordinal"}:
+        return side, None, "Discrete codebooks use per-level proportions, not numeric PPC summaries"
+    if not any(point.value is not None for point in reference.points):
+        return side, None, "The reference history contains no observed values"
+    aligned = []
+    for series in replicas:
+        lookup = {point.anchor_time: point for point in series.points}
+        values = []
+        for point in reference.points:
+            candidate = lookup.get(point.anchor_time)
+            if point.value is not None:
+                if candidate is None or (candidate.support_start, candidate.support_end) != (
+                    point.support_start,
+                    point.support_end,
+                ):
+                    return side, None, None
+                if candidate.value is None:
+                    return side, None, "Replicas contain missing values at observed anchors"
+            values.append(
+                candidate.value if candidate is not None and candidate.value is not None else np.nan
+            )
+        aligned.append(values)
+    import jax.numpy as jnp
+
+    observed = [point.value if point.value is not None else np.nan for point in reference.points]
+    checks = measure_predictive_checks(
+        jnp.asarray(aligned)[:, :, None], jnp.asarray(observed)[:, None], (identity,)
+    )
+    return side, checks, None
+
+
+def data_diff(
+    left: Dataset | Sequence[Dataset],
+    right: Dataset | Sequence[Dataset],
+    *,
+    input_indicators: set[IndicatorId] | frozenset[IndicatorId] = frozenset(),
+) -> DataDiffReport:
+    """Compare one or many saved histories on each side without pooling or resimulation."""
+    sides = tuple(
+        (value,) if isinstance(value, Dataset) else tuple(value) for value in (left, right)
+    )
+    for side in sides:
+        if not side:
+            raise ValueError("Each comparison side requires at least one dataset")
+        if len(
+            {
+                (
+                    dataset.source.kind,
+                    dataset.source.revision,
+                    dataset.source.replicate if dataset.source.kind == "simulation" else None,
+                )
+                for dataset in side
+            }
+        ) != len(side):
+            raise ValueError("A dataset cannot be counted twice within a comparison side")
+    left_series, right_series = (tuple(dataset.series for dataset in side) for side in sides)
+    variables = sorted(set().union(*(item.keys() for item in (*left_series, *right_series))))
+    has_simulation = any(dataset.source.kind == "simulation" for side in sides for dataset in side)
+    comparisons = []
+    absent = DataSeries(variable=None, time_origin=None, points=())
+    for identity in variables:
+        if has_simulation and identity in input_indicators:
+            continue
+        a, b = (
+            tuple(item.get(identity, absent) for item in side)
+            for side in (left_series, right_series)
+        )
+        issues = []
+        series = (*a, *b)
+        definitions = [item.variable for item in series if item.variable is not None]
+        mixed_calendars = (
+            len({item.time_origin is None for item in series if item.variable is not None}) > 1
+        )
+        if mixed_calendars:
+            issues.append("Calendar-free histories cannot be aligned to calendar-bound histories")
+        if len(definitions) != len(series):
+            issues.append("Variable is absent from one or more histories")
+        if len({_semantics(item) for item in definitions}) > 1:
+            issues.append(
+                "Measurement definitions differ; statistics describe each side separately"
+            )
+        schedules = {
+            tuple((p.anchor_time, p.support_start, p.support_end) for p in item.points)
+            for item in series
+        }
+        if len(schedules) > 1:
+            issues.append("Observation schedules or measurement windows differ")
+        changes = []
+        if len(a) == len(b) == 1 and not mixed_calendars:
+            old, new = (
+                {point.anchor_time: point for point in item.points} for item in (a[0], b[0])
+            )
+            for anchor in sorted(old.keys() | new.keys()):
+                before, after = old.get(anchor), new.get(anchor)
+                if before != after:
+                    changes.append(
+                        DataPointChange(
+                            anchor_time=anchor,
+                            change=Added(after=new[anchor])
+                            if anchor not in old
+                            else Removed(before=old[anchor])
+                            if anchor not in new
+                            else Revised(before=old[anchor], after=new[anchor]),
+                        )
+                    )
+        reference, checks, reason = _predictive_comparison(identity, a, b)
+        comparisons.append(
+            DataVariableDiff(
+                indicator_id=identity,
+                left=a,
+                right=b,
+                changes=tuple(changes),
+                statistics=_statistics(a, b),
+                comparison_issues=tuple(issues),
+                reference_side=reference,
+                predictive_checks=checks,
+                predictive_unavailable_reason=reason,
+            )
+        )
+    return DataDiffReport(
+        left=tuple(item.source for item in sides[0]),
+        right=tuple(item.source for item in sides[1]),
+        variables=tuple(comparisons),
     )

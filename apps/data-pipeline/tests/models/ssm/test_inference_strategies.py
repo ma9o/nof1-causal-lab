@@ -5,8 +5,10 @@ and particle sampling with ``inference``. Recovery checks live in
 ``test_parameter_recovery.py``.
 """
 
+import time
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import jax
 import jax.numpy as jnp
@@ -19,10 +21,13 @@ from numpyro.distributions import MultivariateNormal
 from nof1_causal_lab.artifacts.likelihood import LinkFunction
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.distributions import DistributionFamily
-from nof1_causal_lab.models.ssm import SSMModel
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
 from nof1_causal_lab.models.ssm.dynamics.vector_field import VectorField
-from nof1_causal_lab.models.ssm.execution.contracts import MeasurementParams
+from nof1_causal_lab.models.ssm.execution.contracts import (
+    LaplaceEvaluationResult,
+    LaplaceSolverState,
+    MeasurementParams,
+)
 from nof1_causal_lab.models.ssm.execution.dynamical_model import continuous_state_evolution
 from nof1_causal_lab.models.ssm.execution.emissions import get_mean_param_log_prob_fn
 from nof1_causal_lab.models.ssm.execution.observation_model import (
@@ -35,8 +40,7 @@ from nof1_causal_lab.models.ssm.execution.observation_operator import (
     get_summary_operator_codes,
     trajectory_observation_log_probs,
 )
-from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior, fit
-from nof1_causal_lab.models.ssm.inference.backend_factory import get_laplace_backend
+from nof1_causal_lab.models.ssm.inference import fit
 from nof1_causal_lab.models.ssm.inference.parameter_transform import ParameterTransform
 from nof1_causal_lab.models.ssm.inference.targets.laplace import (
     LaplaceLikelihood,
@@ -62,7 +66,12 @@ from nof1_causal_lab.models.ssm.inference.utils import _discover_sites
 from nof1_causal_lab.models.ssm.inference.warmup.map import (
     _build_map_laplace_bundle,
 )
+from nof1_causal_lab.sampler_config import (
+    SamplerSpec,
+)
+from tests.inference_fixtures import particle_posterior
 from tests.model_fixtures import (
+    bind_panel_fixture,
     compile_fit_fixture,
     make_observation_support_runtime,
 )
@@ -586,8 +595,8 @@ class TestLaplaceSupportAware:
         np.testing.assert_allclose(rhs[:, 0], expected_rhs, rtol=1e-5, atol=1e-5)
 
 
-class TestLaplaceBackendCaching:
-    """Backend-cache reuse, invalidation, and support-window derivative caching."""
+class TestLaplaceSolverState:
+    """Explicit solver initialization and stateless support-window derivatives."""
 
     @pytest.mark.inference(concern="warmup")
     def test_block_profile_logdet_cotangent_matches_direct_autodiff(self):
@@ -646,7 +655,7 @@ class TestLaplaceBackendCaching:
         )
 
     @pytest.mark.contract
-    def test_laplace_backend_reuses_point_mode_cache_across_runtime_evals(self, monkeypatch):
+    def test_laplace_backend_threads_only_explicit_solver_state(self, monkeypatch):
         backend = LaplaceLikelihood(
             n_latent=1,
             n_manifest=1,
@@ -676,7 +685,7 @@ class TestLaplaceBackendCaching:
 
         def _fake_ieks(*_args, z_init=None, **_kwargs):
             seen_inits.append(None if z_init is None else np.asarray(z_init))
-            return returned_mode, jnp.array(-1.0, dtype=jnp.float32), {}
+            return returned_mode, jnp.array(-1.0, dtype=jnp.float32), {"latent_mode": returned_mode}
 
         monkeypatch.setattr(
             "nof1_causal_lab.models.ssm.inference.targets.laplace._ieks_smooth",
@@ -691,30 +700,39 @@ class TestLaplaceBackendCaching:
             ),
         )
 
-        ll_0, _aux_0 = backend.compute_log_likelihood_with_aux(
+        first = backend.compute_log_likelihood_with_aux(
             ct_params,
             meas_params,
             init,
             observations,
             time_intervals,
         )
-        ll_1, _aux_1 = backend.compute_log_likelihood_with_aux(
+        second = backend.compute_log_likelihood_with_aux(
             ct_params,
             meas_params,
             init,
             observations,
             time_intervals,
+            solver_state=first.state,
         )
 
-        assert float(ll_0) == pytest.approx(-1.0)
-        assert float(ll_1) == pytest.approx(-1.0)
+        assert float(first.log_likelihood) == pytest.approx(-1.0)
+        assert float(second.log_likelihood) == pytest.approx(-1.0)
         assert seen_inits[0] is None
-        cached_init = seen_inits[1]
-        assert cached_init is not None
-        np.testing.assert_allclose(cached_init, np.asarray(returned_mode))
+        warm_start = seen_inits[1]
+        assert warm_start is not None
+        np.testing.assert_allclose(warm_start, np.asarray(returned_mode))
+        backend.compute_log_likelihood_with_aux(
+            ct_params, meas_params, init, observations, time_intervals
+        )
+        assert seen_inits[2] is None
+        from dataclasses import FrozenInstanceError
+
+        with pytest.raises(FrozenInstanceError):
+            backend.n_ieks_iters = 99  # ty: ignore[invalid-assignment] -- Exercise runtime rejection of a frozen field.
 
     @pytest.mark.contract
-    def test_laplace_backend_caches_support_window_derivative_builders(self, monkeypatch):
+    def test_support_derivative_builders_use_current_measurement_objects(self, monkeypatch):
         support = make_observation_support_runtime(
             anchor_times=np.array([0.0, 1.0, 2.0]),
             manifest_names=["avg_signal"],
@@ -752,19 +770,9 @@ class TestLaplaceBackendCaching:
             "nof1_causal_lab.models.ssm.inference.targets.laplace._make_support_window_derivatives",
             _build,
         )
-        first = backend._get_support_window_derivatives(compiled, None, allow_cache=True)
-        assert backend._get_support_window_derivatives(compiled, None, allow_cache=True) is first
-        assert len(built) == 1
-
-        # Runtime hyperparameters and stateless evaluations must not reuse a
-        # closure that captured previous values, or contaminate the cached one.
-        assert (
-            backend._get_support_window_derivatives(compiled, {"obs_df": 5.0}, allow_cache=True)
-            != first
-        )
-        assert backend._get_support_window_derivatives(compiled, None, allow_cache=False) != first
-        assert backend._get_support_window_derivatives(compiled, None, allow_cache=True) is first
-        assert len(built) == 3
+        first = backend._build_support_window_derivatives(compiled)
+        assert backend._build_support_window_derivatives(compiled) != first
+        assert len(built) == 2
 
         changed = compile_observation_model(
             [DistributionFamily.POISSON],
@@ -772,8 +780,8 @@ class TestLaplaceBackendCaching:
             manifest_links=[LinkFunction.LOG],
             observation_support=support,
         )
-        assert backend._get_support_window_derivatives(changed, None, allow_cache=True) != first
-        assert len(built) == 4
+        assert backend._build_support_window_derivatives(changed) != first
+        assert len(built) == 3
 
 
 @pytest.mark.contract
@@ -820,29 +828,8 @@ class TestObservationKernelMissingData:
 # =============================================================================
 
 
-class TestInferenceCaching:
-    """Low-risk caching behavior for default inference helpers."""
-
-    @pytest.mark.contract
-    def test_model_reuses_backend_instances(self):
-        spec = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "common/one_state_gaussian_model.json"
-            ).read_text()
-        )
-        model = SSMModel(compile_fit_fixture(spec))
-
-        backend_a = get_laplace_backend(model, 6)
-        backend_b = get_laplace_backend(model, 6)
-        laplace_a = get_laplace_backend(model, 3)
-        laplace_b = get_laplace_backend(model, 3)
-        laplace_c = get_laplace_backend(model, 5)
-
-        assert backend_a is backend_b
-        assert laplace_a is laplace_b
-        assert laplace_a is not laplace_c
+class TestInferenceTracing:
+    """Tracing behavior for resolved inference inputs."""
 
     @pytest.mark.inference(concern="sampling")
     def test_discover_sites_uses_dummy_backend_for_structural_trace(self):
@@ -853,7 +840,7 @@ class TestInferenceCaching:
                 / "common/one_state_gaussian_model.json"
             ).read_text()
         )
-        model = SSMModel(compile_fit_fixture(spec))
+        model = compile_fit_fixture(spec)
         observations = jnp.array([[1.0], [2.0]], dtype=jnp.float32)
         times = jnp.array([0.0, 1.0], dtype=jnp.float32)
 
@@ -862,9 +849,8 @@ class TestInferenceCaching:
                 raise AssertionError("site discovery should not evaluate the real likelihood")
 
         site_info = _discover_sites(
-            model,
-            observations,
-            times,
+            model.prior_runtime_bundle,
+            bind_panel_fixture(model.compiled, observations, times),
             random.PRNGKey(0),
             _ExplodingBackend(),
         )
@@ -877,22 +863,6 @@ class TestInferenceCaching:
 class TestDefaultMethodRouting:
     """Regression tests for default inference routing."""
 
-    def test_default_always_routes_to_marginal_particle_gibbs(self):
-        """Default routing resolves to marginalized Particle Gibbs for all model types."""
-        from nof1_causal_lab.models.ssm.execution.planning import plan_inference_structure
-
-        spec = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "common/one_state_gaussian_model.json"
-            ).read_text()
-        )
-
-        plan = plan_inference_structure(spec)
-        assert plan.resolved_method == "marginal_particle_gibbs"
-        assert plan.structural_backend == "laplace"
-
     def test_fit_without_method_dispatches_to_marginal_particle_gibbs(self, monkeypatch):
         spec = ModelSpec.model_validate_json(
             (
@@ -901,17 +871,14 @@ class TestDefaultMethodRouting:
                 / "common/one_state_gaussian_model.json"
             ).read_text()
         )
-        model = SSMModel(compile_fit_fixture(spec))
+        model = compile_fit_fixture(spec)
         observations = jnp.zeros((2, 1), dtype=jnp.float32)
         times = jnp.array([0.0, 1.0], dtype=jnp.float32)
 
-        def fake_fit_marginal_particle_gibbs(_model, _observations, _times, **kwargs):
+        def fake_fit_marginal_particle_gibbs(_priors, _panel, **kwargs):
             del kwargs
-            return ParticleMCMCPosterior(
-                draws=JointPosteriorDraws(
-                    parameters={"vf_0_p0": jnp.zeros((1,), dtype=jnp.float32)}
-                ),
-                diagnostics={},
+            return particle_posterior(
+                JointPosteriorDraws(parameters={"vf_0_p0": jnp.zeros((1,), dtype=jnp.float32)})
             )
 
         monkeypatch.setattr(
@@ -920,7 +887,12 @@ class TestDefaultMethodRouting:
             fake_fit_marginal_particle_gibbs,
         )
 
-        result = fit(model, observations=observations, times=times)
+        result = fit(
+            model.prior_runtime_bundle,
+            bind_panel_fixture(model.compiled, observations, times),
+            sampler=SamplerSpec(),
+            clock=time.monotonic,
+        )
 
         assert result.method == "marginal_particle_gibbs"
 
@@ -948,14 +920,14 @@ def test_support_aware_step_halving_search_backtracks_to_improving_step():
 
 
 @pytest.mark.contract
-def test_map_bundle_reuses_runtime_objectives_across_same_shape_datasets(monkeypatch):
+def test_map_objectives_receive_each_bound_dataset(monkeypatch):
     observations_a = jnp.array([[0.0], [1.0]], dtype=jnp.float32)
     observations_b = jnp.array([[2.0], [3.0]], dtype=jnp.float32)
     times_a = jnp.array([0.0, 1.0], dtype=jnp.float32)
     times_b = jnp.array([0.0, 2.0], dtype=jnp.float32)
     counters = {"discover": 0, "build_eval_fns": 0}
 
-    def fake_prepare_parameters(_model, _observations, _times, _trace_key, reparam):
+    def fake_prepare_parameters(_priors, _panel, _trace_key, reparam):
         del reparam
         counters["discover"] += 1
         values = jnp.array([0.5, -0.25], dtype=jnp.float32)
@@ -965,42 +937,40 @@ def test_map_bundle_reuses_runtime_objectives_across_same_shape_datasets(monkeyp
         return parameters, {"theta": {"value": values}}, {"theta"}
 
     def fake_build_eval_fns(
-        _model,
-        _observations,
-        _times,
+        _panel,
         _parameters,
         likelihood_backend,
-        *,
-        include_likelihood_aux,
-        runtime_observations_times,
     ):
         del likelihood_backend
         counters["build_eval_fns"] += 1
-        assert include_likelihood_aux is True
-        assert runtime_observations_times is True
 
-        def log_lik_fn(z, runtime_observations, runtime_times, latent_mode_init=None):
-            del latent_mode_init
+        def log_lik_fn(z, runtime_observations, runtime_times, solver_state=None):
+            del solver_state
             return jnp.sum(z) + jnp.sum(runtime_observations) + jnp.sum(runtime_times)
 
         def log_prior_unc_fn(z):
             return -0.5 * jnp.sum(z**2)
 
-        def log_lik_with_aux_fn(z, runtime_observations, runtime_times, latent_mode_init=None):
-            del latent_mode_init
-            return log_lik_fn(z, runtime_observations, runtime_times), {
-                "solver_kind": jnp.asarray(0, dtype=jnp.int32),
-                "n_iterations": jnp.asarray(0, dtype=jnp.int32),
-                "n_accepted_steps": jnp.asarray(0, dtype=jnp.int32),
-                "init_log_joint": jnp.asarray(0.0, dtype=jnp.float32),
-                "final_log_joint": jnp.asarray(0.0, dtype=jnp.float32),
-                "final_rel_change": jnp.asarray(0.0, dtype=jnp.float32),
-                "final_damping": jnp.asarray(0.0, dtype=jnp.float32),
-                "final_step_alpha": jnp.asarray(0.0, dtype=jnp.float32),
-                "final_step_norm": jnp.asarray(0.0, dtype=jnp.float32),
-                "laplace_logdet": jnp.asarray(0.0, dtype=jnp.float32),
-                "min_chol_diag": jnp.asarray(0.0, dtype=jnp.float32),
-            }
+        def log_lik_with_aux_fn(z, runtime_observations, runtime_times, solver_state=None):
+            del solver_state
+            ll = log_lik_fn(z, runtime_observations, runtime_times)
+            return ll, LaplaceEvaluationResult(
+                ll,
+                LaplaceSolverState(),
+                {
+                    "solver_kind": jnp.asarray(0, dtype=jnp.int32),
+                    "n_iterations": jnp.asarray(0, dtype=jnp.int32),
+                    "n_accepted_steps": jnp.asarray(0, dtype=jnp.int32),
+                    "init_log_joint": jnp.asarray(0.0, dtype=jnp.float32),
+                    "final_log_joint": jnp.asarray(0.0, dtype=jnp.float32),
+                    "final_rel_change": jnp.asarray(0.0, dtype=jnp.float32),
+                    "final_damping": jnp.asarray(0.0, dtype=jnp.float32),
+                    "final_step_alpha": jnp.asarray(0.0, dtype=jnp.float32),
+                    "final_step_norm": jnp.asarray(0.0, dtype=jnp.float32),
+                    "laplace_logdet": jnp.asarray(0.0, dtype=jnp.float32),
+                    "min_chol_diag": jnp.asarray(0.0, dtype=jnp.float32),
+                },
+            )
 
         return log_lik_fn, log_prior_unc_fn, log_lik_with_aux_fn
 
@@ -1013,39 +983,35 @@ def test_map_bundle_reuses_runtime_objectives_across_same_shape_datasets(monkeyp
         fake_build_eval_fns,
     )
 
-    model = SSMModel(
-        compile_fit_fixture(
-            ModelSpec.model_validate_json(
-                (
-                    Path(__file__).resolve().parents[2]
-                    / "fixtures/models"
-                    / "inference_strategies/map_bundle_reuses_runtime_objectives_across_same_shape_datasets__make_aux_kalman_mcmc_smoke_spec.json"
-                ).read_text()
-            )
+    model = compile_fit_fixture(
+        ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "inference_strategies/map_bundle_reuses_runtime_objectives_across_same_shape_datasets__make_aux_kalman_mcmc_smoke_spec.json"
+            ).read_text()
         )
     )
-    backend = SimpleNamespace()
+    backend = Mock(
+        spec=LaplaceLikelihood,
+    )
     bundle_a = _build_map_laplace_bundle(
-        model,
-        observations_a,
-        times_a,
+        model.prior_runtime_bundle,
+        bind_panel_fixture(model.compiled, observations_a, times_a),
         random.PRNGKey(0),
         backend,
         None,
     )
     bundle_b = _build_map_laplace_bundle(
-        model,
-        observations_b,
-        times_b,
+        model.prior_runtime_bundle,
+        bind_panel_fixture(model.compiled, observations_b, times_b),
         random.PRNGKey(1),
         backend,
         None,
     )
 
     assert counters["discover"] == 2
-    assert counters["build_eval_fns"] == 1
-    assert bundle_a["log_posterior_fn"] is bundle_b["log_posterior_fn"]
-    assert bundle_a["neg_log_posterior_fn"] is bundle_b["neg_log_posterior_fn"]
+    assert counters["build_eval_fns"] == 2
 
     z = jnp.array([0.2, -0.1], dtype=jnp.float32)
     log_post_a = bundle_a["log_posterior_fn"](z, observations_a, times_a)

@@ -1,12 +1,13 @@
 """History and accessors read one canonical scientific definition with exact sources."""
 
+import time
 from pathlib import Path
 
 import jax.numpy as jnp
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
-from pydantic import ValidationError
+from pydantic import TypeAdapter, ValidationError
 
 from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec, replace_constructs
 from nof1_causal_lab.artifacts.execution import StructuralItemDisposition
@@ -15,20 +16,31 @@ from nof1_causal_lab.artifacts.identity import ConstructId, GitRef, IndicatorId
 from nof1_causal_lab.artifacts.likelihood import (
     ObservationLawSpec,
 )
+from nof1_causal_lab.artifacts.mechanism import DriftMechanismSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.simulation import SimulationReport, SimulationSpec
+from nof1_causal_lab.models.model_structure import selected_state_ids
 from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
 from nof1_causal_lab.models.ssm.joint_layout import JointLawLayout
 from nof1_causal_lab.numpyro_json import empirical_atoms, empirical_distribution
 from nof1_causal_lab.read_facade import create_read_facade_app
 from nof1_causal_lab.study.artifact_files import json_filename
+from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.history import StudyRepository
-from nof1_causal_lab.study.records import AttemptRecord
+from nof1_causal_lab.study.records import (
+    AttemptRecord,
+    EditAttempt,
+    ModelEditResult,
+    ModelSimulationResult,
+    Raised,
+)
 from nof1_causal_lab.study.snapshot_models import ModelSnapshot
-from nof1_causal_lab.study.snapshots import ModelReader, SnapshotRevisionNotFound
+from nof1_causal_lab.study.snapshots import ModelReader
 from nof1_causal_lab.study.store import ArtifactStore
+from tests.action_fixtures import applied_record
 from tests.git_fixtures import artifact_revision, commit_id, git_oid
 from tests.helpers import graph_constructs
+from tests.model_fixtures import compile_model_fixture
 
 pytestmark = pytest.mark.contract
 
@@ -102,20 +114,35 @@ def _drop_x(model):
 
 
 def test_predictive_findings_use_entity_ids_and_keep_served_reasons(monkeypatch):
+    from nof1_causal_lab.artifacts.checks import NumericCriterionEvidence
     from nof1_causal_lab.models.ssm.predictive import simulation
     from nof1_causal_lab.models.ssm.predictive.types import PredictiveDraws, PredictiveTrajectory
     from nof1_causal_lab.models.ssm.reachability import CheckResult
     from nof1_causal_lab.models.ssm.simulation_checks import DesignInfo
 
-    model = _model()
+    model = ModelSpec.model_validate_json(
+        (Path(__file__).resolve().parents[1] / "fixtures/models/common/x_y_model.json").read_text()
+    )
     edge = model.edges[0]
 
     def measured(_model, _prediction, _design, target, **_kwargs):
         if target.construct.id != edge.effect.id:
             return [], []
         return [
-            CheckResult("measured", target, "1", "0", False, "Served reason.")
-            for target in ("Y", "indicator:y", "X->Y")
+            CheckResult.measured(
+                "measured",
+                target,
+                "1",
+                "0",
+                "Served reason.",
+                outcome="failed",
+                measurements=(NumericCriterionEvidence(criterion="measured", value=1, upper=0),),
+            )
+            for target in (
+                edge.effect.name,
+                edge.effect.indicators[0].id,
+                f"{edge.cause.name}->{edge.effect.name}",
+            )
         ], []
 
     monkeypatch.setattr(simulation, "measure_construct_simulation", measured)
@@ -126,9 +153,19 @@ def test_predictive_findings_use_entity_ids_and_keep_served_reasons(monkeypatch)
     batch = simulation.SimulationBatch(
         (0.0, 1.0), prediction, None, DesignInfo(jnp.array([0.0, 1.0]), (), {}, {})
     )
-    findings, _ = simulation.measure_simulation_batch(model, batch, groups=("measurement",))
-    assert [finding.target for finding in findings] == ["construct:y", "indicator:y", "edge:xy"]
-    assert all(finding.note == "Served reason." for finding in findings)
+    findings, _ = simulation.measure_simulation_batch(
+        compile_model_fixture(model), batch, groups=("measurement",), clock=time.monotonic
+    )
+    targets = [finding.subject.target for finding in findings]
+    assert all(not isinstance(target, str) for target in targets)
+    assert [target.id for target in targets if not isinstance(target, str)] == [
+        edge.effect.id,
+        edge.effect.indicators[0].id,
+        edge.id,
+    ]
+    for finding in findings:
+        assert finding.kind == "evaluated"
+        assert finding.evidence[0].note == "Served reason."
 
 
 def _commit(workspace, artifact_id, payload, *, pins=None, retracted=()):
@@ -140,18 +177,10 @@ def _commit(workspace, artifact_id, payload, *, pins=None, retracted=()):
         json_files={json_filename(artifact_id, artifact_id): payload},
     )
     journal.append(
-        AttemptRecord(
+        applied_record(
+            ModelEditResult(produced=[info], retracted=list(retracted)),
             seq=journal.latest_seq() + 1,
             ts="2026-09-12T12:00:00Z",
-            action="edit_model",
-            inputs={
-                "expected_revision": journal.state(journal.head()).current["model"].revision
-                if journal.state(journal.head()).has("model")
-                else None
-            },
-            status="applied",
-            produced=[info],
-            retracted=list(retracted),
             trace_ids=[],
         )
     )
@@ -177,11 +206,11 @@ def test_fitted_snapshot_keeps_joint_arrays_lazy_and_workspace_bound(workspace, 
             / "snapshots/fitted_snapshot_keeps_joint_arrays_lazy_and_workspace_bound_complete_test_model.json"
         ).read_text()
     )
-    bindings, _ = parameter_bindings(model)
+    bindings, _ = parameter_bindings(compile_model_fixture(model))
     layout = JointLawLayout.from_bindings(
         bindings,
         parameters=[p.id for p in model.parameters],
-        constructs=model.state_order,
+        constructs=selected_state_ids(model),
         time_points=(0, 1),
     )
     store = ArtifactStore(workspace)
@@ -189,22 +218,12 @@ def test_fitted_snapshot_keeps_joint_arrays_lazy_and_workspace_bound(workspace, 
     law = empirical_distribution(atoms, array_writer=store.write_array)
     conditioned = model.revised(
         parameters=tuple(
-            type(p).model_validate(
-                {
-                    **p.model_dump(),
-                    "distribution": layout.distribution_id,
-                    "distribution_transform": "identity",
-                    "reference_interval_days": None,
-                }
-            )
+            p.revised(distribution=layout.distribution_id, transform={"kind": "identity"})
             for p in model.parameters
         ),
         edges=replace_constructs(
             model.edges,
-            tuple(
-                type(c).model_validate({**c.model_dump(), "distribution": layout.distribution_id})
-                for c in model.constructs
-            ),
+            tuple(c.revised(distribution=layout.distribution_id) for c in model.constructs),
         ),
         distributions={layout.distribution_id: law},
         time_points=(0, 1),
@@ -285,13 +304,10 @@ def test_checkpoint_comparison_uses_evidence_from_each_selected_journal_prefix(w
             observations=f"simulation-{seq}/observations",
         )
         StudyRepository(workspace).append(
-            AttemptRecord(
+            applied_record(
+                ModelSimulationResult(report=report),
                 seq=seq,
                 ts="2026-09-12T12:00:00Z",
-                action="simulate",
-                inputs={"model": artifact_revision(workspace, "model", 1)},
-                status="applied",
-                diagnostics={"report": report.model_dump(mode="json")},
                 trace_ids=[],
             )
         )
@@ -314,7 +330,7 @@ def test_checkpoint_comparison_uses_evidence_from_each_selected_journal_prefix(w
     comparison = response.json()
     assert comparison["before_simulation"]["seed"] == 3
     assert comparison["after_simulation"]["seed"] == 2
-    assert all(item["change"] == "unchanged" for item in comparison["graph"]["constructs"])
+    assert all(item["change"]["kind"] == "unchanged" for item in comparison["graph"]["constructs"])
     assert (
         client.get(
             f"/api/studies/{workspace}/model-diff",
@@ -416,19 +432,19 @@ def test_planning_preserves_ids_across_name_and_role_edits(workspace):
         indicator["likelihood"] = {
             "law": {
                 "distribution": "Delta",
-                "arguments": {"v": {"kind": "state", "construct_id": given["id"]}},
+                "v": {"kind": "state", "construct_id": given["id"]},
             },
             "standardized": False,
             "reasoning": "The renamed input is given exactly.",
             "sources": [],
         }
     revised = ModelSpec.model_validate(payload)
-    assert set(original.state_order) == set(revised.state_order)
+    assert set(selected_state_ids(original)) == set(selected_state_ids(revised))
     assert original.edges[0].id == revised.edges[0].id == "edge:xy"
     assert "semantics" not in original.model_dump()
     _commit(workspace, "model", revised.model_dump(mode="json"))
     graph = ModelReader(workspace).snapshot().findings.graph
-    assert set(graph.dynamic_construct_ids) == set(revised.state_order)
+    assert set(graph.dynamic_construct_ids) == set(selected_state_ids(revised))
     from nof1_causal_lab.utils.identifiability import unroll_temporal_dag
 
     dag = unroll_temporal_dag(revised.constructs, revised.edges, {"Renamed", "Y"})
@@ -489,14 +505,14 @@ def test_uncommitted_versions_and_failed_attempts_never_become_snapshots(workspa
         AttemptRecord(
             seq=3,
             ts="2026-09-12T13:00:00Z",
-            action="edit_model",
-            inputs={"expected_revision": artifact_revision(workspace, "model", 1)},
-            status="raised",
             trace_ids=[],
+            attempt=EditAttempt(
+                request=None, outcome=Raised(error_type="SavedError", error_message="failed")
+            ),
         )
     )
     assert ModelReader(workspace).snapshot() == before
-    with pytest.raises(SnapshotRevisionNotFound):
+    with pytest.raises(StudyLookupError):
         ModelReader(workspace, at=commit_id(workspace, 3))
     client = TestClient(create_read_facade_app())
     url = f"/api/studies/{workspace}/model"
@@ -529,13 +545,15 @@ def test_owned_likelihood_survives_reused_names(workspace, monkeypatch):
     _measured(workspace)
     payload = _model().model_dump(mode="json")
     graph_constructs(payload)[1]["indicators"][0]["likelihood"] = {
-        "law": ObservationLawSpec.model_validate_json(
+        "law": TypeAdapter(ObservationLawSpec)
+        .validate_json(
             (
                 Path(__file__).resolve().parents[1]
                 / "fixtures/models"
                 / "common/y_gaussian_observation_law.json"
             ).read_text()
-        ).model_dump(mode="json"),
+        )
+        .model_dump(mode="json"),
         "reasoning": "Test",
     }
     _commit(workspace, "model", payload)
@@ -564,24 +582,13 @@ def test_owned_mechanisms_survive_rename_and_disappear_with_owner(workspace, own
     payload = _model().model_dump(mode="json")
     field = "dynamics" if owner == "constructs" else "mechanisms"
     from nof1_causal_lab.artifacts.expressions import hill, restoring_force, state
-    from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
 
     entity = (graph_constructs(payload) if owner == "constructs" else payload["edges"])[0]
-    mechanism = DynamicsMechanismSpec(
+    mechanism = DriftMechanismSpec(
         id="mechanism:owned-term",
-        expression=restoring_force(
-            entity["id"],
-            center=0,
-            stiffness=1,
-            quartic=0,
-        )
+        expression=restoring_force(entity["id"], center=0, stiffness=1, quartic=0)
         if owner == "constructs"
-        else hill(
-            state(entity["cause"]["id"]),
-            emax=2,
-            ec50=1,
-            n=2,
-        ),
+        else hill(state(entity["cause"]["id"]), emax=2, ec50=1, n=2),
     ).model_dump(mode="json")
     entity[field] = [mechanism]
     _commit(workspace, "model", payload)
@@ -607,13 +614,8 @@ def test_rename_changes_only_construct_label():
     assert original.indicators == renamed.indicators
     assert original.edges[0].id == renamed.edges[0].id
     assert original.edges[0].effect == renamed.edges[0].effect
-    assert (
-        type(original.edges[0].cause).model_validate(
-            {**original.edges[0].cause.model_dump(), "name": "Renamed"}
-        )
-        == renamed.edges[0].cause
-    )
-    assert original.state_order == renamed.state_order
+    assert original.edges[0].cause.revised(name="Renamed") == renamed.edges[0].cause
+    assert selected_state_ids(original) == selected_state_ids(renamed)
 
 
 def _identification():
@@ -687,11 +689,11 @@ def test_identification_round_trip_preserves_tagged_evidence():
     report = IdentificationReport.model_validate(payload)
     restored = IdentificationReport.model_validate_json(report.model_dump_json())
     assert restored == report
-    assert restored.estimable_treatments == ["construct:x"]
+    assert restored.estimable_treatments == ("construct:x",)
     identified = restored.treatments[ConstructId("construct:x")]
     assert identified.status == "identified"
     assert identified.estimand == "P(Y | do(X))"
-    assert restored.non_identifiable[ConstructId("construct:y")].confounders == ["construct:x"]
+    assert restored.non_identifiable[ConstructId("construct:y")].confounders == ("construct:x",)
     assert restored.non_identifiable[ConstructId("construct:y")].notes == "Blocking confounding"
 
     payload["treatments"]["construct:y"]["estimand"] = "Contradictory positive evidence"

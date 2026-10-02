@@ -3,12 +3,17 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+from types import MappingProxyType
+from typing import TYPE_CHECKING
 
 import jax
 
 from nof1_causal_lab.models.ssm.execution.observation_extra_params import (
     PER_CHANNEL_OBSERVATION_EXTRA_PARAM_KEYS,
 )
+
+if TYPE_CHECKING:
+    from collections.abc import Mapping
 
 
 @jax.tree_util.register_dataclass
@@ -48,12 +53,16 @@ class PredictiveDraws:
     or resimulation boundaries.
     """
 
-    parameters: dict[str, jax.Array]
-    likelihood_parameters: dict[str, jax.Array]
+    parameters: Mapping[str, jax.Array]
+    likelihood_parameters: Mapping[str, jax.Array]
     trajectory: PredictiveTrajectory
     reference: PredictiveTrajectory | None = None
 
     def __post_init__(self) -> None:
+        object.__setattr__(self, "parameters", MappingProxyType(dict(self.parameters)))
+        object.__setattr__(
+            self, "likelihood_parameters", MappingProxyType(dict(self.likelihood_parameters))
+        )
         for name, values in (*self.parameters.items(), *self.likelihood_parameters.items()):
             if values.ndim < 1 or values.shape[0] != self.n_draws:
                 raise ValueError(f"{name} must share the predictive draw axis")

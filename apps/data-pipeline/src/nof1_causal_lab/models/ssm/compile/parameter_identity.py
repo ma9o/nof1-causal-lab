@@ -4,13 +4,16 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from nof1_causal_lab.artifacts.expressions import COEFFICIENT_MEANINGS
 from nof1_causal_lab.artifacts.identity import (
     scientific_id,
 )
+from nof1_causal_lab.artifacts.likelihood import OBSERVATION_FAMILY_SPECS
 from nof1_causal_lab.artifacts.parameter import (
     SiteKind,
 )
-from nof1_causal_lab.models.ssm import numerics as numeric
+from nof1_causal_lab.distributions import DistributionFamily
+from nof1_causal_lab.models.ssm.compile import support as numeric
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.identity import ParameterElementId
@@ -20,12 +23,10 @@ if TYPE_CHECKING:
 
 
 SHARED_OBSERVATION_FAMILIES = {
-    SiteKind.OBS_DF: "student_t",
-    SiteKind.OBS_SHAPE: "gamma",
-    SiteKind.OBS_R: "negative_binomial",
-    SiteKind.OBS_CONCENTRATION: "beta",
-    SiteKind.OBS_CAT_INTERCEPTS: "categorical",
-    SiteKind.OBS_CAT_SLOPES: "categorical",
+    COEFFICIENT_MEANINGS[role].quantity: law.family.value
+    for law in OBSERVATION_FAMILY_SPECS
+    if law.family != DistributionFamily.ORDERED_LOGISTIC
+    for role in law.parameter_roles
 }
 
 
@@ -49,7 +50,7 @@ def component_identity(
         SiteKind.OBS_CAT_INTERCEPTS,
         SiteKind.OBS_CAT_SLOPES,
     }:
-        indicators = {item.name: item for item in spec._indicators.values()}
+        indicators = {item.name: item for item in spec.indicators}
         indicator = indicators[numeric.observation_names(spec)[indices[0]]]
         levels = (
             indicator.ordinal_levels
@@ -81,7 +82,7 @@ def component_identity(
     }:
         # A Cholesky entry is conditional on the preceding ordered basis. Reordering
         # that basis changes the quantity even if the endpoint labels survive.
-        constructs = {item.name: item.id for item in spec._constructs.values()}
+        constructs = {item.name: item.id for item in spec.constructs}
         position = site.positions[binding.flat_index]
         row = position[0] if isinstance(position, tuple) else position
         basis = [constructs[name] for name in numeric.state_names(spec)[: row + 1]]

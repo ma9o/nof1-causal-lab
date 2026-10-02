@@ -7,6 +7,7 @@ reconstruction with deterministic standardized variates.
 import functools
 from pathlib import Path
 
+import dynestyx as dsx
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -24,11 +25,18 @@ from nof1_causal_lab.models.ssm.autoreparam import (
     _loc_scale_reparam,
     _minimal_reparam,
 )
+from nof1_causal_lab.models.ssm.dynamics.vector_field import StructuralDrift
 from nof1_causal_lab.models.ssm.inference.problem import build_particle_problem
+from nof1_causal_lab.models.ssm.inference.types import ProductionDiagnostics
 from nof1_causal_lab.models.ssm.inference.utils import _DummyLikelihoodBackend
-from nof1_causal_lab.models.ssm.model import SSMModel
+from nof1_causal_lab.models.ssm.model import numpyro_model
 from nof1_causal_lab.models.ssm.transition_kinds import LATENT_TRANSITION_EULER_MARUYAMA
-from tests.model_fixtures import MinimalReparam, compile_fit_fixture
+from tests.model_fixtures import (
+    MinimalReparam,
+    bind_panel_fixture,
+    compile_fit_fixture,
+    compile_model_fixture,
+)
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -395,19 +403,17 @@ class TestAutoReparamSSM:
 
     def test_ssm_site_classification(self):
         """Verify which SSM sites get reparameterized and which don't."""
-        model = SSMModel(
-            compile_fit_fixture(
-                ModelSpec.model_validate_json(
-                    (
-                        Path(__file__).resolve().parents[2]
-                        / "fixtures/models/common/two_state_gaussian_model.json"
-                    ).read_text()
-                )
+        model = compile_fit_fixture(
+            ModelSpec.model_validate_json(
+                (
+                    Path(__file__).resolve().parents[2]
+                    / "fixtures/models/common/two_state_gaussian_model.json"
+                ).read_text()
             )
         )
         strategy = AutoReparam(centered=0.0)
 
-        model_fn = functools.partial(model.model, likelihood_backend=_DummyLikelihoodBackend())
+        model_fn = functools.partial(numpyro_model, likelihood_backend=_DummyLikelihoodBackend())
         reparam_model = handlers.reparam(model_fn, config=strategy)
 
         T = 2
@@ -415,7 +421,10 @@ class TestAutoReparamSSM:
         times = jnp.linspace(0, 1, T)
 
         with handlers.seed(rng_seed=42):
-            trace = handlers.trace(reparam_model).get_trace(observations, times)
+            trace = handlers.trace(reparam_model).get_trace(
+                bind_panel_fixture(model.compiled, observations, times),
+                priors=model.prior_runtime_bundle,
+            )
 
         # Normal sites (loc-scale, real support) → LocScaleReparam
         for site in ["vf_2_p0", "t0_means_free"]:
@@ -441,7 +450,7 @@ class TestAutoReparamSSM:
     def test_extract_constrained_samples_filters_auxiliary_sites(self):
         """Report original parameters, excluding reparam auxiliaries and assembled matrices."""
         from nof1_causal_lab.actions.inference.subjects import (
-            reference_posterior_findings,
+            parameter_references,
         )
         from nof1_causal_lab.models.ssm.inference.types import (
             JointPosteriorDraws,
@@ -453,20 +462,21 @@ class TestAutoReparamSSM:
         )
         from nof1_causal_lab.models.ssm.parameterization import build_site_registry
 
-        model = SSMModel(
-            compile_fit_fixture(
-                ModelSpec.model_validate_json(
-                    (
-                        Path(__file__).resolve().parents[2]
-                        / "fixtures/models/common/two_state_gaussian_model.json"
-                    ).read_text()
-                )
+        model = compile_fit_fixture(
+            ModelSpec.model_validate_json(
+                (
+                    Path(__file__).resolve().parents[2]
+                    / "fixtures/models/common/two_state_gaussian_model.json"
+                ).read_text()
             )
         )
         observations = jnp.zeros((5, 2))
         times = jnp.linspace(0, 1, 5)
         parameters, _, public_sites = prepare_model_parameters(
-            model, observations, times, jax.random.PRNGKey(0), AutoReparam(centered=0.0)
+            model.prior_runtime_bundle,
+            bind_panel_fixture(model.compiled, observations, times),
+            jax.random.PRNGKey(0),
+            AutoReparam(centered=0.0),
         )
         particles = jnp.stack([parameters.initial_position, parameters.initial_position + 0.05])
         samples = extract_constrained_samples(particles, parameters, public_sites)
@@ -476,21 +486,37 @@ class TestAutoReparamSSM:
         assert all("_decentered" not in name for name in samples)
         assert samples["vf_0_p0"].shape[0] == 2
         assert samples["diffusion_diag_free"].shape[0] == 2
-        assert set(samples) == {site.name for site in build_site_registry(model.spec)}
-        posterior = ParticleMCMCPosterior(draws=JointPosteriorDraws(parameters=samples))
-        marginals, pairs = reference_posterior_findings(
-            compile_fit_fixture(model.spec),
-            posterior.get_posterior_marginals(),
-            posterior.get_posterior_pairs(),
+        assert set(samples) == {site.name for site in build_site_registry(model.compiled)}
+        from nof1_causal_lab.models.ssm.inference.mcmc_state import TrajectoryMCMCResult
+
+        posterior = ParticleMCMCPosterior(
+            draws=JointPosteriorDraws(parameters=samples),
+            diagnostics=ProductionDiagnostics(
+                mcmc=TrajectoryMCMCResult(
+                    chain_samples={k: v[None] for k, v in samples.items()},
+                    chain_extra_fields={},
+                    num_chains=1,
+                    num_samples=2,
+                ),
+                observation_log_probs=jnp.zeros((1, 2, 0)),
+            ),
+        )
+        references = parameter_references(model)
+        marginals, pairs = (
+            posterior.get_posterior_marginals(references),
+            posterior.get_posterior_pairs(references),
         )
         assert marginals
         assert pairs
-        assert all("subject" in row for row in marginals)
-        assert all("subject_x" in row and "subject_y" in row for row in pairs)
+        assert all(
+            row.subject.parameter_id
+            in {binding.parameter_id for binding in model.compiled.bindings}
+            for row in marginals
+        )
+        assert all(row.subject_x is not None and row.subject_y is not None for row in pairs)
 
     def test_particle_runtime_reconstructs_log_normal_hill_sites(self):
         """Nested TransformReparam + LocScaleReparam restores the public Hill site."""
-        from nof1_causal_lab.models.ssm.model import SSMModel
 
         spec = ModelSpec.model_validate_json(
             (
@@ -499,14 +525,13 @@ class TestAutoReparamSSM:
                 / "autoreparam/testautoreparamssm_test_particle_runtime_reconstructs_log_normal_hill_sites_with_parameter_distributions.json"
             ).read_text()
         )
-        model = SSMModel(compile_fit_fixture(spec))
+        model = compile_fit_fixture(spec)
         observations = jnp.zeros((3, 2))
         times = jnp.arange(3, dtype=jnp.float32)
 
         bundle = build_particle_problem(
-            model,
-            observations,
-            times,
+            model.prior_runtime_bundle,
+            bind_panel_fixture(model.compiled, observations, times),
             scheme=LATENT_TRANSITION_EULER_MARUYAMA,
             trace_key=jax.random.PRNGKey(0),
             reparam=AutoReparam(centered=0.0),
@@ -514,9 +539,11 @@ class TestAutoReparamSSM:
         context = bundle.runtime.context(bundle.runtime.initial_position, times)
 
         assert "vf_2_p0_base_decentered" in bundle.site_info
-        from nof1_causal_lab.models.ssm import numerics as numeric
 
-        hill = numeric.dynamics_components(spec).components[2]
-        params = context[0].state_evolution.drift.args.params[2]
+        hill = compile_model_fixture(spec).dynamics.spec.components[2]
+        evolution = context[0].state_evolution
+        assert isinstance(evolution, dsx.StochasticContinuousTimeStateEvolution)
+        assert isinstance(evolution.drift, StructuralDrift)
+        params = evolution.drift.args.params[2]
         assert set(params) == dict(hill.parameter_sites("vf_2")).keys()
         assert bool(jnp.all(jnp.isfinite(jnp.stack(tuple(params.values())))))

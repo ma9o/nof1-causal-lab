@@ -10,18 +10,23 @@ import jax.numpy as jnp
 import jax.random as random
 import numpy as np
 
-from nof1_causal_lab.artifacts.checks import PredictiveCheckFinding
+from nof1_causal_lab.artifacts.checks import (
+    NotEvaluated,
+    PredictiveAssessment,
+    PredictiveSubject,
+)
 from nof1_causal_lab.artifacts.expressions import hill_applications
-from nof1_causal_lab.artifacts.simulation import SimulationSpec
+from nof1_causal_lab.artifacts.identity import ConstructRef, EdgeRef, IndicatorRef
 from nof1_causal_lab.models.posterior_predictive import measure_predictive_checks
 from nof1_causal_lab.models.ssm import numerics as numeric
+from nof1_causal_lab.models.ssm.counterfactual.orchestration import ResolvedIntervention
 from nof1_causal_lab.models.ssm.predictive.parameters import sample_model_laws
 from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
     predictive_keys,
     simulate_latent_histories,
     simulate_predictive_draws,
 )
-from nof1_causal_lab.models.ssm.runtime import replay_input_events
+from nof1_causal_lab.models.ssm.runtime import BoundPanel
 from nof1_causal_lab.models.ssm.simulation_checks import (
     ConstructSimulationTarget,
     DesignInfo,
@@ -29,12 +34,11 @@ from nof1_causal_lab.models.ssm.simulation_checks import (
 )
 
 if TYPE_CHECKING:
-    from datetime import datetime
+    from collections.abc import Callable
 
-    import polars as pl
-
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorPredictiveChecks
+    from nof1_causal_lab.artifacts.simulation import SimulationSpec
+    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
     from nof1_causal_lab.models.ssm.predictive.types import PredictiveDraws
 
 
@@ -52,57 +56,79 @@ class SimulationBatch:
     measurement_design: DesignInfo
 
 
-def _time_grid(model: ModelSpec, design: SimulationSpec, start: float) -> np.ndarray:
-    times = set(
-        np.linspace(
-            start, design.end, max(1, ceil((design.end - start) / model.model_clock_days)) + 1
+def _time_grid(model: CompiledModel, design: SimulationSpec, start: float) -> np.ndarray:
+    times = {
+        float(value)
+        for value in np.linspace(
+            start, design.end, max(1, ceil((design.end - start) / model.clock_days)) + 1
         )
-    )
+    }
     times.update(event.time for event in design.interventions)
     return np.asarray(sorted(times))
 
 
 def generate_simulation_batch(
-    model: ModelSpec,
+    source: CompiledModel | BoundPanel,
     design: SimulationSpec,
     *,
-    comparison_data: pl.DataFrame | None = None,
-    input_data: pl.DataFrame | None = None,
+    input_events: tuple[ResolvedIntervention, ...] = (),
     times: np.ndarray | jnp.ndarray | None = None,
     draws: int = SIMULATION_DRAWS,
     seed: int = SIMULATION_SEED,
-    time_origin: datetime | None,
 ) -> SimulationBatch:
     """Sample current laws once and always generate nonlinear stochastic paths and emissions.
 
     Internal check callers may supply a prepared observation grid and execution budget.
     Dated requests derive their grid from the model clock and intervention boundaries.
     """
-    model.check_execution()
+    if isinstance(source, BoundPanel):
+        model = source.model
+        times = source.times
+        observations = source.values
+        support = source.observation_support
+        input_events = source.input_events
+    else:
+        model = source
+        observations = None
+        support = None
     indicator_ids = tuple(numeric.observation_ids(model))
     state_ids = tuple(numeric.state_ids(model))
     laws = sample_model_laws(model, draws=draws, key=predictive_keys(seed).parameters)
-    current_time = model.time_points[-1] if laws.latent_paths is not None else 0.0
+    time_points: tuple[float, ...] = next(
+        (law.layout.time_points for law in model.laws if law.layout.constructs), ()
+    )
+    current_time = next(reversed(time_points)) if laws.latent_paths is not None else 0.0
     start = current_time if design.start is None else design.start
     # Resolve the omitted start before applying the same window validation.
-    SimulationSpec.model_validate({**design.model_dump(), "start": start})
+    design = design.starting_at(start)
     grid = _time_grid(model, design, start) if times is None else np.asarray(times)
     if len(grid) < 2 or grid[0] != start or grid[-1] != design.end or np.any(np.diff(grid) <= 0):
         raise ValueError("The prepared simulation grid must increase from start through end")
-    panel = comparison_data if input_data is None else input_data
-    input_events = replay_input_events(
-        model, panel, time_origin=time_origin, start=start, end=design.end
+    grid = np.asarray(
+        sorted(
+            {
+                *grid,
+                *(
+                    event.spec.time
+                    for event in input_events
+                    if start < event.spec.time < design.end
+                ),
+            }
+        )
     )
-    grid = np.asarray(sorted({*grid, *(event.spec.time for event in input_events)}))
     initial = None
     if laws.latent_paths is None:
         if start < 0:
             raise ValueError("Simulation cannot start before the initial law at model day zero")
         if start > 0:
-            history_events = replay_input_events(
-                model, panel, time_origin=time_origin, start=0.0, end=start
+            history_events = tuple(event for event in input_events if event.spec.time <= start)
+            history_grid = sorted(
+                {
+                    0.0,
+                    start,
+                    *(event.spec.time for event in history_events if 0 < event.spec.time < start),
+                }
             )
-            history_grid = sorted({0.0, start, *(event.spec.time for event in history_events)})
             history, _, _ = simulate_latent_histories(
                 model,
                 laws.parameters,
@@ -114,21 +140,29 @@ def generate_simulation_batch(
             )
             initial = history[:, -1, :]
     if laws.latent_paths is not None:
-        index = int(np.searchsorted(model.time_points, start, side="right")) - 1
+        index = int(np.searchsorted(time_points, start, side="right")) - 1
         if index < 0:
             raise ValueError("Simulation cannot start before the model's first retained state")
         initial = jnp.zeros((draws, len(state_ids)), dtype=laws.latent_paths.dtype)
         initial = initial.at[
             :, jnp.asarray([state_ids.index(identity) for identity in laws.state_ids])
         ].set(laws.latent_paths[:, index, :])
-        anchor = model.time_points[index]
+        anchor = time_points[index]
         if anchor < start:
             # Advance a jointly drawn state to an unrepresented start time; never interpolate
             # retained paths or condition on a second independently sampled state.
-            history_events = replay_input_events(
-                model, panel, time_origin=time_origin, start=anchor, end=start
+            history_events = tuple(event for event in input_events if event.spec.time <= start)
+            history_grid = sorted(
+                {
+                    anchor,
+                    start,
+                    *(
+                        event.spec.time
+                        for event in history_events
+                        if anchor < event.spec.time < start
+                    ),
+                }
             )
-            history_grid = sorted({anchor, start, *(event.spec.time for event in history_events)})
             history, _, _ = simulate_latent_histories(
                 model,
                 laws.parameters,
@@ -139,12 +173,10 @@ def generate_simulation_batch(
                 history_events,
             )
             initial = history[:, -1, :]
-    from nof1_causal_lab.models.ssm.counterfactual.orchestration import ResolvedIntervention
-    from nof1_causal_lab.models.ssm.observation_support import prepare_simulation_observations
+    from nof1_causal_lab.models.ssm.observation_support import simulation_observation_support
 
-    observations, support = prepare_simulation_observations(
-        model, grid, comparison_data=comparison_data, time_origin=time_origin
-    )
+    if support is None:
+        support = simulation_observation_support(model, grid)
     interventions = []
     for event in design.interventions:
         if event.target not in state_ids:
@@ -192,12 +224,13 @@ def generate_simulation_batch(
 
 
 def measure_simulation_batch(
-    model: ModelSpec,
+    model: CompiledModel,
     batch: SimulationBatch,
     *,
     groups: tuple[str, ...] = ("dynamics", "measurement"),
     edge_contrasts: bool = False,
-) -> tuple[tuple[PredictiveCheckFinding, ...], PosteriorPredictiveChecks | None]:
+    clock: Callable[[], float],
+) -> tuple[tuple[PredictiveAssessment, ...], PosteriorPredictiveChecks | None]:
     """All selected reducers consume the same generated paths."""
     prediction = batch.prediction
     observations = batch.observations
@@ -205,16 +238,20 @@ def measure_simulation_batch(
     indicator_ids = tuple(numeric.observation_ids(model))
     state_ids = tuple(numeric.state_ids(model))
     targets = {
-        **{construct.name: construct.id for construct in model.constructs},
-        **{indicator.id: indicator.id for indicator in model.indicators},
-        **{f"{edge.cause.name}->{edge.effect.name}": edge.id for edge in model.edges},
+        **{state.name: ConstructRef(id=state.id) for state in model.states},
+        **{observation.id: IndicatorRef(id=observation.id) for observation in model.observations},
+        **{
+            f"{model.states[source].name}->{state.name}": EdgeRef(id=identity)
+            for state in model.states
+            for source, identity in state.incoming_edges
+        },
     }
-    findings = []
-    components = numeric.dynamics_expressions(model) if "dynamics" in groups else ()
+    findings: list[PredictiveAssessment] = []
+    components = model.dynamics.spec.components if "dynamics" in groups else ()
     for state_index, identity in enumerate(
         state_ids if set(groups) & {"dynamics", "measurement"} else ()
     ):
-        if model.get_construct(identity).role == "exogenous":
+        if model.states[state_index].is_input:
             continue
         incoming = [
             component
@@ -229,11 +266,9 @@ def measure_simulation_batch(
             for source in component.sources
         }
         target = ConstructSimulationTarget(
-            construct=model.get_construct(identity),
-            edge_parents=tuple(model.get_construct(state_ids[source]).name for source in parents),
-            hill_parents=tuple(
-                model.get_construct(state_ids[source]).name for source in sorted(hills)
-            ),
+            construct=model.states[state_index],
+            edge_parents=tuple(model.states[source].name for source in parents),
+            hill_parents=tuple(model.states[source].name for source in sorted(hills)),
         )
         measured, _ = measure_construct_simulation(
             model,
@@ -243,12 +278,13 @@ def measure_simulation_batch(
             dynamics="dynamics" in groups,
             measurement="measurement" in groups,
             edge_contrasts=edge_contrasts,
+            clock=clock,
         )
         findings.extend(result.finding(identity, targets[result.target]) for result in measured)
     modeled_columns = [
         index
         for index, identity in enumerate(indicator_ids)
-        if model.indicator_owner(identity).role == "endogenous"
+        if not model.states[model.observations[index].state_index].is_input
     ]
     nonfinite = bool(
         np.any(
@@ -267,14 +303,10 @@ def measure_simulation_batch(
     )
     if "data_comparison" in groups and checks is None:
         findings.append(
-            PredictiveCheckFinding(
-                check="data_comparison",
-                target="observations",
-                value="not_evaluated",
-                band="Comparison observations and sampled emission noise",
-                passed=None,
+            NotEvaluated(
+                subject=PredictiveSubject(check="data_comparison", target="observations"),
                 reason="NONFINITE_PATHS" if nonfinite else "COMPARISON_INPUTS_MISSING",
-                note="Predictive observations contain non-finite values."
+                detail="Predictive observations contain non-finite values."
                 if nonfinite
                 else "Observed data are required to assess predictive calibration.",
             )

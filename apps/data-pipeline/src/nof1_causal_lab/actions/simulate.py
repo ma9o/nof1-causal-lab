@@ -2,12 +2,12 @@
 
 from __future__ import annotations
 
+import time
 from typing import TYPE_CHECKING
 
 import numpy as np
 
 from nof1_causal_lab.actions.simulation_summaries import summarize_simulation
-from nof1_causal_lab.artifacts.observations import ObservationSpec
 from nof1_causal_lab.artifacts.simulation import SimulationObservationLayout, SimulationReport
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.predictive.simulation import (
@@ -37,21 +37,39 @@ def simulate(
     input_data: pl.DataFrame | None = None,
 ) -> SimulationReport:
     """Generate current model histories; data_diff compares the saved observations separately."""
-    batch = generate_simulation_batch(model, design, time_origin=time_origin, input_data=input_data)
-    findings, _ = measure_simulation_batch(model, batch)
+    from nof1_causal_lab.models.ssm.compile.inputs import compile_executable_model
+
+    compiled = compile_executable_model(model)
+    from nof1_causal_lab.models.ssm.runtime import replay_input_events
+
+    retained_times = next(
+        (law.layout.time_points for law in compiled.laws if law.layout.constructs), ()
+    )
+    start = (
+        (retained_times[-1] if retained_times else 0.0) if design.start is None else design.start
+    )
+    history_start = (
+        retained_times[int(np.searchsorted(retained_times, start, side="right")) - 1]
+        if retained_times and start >= retained_times[0]
+        else 0.0
+    )
+    input_events = replay_input_events(
+        compiled,
+        input_data,
+        time_origin=time_origin,
+        start=history_start,
+        end=design.end,
+    )
+    batch = generate_simulation_batch(compiled, design, input_events=input_events)
+    findings, _ = measure_simulation_batch(compiled, batch, clock=time.monotonic)
     support = batch.measurement_design.observation_support
     if support is None:
         raise ValueError("Simulation must retain its observation support")
     prediction = batch.prediction
-    state_ids = tuple(numeric.state_ids(model))
-    indicator_ids = tuple(numeric.observation_ids(model))
+    state_ids = tuple(numeric.state_ids(compiled))
+    indicator_ids = tuple(numeric.observation_ids(compiled))
     variables = tuple(
-        ObservationSpec.model_validate(
-            {
-                **model.indicator(identity).model_dump(include=set(ObservationSpec.model_fields)),
-                "observation_window": support.observation_windows[index],
-            }
-        )
+        model.indicator(identity).resolved(support.observation_windows[index])
         for index, identity in enumerate(indicator_ids)
     )
     return SimulationReport(

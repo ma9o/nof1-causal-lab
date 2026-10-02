@@ -11,6 +11,7 @@ from pydantic import TypeAdapter
 
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.posterior import InferenceReport
+from nof1_causal_lab.artifacts.posterior_diagnostics import ParticleMCMCEvidence
 from nof1_causal_lab.utils.arrays import decode_array, encode_array
 
 if TYPE_CHECKING:
@@ -23,7 +24,7 @@ if TYPE_CHECKING:
     from nof1_causal_lab.actions.fit import FitResult
     from nof1_causal_lab.json_types import JsonObject, JsonValue
     from nof1_causal_lab.numpyro_json import ArrayLoader
-    from nof1_causal_lab.sampler_config import SamplerConfig
+    from nof1_causal_lab.sampler_config import SamplerSpec
 
 
 @dataclass(frozen=True)
@@ -34,7 +35,7 @@ class FitComputeInput:
     panel_parquet: bytes
     time_origin: datetime | None
     arrays: dict[str, bytes]
-    sampler_config: SamplerConfig
+    sampler: SamplerSpec
     compute_loo_diagnostics: bool
 
 
@@ -63,7 +64,6 @@ def execute_fit_compute(payload: FitComputeInput) -> FitComputeResult:
     import polars as pl
 
     from nof1_causal_lab.actions.fit import fit
-    from nof1_causal_lab.sampler_config import validate_sampler_config
 
     arrays = {identity: decode_array(identity, data) for identity, data in payload.arrays.items()}
     written: dict[str, bytes] = {}
@@ -81,20 +81,18 @@ def execute_fit_compute(payload: FitComputeInput) -> FitComputeResult:
         model_spec=model,
         data_for_model=pl.read_parquet(io.BytesIO(payload.panel_parquet)),
         time_origin=payload.time_origin,
-        sampler_config=validate_sampler_config(payload.sampler_config),
+        sampler=payload.sampler,
         array_writer=write_array,
         array_loader=arrays.__getitem__,
         compute_loo_diagnostics=payload.compute_loo_diagnostics,
     )
     conditioned = result["_model"]
     evidence = result["engine_evidence"]
-    report = InferenceReport.model_validate(
-        {key: value for key, value in result.items() if key not in {"_model", "engine_evidence"}}
-    )
+    report = result["report"]
     return FitComputeResult(
         model_json=conditioned.model_dump_json(),
         report_json=report.model_dump_json(),
-        engine_evidence=evidence,
+        engine_evidence=evidence.model_dump(mode="json"),
         arrays=written,
     )
 
@@ -148,7 +146,7 @@ def fit_on_modal(
     model_spec: ModelSpec,
     data_for_model: pl.DataFrame,
     time_origin: datetime | None,
-    sampler_config: SamplerConfig,
+    sampler: SamplerSpec,
     array_writer: Callable[[np.ndarray], str],
     array_loader: ArrayLoader,
     compute_loo_diagnostics: bool,
@@ -168,7 +166,7 @@ def fit_on_modal(
             panel_parquet=panel.getvalue(),
             time_origin=time_origin,
             arrays=inputs,
-            sampler_config=sampler_config,
+            sampler=sampler,
             compute_loo_diagnostics=compute_loo_diagnostics,
         )
     )
@@ -186,7 +184,7 @@ def fit_on_modal(
         result.model_json, context={"distribution_array_loader": array_loader}
     )
     return {
-        **report.model_dump(mode="json"),
+        "report": report,
         "_model": conditioned,
-        "engine_evidence": result.engine_evidence,
+        "engine_evidence": ParticleMCMCEvidence.model_validate(result.engine_evidence),
     }

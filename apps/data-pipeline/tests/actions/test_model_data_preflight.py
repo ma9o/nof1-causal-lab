@@ -1,5 +1,6 @@
 """Model-panel limitations are findings on edits and preflight errors on fits."""
 
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -9,13 +10,16 @@ import pytest
 from nof1_causal_lab.actions.checks import check_model_data, check_specification
 from nof1_causal_lab.actions.contracts import EditModelRequest
 from nof1_causal_lab.actions.data_checks import evaluate_data_checks
-from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.actions.messages import completion_messages
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.validation_report import ValidationReportArtifact
 from nof1_causal_lab.models.ssm.inference import fit
 from nof1_causal_lab.models.ssm.preflight import ObservationPreflightError
-from nof1_causal_lab.models.ssm.runtime import prepare_model_runtime
+from nof1_causal_lab.models.ssm.runtime import bind_panel
+from nof1_causal_lab.sampler_config import (
+    SamplerSpec,
+)
+from nof1_causal_lab.study.records import DataPreparationResult
 from nof1_causal_lab.study.state import StudyState
 from nof1_causal_lab.study.store import ArtifactStore
 from tests.action_fixtures import edit_and_check
@@ -29,14 +33,15 @@ pytestmark = pytest.mark.contract
 
 
 def test_specification_reports_each_distinct_fit_law_reason_once(monkeypatch):
+    from nof1_causal_lab.models.ssm.compile import inputs as compilation
     from nof1_causal_lab.models.ssm.compile import prior_compilation
 
-    def unsupported(_model):
+    def unsupported(_compiled, _model):
         raise prior_compilation.PriorCompilationError(
             ["Unsupported joint law.", "Unsupported joint law.", "Invalid scale."]
         )
 
-    monkeypatch.setattr(prior_compilation, "compile_priors", unsupported)
+    monkeypatch.setattr(compilation, "compile_priors", unsupported)
     report = check_specification(
         ModelSpec.model_validate_json(
             (
@@ -46,10 +51,11 @@ def test_specification_reports_each_distinct_fit_law_reason_once(monkeypatch):
             ).read_text()
         )
     )
-    finding = next(finding for finding in report.findings if finding.check == "fit_laws")
-    assert finding.status == "failed"
-    assert finding.message.count("Unsupported joint law.") == 1
-    assert finding.message.count("Invalid scale.") == 1
+    finding = next(finding for finding in report.findings if finding.subject == "fit_laws")
+    assert finding.kind == "evaluated"
+    assert finding.outcome == "failed"
+    assert finding.evidence.count("Unsupported joint law.") == 1
+    assert finding.evidence.count("Invalid scale.") == 1
 
 
 def test_interval_summary_fails_shared_preflight_before_particle_dispatch():
@@ -65,15 +71,24 @@ def test_interval_summary_fails_shared_preflight_before_particle_dispatch():
     )
     report = check_model_data(model, panel, time_origin=panel_metadata().time_origin)
     finding = report.findings[0]
-    assert finding.check == "fit_preflight"
-    assert finding.status == "failed"
-    assert "interval summaries" in finding.message
-    assert "stress_score" in finding.message
-    runtime = prepare_model_runtime(
-        panel, inputs=compile_fit_fixture(model), time_origin=panel_metadata().time_origin
+    assert finding.subject == "fit_preflight"
+    assert finding.kind == "evaluated"
+    assert finding.outcome == "failed"
+    assert "interval summaries" in finding.evidence
+    assert "stress_score" in finding.evidence
+    runtime = bind_panel(
+        panel, model=compile_fit_fixture(model).compiled, time_origin=panel_metadata().time_origin
     )
+    from nof1_causal_lab.models.ssm.runtime import BoundPanel
+
+    assert isinstance(runtime, BoundPanel)
     with pytest.raises(ObservationPreflightError, match="interval summaries"):
-        fit(runtime.model, runtime.observations, runtime.times)
+        fit(
+            compile_fit_fixture(model).prior_runtime_bundle,
+            runtime,
+            sampler=SamplerSpec(),
+            clock=time.monotonic,
+        )
 
 
 def test_edit_with_missing_panel_variable_saves_compatibility_findings(tmp_path, monkeypatch):
@@ -82,14 +97,9 @@ def test_edit_with_missing_panel_variable_saves_compatibility_findings(tmp_path,
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path))
     store = ArtifactStore("TEST")
     full = panel_metadata()
-    metadata = type(full).model_validate(
-        {
-            **full.model_dump(),
-            "variables": full.variables[:1],
-            "preparation": type(full.preparation).model_validate(
-                {**full.preparation.model_dump(), "variables": full.preparation.variables[:1]}
-            ),
-        }
+    metadata = full.revised(
+        variables=full.variables[:1],
+        preparation=full.preparation.revised(variables=full.preparation.variables[:1]),
     )
     panel = panel_frame(n_days=4).filter(pl.col("indicator_id") == metadata.variables[0].id)
     record = store.write_artifact(
@@ -99,7 +109,7 @@ def test_edit_with_missing_panel_variable_saves_compatibility_findings(tmp_path,
         json_files={"metadata.json": metadata.model_dump(mode="json")},
         parquet_files={"panel.parquet": panel},
     )
-    prepared = evaluate_data_checks("TEST", StudyState(), ActionEffects(produced=[record]))
+    prepared = evaluate_data_checks("TEST", StudyState(), DataPreparationResult(produced=[record]))
     state = StudyState().with_artifacts(prepared.produced)
     edited = edit_and_check(
         "TEST",
@@ -121,17 +131,15 @@ def test_edit_with_missing_panel_variable_saves_compatibility_findings(tmp_path,
         store.read_json_file("validation_report", validation.revision, "validation_report.json")
     )
     finding = report.preflight.findings[0]
-    assert finding.check == "fit_preflight"
-    assert finding.status == "failed"
-    assert "missing model indicators" in finding.message
-    assert "sleep_score" in finding.message
+    assert finding.subject == "fit_preflight"
+    assert finding.kind == "evaluated"
+    assert finding.outcome == "failed"
+    assert "missing model indicators" in finding.evidence
+    assert "sleep_score" in finding.evidence
     assert edited.checks.predictive.reason == "NO_COMPATIBLE_PANEL"
     messages = completion_messages(
-        "TEST",
-        "edit_model",
-        edited.produced,
-        edited.diagnostics,
+        edited,
         datetime.now(UTC),
-        checks=edited.checks,
+        store.completion_reports(edited.produced),
     )
     assert "MODEL_DATA_INCOMPATIBLE" in {message.label for message in messages}

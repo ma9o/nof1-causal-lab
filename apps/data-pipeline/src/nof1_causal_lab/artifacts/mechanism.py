@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
-from typing import Literal
+from typing import Annotated, Literal, Self
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import ConfigDict, Field, model_validator
+
+from nof1_causal_lab.artifacts.base import Value
 
 from .expressions import (
     CallExpression,
@@ -15,20 +17,19 @@ from .expressions import (
 from .identity import MechanismId
 
 
-class DynamicsMechanismSpec(BaseModel):
+class _MechanismSpec(Value):
     """A symbolic specification of an additive drift term or a node potential.
 
     A node potential contributes its negative gradient to the drift.
     """
 
-    model_config = ConfigDict(extra="forbid", frozen=True, revalidate_instances="always")
+    model_config = ConfigDict(revalidate_instances="always")
 
     id: MechanismId
-    kind: Literal["drift", "potential"] = "drift"
     expression: Expression
 
     @model_validator(mode="after")
-    def validate_drift_operands(self) -> DynamicsMechanismSpec:
+    def validate_drift_operands(self) -> Self:
         for node in walk_expression(self.expression):
             if isinstance(node, CoefficientExpression):
                 if node.role not in {
@@ -52,3 +53,20 @@ class DynamicsMechanismSpec(BaseModel):
             }:
                 raise ValueError(f"{node.function} requires an observation category context")
         return self
+
+
+class DriftMechanismSpec(_MechanismSpec):
+    """An additive drift contribution on a construct or directed edge."""
+
+    kind: Literal["drift"] = "drift"
+
+
+class PotentialMechanismSpec(_MechanismSpec):
+    """A construct potential whose negative gradient contributes to its drift."""
+
+    kind: Literal["potential"] = "potential"
+
+
+type DynamicsMechanismSpec = Annotated[
+    DriftMechanismSpec | PotentialMechanismSpec, Field(discriminator="kind")
+]

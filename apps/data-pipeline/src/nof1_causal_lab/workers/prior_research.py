@@ -70,6 +70,6 @@ async def search_parameter_literature(
             )
         return sources
 
-    except (httpx.HTTPError, ValueError) as exc:
+    except httpx.HTTPError as exc:
         logger.warning("Exa search failed; continuing without search results: %s", exc)
         return []
