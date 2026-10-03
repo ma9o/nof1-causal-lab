@@ -33,7 +33,10 @@ if TYPE_CHECKING:
 
     from nof1_causal_lab.artifacts.construct import ConstructSpec
     from nof1_causal_lab.artifacts.identity import IndicatorId
-    from nof1_causal_lab.artifacts.observations import ObservationSpec
+    from nof1_causal_lab.artifacts.observations import (
+        AuthoredObservationSpec,
+        ResolvedObservationSpec,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -91,9 +94,9 @@ class IndicatorRuleInput:
 @dataclass(frozen=True)
 class ValidationContext:
     combined: pl.DataFrame
-    indicators: Sequence[ObservationSpec]
+    indicators: Sequence[AuthoredObservationSpec | ResolvedObservationSpec]
     indicator_ids: set[IndicatorId]
-    indicator_lookup: Mapping[IndicatorId, ObservationSpec]
+    indicator_lookup: Mapping[IndicatorId, AuthoredObservationSpec | ResolvedObservationSpec]
     construct_lookup: Mapping[str, ConstructSpec]
     model_clock_hours: float | None
 
@@ -387,7 +390,7 @@ def reduce_findings(
 def _build_indicator_context(
     indicator_id: IndicatorId,
     ind_data: pl.DataFrame,
-    indicator_lookup: Mapping[IndicatorId, ObservationSpec],
+    indicator_lookup: Mapping[IndicatorId, AuthoredObservationSpec | ResolvedObservationSpec],
     construct_lookup: Mapping[str, ConstructSpec],
     model_clock_hours: float | None,
 ) -> IndicatorContext | None:
@@ -435,7 +438,7 @@ def _float_or_none(value: float | None) -> float | None:
 def _compute_empirical_profile(
     indicator_id: IndicatorId,
     model_data: pl.DataFrame,
-    indicator_lookup: Mapping[IndicatorId, ObservationSpec],
+    indicator_lookup: Mapping[IndicatorId, AuthoredObservationSpec | ResolvedObservationSpec],
     health_metrics: HealthMetrics,
 ) -> IndicatorEmpiricalProfile | None:
     ind_model = model_data.filter(pl.col("indicator_id") == indicator_id)
@@ -495,7 +498,7 @@ def _compute_empirical_profile(
 def build_indicator_audits(
     *,
     indicator_ids: set[IndicatorId],
-    indicator_lookup: Mapping[IndicatorId, ObservationSpec],
+    indicator_lookup: Mapping[IndicatorId, AuthoredObservationSpec | ResolvedObservationSpec],
     model_data: pl.DataFrame,
     indicator_issues: list[ValidationIssue],
     indicator_health: dict[str, HealthMetrics],

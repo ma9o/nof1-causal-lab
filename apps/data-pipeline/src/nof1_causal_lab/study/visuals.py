@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, cast
 import numpy as np
 import polars as pl
 
+from nof1_causal_lab.artifacts.availability import Available
 from nof1_causal_lab.study.visual_models import (
     EmpiricalPoint,
     ObservationHistory,
@@ -19,7 +20,7 @@ from nof1_causal_lab.utils.time_coordinates import ObservationInstant
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.artifacts.observations import ObservationSpec
+    from nof1_causal_lab.artifacts.observations import ResolvedObservationSpec
     from nof1_causal_lab.artifacts.simulation import SimulationReport
 
 
@@ -37,7 +38,7 @@ def empirical_points(values: np.ndarray) -> tuple[EmpiricalPoint, ...]:
 
 
 def observation_history(
-    metadata: PreparedDataMetadata, variable: ObservationSpec, panel: pl.DataFrame
+    metadata: PreparedDataMetadata, variable: ResolvedObservationSpec, panel: pl.DataFrame
 ) -> ObservationHistory:
     origin = ObservationInstant.origin(metadata.time_origin)
 
@@ -93,14 +94,14 @@ def recorded_simulation_paths(
     summary = None
     reference_mean = None
     manifest = {}
-    if report.causal_result is not None:
+    if isinstance(report.causal, Available):
         # Certification owns both reference keys; the reader hydrates those exact buffers.
         reference = cast("np.ndarray", reference)
         reference_observed = cast("np.ndarray", reference_observed)
-        outcome = report.state_ids.index(report.causal_result.outcome)
+        outcome = report.state_ids.index(report.causal.value.outcome)
         differences = latent[:, :, outcome] - reference[:, :, outcome]
         effect = PathSeries(
-            label=report.causal_result.labels[report.causal_result.outcome],
+            label=report.causal.value.labels[report.causal.value.outcome],
             action=paths(differences),
         )
         summary = summarize_draws(jnp.asarray(differences[:, -1]))

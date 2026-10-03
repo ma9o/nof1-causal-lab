@@ -7,7 +7,7 @@ import polars as pl
 
 from nof1_causal_lab.artifacts.data_preparation import SemanticExtractionSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.artifacts.observations import ObservationSpec
+from nof1_causal_lab.artifacts.observations import AuthoredObservationSpec
 from nof1_causal_lab.study.state import StudyState
 from tests.helpers import fixture_entity_id
 
@@ -79,7 +79,8 @@ def panel_metadata():
         default_window="1d",
         variables=tuple(
             DataVariableSpec(
-                observation=ObservationSpec(
+                observation=AuthoredObservationSpec(
+                    observation_window=None,
                     id=fixture_entity_id("indicator", name),
                     name=name,
                     measurement_dtype="continuous",

@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from pydantic import TypeAdapter, ValidationError
 
 from nof1_causal_lab.actions.effects import ActionEffects
+from nof1_causal_lab.artifacts.availability import NotApplicable
 from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec, replace_constructs
 from nof1_causal_lab.artifacts.execution import StructuralItemDisposition
 from nof1_causal_lab.artifacts.identification import IdentificationReport
@@ -276,6 +277,7 @@ def test_checkpoint_comparison_uses_evidence_from_each_selected_journal_prefix(w
     _measured(workspace)
     for seq in (2, 3):
         report = SimulationReport(
+            causal=NotApplicable(reason="No intervention was requested."),
             model=GitRef(
                 workspace_id=workspace,
                 revision=artifact_revision(workspace, "model", 1),

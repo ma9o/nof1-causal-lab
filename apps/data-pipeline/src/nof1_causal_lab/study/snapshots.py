@@ -11,6 +11,7 @@ import numpy as np
 import numpyro.distributions as dist
 import polars as pl
 
+from nof1_causal_lab.artifacts.availability import Available, Unavailable
 from nof1_causal_lab.artifacts.expressions import expression_coefficients, expression_states
 from nof1_causal_lab.artifacts.identity import GitOid, GitRef, ParameterRef
 from nof1_causal_lab.artifacts.parameter import SiteKind
@@ -654,13 +655,12 @@ class ModelReader:
 
         selection = self.selection
         if selection is None:
-            return ParameterDraws(columns=(), unavailable_reason="No model at this revision.")
+            return Unavailable(reason="No model at this revision.")
         model = selection.model
         provenance = law_provenance(self.store, self.state.current["model"], model, None)
         if provenance.kind != "fitted":
-            return ParameterDraws(
-                columns=(),
-                unavailable_reason="This revision has no complete retained joint posterior. Recorded summary plots cannot recover missing draws.",
+            return Unavailable(
+                reason="This revision has no complete retained joint posterior. Recorded summary plots cannot recover missing draws.",
             )
         bindings, _ = parameter_bindings(compile_executable_model(selection))
         columns = []
@@ -695,7 +695,7 @@ class ModelReader:
                             empirical=empirical_points(atoms[:, layout.parameter_columns[element]]),
                         )
                     )
-        return ParameterDraws(columns=tuple(columns))
+        return Available[tuple[ParameterDrawColumn, ...]](value=tuple(columns))
 
     def mechanism_curves(self, request: MechanismViewRequest) -> MechanismCurves:
         model = self.model

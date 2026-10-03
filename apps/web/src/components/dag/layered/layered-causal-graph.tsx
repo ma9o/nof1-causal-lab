@@ -858,7 +858,9 @@ export function LayeredCausalGraph({
                     construct={construct}
                     isOutcome={
                       construct.id ===
-                      (simulation?.causal_result?.outcome ?? model.question?.value.outcome)
+                      (simulation?.causal.kind === "available"
+                        ? simulation.causal.value.outcome
+                        : model.question?.value.outcome)
                     }
                     failures={dataDiff ? [] : entityFailures(model, construct)}
                     status={nodeStatuses.get(construct.id) ?? undefined}
@@ -874,11 +876,18 @@ export function LayeredCausalGraph({
                           const variable = dataDiff.variables.find(
                             (item) => item.indicator_id === indicator.observation.id,
                           );
-                          const failures =
-                            variable?.predictive_checks?.per_variable_warnings.filter(
-                              (finding) =>
-                                finding.kind !== "evaluated" || finding.outcome !== "passed",
-                            ) ?? [];
+                          const evaluation =
+                            variable?.predictive.kind === "comparison"
+                              ? variable.predictive.evaluation
+                              : variable?.predictive;
+                          const failures = (
+                            evaluation?.kind === "available"
+                              ? evaluation.value.per_variable_warnings
+                              : []
+                          ).filter(
+                            (finding) =>
+                              finding.kind !== "evaluated" || finding.outcome !== "passed",
+                          );
                           const selectIndicator = () =>
                             onSelect({ kind: "indicator", id: indicator.observation.id });
                           return (

@@ -35,7 +35,7 @@ from nof1_causal_lab.artifacts.data_preparation import (
     FileSourceRef,
     SemanticExtractionSpec,
 )
-from nof1_causal_lab.artifacts.observations import ObservationSpec
+from nof1_causal_lab.artifacts.observations import AuthoredObservationSpec
 from nof1_causal_lab.study.store import ArtifactStore
 from nof1_causal_lab.utils import data, storage
 from nof1_causal_lab.utils.aggregations import compute_indicators
@@ -69,8 +69,12 @@ def test_remote_cache_uses_the_conditional_write_winner_only(code, monkeypatch):
 
 def _variable(name):
     return DataVariableSpec(
-        observation=ObservationSpec(
-            id=f"indicator:{name}", name=name, measurement_dtype="continuous", aggregation="last"
+        observation=AuthoredObservationSpec(
+            observation_window=None,
+            id=f"indicator:{name}",
+            name=name,
+            measurement_dtype="continuous",
+            aggregation="last",
         ),
         extraction=SemanticExtractionSpec(
             source_columns=(name,), how_to_measure="Read the daily score"

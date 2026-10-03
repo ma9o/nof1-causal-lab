@@ -129,12 +129,12 @@ New studies initialize their local bare repository on first use. On a fresh chec
 
 ```bash
 git clone --mirror data/DEMO/study/history.bundle data/DEMO/study/history.git
-git --git-dir=data/DEMO/study/history.git config nof1.format 15
+git --git-dir=data/DEMO/study/history.git config nof1.format 16
 ```
 
 #### Migrating a local study
 
-The current runtime requires format 15. To convert a format-14 study:
+The current runtime requires format 16. To convert a format-15 study:
 
 1. Stop work on the study and close its workflow:
 
@@ -142,27 +142,27 @@ The current runtime requires format 15. To convert a format-14 study:
    temporal workflow signal --workflow-id study-STUDY --name close
    ```
 
-2. Run the [format-15 converter](../../apps/data-pipeline/scripts/migrations/migrate_format_15.py). The destination must be new and outside the source, and the source is left untouched.
+2. Run the [format-16 converter](../../apps/data-pipeline/scripts/migrations/migrate_format_16.py). The destination must be new and outside the source, and the source is left untouched.
 
    ```bash
-   uv run --directory apps/data-pipeline python -m scripts.migrations.migrate_format_15 \
-     ../../data/STUDY /tmp/format15/STUDY
+   uv run --directory apps/data-pipeline python -m scripts.migrations.migrate_format_16 \
+     ../../data/STUDY /tmp/format16/STUDY
    ```
 
-   The [converter](../../apps/data-pipeline/scripts/migrations/migrate_format_15.py)
-   preserves retained draws and certification, rewrites revision references and
-   binds predictive overlays to their pinned evaluation schedule. If the pinned
-   model cannot compile, it drops only those overlays and logs their commit,
-   sequence, indicator and compile reason. Findings and test statistics remain.
-   A compiled schedule with a different point count stops conversion. Sampler reports require their original
-   resolved controls; supply `--sampler-settings` with full settings keyed by fit
-   commit when those controls were not retained. Convert format-13 studies with
-   the [format-14 converter](../../apps/data-pipeline/scripts/migrations/migrate_format_14.py),
-   format-12 studies with the [format-13 converter](../../apps/data-pipeline/scripts/migrations/migrate_format_13.py),
-   and format-11 studies with the [format-12 converter](../../apps/data-pipeline/scripts/migrations/migrate_format_12.py)
-   first.
+   The converter folds retained result availability into explicit alternatives,
+   preserves scientific findings, draws and certification, and rewrites revision
+   references. It performs no inference or predictive execution.
+   Convert a format-14 study with the
+   [format-15 converter](../../apps/data-pipeline/scripts/migrations/migrate_format_15.py)
+   first. That conversion requires the original resolved sampler controls via
+   `--sampler-settings` when the report did not retain them, and binds overlays
+   to their pinned evaluation schedules. Earlier studies first use the
+   [format-14](../../apps/data-pipeline/scripts/migrations/migrate_format_14.py),
+   [format-13](../../apps/data-pipeline/scripts/migrations/migrate_format_13.py), or
+   [format-12](../../apps/data-pipeline/scripts/migrations/migrate_format_12.py)
+   converter for their respective source format.
 
-3. Review the migrated snapshots and ref mapping before a live cutover. Then, while offline, back up each whole original under `.local/format14-backup-<date>/STUDY`, including `store/`, and replace `data/STUDY` with the migrated repository, keeping one study per ID. Keep backups outside `data/` in durable storage; temporary directories are only converter destinations.
+3. Review the migrated snapshots and ref mapping before a live cutover. Then, while offline, back up each whole original under `.local/format15-backup-<date>/STUDY`, including `store/`, and replace `data/STUDY` with the migrated repository, keeping one study per ID. Keep backups outside `data/` in durable storage; temporary directories are only converter destinations.
 
 4. Restart the workers with the new code and start a fresh `study-STUDY` workflow from the migrated Git state; don't replay the previous workflow. Export any fixture bundle from the migrated repository, then run `bun run fixture:build` and `bun run fixture:check`.
 

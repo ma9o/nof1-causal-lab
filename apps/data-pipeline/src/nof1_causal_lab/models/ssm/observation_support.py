@@ -512,7 +512,7 @@ def simulation_observation_support(
     ordered = spec.observations
     names = [indicator.name for indicator in ordered]
     kinds: list[str | None] = [indicator.support.support_kind.value for indicator in ordered]
-    windows: list[str | None] = [indicator.observation_window for indicator in ordered]
+    windows: list[str | None] = [indicator.observation_window.source for indicator in ordered]
     starts = np.broadcast_to(times[:, None], (len(times), len(ordered))).copy()
     ends = starts.copy()
     for i, observation in enumerate(ordered):

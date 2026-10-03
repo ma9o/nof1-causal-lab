@@ -10,7 +10,7 @@ from nof1_causal_lab.distributions import VALID_LIKELIHOODS_FOR_DTYPE
 
 from .base import Value
 from .likelihood import LikelihoodSpec
-from .observations import ObservationSpec
+from .observations import AuthoredObservationSpec
 
 
 class IndicatorPolarity(StrEnum):
@@ -29,7 +29,7 @@ class IndicatorSpec(Value):
     schema also permits generative models before any observations have been collected.
     """
 
-    observation: ObservationSpec
+    observation: AuthoredObservationSpec
     likelihood: LikelihoodSpec | None = None
     construct_polarity: IndicatorPolarity = Field(
         description="Whether higher values move with (positive) or against (negative) the construct."

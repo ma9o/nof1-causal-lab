@@ -7,6 +7,7 @@ from typing import Literal
 
 from pydantic import AwareDatetime, Field, FiniteFloat, model_validator
 
+from nof1_causal_lab.artifacts.availability import Availability
 from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.artifacts.effects import EffectSummary
 from nof1_causal_lab.artifacts.identity import ConstructId, IndicatorId, ParameterRef
@@ -74,11 +75,7 @@ class ParameterDrawColumn(Value):
     empirical: tuple[EmpiricalPoint, ...]
 
 
-class ParameterDraws(Value):
-    """Every retained parameter coordinate, without thinning or pair selection."""
-
-    columns: tuple[ParameterDrawColumn, ...]
-    unavailable_reason: str | None = None
+type ParameterDraws = Availability[tuple[ParameterDrawColumn, ...]]
 
 
 class MechanismViewRequest(Value):

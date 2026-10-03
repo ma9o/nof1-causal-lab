@@ -13,7 +13,10 @@ if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.construct import ConstructSpec
     from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.artifacts.observations import ObservationSpec
+    from nof1_causal_lab.artifacts.observations import (
+        AuthoredObservationSpec,
+        ResolvedObservationSpec,
+    )
 
 from nof1_causal_lab.actions.validation.rules import (
     COMPATIBILITY_RULES,
@@ -62,7 +65,9 @@ def validate_extraction(
 
     indicators = tuple(item.observation for item in model.indicators)
     indicator_ids: set[IndicatorId] = {ind.id for ind in indicators}
-    indicator_lookup: dict[IndicatorId, ObservationSpec] = {ind.id: ind for ind in indicators}
+    indicator_lookup: dict[IndicatorId, AuthoredObservationSpec | ResolvedObservationSpec] = {
+        ind.id: ind for ind in indicators
+    }
     combined = combined.filter(pl.col("indicator_id").is_in(list(indicator_ids)))
     if combined.is_empty():
         return no_data_validation_result()
@@ -116,7 +121,7 @@ def profile_data(
     if data.is_empty():
         return no_data_validation_result()
     definitions = metadata.variables if metadata is not None else ()
-    lookup: dict[IndicatorId, ObservationSpec] = {item.id: item for item in definitions}
+    lookup: dict[IndicatorId, ResolvedObservationSpec] = {item.id: item for item in definitions}
     identities = {IndicatorId(value) for value in data["indicator_id"].unique()} | set(lookup)
     context = ValidationContext(data, definitions, identities, lookup, {}, None)
     issues, health, dataset_issues = run_rules(context, indicator_rules=DATA_RULES)

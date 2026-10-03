@@ -66,15 +66,17 @@
     "reference_observations": "reference_observations",
     "findings": [],
     "fit_reliability": "converged",
-    "causal_result": {
-      "outcome": "construct:6ca86c47aaf18b2472ce",
-      "labels": {
-        "construct:6ca86c47aaf18b2472ce": "internalizing_symptom_burden",
-        "construct:27f64faaddd59b2ad491": "escitalopram_dose_taken"
-      },
-      "warnings": []
-    },
-    "causal_unavailable_reason": null
+    "causal": {
+      "kind": "available",
+      "value": {
+        "outcome": "construct:6ca86c47aaf18b2472ce",
+        "labels": {
+          "construct:6ca86c47aaf18b2472ce": "internalizing_symptom_burden",
+          "construct:27f64faaddd59b2ad491": "escitalopram_dose_taken"
+        },
+        "warnings": []
+      }
+    }
   },
   "simulation": {
     "times": [
@@ -238722,8 +238724,8 @@
     }
   },
   "parameters": {
-    "columns": [],
-    "unavailable_reason": "This revision has no complete retained joint posterior. Recorded summary plots cannot recover missing draws."
+    "kind": "unavailable",
+    "reason": "This revision has no complete retained joint posterior. Recorded summary plots cannot recover missing draws."
   },
   "mechanisms": {
     "edge:66bd0e882b7fbd2118a1": {

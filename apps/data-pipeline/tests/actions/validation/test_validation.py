@@ -62,9 +62,7 @@ def validate_extraction(model: ModelSpec, dataframes: list[pl.DataFrame]) -> Dat
         source=SimulationReplicateRef(revision=GitOid("a" * 40), replicate=0),
         variables=tuple(
             item.observation.resolved(
-                (
-                    item.observation.observation_window or model.measurement_clock or Duration("1d")
-                ).source
+                item.observation.observation_window or model.measurement_clock or Duration("1d")
             )
             for item in model.indicators
         ),

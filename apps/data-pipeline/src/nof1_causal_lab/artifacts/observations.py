@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from typing import Annotated, Self
+
 from pydantic import ConfigDict, Field, model_validator
 
 from nof1_causal_lab.artifacts.base import Value
@@ -19,7 +21,7 @@ from .duration import Duration
 from .identity import IndicatorId
 
 
-class ObservationSpec(Value):
+class ObservationSpec[WindowT: Duration | None](Value):
     """A stable observed variable, reusable across scientific model definitions."""
 
     model_config = ConfigDict(revalidate_instances="always")
@@ -36,8 +38,7 @@ class ObservationSpec(Value):
             f"{supported_summary_operators_text()}. A computed_rule must produce this same summary."
         ),
     )
-    observation_window: Duration | None = Field(
-        default=None,
+    observation_window: WindowT = Field(
         description=(
             "Optional duration string describing the support window summarized by this "
             "indicator, in positive fixed units s, m, h, d or w (for example '2w'). "
@@ -61,12 +62,20 @@ class ObservationSpec(Value):
         ),
     )
 
-    def resolved(self, window: str | None) -> ObservationSpec:
-        """Retain the observation definition with an explicitly resolved window."""
-        return self.revised(observation_window=Duration(window) if window is not None else None)
+    def resolved(self, window: Duration) -> ResolvedObservationSpec:
+        """Retain the observation definition with its owned, resolved window."""
+        return ResolvedObservationSpec(
+            id=self.id,
+            name=self.name,
+            measurement_dtype=self.measurement_dtype,
+            aggregation=self.aggregation,
+            observation_window=window,
+            ordinal_levels=self.ordinal_levels,
+            categorical_levels=self.categorical_levels,
+        )
 
     @model_validator(mode="after")
-    def validate_discrete_levels(self) -> ObservationSpec:
+    def validate_discrete_levels(self) -> Self:
         """Require at least two unique labels for ordinal and categorical indicators."""
         if self.measurement_dtype not in {"ordinal", "categorical"}:
             return self
@@ -90,7 +99,7 @@ class ObservationSpec(Value):
         return self
 
     @model_validator(mode="after")
-    def validate_observation_semantics(self) -> ObservationSpec:
+    def validate_observation_semantics(self) -> Self:
         """Reject aggregation/dtype combinations the measurement stack cannot model."""
         derive_indicator_observation_semantics(self.aggregation, self.measurement_dtype)
         return self
@@ -117,3 +126,7 @@ class ObservationSpec(Value):
     def requires_interval_summary_measurement(self) -> bool:
         """Whether this indicator requires an interval-summary measurement equation."""
         return self.support_kind == SupportKind.INTERVAL
+
+
+AuthoredObservationSpec = ObservationSpec[Annotated[Duration | None, Field(default=None)]]
+ResolvedObservationSpec = ObservationSpec[Duration]

@@ -11,10 +11,11 @@ from pydantic import AwareDatetime, Field, FiniteFloat, model_validator
 
 from nof1_causal_lab.artifacts.base import Value
 
+from .availability import Available, Evaluation, NotApplicable, Unavailable
 from .checks import PredictiveAssessment
 from .duration import Duration
 from .identity import ConstructId, GitOid, GitRef, IndicatorId
-from .observations import ObservationSpec
+from .observations import ResolvedObservationSpec
 from .predictive_provenance import PredictiveLawProvenance
 from .scenarios import CausalEffectResult, InterventionSpec, StateAssignment
 
@@ -74,7 +75,7 @@ class SimulationSpec(Value):
 class SimulationObservationLayout(Value):
     """Saved observation semantics and coordinates; generation truths remain separate."""
 
-    variables: tuple[ObservationSpec, ...]
+    variables: tuple[ResolvedObservationSpec, ...]
     support_start_times: str
     support_end_times: str
     mask: str
@@ -88,8 +89,6 @@ class SimulationObservationLayout(Value):
     def resolved_variables(self) -> Self:
         if len({item.id for item in self.variables}) != len(self.variables):
             raise ValueError("Simulation variables must have unique IDs")
-        if any(item.observation_window is None for item in self.variables):
-            raise ValueError("Simulation variables must retain resolved observation windows")
         return self
 
 
@@ -130,8 +129,7 @@ class SimulationReport(Value):
     reference_observations: str | None = None
     findings: tuple[PredictiveAssessment, ...] = ()
     fit_reliability: FitReliability
-    causal_result: CausalEffectResult | None = None
-    causal_unavailable_reason: str | None = None
+    causal: Evaluation[CausalEffectResult]
 
     def with_provenance(
         self, *, law: PredictiveLawProvenance, origin_panel_revision: GitOid | None
@@ -139,10 +137,10 @@ class SimulationReport(Value):
         return self.revised(law=law, origin_panel_revision=origin_panel_revision)
 
     def with_causal_result(self, result: CausalEffectResult) -> Self:
-        return self.revised(causal_result=result, causal_unavailable_reason=None)
+        return self.revised(causal=Available(value=result))
 
     def without_causal_result(self, reason: str) -> Self:
-        return self.revised(causal_result=None, causal_unavailable_reason=reason)
+        return self.revised(causal=Unavailable(reason=reason))
 
     @model_validator(mode="after")
     def validate_histories(self) -> Self:
@@ -159,13 +157,13 @@ class SimulationReport(Value):
             (self.reference_latent_paths is None) != (self.reference_observations is None)
         ):
             raise ValueError("Interventions require paired reference histories")
-        if self.causal_result is not None:
-            if not paired or self.causal_unavailable_reason is not None:
-                raise ValueError(
-                    "Certified effects require paired histories and no rejection reason"
-                )
+        if isinstance(self.causal, NotApplicable) != (not self.design.interventions):
+            raise ValueError("Causal evaluation applies exactly when interventions are requested")
+        if isinstance(self.causal, Available):
+            if not paired:
+                raise ValueError("Certified effects require paired histories")
             targets = {
-                self.causal_result.outcome,
+                self.causal.value.outcome,
                 *(event.target for event in self.design.interventions),
             }
             if not targets <= set(self.state_ids):

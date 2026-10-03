@@ -6,7 +6,7 @@ import polars as pl
 import pytest
 
 from nof1_causal_lab.artifacts.identity import IndicatorId
-from nof1_causal_lab.artifacts.observations import ObservationSpec
+from nof1_causal_lab.artifacts.observations import ResolvedObservationSpec
 
 pytestmark = pytest.mark.contract
 
@@ -27,7 +27,7 @@ class TestAnnotateObservationRows:
             }
         )
         variables = (
-            ObservationSpec(
+            ResolvedObservationSpec(
                 id=IndicatorId("indicator:3696aef3ff6f446744e5"),
                 name="stress_score",
                 measurement_dtype="continuous",
@@ -57,7 +57,7 @@ class TestAnnotateObservationRows:
             }
         )
         variables = (
-            ObservationSpec(
+            ResolvedObservationSpec(
                 id=IndicatorId("indicator:8172ff8b9182b2e869c5"),
                 name="weekly_stress_score",
                 measurement_dtype="continuous",
@@ -85,7 +85,7 @@ class TestAnnotateObservationRows:
             }
         )
         variables = (
-            ObservationSpec(
+            ResolvedObservationSpec(
                 id=IndicatorId("indicator:5dc4b94693df7e0aef53"),
                 name="closing_mood",
                 measurement_dtype="continuous",

@@ -31,8 +31,8 @@ export function SimulationEvidence({ context }: { context: ScopeContext }) {
             <Hint>
               Certified effect on{" "}
               {humanize(
-                report.causal_result.labels[report.causal_result.outcome] ??
-                  report.causal_result.outcome,
+                report.causal.value.labels[report.causal.value.outcome] ??
+                  report.causal.value.outcome,
               )}{" "}
               at the end of the simulation.
             </Hint>
@@ -49,21 +49,16 @@ export function SimulationEvidence({ context }: { context: ScopeContext }) {
                 ]}
               />
             )}
-            <SimulationHistory model={model} id={report.causal_result.outcome} kind="effect" />
+            <SimulationHistory model={model} id={report.causal.value.outcome} kind="effect" />
 
-            {report.causal_result.warnings.map((warning) => (
+            {report.causal.value.warnings.map((warning) => (
               <Hint key={warning} issue>
                 {warning}
               </Hint>
             ))}
           </>
         ) : (
-          <Hint>
-            {report.causal_unavailable_reason ??
-              (report.design.interventions.length
-                ? "No causal effect was recorded."
-                : "No intervention was requested.")}
-          </Hint>
+          <Hint>{report.causal.kind !== "available" && report.causal.reason}</Hint>
         )}
       </Section>
       <Section title="Simulation design" source={simulation.source}>

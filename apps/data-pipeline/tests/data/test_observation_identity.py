@@ -6,7 +6,7 @@ import polars as pl
 import pytest
 
 from nof1_causal_lab.actions.validation.flow import validate_extraction
-from nof1_causal_lab.artifacts.observations import ObservationSpec
+from nof1_causal_lab.artifacts.observations import AuthoredObservationSpec, ResolvedObservationSpec
 from nof1_causal_lab.utils.aggregations import compute_indicators
 from nof1_causal_lab.utils.observation_rows import annotate_observation_rows
 from nof1_causal_lab.workers.context import MeasurementContext
@@ -23,9 +23,8 @@ def test_one_observation_definition_is_shared_by_preparation_and_model():
         DataVariableSpec,
     )
     from nof1_causal_lab.artifacts.indicator import IndicatorSpec
-    from nof1_causal_lab.artifacts.observations import ObservationSpec
 
-    observation = ObservationSpec(
+    observation = AuthoredObservationSpec(
         id="indicator:dose",
         name="dose",
         measurement_dtype="continuous",
@@ -104,7 +103,7 @@ def test_computed_and_semantic_extraction_preserve_the_same_subject_after_rename
             annotate_observation_rows(
                 semantic,
                 (
-                    ObservationSpec(
+                    ResolvedObservationSpec(
                         id="indicator:mood",
                         name=label,
                         measurement_dtype="continuous",
@@ -125,7 +124,7 @@ def test_observation_producers_reject_owners_outside_the_pinned_measurement():
         annotate_observation_rows(
             rows,
             (
-                ObservationSpec(
+                ResolvedObservationSpec(
                     id="indicator:mood",
                     name="Mood",
                     measurement_dtype="continuous",

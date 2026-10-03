@@ -122,9 +122,6 @@ def data_binding_issues(model: ModelSpec, metadata: PreparedDataMetadata) -> lis
             if expected != actual:
                 issues.append(f"Observation {indicator.observation.id} has incompatible {field}")
         window = indicator.observation.observation_window or model.measurement_clock
-        assert (
-            variable.observation_window is not None
-        )  # PreparedDataMetadata resolves every window.
         if window is None or window.seconds != variable.observation_window.seconds:
             issues.append(
                 f"Observation {indicator.observation.id} has an incompatible observation window"

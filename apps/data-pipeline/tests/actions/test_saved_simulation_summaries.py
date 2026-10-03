@@ -8,6 +8,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from nof1_causal_lab.actions.effects import ActionEffects
+from nof1_causal_lab.artifacts.availability import Unavailable
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.identity import GitRef
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
@@ -105,6 +106,7 @@ def test_full_categories_and_paired_paths_are_derived_on_read_and_cached(tmp_pat
         mask=store.write_array(mask),
     )
     report = SimulationReport(
+        causal=Unavailable(reason="No causal effect was recorded."),
         model=GitRef(workspace_id="SUMMARY", revision=definition.revision, path="model.json"),
         design=SimulationSpec(
             start=date(2026, 1, 6),

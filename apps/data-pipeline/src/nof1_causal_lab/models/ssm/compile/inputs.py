@@ -28,6 +28,7 @@ if TYPE_CHECKING:
     import jax
     import numpyro.distributions as dist
 
+    from nof1_causal_lab.artifacts.duration import Duration
     from nof1_causal_lab.artifacts.identity import (
         ConstructId,
         EdgeId,
@@ -75,8 +76,11 @@ class CompiledObservation:
     standardized: bool
     categorical_anchor: bool
     support: IndicatorObservationSemantics
-    window_days: float
-    observation_window: str
+    observation_window: Duration
+
+    @property
+    def window_days(self) -> float:
+        return self.observation_window.days
 
 
 @dataclass(frozen=True)
@@ -276,8 +280,7 @@ def compile_model(
                 indicator.likelihood.standardized,
                 anchor,
                 indicator.observation._observation_semantics(),
-                (indicator.observation.observation_window or model.measurement_clock).days,
-                (indicator.observation.observation_window or model.measurement_clock).source,
+                indicator.observation.observation_window or model.measurement_clock,
             )
             for channel, (indicator, anchor) in enumerate(zip(indicators, anchors, strict=True))
             if indicator.likelihood is not None

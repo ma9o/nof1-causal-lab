@@ -28,26 +28,6 @@ export type DataSourceRef = FileSourceRef | SimulationReplicateRef;
 export type GitOid = string;
 /**
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "IndicatorId".
- */
-export type IndicatorId = `indicator:${string}`;
-/**
- * A measurement dtype defines the observed value domain of an indicator.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "MeasurementDtype".
- */
-export type MeasurementDtype = "continuous" | "binary" | "count" | "ordinal" | "categorical";
-/**
- * A summary operator specifies how values within a measurement window produce one
- * observation.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "SummaryOperator".
- */
-export type SummaryOperator = "first" | "last" | "sum" | "count" | "mean" | "std";
-/**
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "ExtractionSpec".
  */
 export type ExtractionSpec = ComputedExtractionSpec | SemanticExtractionSpec;
@@ -171,6 +151,11 @@ export type JsonScalar = boolean | number | string | null;
 export type JsonArray = readonly JsonValue[];
 /**
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "IndicatorId".
+ */
+export type IndicatorId = `indicator:${string}`;
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "SpecificationAssessment".
  */
 export type SpecificationAssessment = Evaluated<string, string> | NotEvaluated<string>;
@@ -282,6 +267,13 @@ export type DataRef = PanelRef | SimulationRef;
  */
 export type DataStatistic = "observed_count" | "missing_count" | "mean" | "sd" | "min" | "max" | "proportion";
 /**
+ * A predictive comparison selects one reference history or records why no reference comparison applies.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "PredictiveComparisonResult".
+ */
+export type PredictiveComparisonResult = PredictiveComparison | Unavailable | NotApplicable;
+/**
  * A data selection identifies one or more saved observation histories.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
@@ -307,6 +299,11 @@ export type EntityRef = ConstructRef | EdgeRef | IndicatorRef | MechanismRef;
  */
 export type FitReliability = "not_fitted" | "converged" | "unconverged" | "unknown";
 /**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "MeasurementDtype".
+ */
+export type MeasurementDtype = "continuous" | "binary" | "count" | "ordinal" | "categorical";
+/**
  * A structural disposition classifies how compilation uses or excludes an authored model
  * entity.
  *
@@ -319,6 +316,13 @@ export type StructuralDisposition = "retained_state" | "marginalized" | "identif
  * via the `definition` "NotEvaluatedReason".
  */
 export type NotEvaluatedReason = PredictiveCheckReason | ("NONFINITE_EMISSION_MEAN" | "INSUFFICIENT_TIMES" | "NO_RELAXATION_TERM" | "EDGE_CONTRASTS_EXPLICIT" | "NO_OBSERVATION_SUPPORT" | "NO_OBSERVATIONS" | "STATIC_CONSTRUCT" | "INSUFFICIENT_OBSERVATIONS" | "ZERO_RESIDUAL_VARIANCE" | "ZERO_OBSERVED_VARIANCE" | "NONFINITE_PATHS" | "NONFINITE_SIGNAL" | "COMPARISON_INPUTS_MISSING" | "INSUFFICIENT_CHAIN_SAMPLES" | "NO_RETAINED_CHAINS" | "ARCHIVED_ENGINE_NOT_RETAINED" | "NO_OUTCOME" | "CONSTRUCT_UNDEFINED" | "NO_PANEL" | "STATE_NOT_RECORDED");
+/**
+ * Every retained parameter coordinate is available without thinning or pair selection, or has an explicit unavailable reason.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ParameterDraws".
+ */
+export type ParameterDraws = Available<readonly ParameterDrawColumn[]> | Unavailable;
 /**
  * A progress event records one running attempt's step status or extraction telemetry.
  *
@@ -354,6 +358,14 @@ export type QuestionSubject = OutcomeSubject | QueryTargetSubject | QueryWindowS
  */
 export type RejectionReason = "revision_conflict" | "input_unavailable" | "scientific_inputs" | "recorded_rejection";
 /**
+ * A summary operator specifies how values within a measurement window produce one
+ * observation.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "SummaryOperator".
+ */
+export type SummaryOperator = "first" | "last" | "sum" | "count" | "mean" | "std";
+/**
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "Assessment".
  */
@@ -363,6 +375,11 @@ export type Assessment<Subject, Evidence> = Evaluated<Subject, Evidence> | NotEv
  * via the `definition` "Change".
  */
 export type Change<PayloadT> = Added<PayloadT> | Removed<PayloadT> | Revised<PayloadT>;
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "Evaluation".
+ */
+export type Evaluation<PayloadT> = Available<PayloadT> | Unavailable | NotApplicable;
 /**
  * Combined JSON Schema for exported artifact contracts and facade API models. Generated from Python Pydantic models.
  */
@@ -443,8 +460,8 @@ export interface PreparedDataMetadata {
      * @minItems 1
      */
     readonly variables: readonly [
-        ObservationSpec,
-        ...readonly ObservationSpec[]
+        ObservationSpec<string>,
+        ...readonly ObservationSpec<string>[]
     ];
     readonly preparation: DataPreparationSpec | null;
     /**
@@ -486,33 +503,6 @@ export interface SimulationReplicateRef {
     readonly replicate: number;
 }
 /**
- * A stable observed variable, reusable across scientific model definitions.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ObservationSpec".
- */
-export interface ObservationSpec {
-    readonly id: IndicatorId;
-    /**
-     * Indicator name (e.g., 'hrv', 'self_reported_stress')
-     */
-    readonly name: string;
-    readonly measurement_dtype: MeasurementDtype;
-    readonly aggregation: SummaryOperator;
-    /**
-     * Optional duration string describing the support window summarized by this indicator, in positive fixed units s, m, h, d or w (for example '2w'). Resolved by the preparation window or the generative model clock.
-     */
-    readonly observation_window: string | null;
-    /**
-     * Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding.
-     */
-    readonly ordinal_levels: readonly string[] | null;
-    /**
-     * Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding.
-     */
-    readonly categorical_levels: readonly string[] | null;
-}
-/**
  * A versioned data definition supplied directly to prepare_data.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
@@ -539,7 +529,7 @@ export interface DataPreparationSpec {
  * via the `definition` "DataVariableSpec".
  */
 export interface DataVariableSpec {
-    readonly observation: ObservationSpec;
+    readonly observation: ObservationSpec<string | null>;
     readonly extraction: ExtractionSpec;
 }
 /**
@@ -742,7 +732,7 @@ export interface ConstructSpec {
  * via the `definition` "IndicatorSpec".
  */
 export interface IndicatorSpec {
-    readonly observation: ObservationSpec;
+    readonly observation: ObservationSpec<string | null>;
     readonly likelihood: LikelihoodSpec | null;
     readonly construct_polarity: IndicatorPolarity;
 }
@@ -1514,9 +1504,7 @@ export interface DataVariableDiff {
     readonly changes: readonly Change<DataPoint>[];
     readonly statistics: readonly DataStatisticComparison[];
     readonly comparison_issues: readonly string[];
-    readonly reference_side: ("left" | "right") | null;
-    readonly predictive_checks: PosteriorPredictiveChecks | null;
-    readonly predictive_unavailable_reason: string | null;
+    readonly predictive: PredictiveComparisonResult;
 }
 /**
  * One variable's recorded measurements in one history; no pooling across replicas.
@@ -1525,7 +1513,7 @@ export interface DataVariableDiff {
  * via the `definition` "DataSeries".
  */
 export interface DataSeries {
-    readonly variable: ObservationSpec | null;
+    readonly variable: ObservationSpec<string> | null;
     /**
      * Recorded calendar binding; null means the point dates are serialization coordinates, not real dates.
      */
@@ -1557,6 +1545,37 @@ export interface DataStatisticComparison {
     readonly right: readonly (number | null)[];
     readonly left_histogram: readonly HistogramBin[];
     readonly right_histogram: readonly HistogramBin[];
+}
+/**
+ * A selected reference history retains its role even when checks are unavailable.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "PredictiveComparison".
+ */
+export interface PredictiveComparison {
+    readonly kind: "comparison";
+    readonly reference_side: "left" | "right";
+    readonly evaluation: Evaluation<PosteriorPredictiveChecks>;
+}
+/**
+ * An applicable result could not be produced, for an explicit reason.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "Unavailable".
+ */
+export interface Unavailable {
+    readonly kind: "unavailable";
+    readonly reason: string;
+}
+/**
+ * The selected operation does not call for this result.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "NotApplicable".
+ */
+export interface NotApplicable {
+    readonly kind: "not_applicable";
+    readonly reason: string;
 }
 /**
  * Compare two immutable data selections, each containing one or more histories.
@@ -2365,8 +2384,7 @@ export interface SimulationReport {
     readonly reference_observations: string | null;
     readonly findings: readonly PredictiveAssessment[];
     readonly fit_reliability: FitReliability;
-    readonly causal_result: CausalEffectResult | null;
-    readonly causal_unavailable_reason: string | null;
+    readonly causal: Evaluation<CausalEffectResult>;
 }
 /**
  * A state set at one model time: a resolved intervention or a replayed input reading.
@@ -2389,7 +2407,7 @@ export interface StateAssignment {
  * via the `definition` "SimulationObservationLayout".
  */
 export interface SimulationObservationLayout {
-    readonly variables: readonly ObservationSpec[];
+    readonly variables: readonly ObservationSpec<string>[];
     readonly support_start_times: string;
     readonly support_end_times: string;
     readonly mask: string;
@@ -2534,16 +2552,6 @@ export interface ParameterDrawColumn {
     readonly subject: ParameterRef;
     readonly values: readonly number[];
     readonly empirical: readonly EmpiricalPoint[];
-}
-/**
- * Every retained parameter coordinate, without thinning or pair selection.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ParameterDraws".
- */
-export interface ParameterDraws {
-    readonly columns: readonly ParameterDrawColumn[];
-    readonly unavailable_reason: string | null;
 }
 /**
  * The production particle-MCMC target and its exact latent transition.
@@ -2836,6 +2844,14 @@ export interface Attempt<ActionT, RequestT, ResultT> {
 }
 /**
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "Available".
+ */
+export interface Available<PayloadT> {
+    readonly kind: "available";
+    readonly value: PayloadT;
+}
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "BernoulliLogitsLawSpec".
  */
 export interface BernoulliLogitsLawSpec<A> {
@@ -2921,6 +2937,31 @@ export interface NotEvaluated<Subject> {
     readonly subject: Subject;
     readonly reason: NotEvaluatedReason;
     readonly detail: string;
+}
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ObservationSpec".
+ */
+export interface ObservationSpec<WindowT> {
+    readonly id: IndicatorId;
+    /**
+     * Indicator name (e.g., 'hrv', 'self_reported_stress')
+     */
+    readonly name: string;
+    readonly measurement_dtype: MeasurementDtype;
+    readonly aggregation: SummaryOperator;
+    /**
+     * Optional duration string describing the support window summarized by this indicator, in positive fixed units s, m, h, d or w (for example '2w'). Resolved by the preparation window or the generative model clock.
+     */
+    readonly observation_window: WindowT;
+    /**
+     * Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding.
+     */
+    readonly ordinal_levels: readonly string[] | null;
+    /**
+     * Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding.
+     */
+    readonly categorical_levels: readonly string[] | null;
 }
 /**
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema

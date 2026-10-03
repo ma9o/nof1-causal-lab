@@ -44,15 +44,6 @@
     "reference_latent_paths": "reference",
     "reference_observations": "reference_observations",
     "findings": [],
-    "causal_result": {
-      "outcome": "construct:6ca86c47aaf18b2472ce",
-      "labels": {
-        "construct:6ca86c47aaf18b2472ce": "internalizing_symptom_burden",
-        "construct:27f64faaddd59b2ad491": "escitalopram_dose_taken"
-      },
-      "warnings": []
-    },
-    "causal_unavailable_reason": null,
     "time_origin": "2026-09-01T00:00:00Z",
     "origin_panel_revision": null,
     "assignments": [
@@ -62,6 +53,17 @@
         "value": 10.0
       }
     ],
-    "fit_reliability": "converged"
+    "fit_reliability": "converged",
+    "causal": {
+      "kind": "available",
+      "value": {
+        "outcome": "construct:6ca86c47aaf18b2472ce",
+        "labels": {
+          "construct:6ca86c47aaf18b2472ce": "internalizing_symptom_burden",
+          "construct:27f64faaddd59b2ad491": "escitalopram_dose_taken"
+        },
+        "warnings": []
+      }
+    }
   }
 }

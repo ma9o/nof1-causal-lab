@@ -1015,10 +1015,11 @@ class TestComputeIndicators:
 )
 def test_fill_null_uses_polars_after_window_aggregation(fields, aggregation, expected):
     from nof1_causal_lab.artifacts.data_preparation import ComputedExtractionSpec, DataVariableSpec
-    from nof1_causal_lab.artifacts.observations import ObservationSpec
+    from nof1_causal_lab.artifacts.observations import AuthoredObservationSpec
 
     indicator = DataVariableSpec(
-        observation=ObservationSpec(
+        observation=AuthoredObservationSpec(
+            observation_window=None,
             id="indicator:record",
             name="record",
             measurement_dtype="count" if aggregation == "count" else "continuous",

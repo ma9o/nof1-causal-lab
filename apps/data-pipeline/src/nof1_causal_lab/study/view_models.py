@@ -7,6 +7,7 @@ from typing import Annotated, Literal
 
 from pydantic import AwareDatetime, Field, FiniteFloat
 
+from nof1_causal_lab.artifacts.availability import Evaluation, NotApplicable, Unavailable
 from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.artifacts.checks import SpecificationAssessment
 from nof1_causal_lab.artifacts.effects import HistogramBin
@@ -20,7 +21,7 @@ from nof1_causal_lab.artifacts.identity import (
     IndicatorId,
 )
 from nof1_causal_lab.artifacts.measurements import ObservationRecord
-from nof1_causal_lab.artifacts.observations import ObservationSpec
+from nof1_causal_lab.artifacts.observations import ResolvedObservationSpec
 from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 from nof1_causal_lab.artifacts.posterior import InferenceReportCore
 from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorPredictiveChecks
@@ -160,7 +161,7 @@ class DataPoint(Value):
 class DataSeries(Value):
     """One variable's recorded measurements in one history; no pooling across replicas."""
 
-    variable: ObservationSpec | None
+    variable: ResolvedObservationSpec | None
     time_origin: AwareDatetime | None = Field(
         description="Recorded calendar binding; null means the point dates are serialization coordinates, not real dates."
     )
@@ -183,6 +184,19 @@ class DataStatisticComparison(Value):
     right_histogram: tuple[HistogramBin, ...]
 
 
+class PredictiveComparison(Value):
+    """A selected reference history retains its role even when checks are unavailable."""
+
+    kind: Literal["comparison"] = "comparison"
+    reference_side: Literal["left", "right"]
+    evaluation: Evaluation[PosteriorPredictiveChecks]
+
+
+type PredictiveComparisonResult = Annotated[
+    PredictiveComparison | Unavailable | NotApplicable, Field(discriminator="kind")
+]
+
+
 class DataVariableDiff(Value):
     """Definitions, histories and comparisons for one persistent observation identity."""
 
@@ -192,9 +206,7 @@ class DataVariableDiff(Value):
     changes: tuple[Change[DataPoint], ...]
     statistics: tuple[DataStatisticComparison, ...]
     comparison_issues: tuple[str, ...]
-    reference_side: Literal["left", "right"] | None
-    predictive_checks: PosteriorPredictiveChecks | None
-    predictive_unavailable_reason: str | None
+    predictive: PredictiveComparisonResult
 
 
 class DataDiffReport(Value):

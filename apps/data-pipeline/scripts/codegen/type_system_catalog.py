@@ -20,6 +20,8 @@ from typing import (
 from pydantic import BaseModel, TypeAdapter, WithJsonSchema
 from pydantic.json_schema import GenerateJsonSchema
 
+from nof1_causal_lab.artifacts.duration import Duration
+
 if TYPE_CHECKING:
     from pydantic.json_schema import CoreSchemaOrField, JsonSchemaValue
 
@@ -59,6 +61,7 @@ def _typescript_type(value: Any) -> str:
         type(None): "null",
         None: "null",
         Any: "unknown",
+        Duration: "string",
     }[value]
 
 
@@ -196,6 +199,7 @@ CONCERNS = {
             "artifacts.scenarios",
             "artifacts.simulation",
             "artifacts.checks",
+            "artifacts.availability",
             "artifacts.model_checks",
         ),
     ),
@@ -234,6 +238,10 @@ CONCERNS = {
 # Aliases and dataclasses need explicit role sentences: JSON Schema does not carry
 # their Python docstrings. These describe concepts, never infer prose from field names.
 ROLE_SENTENCES = {
+    "Availability": "A result is either an owned available payload or its explicit unavailable reason.",
+    "Evaluation": "An evaluation produces an available result, an unavailable reason, or an explicit non-applicable state.",
+    "ParameterDraws": "Every retained parameter coordinate is available without thinning or pair selection, or has an explicit unavailable reason.",
+    "PredictiveComparisonResult": "A predictive comparison selects one reference history or records why no reference comparison applies.",
     "ActionPoll": "A poll is either running labels or a completed typed attempt with its optional publication identity.",
     "ActionAttempt": "A closed action attempt pairs its request with only that action's successful result or failure outcome.",
     "ActionBody": "An action result carries its owned scientific payload before Git publication.",
@@ -326,7 +334,7 @@ def _layer_for(name: str, module: str) -> str:
         )
     if module.endswith("artifacts.simulation"):
         return "authored" if name in {"SimulationSpec"} else "findings"
-    if module.endswith(("artifacts.checks", "artifacts.model_checks")):
+    if module.endswith(("artifacts.checks", "artifacts.model_checks", "artifacts.availability")):
         return "findings"
     if name == "FitSettingsSpec" or module.endswith("sampler_config"):
         return "authored"

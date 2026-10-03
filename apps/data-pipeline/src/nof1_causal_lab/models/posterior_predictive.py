@@ -11,6 +11,7 @@ from typing import TYPE_CHECKING, Literal
 
 import numpy as np
 
+from nof1_causal_lab.artifacts.availability import Available, Evaluation, NotApplicable, Unavailable
 from nof1_causal_lab.artifacts.checks import (
     Assessment,
     Evaluated,
@@ -32,6 +33,8 @@ from nof1_causal_lab.study.view_models import (
     DataStatistic,
     DataStatisticComparison,
     DataVariableDiff,
+    PredictiveComparison,
+    PredictiveComparisonResult,
     Removed,
     Revised,
 )
@@ -42,7 +45,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
     from datetime import datetime
 
-    from nof1_causal_lab.artifacts.observations import ObservationSpec
+    from nof1_causal_lab.artifacts.observations import ResolvedObservationSpec
 
 
 import jax.numpy as jnp
@@ -487,9 +490,7 @@ def measure_predictive_checks(
     )
 
 
-def _semantics(variable: ObservationSpec) -> tuple[object, ...]:
-    if variable.observation_window is None:
-        raise ValueError("Dataset variables must define their measurement windows")
+def _semantics(variable: ResolvedObservationSpec) -> tuple[object, ...]:
     return (
         variable.measurement_dtype,
         variable.aggregation,
@@ -550,11 +551,13 @@ def _statistics(
 
 def _predictive_comparison(
     identity: IndicatorId, left: Sequence[DataSeries], right: Sequence[DataSeries]
-) -> tuple[Literal["left", "right"] | None, PosteriorPredictiveChecks | None, str | None]:
+) -> PredictiveComparisonResult:
     if len(left) == len(right) == 1:
-        return None, None, None
+        return NotApplicable(reason="A predictive comparison requires replicated histories.")
     if len(left) > 1 and len(right) > 1:
-        return None, None, "Requires one reference history and multiple replicated histories"
+        return Unavailable(
+            reason="Requires one reference history and multiple replicated histories"
+        )
     side: Literal["left", "right"]
     if len(left) == 1:
         (reference,) = left
@@ -563,21 +566,29 @@ def _predictive_comparison(
         (reference,) = right
         side, replicas = "right", left
     variable = reference.variable
+
+    def _comparison(evaluation: Evaluation[PosteriorPredictiveChecks]) -> PredictiveComparison:
+        return PredictiveComparison(reference_side=side, evaluation=evaluation)
+
     # Shared input problems belong to comparison_issues, not a second PPC reason.
     if any((item.time_origin is None) != (reference.time_origin is None) for item in replicas):
-        return side, None, None
+        return _comparison(NotApplicable(reason="Comparison inputs are incompatible."))
     if variable is None or any(item.variable is None for item in replicas):
-        return side, None, None
+        return _comparison(NotApplicable(reason="Comparison inputs are incompatible."))
     if any(
         _semantics(item.variable) != _semantics(variable)
         for item in replicas
         if item.variable is not None
     ):
-        return side, None, None
+        return _comparison(NotApplicable(reason="Comparison inputs are incompatible."))
     if variable.measurement_dtype in {"categorical", "ordinal"}:
-        return side, None, "Discrete codebooks use per-level proportions, not numeric PPC summaries"
+        return _comparison(
+            Unavailable(
+                reason="Discrete codebooks use per-level proportions, not numeric PPC summaries"
+            )
+        )
     if not any(point.value is not None for point in reference.points):
-        return side, None, "The reference history contains no observed values"
+        return _comparison(Unavailable(reason="The reference history contains no observed values"))
     aligned = []
     for series in replicas:
         lookup = {point.anchor_time: point for point in series.points}
@@ -589,9 +600,11 @@ def _predictive_comparison(
                     point.support_start,
                     point.support_end,
                 ):
-                    return side, None, None
+                    return _comparison(NotApplicable(reason="Comparison inputs are incompatible."))
                 if candidate.value is None:
-                    return side, None, "Replicas contain missing values at observed anchors"
+                    return _comparison(
+                        Unavailable(reason="Replicas contain missing values at observed anchors")
+                    )
             values.append(
                 candidate.value if candidate is not None and candidate.value is not None else np.nan
             )
@@ -612,7 +625,7 @@ def _predictive_comparison(
         time_origin=reference.time_origin,
         standardized=(False,),
     )
-    return side, checks, None
+    return _comparison(Available(value=checks))
 
 
 def data_diff(
@@ -686,7 +699,6 @@ def data_diff(
                         if anchor not in new
                         else Revised(before=old[anchor], after=new[anchor])
                     )
-        reference, checks, reason = _predictive_comparison(identity, a, b)
         comparisons.append(
             DataVariableDiff(
                 indicator_id=identity,
@@ -695,9 +707,7 @@ def data_diff(
                 changes=tuple(changes),
                 statistics=_statistics(a, b),
                 comparison_issues=tuple(issues),
-                reference_side=reference,
-                predictive_checks=checks,
-                predictive_unavailable_reason=reason,
+                predictive=_predictive_comparison(identity, a, b),
             )
         )
     return DataDiffReport(

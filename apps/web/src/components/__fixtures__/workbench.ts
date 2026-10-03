@@ -109,9 +109,10 @@ function simulation(revision: string): SimulationReport {
     })),
     ...(revision === modelId(7)
       ? {
-          causal_result: null,
-          causal_unavailable_reason:
-            "This edited model has no committed production fit at this revision.",
+          causal: {
+            kind: "unavailable" as const,
+            reason: "This edited model has no committed production fit at this revision.",
+          },
         }
       : {}),
   };
@@ -193,7 +194,10 @@ const comparisonIndicator = fixtureValue(
     .find((indicator) => indicator.observation.name === "gad7_screening_score"),
 );
 const comparedSeries = (values: number[]) => ({
-  variable: comparisonIndicator.observation,
+  variable: {
+    ...comparisonIndicator.observation,
+    observation_window: "1d",
+  },
   time_origin: "2026-01-01T00:00:00Z",
   points: values.map((value, index) => ({
     anchor_time: `2026-01-0${index + 1}T00:00:00Z`,
@@ -212,8 +216,6 @@ const dataComparison: DataDiffReport = {
       right: [comparedSeries([0, 1, 2]), comparedSeries([1, 2, 3]), comparedSeries([2, 3, 4])],
       changes: [],
       comparison_issues: [],
-      reference_side: "left",
-      predictive_unavailable_reason: null,
       statistics: [
         {
           statistic: "mean",
@@ -229,60 +231,67 @@ const dataComparison: DataDiffReport = {
           })),
         },
       ],
-      predictive_checks: {
-        checked: true,
-        n_subsample: 3,
-        per_variable_warnings: [
-          {
-            kind: "evaluated",
-            subject: {
-              target: { kind: "indicator", id: comparisonIndicator.observation.id },
-              check: "calibration",
-            },
-            outcome: "warning",
-            evidence: {
-              criterion: "calibration",
-              note: "Observed values fall outside the replicated range.",
-              value: 0.67,
-              lower: 0.7,
-              upper: 0.98,
-              lower_inclusive: true,
-              upper_inclusive: true,
-              display_value: "",
-              band_label: "",
-            },
-          },
-        ],
-        test_stats: [
-          {
-            indicator_id: comparisonIndicator.observation.id,
-            stat_name: "mean",
-            observed_value: 2.67,
-            rep_values: [1, 2, 3],
-            p_value: 0.33,
-            histogram: [1, 2, 3].map((value) => ({
-              bin_center: value,
-              bin_start: value - 0.5,
-              bin_end: value + 0.5,
-              count: 1,
-            })),
-          },
-        ],
-        overlays: [
-          {
-            indicator_id: comparisonIndicator.observation.id,
-            times: [0, 1, 2],
-            time_origin: null,
-            standardized: false,
-            observed: [1, 4, 3],
-            median: [1, 2, 3],
-            spaghetti_draws: [
-              [0, 1, 2],
-              [1, 2, 3],
-              [2, 3, 4],
+      predictive: {
+        kind: "comparison",
+        reference_side: "left",
+        evaluation: {
+          kind: "available",
+          value: {
+            checked: true,
+            n_subsample: 3,
+            per_variable_warnings: [
+              {
+                kind: "evaluated",
+                subject: {
+                  target: { kind: "indicator", id: comparisonIndicator.observation.id },
+                  check: "calibration",
+                },
+                outcome: "warning",
+                evidence: {
+                  criterion: "calibration",
+                  note: "Observed values fall outside the replicated range.",
+                  value: 0.67,
+                  lower: 0.7,
+                  upper: 0.98,
+                  lower_inclusive: true,
+                  upper_inclusive: true,
+                  display_value: "",
+                  band_label: "",
+                },
+              },
+            ],
+            test_stats: [
+              {
+                indicator_id: comparisonIndicator.observation.id,
+                stat_name: "mean",
+                observed_value: 2.67,
+                rep_values: [1, 2, 3],
+                p_value: 0.33,
+                histogram: [1, 2, 3].map((value) => ({
+                  bin_center: value,
+                  bin_start: value - 0.5,
+                  bin_end: value + 0.5,
+                  count: 1,
+                })),
+              },
+            ],
+            overlays: [
+              {
+                indicator_id: comparisonIndicator.observation.id,
+                times: [0, 1, 2],
+                time_origin: null,
+                standardized: false,
+                observed: [1, 4, 3],
+                median: [1, 2, 3],
+                spaghetti_draws: [
+                  [0, 1, 2],
+                  [1, 2, 3],
+                  [2, 3, 4],
+                ],
+              },
             ],
           },
-        ],
+        },
       },
     },
   ],
@@ -661,7 +670,9 @@ export function workbenchHandlers() {
           presentEntries(source.indicators).map(([id, series]) => [id, page(series)]),
         ),
         effect:
-          source.effect && snapshot.simulation.value.causal_result ? page(source.effect) : null,
+          source.effect && snapshot.simulation.value.causal.kind === "available"
+            ? page(source.effect)
+            : null,
       });
     }),
     http.post<

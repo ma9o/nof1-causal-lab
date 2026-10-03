@@ -24,7 +24,7 @@ from nof1_causal_lab.utils.window_expressions import WindowExpression
 
 from .duration import Duration
 from .identity import GitOid
-from .observations import ObservationSpec
+from .observations import AuthoredObservationSpec, ResolvedObservationSpec
 
 if TYPE_CHECKING:
     from nof1_causal_lab.workers.context import MeasurementContext
@@ -148,7 +148,7 @@ type ExtractionSpec = Annotated[
 class DataVariableSpec(Value):
     """Compose an observed variable with its data-owned extraction instructions."""
 
-    observation: ObservationSpec
+    observation: AuthoredObservationSpec
     extraction: ExtractionSpec
 
     @model_validator(mode="after")
@@ -217,11 +217,9 @@ class DataPreparationSpec(Value):
             raise ValueError("Prepared variables must have unique IDs")
         return self
 
-    def observation_schema(self) -> tuple[ObservationSpec, ...]:
+    def observation_schema(self) -> tuple[ResolvedObservationSpec, ...]:
         return tuple(
-            item.observation.resolved(
-                (item.observation.observation_window or self.default_window).source
-            )
+            item.observation.resolved(item.observation.observation_window or self.default_window)
             for item in self.variables
         )
 
@@ -246,7 +244,7 @@ class PreparedDataMetadata(Value):
     """Self-contained semantics and provenance of one prepared observation table."""
 
     source: DataSourceRef
-    variables: tuple[ObservationSpec, ...] = Field(min_length=1)
+    variables: tuple[ResolvedObservationSpec, ...] = Field(min_length=1)
     preparation: DataPreparationSpec | None = None
     time_origin: AwareDatetime | None = Field(
         description="Calendar instant of model day zero; null denotes a calendar-free history."
@@ -256,8 +254,6 @@ class PreparedDataMetadata(Value):
     def resolved_variables(self) -> Self:
         if len({item.id for item in self.variables}) != len(self.variables):
             raise ValueError("Prepared variables must have unique IDs")
-        if any(item.observation_window is None for item in self.variables):
-            raise ValueError("Prepared variables must record their resolved observation windows")
         if isinstance(self.source, FileSourceRef) != (self.preparation is not None):
             raise ValueError(
                 "File sources require preparation instructions; simulation "

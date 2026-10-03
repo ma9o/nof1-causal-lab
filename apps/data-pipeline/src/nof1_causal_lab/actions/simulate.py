@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from nof1_causal_lab.artifacts.availability import NotApplicable, Unavailable
 from nof1_causal_lab.artifacts.simulation import SimulationObservationLayout, SimulationReport
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.predictive.simulation import (
@@ -76,10 +77,9 @@ def simulate(
         raise ValueError("Simulation must retain its observation support")
     prediction = batch.prediction
     state_ids = tuple(numeric.state_ids(compiled))
-    indicator_ids = tuple(numeric.observation_ids(compiled))
     variables = tuple(
-        model.indicator(identity).observation.resolved(support.observation_windows[index])
-        for index, identity in enumerate(indicator_ids)
+        model.indicator(observation.id).observation.resolved(observation.observation_window)
+        for observation in compiled.observations
     )
     return SimulationReport(
         model=revision,
@@ -103,6 +103,9 @@ def simulate(
             mask=write_array(np.asarray(prediction.trajectory.observations_mask)),
         ),
         findings=tuple(findings),
+        causal=Unavailable(reason="Causal effect certification is pending.")
+        if design.interventions
+        else NotApplicable(reason="No intervention was requested."),
         reference_latent_paths=write_array(np.asarray(prediction.reference.latents))
         if prediction.reference is not None
         else None,

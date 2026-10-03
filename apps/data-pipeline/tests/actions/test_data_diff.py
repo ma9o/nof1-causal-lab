@@ -9,8 +9,9 @@ from pydantic import ValidationError
 
 from nof1_causal_lab.actions.data_diff import read_data_diff
 from nof1_causal_lab.actions.effects import ActionEffects
+from nof1_causal_lab.artifacts.availability import NotApplicable
 from nof1_causal_lab.artifacts.identity import GitRef
-from nof1_causal_lab.artifacts.observations import ObservationSpec
+from nof1_causal_lab.artifacts.observations import ResolvedObservationSpec
 from nof1_causal_lab.artifacts.simulation import (
     SimulationObservationLayout,
     SimulationReport,
@@ -27,7 +28,7 @@ from tests.git_fixtures import git_oid
 
 
 def _dataset(values, *, number=1, times=None, variable=None):
-    variable = variable or ObservationSpec(
+    variable = variable or ResolvedObservationSpec(
         id="indicator:y",
         name="Y",
         measurement_dtype="continuous",
@@ -38,7 +39,6 @@ def _dataset(values, *, number=1, times=None, variable=None):
     origin = datetime(1970, 1, 1, tzinfo=UTC)
     anchors = [origin + timedelta(days=day) for day in times]
     width = timedelta(days=1) if variable.support_kind.value == "interval" else timedelta()
-    assert variable.observation_window is not None
     frame = pl.DataFrame(
         {
             "indicator_id": [variable.id] * len(values),
@@ -84,9 +84,7 @@ def test_single_histories_report_values_missingness_and_schedule_changes():
     assert revised.kind == "revised"
     assert revised.before.value is None
     assert revised.after.value == 4
-    assert variable.predictive_checks is None
-    assert variable.reference_side is None
-    assert variable.predictive_unavailable_reason is None
+    assert variable.predictive.kind == "not_applicable"
     assert variable.comparison_issues == ("Observation schedules or measurement windows differ",)
     missing = next(item for item in variable.statistics if item.statistic == "missing_count")
     assert (missing.left, missing.right) == ((1,), (0,))
@@ -103,18 +101,20 @@ def test_replica_checks_are_symmetric_and_preserve_whole_history_statistics():
     ]
     forward = data_diff(replicas, observed).variables[0]
     backward = data_diff(observed, replicas).variables[0]
-    assert forward.reference_side == "right"
-    assert backward.reference_side == "left"
-    assert forward.predictive_checks == backward.predictive_checks
-    assert forward.predictive_checks is not None
-    stats = {item.stat_name: item for item in forward.predictive_checks.test_stats}
+    assert forward.predictive.kind == "comparison"
+    assert backward.predictive.kind == "comparison"
+    assert forward.predictive.reference_side == "right"
+    assert backward.predictive.reference_side == "left"
+    assert forward.predictive.evaluation == backward.predictive.evaluation
+    assert forward.predictive.evaluation.kind == "available"
+    stats = {item.stat_name: item for item in forward.predictive.evaluation.value.test_stats}
     assert stats["mean"].observed_value == pytest.approx(4 / 3)
     assert stats["mean"].rep_values == pytest.approx([4 / 3, 7 / 3, 10 / 3])
-    assert forward.predictive_checks.n_subsample == 3
+    assert forward.predictive.evaluation.value.n_subsample == 3
     assert len(forward.left) == 3
     # Many-to-many retains one summary per history, without implying paired draws.
     many = data_diff(replicas, [observed, _dataset([0, 1, 2, 3], number=9)]).variables[0]
-    assert many.predictive_checks is None
+    assert many.predictive.kind == "unavailable"
     means = next(item for item in many.statistics if item.statistic == "mean")
     assert len(means.left) == 3
     assert len(means.right) == 2
@@ -125,13 +125,16 @@ def test_measurement_mismatches_and_uncovered_times_do_not_produce_predictive_ch
     observed = _dataset([1, 2, 3])
     replicas = [_dataset([1, 2, 3], number=number, times=[0, 1, 2.5]) for number in (2, 3)]
     mismatch = data_diff(observed, replicas).variables[0]
-    assert mismatch.predictive_checks is None
-    assert mismatch.predictive_unavailable_reason is None
+    assert mismatch.predictive.kind == "comparison"
+    assert mismatch.predictive.reference_side == "left"
+    assert mismatch.predictive.evaluation.kind == "not_applicable"
     assert mismatch.comparison_issues == ("Observation schedules or measurement windows differ",)
     missing = data_diff(observed, [_dataset([1, None, 3], number=n) for n in (2, 3)]).variables[0]
-    assert missing.predictive_checks is None
+    assert missing.predictive.kind == "comparison"
+    assert missing.predictive.reference_side == "left"
+    assert missing.predictive.evaluation.kind == "unavailable"
     assert (
-        missing.predictive_unavailable_reason
+        missing.predictive.evaluation.reason
         == "Replicas contain missing values at observed anchors"
     )
     assert missing.comparison_issues == ()
@@ -140,7 +143,8 @@ def test_measurement_mismatches_and_uncovered_times_do_not_produce_predictive_ch
     interval = original_variable.revised(aggregation="mean")
     replicas = [_dataset([1, 2, 3], number=number, variable=interval) for number in (2, 3)]
     mismatch = data_diff(observed, replicas).variables[0]
-    assert mismatch.predictive_unavailable_reason is None
+    assert mismatch.predictive.kind == "comparison"
+    assert mismatch.predictive.evaluation.kind == "not_applicable"
     assert (
         "Measurement definitions differ; statistics describe each side separately"
         in mismatch.comparison_issues
@@ -172,9 +176,9 @@ def test_measurement_mismatches_and_uncovered_times_do_not_produce_predictive_ch
         for item in [_dataset([1, 2, 3], number=n) for n in (2, 3)]
     ]
     mismatch = data_diff(observed, floating).variables[0]
-    assert mismatch.predictive_checks is None
+    assert mismatch.predictive.kind == "comparison"
+    assert mismatch.predictive.evaluation.kind == "not_applicable"
     assert mismatch.right[0].time_origin is None
-    assert mismatch.predictive_unavailable_reason is None
     assert mismatch.comparison_issues == (
         "Calendar-free histories cannot be aligned to calendar-bound histories",
     )
@@ -182,7 +186,7 @@ def test_measurement_mismatches_and_uncovered_times_do_not_produce_predictive_ch
 
 @pytest.mark.inference(concern="predictive")
 def test_discrete_codebooks_compare_frequencies_and_keep_absent_variables_explicit():
-    variable = ObservationSpec(
+    variable = ResolvedObservationSpec(
         id="indicator:category",
         name="Category",
         measurement_dtype="categorical",
@@ -197,7 +201,8 @@ def test_discrete_codebooks_compare_frequencies_and_keep_absent_variables_explic
     assert proportions["c"].left == (0,)
     assert proportions["c"].right == pytest.approx((2 / 3, 2 / 3))
     assert not any(item.statistic == "mean" for item in result.statistics)
-    assert result.predictive_checks is None
+    assert result.predictive.kind == "comparison"
+    assert result.predictive.evaluation.kind == "unavailable"
     result = data_diff(a, _dataset([1, 2, 3], number=4))
     assert len(result.variables) == 2
     assert all("absent" in item.comparison_issues[0] for item in result.variables)
@@ -236,6 +241,7 @@ def test_reads_saved_draws_without_generation_or_writing_models(tmp_path, monkey
     observed = _dataset([1, 2, 3])
     values = np.asarray([[[0], [1], [2]], [[1], [2], [3]], [[2], [3], [4]]], dtype=float)
     report = SimulationReport(
+        causal=NotApplicable(reason="No intervention was requested."),
         model=GitRef(workspace_id="DIFF", revision=model.revision, path="model.json"),
         design=SimulationSpec(start=date(2026, 1, 1), horizon="2d"),
         time_origin=datetime(2026, 1, 1, tzinfo=UTC),
@@ -298,7 +304,7 @@ def test_reads_saved_draws_without_generation_or_writing_models(tmp_path, monkey
     result = read_data_diff("DIFF", request).model_dump(mode="json")
     assert len(result["left"]) == 3
     assert result["variables"][0]["left"][0]["time_origin"] == "2026-01-01T00:00:00Z"
-    assert result["variables"][0]["predictive_checks"]["n_subsample"] == 3
+    assert result["variables"][0]["predictive"]["evaluation"]["value"]["n_subsample"] == 3
     assert history.head() == commit
     assert sorted(store.repo.references) == refs_before
     assert store.list_revisions("model") == [model.revision]

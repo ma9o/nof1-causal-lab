@@ -14,6 +14,12 @@ import {
 } from "@/components/analysis-widgets/posterior/ppc-warnings-table";
 import { COMPARISON_COLORS } from "@/lib/dag/palette";
 
+function comparisonEvaluation(variable: DataVariableDiff) {
+  return variable.predictive.kind === "comparison"
+    ? variable.predictive.evaluation
+    : variable.predictive;
+}
+
 export function DataComparisonOutcome({
   context,
   report,
@@ -29,19 +35,19 @@ export function DataComparisonOutcome({
         </p>
       ))}
       {report.variables.map((variable) => {
+        const evaluation = comparisonEvaluation(variable);
+        const checks = evaluation.kind === "available" ? evaluation.value : null;
         const definition = [...variable.left, ...variable.right]
           .flatMap((history) => history.variable ?? [])
           .at(0);
         const reasons = [
           ...variable.comparison_issues,
-          ...(variable.predictive_checks?.per_variable_warnings
+          ...(checks?.per_variable_warnings
             .filter((finding) => finding.kind !== "evaluated" || finding.outcome !== "passed")
             .map((finding) =>
               finding.kind === "evaluated" ? finding.evidence.note : finding.detail,
             ) ?? []),
-          ...(variable.predictive_unavailable_reason
-            ? [variable.predictive_unavailable_reason]
-            : []),
+          ...(evaluation.kind === "unavailable" ? [evaluation.reason] : []),
         ];
         return reasons.map((reason) => (
           <p key={`${variable.indicator_id}-${reason}`}>
@@ -114,7 +120,8 @@ function VariableComparison({ variable }: { variable: DataVariableDiff }) {
   const definition = [...variable.left, ...variable.right]
     .flatMap((history) => history.variable ?? [])
     .at(0);
-  const checks = variable.predictive_checks;
+  const evaluation = comparisonEvaluation(variable);
+  const checks = evaluation.kind === "available" ? evaluation.value : null;
   return (
     <Section title={humanize(definition?.name ?? variable.indicator_id)} wide>
       <HistoryPlot
@@ -126,9 +133,7 @@ function VariableComparison({ variable }: { variable: DataVariableDiff }) {
           {reason}
         </Hint>
       ))}
-      {variable.predictive_unavailable_reason && (
-        <Hint>{variable.predictive_unavailable_reason}</Hint>
-      )}
+      {evaluation.kind === "unavailable" && <Hint>{evaluation.reason}</Hint>}
       {checks && (
         <PPCWarningsTable
           indicators={definition ? [definition] : []}

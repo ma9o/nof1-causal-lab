@@ -19,6 +19,8 @@ import { COMPARISON_COLORS } from "@/lib/dag/palette";
 
 /** Align saved timestamps for plotting; no resampling, imputation or pooled statistics. */
 export function dataComparisonHistory(variable: DataVariableDiff) {
+  const referenceSide =
+    variable.predictive.kind === "comparison" ? variable.predictive.reference_side : null;
   const histories = [...variable.left, ...variable.right];
   const definition = histories.flatMap((history) => history.variable ?? []).at(0);
   const anchors = [
@@ -28,14 +30,14 @@ export function dataComparisonHistory(variable: DataVariableDiff) {
   const series: HistoryLine[] = (["left", "right"] as const).flatMap((side) =>
     variable[side].map((history, index) => {
       const points = new Map(history.points.map((point) => [point.anchor_time, point.value]));
-      const reference = variable.reference_side === side;
+      const reference = referenceSide === side;
       return {
         id: `${side}-${index}`,
         label: `${reference ? "Observed" : side} · history ${index + 1}`,
         values: anchors.map((anchor) => points.get(anchor) ?? null),
         color: reference ? "var(--foreground)" : side === "left" ? "#64748b" : "#0ea5e9",
         emphasized: reference,
-        dashed: side === "left" && variable.reference_side === null,
+        dashed: side === "left" && referenceSide === null,
       };
     }),
   );
@@ -85,7 +87,7 @@ export function dataComparisonHistory(variable: DataVariableDiff) {
       ? origin
       : null,
     series,
-    pointsOnly: variable.reference_side === null,
+    pointsOnly: referenceSide === null,
     levels: definition?.ordinal_levels ?? definition?.categorical_levels ?? null,
   };
 }

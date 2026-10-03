@@ -35,7 +35,7 @@ if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.identification import IdentificationReport
     from nof1_causal_lab.artifacts.measurements import ObservationRecord
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.artifacts.observations import ObservationSpec
+    from nof1_causal_lab.artifacts.observations import ResolvedObservationSpec
     from nof1_causal_lab.artifacts.question import QuestionSpec
     from nof1_causal_lab.artifacts.validation_report import (
         DataProfileArtifact,
@@ -345,7 +345,7 @@ def observation_sample(panel: pl.DataFrame) -> tuple[ObservationRecord, ...]:
 
 def read_dataset(
     source: DataRef,
-    variables: tuple[ObservationSpec, ...],
+    variables: tuple[ResolvedObservationSpec, ...],
     observations: pl.DataFrame,
     time_origin: datetime | None,
 ) -> Dataset:

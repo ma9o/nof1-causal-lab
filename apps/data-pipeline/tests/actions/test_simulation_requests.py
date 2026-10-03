@@ -118,7 +118,7 @@ def _response(origin: datetime = datetime(2026, 1, 1, tzinfo=UTC)):
         "observations": "observations",
         "reference_latent_paths": "reference-paths",
         "reference_observations": "reference-observations",
-        "causal_result": result,
+        "causal": {"kind": "available", "value": result},
     }
 
 

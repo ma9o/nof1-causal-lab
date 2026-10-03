@@ -56,30 +56,32 @@
     "reference_observations": "storybook-only/reference-observations",
     "findings": [],
     "fit_reliability": "converged",
-    "causal_result": {
-      "outcome": "construct:6ca86c47aaf18b2472ce",
-      "labels": {
-        "construct:517d64db16ceb6e6a692": "natural_recovery_propensity",
-        "construct:4cfc4a70f9d59a668364": "past_escitalopram_response_tolerability",
-        "construct:47ab45d6fa00e93be7ee": "patient_taper_preference_beliefs",
-        "construct:7b3d7a5f98ae353c60b6": "taper_speed_dose_reduction",
-        "construct:b7418d1841c57d53abf8": "adherence_to_regimen",
-        "construct:27f64faaddd59b2ad491": "escitalopram_dose_taken",
-        "construct:4a7b8d4d0772b0b10e4e": "duration_current_escitalopram_use",
-        "construct:1ca8eec7961c69a0cbe1": "stable_withdrawal_susceptibility",
-        "construct:eb28b45b275c6732596f": "neuroadaptation_dependence_state",
-        "construct:2da513406663702e475d": "withdrawal_symptom_burden",
-        "construct:ac82920bb78125ab0aca": "external_stressful_events",
-        "construct:bb5a697c4e5f020f733d": "perceived_stress_burden",
-        "construct:07f8d9915eaa311c9e50": "physical_activity",
-        "construct:5bf588dc29d582cd7423": "sleep_circadian_disruption",
-        "construct:ecfbf689dbd8add308bb": "clinical_monitoring_rescue_care",
-        "construct:428de2b75c12e36ca19d": "other_psychotropic_or_somatic_treatments",
-        "construct:6ca86c47aaf18b2472ce": "internalizing_symptom_burden"
-      },
-      "warnings": ["Artificial Storybook simulation sim-1; not a fitted patient result."]
-    },
-    "causal_unavailable_reason": null
+    "causal": {
+      "kind": "available",
+      "value": {
+        "outcome": "construct:6ca86c47aaf18b2472ce",
+        "labels": {
+          "construct:517d64db16ceb6e6a692": "natural_recovery_propensity",
+          "construct:4cfc4a70f9d59a668364": "past_escitalopram_response_tolerability",
+          "construct:47ab45d6fa00e93be7ee": "patient_taper_preference_beliefs",
+          "construct:7b3d7a5f98ae353c60b6": "taper_speed_dose_reduction",
+          "construct:b7418d1841c57d53abf8": "adherence_to_regimen",
+          "construct:27f64faaddd59b2ad491": "escitalopram_dose_taken",
+          "construct:4a7b8d4d0772b0b10e4e": "duration_current_escitalopram_use",
+          "construct:1ca8eec7961c69a0cbe1": "stable_withdrawal_susceptibility",
+          "construct:eb28b45b275c6732596f": "neuroadaptation_dependence_state",
+          "construct:2da513406663702e475d": "withdrawal_symptom_burden",
+          "construct:ac82920bb78125ab0aca": "external_stressful_events",
+          "construct:bb5a697c4e5f020f733d": "perceived_stress_burden",
+          "construct:07f8d9915eaa311c9e50": "physical_activity",
+          "construct:5bf588dc29d582cd7423": "sleep_circadian_disruption",
+          "construct:ecfbf689dbd8add308bb": "clinical_monitoring_rescue_care",
+          "construct:428de2b75c12e36ca19d": "other_psychotropic_or_somatic_treatments",
+          "construct:6ca86c47aaf18b2472ce": "internalizing_symptom_burden"
+        },
+        "warnings": ["Artificial Storybook simulation sim-1; not a fitted patient result."]
+      }
+    }
   },
   {
     "model": {
@@ -138,30 +140,32 @@
     "reference_observations": "storybook-only/reference-observations",
     "findings": [],
     "fit_reliability": "converged",
-    "causal_result": {
-      "outcome": "construct:6ca86c47aaf18b2472ce",
-      "labels": {
-        "construct:517d64db16ceb6e6a692": "natural_recovery_propensity",
-        "construct:4cfc4a70f9d59a668364": "past_escitalopram_response_tolerability",
-        "construct:47ab45d6fa00e93be7ee": "patient_taper_preference_beliefs",
-        "construct:7b3d7a5f98ae353c60b6": "taper_speed_dose_reduction",
-        "construct:b7418d1841c57d53abf8": "adherence_to_regimen",
-        "construct:27f64faaddd59b2ad491": "escitalopram_dose_taken",
-        "construct:4a7b8d4d0772b0b10e4e": "duration_current_escitalopram_use",
-        "construct:1ca8eec7961c69a0cbe1": "stable_withdrawal_susceptibility",
-        "construct:eb28b45b275c6732596f": "neuroadaptation_dependence_state",
-        "construct:2da513406663702e475d": "withdrawal_symptom_burden",
-        "construct:ac82920bb78125ab0aca": "external_stressful_events",
-        "construct:bb5a697c4e5f020f733d": "perceived_stress_burden",
-        "construct:07f8d9915eaa311c9e50": "physical_activity",
-        "construct:5bf588dc29d582cd7423": "sleep_circadian_disruption",
-        "construct:ecfbf689dbd8add308bb": "clinical_monitoring_rescue_care",
-        "construct:428de2b75c12e36ca19d": "other_psychotropic_or_somatic_treatments",
-        "construct:6ca86c47aaf18b2472ce": "internalizing_symptom_burden"
-      },
-      "warnings": ["Artificial Storybook simulation sim-2; not a fitted patient result."]
-    },
-    "causal_unavailable_reason": null
+    "causal": {
+      "kind": "available",
+      "value": {
+        "outcome": "construct:6ca86c47aaf18b2472ce",
+        "labels": {
+          "construct:517d64db16ceb6e6a692": "natural_recovery_propensity",
+          "construct:4cfc4a70f9d59a668364": "past_escitalopram_response_tolerability",
+          "construct:47ab45d6fa00e93be7ee": "patient_taper_preference_beliefs",
+          "construct:7b3d7a5f98ae353c60b6": "taper_speed_dose_reduction",
+          "construct:b7418d1841c57d53abf8": "adherence_to_regimen",
+          "construct:27f64faaddd59b2ad491": "escitalopram_dose_taken",
+          "construct:4a7b8d4d0772b0b10e4e": "duration_current_escitalopram_use",
+          "construct:1ca8eec7961c69a0cbe1": "stable_withdrawal_susceptibility",
+          "construct:eb28b45b275c6732596f": "neuroadaptation_dependence_state",
+          "construct:2da513406663702e475d": "withdrawal_symptom_burden",
+          "construct:ac82920bb78125ab0aca": "external_stressful_events",
+          "construct:bb5a697c4e5f020f733d": "perceived_stress_burden",
+          "construct:07f8d9915eaa311c9e50": "physical_activity",
+          "construct:5bf588dc29d582cd7423": "sleep_circadian_disruption",
+          "construct:ecfbf689dbd8add308bb": "clinical_monitoring_rescue_care",
+          "construct:428de2b75c12e36ca19d": "other_psychotropic_or_somatic_treatments",
+          "construct:6ca86c47aaf18b2472ce": "internalizing_symptom_burden"
+        },
+        "warnings": ["Artificial Storybook simulation sim-2; not a fitted patient result."]
+      }
+    }
   },
   {
     "model": {
@@ -220,30 +224,32 @@
     "reference_observations": "storybook-only/reference-observations",
     "findings": [],
     "fit_reliability": "converged",
-    "causal_result": {
-      "outcome": "construct:6ca86c47aaf18b2472ce",
-      "labels": {
-        "construct:517d64db16ceb6e6a692": "natural_recovery_propensity",
-        "construct:4cfc4a70f9d59a668364": "past_escitalopram_response_tolerability",
-        "construct:47ab45d6fa00e93be7ee": "patient_taper_preference_beliefs",
-        "construct:7b3d7a5f98ae353c60b6": "taper_speed_dose_reduction",
-        "construct:b7418d1841c57d53abf8": "adherence_to_regimen",
-        "construct:27f64faaddd59b2ad491": "escitalopram_dose_taken",
-        "construct:4a7b8d4d0772b0b10e4e": "duration_current_escitalopram_use",
-        "construct:1ca8eec7961c69a0cbe1": "stable_withdrawal_susceptibility",
-        "construct:eb28b45b275c6732596f": "neuroadaptation_dependence_state",
-        "construct:2da513406663702e475d": "withdrawal_symptom_burden",
-        "construct:ac82920bb78125ab0aca": "external_stressful_events",
-        "construct:bb5a697c4e5f020f733d": "perceived_stress_burden",
-        "construct:07f8d9915eaa311c9e50": "physical_activity",
-        "construct:5bf588dc29d582cd7423": "sleep_circadian_disruption",
-        "construct:ecfbf689dbd8add308bb": "clinical_monitoring_rescue_care",
-        "construct:428de2b75c12e36ca19d": "other_psychotropic_or_somatic_treatments",
-        "construct:6ca86c47aaf18b2472ce": "internalizing_symptom_burden"
-      },
-      "warnings": ["Artificial Storybook simulation sim-3; not a fitted patient result."]
-    },
-    "causal_unavailable_reason": null
+    "causal": {
+      "kind": "available",
+      "value": {
+        "outcome": "construct:6ca86c47aaf18b2472ce",
+        "labels": {
+          "construct:517d64db16ceb6e6a692": "natural_recovery_propensity",
+          "construct:4cfc4a70f9d59a668364": "past_escitalopram_response_tolerability",
+          "construct:47ab45d6fa00e93be7ee": "patient_taper_preference_beliefs",
+          "construct:7b3d7a5f98ae353c60b6": "taper_speed_dose_reduction",
+          "construct:b7418d1841c57d53abf8": "adherence_to_regimen",
+          "construct:27f64faaddd59b2ad491": "escitalopram_dose_taken",
+          "construct:4a7b8d4d0772b0b10e4e": "duration_current_escitalopram_use",
+          "construct:1ca8eec7961c69a0cbe1": "stable_withdrawal_susceptibility",
+          "construct:eb28b45b275c6732596f": "neuroadaptation_dependence_state",
+          "construct:2da513406663702e475d": "withdrawal_symptom_burden",
+          "construct:ac82920bb78125ab0aca": "external_stressful_events",
+          "construct:bb5a697c4e5f020f733d": "perceived_stress_burden",
+          "construct:07f8d9915eaa311c9e50": "physical_activity",
+          "construct:5bf588dc29d582cd7423": "sleep_circadian_disruption",
+          "construct:ecfbf689dbd8add308bb": "clinical_monitoring_rescue_care",
+          "construct:428de2b75c12e36ca19d": "other_psychotropic_or_somatic_treatments",
+          "construct:6ca86c47aaf18b2472ce": "internalizing_symptom_burden"
+        },
+        "warnings": ["Artificial Storybook simulation sim-3; not a fitted patient result."]
+      }
+    }
   },
   {
     "model": {
@@ -303,30 +309,32 @@
     "reference_observations": "storybook-only/reference-observations",
     "findings": [],
     "fit_reliability": "converged",
-    "causal_result": {
-      "outcome": "construct:6ca86c47aaf18b2472ce",
-      "labels": {
-        "construct:517d64db16ceb6e6a692": "natural_recovery_propensity",
-        "construct:4cfc4a70f9d59a668364": "past_escitalopram_response_tolerability",
-        "construct:47ab45d6fa00e93be7ee": "patient_taper_preference_beliefs",
-        "construct:7b3d7a5f98ae353c60b6": "taper_speed_dose_reduction",
-        "construct:b7418d1841c57d53abf8": "adherence_to_regimen",
-        "construct:27f64faaddd59b2ad491": "escitalopram_dose_taken",
-        "construct:4a7b8d4d0772b0b10e4e": "duration_current_escitalopram_use",
-        "construct:1ca8eec7961c69a0cbe1": "stable_withdrawal_susceptibility",
-        "construct:eb28b45b275c6732596f": "neuroadaptation_dependence_state",
-        "construct:2da513406663702e475d": "withdrawal_symptom_burden",
-        "construct:ac82920bb78125ab0aca": "external_stressful_events",
-        "construct:bb5a697c4e5f020f733d": "perceived_stress_burden",
-        "construct:07f8d9915eaa311c9e50": "physical_activity",
-        "construct:5bf588dc29d582cd7423": "sleep_circadian_disruption",
-        "construct:ecfbf689dbd8add308bb": "clinical_monitoring_rescue_care",
-        "construct:428de2b75c12e36ca19d": "other_psychotropic_or_somatic_treatments",
-        "construct:6ca86c47aaf18b2472ce": "internalizing_symptom_burden"
-      },
-      "warnings": ["Artificial Storybook simulation sim-4; not a fitted patient result."]
-    },
-    "causal_unavailable_reason": null
+    "causal": {
+      "kind": "available",
+      "value": {
+        "outcome": "construct:6ca86c47aaf18b2472ce",
+        "labels": {
+          "construct:517d64db16ceb6e6a692": "natural_recovery_propensity",
+          "construct:4cfc4a70f9d59a668364": "past_escitalopram_response_tolerability",
+          "construct:47ab45d6fa00e93be7ee": "patient_taper_preference_beliefs",
+          "construct:7b3d7a5f98ae353c60b6": "taper_speed_dose_reduction",
+          "construct:b7418d1841c57d53abf8": "adherence_to_regimen",
+          "construct:27f64faaddd59b2ad491": "escitalopram_dose_taken",
+          "construct:4a7b8d4d0772b0b10e4e": "duration_current_escitalopram_use",
+          "construct:1ca8eec7961c69a0cbe1": "stable_withdrawal_susceptibility",
+          "construct:eb28b45b275c6732596f": "neuroadaptation_dependence_state",
+          "construct:2da513406663702e475d": "withdrawal_symptom_burden",
+          "construct:ac82920bb78125ab0aca": "external_stressful_events",
+          "construct:bb5a697c4e5f020f733d": "perceived_stress_burden",
+          "construct:07f8d9915eaa311c9e50": "physical_activity",
+          "construct:5bf588dc29d582cd7423": "sleep_circadian_disruption",
+          "construct:ecfbf689dbd8add308bb": "clinical_monitoring_rescue_care",
+          "construct:428de2b75c12e36ca19d": "other_psychotropic_or_somatic_treatments",
+          "construct:6ca86c47aaf18b2472ce": "internalizing_symptom_burden"
+        },
+        "warnings": ["Artificial Storybook simulation sim-4; not a fitted patient result."]
+      }
+    }
   },
   {
     "model": {
@@ -385,29 +393,31 @@
     "reference_observations": "storybook-only/reference-observations",
     "findings": [],
     "fit_reliability": "converged",
-    "causal_result": {
-      "outcome": "construct:6ca86c47aaf18b2472ce",
-      "labels": {
-        "construct:517d64db16ceb6e6a692": "natural_recovery_propensity",
-        "construct:4cfc4a70f9d59a668364": "past_escitalopram_response_tolerability",
-        "construct:47ab45d6fa00e93be7ee": "patient_taper_preference_beliefs",
-        "construct:7b3d7a5f98ae353c60b6": "taper_speed_dose_reduction",
-        "construct:b7418d1841c57d53abf8": "adherence_to_regimen",
-        "construct:27f64faaddd59b2ad491": "escitalopram_dose_taken",
-        "construct:4a7b8d4d0772b0b10e4e": "duration_current_escitalopram_use",
-        "construct:1ca8eec7961c69a0cbe1": "stable_withdrawal_susceptibility",
-        "construct:eb28b45b275c6732596f": "neuroadaptation_dependence_state",
-        "construct:2da513406663702e475d": "withdrawal_symptom_burden",
-        "construct:ac82920bb78125ab0aca": "external_stressful_events",
-        "construct:bb5a697c4e5f020f733d": "perceived_stress_burden",
-        "construct:07f8d9915eaa311c9e50": "physical_activity",
-        "construct:5bf588dc29d582cd7423": "sleep_circadian_disruption",
-        "construct:ecfbf689dbd8add308bb": "clinical_monitoring_rescue_care",
-        "construct:428de2b75c12e36ca19d": "other_psychotropic_or_somatic_treatments",
-        "construct:6ca86c47aaf18b2472ce": "internalizing_symptom_burden"
-      },
-      "warnings": ["Artificial Storybook simulation sim-5; not a fitted patient result."]
-    },
-    "causal_unavailable_reason": null
+    "causal": {
+      "kind": "available",
+      "value": {
+        "outcome": "construct:6ca86c47aaf18b2472ce",
+        "labels": {
+          "construct:517d64db16ceb6e6a692": "natural_recovery_propensity",
+          "construct:4cfc4a70f9d59a668364": "past_escitalopram_response_tolerability",
+          "construct:47ab45d6fa00e93be7ee": "patient_taper_preference_beliefs",
+          "construct:7b3d7a5f98ae353c60b6": "taper_speed_dose_reduction",
+          "construct:b7418d1841c57d53abf8": "adherence_to_regimen",
+          "construct:27f64faaddd59b2ad491": "escitalopram_dose_taken",
+          "construct:4a7b8d4d0772b0b10e4e": "duration_current_escitalopram_use",
+          "construct:1ca8eec7961c69a0cbe1": "stable_withdrawal_susceptibility",
+          "construct:eb28b45b275c6732596f": "neuroadaptation_dependence_state",
+          "construct:2da513406663702e475d": "withdrawal_symptom_burden",
+          "construct:ac82920bb78125ab0aca": "external_stressful_events",
+          "construct:bb5a697c4e5f020f733d": "perceived_stress_burden",
+          "construct:07f8d9915eaa311c9e50": "physical_activity",
+          "construct:5bf588dc29d582cd7423": "sleep_circadian_disruption",
+          "construct:ecfbf689dbd8add308bb": "clinical_monitoring_rescue_care",
+          "construct:428de2b75c12e36ca19d": "other_psychotropic_or_somatic_treatments",
+          "construct:6ca86c47aaf18b2472ce": "internalizing_symptom_burden"
+        },
+        "warnings": ["Artificial Storybook simulation sim-5; not a fitted patient result."]
+      }
+    }
   }
 ]

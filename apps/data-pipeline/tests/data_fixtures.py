@@ -37,19 +37,14 @@ def metadata_for_model(model):
 
 
 def simulation_layout(model, times, mask, write_array):
-    from nof1_causal_lab.models.ssm import numerics as numeric
     from nof1_causal_lab.models.ssm.observation_support import simulation_observation_support
 
-    support = simulation_observation_support(compile_model_fixture(model), np.asarray(times))
+    compiled = compile_model_fixture(model)
+    support = simulation_observation_support(compiled, np.asarray(times))
     return SimulationObservationLayout(
         variables=tuple(
-            model.indicator(identity).observation.resolved(
-                (
-                    model.indicator(identity).observation.observation_window
-                    or model.measurement_clock
-                ).source
-            )
-            for identity in numeric.observation_ids(compile_model_fixture(model))
+            model.indicator(observation.id).observation.resolved(observation.observation_window)
+            for observation in compiled.observations
         ),
         support_start_times=write_array(support.support_start_times),
         support_end_times=write_array(support.support_end_times),

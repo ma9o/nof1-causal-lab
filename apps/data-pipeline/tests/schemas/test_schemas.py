@@ -33,7 +33,7 @@ from nof1_causal_lab.artifacts.identity import (
     ParameterId,
 )
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.artifacts.observations import ObservationSpec
+from nof1_causal_lab.artifacts.observations import AuthoredObservationSpec
 from nof1_causal_lab.artifacts.question import QuestionSpec
 from nof1_causal_lab.utils.observation_semantics import (
     AnchorPolicy,
@@ -174,7 +174,8 @@ class TestDataVariable:
         """Ordinal dtype without ordinal_levels is rejected."""
         with pytest.raises(ValueError, match="ordinal_levels is required"):
             DataVariableSpec(
-                observation=ObservationSpec(
+                observation=AuthoredObservationSpec(
+                    observation_window=None,
                     id="indicator:036fd134b9ad32d7a2ca",
                     name="pain",
                     measurement_dtype="ordinal",
@@ -187,7 +188,8 @@ class TestDataVariable:
         """Ordinal with only one level is rejected."""
         with pytest.raises(ValueError, match="at least 2 items"):
             DataVariableSpec(
-                observation=ObservationSpec(
+                observation=AuthoredObservationSpec(
+                    observation_window=None,
                     id="indicator:036fd134b9ad32d7a2ca",
                     name="pain",
                     measurement_dtype="ordinal",
@@ -201,7 +203,8 @@ class TestDataVariable:
         """Ordinal with duplicate levels is rejected."""
         with pytest.raises(ValueError, match="duplicate labels"):
             DataVariableSpec(
-                observation=ObservationSpec(
+                observation=AuthoredObservationSpec(
+                    observation_window=None,
                     id="indicator:036fd134b9ad32d7a2ca",
                     name="pain",
                     measurement_dtype="ordinal",
@@ -214,7 +217,8 @@ class TestDataVariable:
     def test_ordinal_valid_levels(self):
         """Ordinal with valid levels passes."""
         ind = DataVariableSpec(
-            observation=ObservationSpec(
+            observation=AuthoredObservationSpec(
+                observation_window=None,
                 id="indicator:036fd134b9ad32d7a2ca",
                 name="pain",
                 measurement_dtype="ordinal",
@@ -228,7 +232,8 @@ class TestDataVariable:
     def test_categorical_requires_levels(self):
         with pytest.raises(ValueError, match="categorical_levels is required"):
             DataVariableSpec(
-                observation=ObservationSpec(
+                observation=AuthoredObservationSpec(
+                    observation_window=None,
                     id="indicator:73fed6c52a41057ef02f",
                     name="location",
                     measurement_dtype="categorical",
@@ -240,7 +245,8 @@ class TestDataVariable:
     def test_categorical_needs_at_least_two_levels(self):
         with pytest.raises(ValueError, match="at least 2 items"):
             DataVariableSpec(
-                observation=ObservationSpec(
+                observation=AuthoredObservationSpec(
+                    observation_window=None,
                     id="indicator:73fed6c52a41057ef02f",
                     name="location",
                     measurement_dtype="categorical",
@@ -253,7 +259,8 @@ class TestDataVariable:
     def test_categorical_rejects_duplicate_levels(self):
         with pytest.raises(ValueError, match="duplicate labels"):
             DataVariableSpec(
-                observation=ObservationSpec(
+                observation=AuthoredObservationSpec(
+                    observation_window=None,
                     id="indicator:73fed6c52a41057ef02f",
                     name="location",
                     measurement_dtype="categorical",
@@ -266,7 +273,8 @@ class TestDataVariable:
     def test_non_ordinal_ignores_levels(self):
         """Non-ordinal dtype doesn't require ordinal_levels."""
         ind = DataVariableSpec(
-            observation=ObservationSpec(
+            observation=AuthoredObservationSpec(
+                observation_window=None,
                 id="indicator:c5b118ae552981435d7b",
                 name="weight",
                 measurement_dtype="continuous",
@@ -279,7 +287,8 @@ class TestDataVariable:
     def test_semantic_default(self):
         """Extraction mode defaults to 'semantic'."""
         ind = DataVariableSpec(
-            observation=ObservationSpec(
+            observation=AuthoredObservationSpec(
+                observation_window=None,
                 id="indicator:e05e217de7f4442abdc5",
                 name="mood_rating",
                 measurement_dtype="continuous",
@@ -307,7 +316,8 @@ class TestDataVariable:
     def test_computed_valid(self):
         """Computed indicator with single source column and continuous dtype passes."""
         ind = DataVariableSpec(
-            observation=ObservationSpec(
+            observation=AuthoredObservationSpec(
+                observation_window=None,
                 id="indicator:aa573b5cc0c0a1837e05",
                 name="avg_heart_rate",
                 measurement_dtype="continuous",
@@ -322,7 +332,8 @@ class TestDataVariable:
     def test_computed_count_dtype(self):
         """Computed indicator with count dtype passes."""
         ind = DataVariableSpec(
-            observation=ObservationSpec(
+            observation=AuthoredObservationSpec(
+                observation_window=None,
                 id="indicator:a0ce08437c19d06aafd1",
                 name="total_steps",
                 measurement_dtype="count",
@@ -337,7 +348,8 @@ class TestDataVariable:
     def test_computed_binary_point_dtype(self):
         """Computed indicator with binary dtype passes for direct point aggregation."""
         ind = DataVariableSpec(
-            observation=ObservationSpec(
+            observation=AuthoredObservationSpec(
+                observation_window=None,
                 id="indicator:58ba7e8b022133d4764f",
                 name="alarm_state",
                 measurement_dtype="binary",
@@ -353,7 +365,8 @@ class TestDataVariable:
     def test_computed_ordinal_point_dtype(self):
         """Computed indicator with ordinal dtype passes for direct point aggregation."""
         ind = DataVariableSpec(
-            observation=ObservationSpec(
+            observation=AuthoredObservationSpec(
+                observation_window=None,
                 id="indicator:745132edf4775f59f221",
                 name="mood_label",
                 measurement_dtype="ordinal",
@@ -370,7 +383,8 @@ class TestDataVariable:
     def test_computed_categorical_point_dtype(self):
         """Computed indicator with categorical dtype passes for direct point aggregation."""
         ind = DataVariableSpec(
-            observation=ObservationSpec(
+            observation=AuthoredObservationSpec(
+                observation_window=None,
                 id="indicator:42f1f2a7a4c92ee606b6",
                 name="care_setting",
                 measurement_dtype="categorical",
@@ -388,7 +402,8 @@ class TestDataVariable:
         """Direct computed indicators with 0 or 2+ source_columns are rejected."""
         with pytest.raises(ValueError, match="source_column"):
             DataVariableSpec(
-                observation=ObservationSpec(
+                observation=AuthoredObservationSpec(
+                    observation_window=None,
                     id="indicator:c21b43949b3712e734c8",
                     name="avg_hr",
                     measurement_dtype="continuous",
@@ -400,7 +415,8 @@ class TestDataVariable:
             )
         with pytest.raises(ValueError, match="source_column"):
             DataVariableSpec(
-                observation=ObservationSpec(
+                observation=AuthoredObservationSpec(
+                    observation_window=None,
                     id="indicator:c21b43949b3712e734c8",
                     name="avg_hr",
                     measurement_dtype="continuous",
@@ -415,7 +431,8 @@ class TestDataVariable:
     def test_computed_rule_allows_multi_source_deterministic_formula(self):
         """Computed rules can reference multiple source columns deterministically."""
         ind = DataVariableSpec(
-            observation=ObservationSpec(
+            observation=AuthoredObservationSpec(
+                observation_window=None,
                 id="indicator:e33fbf156ca312595e47",
                 name="mean_arterial_pressure",
                 measurement_dtype="continuous",
@@ -457,7 +474,8 @@ class TestDataVariable:
         """computed_rule must reference only declared source_columns."""
         with pytest.raises(ValueError, match="references undeclared source_columns"):
             DataVariableSpec(
-                observation=ObservationSpec(
+                observation=AuthoredObservationSpec(
+                    observation_window=None,
                     id="indicator:0c111e9b74f243fbc086",
                     name="glucose_out_of_range",
                     measurement_dtype="count",
@@ -474,7 +492,8 @@ class TestDataVariable:
         """computed_rule must actually use at least one declared source column."""
         with pytest.raises(ValueError, match="must reference at least 1 source_column"):
             DataVariableSpec(
-                observation=ObservationSpec(
+                observation=AuthoredObservationSpec(
+                    observation_window=None,
                     id="indicator:4aa7a5f09fd3489f4f2e",
                     name="constant_flag",
                     measurement_dtype="binary",
@@ -493,7 +512,8 @@ class TestDataVariable:
             ValueError, match="aggregation 'mean' requires measurement_dtype='continuous'"
         ):
             DataVariableSpec(
-                observation=ObservationSpec(
+                observation=AuthoredObservationSpec(
+                    observation_window=None,
                     id="indicator:58ba7e8b022133d4764f",
                     name="alarm_state",
                     measurement_dtype="binary",
@@ -738,7 +758,7 @@ class TestIndicatorObservationSemantics:
 class TestIndicatorObservationWindow:
     def test_valid_observation_window(self):
         indicator = DataVariableSpec(
-            observation=ObservationSpec(
+            observation=AuthoredObservationSpec(
                 id="indicator:b41c85c254676b4bc588",
                 name="fortnightly_mood",
                 measurement_dtype="continuous",
@@ -754,7 +774,7 @@ class TestIndicatorObservationWindow:
     def test_invalid_observation_window(self):
         with pytest.raises(ValueError, match="Invalid duration"):
             DataVariableSpec(
-                observation=ObservationSpec(
+                observation=AuthoredObservationSpec(
                     id="indicator:b41c85c254676b4bc588",
                     name="fortnightly_mood",
                     measurement_dtype="continuous",
@@ -795,7 +815,8 @@ def test_window_expression_serializes_without_a_wrapper():
 def test_computed_measurement_cannot_claim_different_summary_semantics(expression, aggregation):
     with pytest.raises(ValidationError, match="computed_rule"):
         DataVariableSpec(
-            observation=ObservationSpec(
+            observation=AuthoredObservationSpec(
+                observation_window=None,
                 id="indicator:reading",
                 name="reading",
                 measurement_dtype="continuous",

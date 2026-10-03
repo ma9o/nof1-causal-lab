@@ -28,7 +28,7 @@ from nof1_causal_lab.artifacts.data_preparation import (
     PreparedDataMetadata,
     SemanticExtractionSpec,
 )
-from nof1_causal_lab.artifacts.observations import ObservationSpec
+from nof1_causal_lab.artifacts.observations import AuthoredObservationSpec
 from nof1_causal_lab.artifacts.validation_report import DataProfileArtifact
 from nof1_causal_lab.study.state import StudyState
 from nof1_causal_lab.study.store import ArtifactStore
@@ -54,15 +54,20 @@ def test_preparation_without_model_combines_computed_and_semantic_workers(monkey
         context="Daily diary scoring",
         variables=(
             DataVariableSpec(
-                observation=ObservationSpec(
-                    id="indicator:steps", name="steps", measurement_dtype="count", aggregation="sum"
+                observation=AuthoredObservationSpec(
+                    observation_window=None,
+                    id="indicator:steps",
+                    name="steps",
+                    measurement_dtype="count",
+                    aggregation="sum",
                 ),
                 extraction=ComputedExtractionSpec(
                     how_to_measure="Total recorded steps", source_columns=("steps",), fill_null=0
                 ),
             ),
             DataVariableSpec(
-                observation=ObservationSpec(
+                observation=AuthoredObservationSpec(
+                    observation_window=None,
                     id="indicator:stress",
                     name="stress",
                     measurement_dtype="ordinal",
@@ -201,7 +206,8 @@ def test_declared_categorical_codebook_validates_and_encodes_normalized_labels(
         default_window="1d",
         variables=(
             DataVariableSpec(
-                observation=ObservationSpec(
+                observation=AuthoredObservationSpec(
+                    observation_window=None,
                     id="indicator:place",
                     name="place",
                     measurement_dtype="categorical",

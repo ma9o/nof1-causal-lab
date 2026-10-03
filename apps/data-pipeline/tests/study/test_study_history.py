@@ -7,6 +7,7 @@ import pytest
 
 from nof1_causal_lab.actions.contracts import EditModelRequest
 from nof1_causal_lab.actions.effects import ActionEffects
+from nof1_causal_lab.artifacts.availability import NotApplicable
 from nof1_causal_lab.artifacts.duration import Duration
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.study.errors import StudyLookupError
@@ -315,6 +316,7 @@ def test_timeline_links_named_arguments_and_check_reads():
         elif action == "simulate":
             ref = GitRef(workspace_id="STUDY", revision=inputs["model_revision"], path="model.json")
             report = SimulationReport(
+                causal=NotApplicable(reason="No intervention was requested."),
                 model=ref,
                 design=SimulationSpec(start=date(2026, 1, 1), horizon="10d"),
                 time_origin=datetime(2026, 1, 1, tzinfo=UTC),

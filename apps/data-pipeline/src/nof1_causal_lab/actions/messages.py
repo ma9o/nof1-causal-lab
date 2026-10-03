@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING, Literal
 
+from nof1_causal_lab.artifacts.availability import Unavailable
 from nof1_causal_lab.artifacts.checks import Evaluated, NotEvaluated
 from nof1_causal_lab.artifacts.identification import IdentificationReport
 from nof1_causal_lab.artifacts.model_checks import EvaluatedPredictiveChecks
@@ -111,7 +112,7 @@ def completion_messages[ResultT](
             labels["PREDICTIVE_CHECK_FAILED"] = "warn"
         if any(isinstance(finding, NotEvaluated) for finding in simulation.findings):
             labels["SIMULATION_CHECK_NOT_EVALUATED"] = "info"
-        if simulation.causal_unavailable_reason is not None:
+        if isinstance(simulation.causal, Unavailable):
             labels["CAUSAL_EFFECT_NOT_REPORTABLE"] = "info"
     return tuple(
         ActionMessage(timestamp=timestamp, level=level, label=label)

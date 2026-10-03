@@ -14,11 +14,11 @@ from nof1_causal_lab.utils.observation_semantics import AnchorPolicy
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from nof1_causal_lab.artifacts.observations import ObservationSpec
+    from nof1_causal_lab.artifacts.observations import ResolvedObservationSpec
 
 
 def validate_observation_rows(
-    data: pl.DataFrame, variables: Sequence[ObservationSpec]
+    data: pl.DataFrame, variables: Sequence[ResolvedObservationSpec]
 ) -> pl.DataFrame:
     """Normalize UTC timestamps and validate values/support without filling or encoding."""
     columns = observation_row_schema()
@@ -61,8 +61,6 @@ def validate_observation_rows(
         ):
             if rows[field].null_count() or not (rows[field] == expected).all():
                 raise ValueError(f"Observation {variable.id} has inconsistent {field}")
-        if variable.observation_window is None:
-            raise ValueError("Prepared variables must define their measurement windows")
         if any(
             window is None or Duration(window).seconds != variable.observation_window.seconds
             for window in rows["observation_window"].unique()
@@ -223,7 +221,7 @@ def observation_row_schema() -> dict[str, pl.DataType | type[pl.DataType]]:
 
 def annotate_observation_rows(
     df: pl.DataFrame,
-    variables: Sequence[ObservationSpec],
+    variables: Sequence[ResolvedObservationSpec],
     *,
     time_col: str = "timestamp",
 ) -> pl.DataFrame:
@@ -255,9 +253,7 @@ def annotate_observation_rows(
             "support_kind_meta": variable.support_kind.value,
             "summary_operator_meta": variable.summary_operator.value,
             "anchor_policy_meta": variable.anchor_policy.value,
-            "observation_window_meta": variable.observation_window.source
-            if variable.observation_window is not None
-            else None,
+            "observation_window_meta": variable.observation_window.source,
         }
         for variable in variables
     ]

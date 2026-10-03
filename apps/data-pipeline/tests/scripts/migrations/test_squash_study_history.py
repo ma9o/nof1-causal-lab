@@ -11,6 +11,7 @@ import pytest
 from scripts.migrations.squash_study_history import copy_squashed, plan_squash
 
 from nof1_causal_lab.actions.effects import ActionEffects
+from nof1_causal_lab.artifacts.availability import NotApplicable
 from nof1_causal_lab.artifacts.checks import NotEvaluated
 from nof1_causal_lab.artifacts.identity import GitOid, GitRef
 from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
@@ -188,6 +189,7 @@ def _simulate(history, *, model_revision=None):
     if state.has("panel"):
         pins["panel"] = state.current["panel"].revision
     report = SimulationReport(
+        causal=NotApplicable(reason="No intervention was requested."),
         model=GitRef(workspace_id="study", revision=pins["model"], path="model.json"),
         design=SimulationSpec(start=date(2026, 1, 1), horizon="1d"),
         time_origin=datetime(2026, 1, 1, tzinfo=UTC),

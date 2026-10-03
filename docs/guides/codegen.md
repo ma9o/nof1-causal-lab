@@ -123,6 +123,14 @@ defaulted field is required, including a nullable field emitted as `null`.
 Validation schemas describe inputs independently, so an input default may be
 omitted. Fields excluded from serialization do not appear in output schemas.
 
+[Observation specifications](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/observations.py)
+share one generic owner for authored and resolved windows. Prepared metadata,
+saved simulations and dataset readers consume the resolved specialization.
+[Result availability](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/availability.py)
+uses shared payload variants for simulation effects, predictive comparisons and
+retained parameter draws; consumers narrow their discriminator before reading
+the payload or its absence reason.
+
 [Assessments](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/checks.py) carry a producer's typed subject and evidence, or its explicit reason for unavailable evaluation. Consume those alternatives directly. Scientific classifications and plot series come from the backend. [Inference reports](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/posterior.py) compose a compact core with full plot detail; snapshot fields declare the core type, so serialization omits detail without filtering or reparsing owned values.
 
 - **New/changed field**: edit the owning Python model.

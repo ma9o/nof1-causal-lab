@@ -167,7 +167,7 @@ export function PosteriorPairs({ context }: { context: ScopeContext }) {
   const report = useInferenceReport(context.model);
   const [xId, setX] = useState<string | null>(null);
   const [yId, setY] = useState<string | null>(null);
-  const columns = draws.data?.columns ?? [];
+  const columns = draws.data?.kind === "available" ? draws.data.value : [];
   const x = columns.find((column) => column.subject.element_id === xId) ?? columns.at(0);
   const y =
     columns.find((column) => column.subject.element_id === yId) ??
@@ -179,8 +179,8 @@ export function PosteriorPairs({ context }: { context: ScopeContext }) {
         <Hint issue>{draws.error.message}</Hint>
       ) : draws.isLoading ? (
         <Hint>Loading retained draws…</Hint>
-      ) : draws.data?.unavailable_reason ? (
-        <Hint>{draws.data.unavailable_reason}</Hint>
+      ) : draws.data?.kind === "unavailable" ? (
+        <Hint>{draws.data.reason}</Hint>
       ) : x ? (
         <>
           {(

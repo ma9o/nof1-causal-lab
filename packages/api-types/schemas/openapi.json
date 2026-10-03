@@ -3134,6 +3134,73 @@
         "title": "AuthoredLawProvenance",
         "description": "The current laws have authored ancestry without retained fitting."
       },
+      "Available_CausalEffectResult_": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "available",
+            "title": "Kind",
+            "default": "available"
+          },
+          "value": {
+            "$ref": "#/components/schemas/CausalEffectResult"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "value"
+        ],
+        "title": "Available[CausalEffectResult]",
+        "x-typescript-type": "Available<CausalEffectResult>"
+      },
+      "Available_PosteriorPredictiveChecks_": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "available",
+            "title": "Kind",
+            "default": "available"
+          },
+          "value": {
+            "$ref": "#/components/schemas/PosteriorPredictiveChecks"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "value"
+        ],
+        "title": "Available[PosteriorPredictiveChecks]",
+        "x-typescript-type": "Available<PosteriorPredictiveChecks>"
+      },
+      "Available_tuple_ParameterDrawColumn__________": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "available",
+            "title": "Kind",
+            "default": "available"
+          },
+          "value": {
+            "items": {
+              "$ref": "#/components/schemas/ParameterDrawColumn"
+            },
+            "type": "array",
+            "title": "Value"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "value"
+        ],
+        "title": "Available[tuple[ParameterDrawColumn, ...]]",
+        "x-typescript-type": "Available<readonly (ParameterDrawColumn)[]>"
+      },
       "BernoulliLogitsLawSpec_Expression_-Input": {
         "properties": {
           "distribution": {
@@ -4956,7 +5023,7 @@
           "variable": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ObservationSpec-Output"
+                "$ref": "#/components/schemas/ObservationSpec_Duration_"
               },
               {
                 "type": "null"
@@ -5129,41 +5196,8 @@
             "type": "array",
             "title": "Comparison Issues"
           },
-          "reference_side": {
-            "anyOf": [
-              {
-                "type": "string",
-                "enum": [
-                  "left",
-                  "right"
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Reference Side"
-          },
-          "predictive_checks": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/PosteriorPredictiveChecks"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "predictive_unavailable_reason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Predictive Unavailable Reason"
+          "predictive": {
+            "$ref": "#/components/schemas/PredictiveComparisonResult"
           }
         },
         "additionalProperties": false,
@@ -5175,9 +5209,7 @@
           "changes",
           "statistics",
           "comparison_issues",
-          "reference_side",
-          "predictive_checks",
-          "predictive_unavailable_reason"
+          "predictive"
         ],
         "title": "DataVariableDiff",
         "description": "Definitions, histories and comparisons for one persistent observation identity."
@@ -5185,7 +5217,7 @@
       "DataVariableSpec-Input": {
         "properties": {
           "observation": {
-            "$ref": "#/components/schemas/ObservationSpec-Input"
+            "$ref": "#/components/schemas/ObservationSpec_Annotated_Union_Duration__NoneType___FieldInfo_annotation_NoneType__required_False__default_None___-Input"
           },
           "extraction": {
             "$ref": "#/components/schemas/ExtractionSpec-Input"
@@ -5203,7 +5235,7 @@
       "DataVariableSpec-Output": {
         "properties": {
           "observation": {
-            "$ref": "#/components/schemas/ObservationSpec-Output"
+            "$ref": "#/components/schemas/ObservationSpec_Annotated_Union_Duration__NoneType___FieldInfo_annotation_NoneType__required_False__default_None___-Output"
           },
           "extraction": {
             "$ref": "#/components/schemas/ExtractionSpec-Output"
@@ -5846,6 +5878,50 @@
         ],
         "title": "Evaluated[str, str]",
         "x-typescript-type": "Evaluated<string, string>"
+      },
+      "Evaluation_CausalEffectResult_": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Available_CausalEffectResult_"
+          },
+          {
+            "$ref": "#/components/schemas/Unavailable"
+          },
+          {
+            "$ref": "#/components/schemas/NotApplicable"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "kind",
+          "mapping": {
+            "available": "#/components/schemas/Available_CausalEffectResult_",
+            "not_applicable": "#/components/schemas/NotApplicable",
+            "unavailable": "#/components/schemas/Unavailable"
+          }
+        },
+        "x-typescript-type": "Evaluation<CausalEffectResult>"
+      },
+      "Evaluation_PosteriorPredictiveChecks_": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Available_PosteriorPredictiveChecks_"
+          },
+          {
+            "$ref": "#/components/schemas/Unavailable"
+          },
+          {
+            "$ref": "#/components/schemas/NotApplicable"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "kind",
+          "mapping": {
+            "available": "#/components/schemas/Available_PosteriorPredictiveChecks_",
+            "not_applicable": "#/components/schemas/NotApplicable",
+            "unavailable": "#/components/schemas/Unavailable"
+          }
+        },
+        "x-typescript-type": "Evaluation<PosteriorPredictiveChecks>"
       },
       "Expression-Input": {
         "oneOf": [
@@ -7278,7 +7354,7 @@
       "IndicatorSpec-Input": {
         "properties": {
           "observation": {
-            "$ref": "#/components/schemas/ObservationSpec-Input"
+            "$ref": "#/components/schemas/ObservationSpec_Annotated_Union_Duration__NoneType___FieldInfo_annotation_NoneType__required_False__default_None___-Input"
           },
           "likelihood": {
             "anyOf": [
@@ -7307,7 +7383,7 @@
       "IndicatorSpec-Output": {
         "properties": {
           "observation": {
-            "$ref": "#/components/schemas/ObservationSpec-Output"
+            "$ref": "#/components/schemas/ObservationSpec_Annotated_Union_Duration__NoneType___FieldInfo_annotation_NoneType__required_False__default_None___-Output"
           },
           "likelihood": {
             "anyOf": [
@@ -9707,6 +9783,28 @@
         "title": "NormalLawSpec[Expression]",
         "x-typescript-type": "NormalLawSpec<Expression>"
       },
+      "NotApplicable": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "not_applicable",
+            "title": "Kind",
+            "default": "not_applicable"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "reason"
+        ],
+        "title": "NotApplicable",
+        "description": "The selected operation does not call for this result."
+      },
       "NotEvaluatedReason": {
         "anyOf": [
           {
@@ -10344,7 +10442,7 @@
         "title": "ObservationRecord",
         "description": "Canonical serialized extraction observation row."
       },
-      "ObservationSpec-Input": {
+      "ObservationSpec_Annotated_Union_Duration__NoneType___FieldInfo_annotation_NoneType__required_False__default_None___-Input": {
         "properties": {
           "id": {
             "$ref": "#/components/schemas/IndicatorId-Input",
@@ -10414,10 +10512,10 @@
           "measurement_dtype",
           "aggregation"
         ],
-        "title": "ObservationSpec",
-        "description": "A stable observed variable, reusable across scientific model definitions."
+        "title": "ObservationSpec[Annotated[Union[Duration, NoneType], FieldInfo(annotation=NoneType, required=False, default=None)]]",
+        "x-typescript-type": "ObservationSpec<string | null>"
       },
-      "ObservationSpec-Output": {
+      "ObservationSpec_Annotated_Union_Duration__NoneType___FieldInfo_annotation_NoneType__required_False__default_None___-Output": {
         "properties": {
           "id": {
             "$ref": "#/components/schemas/IndicatorId-Output",
@@ -10490,8 +10588,77 @@
           "ordinal_levels",
           "categorical_levels"
         ],
-        "title": "ObservationSpec",
-        "description": "A stable observed variable, reusable across scientific model definitions."
+        "title": "ObservationSpec[Annotated[Union[Duration, NoneType], FieldInfo(annotation=NoneType, required=False, default=None)]]",
+        "x-typescript-type": "ObservationSpec<string | null>"
+      },
+      "ObservationSpec_Duration_": {
+        "properties": {
+          "id": {
+            "$ref": "#/components/schemas/IndicatorId-Output",
+            "description": "Persistent identity. Preserve when revising or renaming."
+          },
+          "name": {
+            "type": "string",
+            "title": "Name",
+            "description": "Indicator name (e.g., 'hrv', 'self_reported_stress')"
+          },
+          "measurement_dtype": {
+            "$ref": "#/components/schemas/MeasurementDtype",
+            "description": "'continuous', 'binary', 'count', 'ordinal', 'categorical'"
+          },
+          "aggregation": {
+            "$ref": "#/components/schemas/SummaryOperator",
+            "description": "Aggregation function applied when bucketing raw extractions within the indicator support window. Supported operators: first, last, sum, count, mean, std. A computed_rule must produce this same summary."
+          },
+          "observation_window": {
+            "type": "string",
+            "title": "Observation Window",
+            "description": "Optional duration string describing the support window summarized by this indicator, in positive fixed units s, m, h, d or w (for example '2w'). Resolved by the preparation window or the generative model clock."
+          },
+          "ordinal_levels": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ordinal Levels",
+            "description": "Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding."
+          },
+          "categorical_levels": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Categorical Levels",
+            "description": "Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding."
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "measurement_dtype",
+          "aggregation",
+          "observation_window",
+          "ordinal_levels",
+          "categorical_levels"
+        ],
+        "title": "ObservationSpec[Duration]",
+        "x-typescript-type": "ObservationSpec<string>"
       },
       "OrderedLogisticLawSpec_Expression_-Input": {
         "properties": {
@@ -10903,34 +11070,21 @@
         "title": "ParameterDrawColumn"
       },
       "ParameterDraws": {
-        "properties": {
-          "columns": {
-            "items": {
-              "$ref": "#/components/schemas/ParameterDrawColumn"
-            },
-            "type": "array",
-            "title": "Columns"
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/Available_tuple_ParameterDrawColumn__________"
           },
-          "unavailable_reason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Unavailable Reason"
+          {
+            "$ref": "#/components/schemas/Unavailable"
           }
-        },
-        "additionalProperties": false,
-        "type": "object",
-        "required": [
-          "columns",
-          "unavailable_reason"
         ],
-        "title": "ParameterDraws",
-        "description": "Every retained parameter coordinate, without thinning or pair selection."
+        "discriminator": {
+          "propertyName": "kind",
+          "mapping": {
+            "available": "#/components/schemas/Available_tuple_ParameterDrawColumn__________",
+            "unavailable": "#/components/schemas/Unavailable"
+          }
+        }
       },
       "ParameterElementId": {
         "type": "string",
@@ -12098,6 +12252,57 @@
           "ARCHIVED_MEASUREMENT_NOT_RETAINED"
         ]
       },
+      "PredictiveComparison": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "comparison",
+            "title": "Kind",
+            "default": "comparison"
+          },
+          "reference_side": {
+            "type": "string",
+            "enum": [
+              "left",
+              "right"
+            ],
+            "title": "Reference Side"
+          },
+          "evaluation": {
+            "$ref": "#/components/schemas/Evaluation_PosteriorPredictiveChecks_"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "reference_side",
+          "evaluation"
+        ],
+        "title": "PredictiveComparison",
+        "description": "A selected reference history retains its role even when checks are unavailable."
+      },
+      "PredictiveComparisonResult": {
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/PredictiveComparison"
+          },
+          {
+            "$ref": "#/components/schemas/Unavailable"
+          },
+          {
+            "$ref": "#/components/schemas/NotApplicable"
+          }
+        ],
+        "discriminator": {
+          "propertyName": "kind",
+          "mapping": {
+            "comparison": "#/components/schemas/PredictiveComparison",
+            "not_applicable": "#/components/schemas/NotApplicable",
+            "unavailable": "#/components/schemas/Unavailable"
+          }
+        }
+      },
       "PredictiveLawProvenance": {
         "oneOf": [
           {
@@ -12229,7 +12434,7 @@
           },
           "variables": {
             "items": {
-              "$ref": "#/components/schemas/ObservationSpec-Output"
+              "$ref": "#/components/schemas/ObservationSpec_Duration_"
             },
             "type": "array",
             "minItems": 1,
@@ -13375,7 +13580,7 @@
         "properties": {
           "variables": {
             "items": {
-              "$ref": "#/components/schemas/ObservationSpec-Output"
+              "$ref": "#/components/schemas/ObservationSpec_Duration_"
             },
             "type": "array",
             "title": "Variables"
@@ -13764,26 +13969,8 @@
           "fit_reliability": {
             "$ref": "#/components/schemas/FitReliability"
           },
-          "causal_result": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/CausalEffectResult"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "causal_unavailable_reason": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Causal Unavailable Reason"
+          "causal": {
+            "$ref": "#/components/schemas/Evaluation_CausalEffectResult_"
           }
         },
         "additionalProperties": false,
@@ -13807,8 +13994,7 @@
           "reference_observations",
           "findings",
           "fit_reliability",
-          "causal_result",
-          "causal_unavailable_reason"
+          "causal"
         ],
         "title": "SimulationReport",
         "description": "Generated histories and derived findings with their resolved execution coordinates."
@@ -14940,6 +15126,28 @@
         ],
         "title": "TraceUsage",
         "description": "Trace usage records the input, output, and reasoning tokens consumed by a conversation."
+      },
+      "Unavailable": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "const": "unavailable",
+            "title": "Kind",
+            "default": "unavailable"
+          },
+          "reason": {
+            "type": "string",
+            "title": "Reason"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "kind",
+          "reason"
+        ],
+        "title": "Unavailable",
+        "description": "An applicable result could not be produced, for an explicit reason."
       },
       "UnavailablePredictiveChecks": {
         "properties": {

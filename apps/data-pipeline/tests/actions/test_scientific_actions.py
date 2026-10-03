@@ -447,7 +447,7 @@ def test_causal_action_uses_common_generator_and_requires_matching_engine_eviden
     result = summarize_causal_simulation(
         StructuralSelection(model, states[1]), generated, store=store, inference=record
     )
-    assert result.causal_result is not None
+    assert result.causal.kind == "available"
     assert result.reference_latent_paths is not None
     assert result.model.revision == git_oid(2)
     from nof1_causal_lab.actions.prepare_data import prepare_simulation_panel
@@ -483,15 +483,13 @@ def test_causal_action_uses_common_generator_and_requires_matching_engine_eviden
     rejected = summarize_causal_simulation(
         StructuralSelection(model, states[1]), generated, store=store, inference=bad
     )
-    assert rejected.causal_result is None
-    assert rejected.causal_unavailable_reason is not None
-    assert "retained exact-engine evidence" in rejected.causal_unavailable_reason
+    assert rejected.causal.kind == "unavailable"
+    assert "retained exact-engine evidence" in rejected.causal.reason
     assert rejected.latent_paths == generated.latent_paths
     unavailable = summarize_causal_simulation(
         StructuralSelection(model, states[1]), generated, store=store, inference=None
     )
-    assert unavailable.causal_result is None
-    assert unavailable.causal_unavailable_reason is not None
+    assert unavailable.causal.kind == "unavailable"
 
 
 @pytest.mark.contract

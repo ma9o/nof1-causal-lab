@@ -822,6 +822,12 @@ export interface components {
          * @description The current laws have authored ancestry without retained fitting.
          */
         readonly AuthoredLawProvenance: Domain.AuthoredLawProvenance;
+        /** Available[CausalEffectResult] */
+        readonly Available_CausalEffectResult_: Domain.Available<Domain.CausalEffectResult>;
+        /** Available[PosteriorPredictiveChecks] */
+        readonly Available_PosteriorPredictiveChecks_: Domain.Available<Domain.PosteriorPredictiveChecks>;
+        /** Available[tuple[ParameterDrawColumn, ...]] */
+        readonly Available_tuple_ParameterDrawColumn__________: Domain.Available<readonly (Domain.ParameterDrawColumn)[]>;
         /** BernoulliLogitsLawSpec[Expression] */
         readonly "BernoulliLogitsLawSpec_Expression_-Input": {
             /**
@@ -1225,7 +1231,7 @@ export interface components {
          * @description Compose an observed variable with its data-owned extraction instructions.
          */
         readonly "DataVariableSpec-Input": {
-            readonly observation: components["schemas"]["ObservationSpec-Input"];
+            readonly observation: components["schemas"]["ObservationSpec_Annotated_Union_Duration__NoneType___FieldInfo_annotation_NoneType__required_False__default_None___-Input"];
             readonly extraction: components["schemas"]["ExtractionSpec-Input"];
         };
         /**
@@ -1328,6 +1334,8 @@ export interface components {
         readonly Evaluated_str_ParticleMCMCEvidence_: Domain.Evaluated<string, Domain.ParticleMCMCEvidence>;
         /** Evaluated[str, str] */
         readonly Evaluated_str_str_: Domain.Evaluated<string, string>;
+        readonly Evaluation_CausalEffectResult_: Domain.Evaluation<Domain.CausalEffectResult>;
+        readonly Evaluation_PosteriorPredictiveChecks_: Domain.Evaluation<Domain.PosteriorPredictiveChecks>;
         readonly "Expression-Input": components["schemas"]["LiteralExpression-Input"] | components["schemas"]["StateExpression-Input"] | components["schemas"]["CoefficientExpression-Input"] | components["schemas"]["BinaryExpression-Input"] | components["schemas"]["CallExpression-Input"];
         readonly "Expression-Output": Domain.Expression;
         /** @enum {string} */
@@ -1545,7 +1553,7 @@ export interface components {
          *     schema also permits generative models before any observations have been collected.
          */
         readonly "IndicatorSpec-Input": {
-            readonly observation: components["schemas"]["ObservationSpec-Input"];
+            readonly observation: components["schemas"]["ObservationSpec_Annotated_Union_Duration__NoneType___FieldInfo_annotation_NoneType__required_False__default_None___-Input"];
             readonly likelihood?: components["schemas"]["LikelihoodSpec-Input"] | null;
             /** @description Whether higher values move with (positive) or against (negative) the construct. */
             readonly construct_polarity: components["schemas"]["IndicatorPolarity"];
@@ -1904,6 +1912,11 @@ export interface components {
         };
         /** NormalLawSpec[Expression] */
         readonly "NormalLawSpec_Expression_-Output": Domain.NormalLawSpec<Domain.Expression>;
+        /**
+         * NotApplicable
+         * @description The selected operation does not call for this result.
+         */
+        readonly NotApplicable: Domain.NotApplicable;
         readonly NotEvaluatedReason: Domain.NotEvaluatedReason;
         /** NotEvaluated[ConvergenceAssessmentSubject] */
         readonly NotEvaluated_ConvergenceAssessmentSubject_: Domain.NotEvaluated<Domain.ConvergenceAssessmentSubject>;
@@ -1941,11 +1954,8 @@ export interface components {
          * @description Canonical serialized extraction observation row.
          */
         readonly ObservationRecord: Domain.ObservationRecord;
-        /**
-         * ObservationSpec
-         * @description A stable observed variable, reusable across scientific model definitions.
-         */
-        readonly "ObservationSpec-Input": {
+        /** ObservationSpec[Annotated[Union[Duration, NoneType], FieldInfo(annotation=NoneType, required=False, default=None)]] */
+        readonly "ObservationSpec_Annotated_Union_Duration__NoneType___FieldInfo_annotation_NoneType__required_False__default_None___-Input": {
             /** @description Persistent identity. Preserve when revising or renaming. */
             readonly id: components["schemas"]["IndicatorId-Input"];
             /**
@@ -1973,11 +1983,10 @@ export interface components {
              */
             readonly categorical_levels?: readonly string[] | null;
         };
-        /**
-         * ObservationSpec
-         * @description A stable observed variable, reusable across scientific model definitions.
-         */
-        readonly "ObservationSpec-Output": Domain.ObservationSpec;
+        /** ObservationSpec[Annotated[Union[Duration, NoneType], FieldInfo(annotation=NoneType, required=False, default=None)]] */
+        readonly "ObservationSpec_Annotated_Union_Duration__NoneType___FieldInfo_annotation_NoneType__required_False__default_None___-Output": Domain.ObservationSpec<string | null>;
+        /** ObservationSpec[Duration] */
+        readonly ObservationSpec_Duration_: Domain.ObservationSpec<string>;
         /** OrderedLogisticLawSpec[Expression] */
         readonly "OrderedLogisticLawSpec_Expression_-Input": {
             /**
@@ -2041,10 +2050,6 @@ export interface components {
         readonly ParameterDiagnostics: Domain.ParameterDiagnostics;
         /** ParameterDrawColumn */
         readonly ParameterDrawColumn: Domain.ParameterDrawColumn;
-        /**
-         * ParameterDraws
-         * @description Every retained parameter coordinate, without thinning or pair selection.
-         */
         readonly ParameterDraws: Domain.ParameterDraws;
         readonly ParameterElementId: Domain.ParameterElementId;
         readonly "ParameterId-Input": string;
@@ -2184,6 +2189,12 @@ export interface components {
         readonly PredictiveAssessment: Domain.PredictiveAssessment;
         /** @enum {string} */
         readonly PredictiveCheckReason: Domain.PredictiveCheckReason;
+        /**
+         * PredictiveComparison
+         * @description A selected reference history retains its role even when checks are unavailable.
+         */
+        readonly PredictiveComparison: Domain.PredictiveComparison;
+        readonly PredictiveComparisonResult: Domain.PredictiveComparisonResult;
         readonly PredictiveLawProvenance: Domain.PredictiveLawProvenance;
         /**
          * PredictiveSubject
@@ -2694,6 +2705,11 @@ export interface components {
          * @description Trace usage records the input, output, and reasoning tokens consumed by a conversation.
          */
         readonly TraceUsage: Domain.TraceUsage;
+        /**
+         * Unavailable
+         * @description An applicable result could not be produced, for an explicit reason.
+         */
+        readonly Unavailable: Domain.Unavailable;
         /**
          * UnavailablePredictiveChecks
          * @description The run could not evaluate its scientific battery.

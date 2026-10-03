@@ -80,12 +80,12 @@ describe("promoted DEMO fixture", () => {
     expect(simulations).toHaveLength(5);
     for (const result of simulations) {
       expect(
-        result.causal_result.warnings.some((warning) =>
+        result.causal.value.warnings.some((warning) =>
           warning.includes("Artificial Storybook simulation"),
         ),
       ).toBe(true);
       expect(result.model.revision).toBe("a".repeat(40));
-      expect(result.causal_result.labels[result.causal_result.outcome]).toBe(
+      expect(result.causal.value.labels[result.causal.value.outcome]).toBe(
         "internalizing_symptom_burden",
       );
       expect(result.design.interventions).toHaveLength(1);
@@ -94,7 +94,7 @@ describe("promoted DEMO fixture", () => {
       expect(result.latent_paths).toBeTruthy();
       expect(result.reference_latent_paths).toBeTruthy();
       expect(result).not.toHaveProperty("predictive");
-      expect(result.causal_result).not.toHaveProperty("effect_trajectory");
+      expect(result.causal.value).not.toHaveProperty("effect_trajectory");
     }
   });
 });

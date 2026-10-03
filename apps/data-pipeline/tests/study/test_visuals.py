@@ -9,6 +9,7 @@ import numpy as np
 import polars as pl
 import pytest
 
+from nof1_causal_lab.artifacts.availability import Available
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.expressions import (
     expression_coefficients,
@@ -22,6 +23,7 @@ from nof1_causal_lab.artifacts.mechanism import (
     PotentialMechanismSpec,
 )
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.scenarios import CausalEffectResult
 from nof1_causal_lab.models.model_structure import StructuralSelection, selected_state_ids
 from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.snapshots import ModelReader
@@ -96,7 +98,7 @@ def test_paging_original_paths_preserves_opposite_modes_and_paired_effects(monke
             ],
         ),
         model=SimpleNamespace(revision="pinned-model"),
-        causal_result=SimpleNamespace(outcome=state_id, labels={state_id: "State"}),
+        causal=Available(value=CausalEffectResult(outcome=state_id, labels={state_id: "State"})),
     )
     reader = Mock(
         spec=ModelReader,
@@ -241,9 +243,10 @@ def test_every_parameter_coordinate_and_joint_draw_survives_the_read(monkeypatch
         state=SimpleNamespace(current={"model": None}),
     )
     view = ModelReader.parameter_draws(reader)
-    assert len(view.columns) > 6
-    assert {column.subject.element_id for column in view.columns} == set(layout.parameter_columns)
-    for column in view.columns:
+    assert view.kind == "available"
+    assert len(view.value) > 6
+    assert {column.subject.element_id for column in view.value} == set(layout.parameter_columns)
+    for column in view.value:
         np.testing.assert_array_equal(
             column.values, atoms[:, layout.parameter_columns[column.subject.element_id]]
         )

@@ -12,6 +12,7 @@ from nof1_causal_lab.actions.contracts import PrepareDataRequest
 from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.actions.prepare_data import prepare_simulation_panel
 from nof1_causal_lab.actions.runners import run_action
+from nof1_causal_lab.artifacts.availability import NotApplicable
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata, SimulationReplicateRef
 from nof1_causal_lab.artifacts.identity import GitRef
@@ -89,6 +90,7 @@ def test_recorded_replicate_becomes_a_compatible_panel(tmp_path, monkeypatch):
     draws = np.array([[[91, 92], [93, 94], [95, 96]], [[2, 4], [3, 8], [6, 12]]], dtype=float)
     design = SimulationSpec(start=date(2026, 1, 6), horizon="2d")
     report = SimulationReport(
+        causal=NotApplicable(reason="No intervention was requested."),
         model=GitRef(workspace_id="TEST", revision=model_info.revision, path="model.json"),
         design=design,
         time_origin=datetime(2026, 1, 1, tzinfo=UTC),
@@ -193,6 +195,7 @@ def test_materialization_preserves_measurement_support_and_numeric_codes(interva
         return key
 
     report = SimulationReport(
+        causal=NotApplicable(reason="No intervention was requested."),
         model=GitRef(workspace_id="TEST", revision=git_oid(1), path="model.json"),
         design=SimulationSpec(start=date(2026, 1, 1), horizon="60h"),
         time_origin=datetime(2026, 1, 1, tzinfo=UTC),

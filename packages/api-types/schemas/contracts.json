@@ -1064,6 +1064,82 @@
       "x-layer": "authored",
       "x-concern": "scientific_model"
     },
+    "Available_CausalEffectResult_": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "available",
+          "default": "available",
+          "title": "Kind",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/$defs/CausalEffectResult"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "title": "Available[CausalEffectResult]",
+      "type": "object",
+      "x-typescript-type": "Available<CausalEffectResult>",
+      "x-python-module": "nof1_causal_lab.artifacts.availability",
+      "x-layer": "findings",
+      "x-concern": "scientific_model"
+    },
+    "Available_PosteriorPredictiveChecks_": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "available",
+          "default": "available",
+          "title": "Kind",
+          "type": "string"
+        },
+        "value": {
+          "$ref": "#/$defs/PosteriorPredictiveChecks"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "title": "Available[PosteriorPredictiveChecks]",
+      "type": "object",
+      "x-typescript-type": "Available<PosteriorPredictiveChecks>",
+      "x-python-module": "nof1_causal_lab.artifacts.availability",
+      "x-layer": "findings",
+      "x-concern": "scientific_model"
+    },
+    "Available_tuple_ParameterDrawColumn__________": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "available",
+          "default": "available",
+          "title": "Kind",
+          "type": "string"
+        },
+        "value": {
+          "items": {
+            "$ref": "#/$defs/ParameterDrawColumn"
+          },
+          "title": "Value",
+          "type": "array"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "title": "Available[tuple[ParameterDrawColumn, ...]]",
+      "type": "object",
+      "x-typescript-type": "Available<readonly (ParameterDrawColumn)[]>",
+      "x-python-module": "nof1_causal_lab.artifacts.availability",
+      "x-layer": "findings",
+      "x-concern": "scientific_model"
+    },
     "BernoulliLogitsLawSpec_Expression_": {
       "additionalProperties": false,
       "properties": {
@@ -2469,7 +2545,7 @@
         "variable": {
           "anyOf": [
             {
-              "$ref": "#/$defs/ObservationSpec"
+              "$ref": "#/$defs/ObservationSpec_Duration_"
             },
             {
               "type": "null"
@@ -2655,41 +2731,8 @@
           "title": "Comparison Issues",
           "type": "array"
         },
-        "reference_side": {
-          "anyOf": [
-            {
-              "enum": [
-                "left",
-                "right"
-              ],
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Reference Side"
-        },
-        "predictive_checks": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/PosteriorPredictiveChecks"
-            },
-            {
-              "type": "null"
-            }
-          ]
-        },
-        "predictive_unavailable_reason": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "title": "Predictive Unavailable Reason"
+        "predictive": {
+          "$ref": "#/$defs/PredictiveComparisonResult"
         }
       },
       "required": [
@@ -2699,9 +2742,7 @@
         "changes",
         "statistics",
         "comparison_issues",
-        "reference_side",
-        "predictive_checks",
-        "predictive_unavailable_reason"
+        "predictive"
       ],
       "title": "DataVariableDiff",
       "type": "object",
@@ -2714,7 +2755,7 @@
       "description": "Compose an observed variable with its data-owned extraction instructions.",
       "properties": {
         "observation": {
-          "$ref": "#/$defs/ObservationSpec"
+          "$ref": "#/$defs/ObservationSpec_Annotated_Union_Duration__NoneType___FieldInfo_annotation_NoneType__required_False__default_None___"
         },
         "extraction": {
           "$ref": "#/$defs/ExtractionSpec"
@@ -3314,6 +3355,56 @@
       "type": "object",
       "x-typescript-type": "Evaluated<string, string>",
       "x-python-module": "nof1_causal_lab.artifacts.checks",
+      "x-layer": "findings",
+      "x-concern": "scientific_model"
+    },
+    "Evaluation_CausalEffectResult_": {
+      "discriminator": {
+        "mapping": {
+          "available": "#/$defs/Available_CausalEffectResult_",
+          "not_applicable": "#/$defs/NotApplicable",
+          "unavailable": "#/$defs/Unavailable"
+        },
+        "propertyName": "kind"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/Available_CausalEffectResult_"
+        },
+        {
+          "$ref": "#/$defs/Unavailable"
+        },
+        {
+          "$ref": "#/$defs/NotApplicable"
+        }
+      ],
+      "x-typescript-type": "Evaluation<CausalEffectResult>",
+      "x-python-module": "nof1_causal_lab.artifacts.availability",
+      "x-layer": "findings",
+      "x-concern": "scientific_model"
+    },
+    "Evaluation_PosteriorPredictiveChecks_": {
+      "discriminator": {
+        "mapping": {
+          "available": "#/$defs/Available_PosteriorPredictiveChecks_",
+          "not_applicable": "#/$defs/NotApplicable",
+          "unavailable": "#/$defs/Unavailable"
+        },
+        "propertyName": "kind"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/Available_PosteriorPredictiveChecks_"
+        },
+        {
+          "$ref": "#/$defs/Unavailable"
+        },
+        {
+          "$ref": "#/$defs/NotApplicable"
+        }
+      ],
+      "x-typescript-type": "Evaluation<PosteriorPredictiveChecks>",
+      "x-python-module": "nof1_causal_lab.artifacts.availability",
       "x-layer": "findings",
       "x-concern": "scientific_model"
     },
@@ -4605,7 +4696,7 @@
       "description": "Bind an observed-variable ID to a construct and an emission likelihood.\n\nExtraction instructions belong to DataPreparationSpec. The shared observation\nschema also permits generative models before any observations have been collected.",
       "properties": {
         "observation": {
-          "$ref": "#/$defs/ObservationSpec"
+          "$ref": "#/$defs/ObservationSpec_Annotated_Union_Duration__NoneType___FieldInfo_annotation_NoneType__required_False__default_None___"
         },
         "likelihood": {
           "anyOf": [
@@ -6873,6 +6964,31 @@
       "x-layer": "authored",
       "x-concern": "scientific_model"
     },
+    "NotApplicable": {
+      "additionalProperties": false,
+      "description": "The selected operation does not call for this result.",
+      "properties": {
+        "kind": {
+          "const": "not_applicable",
+          "default": "not_applicable",
+          "title": "Kind",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "reason"
+      ],
+      "title": "NotApplicable",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.artifacts.availability",
+      "x-layer": "findings",
+      "x-concern": "scientific_model"
+    },
     "NotEvaluatedReason": {
       "anyOf": [
         {
@@ -7472,9 +7588,8 @@
       "x-layer": "findings",
       "x-concern": "scientific_model"
     },
-    "ObservationSpec": {
+    "ObservationSpec_Annotated_Union_Duration__NoneType___FieldInfo_annotation_NoneType__required_False__default_None___": {
       "additionalProperties": false,
-      "description": "A stable observed variable, reusable across scientific model definitions.",
       "properties": {
         "id": {
           "$ref": "#/$defs/IndicatorId",
@@ -7548,8 +7663,83 @@
         "ordinal_levels",
         "categorical_levels"
       ],
-      "title": "ObservationSpec",
+      "title": "ObservationSpec[Annotated[Union[Duration, NoneType], FieldInfo(annotation=NoneType, required=False, default=None)]]",
       "type": "object",
+      "x-typescript-type": "ObservationSpec<string | null>",
+      "x-python-module": "nof1_causal_lab.artifacts.observations",
+      "x-layer": "authored",
+      "x-concern": "scientific_model"
+    },
+    "ObservationSpec_Duration_": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/IndicatorId",
+          "description": "Persistent identity. Preserve when revising or renaming."
+        },
+        "name": {
+          "description": "Indicator name (e.g., 'hrv', 'self_reported_stress')",
+          "title": "Name",
+          "type": "string"
+        },
+        "measurement_dtype": {
+          "$ref": "#/$defs/MeasurementDtype",
+          "description": "'continuous', 'binary', 'count', 'ordinal', 'categorical'"
+        },
+        "aggregation": {
+          "$ref": "#/$defs/SummaryOperator",
+          "description": "Aggregation function applied when bucketing raw extractions within the indicator support window. Supported operators: first, last, sum, count, mean, std. A computed_rule must produce this same summary."
+        },
+        "observation_window": {
+          "description": "Optional duration string describing the support window summarized by this indicator, in positive fixed units s, m, h, d or w (for example '2w'). Resolved by the preparation window or the generative model clock.",
+          "title": "Observation Window",
+          "type": "string"
+        },
+        "ordinal_levels": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding.",
+          "title": "Ordinal Levels"
+        },
+        "categorical_levels": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding.",
+          "title": "Categorical Levels"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "measurement_dtype",
+        "aggregation",
+        "observation_window",
+        "ordinal_levels",
+        "categorical_levels"
+      ],
+      "title": "ObservationSpec[Duration]",
+      "type": "object",
+      "x-typescript-type": "ObservationSpec<string>",
       "x-python-module": "nof1_causal_lab.artifacts.observations",
       "x-layer": "authored",
       "x-concern": "scientific_model"
@@ -7944,38 +8134,25 @@
       "x-concern": "read_models"
     },
     "ParameterDraws": {
-      "additionalProperties": false,
-      "description": "Every retained parameter coordinate, without thinning or pair selection.",
-      "properties": {
-        "columns": {
-          "items": {
-            "$ref": "#/$defs/ParameterDrawColumn"
-          },
-          "title": "Columns",
-          "type": "array"
+      "discriminator": {
+        "mapping": {
+          "available": "#/$defs/Available_tuple_ParameterDrawColumn__________",
+          "unavailable": "#/$defs/Unavailable"
         },
-        "unavailable_reason": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Unavailable Reason"
-        }
+        "propertyName": "kind"
       },
-      "required": [
-        "columns",
-        "unavailable_reason"
+      "oneOf": [
+        {
+          "$ref": "#/$defs/Available_tuple_ParameterDrawColumn__________"
+        },
+        {
+          "$ref": "#/$defs/Unavailable"
+        }
       ],
-      "title": "ParameterDraws",
-      "type": "object",
       "x-python-module": "nof1_causal_lab.study.visual_models",
       "x-layer": "study",
-      "x-concern": "read_models"
+      "x-concern": "read_models",
+      "description": "Every retained parameter coordinate is available without thinning or pair selection, or has an explicit unavailable reason."
     },
     "ParameterElementId": {
       "tsType": "`element:${string}`",
@@ -9052,6 +9229,64 @@
       "x-concern": "scientific_model",
       "description": "A predictive check reason explains why a battery could not be evaluated for the selected model and observations."
     },
+    "PredictiveComparison": {
+      "additionalProperties": false,
+      "description": "A selected reference history retains its role even when checks are unavailable.",
+      "properties": {
+        "kind": {
+          "const": "comparison",
+          "default": "comparison",
+          "title": "Kind",
+          "type": "string"
+        },
+        "reference_side": {
+          "enum": [
+            "left",
+            "right"
+          ],
+          "title": "Reference Side",
+          "type": "string"
+        },
+        "evaluation": {
+          "$ref": "#/$defs/Evaluation_PosteriorPredictiveChecks_"
+        }
+      },
+      "required": [
+        "kind",
+        "reference_side",
+        "evaluation"
+      ],
+      "title": "PredictiveComparison",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.study.view_models",
+      "x-layer": "read_models",
+      "x-concern": "read_models"
+    },
+    "PredictiveComparisonResult": {
+      "discriminator": {
+        "mapping": {
+          "comparison": "#/$defs/PredictiveComparison",
+          "not_applicable": "#/$defs/NotApplicable",
+          "unavailable": "#/$defs/Unavailable"
+        },
+        "propertyName": "kind"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/PredictiveComparison"
+        },
+        {
+          "$ref": "#/$defs/Unavailable"
+        },
+        {
+          "$ref": "#/$defs/NotApplicable"
+        }
+      ],
+      "x-python-module": "nof1_causal_lab.study.view_models",
+      "x-layer": "read_models",
+      "x-concern": "read_models",
+      "description": "A predictive comparison selects one reference history or records why no reference comparison applies."
+    },
     "PredictiveLawProvenance": {
       "discriminator": {
         "mapping": {
@@ -9167,7 +9402,7 @@
         },
         "variables": {
           "items": {
-            "$ref": "#/$defs/ObservationSpec"
+            "$ref": "#/$defs/ObservationSpec_Duration_"
           },
           "minItems": 1,
           "title": "Variables",
@@ -10304,7 +10539,7 @@
       "properties": {
         "variables": {
           "items": {
-            "$ref": "#/$defs/ObservationSpec"
+            "$ref": "#/$defs/ObservationSpec_Duration_"
           },
           "title": "Variables",
           "type": "array"
@@ -10661,28 +10896,8 @@
         "fit_reliability": {
           "$ref": "#/$defs/FitReliability"
         },
-        "causal_result": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/CausalEffectResult"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
-        },
-        "causal_unavailable_reason": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Causal Unavailable Reason"
+        "causal": {
+          "$ref": "#/$defs/Evaluation_CausalEffectResult_"
         }
       },
       "required": [
@@ -10704,8 +10919,7 @@
         "reference_observations",
         "findings",
         "fit_reliability",
-        "causal_result",
-        "causal_unavailable_reason"
+        "causal"
       ],
       "title": "SimulationReport",
       "type": "object",
@@ -11784,6 +11998,31 @@
       "x-python-module": "nof1_causal_lab.utils.llm",
       "x-layer": "transport",
       "x-concern": "api_tools"
+    },
+    "Unavailable": {
+      "additionalProperties": false,
+      "description": "An applicable result could not be produced, for an explicit reason.",
+      "properties": {
+        "kind": {
+          "const": "unavailable",
+          "default": "unavailable",
+          "title": "Kind",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "reason"
+      ],
+      "title": "Unavailable",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.artifacts.availability",
+      "x-layer": "findings",
+      "x-concern": "scientific_model"
     },
     "UnavailablePredictiveChecks": {
       "additionalProperties": false,
@@ -13799,6 +14038,31 @@
         "ResultT"
       ]
     },
+    "Available": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "available",
+          "default": "available",
+          "title": "Kind",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "tsType": "PayloadT"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "title": "Available",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.artifacts.availability",
+      "x-typescript-parameters": [
+        "PayloadT"
+      ]
+    },
     "BernoulliLogitsLawSpec": {
       "additionalProperties": false,
       "properties": {
@@ -14068,6 +14332,98 @@
         "Evidence"
       ]
     },
+    "Available_Annotated_Any__WithJsonSchema__": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "const": "available",
+          "default": "available",
+          "title": "Kind",
+          "type": "string"
+        },
+        "value": {
+          "title": "Value",
+          "tsType": "PayloadT"
+        }
+      },
+      "required": [
+        "kind",
+        "value"
+      ],
+      "title": "Available[Annotated[Any, WithJsonSchema]]",
+      "type": "object",
+      "x-typescript-type": "Available<PayloadT>"
+    },
+    "NotApplicable": {
+      "additionalProperties": false,
+      "description": "The selected operation does not call for this result.",
+      "properties": {
+        "kind": {
+          "const": "not_applicable",
+          "default": "not_applicable",
+          "title": "Kind",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "reason"
+      ],
+      "title": "NotApplicable",
+      "type": "object"
+    },
+    "Unavailable": {
+      "additionalProperties": false,
+      "description": "An applicable result could not be produced, for an explicit reason.",
+      "properties": {
+        "kind": {
+          "const": "unavailable",
+          "default": "unavailable",
+          "title": "Kind",
+          "type": "string"
+        },
+        "reason": {
+          "title": "Reason",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "reason"
+      ],
+      "title": "Unavailable",
+      "type": "object"
+    },
+    "Evaluation": {
+      "discriminator": {
+        "mapping": {
+          "available": "#/$defs/Available_Annotated_Any__WithJsonSchema__",
+          "not_applicable": "#/$defs/NotApplicable",
+          "unavailable": "#/$defs/Unavailable"
+        },
+        "propertyName": "kind"
+      },
+      "oneOf": [
+        {
+          "$ref": "#/$defs/Available_Annotated_Any__WithJsonSchema__"
+        },
+        {
+          "$ref": "#/$defs/Unavailable"
+        },
+        {
+          "$ref": "#/$defs/NotApplicable"
+        }
+      ],
+      "title": "Evaluation",
+      "x-python-module": "nof1_causal_lab.artifacts.availability",
+      "x-typescript-parameters": [
+        "PayloadT"
+      ]
+    },
     "GammaLawSpec": {
       "additionalProperties": false,
       "properties": {
@@ -14191,6 +14547,103 @@
       "x-python-module": "nof1_causal_lab.artifacts.checks",
       "x-typescript-parameters": [
         "Subject"
+      ]
+    },
+    "MeasurementDtype": {
+      "enum": [
+        "continuous",
+        "binary",
+        "count",
+        "ordinal",
+        "categorical"
+      ],
+      "type": "string"
+    },
+    "SummaryOperator": {
+      "description": "A summary operator specifies how values within a measurement window produce one\nobservation.",
+      "enum": [
+        "first",
+        "last",
+        "sum",
+        "count",
+        "mean",
+        "std"
+      ],
+      "title": "SummaryOperator",
+      "type": "string"
+    },
+    "ObservationSpec": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/IndicatorId",
+          "description": "Persistent identity. Preserve when revising or renaming."
+        },
+        "name": {
+          "description": "Indicator name (e.g., 'hrv', 'self_reported_stress')",
+          "title": "Name",
+          "type": "string"
+        },
+        "measurement_dtype": {
+          "$ref": "#/$defs/MeasurementDtype",
+          "description": "'continuous', 'binary', 'count', 'ordinal', 'categorical'"
+        },
+        "aggregation": {
+          "$ref": "#/$defs/SummaryOperator",
+          "description": "Aggregation function applied when bucketing raw extractions within the indicator support window. Supported operators: first, last, sum, count, mean, std. A computed_rule must produce this same summary."
+        },
+        "observation_window": {
+          "description": "Optional duration string describing the support window summarized by this indicator, in positive fixed units s, m, h, d or w (for example '2w'). Resolved by the preparation window or the generative model clock.",
+          "title": "Observation Window",
+          "tsType": "WindowT"
+        },
+        "ordinal_levels": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding.",
+          "title": "Ordinal Levels"
+        },
+        "categorical_levels": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding.",
+          "title": "Categorical Levels"
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "measurement_dtype",
+        "aggregation",
+        "observation_window",
+        "ordinal_levels",
+        "categorical_levels"
+      ],
+      "title": "ObservationSpec",
+      "type": "object",
+      "x-python-module": "nof1_causal_lab.artifacts.observations",
+      "x-typescript-parameters": [
+        "WindowT"
       ]
     },
     "OrderedLogisticLawSpec": {
