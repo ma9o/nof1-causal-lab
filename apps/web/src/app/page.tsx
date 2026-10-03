@@ -25,7 +25,7 @@ export default function LandingPage() {
     staleTime: Infinity,
     retry: false,
   });
-  const movesEnabled = capabilitiesQuery.data?.actions_enabled ?? null;
+  const movesEnabled = capabilitiesQuery.data ?? null;
 
   const workspacesQuery = useQuery({
     queryKey: getWorkspacesQueryKey(),
@@ -87,7 +87,7 @@ export default function LandingPage() {
 
       const { data, response } = await apiClient.POST("/api/studies/{workspace_id}/actions", {
         params: { path: { workspace_id: workspaceId } },
-        body: { action: "edit_model", expected_revision: null, model: { question } },
+        body: { action: "set_question", question: { text: question } },
       });
       if (data === undefined) throw new Error(`Cannot start study (${response.status})`);
 

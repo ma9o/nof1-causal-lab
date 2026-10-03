@@ -22,15 +22,18 @@ from nof1_causal_lab.artifacts.expressions import (
 from nof1_causal_lab.artifacts.expressions import state as expr_state
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorPredictiveChecks
+from nof1_causal_lab.artifacts.question import QuestionSpec
 from nof1_causal_lab.models.model_inputs import input_fingerprints
 from nof1_causal_lab.models.model_structure import (
+    StructuralSelection,
     compare_model_graph,
     compare_parameters,
+    model_graph_entities,
 )
 from nof1_causal_lab.study.git_objects import object_tree
 from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.lineage import inference_is_current
-from nof1_causal_lab.study.records import Applied, FitAttempt
+from nof1_causal_lab.study.records import Applied
 from nof1_causal_lab.study.snapshots import ModelReader
 from nof1_causal_lab.study.state import is_stale
 from nof1_causal_lab.study.store import ArtifactStore, trace_log_path
@@ -81,10 +84,10 @@ def read_fixture_files(repository: StudyRepository, state: StudyState) -> dict[s
     record = next(
         record
         for record in reversed(records)
-        if isinstance(record.record.attempt, FitAttempt)
+        if record.record.attempt.action == "fit"
         and isinstance(record.record.attempt.outcome, Applied)
     )
-    assert isinstance(record.record.attempt, FitAttempt)
+    assert record.record.attempt.action == "fit"
     assert record.record.attempt.outcome.status == "applied"
     files["inference.json"] = (
         json.dumps(record.record.attempt.outcome.result.model_dump(mode="json"), indent=2) + "\n"
@@ -174,7 +177,7 @@ def workbench_comparisons(snapshot, history):
         },
     )
     models = {
-        history[str(seq)]["context"]["current"]["model"]["revision"]: ModelSpec.model_validate(
+        history[str(seq)]["state"]["current"]["model"]["revision"]: ModelSpec.model_validate(
             history[str(seq)]["model"]["value"]
         )
         for seq in (2, 3, 4, 7)
@@ -182,14 +185,41 @@ def workbench_comparisons(snapshot, history):
     models.update(
         {format(n, "x").rjust(40, "a"): model for n, model in [(5, free), (6, free), (7, pinned)]}
     )
+    # The study's one question scopes every compared revision alike.
+    question = QuestionSpec.model_validate(snapshot["question"]["value"])
     comparisons = {}
     for before_version, left in models.items():
         for after_version, right in models.items():
             parameters = compare_parameters(left, right)
             before = input_fingerprints(left)
+            scoped = (
+                StructuralSelection.for_question(left, question),
+                StructuralSelection.for_question(right, question),
+            )
+            constructs, edges = compare_model_graph(*scoped)
+            graphs = tuple(model_graph_entities(selection) for selection in scoped)
             comparisons[f"{before_version}:{after_version}"] = {
                 "parameters": [item.model_dump(mode="json") for item in parameters],
-                "graph": compare_model_graph(left, right).model_dump(mode="json"),
+                "constructs": [item.model_dump(mode="json") for item in constructs],
+                "edges": [item.model_dump(mode="json") for item in edges],
+                "before_dispositions": [
+                    item.model_dump(mode="json") for item in scoped[0].structural_dispositions
+                ]
+                if left.measurement_clock is not None and left.indicators
+                else [],
+                "after_dispositions": [
+                    item.model_dump(mode="json") for item in scoped[1].structural_dispositions
+                ]
+                if right.measurement_clock is not None and right.indicators
+                else [],
+                "before_dynamic_construct_ids": [
+                    item.id for item in graphs[0][0] if item.is_dynamic
+                ],
+                "after_dynamic_construct_ids": [
+                    item.id for item in graphs[1][0] if item.is_dynamic
+                ],
+                "beforeModel": left.model_dump(mode="json"),
+                "afterModel": right.model_dump(mode="json"),
                 "changed_inputs": [
                     key for key, value in input_fingerprints(right).items() if before[key] != value
                 ],
@@ -217,7 +247,7 @@ def build_outputs():
             capture_output=True,
         )
         subprocess.run(
-            ["git", "--git-dir", str(history), "config", "nof1.format", "13"],
+            ["git", "--git-dir", str(history), "config", "nof1.format", "15"],
             check=True,
             capture_output=True,
         )
@@ -275,7 +305,7 @@ def rendered_fixtures(outputs):
         WORKBENCH_OUTPUT: """Readonly<{
   pinned_model: Domain.ModelSpec;
   pinned_inputs: Domain.ArtifactRecord["model_inputs"];
-  comparisons: Readonly<Partial<Record<string, Pick<Domain.ModelDiffReport, "graph" | "parameters" | "changed_inputs">>>>;
+  comparisons: Readonly<Partial<Record<string, Pick<Domain.ModelDiffReport, "constructs" | "edges" | "before_dispositions" | "after_dispositions" | "before_dynamic_construct_ids" | "after_dynamic_construct_ids" | "parameters" | "changed_inputs"> & {beforeModel: Domain.ModelSpec; afterModel: Domain.ModelSpec}>>>;
 }>""",
         WORKBENCH_OUTPUT.with_name("workbench-visuals.json"): """Readonly<{
   note: string;

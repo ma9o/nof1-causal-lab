@@ -6,7 +6,6 @@ import type {
   ActionPoll,
   Assessment,
   Attempt,
-  CapabilitiesResponse,
   Change,
   ConstructId,
   ConstructRef,
@@ -16,17 +15,17 @@ import type {
   FactSource,
   IndicatorId,
   IndicatorSpec,
+  InferenceReport,
   InferenceReportCore,
-  ModelEditResult,
   ModelSnapshot,
   ModelSpec,
   NumPyroDistribution,
+  ParameterRef,
   ParameterSpec,
   Rejected,
   ScientificActionId,
   Sourced,
   TimelineResponse,
-  WorkspaceList,
 } from "./generated/models";
 
 type Expect<T extends true> = T;
@@ -34,10 +33,7 @@ type Extends<A, B> = A extends B ? true : false;
 type Equal<A, B> = [A, B] extends [B, A] ? true : false;
 
 export type GenericAttemptCorrelatesRequest = Expect<
-  Equal<
-    Attempt<"edit_model", EditModelRequest, ModelEditResult>["request"],
-    EditModelRequest | null
-  >
+  Equal<Attempt<"edit_model", EditModelRequest, null>["request"], EditModelRequest | null>
 >;
 export type GenericSourceRetainsValue = Expect<Equal<Sourced<ModelSpec>["value"], ModelSpec>>;
 export type GenericAssessmentRetainsSubject = Expect<
@@ -53,7 +49,10 @@ export type CanonicalDefinition = Expect<
   Equal<NonNullable<ModelSnapshot["model"]>["value"], ModelSpec>
 >;
 export type CanonicalInferenceCore = Expect<
-  Equal<NonNullable<ModelSnapshot["findings"]["fit"]>["value"]["report"], InferenceReportCore>
+  Equal<NonNullable<ModelSnapshot["fit"]>["value"]["report"], InferenceReportCore>
+>;
+export type CanonicalPairAxes = Expect<
+  Equal<InferenceReport["detail"]["posterior_pairs"][number], readonly [ParameterRef, ParameterRef]>
 >;
 export type CanonicalParameter = Expect<Equal<ModelSpec["parameters"][number], ParameterSpec>>;
 export type CanonicalConstruct = Expect<
@@ -143,14 +142,14 @@ export type CanonicalTimeline = Expect<
 >;
 export type CanonicalCapabilities = Expect<
   Equal<
-    MethodResponse<ReturnType<typeof createModelClient>, "get", "/api/capabilities">,
-    CapabilitiesResponse
+    MethodResponse<ReturnType<typeof createModelClient>, "get", "/api/actions-enabled">,
+    boolean
   >
 >;
 export type CanonicalWorkspaces = Expect<
   Equal<
     MethodResponse<ReturnType<typeof createModelClient>, "get", "/api/workspaces">,
-    WorkspaceList
+    Readonly<Record<string, string | null>>
   >
 >;
 type Upload = paths["/api/upload"]["post"]["requestBody"]["content"]["multipart/form-data"];

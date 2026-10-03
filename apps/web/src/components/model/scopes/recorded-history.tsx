@@ -3,7 +3,6 @@ import type {
   IndicatorId,
   ModelSnapshot,
   PathSeries,
-  SimulationSeriesSummary,
   EmpiricalPoint,
   DataVariableDiff,
 } from "@nof1-causal-lab/api-types";
@@ -43,12 +42,12 @@ export function dataComparisonHistory(variable: DataVariableDiff) {
   // Reference observations sit above all replicas.
   series.sort((a, b) => Number(a.emphasized) - Number(b.emphasized));
   for (const change of ["added", "removed", "revised"] as const) {
-    const points = variable.changes.filter((point) => point.change.kind === change);
+    const points = variable.changes.filter((point) => point.kind === change);
     if (points.length === 0) continue;
     for (const side of ["left", "right"] as const) {
       const values = new Map(
         points.map((point) => {
-          const change = point.change;
+          const change = point;
           const value =
             side === "left"
               ? change.kind === "added"
@@ -57,7 +56,10 @@ export function dataComparisonHistory(variable: DataVariableDiff) {
               : change.kind === "removed"
                 ? null
                 : change.after.value;
-          return [point.anchor_time, value];
+          return [
+            point.kind === "removed" ? point.before.anchor_time : point.after.anchor_time,
+            value,
+          ];
         }),
       );
       series.push({
@@ -176,16 +178,13 @@ export function SimulationHistory({
   model,
   id,
   kind,
-  summary,
 }: {
   model: ModelSnapshot;
   id: string;
   kind: "states" | "indicators" | "effect";
-  summary?: SimulationSeriesSummary;
 }) {
   const [start, setStart] = useState(0);
   const [count, setCount] = useState(24);
-  const [showMean, setShowMean] = useState(false);
   const paths = useSimulationPaths(model, start, count);
   if (paths.error) return <Hint issue>{paths.error.message}</Hint>;
   if (!paths.data)
@@ -199,6 +198,14 @@ export function SimulationHistory({
       ? paths.data.effect
       : presentEntries(paths.data[kind]).find(([key]) => key === id)?.[1];
   if (!series) return <Hint>No recorded series for this entity.</Hint>;
+  const probabilities =
+    kind === "indicators"
+      ? presentEntries(paths.data.action_category_probabilities).find(([key]) => key === id)?.[1]
+      : undefined;
+  const referenceProbabilities =
+    kind === "indicators"
+      ? presentEntries(paths.data.reference_category_probabilities).find(([key]) => key === id)?.[1]
+      : undefined;
   const lines = pathLines(series);
   const description = [
     kind === "indicators"
@@ -211,26 +218,34 @@ export function SimulationHistory({
       : "",
     "Missing and nonfinite values remain gaps.",
   ].join(" ");
-  if (showMean && summary?.action.kind === "numeric") {
-    lines.push({
-      id: "mean",
-      label: "Pointwise mean",
-      values: summary.action.mean,
-      color: "var(--foreground)",
-      emphasized: true,
-    });
-    if (summary.reference?.kind === "numeric")
-      lines.push({
-        id: "reference-mean",
-        label: "Reference pointwise mean",
-        values: summary.reference.mean,
-        color: "var(--foreground)",
-        emphasized: true,
-        dashed: true,
-      });
-  }
   return (
     <>
+      {probabilities && (
+        <HistoryPlot
+          times={paths.data.times}
+          timeOrigin={paths.data.time_origin}
+          yLabel="Probability"
+          label={`${series.label}: full category distribution`}
+          series={[
+            ...presentEntries(probabilities.probabilities).map(([label, values], index) => ({
+              id: `action-${label}`,
+              label: `Action · ${label}`,
+              values,
+              color: pathColor(index),
+            })),
+            ...presentEntries(referenceProbabilities?.probabilities ?? {}).map(
+              ([label, values], index) => ({
+                id: `reference-${label}`,
+                label: `Reference · ${label}`,
+                values,
+                color: pathColor(index),
+                dashed: true,
+              }),
+            ),
+          ]}
+          description="Backend category probabilities use every retained draw; gaps have no observed emissions."
+        />
+      )}
       <DrawPager
         start={start}
         count={count}
@@ -245,22 +260,12 @@ export function SimulationHistory({
         timeOrigin={paths.data.time_origin}
         pointsOnly={kind === "indicators"}
         levels={series.levels}
-        markers={(model.findings.simulation?.value.design.interventions ?? []).map((event) => ({
+        markers={(model.simulation?.value.assignments ?? []).map((event) => ({
           time: event.time,
           label: `Day ${event.time}: set to ${event.value}`,
         }))}
         description={description}
       />
-      {summary?.action.kind === "numeric" && (
-        <label className="text-[10px]">
-          <input
-            type="checkbox"
-            checked={showMean}
-            onChange={(e) => setShowMean(e.target.checked)}
-          />{" "}
-          Overlay pointwise mean
-        </label>
-      )}
     </>
   );
 }
@@ -346,7 +351,8 @@ export function PredictiveHistoryPlot({ model, id }: { model: ModelSnapshot; id:
         {history.isLoading ? "Loading predictive history…" : "No saved predictive history."}
       </Hint>
     );
-  const { times, time_origin, overlay, standardized } = history.data;
+  const overlay = history.data;
+  const { times, time_origin, standardized } = overlay;
   return (
     <>
       <HistoryPlot

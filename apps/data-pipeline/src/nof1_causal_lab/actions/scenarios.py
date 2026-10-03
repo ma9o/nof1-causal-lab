@@ -4,43 +4,39 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-import jax.numpy as jnp
 import numpy as np
 
-from nof1_causal_lab.actions.simulation_summaries import paired_effect_trajectory
 from nof1_causal_lab.artifacts.scenarios import CausalEffectResult
 from nof1_causal_lab.models.causal_proofs import (
     CausalCertificationError,
     CertifiedCausalAnalysis,
     certify_identified_estimand,
 )
-from nof1_causal_lab.models.identification import identify_model
-from nof1_causal_lab.models.ssm.counterfactual.estimands import summarize_draws
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.simulation import SimulationReport
+    from nof1_causal_lab.models.model_structure import StructuralSelection
     from nof1_causal_lab.study.records import StudyRevision
     from nof1_causal_lab.study.store import ArtifactStore
 
 
 def summarize_causal_simulation(
-    model: ModelSpec,
+    selection: StructuralSelection,
     report: SimulationReport,
     *,
     store: ArtifactStore,
     inference: StudyRevision | None,
 ) -> SimulationReport:
-    """Report numeric causal effects only when identification and exact-fit evidence support them."""
+    """Report the question's numeric effect only when identification and exact-fit evidence support it."""
+    model, outcome = selection.model, selection.outcome
     if not report.design.interventions:
         return report
-    if inference is None or model.default_outcome is None:
+    if inference is None or outcome is None or outcome not in report.state_ids:
         return report.without_causal_result(
-            "Causal effects require an identified model outcome and a committed production fit for this model revision."
+            "Causal effects require the question's outcome as a model state and a committed production fit for this model revision."
         )
-    outcome = model.default_outcome
     try:
-        identification = identify_model(model)
+        identification = selection.identification
         CertifiedCausalAnalysis(
             model=model,
             model_revision=report.model,
@@ -67,30 +63,12 @@ def summarize_causal_simulation(
         return report.without_causal_result(
             "Non-finite histories do not support numeric causal effects."
         )
-    effects = (
-        action[:, :, report.state_ids.index(outcome)]
-        - reference[:, :, report.state_ids.index(outcome)]
-    )
-    trajectory = paired_effect_trajectory(report.times, effects)
-    trajectory_peak = max(trajectory, key=lambda point: abs(point.effect))
-    difference = store.read_array(report.observations) - store.read_array(
-        report.reference_observations
-    )
-    manifest: dict[str, float] = {
-        identity: float(difference[:, -1, i].mean())
-        for i, identity in enumerate(report.observation_layout.indicator_ids)
-        if np.isfinite(difference[:, -1, i]).all()
-    }
     result = CausalEffectResult(
         outcome=outcome,
         labels={construct.id: construct.name for construct in model.constructs},
-        summary=summarize_draws(jnp.asarray(effects[:, -1])),
-        effect_trajectory=trajectory,
-        trajectory_peak=trajectory_peak,
-        manifest_effects=manifest,
-        reference_mean=float(reference[:, -1, report.state_ids.index(outcome)].mean()),
         warnings=()
-        if len(manifest) == len(report.observation_layout.indicator_ids)
+        if np.isfinite(store.read_array(report.observations)[:, -1]).all()
+        and np.isfinite(store.read_array(report.reference_observations)[:, -1]).all()
         else (
             "Some indicator contrasts are unavailable because their measurement windows extend before simulation start.",
         ),

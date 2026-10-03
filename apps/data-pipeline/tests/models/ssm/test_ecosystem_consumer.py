@@ -15,6 +15,7 @@ from nof1_causal_lab.models.ssm.dynamics.vector_field import StructuralDrift
 from nof1_causal_lab.models.ssm.execution.dynamical_model import HeterogeneousObservation
 from nof1_causal_lab.models.ssm.inference import fit
 from nof1_causal_lab.models.ssm.inference.problem import build_particle_problem
+from nof1_causal_lab.models.ssm.preflight import ObservationPreflightFailure
 from nof1_causal_lab.sampler_config import (
     MarginalParticleGibbsSpec,
     SamplerInitialization,
@@ -118,12 +119,13 @@ def test_nonlinear_mixed_missing_irregular_particle_fit_and_exact_diagnostics(mo
         initialization=SamplerInitialization(latent_trajectories=path[None, ...]),
         clock=time.monotonic,
     )
+    assert not isinstance(result, ObservationPreflightFailure)
     assert not hasattr(result.diagnostics, "likelihood_backend")
     diagnostics = result.diagnostics.marginal_particle_gibbs
     assert diagnostics is not None
     assert diagnostics.parameter_kernel == "m_pgibbs_pseudo_langevin"
     assert diagnostics.dsmc_leaf_proposal == "paid_mix"
-    assert diagnostics.adaptation_scheme == "dual_averaging"
+    assert diagnostics.settings.marginal_particle_gibbs.adaptation_scheme == "dual_averaging"
     assert diagnostics.latent_transition_kind == "euler_maruyama"
     latent_paths = result.draws.latent_paths
     assert latent_paths is not None

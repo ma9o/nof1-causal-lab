@@ -3,45 +3,72 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from datetime import UTC, date, datetime, time
 from itertools import pairwise
-from typing import Annotated, Literal, Self
+from typing import Literal, Self
 
 from pydantic import AwareDatetime, Field, FiniteFloat, model_validator
 
 from nof1_causal_lab.artifacts.base import Value
 
 from .checks import PredictiveAssessment
+from .duration import Duration
 from .identity import ConstructId, GitOid, GitRef, IndicatorId
 from .observations import ObservationSpec
 from .predictive_provenance import PredictiveLawProvenance
-from .scenarios import CausalEffectResult, InterventionSpec
+from .scenarios import CausalEffectResult, InterventionSpec, StateAssignment
 
 
 class SimulationSpec(Value):
-    """Generate through end, optionally starting earlier and applying dated interventions."""
+    """Generate from a calendar day over a horizon, with interventions placed after the start.
 
-    end: FiniteFloat = Field(description="Absolute end time in model days.")
-    start: FiniteFloat | None = Field(
-        default=None,
-        description="Absolute start time in model days; omitted uses the model's latest state time, or zero for its initial-state law.",
-    )
+    The start is the only absolute time. A record's origin places it in model days;
+    without a record, the start is model day zero.
+    """
+
+    start: date = Field(description="Calendar day the window starts, at 00:00 UTC.")
+    horizon: Duration = Field(description="How long the window lasts, such as 9w or 61d.")
     interventions: tuple[InterventionSpec, ...] = ()
-
-    def starting_at(self, start: float) -> SimulationSpec:
-        return SimulationSpec(start=start, end=self.end, interventions=self.interventions)
 
     @model_validator(mode="after")
     def validate_window(self) -> Self:
-        if self.start is not None and self.end <= self.start:
-            raise ValueError("Simulation end must be after start")
-        for event in self.interventions:
-            if event.time > self.end or (self.start is not None and event.time < self.start):
-                raise ValueError("Interventions must occur within the simulation window")
-        if len({(event.target, event.time) for event in self.interventions}) != len(
-            self.interventions
+        if any(
+            event.after is not None and event.after.seconds >= self.horizon.seconds
+            for event in self.interventions
         ):
+            raise ValueError("Interventions must occur before the end of the horizon")
+        offsets = {
+            (event.target, event.after.seconds if event.after is not None else 0)
+            for event in self.interventions
+        }
+        if len(offsets) != len(self.interventions):
             raise ValueError("A state can have only one intervention at each time")
         return self
+
+    @property
+    def start_instant(self) -> datetime:
+        return datetime.combine(self.start, time(), tzinfo=UTC)
+
+    def start_day(self, origin: datetime) -> float:
+        """The start in model days after a record's origin."""
+        from nof1_causal_lab.utils.time_coordinates import ObservationInstant
+
+        return ObservationInstant(self.start_instant).relative_to(ObservationInstant(origin)).days
+
+    def end_day(self, origin: datetime) -> float:
+        return self.start_day(origin) + self.horizon.days
+
+    def assignments(self, origin: datetime) -> tuple[StateAssignment, ...]:
+        """Place every intervention in model days after a record's origin."""
+        start = self.start_day(origin)
+        return tuple(
+            StateAssignment(
+                target=event.target,
+                time=start + event.after.days if event.after is not None else start,
+                value=event.value,
+            )
+            for event in self.interventions
+        )
 
 
 class SimulationObservationLayout(Value):
@@ -66,16 +93,6 @@ class SimulationObservationLayout(Value):
         return self
 
 
-class TrajectorySummary(Value):
-    """Pointwise means and fixed 95% quantiles across generated numeric draws."""
-
-    kind: Literal["numeric"] = "numeric"
-    mean: tuple[FiniteFloat | None, ...]
-    lower: tuple[FiniteFloat | None, ...]
-    upper: tuple[FiniteFloat | None, ...]
-    n_draws: tuple[int, ...]
-
-
 class CategoryProbabilitySummary(Value):
     """Predictive probabilities for each declared level; unobserved anchors are null."""
 
@@ -84,28 +101,7 @@ class CategoryProbabilitySummary(Value):
     n_draws: tuple[int, ...]
 
 
-type PredictiveSummary = Annotated[
-    TrajectorySummary | CategoryProbabilitySummary, Field(discriminator="kind")
-]
-
-
-class SimulationSeriesSummary(Value):
-    """One state's or indicator's generated distribution in each simulated arm."""
-
-    label: str
-    action: PredictiveSummary
-    reference: PredictiveSummary | None = None
-
-
 type FitReliability = Literal["not_fitted", "converged", "unconverged", "unknown"]
-
-
-class SimulationPredictiveReport(Value):
-    """Model implications, independently of whether a causal contrast is certified."""
-
-    states: Mapping[ConstructId, SimulationSeriesSummary]
-    indicators: Mapping[IndicatorId, SimulationSeriesSummary]
-    fit_reliability: FitReliability
 
 
 class SimulationReport(Value):
@@ -113,12 +109,13 @@ class SimulationReport(Value):
 
     model: GitRef
     design: SimulationSpec
+    time_origin: AwareDatetime = Field(description="Calendar instant of model day zero.")
+    assignments: tuple[StateAssignment, ...] = Field(
+        description="The design's interventions in model days."
+    )
     times: tuple[FiniteFloat, ...] = Field(min_length=2)
     draws: int = Field(ge=1)
     seed: int = Field(ge=0)
-    time_origin: AwareDatetime | None = Field(
-        description="Known calendar instant of model day zero."
-    )
     origin_panel_revision: GitOid | None = Field(
         default=None,
         description="Panel that supplied the time origin: the fit's panel for fitted laws, otherwise the current panel when present.",
@@ -132,27 +129,31 @@ class SimulationReport(Value):
     reference_latent_paths: str | None = None
     reference_observations: str | None = None
     findings: tuple[PredictiveAssessment, ...] = ()
-    predictive: SimulationPredictiveReport
+    fit_reliability: FitReliability
     causal_result: CausalEffectResult | None = None
     causal_unavailable_reason: str | None = None
 
     def with_provenance(
         self, *, law: PredictiveLawProvenance, origin_panel_revision: GitOid | None
     ) -> Self:
-        return self.model_copy(update={"law": law, "origin_panel_revision": origin_panel_revision})
+        return self.revised(law=law, origin_panel_revision=origin_panel_revision)
 
     def with_causal_result(self, result: CausalEffectResult) -> Self:
-        return self.model_copy(update={"causal_result": result, "causal_unavailable_reason": None})
+        return self.revised(causal_result=result, causal_unavailable_reason=None)
 
     def without_causal_result(self, reason: str) -> Self:
-        return self.model_copy(update={"causal_result": None, "causal_unavailable_reason": reason})
+        return self.revised(causal_result=None, causal_unavailable_reason=reason)
 
     @model_validator(mode="after")
     def validate_histories(self) -> Self:
-        if any(b <= a for a, b in pairwise(self.times)) or self.times[-1] != self.design.end:
-            raise ValueError("Simulation times must increase through the requested end")
-        if self.design.start is not None and self.times[0] != self.design.start:
-            raise ValueError("Simulation times must begin at the requested start")
+        if (
+            any(b <= a for a, b in pairwise(self.times))
+            or self.times[0] != self.design.start_day(self.time_origin)
+            or self.times[-1] != self.design.end_day(self.time_origin)
+        ):
+            raise ValueError("Simulation times must increase from the requested start to its end")
+        if self.assignments != self.design.assignments(self.time_origin):
+            raise ValueError("Assignments must place the design's interventions in model days")
         paired = self.reference_latent_paths is not None and self.reference_observations is not None
         if bool(self.design.interventions) != paired or (
             (self.reference_latent_paths is None) != (self.reference_observations is None)
@@ -167,25 +168,6 @@ class SimulationReport(Value):
                 self.causal_result.outcome,
                 *(event.target for event in self.design.interventions),
             }
-            if not targets <= self.predictive.states.keys():
+            if not targets <= set(self.state_ids):
                 raise ValueError("Causal trajectories must include the outcome and interventions")
-            if tuple(point.day for point in self.causal_result.effect_trajectory) != self.times:
-                raise ValueError("Causal trajectories must align with the generated histories")
-        if set(self.predictive.states) != set(self.state_ids) or set(
-            self.predictive.indicators
-        ) != set(self.observation_layout.indicator_ids):
-            raise ValueError("Predictive summaries must cover the recorded simulation layout")
-        for series in (*self.predictive.states.values(), *self.predictive.indicators.values()):
-            if (series.reference is not None) != paired:
-                raise ValueError("Predictive summaries must retain each simulated arm")
-            for summary in (series.action, series.reference):
-                if summary is None:
-                    continue
-                columns = (
-                    (summary.mean, summary.lower, summary.upper)
-                    if isinstance(summary, TrajectorySummary)
-                    else tuple(summary.probabilities.values())
-                )
-                if any(len(column) != len(self.times) for column in (*columns, summary.n_draws)):
-                    raise ValueError("Predictive summaries must align with simulation times")
         return self

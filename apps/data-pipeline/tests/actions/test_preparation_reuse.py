@@ -235,7 +235,7 @@ def test_ingestion_reuse_preserves_arrow_metadata_and_source_order(tmp_path, mon
     )
     reused = plan("second")
     assert reused.cached_result_ref is not None
-    effects = run_async(
+    applied = run_async(
         finalize_ingestion_activity(
             IngestionFinalizeInput(
                 workspace_id="second",
@@ -244,9 +244,9 @@ def test_ingestion_reuse_preserves_arrow_metadata_and_source_order(tmp_path, mon
             )
         )
     )
-    assert effects.ingestion_reused is True
+    assert applied.result.ingestion_reused is True
     saved = ArtifactStore("second").read_parquet_table(
-        "raw_data", effects.produced[0].revision, "raw.parquet"
+        "raw_data", applied.effects.produced[0].revision, "raw.parquet"
     )
     assert saved.equals(table, check_metadata=True)
     assert plan("reordered", ("b.csv", "a.csv")).cached_result_ref is None
@@ -394,7 +394,7 @@ def test_multiday_span_and_empty_semantic_windows_materialize_without_requests(
             )
         )
     )
-    revision = effects.produced[0].revision
+    revision = effects.effects.produced[0].revision
     panel = store.read_parquet_file("panel", revision, "panel.parquet")
     assert panel["value"].to_list() == [None, 2.0, None]
     assert panel["anchor_time"].to_list() == [datetime(2026, 1, day + offset) for day in (3, 5, 7)]

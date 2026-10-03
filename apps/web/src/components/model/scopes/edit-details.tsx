@@ -1,3 +1,4 @@
+import { modelConstructs } from "@/lib/model-accessors";
 import { useModelDiff } from "@/lib/hooks/use-model-diff";
 import { useModelSnapshot } from "@/lib/hooks/use-model-snapshot";
 import { parameterOwner } from "@/lib/model-asset/entities";
@@ -7,7 +8,7 @@ import { humanize } from "@/lib/model-asset/selection";
 import { Hint, OwnerLink, Section } from "../scope-primitives";
 
 export function EditDetails({ context, tick }: { context: ScopeContext; tick: StudyRevision }) {
-  const workspaceId = context.model.context.workspace_id;
+  const workspaceId = context.model.workspace_id;
   const base = tick.parent_ids.at(0);
   const previous = useModelSnapshot(workspaceId, base, tick.record.branch, base !== undefined);
   const ready = base === undefined || (previous.data && !previous.isPlaceholderData);
@@ -26,51 +27,46 @@ export function EditDetails({ context, tick }: { context: ScopeContext; tick: St
         <p className="font-medium">Model created</p>
       ) : diff.data ? (
         <>
-          {diff.data.graph.constructs
-            .filter((item) => item.change.kind !== "unchanged")
-            .map((item) => (
-              <p key={item.construct_id}>
-                {humanize(item.change.kind)} construct ·{" "}
-                <OwnerLink
-                  onClick={() => context.select({ kind: "construct", id: item.construct_id })}
-                >
-                  {humanize(
-                    item.change.kind === "removed"
-                      ? item.change.before.name
-                      : item.change.after.name,
-                  )}
-                </OwnerLink>
-              </p>
-            ))}
-          {diff.data.graph.edges
-            .filter((item) => item.change.kind !== "unchanged")
-            .map((item) => {
-              const edge = item.change.kind === "removed" ? item.change.before : item.change.after;
-              const name = (id: string) => {
-                const construct = diff.data.graph.constructs.find((row) => row.construct_id === id);
-                if (!construct) return null;
-                const definition =
-                  construct.change.kind === "removed"
-                    ? construct.change.before
-                    : construct.change.after;
-                return humanize(definition.name);
-              };
+          {diff.data.constructs
+            .filter((change) => change.kind !== "unchanged")
+            .map((change) => {
+              const ref = change.kind === "removed" ? change.before : change.after;
+              const model =
+                change.kind === "removed" ? diff.data.beforeModel : diff.data.afterModel;
+              const definition = modelConstructs(model).find((item) => item.id === ref.id);
               return (
-                <p key={item.edge_id}>
-                  {humanize(item.change.kind)} edge ·{" "}
-                  <OwnerLink onClick={() => context.select({ kind: "edge", id: item.edge_id })}>
-                    {name(edge.cause.id)} → {name(edge.effect.id)}
+                <p key={ref.id}>
+                  {humanize(change.kind)} construct ·{" "}
+                  <OwnerLink onClick={() => context.select({ kind: "construct", id: ref.id })}>
+                    {humanize(definition?.name ?? ref.id)}
+                  </OwnerLink>
+                </p>
+              );
+            })}
+          {diff.data.edges
+            .filter((change) => change.kind !== "unchanged")
+            .map((change) => {
+              const ref = change.kind === "removed" ? change.before : change.after;
+              const model =
+                change.kind === "removed" ? diff.data.beforeModel : diff.data.afterModel;
+              const edge = model.edges.find((item) => item.id === ref.id);
+              const name = (id: string) =>
+                humanize(modelConstructs(model).find((item) => item.id === id)?.name ?? id);
+              return (
+                <p key={ref.id}>
+                  {humanize(change.kind)} edge ·{" "}
+                  <OwnerLink onClick={() => context.select({ kind: "edge", id: ref.id })}>
+                    {edge ? `${name(edge.cause.id)} → ${name(edge.effect.id)}` : ref.id}
                   </OwnerLink>
                 </p>
               );
             })}
           {diff.data.parameters.map((item) => {
-            const parameter =
-              item.change.kind === "removed" ? item.change.before : item.change.after;
-            const owner = parameterOwner(context.entities, item.parameter_id);
+            const parameter = item.kind === "removed" ? item.before : item.after;
+            const owner = parameterOwner(context.entities, parameter.id);
             return (
-              <p key={item.parameter_id}>
-                {humanize(item.change.kind)} law ·{" "}
+              <p key={parameter.id}>
+                {humanize(item.kind)} law ·{" "}
                 {owner ? (
                   <OwnerLink onClick={() => context.select(owner.selection)}>
                     {humanize(parameter.name)}

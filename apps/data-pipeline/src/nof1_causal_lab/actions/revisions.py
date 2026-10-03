@@ -11,6 +11,7 @@ from nof1_causal_lab.artifacts.identity import (
 from nof1_causal_lab.models.model_structure import (
     compare_model_graph,
     compare_parameters,
+    model_graph_entities,
 )
 from nof1_causal_lab.study.view_models import (
     ModelDiffReport,
@@ -56,7 +57,7 @@ def _model_revision(
     return (
         reader.model,
         GitRef(workspace_id=workspace_id, revision=revision, path="artifacts/model/model.json"),
-        fit.value if fit is not None and fit.source.validity == "fresh" else None,
+        fit.value.core if fit is not None and fit.source.validity == "fresh" else None,
         simulation.value
         if simulation is not None and simulation.source.validity == "fresh"
         else None,
@@ -67,18 +68,38 @@ def model_diff(workspace_id: str, before_id: GitOid, after_id: GitOid) -> ModelD
     """Inspect scientific definition changes and evidence without fitting or simulation."""
     from nof1_causal_lab.actions.checks import check_specification
     from nof1_causal_lab.models.model_inputs import input_fingerprints
+    from nof1_causal_lab.models.ssm.compile.inputs import compile_fit_inputs, compile_model
+    from nof1_causal_lab.study.snapshots import ModelReader
 
     left, before, before_fit, before_simulation = _model_revision(workspace_id, before_id)
     right, after, after_fit, after_simulation = _model_revision(workspace_id, after_id)
+    # A study has one question, so its outcome scopes both revisions alike.
+    reader = ModelReader(workspace_id)
+    scoped = reader.scoped(left), reader.scoped(right)
+    checks = []
+    for selection in scoped:
+        compiled = compile_model(selection)
+        checks.append(check_specification(compiled, compile_fit_inputs(compiled, selection)))
     changes = compare_parameters(left, right)
     fingerprints = input_fingerprints(left)
+    constructs, edges = compare_model_graph(*scoped)
+    graphs = tuple(model_graph_entities(selection) for selection in scoped)
     return ModelDiffReport(
         before=before,
         after=after,
         parameters=tuple(changes),
-        graph=compare_model_graph(left, right),
-        before_checks=check_specification(left),
-        after_checks=check_specification(right),
+        constructs=constructs,
+        edges=edges,
+        before_dispositions=scoped[0].structural_dispositions
+        if left.measurement_clock is not None and left.indicators
+        else (),
+        after_dispositions=scoped[1].structural_dispositions
+        if right.measurement_clock is not None and right.indicators
+        else (),
+        before_dynamic_construct_ids=tuple(item.id for item in graphs[0][0] if item.is_dynamic),
+        after_dynamic_construct_ids=tuple(item.id for item in graphs[1][0] if item.is_dynamic),
+        before_checks=checks[0],
+        after_checks=checks[1],
         before_fit=before_fit,
         after_fit=after_fit,
         before_simulation=before_simulation,

@@ -15,7 +15,6 @@ from nof1_causal_lab.artifacts.predictive_provenance import (
 from nof1_causal_lab.study.artifact_files import json_filename
 from nof1_causal_lab.study.records import (
     Applied,
-    FitAttempt,
     ModelFitResult,
     StudyRevision,
     inference_record,
@@ -28,7 +27,7 @@ if TYPE_CHECKING:
 
     from nof1_causal_lab.artifacts.identity import GitOid
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.artifacts.posterior import InferenceReport
+    from nof1_causal_lab.artifacts.posterior import InferenceReportCore
     from nof1_causal_lab.study.state import ArtifactRecord, StudyState
     from nof1_causal_lab.study.store import ArtifactStore
 
@@ -53,7 +52,7 @@ def inference_report_record[T: StudyRevision](records: Iterable[T], state: Study
         (
             record
             for record in reversed(list(records))
-            if isinstance(record.record.attempt, FitAttempt)
+            if record.record.attempt.action == "fit"
             and isinstance(record.record.attempt.outcome, Applied)
             and (
                 inference_record([record], model.revision) is not None
@@ -81,14 +80,14 @@ def read_data_metadata(store: ArtifactStore, revision: GitOid) -> PreparedDataMe
     )
 
 
-def fitted_law_report(records: Iterable[StudyRevision], revision: GitOid) -> InferenceReport:
+def fitted_law_report(records: Iterable[StudyRevision], revision: GitOid) -> InferenceReportCore:
     """Read the committed fit that owns inherited laws and their model coordinates."""
     fitted = inference_record(records, revision)
     if fitted is None:
         raise ValueError("Fitted model laws require their committed inference report")
-    assert isinstance(fitted.record.attempt, FitAttempt)
+    assert fitted.record.attempt.action == "fit"
     assert fitted.record.attempt.outcome.status == "applied"
-    return fitted.record.attempt.outcome.result.report
+    return fitted.record.attempt.outcome.result.report.core
 
 
 def law_provenance(

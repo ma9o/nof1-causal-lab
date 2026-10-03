@@ -188,13 +188,13 @@ def test_causal_reporting_requires_retained_uncertainty_and_converged_exact_engi
 
     report = record.record.attempt.outcome.result.report
     unavailable = report.revised(
-        **{
-            "engine": NotEvaluated(
+        core=report.core.revised(
+            engine=NotEvaluated(
                 subject="production_engine",
                 reason="ARCHIVED_ENGINE_NOT_RETAINED",
                 detail="Exact engine evidence not retained",
             )
-        }
+        )
     )
     with pytest.raises(CausalCertificationError, match="retained exact-engine evidence"):
         certify_conditioned_model(model, revision, inference_log(model, report=unavailable))
@@ -209,7 +209,7 @@ def test_causal_reporting_requires_retained_uncertainty_and_converged_exact_engi
         certify_conditioned_model(prior, revision, inference_log(prior))
     from nof1_causal_lab.models.ssm.inference.convergence import parameter_convergence
 
-    diagnostics = report.inference_diagnostics
+    diagnostics = report.core.inference_diagnostics
     assert diagnostics is not None
     poorly_mixed = diagnostics.revised(
         **{
@@ -220,10 +220,10 @@ def test_causal_reporting_requires_retained_uncertainty_and_converged_exact_engi
         }
     )
     mixed_poorly = report.revised(
-        **{
-            "inference_diagnostics": poorly_mixed,
-            "convergence": parameter_convergence(poorly_mixed),
-        }
+        core=report.core.revised(
+            inference_diagnostics=poorly_mixed,
+            convergence=parameter_convergence(poorly_mixed),
+        )
     )
     with pytest.raises(CausalCertificationError, match=r"r_hat fails.*ess_tail fails"):
         certify_conditioned_model(model, revision, inference_log(model, report=mixed_poorly))

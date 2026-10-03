@@ -489,7 +489,7 @@ class TestAutoReparamSSM:
         assert set(samples) == {site.name for site in build_site_registry(model.compiled)}
         from nof1_causal_lab.models.ssm.inference.mcmc_state import TrajectoryMCMCResult
 
-        posterior = ParticleMCMCPosterior(
+        posterior = ParticleMCMCPosterior.from_run(
             draws=JointPosteriorDraws(parameters=samples),
             diagnostics=ProductionDiagnostics(
                 mcmc=TrajectoryMCMCResult(
@@ -513,7 +513,7 @@ class TestAutoReparamSSM:
             in {binding.parameter_id for binding in model.compiled.bindings}
             for row in marginals
         )
-        assert all(row.subject_x is not None and row.subject_y is not None for row in pairs)
+        assert all(row[0] is not None and row[1] is not None for row in pairs)
 
     def test_particle_runtime_reconstructs_log_normal_hill_sites(self):
         """Nested TransformReparam + LocScaleReparam restores the public Hill site."""

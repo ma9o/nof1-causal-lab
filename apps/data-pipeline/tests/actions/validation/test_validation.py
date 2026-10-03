@@ -177,16 +177,14 @@ class TestValidateExtraction:
         report = ValidationReportArtifact.model_validate(
             {
                 "data": {"indicators": {}, "dataset_issues": []},
-                "preflight": {
-                    "findings": [
-                        {
-                            "kind": "evaluated",
-                            "subject": "execution",
-                            "outcome": "failed",
-                            "evidence": "Incomplete model",
-                        }
-                    ]
-                },
+                "preflight": [
+                    {
+                        "kind": "evaluated",
+                        "subject": "execution",
+                        "outcome": "failed",
+                        "evidence": "Incomplete model",
+                    }
+                ],
             }
         )
         assert report.is_valid is False

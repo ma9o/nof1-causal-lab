@@ -1,6 +1,6 @@
 """Synthetic observations compose with the normal panel, provenance and fitting contracts."""
 
-from datetime import datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -9,10 +9,11 @@ import pytest
 from pydantic import ValidationError
 
 from nof1_causal_lab.actions.contracts import PrepareDataRequest
+from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.actions.prepare_data import prepare_simulation_panel
 from nof1_causal_lab.actions.runners import run_action
 from nof1_causal_lab.artifacts.construct import replace_constructs
-from nof1_causal_lab.artifacts.data_preparation import SimulationReplicateRef
+from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata, SimulationReplicateRef
 from nof1_causal_lab.artifacts.identity import GitRef
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.simulation import (
@@ -21,14 +22,15 @@ from nof1_causal_lab.artifacts.simulation import (
     SimulationSpec,
 )
 from nof1_causal_lab.models.ssm import numerics as numeric
+from nof1_causal_lab.models.ssm.preflight import ObservationPreflightFailure
 from nof1_causal_lab.models.ssm.runtime import project_observation_data
 from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.history import StudyRepository
-from nof1_causal_lab.study.records import ModelEditResult, ModelSimulationResult
+from nof1_causal_lab.study.records import Applied, ModelSimulationResult
 from nof1_causal_lab.study.state import StudyState
 from nof1_causal_lab.study.store import ArtifactStore
 from tests.action_fixtures import applied_record
-from tests.data_fixtures import metadata_for_model, predictive_summary, simulation_layout
+from tests.data_fixtures import metadata_for_model, simulation_layout
 from tests.git_fixtures import git_oid
 from tests.helpers import make_model, run_async
 from tests.model_fixtures import compile_model_fixture
@@ -77,17 +79,21 @@ def test_recorded_replicate_becomes_a_compatible_panel(tmp_path, monkeypatch):
     state = StudyState().with_artifacts([model_info])
     model_commit = history.append(
         applied_record(
-            ModelEditResult(produced=[model_info]), seq=1, ts="2026-09-25T12:00:00Z", trace_ids=[]
+            Applied(result=None, effects=ActionEffects(produced=[model_info])),
+            seq=1,
+            ts="2026-09-25T12:00:00Z",
+            trace_ids=[],
         )
     ).commit_id
     times = (0.0, 0.5, 2.0)
     draws = np.array([[[91, 92], [93, 94], [95, 96]], [[2, 4], [3, 8], [6, 12]]], dtype=float)
-    design = SimulationSpec(start=5, end=7)
+    design = SimulationSpec(start=date(2026, 1, 6), horizon="2d")
     report = SimulationReport(
         model=GitRef(workspace_id="TEST", revision=model_info.revision, path="model.json"),
         design=design,
-        time_origin=None,
-        predictive=predictive_summary(model, draws),
+        time_origin=datetime(2026, 1, 1, tzinfo=UTC),
+        assignments=(),
+        fit_reliability="not_fitted",
         times=tuple(time + 5 for time in times),
         draws=2,
         seed=0,
@@ -100,14 +106,22 @@ def test_recorded_replicate_becomes_a_compatible_panel(tmp_path, monkeypatch):
         ),
     )
     simulation_record = applied_record(
-        ModelSimulationResult(report=report), seq=2, ts="2026-09-25T12:01:00Z", trace_ids=[]
+        Applied(result=ModelSimulationResult(report=report), effects=ActionEffects()),
+        seq=2,
+        ts="2026-09-25T12:01:00Z",
+        trace_ids=[],
     )
     source_commit = history.append(simulation_record).commit_id
     # A later simulation must not replace the explicitly selected source.
     history.append(
         applied_record(
-            ModelSimulationResult(
-                report=report.revised(**{"observations": store.write_array(np.zeros_like(draws))})
+            Applied(
+                result=ModelSimulationResult(
+                    report=report.revised(
+                        **{"observations": store.write_array(np.zeros_like(draws))}
+                    )
+                ),
+                effects=ActionEffects(),
             ),
             seq=3,
         )
@@ -126,22 +140,26 @@ def test_recorded_replicate_becomes_a_compatible_panel(tmp_path, monkeypatch):
         )
     effects = run_async(run_action("TEST", request, state))
     # The runner stages the panel; the enclosing action owns scientific checks.
-    assert {info.artifact_id for info in effects.produced} == {"panel"}
-    panel_info = next(info for info in effects.produced if info.artifact_id == "panel")
+    assert {info.artifact_id for info in effects.effects.produced} == {"panel"}
+    panel_info = next(info for info in effects.effects.produced if info.artifact_id == "panel")
     assert panel_info.derived_from == {}
-    assert effects.simulation_source == source
-    assert effects.n_observations == 6
+    assert effects.result.simulation_source == source
+    assert effects.result.n_observations == 6
     panel = store.read_parquet_file("panel", panel_info.revision, "panel.parquet")
-    wide, _ = project_observation_data(
-        panel, model_spec=compile_model_fixture(model), time_origin=None
+    metadata = store.read_value("panel", panel_info.revision, "metadata.json", PreparedDataMetadata)
+    assert metadata.time_origin == datetime(2026, 1, 6, tzinfo=UTC)
+    projected = project_observation_data(
+        panel, model_spec=compile_model_fixture(model), time_origin=metadata.time_origin
     )
+    assert not isinstance(projected, ObservationPreflightFailure)
+    (wide, _) = projected
     np.testing.assert_allclose(wide["time"].to_numpy(), times)
     np.testing.assert_allclose(
         wide.select(numeric.observation_names(compile_model_fixture(model))).to_numpy(),
         draws[1],
         equal_nan=True,
     )
-    assert panel["anchor_time"].min() == datetime(1970, 1, 1)
+    assert panel["anchor_time"].min() == datetime(2026, 1, 6)
     assert set(panel["support_kind"]) == {"point"}
 
     history.append(applied_record(effects, seq=4, request=request))
@@ -174,23 +192,12 @@ def test_materialization_preserves_measurement_support_and_numeric_codes(interva
         arrays[key] = value
         return key
 
-    from nof1_causal_lab.actions.simulation_summaries import summarize_simulation
-
     report = SimulationReport(
         model=GitRef(workspace_id="TEST", revision=git_oid(1), path="model.json"),
-        design=SimulationSpec(end=2.5),
-        time_origin=None,
-        predictive=summarize_simulation(
-            model,
-            state_ids=tuple(item.id for item in model.constructs),
-            variables=metadata_for_model(model).variables,
-            latent_paths=np.zeros_like(values),
-            observations=values,
-            mask=np.isfinite(values),
-            reference_latent_paths=None,
-            reference_observations=None,
-            fit_reliability="not_fitted",
-        ),
+        design=SimulationSpec(start=date(2026, 1, 1), horizon="60h"),
+        time_origin=datetime(2026, 1, 1, tzinfo=UTC),
+        assignments=(),
+        fit_reliability="not_fitted",
         times=(0, 1, 2.5),
         draws=1,
         seed=0,
@@ -217,7 +224,7 @@ def test_materialization_preserves_measurement_support_and_numeric_codes(interva
         report, 0, read_array=lambda key: values if key == "observations" else arrays[key]
     )
     assert panel["value"].drop_nulls().to_list() == [2.0] * (4 if interval else 6)
-    assert panel["anchor_time"].min() == datetime(1970, 1, 1)
+    assert panel["anchor_time"].min() == datetime(2026, 1, 1)
     if interval:
         rows = panel.filter(pl.col("value").is_not_null())
         assert (rows["support_end"] - rows["support_start"]).to_list() == [timedelta(days=1)] * 4

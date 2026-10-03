@@ -20,7 +20,7 @@ describe("law curves", () => {
   it("draws authored laws as written until a fit supersedes them with posteriors", () => {
     const persistence = fixtureValue(lawCurves(authored, ownLawUses(construct)).at(0));
     expect(persistence).toMatchObject({ kind: "authored", family: "Beta", posteriors: [] });
-    expect(persistence.prior.length).toBeGreaterThan(0);
+    expect(persistence.prior.x.length).toBeGreaterThan(0);
     expect(lawLabel(persistence)).toBe("persistence");
 
     const decay = fixtureValue(lawCurves(fitted, ownLawUses(construct)).at(0));
@@ -35,12 +35,9 @@ describe("law curves", () => {
     const base = fitted;
     const revised = {
       ...base,
-      findings: {
-        ...base.findings,
-        fit: {
-          ...fixtureValue(base.findings.fit),
-          source: { ...fixtureValue(base.findings.fit).source, validity: "stale" as const },
-        },
+      fit: {
+        ...fixtureValue(base.fit),
+        source: { ...fixtureValue(base.fit).source, validity: "stale" as const },
       },
     };
     expect(lawCurves(revised, ownLawUses(construct)).map((curve) => curve.stale)).toEqual([

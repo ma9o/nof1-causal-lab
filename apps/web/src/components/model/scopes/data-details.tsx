@@ -1,4 +1,4 @@
-import type { DataPreparationResult } from "@nof1-causal-lab/api-types";
+import type { Applied, DataPreparationResult } from "@nof1-causal-lab/api-types";
 import type { StudyRevision } from "@nof1-causal-lab/api-types";
 import type { ScopeContext } from "@/lib/model-asset/scope";
 import { ObservationPlots, dataComparisonHistory } from "./recorded-history";
@@ -73,7 +73,7 @@ function dataSelectionLabel(
       const tick = ticks.find(
         (tick) =>
           tick.record.attempt.outcome.status === "applied" &&
-          tick.record.attempt.outcome.result.produced.some(
+          tick.record.attempt.outcome.effects.produced.some(
             (artifact) => artifact.artifact_id === "panel" && artifact.revision === source.revision,
           ),
       );
@@ -178,21 +178,38 @@ function VariableComparison({ variable }: { variable: DataVariableDiff }) {
           </thead>
           <tbody>
             {variable.changes.map((change) => (
-              <tr key={change.anchor_time}>
-                <th
-                  className="font-normal"
-                  style={{ color: COMPARISON_COLORS[change.change.kind] }}
-                >
-                  <time dateTime={change.anchor_time} title={change.anchor_time}>
-                    {formatModelDate(0, change.anchor_time)}
+              <tr
+                key={
+                  change.kind === "removed" ? change.before.anchor_time : change.after.anchor_time
+                }
+              >
+                <th className="font-normal" style={{ color: COMPARISON_COLORS[change.kind] }}>
+                  <time
+                    dateTime={
+                      change.kind === "removed"
+                        ? change.before.anchor_time
+                        : change.after.anchor_time
+                    }
+                    title={
+                      change.kind === "removed"
+                        ? change.before.anchor_time
+                        : change.after.anchor_time
+                    }
+                  >
+                    {formatModelDate(
+                      0,
+                      change.kind === "removed"
+                        ? change.before.anchor_time
+                        : change.after.anchor_time,
+                    )}
                   </time>
                   <br />
-                  {change.change.kind}
+                  {change.kind}
                 </th>
                 {(
                   [
-                    ["left", change.change.kind === "added" ? null : change.change.before],
-                    ["right", change.change.kind === "removed" ? null : change.change.after],
+                    ["left", change.kind === "added" ? null : change.before],
+                    ["right", change.kind === "removed" ? null : change.after],
                   ] as const
                 ).map(([side, point]) => (
                   <td key={side} className="break-all align-top">
@@ -222,7 +239,7 @@ function VariableComparison({ variable }: { variable: DataVariableDiff }) {
 }
 
 export function PreparedObservations({ context }: { context: ScopeContext }) {
-  const { metadata, profile } = context.model.data;
+  const { metadata, profile } = context.model;
   if (!metadata) return <Hint>No observation panel recorded.</Hint>;
   return (
     <>
@@ -249,17 +266,17 @@ export function PreparedObservations({ context }: { context: ScopeContext }) {
 
 export function DataDetails({
   context,
-  result,
+  applied,
 }: {
   context: ScopeContext;
-  result: DataPreparationResult;
+  applied: Applied<DataPreparationResult>;
 }) {
-  const metadata = context.model.data.metadata;
-  const raw = context.model.data.raw_data;
+  const metadata = context.model.metadata;
+  const raw = context.model.raw_data;
   if (!metadata)
     return (
       <Section title="Prepared data" {...(raw?.source === undefined ? {} : { source: raw.source })}>
-        {raw && result.produced.some((artifact) => artifact.artifact_id === "raw_data") ? (
+        {raw && applied.effects.produced.some((artifact) => artifact.artifact_id === "raw_data") ? (
           <KeyValue
             rows={[
               ["Imported records", raw.value.n_records.toLocaleString()],
@@ -289,7 +306,7 @@ export function DataDetails({
                 ["Replicate", String(source.replicate)],
               ] as Array<[string, string]>)),
           ["Variables", String(variables.length)],
-          ["Observations", context.model.data.measurements?.value.n_observations.toLocaleString()],
+          ["Observations", context.model.measurements?.value.n_observations.toLocaleString()],
         ]}
       />
     </Section>

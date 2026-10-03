@@ -7,9 +7,9 @@ const modelClient = createModelClient();
 
 /** The full inference report at a pinned commit, including per-draw diagnostics. */
 export function useInferenceReport(model: ModelSnapshot) {
-  const { workspace_id: workspaceId, commit_id: commitId, branch } = model.context;
+  const { workspace_id: workspaceId, commit_id: commitId, branch } = model;
   return useQuery({
-    enabled: model.findings.fit != null,
+    enabled: model.fit != null,
     queryKey: ["inference-report", workspaceId, commitId, branch],
     queryFn: async ({ signal }) => {
       const { data, error, response } = await modelClient.GET(

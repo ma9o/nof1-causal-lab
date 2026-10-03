@@ -11,8 +11,15 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, ChildWorkflowError
 
+from nof1_causal_lab.actions.effects import ActionEffects
+
 with workflow.unsafe.imports_passed_through():
-    from nof1_causal_lab.actions.contracts import EditModelRequest, PrepareDataRequest
+    from nof1_causal_lab.actions.contracts import (
+        EditModelRequest,
+        FitRequest,
+        PrepareDataRequest,
+        SetQuestionRequest,
+    )
     from nof1_causal_lab.actions.results import (
         ActionPoll,
         CompletedPoll,
@@ -33,6 +40,7 @@ with workflow.unsafe.imports_passed_through():
         IngestionWorkflowInput,
         MeasurementsWorkflowInput,
         ReadBranchInput,
+        SetQuestionInput,
         StudyInit,
     )
     from nof1_causal_lab.actions.temporal.workflow_support import temporal_failure
@@ -45,16 +53,15 @@ with workflow.unsafe.imports_passed_through():
         BranchBase,
         DataPreparationResult,
         EditAttempt,
-        FitAttempt,
-        ModelEditResult,
         ModelFitResult,
         PrepareAttempt,
         Rejected,
+        SetQuestionAttempt,
         StudyRevision,
         applied_attempt,
         failed_attempt,
     )
-    from nof1_causal_lab.study.state import validate_model_base
+    from nof1_causal_lab.study.state import validate_lineage, validate_model_base
     from nof1_causal_lab.study.view_models import DataDiffRequest
 _RUN_ACTION_TIMEOUT = timedelta(hours=4)
 _WRITE_TIMEOUT = timedelta(minutes=5)
@@ -144,16 +151,36 @@ class StudyWorkflow:
             if isinstance(action, EditModelRequest)
             else None
         )
-        if reason is not None:
-            await self._journal(
-                seq,
-                request,
-                base,
-                failed_attempt(action, Rejected(reason="revision_conflict", detail=reason)),
+        lineage = (
+            None
+            if isinstance(action, DataDiffRequest)
+            else validate_lineage(base.state, action.action)
+        )
+        rejection = (
+            Rejected(reason="revision_conflict", detail=reason)
+            if reason is not None
+            else Rejected(
+                reason="revision_conflict"
+                if isinstance(action, SetQuestionRequest)
+                else "input_unavailable",
+                detail=lineage,
             )
+            if lineage is not None
+            else None
+        )
+        if rejection is not None:
+            await self._journal(seq, request, base, failed_attempt(action, rejection))
             return
         try:
-            if isinstance(action, EditModelRequest):
+            if isinstance(action, SetQuestionRequest):
+                attempt = await workflow.execute_activity(
+                    "set_question_activity",
+                    SetQuestionInput(workspace_id=self._workspace_id, request=action),
+                    result_type=SetQuestionAttempt,
+                    start_to_close_timeout=_WRITE_TIMEOUT,
+                    retry_policy=_ACTIVITY_RETRY,
+                )
+            elif isinstance(action, EditModelRequest):
                 attempt = await workflow.execute_activity(
                     "edit_model_activity",
                     EditModelInput(
@@ -174,37 +201,45 @@ class StudyWorkflow:
                     start_to_close_timeout=_RUN_ACTION_TIMEOUT,
                     retry_policy=_ACTIVITY_RETRY,
                 )
-            if isinstance(attempt, (EditAttempt, FitAttempt, PrepareAttempt)) and isinstance(
-                attempt.outcome, Applied
-            ):
-                result = attempt.outcome.result
+            if isinstance(
+                action, (EditModelRequest, FitRequest, PrepareDataRequest)
+            ) and isinstance(attempt.outcome, Applied):
+                result = attempt.outcome
                 self._messages = (
                     *self._messages,
                     ActionMessage(
                         timestamp=workflow.now(),
                         level="info",
                         label="DATA_CHECKS_STARTED"
-                        if isinstance(attempt, PrepareAttempt)
+                        if attempt.action == "prepare_data"
                         else "MODEL_CHECKS_STARTED",
                     ),
                 )
                 self._report_progress(request)
-                if isinstance(result, DataPreparationResult):
+                if isinstance(action, PrepareDataRequest):
+                    assert isinstance(result.result, DataPreparationResult)
                     result = await workflow.execute_activity(
                         "evaluate_data_checks_activity",
                         EvaluateChecksInput[DataPreparationResult](
-                            workspace_id=self._workspace_id, state=base.state, effects=result
+                            workspace_id=self._workspace_id,
+                            state=base.state,
+                            applied=Applied(result=result.result, effects=result.effects),
+                            request=action,
                         ),
-                        result_type=DataPreparationResult,
+                        result_type=Applied[DataPreparationResult],
                         task_queue=MODEL_CHECKS_TASK_QUEUE,
                         start_to_close_timeout=_CHECK_TIMEOUT,
                         retry_policy=_ACTIVITY_RETRY,
                     )
                 else:
+                    assert result.result is None or isinstance(result.result, ModelFitResult)
                     result = await workflow.execute_activity(
                         evaluate_model_checks_activity,
-                        EvaluateChecksInput[ModelEditResult | ModelFitResult](
-                            workspace_id=self._workspace_id, state=base.state, effects=result
+                        EvaluateChecksInput[ModelFitResult | None](
+                            workspace_id=self._workspace_id,
+                            state=base.state,
+                            applied=Applied(result=result.result, effects=result.effects),
+                            request=action,
                         ),
                         task_queue=MODEL_CHECKS_TASK_QUEUE,
                         start_to_close_timeout=_CHECK_TIMEOUT,
@@ -242,12 +277,12 @@ class StudyWorkflow:
                 source=preparation.source,
             ),
             id=f"raw-data-{self._workspace_id}-{seq:06d}",
-            result_type=DataPreparationResult,
+            result_type=Applied[DataPreparationResult],
             execution_timeout=_RUN_ACTION_TIMEOUT,
             static_summary="Prepare source data",
             memo=memo,
         )
-        (raw_data,) = ingested.produced
+        (raw_data,) = ingested.effects.produced
         extracted = await workflow.execute_child_workflow(
             "MeasurementsWorkflow",
             MeasurementsWorkflowInput(
@@ -258,22 +293,25 @@ class StudyWorkflow:
                 preparation=preparation,
             ),
             id=f"measurements-{self._workspace_id}-{seq:06d}",
-            result_type=DataPreparationResult,
+            result_type=Applied[DataPreparationResult],
             execution_timeout=_RUN_ACTION_TIMEOUT,
             static_summary="Prepare observations",
             memo=memo,
         )
         return PrepareAttempt(
+            action="prepare_data",
             request=request.request,
             outcome=Applied(
                 result=DataPreparationResult(
-                    produced=(*ingested.produced, *extracted.produced),
-                    raw_data=extracted.raw_data,
-                    workers=extracted.workers,
-                    n_observations=extracted.n_observations,
-                    ingestion_reused=ingested.ingestion_reused,
-                    extraction_reused=extracted.extraction_reused,
-                )
+                    raw_data=extracted.result.raw_data,
+                    workers=extracted.result.workers,
+                    n_observations=extracted.result.n_observations,
+                    ingestion_reused=ingested.result.ingestion_reused,
+                    extraction_reused=extracted.result.extraction_reused,
+                ),
+                effects=ActionEffects(
+                    produced=(*ingested.effects.produced, *extracted.effects.produced)
+                ),
             ),
         )
 

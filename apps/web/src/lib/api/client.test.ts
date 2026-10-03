@@ -4,16 +4,16 @@ import { apiClient } from "./client";
 
 describe("generated facade client", () => {
   it("returns the endpoint's response and accepts custom headers", async () => {
-    const body = { actions_enabled: false };
+    const body = false;
     const fetch = vi.fn<(request: Request) => Promise<Response>>(async () => Response.json(body));
-    const result = await apiClient.GET("/api/capabilities", {
+    const result = await apiClient.GET("/api/actions-enabled", {
       baseUrl: "http://viewer",
       fetch,
       headers: { Authorization: "Bearer token" },
     });
     expect(result.data).toEqual(body);
     const [request] = fixtureValue(fetch.mock.calls.at(0));
-    expect(request.url).toBe("http://viewer/api/capabilities");
+    expect(request.url).toBe("http://viewer/api/actions-enabled");
     expect(request.headers.get("Authorization")).toBe("Bearer token");
     expect(request.headers.has("Content-Type")).toBe(false);
   });
@@ -22,11 +22,7 @@ describe("generated facade client", () => {
     const fetch = vi.fn<(request: Request) => Promise<Response>>(async () =>
       Response.json({ attempt_id: "new-attempt" }, { status: 202 }),
     );
-    const body = {
-      action: "edit_model",
-      expected_revision: null,
-      model: { question: "Why?" },
-    } as const;
+    const body = { action: "set_question", question: { text: "Why?" } } as const;
     const result = await apiClient.POST("/api/studies/{workspace_id}/actions", {
       baseUrl: "http://viewer",
       fetch,
@@ -41,7 +37,7 @@ describe("generated facade client", () => {
   });
 
   it("retains unsuccessful transport status and payload for the caller", async () => {
-    const result = await apiClient.GET("/api/capabilities", {
+    const result = await apiClient.GET("/api/actions-enabled", {
       baseUrl: "http://viewer",
       fetch: async () => Response.json({ detail: "Unavailable" }, { status: 503 }),
     });
@@ -52,7 +48,7 @@ describe("generated facade client", () => {
 
   it("propagates network errors", async () => {
     await expect(
-      apiClient.GET("/api/capabilities", {
+      apiClient.GET("/api/actions-enabled", {
         baseUrl: "http://viewer",
         fetch: async () => {
           throw new TypeError("Failed to fetch");

@@ -114,8 +114,11 @@ class TestStaleness:
 def test_freshness_report_shape():
     state = _state(_version("model"))
     report = freshness_report(state)
-    by_id = {status.artifact_id: status for status in report}
-    assert by_id["model"].exists
+    by_id = {
+        status.artifact_id if status.kind == "missing" else status.record.artifact_id: status
+        for status in report
+    }
+    assert by_id["model"].kind == "present"
+    assert by_id["model"].validity == "fresh"
     assert "provenance" not in by_id["model"].model_dump()
-    assert not by_id["panel"].exists
-    assert not by_id["panel"].stale
+    assert by_id["panel"].kind == "missing"

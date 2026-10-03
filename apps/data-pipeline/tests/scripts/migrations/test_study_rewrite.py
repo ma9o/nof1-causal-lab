@@ -11,6 +11,7 @@ from scripts.migrations.migrate_format_12 import convert_payload
 from scripts.migrations.migrate_format_12 import convert_study as convert_format_12
 from scripts.migrations.migrate_format_13 import convert_payload as compose_payload
 from scripts.migrations.migrate_format_13 import convert_study as convert_format_13
+from scripts.migrations.migrate_format_14 import convert_model
 
 from nof1_causal_lab.artifacts.identity import GitOid, scientific_id
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
@@ -22,6 +23,96 @@ from nof1_causal_lab.study.view_models import PanelRef
 from nof1_causal_lab.utils import data
 
 pytestmark = pytest.mark.contract
+
+
+def test_format_15_logs_compile_drops_but_refuses_schedule_mismatch(capsys):
+    from scripts.migrations.migrate_format_15 import _preflight_overlays
+
+    from nof1_causal_lab.compilation_errors import AggregatedCompileError
+
+    checks = {
+        "variables": [{"indicator_id": "indicator:x", "warnings": ["Retained warning"]}],
+        "overlays": [{"indicator_id": "indicator:x", "observed": [1.0, 2.0]}],
+    }
+    owner = ("a" * 40, 8, None, None)
+
+    def cannot_compile():
+        raise AggregatedCompileError(["Retained model has a static target"])
+
+    assert _preflight_overlays(checks, cannot_compile, owner)
+    line = capsys.readouterr().out.removeprefix("Dropped archived overlay: ")
+    assert json.loads(line) == {
+        "commit": owner[0],
+        "seq": 8,
+        "attempt_id": None,
+        "indicator": "indicator:x",
+        "stored_points": 2,
+        "reason": "Retained model has a static target",
+    }
+    assert checks["variables"][0]["warnings"] == ["Retained warning"]
+    with pytest.raises(ValueError, match="Archived overlay conversion stopped"):
+        _preflight_overlays(checks, lambda: ((0.0,), {}), owner)
+    assert capsys.readouterr().out == ""
+
+    def projection_failure():
+        raise ValueError("Projection failed")
+
+    with pytest.raises(ValueError, match="Projection failed"):
+        _preflight_overlays(checks, projection_failure, owner)
+
+
+def test_format_15_refuses_conflicting_retained_evidence_and_missing_sampler_controls():
+    from scripts.migrations.migrate_format_15 import convert_payload as format_15
+
+    with pytest.raises(ValueError, match="divergence flags differ"):
+        format_15(
+            {
+                "inference_metadata": {},
+                "convergence": {},
+                "detail": {
+                    "posterior_pairs": [
+                        {"subject_x": {}, "subject_y": {}, "divergent": [False, True]},
+                        {"subject_x": {}, "subject_y": {}, "divergent": [True, False]},
+                    ]
+                },
+            }
+        )
+    with pytest.raises(ValueError, match="original fully resolved SamplerSpec"):
+        format_15(
+            {
+                "parameter_warmup": {},
+                "initialization": {},
+                "preconditioner": {},
+                "latent_kernel": "dsmc",
+            }
+        )
+
+
+def test_format_15_preserves_date_keyed_observation_changes_in_order():
+    from pydantic import TypeAdapter
+    from scripts.migrations.migrate_format_15 import convert_payload as format_15
+
+    from nof1_causal_lab.study.view_models import Change, DataPoint
+
+    def point(value):
+        return {
+            "anchor_time": "2023-11-17T00:00:00Z",
+            "support_start": "2023-11-16T00:00:00Z",
+            "support_end": "2023-11-17T00:00:00Z",
+            "value": value,
+        }
+
+    changes = [
+        {"kind": "removed", "before": point(10.0)},
+        {"kind": "revised", "before": point(5.0), "after": point(6.0)},
+        {"kind": "added", "after": point(1.0)},
+    ]
+    assert (
+        format_15([{"anchor_time": "2023-11-17T00:00:00Z", "change": change} for change in changes])
+        == changes
+    )
+    parsed = TypeAdapter(tuple[Change[DataPoint], ...]).validate_python(changes)
+    assert [change.kind for change in parsed] == ["removed", "revised", "added"]
 
 
 @pytest.mark.parametrize(
@@ -143,7 +234,9 @@ def test_representation_rewrite_preserves_fresh_and_stale_consumers_refs_and_byt
         )
         assert str(converted.references[target].target) == mapping[oid]
     converted_model = ModelSpec.model_validate(
-        compose_payload(json.loads(read_file(converted, mapping[str(old_owner)], "model.json")))
+        convert_model(
+            compose_payload(json.loads(read_file(converted, mapping[str(old_owner)], "model.json")))
+        )
     )
     assert converted_model.model_dump(mode="json") == model.model_dump(mode="json")
     if source_format == 12:
@@ -152,7 +245,7 @@ def test_representation_rewrite_preserves_fresh_and_stale_consumers_refs_and_byt
         )
         assert report.data.is_valid
         assert report.is_valid
-        assert report.preflight.findings == ()
+        assert report.preflight == ()
     new_owner = json.loads(read_file(converted, mapping[str(old_owner)], "meta.json"))
     publication = json.loads(read_file(converted, mapping[str(first)], "publication.json"))
     assert publication["revision"] == mapping[str(old_owner)]
@@ -208,13 +301,16 @@ def _archived(action, *, inputs=None, diagnostics=None, **fields):
 
 
 def test_attempt_conversion_keeps_retained_reports_and_absence_without_inventing_requests():
-    from nof1_causal_lab.study.records import Applied, FitAttempt
+    from scripts.migrations.migrate_format_15 import convert_payload as format_15
+
+    from nof1_causal_lab.study.records import Applied, AttemptRecord
     from tests.inference_fixtures import _report
 
     model = ModelSpec.model_validate_json(
         (Path(__file__).parents[2] / "fixtures/models/common/x_y_model.json").read_text()
     )
-    report = _report(model).model_dump(mode="json")
+    composed = _report(model).model_dump(mode="json")
+    report = {**composed["core"], "detail": composed["detail"]}
     report["detail"]["initial_latent_delta"] = [[1.0, 2.0], [3.0, 4.0]]
     old = _archived(
         "fit",
@@ -228,14 +324,17 @@ def test_attempt_conversion_keeps_retained_reports_and_absence_without_inventing
         },
     )
     converted, retained = convert_attempt(old, "study")
-    record = converted
-    assert isinstance(record.attempt, FitAttempt)
+    record = AttemptRecord.model_validate(format_15(converted))
+    assert record.attempt.action == "fit"
     assert isinstance(record.attempt.outcome, Applied)
     assert record.attempt.request is None
     assert record.attempt_id is None
     result = record.attempt.outcome.result
     assert result.retention == "report_only"
-    assert result.report.model_dump(mode="json") == report
+    assert result.report.model_dump(mode="json") == {
+        "core": {key: value for key, value in report.items() if key != "detail"},
+        "detail": report["detail"],
+    }
     assert retained == {"measurements": {"retained_axes": {"draws": 17}, "foreign_pin": "measured"}}
     prepared, extra = convert_attempt(
         _archived(
@@ -248,9 +347,9 @@ def test_attempt_conversion_keeps_retained_reports_and_absence_without_inventing
         ),
         "study",
     )
-    from nof1_causal_lab.study.records import PrepareAttempt
 
-    assert isinstance(prepared.attempt, PrepareAttempt)
+    prepared = AttemptRecord.model_validate(format_15(prepared))
+    assert prepared.attempt.action == "prepare_data"
     assert prepared.attempt.outcome.status == "applied"
     worker = prepared.attempt.outcome.result.workers[0]
     assert worker.n_llm_calls is None
@@ -262,7 +361,7 @@ def test_attempt_conversion_keeps_retained_reports_and_absence_without_inventing
     edit, retained = convert_attempt(
         _archived("edit_model", inputs={"expected_revision": None, "model": proposal}), "study"
     )
-    assert edit.attempt.request is None
+    assert AttemptRecord.model_validate(format_15(edit)).attempt.request is None
     assert retained["request_fragment"] == {"expected_revision": None, "model": proposal}
     assert retained["request_unavailable_reason"] == "recorded_request_outside_current_schema"
     for status, fields in [
@@ -270,6 +369,7 @@ def test_attempt_conversion_keeps_retained_reports_and_absence_without_inventing
         ("raised", {"error_type": "ActualError", "error_message": "Actual failure"}),
     ]:
         value, _ = convert_attempt(_archived("edit_model", status=status, **fields), "study")
+        value = AttemptRecord.model_validate(format_15(value))
         assert value.attempt.outcome.status == status
         assert "result" not in value.attempt.outcome.model_dump()
 

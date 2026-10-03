@@ -27,7 +27,7 @@ with workflow.unsafe.imports_passed_through():
         emit_progress,
         temporal_failure,
     )
-    from nof1_causal_lab.study.records import DataPreparationResult
+    from nof1_causal_lab.study.records import Applied, DataPreparationResult
 
 _FINALIZE_TIMEOUT = timedelta(minutes=5)
 
@@ -43,7 +43,7 @@ _ACTIVITY_RETRY = RetryPolicy(
 class IngestionWorkflow:
     @workflow.run
     @execution_failure_handler
-    async def run(self, workflow_input: IngestionWorkflowInput) -> DataPreparationResult:
+    async def run(self, workflow_input: IngestionWorkflowInput) -> Applied[DataPreparationResult]:
         def step(status: StepStatus, error: StepError | None = None) -> StepEvent:
             return StepEvent(
                 attempt_id=workflow_input.attempt_id, step="ingestion", status=status, error=error

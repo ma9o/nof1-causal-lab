@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from pydantic import TypeAdapter
 from temporalio import activity
 
+from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.actions.errors import execution_failure_handler
 from nof1_causal_lab.actions.temporal.activity_errors import (
     as_non_retryable_application_error,
@@ -22,7 +23,7 @@ from nof1_causal_lab.actions.temporal.messages import (
     IngestionWorkflowInput,
 )
 from nof1_causal_lab.study.artifact_files import parquet_filename
-from nof1_causal_lab.study.records import DataPreparationResult
+from nof1_causal_lab.study.records import Applied, DataPreparationResult
 from nof1_causal_lab.study.store import ArtifactStore
 from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
@@ -127,7 +128,7 @@ async def plan_ingestion_activity(
 @execution_failure_handler
 async def finalize_ingestion_activity(
     activity_input: IngestionFinalizeInput,
-) -> DataPreparationResult:
+) -> Applied[DataPreparationResult]:
     import pyarrow as pa
 
     from nof1_causal_lab.utils.content_cache import publish
@@ -151,7 +152,10 @@ async def finalize_ingestion_activity(
                 parquet_files={parquet_filename("raw_data", "raw"): table},
             )
         ]
-        return DataPreparationResult(produced=tuple(produced), ingestion_reused=context.reused)
+        return Applied(
+            result=DataPreparationResult(ingestion_reused=context.reused),
+            effects=ActionEffects(produced=tuple(produced)),
+        )
     except Exception as exc:
         raise as_non_retryable_application_error(exc) from exc
 

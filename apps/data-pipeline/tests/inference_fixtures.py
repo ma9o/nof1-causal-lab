@@ -4,6 +4,9 @@ from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 
+from nof1_causal_lab.actions.effects import ActionEffects
+from nof1_causal_lab.artifacts.posterior import InferenceReportCore
+from nof1_causal_lab.study.records import Applied
 from tests.git_fixtures import git_oid
 
 if TYPE_CHECKING:
@@ -29,19 +32,25 @@ def inference_log(
     from tests.action_fixtures import applied_record
 
     record = applied_record(
-        ModelFitResult(
-            model=GitRef(workspace_id=workspace_id, revision=prior_revision, path="model.json"),
-            panel=GitRef(workspace_id=workspace_id, revision=pins["panel"], path="panel.parquet"),
-            produced=(
-                ArtifactRecord(
-                    artifact_id="model",
-                    revision=revision,
-                    produced_by="fit",
-                    derived_from=pins,
-                    model_inputs=input_fingerprints(model),
+        Applied(
+            result=ModelFitResult(
+                model=GitRef(workspace_id=workspace_id, revision=prior_revision, path="model.json"),
+                panel=GitRef(
+                    workspace_id=workspace_id, revision=pins["panel"], path="panel.parquet"
                 ),
+                report=report if report is not None else _report(model),
             ),
-            report=report if report is not None else _report(model),
+            effects=ActionEffects(
+                produced=(
+                    ArtifactRecord(
+                        artifact_id="model",
+                        revision=revision,
+                        produced_by="fit",
+                        derived_from=pins,
+                        model_inputs=input_fingerprints(model),
+                    ),
+                )
+            ),
         ),
         seq=seq,
         ts="2026-07-03T00:00:00+00:00",
@@ -83,16 +92,18 @@ def _report(model):
         ),
     )
     return InferenceReport(
-        time_origin="2024-01-01T00:00:00Z",
-        inference_metadata=InferenceMetadata(
-            method="marginal_particle_gibbs", n_samples=3, duration_seconds=0
+        core=InferenceReportCore(
+            time_origin="2024-01-01T00:00:00Z",
+            inference_metadata=InferenceMetadata(
+                method="marginal_particle_gibbs", n_samples=3, duration_seconds=0
+            ),
+            engine=Evaluated(
+                subject="production_engine", outcome="passed", evidence=ParticleMCMCEvidence()
+            ),
+            inference_diagnostics=diagnostics,
+            sampler_diagnostics=None,
+            convergence=parameter_convergence(diagnostics),
         ),
-        engine=Evaluated(
-            subject="production_engine", outcome="passed", evidence=ParticleMCMCEvidence()
-        ),
-        inference_diagnostics=diagnostics,
-        sampler_diagnostics=None,
-        convergence=parameter_convergence(diagnostics),
         detail=InferenceReportDetail(),
     )
 
@@ -107,7 +118,7 @@ def particle_posterior(draws):
 
     chain_samples = {name: values[None, ...] for name, values in draws.parameters.items()}
     n_samples = draws.describe().n_draws
-    return ParticleMCMCPosterior(
+    return ParticleMCMCPosterior.from_run(
         draws=draws,
         diagnostics=ProductionDiagnostics(
             mcmc=TrajectoryMCMCResult(

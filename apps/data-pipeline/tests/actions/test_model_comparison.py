@@ -10,15 +10,21 @@ from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.expressions import coefficient, state
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.model_structure import (
+    StructuralSelection,
     compare_model_graph,
     compare_parameters,
     model_graph_entities,
     selected_state_ids,
 )
 from nof1_causal_lab.models.ssm.joint_layout import JointLawLayout
+from nof1_causal_lab.study.view_models import Added, Removed
 from tests.helpers import make_model
 
 pytestmark = pytest.mark.contract
+
+
+def _whole(model: ModelSpec) -> StructuralSelection:
+    return StructuralSelection(model, None)
 
 
 def test_parameter_decisions_and_law_changes_leave_topology_unchanged():
@@ -50,22 +56,24 @@ def test_parameter_decisions_and_law_changes_leave_topology_unchanged():
     )
     for before, after, decision in ((model, pinned, "removed"), (pinned, model, "added")):
         changes = compare_parameters(before, after)
-        assert [(item.parameter_id, item.change.kind) for item in changes] == [
-            (parameter.id, decision)
-        ]
-        graph = compare_model_graph(before, after)
-        assert all(item.change.kind == "unchanged" for item in (*graph.constructs, *graph.edges))
+        assert [
+            ((item.before.id if isinstance(item, Removed) else item.after.id), item.kind)
+            for item in changes
+        ] == [(parameter.id, decision)]
+        graph = compare_model_graph(_whole(before), _whole(after))
+        assert all(item.kind == "unchanged" for item in (*graph[0], *graph[1]))
 
     # The parameter and law ID can stay the same while the native law changes.
     revised = model.revised(
         distributions={**model.distributions, parameter.distribution: dist.Normal(2.0, 1.0)}
     )
     changes = compare_parameters(model, revised)
-    assert [(item.parameter_id, item.change.kind) for item in changes] == [
-        (parameter.id, "revised")
-    ]
-    graph = compare_model_graph(model, revised)
-    assert all(item.change.kind == "unchanged" for item in (*graph.constructs, *graph.edges))
+    assert [
+        ((item.before.id if isinstance(item, Removed) else item.after.id), item.kind)
+        for item in changes
+    ] == [(parameter.id, "revised")]
+    graph = compare_model_graph(_whole(model), _whole(revised))
+    assert all(item.kind == "unchanged" for item in (*graph[0], *graph[1]))
 
 
 def test_fitted_state_laws_and_time_points_leave_topology_unchanged():
@@ -75,7 +83,7 @@ def test_fitted_state_laws_and_time_points_leave_topology_unchanged():
         ).read_text()
     )
     layout = JointLawLayout.from_bindings(
-        (), parameters=(), constructs=selected_state_ids(model), time_points=(0.0, 1.0)
+        (), parameters=(), constructs=selected_state_ids(_whole(model)), time_points=(0.0, 1.0)
     )
     identity = layout.distribution_id
     fitted = model.revised(
@@ -90,8 +98,8 @@ def test_fitted_state_laws_and_time_points_leave_topology_unchanged():
         time_points=layout.time_points,
     )
     for before, after in ((model, fitted), (fitted, model)):
-        graph = compare_model_graph(before, after)
-        assert all(item.change.kind == "unchanged" for item in (*graph.constructs, *graph.edges))
+        graph = compare_model_graph(_whole(before), _whole(after))
+        assert all(item.kind == "unchanged" for item in (*graph[0], *graph[1]))
 
 
 def test_graph_additions_and_removals_ignore_entity_attribute_changes():
@@ -108,44 +116,58 @@ def test_graph_additions_and_removals_ignore_entity_attribute_changes():
         ),
     )
     after = after.revised(
-        default_outcome=after.constructs[1].id,
         edges=tuple(
             edge.revised(description="Updated justification")
             for edge in replace_constructs(after.edges, (renamed,))
         ),
     )
-    graph = compare_model_graph(before, after)
+    scoped = StructuralSelection(after, after.constructs[1].id)
+    graph = compare_model_graph(_whole(before), scoped)
     assert {
-        item.change.after.name: (
-            None if item.change.kind == "added" else item.change.before.name,
-            item.change.kind,
+        after.get_construct(item.after.id).name: (
+            None if isinstance(item, Added) else before.get_construct(item.before.id).name,
+            item.kind,
         )
-        for item in graph.constructs
-        if item.change.kind != "removed"
+        for item in graph[0]
+        if not isinstance(item, Removed)
     } == {"Renamed X": ("X", "unchanged"), "Y": ("Y", "unchanged"), "Z": (None, "added")}
     assert (
-        next(item for item in graph.edges if item.edge_id == before.edges[0].id).change.kind
+        next(
+            item
+            for item in graph[1]
+            if (item.before.id if isinstance(item, Removed) else item.after.id)
+            == before.edges[0].id
+        ).kind
         == "unchanged"
     )
     assert (
-        next(item for item in graph.edges if item.edge_id == after.edges[1].id).change.kind
+        next(
+            item
+            for item in graph[1]
+            if (item.before.id if isinstance(item, Removed) else item.after.id) == after.edges[1].id
+        ).kind
         == "added"
     )
-    reverse = compare_model_graph(after, before)
+    reverse = compare_model_graph(scoped, _whole(before))
     assert (
-        next(item for item in reverse.edges if item.edge_id == after.edges[1].id).change.kind
+        next(
+            item
+            for item in reverse[1]
+            if (item.before.id if isinstance(item, Removed) else item.after.id) == after.edges[1].id
+        ).kind
         == "removed"
     )
     assert (
         next(
-            item for item in reverse.constructs if item.construct_id == after.constructs[2].id
-        ).change.kind
+            item
+            for item in reverse[0]
+            if (item.before.id if isinstance(item, Removed) else item.after.id)
+            == after.constructs[2].id
+        ).kind
         == "removed"
     )
-    unchanged = compare_model_graph(after, after)
-    assert all(
-        item.change.kind == "unchanged" for item in (*unchanged.constructs, *unchanged.edges)
-    )
+    unchanged = compare_model_graph(scoped, scoped)
+    assert all(item.kind == "unchanged" for item in (*unchanged[0], *unchanged[1]))
 
 
 def test_endpoint_and_time_slice_changes_revise_graph_topology():
@@ -160,12 +182,15 @@ def test_endpoint_and_time_slice_changes_revise_graph_topology():
     )
     for revised in (reversed_edge, static_cause):
         for before, after in ((model, revised), (revised, model)):
-            graph = compare_model_graph(before, after)
-            assert [(item.edge_id, item.change.kind) for item in graph.edges] == [
-                (edge.id, "revised")
-            ]
+            graph = compare_model_graph(_whole(before), _whole(after))
+            assert [
+                ((item.before.id if isinstance(item, Removed) else item.after.id), item.kind)
+                for item in graph[1]
+            ] == [(edge.id, "revised")]
             changed_constructs = [
-                item.construct_id for item in graph.constructs if item.change.kind != "unchanged"
+                (item.before.id if isinstance(item, Removed) else item.after.id)
+                for item in graph[0]
+                if item.kind != "unchanged"
             ]
             assert changed_constructs == ([edge.cause.id] if revised is static_cause else [])
 
@@ -177,7 +202,6 @@ def test_execution_exclusions_use_the_same_graph_comparison_in_both_directions()
     )
     constructs = {item.name: item for item in model.constructs}
     measured = model.revised(
-        default_outcome=constructs["Y"].id,
         edges=replace_constructs(
             model.edges,
             (
@@ -186,7 +210,9 @@ def test_execution_exclusions_use_the_same_graph_comparison_in_both_directions()
             ),
         ),
     )
-    structural = measured.revised(measurement_clock=None)
+    outcome = constructs["Y"].id
+    structural = StructuralSelection(measured.revised(measurement_clock=None), outcome)
+    measured = StructuralSelection(measured, outcome)
     retained, edges = model_graph_entities(measured)
     assert {item.name for item in retained} == {"X", "Y"}
     assert [(item.cause.name, item.effect.name) for item in edges] == [("X", "Y")]
@@ -194,9 +220,16 @@ def test_execution_exclusions_use_the_same_graph_comparison_in_both_directions()
     assert len(model_graph_entities(structural)[0]) == 6
     forward = compare_model_graph(structural, measured)
     excluded = {
-        item.change.before.name: item.after_disposition
-        for item in forward.constructs
-        if item.change.kind == "removed"
+        model.get_construct(item.before.id).name: next(
+            (
+                disposition
+                for disposition in measured.structural_dispositions
+                if disposition.target.id == item.before.id
+            ),
+            None,
+        )
+        for item in forward[0]
+        if isinstance(item, Removed)
     }
     assert set(excluded) == {"U", "V", "A", "B"}
     marginalized, unsupported = excluded["U"], excluded["V"]
@@ -211,12 +244,12 @@ def test_execution_exclusions_use_the_same_graph_comparison_in_both_directions()
         assert "Disconnected from outcome 'Y'" in disposition.reason
     reverse = compare_model_graph(measured, structural)
     assert {
-        item.change.after.name for item in reverse.constructs if item.change.kind == "added"
+        model.get_construct(item.after.id).name for item in reverse[0] if isinstance(item, Added)
     } == {"U", "V", "A", "B"}
-    assert len([item for item in forward.edges if item.change.kind == "removed"]) == 4
-    assert len([item for item in reverse.edges if item.change.kind == "added"]) == 4
+    assert len([item for item in forward[1] if isinstance(item, Removed)]) == 4
+    assert len([item for item in reverse[1] if isinstance(item, Added)]) == 4
     same = compare_model_graph(measured, measured)
     assert {
-        item.change.after.name for item in same.constructs if item.change.kind != "removed"
+        model.get_construct(item.after.id).name for item in same[0] if not isinstance(item, Removed)
     } == {"X", "Y"}
-    assert all(item.change.kind == "unchanged" for item in (*same.constructs, *same.edges))
+    assert all(item.kind == "unchanged" for item in (*same[0], *same[1]))

@@ -3,13 +3,14 @@
 import polars as pl
 import pytest
 
+from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.records import (
+    Applied,
     AttemptRecord,
     DataPreparationResult,
     EditAttempt,
     FitAttempt,
-    ModelEditResult,
     PrepareAttempt,
     Raised,
     Rejected,
@@ -38,25 +39,25 @@ class TestArtifactStore:
             "model",
             derived_from={},
             produced_by=None,
-            json_files={"model.json": {"question": "does exercise improve sleep?"}},
+            json_files={"model.json": {"measurement_clock": "1d"}},
         )
         second = store.write_artifact(
             "model",
             derived_from={},
             produced_by=None,
-            json_files={"model.json": {"question": "does caffeine harm sleep?"}},
+            json_files={"model.json": {"measurement_clock": "2d"}},
         )
         assert first.revision != second.revision
         assert all(len(info.revision) == 40 for info in (first, second))
         assert not list(__import__("pathlib").Path(store._root).glob("*/v*"))
         assert store.list_revisions("model") == [first.revision, second.revision]
         # Old revision stays readable — nothing is overwritten.
-        assert store.read_json_file("model", first.revision, "model.json")["question"] == (
-            "does exercise improve sleep?"
-        )
-        assert store.read_json_file("model", second.revision, "model.json")["question"] == (
-            "does caffeine harm sleep?"
-        )
+        assert store.read_json_file("model", first.revision, "model.json") == {
+            "measurement_clock": "1d"
+        }
+        assert store.read_json_file("model", second.revision, "model.json") == {
+            "measurement_clock": "2d"
+        }
 
     def test_meta_roundtrip(self, workspace):
         store = ArtifactStore(workspace)
@@ -99,12 +100,21 @@ class TestStudyRepository:
             return AttemptRecord(
                 seq=seq,
                 ts="2026-07-03T00:00:00+00:00",
-                attempt=variant(request=None, outcome=outcome),
+                attempt=variant(action=action, request=None, outcome=outcome),
             )
-        result = {"edit_model": ModelEditResult, "prepare_data": DataPreparationResult}[action](
-            **kwargs
+        result = Applied(
+            result=None if action == "edit_model" else DataPreparationResult(),
+            effects=ActionEffects(**kwargs),
         )
-        return applied_record(result, seq=seq, ts="2026-07-03T00:00:00+00:00")
+        return (
+            AttemptRecord(
+                seq=seq,
+                ts="2026-07-03T00:00:00+00:00",
+                attempt=EditAttempt(action="edit_model", request=None, outcome=result),
+            )
+            if action == "edit_model"
+            else applied_record(result, seq=seq, ts="2026-07-03T00:00:00+00:00")
+        )
 
     def test_append_and_read_back_in_order(self, workspace):
         journal = StudyRepository(workspace)
@@ -168,8 +178,9 @@ class TestStudyRepository:
 class TestDerivedCurrentState:
     def _append(self, workspace, seq, action, *, produced=None, retracted=None, status="applied"):
         if status == "applied":
-            result = {"edit_model": ModelEditResult, "prepare_data": DataPreparationResult}[action](
-                produced=produced or (), retracted=retracted or ()
+            result = Applied(
+                result=None if action == "edit_model" else DataPreparationResult(),
+                effects=ActionEffects(produced=produced or (), retracted=retracted or ()),
             )
             record = applied_record(result, seq=seq)
         else:
@@ -181,7 +192,9 @@ class TestDerivedCurrentState:
                 else Raised(error_type="SavedError", error_message="Saved failure")
             )
             record = AttemptRecord(
-                seq=seq, ts="2026-07-03T00:00:00Z", attempt=variant(request=None, outcome=outcome)
+                seq=seq,
+                ts="2026-07-03T00:00:00Z",
+                attempt=variant(action=action, request=None, outcome=outcome),
             )
         StudyRepository(workspace).append(record)
 
@@ -191,7 +204,7 @@ class TestDerivedCurrentState:
             "model",
             derived_from={},
             produced_by=None,
-            json_files={"model.json": {"question": "first"}},
+            json_files={"model.json": {"measurement_clock": "1d"}},
         )
         self._append(
             workspace,
@@ -203,7 +216,7 @@ class TestDerivedCurrentState:
             "model",
             derived_from={},
             produced_by=None,
-            json_files={"model.json": {"question": "second"}},
+            json_files={"model.json": {"measurement_clock": "2d"}},
         )
 
         # Persisting a revision is not the commit boundary. Until an applied
@@ -225,7 +238,7 @@ class TestDerivedCurrentState:
             "model",
             derived_from={},
             produced_by=None,
-            json_files={"model.json": {"question": "rejected"}},
+            json_files={"model.json": {"measurement_clock": "3d"}},
         )
         raised = store.write_artifact(
             "raw_data",

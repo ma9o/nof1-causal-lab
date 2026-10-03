@@ -24,19 +24,22 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
   const scope = indicatorPresentation(context, id);
   if (!scope) return null;
   const { indicator, disposition, audit, counts, likelihood, predictive, checks, issues } = scope;
-  const preparation = context.model.data.metadata?.value.preparation?.variables.find(
+  const preparation = context.model.metadata?.value.preparation?.variables.find(
     (variable) => variable.observation.id === id,
   );
-  const equation = context.model.findings.diagnostics?.observation_equations[id];
-  const empirical = context.model.data.profile?.value.indicators[id]?.profile;
+  const equation = context.model.observation_equations[id];
+  const empirical = context.model.profile?.value.indicators[id]?.profile;
   const comparison =
-    predictive?.source.validity === "fresh" ? predictive.value.predictive_checks : null;
+    predictive?.source.validity === "fresh" && predictive.value.evaluation.kind === "evaluated"
+      ? predictive.value.evaluation.predictive_checks
+      : null;
   const overlay = comparison?.overlays.find((item) => item.indicator_id === id);
   const statistics = comparison?.test_stats.filter((item) => item.indicator_id === id) ?? [];
-  const findings =
-    predictive?.value.findings.filter(
-      (finding) => typeof finding.subject.target !== "string" && finding.subject.target.id === id,
-    ) ?? [];
+  const findings = (
+    predictive?.value.evaluation.kind === "evaluated" ? predictive.value.evaluation.findings : []
+  ).filter(
+    (finding) => typeof finding.subject.target !== "string" && finding.subject.target.id === id,
+  );
   return (
     <>
       <Section title="Measurement">
@@ -73,9 +76,9 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
       {preparation && (
         <Section
           title="Data preparation"
-          {...(context.model.data.metadata?.source === undefined
+          {...(context.model.metadata?.source === undefined
             ? {}
-            : { source: context.model.data.metadata.source })}
+            : { source: context.model.metadata.source })}
         >
           <Hint>{preparation.extraction.how_to_measure}</Hint>
           <KeyValue
@@ -92,9 +95,9 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
       {disposition && disposition.disposition !== "manifest" && (
         <Section
           title={dispositionLabel(disposition.disposition)}
-          {...(context.model.findings.dispositions?.source === undefined
+          {...(context.model.dispositions?.source === undefined
             ? {}
-            : { source: context.model.findings.dispositions.source })}
+            : { source: context.model.dispositions.source })}
         >
           <Hint issue>{disposition.reason}</Hint>
         </Section>
@@ -102,9 +105,9 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
       {(counts != null || empirical) && (
         <Section
           title="Observations"
-          {...(context.model.data.measurements?.source === undefined
+          {...(context.model.measurements?.source === undefined
             ? {}
-            : { source: context.model.data.measurements.source })}
+            : { source: context.model.measurements.source })}
           wide
         >
           {counts != null && <Hint>{counts.toLocaleString()} observations</Hint>}
@@ -123,9 +126,9 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
       {audit && (
         <Section
           title="Validation"
-          {...(context.model.findings.validation_report?.source === undefined
+          {...(context.model.validation_report?.source === undefined
             ? {}
-            : { source: context.model.findings.validation_report.source })}
+            : { source: context.model.validation_report.source })}
         >
           {issues.map((issue) => (
             <div key={`${issue.issue_type}-${issue.message}`} className="flex items-start gap-2">

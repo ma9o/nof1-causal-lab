@@ -122,7 +122,7 @@ class TestPiParser:
         ]
         tool_calls = state.messages[1].tool_calls
         assert tool_calls is not None
-        assert tool_calls[0]["function"]["name"] == "validate_model"
+        assert tool_calls[0]["name"] == "validate_model"
         assert state.messages[2].tool_result == "VALID"
         assert state.usage.input_tokens == 28
         assert state.usage.output_tokens == 7
@@ -254,8 +254,8 @@ class TestClaudeParser:
         assert assistant_with_tool.tool_calls is not None
         call = assistant_with_tool.tool_calls[0]
         assert call["id"] == "toolu_abc"
-        assert call["function"]["name"] == "validate_model"
-        assert json.loads(call["function"]["arguments"]) == {"payload": '{"x":1}'}
+        assert call["name"] == "validate_model"
+        assert json.loads(call["arguments"]) == {"payload": '{"x":1}'}
 
         tool_msg = state.messages[2]
         assert tool_msg.tool_call_id == "toolu_abc"
@@ -382,7 +382,7 @@ class TestCodexParser:
         call_msg = state.messages[0]
         assert call_msg.tool_calls is not None
         assert call_msg.tool_calls[0]["id"] == "call_1"
-        assert call_msg.tool_calls[0]["function"]["name"] == "submit_model"
+        assert call_msg.tool_calls[0]["name"] == "submit_model"
 
         tool_msg = state.messages[1]
         assert tool_msg.tool_call_id == "call_1"

@@ -6,23 +6,9 @@ import { LandingPageView } from "./landing-page-view";
 const noop = () => {};
 
 const localWorkspaces: WorkspaceList = {
-  workspaces: [
-    {
-      href: "/v2/local-adhd-pilot",
-      question: "Local ADHD pilot workspace with merged EMA and wearable measurements.",
-      workspaceId: "local-adhd-pilot",
-    },
-    {
-      href: "/v2/local-sleep-study",
-      question: "Local sleep study workspace with irregular actigraphy and survey exports.",
-      workspaceId: "local-sleep-study",
-    },
-    {
-      href: "/v2/local-medication-trial",
-      question: null,
-      workspaceId: "local-medication-trial",
-    },
-  ],
+  "local-adhd-pilot": "Local ADHD pilot workspace with merged EMA and wearable measurements.",
+  "local-sleep-study": "Local sleep study workspace with irregular actigraphy and survey exports.",
+  "local-medication-trial": null,
 };
 
 type StoryArgs = React.ComponentProps<typeof LandingPageView> & {
@@ -110,7 +96,7 @@ export const WithError: Story = {
 /** No workspaces exist yet. */
 export const EmptyWorkspaces: Story = {
   args: {
-    railData: { workspaces: [] },
+    railData: {},
   },
 };
 

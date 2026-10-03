@@ -1,6 +1,6 @@
 "use client";
 
-import type { WorkspaceEntry, WorkspaceList } from "@/lib/server/workspaces";
+import type { WorkspaceList } from "@/lib/server/workspaces";
 import { Skeleton } from "@/components/ui/skeleton";
 import Link from "next/link";
 
@@ -13,7 +13,7 @@ export function WorkspacesRail({
   error: string | null;
   isLoading: boolean;
 }) {
-  const workspaces = data?.workspaces ?? [];
+  const workspaces = Object.entries(data ?? {});
 
   return (
     <div className="w-full max-w-2xl mx-auto space-y-3">
@@ -37,24 +37,30 @@ export function WorkspacesRail({
 
       {!isLoading &&
         !error &&
-        workspaces.map((workspace) => (
-          <WorkspaceCard key={workspace.workspaceId} workspace={workspace} />
+        workspaces.map(([workspaceId, question]) => (
+          <WorkspaceCard key={workspaceId} workspaceId={workspaceId} question={question} />
         ))}
     </div>
   );
 }
 
-function WorkspaceCard({ workspace }: { workspace: WorkspaceEntry }) {
+function WorkspaceCard({
+  workspaceId,
+  question,
+}: {
+  workspaceId: string;
+  question: string | null;
+}) {
   return (
     <Link
-      href={workspace.href}
+      href={`/v2/${workspaceId}`}
       className="block rounded-lg border bg-card px-4 py-3 shadow-sm transition-colors hover:bg-accent/50"
     >
       <p className="font-mono text-xs font-semibold tracking-wider text-muted-foreground">
-        {workspace.workspaceId}
+        {workspaceId}
       </p>
       <p className="mt-1 text-sm leading-snug text-foreground">
-        {workspace.question ?? "Question not available yet."}
+        {question ?? "Question not available yet."}
       </p>
     </Link>
   );

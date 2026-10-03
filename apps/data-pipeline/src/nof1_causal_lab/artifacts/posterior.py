@@ -7,7 +7,7 @@ from pydantic import AwareDatetime, Field
 from nof1_causal_lab.artifacts.base import Value
 
 from .checks import Assessment
-from .identity import ConstructId
+from .identity import ConstructId, ParameterRef
 from .posterior_diagnostics import (
     ChainDiagnostics,
     LOODiagnostics,
@@ -17,7 +17,6 @@ from .posterior_diagnostics import (
     ParticleMCMCEvidence,
     ParticleSamplerDiagnostics,
     PosteriorMarginal,
-    PosteriorPair,
     RankHistogram,
     TemperingDiagnostics,
     TraceSeries,
@@ -74,12 +73,14 @@ class InferenceReportDetail(Value):
     rank_histograms: tuple[RankHistogram, ...] = ()
     pareto_k: tuple[ParetoKPoint, ...] = ()
     loo_pit: tuple[LOOPITPoint, ...] = ()
-    posterior_pairs: tuple[PosteriorPair, ...] | None = None
+    posterior_pairs: tuple[tuple[ParameterRef, ParameterRef], ...] = ()
+    divergent: tuple[bool, ...] | None = None
     initial_latent_delta: tuple[tuple[float, ...], ...] | None = None
     final_latent_delta: tuple[tuple[float, ...], ...] | None = None
 
 
-class InferenceReport(InferenceReportCore):
+class InferenceReport(Value):
     """The compact core composed with retained detail, without filtering or re-parsing."""
 
+    core: InferenceReportCore
     detail: InferenceReportDetail

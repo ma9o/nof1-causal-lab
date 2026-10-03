@@ -9,9 +9,7 @@ import { MechanismResponse } from "./mechanism-response";
 export function EdgeScope({ context, id }: { context: ScopeContext; id: EdgeId }) {
   const edge = context.entities.edgeById.get(id);
   if (!edge) return null;
-  const disposition = context.model.findings.dispositions?.value.find(
-    (item) => item.target.id === id,
-  );
+  const disposition = context.model.dispositions?.value.find((item) => item.target.id === id);
   return (
     <>
       <Section title="Relationship">
@@ -45,9 +43,9 @@ export function EdgeScope({ context, id }: { context: ScopeContext; id: EdgeId }
       {disposition && disposition.disposition !== "retained_edge" && (
         <Section
           title={dispositionLabel(disposition.disposition)}
-          {...(context.model.findings.dispositions?.source === undefined
+          {...(context.model.dispositions?.source === undefined
             ? {}
-            : { source: context.model.findings.dispositions.source })}
+            : { source: context.model.dispositions.source })}
         >
           <Hint issue>{disposition.reason}</Hint>
         </Section>

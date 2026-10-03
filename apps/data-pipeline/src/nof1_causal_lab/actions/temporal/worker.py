@@ -62,7 +62,7 @@ def study_workflow_runner() -> SandboxedWorkflowRunner:
     """
     return SandboxedWorkflowRunner(
         restrictions=SandboxRestrictions.default.with_passthrough_modules(
-            "nof1_causal_lab", "pydantic", "networkx", "jax", "jaxlib", "numpyro", "numpy"
+            "nof1_causal_lab", "pydantic", "networkx", "jax", "jaxlib", "numpyro", "numpy", "sympy"
         )
     )
 

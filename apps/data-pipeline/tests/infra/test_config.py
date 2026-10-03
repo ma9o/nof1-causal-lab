@@ -53,6 +53,9 @@ class TestSamplerSpec:
         assert options.latent_delta == 0.2
         assert options.amala_kappa == 0.75
         assert options.amala_grad_clip == float("inf")
+        encoded = result.model_dump_json()
+        assert '"amala_grad_clip":"infinity"' in encoded
+        assert SamplerSpec.model_validate_json(encoded) == result
         assert options.param_step_size == 0.02
         assert options.param_target_accept == 0.35
         assert options.latent_init_method == "predictive"

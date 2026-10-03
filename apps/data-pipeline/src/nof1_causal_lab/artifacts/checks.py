@@ -38,6 +38,10 @@ type NotEvaluatedReason = (
         "INSUFFICIENT_CHAIN_SAMPLES",
         "NO_RETAINED_CHAINS",
         "ARCHIVED_ENGINE_NOT_RETAINED",
+        "NO_OUTCOME",
+        "CONSTRUCT_UNDEFINED",
+        "NO_PANEL",
+        "STATE_NOT_RECORDED",
     ]
 )
 
@@ -110,9 +114,3 @@ class ConvergenceSubject(Value):
 
 type SpecificationAssessment = Assessment[str, str]
 type PredictiveAssessment = Assessment[PredictiveSubject, tuple[NumericCriterionEvidence, ...]]
-
-
-class SpecificationReport(Value):
-    """Model-only findings; compatibility reports have their own paired input references."""
-
-    findings: tuple[SpecificationAssessment, ...]

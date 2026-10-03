@@ -17,10 +17,10 @@ from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.snapshots import ModelReader
 from nof1_causal_lab.study.state import StudyState
 from nof1_causal_lab.study.store import ArtifactStore
-from tests.action_fixtures import applied_record, edit_and_check
+from tests.action_fixtures import applied_record, edit_and_check, question_root
 from tests.data_fixtures import metadata_for_model
 from tests.git_fixtures import artifact_revision
-from tests.helpers import make_model, run_async
+from tests.helpers import make_model, run_async, write_question
 
 pytestmark = pytest.mark.contract
 
@@ -51,7 +51,7 @@ def test_partial_model_revisions_remain_readable_with_capability_findings(worksp
         parameters=tuple(p.revised(distribution=None) for p in complete.parameters),
     )
     journal = StudyRepository(workspace)
-    state = StudyState()
+    state = journal.state(question_root(workspace).commit_id)
     snapshots = []
     for revision, model in (
         (1, partial),
@@ -70,27 +70,27 @@ def test_partial_model_revisions_remain_readable_with_capability_findings(worksp
             ),
             state,
         )
-        state = state.with_artifacts(effects.produced)
-        state = state.revised(checks=effects.checks)
+        state = state.with_artifacts(effects.effects.produced)
+        state = state.revised(checks=effects.effects.checks)
         journal.append(
-            applied_record(effects, seq=revision, ts="2026-09-14T12:00:00Z", trace_ids=[])
+            applied_record(effects, seq=revision + 1, ts="2026-09-14T12:00:00Z", trace_ids=[])
         )
         snapshot = ModelReader(workspace).snapshot()
         assert snapshot.model is not None
         assert snapshot.model.value == model
-        assert snapshot.findings.specification is not None
-        execution = snapshot.findings.specification.value.findings[0]
+        assert snapshot.specification is not None
+        execution = snapshot.specification.value[0]
         assert execution.kind == ("evaluated" if revision == 2 else "not_evaluated")
         if revision == 2:
             assert execution.kind == "evaluated"
             assert execution.outcome == "passed"
-        assert "execution" not in snapshot.findings.model_dump()
+        assert "execution" not in snapshot.model_dump()
         assert "execution_readiness" not in snapshot.model.value.model_dump()
-        assert snapshot.context.can_simulate == (revision == 2)
+        assert snapshot.can_simulate == (revision == 2)
         snapshots.append(snapshot)
     assert "compiled_ssm" not in ARTIFACT_IDS
     for snapshot in snapshots:
-        assert ModelReader(workspace, at=snapshot.context.commit_id).snapshot() == snapshot
+        assert ModelReader(workspace, at=snapshot.commit_id).snapshot() == snapshot
 
 
 @pytest.mark.parametrize("deployment", ["development", "production"])
@@ -117,7 +117,7 @@ def test_incomplete_model_is_rejected_before_local_or_remote_inference(
         produced_by="prepare_data",
         parquet_files={"panel.parquet": pl.DataFrame({"value": [1.0]})},
     )
-    state = StudyState().with_artifacts([model, panel])
+    state = StudyState().with_artifacts([write_question(store), model, panel])
     with pytest.raises(IncompleteModelError):
         run_async(
             run_action(
@@ -131,9 +131,7 @@ def test_incomplete_model_is_rejected_before_local_or_remote_inference(
     assert store.list_revisions("model") == [model.revision]
 
 
-def test_refit_after_question_edit_uses_selected_model_and_preserves_current_question(
-    workspace, monkeypatch
-):
+def test_refit_after_an_edit_uses_selected_model_and_preserves_the_edit(workspace, monkeypatch):
     from nof1_causal_lab.actions import fit as flow
     from nof1_causal_lab.actions.runners import _run_fit
     from nof1_causal_lab.study.store import read_model
@@ -142,9 +140,11 @@ def test_refit_after_question_edit_uses_selected_model_and_preserves_current_que
         (
             Path(__file__).resolve().parents[1] / "fixtures/models" / "common/x_y_model.json"
         ).read_text()
-    ).revised(question="Does X change Y?")
+    )
     fitted = prior.revised(time_points=(0.0, 1.0))
-    edited = fitted.revised(question="How does X change Y?")
+    edited = fitted.revised(
+        edges=(fitted.edges[0].revised(description="X changes Y within a day"),)
+    )
     store = ArtifactStore(workspace)
     for revision, (model, producer) in enumerate(
         ((prior, "edit_model"), (fitted, "fit"), (edited, None)), 1
@@ -169,19 +169,23 @@ def test_refit_after_question_edit_uses_selected_model_and_preserves_current_que
     from tests.inference_fixtures import _report
 
     def fit(**kwargs):
-        assert kwargs["model_spec"] == edited
+        model = kwargs["selection"].model
+        assert model == edited
         return {
-            "_model": kwargs["model_spec"].revised(time_points=(0.0, 1.0)),
+            "_model": model.revised(time_points=(0.0, 1.0)),
             "engine_evidence": ParticleMCMCEvidence(),
-            "report": _report(kwargs["model_spec"]),
+            "report": _report(model),
         }
 
     monkeypatch.setattr(flow, "fit", fit)
     pins: dict[ArtifactId, GitOid] = {
         "model": artifact_revision(workspace, "model", 3),
         "panel": artifact_revision(workspace, "panel", 1),
+        "question": write_question(store).revision,
     }
     effects = run_async(_run_fit(store, pins, FitSettingsSpec()))
-    assert effects.produced[0].derived_from == pins
-    assert {"model": effects.model.revision, "panel": effects.panel.revision} == pins
-    assert read_model(store, artifact_revision(workspace, "model", 4)).question == edited.question
+    assert effects.effects.produced[0].derived_from == pins
+    assert {"model": effects.result.model.revision, "panel": effects.result.panel.revision} == {
+        key: pins[key] for key in ("model", "panel")
+    }
+    assert read_model(store, artifact_revision(workspace, "model", 4)).edges == edited.edges

@@ -8,6 +8,7 @@ import { demoSimulationResult } from "@/components/dag/__fixtures__/simulation-f
 import { indexModel } from "@/lib/model-asset/entities";
 import { graphEntities } from "@/lib/dag/layered-model";
 import type { DagGraphInput } from "@/lib/utils/dag-graph-layout";
+import { formatModelDate } from "@/lib/utils/format";
 import { LayeredCausalGraph, type LayeredCausalGraphVariant } from "./layered-causal-graph";
 
 // Only the asynchronous layout is stubbed; render the real graph and its overlays.
@@ -41,32 +42,39 @@ const edge = fixtureValue(
 );
 const model = {
   ...base,
-  findings: {
-    ...base.findings,
-    graph: {
-      ...base.findings.graph,
-      construct_ids: [dose.id, symptoms.id],
-      dynamic_construct_ids: [dose.id, symptoms.id],
-      edge_ids: [edge.id],
-    },
+  graph: {
+    ...base.graph,
+    construct_ids: [dose.id, symptoms.id],
+    dynamic_construct_ids: [dose.id, symptoms.id],
+    edge_ids: [edge.id],
   },
 };
 
 const report: SimulationReport = {
   ...demoSimulationResult,
-  time_origin: null,
+  time_origin: "2026-01-01T00:00:00Z",
   times: [0, 1, 2, 3, 4, 5, 6, 7],
   design: {
-    start: 0,
-    end: 7,
+    start: "2026-01-01",
+    horizon: "7d",
     interventions: [
-      { target: dose.id, time: 1, value: 10 },
-      { target: dose.id, time: 3, value: 5 },
-      { target: dose.id, time: 6, value: 0 },
+      { target: dose.id, after: "1d", value: 10 },
+      { target: dose.id, after: "3d", value: 5 },
+      { target: dose.id, after: "6d", value: 0 },
     ],
   },
+  assignments: [
+    { target: dose.id, time: 1, value: 10 },
+    { target: dose.id, time: 3, value: 5 },
+    { target: dose.id, time: 6, value: 0 },
+  ],
 };
 const paths: SimulationPaths = {
+  effect_summary: null,
+  reference_mean: null,
+  manifest_effects: {},
+  action_category_probabilities: {},
+  reference_category_probabilities: {},
   times: report.times,
   time_origin: null,
   total_draws: 1,
@@ -112,8 +120,10 @@ describe("dated intervention overlay", () => {
   it("shows every dated assignment without implying a continuously fixed value", () => {
     const markup = render("asset", report);
     expect(markup.match(/>3 assignments</g)).toHaveLength(1);
-    for (const event of report.design.interventions) {
-      expect(markup).toContain(`aria-label="Day ${event.time}: set to ${event.value}"`);
+    for (const event of report.assignments) {
+      expect(markup).toContain(
+        `aria-label="${formatModelDate(event.time, report.time_origin)} (day ${event.time}): set to ${event.value}"`,
+      );
     }
     expect(markup).not.toContain("do(");
     expect(markup).not.toContain("Cut by intervention");

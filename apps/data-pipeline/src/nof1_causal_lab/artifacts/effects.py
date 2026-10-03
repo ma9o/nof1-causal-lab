@@ -26,14 +26,3 @@ class HistogramBin(Value):
     bin_start: float
     bin_end: float
     count: int = Field(ge=0)
-
-
-class EffectTrajectoryPoint(Value):
-    """A certified paired contrast and 95% interval at one absolute model time."""
-
-    model_config = ConfigDict(allow_inf_nan=False)
-
-    day: float
-    effect: float
-    lower_95: float
-    upper_95: float

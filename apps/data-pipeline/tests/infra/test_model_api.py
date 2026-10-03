@@ -13,9 +13,11 @@ from temporalio.api.update.v1 import Outcome
 from temporalio.client import WorkflowUpdateHandle, WorkflowUpdateStage
 
 from nof1_causal_lab import study_api
-from nof1_causal_lab.actions.contracts import EditModelRequest
+from nof1_causal_lab.actions.contracts import EditModelRequest, SetQuestionRequest
+from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.actions.messages import completion_messages
 from nof1_causal_lab.actions.results import RunningPoll
+from nof1_causal_lab.actions.set_question import set_question
 from nof1_causal_lab.read_facade import create_read_facade_app
 from nof1_causal_lab.study.errors import ArtifactWriteRejected
 from nof1_causal_lab.study.history import StudyRepository
@@ -25,7 +27,6 @@ from nof1_causal_lab.study.records import (
     AttemptRecord,
     DataComparisonResult,
     EditAttempt,
-    ModelEditResult,
     Rejected,
 )
 from nof1_causal_lab.study.store import ArtifactStore, read_current_state
@@ -84,12 +85,16 @@ def model_api(monkeypatch, tmp_path):
             workspace, envelope = pending.pop(UUID(attempt_id))
             assert workspace == self.workspace
             request = envelope.request
-            assert isinstance(request, EditModelRequest)
+            assert isinstance(request, (SetQuestionRequest, EditModelRequest))
             state = read_current_state(self.workspace, branch=envelope.branch)
             journal = StudyRepository(self.workspace)
             seq = journal.latest_seq() + 1
             try:
-                effects = edit_and_check(self.workspace, request, state)
+                effects = (
+                    set_question(self.workspace, request)
+                    if isinstance(request, SetQuestionRequest)
+                    else edit_and_check(self.workspace, request, state)
+                )
                 record = applied_record(
                     effects,
                     request=request,
@@ -105,6 +110,7 @@ def model_api(monkeypatch, tmp_path):
                     branch=envelope.branch,
                     ts="2026-01-01T00:00:00Z",
                     attempt=EditAttempt(
+                        action="edit_model",
                         request=request,
                         outcome=Rejected(reason="revision_conflict", detail=str(exc)),
                     ),
@@ -117,10 +123,10 @@ def model_api(monkeypatch, tmp_path):
                     ActionMessage(timestamp=timestamp, level="info", label="EDIT_MODEL_STARTED"),
                     *(
                         completion_messages(
-                            outcome.result,
+                            outcome,
                             timestamp,
                             ArtifactStore(self.workspace).completion_reports(
-                                outcome.result.produced
+                                outcome.effects.produced
                             ),
                         )
                         if isinstance(outcome, Applied)
@@ -171,7 +177,7 @@ def test_data_diff_dispatch_captures_head_and_saved_report_is_a_read(model_api, 
     report = DataDiffReport(left=(source,), right=(source,), variables=())
     leaf = repository.append(
         applied_record(
-            DataComparisonResult(report=report),
+            Applied(result=DataComparisonResult(report=report), effects=ActionEffects()),
             seq=1,
             attempt_id=UUID(response.json()["attempt_id"]),
             ts="2026-09-30T00:00:00Z",
@@ -218,7 +224,7 @@ def test_action_submission_surfaces_known_rejection_without_waiting(
 
     response = client.post(
         "/api/studies/API/actions",
-        json={"action": "edit_model", "expected_revision": None, "model": {"question": "Why?"}},
+        json={"action": "set_question", "question": {"text": "Why?"}},
     )
 
     if outcome is not None and outcome.HasField("failure"):
@@ -238,14 +244,12 @@ def test_action_submission_surfaces_known_rejection_without_waiting(
 def test_edit_action_validates_identity_and_base_before_publication(model_api, monkeypatch):
     client, calls, complete = model_api
     url = "/api/studies/API/actions"
-    first = client.post(
-        url,
-        json={
-            "action": "edit_model",
-            "expected_revision": None,
-            "model": {"question": "  Does X change Y?  "},
-        },
+    question = client.post(
+        url, json={"action": "set_question", "question": {"text": "  Does X change Y?  "}}
     )
+    assert question.status_code == 202
+    complete(question.json()["attempt_id"])
+    first = client.post(url, json={"action": "edit_model", "expected_revision": None, "model": {}})
     assert first.status_code == 202
     assert set(first.json()) == {"attempt_id"}
     attempt_url = f"{url}/{first.json()['attempt_id']}"
@@ -255,20 +259,20 @@ def test_edit_action_validates_identity_and_base_before_publication(model_api, m
     result = client.get(attempt_url).json()
     assert result["kind"] == "completed"
     assert result["attempt"]["action"] == "edit_model"
-    assert result["attempt"]["outcome"]["result"]["produced"][0]["artifact_id"] == "model"
+    assert result["attempt"]["outcome"]["effects"]["produced"][0]["artifact_id"] == "model"
     assert "MODEL_INCOMPLETE" in {message["label"] for message in result["messages"]}
     assert all(message["timestamp"] for message in result["messages"])
     assert client.get(f"{url}/{uuid4()}").status_code == 404
     initial = client.get("/api/studies/API/model").json()
-    assert initial["context"]["seq"] == 1
-    assert initial["model"]["value"]["question"] == "Does X change Y?"
+    assert initial["selected_seq"] == 2
+    assert initial["question"]["value"]["text"] == "Does X change Y?"
     revision = artifact_revision("API", "model", 1)
     stale = client.post(
         url,
         json={
             "action": "edit_model",
             "expected_revision": None,
-            "model": {"question": "A conflicting edit"},
+            "model": {"measurement_clock": "2d"},
         },
     )
     assert stale.status_code == 202
@@ -278,22 +282,19 @@ def test_edit_action_validates_identity_and_base_before_publication(model_api, m
     assert failed["attempt"]["outcome"]["status"] == "rejected"
     assert failed["attempt"]["outcome"]["reason"] == "revision_conflict"
     assert failed["messages"][-1]["level"] == "error"
-    assert (
-        client.get("/api/studies/API/model").json()["context"]["commit_id"]
-        == initial["context"]["commit_id"]
-    )
+    assert client.get("/api/studies/API/model").json()["commit_id"] == initial["commit_id"]
     invalid = client.post(
         url,
         json={
             "action": "edit_model",
             "expected_revision": revision,
-            "model": {"default_outcome": "construct:absent"},
+            "model": {"question": "The question belongs to set_question"},
         },
     )
     assert invalid.status_code == 422
-    assert len(calls) == 2
+    assert len(calls) == 3
     assert ArtifactStore("API").list_revisions("model") == [revision]
-    model = make_model(["X", "Y"], [("X", "Y")]).revised(question="Does X change Y?")
+    model = make_model(["X", "Y"], [("X", "Y")])
     second = client.post(
         url,
         json={
@@ -308,25 +309,28 @@ def test_edit_action_validates_identity_and_base_before_publication(model_api, m
         mode="json"
     )
     assert (
-        client.get("/api/studies/API/model", params={"at": initial["context"]["commit_id"]}).json()[
-            "model"
-        ]["value"]
+        client.get("/api/studies/API/model", params={"at": initial["commit_id"]}).json()["model"][
+            "value"
+        ]
         == initial["model"]["value"]
     )
     records = client.get("/api/studies/API/timeline").json()["attempts"]
-    assert [entry["record"]["attempt"]["action"] for entry in records] == ["edit_model"] * 3
+    assert [entry["record"]["attempt"]["action"] for entry in records] == [
+        "set_question",
+        *["edit_model"] * 3,
+    ]
     assert all("move" not in entry for entry in records)
     assert all(
         "provenance" not in item
         for entry in records
-        for item in (entry["record"]["attempt"]["outcome"].get("result", {}).get("produced", []))
+        for item in (entry["record"]["attempt"]["outcome"].get("effects", {}).get("produced", []))
     )
     monkeypatch.setenv("READ_ONLY_FACADE", "1")
     assert client.get(attempt_url).json() == result
     assert client.get(f"{url}/{uuid4()}").status_code == 404
 
 
-def test_only_four_scientific_actions_are_exposed(model_api):
+def test_only_five_scientific_actions_are_exposed(model_api):
     client, calls, _ = model_api
     schema = client.get("/openapi.json").json()
     paths = schema["paths"]
@@ -360,7 +364,7 @@ def test_artifact_trace_index_follows_the_current_producer(model_api):
         )
         journal.append(
             applied_record(
-                ModelEditResult(produced=[info]),
+                Applied(result=None, effects=ActionEffects(produced=[info])),
                 seq=seq,
                 ts="2026-01-01T00:00:00Z",
                 trace_ids=[f"trace-{seq}"],

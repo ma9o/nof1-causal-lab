@@ -25,10 +25,6 @@ export function formatFillNull(
     : `${method} (limit ${extraction.fill_null_limit})`;
 }
 
-export function formatSigned(value: number, digits = 2): string {
-  return `${value >= 0 ? "+" : "−"}${Math.abs(value).toFixed(digits)}`;
-}
-
 export function formatPlain(value: number, digits = 2): string {
   return `${value < 0 ? "−" : ""}${Math.abs(value).toFixed(digits)}`;
 }

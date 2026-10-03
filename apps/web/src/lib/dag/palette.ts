@@ -42,16 +42,6 @@ export const DAG_COLORS = {
   realized: "#7b818b",
 } as const;
 
-/**
- * Map a signed value to the pos/neg color axis. `eps` keeps near-zero values
- * calm (neutral) instead of flickering between teal and red.
- */
-export function signColor(value: number, eps = 0.012): string {
-  if (value > eps) return DAG_COLORS.positive;
-  if (value < -eps) return DAG_COLORS.negative;
-  return DAG_COLORS.neutral;
-}
-
 export const COMPARISON_COLORS = { added: "#059669", removed: "#e11d48", revised: "#d97706" };
 export const BLOCKING = "#dc2626";
 export const MARGINALIZED = "#d97706";

@@ -3,19 +3,81 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import Literal, Self
+from typing import Annotated, Literal
 
-from pydantic import Field
+from pydantic import Field, computed_field
 
 from nof1_causal_lab.artifacts.base import Value
 
-from .checks import Evaluated, PredictiveAssessment, PredictiveCheckReason, SpecificationReport
-from .identity import GitOid
+from .checks import (
+    Assessment,
+    Evaluated,
+    PredictiveAssessment,
+    PredictiveCheckReason,
+    SpecificationAssessment,
+)
+from .identity import ConstructRef, GitOid
 from .posterior_diagnostics import PosteriorPredictiveChecks
 from .predictive_provenance import PredictiveLawProvenance
-from .simulation import SimulationSpec
 
-type CheckGroup = Literal["specification", "identification", "compatibility"]
+type CheckGroup = Literal["specification", "identification", "compatibility", "question"]
+
+
+class OutcomeSubject(Value):
+    """Whether the model defines the question's outcome as a measured, modeled course."""
+
+    check: Literal["outcome"] = "outcome"
+    outcome: ConstructRef
+
+
+class QueryTargetSubject(Value):
+    """One query's intervention target: defined, identified, or set inside the record."""
+
+    check: Literal["target", "identification", "range"]
+    query: str
+    target: ConstructRef
+
+
+class QueryWindowSubject(Value):
+    """Whether the record supports one query's window."""
+
+    check: Literal["window"] = "window"
+    query: str
+
+
+type QuestionSubject = Annotated[
+    OutcomeSubject | QueryTargetSubject | QueryWindowSubject, Field(discriminator="check")
+]
+type QuestionAssessment = Assessment[QuestionSubject, str]
+
+
+class QuestionCheckReport(Value):
+    """The study question checked against the model and, once prepared, the record."""
+
+    question_revision: GitOid
+    panel_revision: GitOid | None
+    findings: tuple[QuestionAssessment, ...]
+
+
+class EvaluatedPredictiveChecks(Value):
+    """An evaluated run may retain failed and partially unavailable scientific evidence."""
+
+    kind: Literal["evaluated"] = "evaluated"
+    findings: tuple[PredictiveAssessment, ...]
+    predictive_checks: PosteriorPredictiveChecks | None = None
+
+
+class UnavailablePredictiveChecks(Value):
+    """The run could not evaluate its scientific battery."""
+
+    kind: Literal["unavailable"] = "unavailable"
+    reason: PredictiveCheckReason
+    detail: str | None = None
+
+
+type ModelPredictiveEvaluation = Annotated[
+    EvaluatedPredictiveChecks | UnavailablePredictiveChecks, Field(discriminator="kind")
+]
 
 
 class ModelPredictiveReport(Value):
@@ -24,50 +86,34 @@ class ModelPredictiveReport(Value):
     input_key: str
     model_revision: GitOid
     panel_revision: GitOid | None
-    status: Literal["passed", "failed", "not_evaluated"]
-    reason: PredictiveCheckReason | None = None
-    detail: str | None = None
-    design: SimulationSpec | None = None
     draws: int = Field(ge=1)
     seed: int = Field(ge=0)
     law: PredictiveLawProvenance
-    findings: tuple[PredictiveAssessment, ...] = ()
-    predictive_checks: PosteriorPredictiveChecks | None = None
+    evaluation: ModelPredictiveEvaluation
 
-    def not_evaluated(self, reason: PredictiveCheckReason, detail: str | None = None) -> Self:
-        return self.model_copy(
-            update={"status": "not_evaluated", "reason": reason, "detail": detail}
-        )
-
-    def evaluated(
-        self,
-        design: SimulationSpec,
-        findings: tuple[PredictiveAssessment, ...],
-        predictive_checks: PosteriorPredictiveChecks | None = None,
-    ) -> Self:
-        failed = any(isinstance(f, Evaluated) and f.outcome == "failed" for f in findings) or (
-            predictive_checks is not None
+    @computed_field
+    @property
+    def status(self) -> Literal["passed", "failed", "not_evaluated"]:
+        evaluation = self.evaluation
+        if isinstance(evaluation, UnavailablePredictiveChecks):
+            return "not_evaluated"
+        failed = any(
+            isinstance(f, Evaluated) and f.outcome == "failed" for f in evaluation.findings
+        ) or (
+            evaluation.predictive_checks is not None
             and any(
                 isinstance(f, Evaluated) and f.outcome != "passed"
-                for f in predictive_checks.per_variable_warnings
+                for f in evaluation.predictive_checks.per_variable_warnings
             )
         )
-        return self.model_copy(
-            update={
-                "status": "failed" if failed else "passed",
-                "reason": None,
-                "detail": None,
-                "design": design,
-                "findings": findings,
-                "predictive_checks": predictive_checks,
-            }
-        )
+        return "failed" if failed else "passed"
 
 
 class ModelCheckReport(Value):
     """Checks selected by their consumed inputs, retained with the study snapshot."""
 
     input_keys: Mapping[CheckGroup, str]
-    specification: SpecificationReport
+    specification: tuple[SpecificationAssessment, ...]
+    question: QuestionCheckReport | None = None
     predictive: ModelPredictiveReport | None = None
     reused: tuple[CheckGroup | Literal["predictive"], ...] = Field(default=())

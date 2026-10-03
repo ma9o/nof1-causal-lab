@@ -59,7 +59,7 @@ class TestForwardSimulation:
     @staticmethod
     def _window_average_support() -> ObservationSupportRuntime:
         nan = np.nan
-        return ObservationSupportRuntime(
+        return ObservationSupportRuntime.assembled(
             anchor_times=np.array([0.0, 1.0, 2.0], dtype=np.float32),
             manifest_names=("y",),
             support_kinds=("interval",),
@@ -363,7 +363,14 @@ def test_overlays_preserve_quantiles_observations_and_all_trajectories():
     )
     observations = jnp.array([[2.0, 25.0], [jnp.nan, -1.0], [9.0, 27.0]])
     ids = [IndicatorId("indicator:z"), IndicatorId("indicator:a")]
-    result = _compute_overlays(draws, observations, ids)
+    result = _compute_overlays(
+        draws,
+        observations,
+        ids,
+        times=(0.0, 0.25, 9.0),
+        time_origin=None,
+        standardized=(True, False),
+    )
 
     assert [overlay.indicator_id for overlay in result] == ids
     assert [overlay.observed for overlay in result] == [(2.0, None, 9.0), (25.0, -1.0, 27.0)]
@@ -379,7 +386,12 @@ def test_overlays_preserve_quantiles_observations_and_all_trajectories():
 def test_single_draw_has_exact_median_and_one_trajectory():
     draws = jnp.array([[[2.0, -1.0], [4.0, 8.0]]])
     result = _compute_overlays(
-        draws, jnp.zeros((2, 2)), [IndicatorId("indicator:x"), IndicatorId("indicator:y")]
+        draws,
+        jnp.zeros((2, 2)),
+        [IndicatorId("indicator:x"), IndicatorId("indicator:y")],
+        times=(0.0, 1.0),
+        time_origin=None,
+        standardized=(False, False),
     )
 
     assert len(result) == 2
@@ -433,4 +445,13 @@ def test_test_stats_match_masked_observations_and_each_replicate():
 )
 def test_predictive_summaries_require_complete_indicator_axis(compute):
     with pytest.raises(ValueError, match="shorter"):
-        compute(jnp.ones((2, 3, 2)), jnp.ones((3, 2)), [IndicatorId("indicator:x")])
+        compute(
+            jnp.ones((2, 3, 2)),
+            jnp.ones((3, 2)),
+            [IndicatorId("indicator:x")],
+            **(
+                {"times": (0, 1, 2), "time_origin": None, "standardized": (False, False)}
+                if compute is _compute_overlays
+                else {}
+            ),
+        )

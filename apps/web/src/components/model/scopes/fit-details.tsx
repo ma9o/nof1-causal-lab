@@ -8,7 +8,7 @@ import { PosteriorPairs } from "./law-sections";
 import { FitCalibration } from "./fit-calibration";
 
 export function FitOutcome({ context }: { context: ScopeContext }) {
-  const fit = context.model.findings.fit;
+  const fit = context.model.fit;
   if (!fit) return <Hint>No inference report recorded.</Hint>;
   const { report } = fit.value;
   const { convergence } = report;
@@ -33,7 +33,7 @@ export function FitOutcome({ context }: { context: ScopeContext }) {
 
 /** Model-wide fitted evidence; individual laws own their chains. */
 export function FitDetails({ context }: { context: ScopeContext }) {
-  const fit = context.model.findings.fit;
+  const fit = context.model.fit;
   const detail = useInferenceReport(context.model);
   if (!fit)
     return (

@@ -12,11 +12,10 @@ from arviz_stats.base.array import array_stats
 from nof1_causal_lab.artifacts.identity import ParameterRef
 from nof1_causal_lab.artifacts.parameter import ParameterCoordinate
 from nof1_causal_lab.artifacts.posterior_diagnostics import (
-    DensityHistogram,
+    DensityCurve,
     EnergyDiagnostics,
     ParetoKPoint,
     PosteriorMarginal,
-    PosteriorPair,
     RankHistogram,
     TraceSeries,
 )
@@ -25,7 +24,6 @@ if TYPE_CHECKING:
     import jax.numpy as jnp
     from numpy.typing import NDArray
 
-    from nof1_causal_lab.models.ssm.inference.mcmc_state import TrajectoryMCMCResult
 
 type ParameterReferences = Mapping[ParameterCoordinate, tuple[str, ParameterRef] | None]
 
@@ -93,15 +91,15 @@ def build_rank_histograms(
     return tuple(histograms)
 
 
-def _density_histogram(values: NDArray, n_bins: int) -> DensityHistogram:
+def _density_histogram(values: NDArray, n_bins: int) -> DensityCurve:
     v_min, v_max = float(np.min(values)), float(np.max(values))
     padding = (v_max - v_min) * HIST_PADDING_RATIO if v_max > v_min else HIST_PADDING_DEFAULT
     density, edges = array_stats.histogram(
         values, bins=n_bins, range=(v_min - padding, v_max + padding), axis=-1, density=True
     )
     centers = (edges[:-1] + edges[1:]) / 2.0
-    return DensityHistogram(
-        bin_centers=tuple(float(v) for v in centers), density=tuple(float(v) for v in density)
+    return DensityCurve(
+        x=tuple(float(v) for v in centers), density=tuple(float(v) for v in density)
     )
 
 
@@ -114,8 +112,7 @@ def param_marginal(
     return PosteriorMarginal(
         parameter=parameter,
         subject=subject,
-        x_values=histogram.bin_centers,
-        density=histogram.density,
+        density_curve=histogram,
         mean=float(np.mean(draws)),
         sd=float(np.std(draws)),
         interval_kind="hdi",
@@ -148,9 +145,8 @@ def compute_posterior_marginals(
 def compute_posterior_pairs(
     samples: Mapping[str, jnp.ndarray],
     references: ParameterReferences,
-    mcmc: TrajectoryMCMCResult,
     max_params: int = 6,
-) -> tuple[PosteriorPair, ...]:
+) -> tuple[tuple[ParameterRef, ParameterRef], ...]:
     """Select axes, retaining all original joint draws and their divergence flags."""
     scalars = list(
         islice(
@@ -162,22 +158,8 @@ def compute_posterior_pairs(
             max_params,
         )
     )
-    extra = mcmc.get_extra_fields()
-    divergent = (
-        tuple(bool(v) for v in extra["diverging"].reshape(-1)) if "diverging" in extra else None
-    )
     return tuple(
-        PosteriorPair(
-            param_x=left[0],
-            subject_x=left[1],
-            param_y=right[0],
-            subject_y=right[1],
-            x_values=tuple(float(v) for v in x),
-            y_values=tuple(float(v) for v in y),
-            divergent=divergent,
-        )
-        for i, (left, x) in enumerate(scalars)
-        for right, y in scalars[i + 1 :]
+        (left[1], right[1]) for i, (left, _) in enumerate(scalars) for right, _ in scalars[i + 1 :]
     )
 
 

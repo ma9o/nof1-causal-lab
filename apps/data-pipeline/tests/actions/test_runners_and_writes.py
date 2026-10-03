@@ -8,17 +8,22 @@ import polars as pl
 import pytest
 from pydantic import ValidationError
 
-from nof1_causal_lab.actions.contracts import EditModelRequest
+from nof1_causal_lab.actions.contracts import EditModelRequest, SetQuestionRequest
+from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.actions.temporal.messages import FailedExtractionChunk
 from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.artifacts.identity import ConstructId
 from nof1_causal_lab.artifacts.likelihood import DeltaLawSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.question import QuestionSpec
 from nof1_causal_lab.artifacts.validation_report import ValidationReportArtifact
 from nof1_causal_lab.models.identification import identify_model
+from nof1_causal_lab.models.model_structure import StructuralSelection, selected_state_ids
 from nof1_causal_lab.study.history import StudyRepository
+from nof1_causal_lab.study.records import Applied
 from nof1_causal_lab.study.state import StudyState, apply_effects
 from nof1_causal_lab.study.store import ArtifactStore
-from tests.action_fixtures import applied_record, edit_and_check
+from tests.action_fixtures import applied_record, edit_and_check, question_root
 from tests.data_fixtures import metadata_for_model
 from tests.git_fixtures import artifact_revision
 from tests.helpers import make_model
@@ -38,10 +43,19 @@ def workspace(monkeypatch, tmp_path):
 
 
 def _model():
-    model = make_model(["Stress", "Perf"], [("Stress", "Perf")])
-    return model.revised(
-        question="does stress hurt performance?", default_outcome=model.constructs[1].id
+    return make_model(["Stress", "Perf"], [("Stress", "Perf")])
+
+
+def _outcome():
+    return _model().constructs[1].id
+
+
+def _rooted(workspace):
+    """The study state after set_question, asking about Perf."""
+    root = question_root(
+        workspace, QuestionSpec(text="does stress hurt performance?", outcome=_outcome())
     )
+    return StudyRepository(workspace).state(root.commit_id)
 
 
 def _exact_measurement(model):
@@ -78,12 +92,14 @@ def _write(store, artifact_id, payload, pins=None):
 
 
 def test_identification_records_positive_and_absent_queries():
-    report = identify_model(_model())
+    report = identify_model(StructuralSelection(_model(), _outcome()))
     assert report.estimable_treatments == (_model().constructs[0].id,)
-    assert report.outcome == _model().constructs[1].id
-    absent = identify_model(_model().revised(default_outcome=None))
-    assert absent.outcome is None
-    assert absent.estimable_treatments == ()
+    assert report.outcome == _outcome()
+    for outcome in (None, ConstructId("construct:not_defined_yet")):
+        question = QuestionSpec(text="Does stress affect performance?", outcome=outcome)
+        absent = identify_model(StructuralSelection.for_question(_model(), question))
+        assert absent.outcome is None
+        assert absent.estimable_treatments == ()
 
 
 def test_identification_preserves_negative_findings(monkeypatch):
@@ -96,7 +112,7 @@ def test_identification_preserves_negative_findings(monkeypatch):
     result = identification.check_identifiability(
         model.constructs,
         model.edges,
-        default_outcome=model.default_outcome,
+        outcome_id=_outcome(),
         observed_constructs={construct.name for construct in model.constructs},
     )
 
@@ -111,7 +127,7 @@ def test_identification_preserves_negative_findings(monkeypatch):
             },
         ),
     )
-    report = identify_model(_model())
+    report = identify_model(StructuralSelection(_model(), _outcome()))
     assert not report.estimable_treatments
     assert report.non_identifiable[_model().constructs[0].id].notes == "Unidentified"
 
@@ -188,10 +204,10 @@ def test_extraction_requires_some_observations(workspace, tmp_path, nonempty):
         return
     effects = asyncio.run(pending)
 
-    assert ("panel" in {info.artifact_id for info in effects.produced}) == nonempty
-    assert "measurements" not in {info.artifact_id for info in effects.produced}
-    assert len(effects.workers) == 1
-    worker = effects.workers[0]
+    assert ("panel" in {info.artifact_id for info in effects.effects.produced}) == nonempty
+    assert "measurements" not in {info.artifact_id for info in effects.effects.produced}
+    assert len(effects.result.workers) == 1
+    worker = effects.result.workers[0]
     assert (worker.worker_id, worker.status, worker.n_extractions, worker.n_windows) == (
         7,
         "failed",
@@ -202,7 +218,7 @@ def test_extraction_requires_some_observations(workspace, tmp_path, nonempty):
     assert worker.error == "No usable extraction"
     assert worker.n_llm_calls == 0
     assert worker.reused is False
-    assert effects.n_observations == int(nonempty)
+    assert effects.result.n_observations == int(nonempty)
     from nof1_causal_lab.study.history import StudyRepository
 
     journal = StudyRepository(workspace)
@@ -210,55 +226,64 @@ def test_extraction_requires_some_observations(workspace, tmp_path, nonempty):
     journal.append(record)
     outcome = journal.attempts()[0].record.attempt.outcome
     assert outcome.status == "applied"
-    assert outcome.result == effects
-    current = apply_effects(state, effects.produced, effects.retracted)
+    assert outcome == effects
+    current = apply_effects(state, effects.effects.produced, effects.effects.retracted)
     if not nonempty:
         assert not current.has("panel")
         assert not current.has("validation_report")
     if nonempty:
-        panel = next(info for info in effects.produced if info.artifact_id == "panel")
+        panel = next(info for info in effects.effects.produced if info.artifact_id == "panel")
         assert panel.derived_from == {
             "raw_data": artifact_revision(workspace, "raw_data", 1),
         }
 
 
 def test_model_write_cascades_without_parallel_scientific_catalogs(workspace):
+    root = _rooted(workspace)
     effects = edit_and_check(
         workspace,
         EditModelRequest.model_validate(
             {"model": _model().model_dump(mode="json"), "expected_revision": None}
         ),
-        StudyState(),
+        root,
     )
-    assert {info.artifact_id for info in effects.produced} == {
+    assert {info.artifact_id for info in effects.effects.produced} == {
         "model",
         "identification_report",
     }
-    assert not effects.retracted
+    assert not effects.effects.retracted
     assert all(
-        info.derived_from == {"model": artifact_revision(workspace, "model", 1)}
-        for info in effects.produced
+        info.derived_from
+        == {
+            "question": root.current["question"].revision,
+            "model": artifact_revision(workspace, "model", 1),
+        }
+        for info in effects.effects.produced
         if info.artifact_id != "model"
     )
-    assert next(info for info in effects.produced if info.artifact_id == "model").derived_from == {}
+    assert (
+        next(info for info in effects.effects.produced if info.artifact_id == "model").derived_from
+        == {}
+    )
 
 
 def test_exact_measurement_preserves_execution_layout(workspace):
-    from nof1_causal_lab.utils.model_structure import get_state_names
-
     model = _exact_measurement(_model())
     effects = edit_and_check(
         workspace,
         EditModelRequest.model_validate(
             {"model": model.model_dump(mode="json"), "expected_revision": None}
         ),
-        StudyState(),
+        _rooted(workspace),
     )
     store = ArtifactStore(workspace)
-    info = next(info for info in effects.produced if info.artifact_id == "model")
+    info = next(info for info in effects.effects.produced if info.artifact_id == "model")
     payload = store.read_json_file("model", info.revision, "model.json")
     plan = ModelSpec.model_validate(payload)
-    assert get_state_names(plan) == ["Stress", "Perf"]
+    assert [
+        plan.get_construct(identity).name
+        for identity in selected_state_ids(StructuralSelection(plan, None))
+    ] == ["Stress", "Perf"]
     assert plan.indicators[0].likelihood is not None
     assert plan.indicators[0].likelihood.law.family == "delta"
 
@@ -266,14 +291,15 @@ def test_exact_measurement_preserves_execution_layout(workspace):
 def test_model_edit_reports_stale_extraction(workspace):
     store = ArtifactStore(workspace)
     model = _model()
+    root = _rooted(workspace)
     effects = edit_and_check(
         workspace,
         EditModelRequest.model_validate(
             {"model": model.model_dump(mode="json"), "expected_revision": None}
         ),
-        StudyState(),
+        root,
     )
-    state = apply_effects(StudyState(), effects.produced)
+    state = apply_effects(root, effects.effects.produced)
     panel = store.write_artifact(
         "panel",
         derived_from={},
@@ -293,8 +319,12 @@ def test_model_edit_reports_stale_extraction(workspace):
     from nof1_causal_lab.actions.data_checks import evaluate_data_checks
     from nof1_causal_lab.study.records import DataPreparationResult
 
-    checked_data = evaluate_data_checks(workspace, state, DataPreparationResult(produced=[panel]))
-    state = state.with_artifacts([*checked_data.produced, validation])
+    checked_data = evaluate_data_checks(
+        workspace,
+        state,
+        Applied(result=DataPreparationResult(), effects=ActionEffects(produced=[panel])),
+    )
+    state = state.with_artifacts([*checked_data.effects.produced, validation])
     changed = model.revised(measurement_clock="2d")
     effects = edit_and_check(
         workspace,
@@ -306,14 +336,16 @@ def test_model_edit_reports_stale_extraction(workspace):
         ),
         state,
     )
-    report = next(item for item in effects.produced if item.artifact_id == "validation_report")
+    report = next(
+        item for item in effects.effects.produced if item.artifact_id == "validation_report"
+    )
     payload = store.read_value(
         "validation_report", report.revision, "validation_report.json", ValidationReportArtifact
     )
     assert any(
         issue.issue_type == "measurement_definitions" for issue in payload.data.dataset_issues
     )
-    assert "panel" not in {item.artifact_id for item in effects.produced}
+    assert "panel" not in {item.artifact_id for item in effects.effects.produced}
 
 
 def test_failed_check_publishes_no_state(workspace, monkeypatch):
@@ -323,15 +355,16 @@ def test_failed_check_publishes_no_state(workspace, monkeypatch):
         raise RuntimeError("identification failed")
 
     monkeypatch.setattr(identification, "check_identifiability", fail)
+    root = _rooted(workspace)
     with pytest.raises(RuntimeError, match="identification failed"):
         edit_and_check(
             workspace,
             EditModelRequest.model_validate(
                 {"model": _model().model_dump(mode="json"), "expected_revision": None}
             ),
-            StudyState(),
+            root,
         )
-    assert StudyRepository(workspace).state(StudyRepository(workspace).head()).current == {}
+    assert StudyRepository(workspace).state(StudyRepository(workspace).head()) == root
 
 
 def test_invalid_model_rejected_before_any_write(workspace):
@@ -358,12 +391,6 @@ def test_failed_tree_write_publishes_no_artifact(workspace, monkeypatch):
     assert ArtifactStore(workspace).list_revisions("model") == []
 
 
-def test_question_write_requires_text(workspace):
+def test_question_write_requires_text():
     with pytest.raises(ValidationError):
-        edit_and_check(
-            workspace,
-            EditModelRequest.model_validate(
-                {"model": {"question": "   "}, "expected_revision": None}
-            ),
-            StudyState(),
-        )
+        SetQuestionRequest.model_validate({"question": {"text": "   "}})

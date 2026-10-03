@@ -152,9 +152,9 @@ def test_preparation_without_model_combines_computed_and_semantic_workers(monkey
         )
     )
     effects = evaluate_data_checks("data-only", state, effects)
-    assert {item.artifact_id for item in effects.produced} == {"panel", "data_profile"}
-    assert effects.checks is None
-    panel = next(item for item in effects.produced if item.artifact_id == "panel")
+    assert {item.artifact_id for item in effects.effects.produced} == {"panel", "data_profile"}
+    assert effects.effects.checks is None
+    panel = next(item for item in effects.effects.produced if item.artifact_id == "panel")
     assert panel.derived_from == {"raw_data": raw.revision}
     observations = store.read_parquet_file("panel", panel.revision, "panel.parquet")
     assert observations.select("indicator_id", "value").rows() == [
@@ -172,13 +172,15 @@ def test_preparation_without_model_combines_computed_and_semantic_workers(monkey
         == preparation.variables[1].extraction.how_to_measure
     )
     assert metadata.variables[1].ordinal_levels == ("low", "medium", "high")
-    profile_ref = next(item for item in effects.produced if item.artifact_id == "data_profile")
+    profile_ref = next(
+        item for item in effects.effects.produced if item.artifact_id == "data_profile"
+    )
     profile = DataProfileArtifact.model_validate(
         store.read_json_file("data_profile", profile_ref.revision, "data_profile.json")
     )
     assert set(profile.indicators) == {"indicator:steps", "indicator:stress"}
     labels = completion_messages(
-        effects, datetime.now(UTC), store.completion_reports(effects.produced)
+        effects, datetime.now(UTC), store.completion_reports(effects.effects.produced)
     )
     assert "DATA_QUALITY_FINDINGS" in {label.label for label in labels}
     assert all(set(label.model_dump()) == {"timestamp", "level", "label"} for label in labels)

@@ -64,6 +64,7 @@ def test_raised_attempt_discovers_trace_and_retry_no_longer_needs_scratch(data_r
             seq=1,
             ts="2026-10-01T00:00:00Z",
             attempt=EditAttempt(
+                action="edit_model",
                 request=None,
                 outcome=Raised(error_type="LLMSubroutineError", error_message="validation failed"),
             ),

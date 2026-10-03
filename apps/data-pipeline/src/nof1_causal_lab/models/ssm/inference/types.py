@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     from numpy.typing import ArrayLike
     from xarray import DataTree
 
-    from nof1_causal_lab.artifacts.identity import ConstructId
+    from nof1_causal_lab.artifacts.identity import ConstructId, ParameterRef
     from nof1_causal_lab.models.ssm.inference.mcmc_state import TrajectoryMCMCResult
 
 
@@ -17,7 +17,7 @@ import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Literal
+from typing import Literal, Self
 
 import jax.numpy as jnp
 from numpy.typing import NDArray
@@ -32,7 +32,6 @@ from nof1_causal_lab.artifacts.posterior_diagnostics import (
     ParticleMCMCEvidence,
     ParticleSamplerDiagnostics,
     PosteriorMarginal,
-    PosteriorPair,
     RankHistogram,
     TraceSeries,
 )
@@ -52,6 +51,7 @@ from nof1_causal_lab.models.ssm.inference.diagnostics_viz import (
     build_trace_data as _build_trace_data,
 )
 from nof1_causal_lab.models.ssm.inference.shared import _filter_public_samples
+from nof1_causal_lab.utils.immutability import freeze_fields
 
 logger = logging.getLogger(__name__)
 
@@ -114,6 +114,9 @@ class WarmupDiagnostics:
     parameter_hessian_max_eig: float | None
     hessian_jitter: float
 
+    def __post_init__(self) -> None:
+        freeze_fields(self)
+
 
 @dataclass(frozen=True, kw_only=True)
 class ProductionDiagnostics:
@@ -153,6 +156,7 @@ class ProductionDiagnostics:
                     }
                 ),
             )
+        freeze_fields(self)
 
 
 @dataclass(frozen=True)
@@ -169,6 +173,7 @@ class WarmupProposal:
 
     def __post_init__(self) -> None:
         object.__setattr__(self, "_samples", MappingProxyType(dict(self._samples)))
+        freeze_fields(self)
 
 
 @dataclass(frozen=True)
@@ -197,6 +202,7 @@ class JointPosteriorDraws:
                 raise ValueError("Latent state IDs must label the state axis exactly")
         if len(counts) > 1:
             raise ValueError("Posterior parameters and latent paths must share the draw axis")
+        freeze_fields(self)
 
     def describe(self) -> PosteriorDrawsInfo:
         counts = [values.shape[0] for values in self.parameters.values()]
@@ -216,6 +222,9 @@ class JointPosteriorDraws:
         )
 
 
+_PARTICLE_ENGINE_EVIDENCE = ParticleMCMCEvidence()
+
+
 @dataclass(frozen=True)
 class ParticleMCMCPosterior:
     """Joint posterior draws produced by the invariant particle-MCMC engine."""
@@ -228,6 +237,25 @@ class ParticleMCMCPosterior:
     method: Literal["marginal_particle_gibbs"] = field(
         init=False, default="marginal_particle_gibbs"
     )
+
+    @classmethod
+    def from_run(
+        cls,
+        *,
+        draws: JointPosteriorDraws,
+        diagnostics: ProductionDiagnostics,
+        evidence: ParticleMCMCEvidence = _PARTICLE_ENGINE_EVIDENCE,
+        initial_latent_delta: jnp.ndarray | None = None,
+        final_latent_delta: jnp.ndarray | None = None,
+    ) -> Self:
+        """Own the resolved joint draws, exact diagnostics and engine evidence."""
+        return cls(
+            draws=draws,
+            diagnostics=diagnostics,
+            evidence=evidence,
+            initial_latent_delta=initial_latent_delta,
+            final_latent_delta=final_latent_delta,
+        )
 
     def get_samples(self) -> Mapping[str, jnp.ndarray]:
         """Return parameter draws aligned with the retained latent trajectories."""
@@ -362,7 +390,5 @@ class ParticleMCMCPosterior:
 
     def get_posterior_pairs(
         self, references: ParameterReferences, max_params: int = 6
-    ) -> tuple[PosteriorPair, ...]:
-        return compute_posterior_pairs(
-            self.draws.parameters, references, self.diagnostics.mcmc, max_params
-        )
+    ) -> tuple[tuple[ParameterRef, ParameterRef], ...]:
+        return compute_posterior_pairs(self.draws.parameters, references, max_params)

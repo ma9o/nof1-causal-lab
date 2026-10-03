@@ -14,30 +14,33 @@ import polars as pl
 from nof1_causal_lab.artifacts.expressions import expression_coefficients, expression_states
 from nof1_causal_lab.artifacts.identity import GitOid, GitRef, ParameterRef
 from nof1_causal_lab.artifacts.parameter import SiteKind
-from nof1_causal_lab.artifacts.predictive_provenance import FittedLawProvenance, MixedLawProvenance
 from nof1_causal_lab.models.model_parameters import execution_parameters
+from nof1_causal_lab.models.model_structure import StructuralSelection
 from nof1_causal_lab.models.ssm.compile.inputs import compile_executable_model
 from nof1_causal_lab.models.ssm.dynamics.expression import ExpressionComponentSpec
+from nof1_causal_lab.numpyro_json import distribution_shape
 from nof1_causal_lab.study.artifact_files import artifact_file_spec, parquet_filename
+from nof1_causal_lab.study.equations import (
+    confounder_equations,
+    observation_equations,
+    state_equations,
+)
 from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.history import StudyRepository
-from nof1_causal_lab.study.records import Applied, FitAttempt, SimulateAttempt, StudyRevision
+from nof1_causal_lab.study.prior_views import prior_density
+from nof1_causal_lab.study.records import Applied, StudyRevision
 from nof1_causal_lab.study.snapshot_models import (
     FactSource,
     FitSummary,
-    ModelData,
-    ModelFindings,
     ModelSnapshot,
-    SnapshotContext,
     Sourced,
-    SourceValidity,
 )
-from nof1_causal_lab.study.state import StudyState, is_stale
+from nof1_causal_lab.study.state import SourceValidity, StudyState, is_stale
 from nof1_causal_lab.study.store import ArtifactStore, observation_sample, read_payload
 from nof1_causal_lab.study.views import (
     entity_failures,
+    likelihood_histograms,
     measurements_view,
-    model_diagnostics_view,
     raw_data_view,
 )
 from nof1_causal_lab.study.visual_models import (
@@ -46,7 +49,6 @@ from nof1_causal_lab.study.visual_models import (
     ObservationHistory,
     ParameterDrawColumn,
     ParameterDraws,
-    PredictiveHistory,
     SimulationPaths,
 )
 
@@ -70,15 +72,15 @@ if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
     from nof1_causal_lab.artifacts.posterior import InferenceReport
+    from nof1_causal_lab.artifacts.posterior_diagnostics import DensityCurve, PPCOverlay
+    from nof1_causal_lab.artifacts.question import QuestionSpec
     from nof1_causal_lab.artifacts.simulation import SimulationReport
     from nof1_causal_lab.artifacts.validation_report import (
         DataProfileArtifact,
         ValidationReportArtifact,
     )
     from nof1_causal_lab.study.view_models import (
-        DensityPoint,
         MeasurementsData,
-        ModelDiagnostics,
         RawDataData,
     )
 
@@ -147,8 +149,23 @@ class ModelReader:
         return Sourced(value=value, source=self.source(artifact_id, pointer))
 
     @cached_property
+    def question(self) -> QuestionSpec | None:
+        return (
+            cast("QuestionSpec", self.selected("question")) if self.state.has("question") else None
+        )
+
+    @cached_property
     def model(self) -> ModelSpec | None:
         return cast("ModelSpec", self.selected("model")) if self.state.has("model") else None
+
+    def scoped(self, model: ModelSpec) -> StructuralSelection:
+        """The study question's outcome scopes any of its models' execution."""
+        assert self.question is not None, "set_question roots every lineage"
+        return StructuralSelection.for_question(model, self.question)
+
+    @cached_property
+    def selection(self) -> StructuralSelection | None:
+        return self.scoped(self.model) if self.model is not None else None
 
     def constructs(self) -> tuple[ConstructSpec, ...]:
         return self.model.constructs if self.model else ()
@@ -256,47 +273,6 @@ class ModelReader:
         )
 
     @cached_property
-    def diagnostics(self) -> ModelDiagnostics | None:
-        if self.model is None:
-            return None
-        compatible = self.state.matches_inputs("validation_report", "panel", "model")
-        validation = self.validation_report if compatible else None
-        return model_diagnostics_view(
-            self.model,
-            panel=self._panel if compatible else None,
-            validation=validation.value if validation else None,
-        )
-
-    def artifact_view(
-        self, name: str
-    ) -> (
-        ModelSpec
-        | ModelDiagnostics
-        | RawDataData
-        | MeasurementsData
-        | ValidationReportArtifact
-        | InferenceReport
-        | None
-    ):
-        """Select one projection without evaluating unrelated view builders."""
-        match name:
-            case "model":
-                return self.model
-            case "model_diagnostics":
-                return self.diagnostics
-            case "raw_data":
-                finding = self.raw_data
-            case "measurements":
-                finding = self.measurements
-            case "validation_report":
-                finding = self.validation_report
-            case "inference_report":
-                finding = self.inference_report
-            case _:
-                raise StudyLookupError(f"Unknown artifact view: {name}")
-        return finding.value if finding is not None else None
-
-    @cached_property
     def inference_report(self) -> Sourced[InferenceReport] | None:
         from nof1_causal_lab.study.lineage import (
             inference_report_is_current,
@@ -311,7 +287,7 @@ class ModelReader:
         )
         if record is None:
             return None
-        assert isinstance(record.record.attempt, FitAttempt)
+        assert record.record.attempt.action == "fit"
         assert isinstance(record.record.attempt.outcome, Applied)
         result = record.record.attempt.outcome.result
         report = result.report
@@ -339,11 +315,16 @@ class ModelReader:
         return self.fact(report, "identification_report", "")
 
     def dispositions(self) -> Sourced[tuple[StructuralItemDisposition, ...]] | None:
-        if self.model is None or self.model.measurement_clock is None or not self.model.indicators:
+        selection = self.selection
+        if (
+            selection is None
+            or selection.model.measurement_clock is None
+            or not selection.model.indicators
+        ):
             return None
         owners = self._construct_ids | self._indicator_ids | {item.id for item in self.edges()}
         return self.fact(
-            tuple(item for item in self.model.structural_dispositions if item.target.id in owners),
+            tuple(item for item in selection.structural_dispositions if item.target.id in owners),
             "model",
             "",
         )
@@ -353,7 +334,7 @@ class ModelReader:
         read = self.inference_report
         if read is None:
             return None
-        posterior = read.value
+        posterior = read.value.core
         marginals = {}
         for item in posterior.posterior_marginals or []:
             marginals.setdefault(item.subject.parameter_id, []).append(item)
@@ -370,12 +351,12 @@ class ModelReader:
                     model.parameter_context(parameter.id).quantity == SiteKind.DYNAMICS_WEIGHT
                     and owner.kind == "edge"
                 ):
-                    edge_estimates[owner.id] = estimate
+                    edge_estimates[owner.id] = estimate.subject
                 elif (
                     model.parameter_context(parameter.id).quantity == SiteKind.DYNAMICS_DECAY
                     and owner.kind == "construct"
                 ):
-                    decay_estimates[owner.id] = estimate
+                    decay_estimates[owner.id] = estimate.subject
         return Sourced(
             value=FitSummary(
                 report=posterior,
@@ -386,27 +367,29 @@ class ModelReader:
             source=read.source,
         )
 
-    def fit_prior_densities(
-        self, fitted: Iterable[ParameterId]
-    ) -> dict[ParameterId, tuple[DensityPoint, ...]]:
+    def fit_prior_densities(self, fitted: Iterable[ParameterId]) -> dict[ParameterId, DensityCurve]:
         """Curves of the input laws the fit conditioned, where it reports posteriors."""
         from nof1_causal_lab.study.lineage import inference_report_record
         from nof1_causal_lab.study.store import read_model
 
         record = inference_report_record(self.records, self.state)
         assert record is not None
-        assert isinstance(record.record.attempt, FitAttempt)
+        assert record.record.attempt.action == "fit"
         assert isinstance(record.record.attempt.outcome, Applied)
         curves = quantity_prior_densities(
-            read_model(self.store, record.record.attempt.outcome.result.model.revision)
+            self.scoped(read_model(self.store, record.record.attempt.outcome.result.model.revision))
         )
-        return {identity: curves[identity] for identity in fitted if curves.get(identity)}
+        return {
+            identity: curve
+            for identity in fitted
+            if (curve := curves.get(identity)) is not None and curve.x
+        }
 
     def simulation(self) -> Sourced[SimulationReport] | None:
         """Return the most recent explicit simulation with its own input revisions."""
 
         for record in reversed(self.records):
-            if not isinstance(record.record.attempt, SimulateAttempt) or not isinstance(
+            if record.record.attempt.action != "simulate" or not isinstance(
                 record.record.attempt.outcome, Applied
             ):
                 continue
@@ -454,7 +437,9 @@ class ModelReader:
 
         identification, dispositions = self.identification(), self.dispositions()
         fit = self.fit()
-        graph_constructs, graph_edges = model_graph_entities(self.model) if self.model else ((), ())
+        graph_constructs, graph_edges = (
+            model_graph_entities(self.selection) if self.selection else ((), ())
+        )
         blocking = set()
         if identification:
             for cid, finding in identification.value.non_identifiable.items():
@@ -472,13 +457,13 @@ class ModelReader:
             if cid in disposition_by_id
         }
         can_simulate = False
-        if self.model is not None:
+        if self.selection is not None:
             from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel, compile_model
             from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
                 forward_simulation_supported,
             )
 
-            compiled = compile_model(self.model)
+            compiled = compile_model(self.selection)
             can_simulate = isinstance(compiled, CompiledModel) and forward_simulation_supported(
                 compiled
             )
@@ -492,50 +477,81 @@ class ModelReader:
             != (self.state.current["panel"].revision if self.state.has("panel") else None)
             else SourceValidity.FRESH,
         )
+        checks = self.state.checks
+        current_panel = self.state.current["panel"].revision if self.state.has("panel") else None
         return ModelSnapshot(
+            question=self.fact(self.question, "question", "") if self.question else None,
             model=self.fact(self.model, "model", "") if self.model else None,
-            context=SnapshotContext(
-                workspace_id=self.workspace_id,
-                seq=self.seq,
-                commit_id=self.commit_id,
-                branch=self.branch,
-                can_simulate=can_simulate,
-                current=self.state.current,
+            workspace_id=self.workspace_id,
+            branch=self.branch,
+            commit_id=self.commit_id,
+            selected_seq=self.seq,
+            state=self.state,
+            can_simulate=can_simulate,
+            raw_data=self.raw_data,
+            measurements=self.measurements,
+            metadata=self.data_metadata,
+            profile=self.data_profile,
+            entity_failures=entity_failures(
+                self.model,
+                fit,
+                predictive,
+                identification,
+                self.validation_report or self.data_profile,
             ),
-            data=ModelData(
-                raw_data=self.raw_data,
-                measurements=self.measurements,
-                metadata=self.data_metadata,
-                profile=self.data_profile,
+            identification=identification,
+            dispositions=dispositions,
+            graph=ModelGraphView(
+                construct_ids=tuple(item.id for item in graph_constructs),
+                edge_ids=tuple(item.id for item in graph_edges),
+                dynamic_construct_ids=tuple(
+                    item.id for item in graph_constructs if item.is_dynamic
+                ),
+                status=graph_status,
             ),
-            findings=ModelFindings(
-                entity_failures=entity_failures(
-                    self.model,
-                    fit,
-                    predictive,
-                    identification,
-                    self.validation_report or self.data_profile,
-                ),
-                identification=identification,
-                dispositions=dispositions,
-                graph=ModelGraphView(
-                    construct_ids=tuple(item.id for item in graph_constructs),
-                    edge_ids=tuple(item.id for item in graph_edges),
-                    dynamic_construct_ids=tuple(
-                        item.id for item in graph_constructs if item.is_dynamic
-                    ),
-                    status=graph_status,
-                ),
-                validation_report=self.validation_report,
-                diagnostics=self.diagnostics,
-                fit=fit,
-                simulation=self.simulation(),
-                specification=self.check_finding(
-                    self.state.checks.specification if self.state.checks else None,
-                    "/specification",
-                ),
-                predictive=predictive,
+            validation_report=self.validation_report,
+            confounder_equations=confounder_equations(self.selection)
+            if self.selection
+            and self.selection.model.measurement_clock is not None
+            and self.selection.model.indicators
+            else {},
+            state_equations=state_equations(self.selection)
+            if self.selection
+            and self.selection.model.measurement_clock is not None
+            and self.selection.model.indicators
+            else {},
+            observation_equations=observation_equations(self.model) if self.model else {},
+            likelihood_diagnostics=likelihood_histograms(
+                self.selection,
+                self._panel
+                if self.state.matches_inputs("validation_report", "panel", "model")
+                else None,
+            )
+            if self.selection
+            else {},
+            authoring_prior_densities={
+                parameter.id: prior_density(law)
+                for parameter in self.parameters()
+                if self.model
+                and (law := self.model.distribution_for(parameter.id)) is not None
+                and distribution_shape(law) == ((), ())
+            },
+            fit=fit,
+            simulation=self.simulation(),
+            specification=self.check_finding(
+                self.state.checks.specification if self.state.checks else None,
+                "/specification",
             ),
+            question_checks=self.check_finding(
+                checks.question if checks else None,
+                "/question",
+                validity=SourceValidity.STALE
+                if checks is not None
+                and checks.question is not None
+                and checks.question.panel_revision != current_panel
+                else SourceValidity.FRESH,
+            ),
+            predictive=predictive,
         )
 
     def observation_history(self, indicator_id: IndicatorId) -> ObservationHistory | None:
@@ -556,50 +572,22 @@ class ModelReader:
 
         return observation_history(metadata.value, variable, panel)
 
-    def predictive_history(self, indicator_id: IndicatorId) -> PredictiveHistory | None:
-        """Recover the saved check's exact schedule from its pinned inputs, without prediction."""
-        from nof1_causal_lab.models.ssm.observation_support import (
-            augment_wide_data_with_support_boundaries,
-        )
-        from nof1_causal_lab.models.ssm.runtime import project_observation_data
-        from nof1_causal_lab.study.lineage import fitted_law_report, read_data_metadata
-        from nof1_causal_lab.study.store import read_model
-
+    def predictive_history(self, indicator_id: IndicatorId) -> PPCOverlay | None:
+        """Return the saved overlay with its producer-owned schedule and scale."""
         check = self.state.checks.predictive if self.state.checks else None
-        if check is None or check.predictive_checks is None or check.panel_revision is None:
+        if (
+            check is None
+            or check.evaluation.kind != "evaluated"
+            or check.evaluation.predictive_checks is None
+        ):
             return None
-        overlay = next(
+        return next(
             (
                 item
-                for item in check.predictive_checks.overlays
+                for item in check.evaluation.predictive_checks.overlays
                 if item.indicator_id == indicator_id
             ),
             None,
-        )
-        if overlay is None:
-            return None
-        model = read_model(self.store, check.model_revision)
-        origin = read_data_metadata(self.store, check.panel_revision).time_origin
-        if isinstance(check.law, (FittedLawProvenance, MixedLawProvenance)):
-            origin = fitted_law_report(
-                self.repository.attempts(), check.law.fitted_model_revision
-            ).time_origin
-        panel = self.store.read_parquet_file("panel", check.panel_revision, "panel.parquet")
-        compiled = compile_executable_model(model)
-        wide, rows = project_observation_data(panel, model_spec=compiled, time_origin=origin)
-        wide = augment_wide_data_with_support_boundaries(rows, wide, time_origin=origin)
-        times = tuple(float(value) for value in wide["time"])
-        if len(times) != len(overlay.observed):
-            raise ValueError(
-                "Saved predictive series do not match their pinned observation schedule"
-            )
-        likelihood = next(
-            law
-            for indicator, law in model.iter_likelihoods()
-            if indicator.observation.id == indicator_id
-        )
-        return PredictiveHistory(
-            times=times, time_origin=origin, standardized=likelihood.standardized, overlay=overlay
         )
 
     def simulation_paths(self, *, start: int, count: int) -> SimulationPaths | None:
@@ -612,31 +600,48 @@ class ModelReader:
         report = saved.value
         if start >= report.draws:
             raise StudyLookupError("Draw page starts past the saved simulation")
-        stop = min(start + count, report.draws)
-        latent = self.store.read_array(report.latent_paths)[start:stop]
-        observed = self.store.read_array(report.observations)[start:stop]
-        mask = self.store.read_array(report.observation_layout.mask)[start:stop]
+        from nof1_causal_lab.study.store import read_model
+
+        observations = self.store.read_array(report.observations)
+        mask = self.store.read_array(report.observation_layout.mask)
         reference = (
-            self.store.read_array(report.reference_latent_paths)[start:stop]
+            self.store.read_array(report.reference_latent_paths)
             if report.reference_latent_paths is not None
             else None
         )
-        reference_observed = (
-            self.store.read_array(report.reference_observations)[start:stop]
+        reference_observations = (
+            self.store.read_array(report.reference_observations)
             if report.reference_observations is not None
             else None
         )
-        effect = None
-        if report.causal_result is not None:
-            if reference is None:
-                raise ValueError("A causal simulation requires its retained reference paths")
-            outcome = report.state_ids.index(report.causal_result.outcome)
-            effect = (
-                report.causal_result.labels[report.causal_result.outcome],
-                latent[:, :, outcome] - reference[:, :, outcome],
+        # Hydrate categorical emissions against their declared codebook at the storage edge.
+        for index, variable in enumerate(report.observation_layout.variables):
+            levels = (
+                ("0", "1")
+                if variable.measurement_dtype == "binary"
+                else variable.ordinal_levels or variable.categorical_levels
             )
+            if levels is None:
+                continue
+            for buffer in (observations, reference_observations):
+                if buffer is None:
+                    continue
+                channel = buffer[:, :, index]
+                codes = channel[mask[:, :, index] & np.isfinite(channel)]
+                if not np.all((codes == np.floor(codes)) & (codes >= 0) & (codes < len(levels))):
+                    raise StudyLookupError(
+                        "Saved simulation emissions differ from their declared category codes"
+                    )
         return recorded_simulation_paths(
-            report, latent, observed, mask, reference, reference_observed, effect, start=start
+            report,
+            read_model(self.store, report.model.revision),
+            self.store.read_array(report.latent_paths),
+            observations,
+            mask,
+            reference,
+            reference_observations,
+            start=start,
+            count=count,
         )
 
     def parameter_draws(self) -> ParameterDraws:
@@ -647,21 +652,22 @@ class ModelReader:
         from nof1_causal_lab.study.lineage import law_provenance
         from nof1_causal_lab.study.visuals import empirical_points
 
-        model = self.model
-        if model is None:
+        selection = self.selection
+        if selection is None:
             return ParameterDraws(columns=(), unavailable_reason="No model at this revision.")
+        model = selection.model
         provenance = law_provenance(self.store, self.state.current["model"], model, None)
         if provenance.kind != "fitted":
             return ParameterDraws(
                 columns=(),
                 unavailable_reason="This revision has no complete retained joint posterior. Recorded summary plots cannot recover missing draws.",
             )
-        bindings, _ = parameter_bindings(compile_executable_model(model))
+        bindings, _ = parameter_bindings(compile_executable_model(selection))
         columns = []
         for identity in sorted(
             {
                 parameter.distribution
-                for parameter in execution_parameters(model)
+                for parameter in execution_parameters(selection)
                 if parameter.distribution
             }
         ):
@@ -724,7 +730,7 @@ class ModelReader:
         }
         ids = tuple(item.id for item in model.constructs)
         parameters, law, total = _mechanism_parameters(
-            model,
+            self.scoped(model),
             {
                 operand.value
                 for mechanism in mechanisms
@@ -764,7 +770,7 @@ class ModelReader:
 
 
 def _mechanism_parameters(
-    model: ModelSpec, identities: set[ParameterId]
+    selection: StructuralSelection, identities: set[ParameterId]
 ) -> tuple[dict[ParameterId, np.ndarray], Literal["retained", "sampled", "fixed"], int]:
     """Preserve joint atoms, or sample native current laws with a reproducible plot seed."""
     from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
@@ -772,6 +778,7 @@ def _mechanism_parameters(
     from nof1_causal_lab.models.ssm.joint_layout import JointLawLayout
     from nof1_causal_lab.numpyro_json import empirical_atoms, materialize_distribution
 
+    model = selection.model
     parameters = [model.parameter(identity) for identity in sorted(identities)]
     if any(p.distribution is None for p in parameters):
         raise StudyLookupError("Assign probability laws to this mechanism's parameters first")
@@ -803,12 +810,12 @@ def _mechanism_parameters(
                     compiled.sample(jax.random.fold_in(key, member_index), (total,))
                 )
         else:
-            bindings, _ = parameter_bindings(compile_executable_model(model))
+            bindings, _ = parameter_bindings(compile_executable_model(selection))
             by_id = {b.parameter_id: b for b in bindings}
             layout = JointLawLayout.from_bindings(
                 bindings,
                 parameters=[
-                    p.id for p in execution_parameters(model) if p.distribution == identity
+                    p.id for p in execution_parameters(selection) if p.distribution == identity
                 ],
                 constructs=[c.id for c in model.constructs if c.distribution == identity],
                 time_points=model.time_points,
@@ -825,15 +832,18 @@ def _mechanism_parameters(
     return values, "retained" if retained else "sampled", total
 
 
-def quantity_prior_densities(model: ModelSpec) -> dict[ParameterId, tuple[DensityPoint, ...]]:
+def quantity_prior_densities(
+    selection: StructuralSelection,
+) -> dict[ParameterId, DensityCurve]:
     """Resolve native quantity laws at the reader boundary before projecting curves."""
     from nof1_causal_lab.models.ssm.compile.prior_compilation import quantity_parameter_law
     from nof1_causal_lab.numpyro_json import distribution_shape
     from nof1_causal_lab.study.prior_views import prior_density
 
+    model = selection.model
     return {
         parameter.id: prior_density(quantity_parameter_law(model, parameter)[0])
-        for parameter in execution_parameters(model)
+        for parameter in execution_parameters(selection)
         if parameter.distribution is not None
         and not any(distribution_shape(model.distributions[parameter.distribution]))
     }

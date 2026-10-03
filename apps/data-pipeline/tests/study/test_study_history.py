@@ -6,6 +6,8 @@ from uuid import uuid4
 import pytest
 
 from nof1_causal_lab.actions.contracts import EditModelRequest
+from nof1_causal_lab.actions.effects import ActionEffects
+from nof1_causal_lab.artifacts.duration import Duration
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.history import BranchConflict, StudyRepository
@@ -40,10 +42,10 @@ def _record(seq, *, branch="main", outcome=None, attempt_id=None, **effects):
             branch=branch,
             attempt_id=attempt_id,
             ts="2026-09-23T12:00:00+00:00",
-            attempt=PrepareAttempt(request=None, outcome=outcome),
+            attempt=PrepareAttempt(request=None, outcome=outcome, action="prepare_data"),
         )
     return applied_record(
-        DataPreparationResult(**effects),
+        Applied(result=DataPreparationResult(), effects=ActionEffects(**effects)),
         seq=seq,
         branch=branch,
         attempt_id=attempt_id,
@@ -51,21 +53,21 @@ def _record(seq, *, branch="main", outcome=None, attempt_id=None, **effects):
     )
 
 
-def _model(store, question, parent=0):
+def _model(store, clock, parent=0):
     return store.write_artifact(
         "model",
         produced_by=None,
         derived_from={"model": parent} if parent else {},
-        json_files={"model.json": {"question": question}},
+        json_files={"model.json": {"measurement_clock": clock}},
     )
 
 
 def test_branches_share_ancestry_but_isolate_state_and_logs(study):
     repository, store = study
-    first = _model(store, "Does X change Y?")
+    first = _model(store, "1d")
     root = repository.append(_record(1, produced=[first]), logs={"notes.json": b"[1]"}).commit_id
     repository.create_branch("alternative", at=root)
-    second = _model(store, "Does X change Y at night?", first.revision)
+    second = _model(store, "2d", first.revision)
     main = repository.append(_record(2, produced=[second]), expected_head=root).commit_id
     fork = repository.append(
         _record(
@@ -81,11 +83,11 @@ def test_branches_share_ancestry_but_isolate_state_and_logs(study):
     assert reopened.record(fork).parent_ids == (root,)
     main_model = ModelReader("STUDY", branch="main").model
     assert main_model is not None
-    assert main_model.question == "Does X change Y at night?"
+    assert main_model.measurement_clock == Duration("2d")
     assert ModelReader("STUDY", branch="alternative").model is None
     initial_model = ModelReader("STUDY", at=root).model
     assert initial_model is not None
-    assert initial_model.question == "Does X change Y?"
+    assert initial_model.measurement_clock == Duration("1d")
     assert [record.record.seq for record in ModelReader("STUDY", branch="main").records] == [1, 2]
     assert [record.record.seq for record in ModelReader("STUDY", branch="alternative").records] == [
         1,
@@ -136,10 +138,10 @@ def test_action_captures_selected_branch_before_validation(study, monkeypatch):
     from nof1_causal_lab.actions.temporal.messages import ActionRequest, StudyInit
 
     repository, store = study
-    first = _model(store, "Shared question")
+    first = _model(store, "1d")
     root = repository.append(_record(1, produced=[first])).commit_id
     repository.create_branch("alternative", at=root)
-    second = _model(store, "Main question", first.revision)
+    second = _model(store, "2d", first.revision)
     repository.append(_record(2, produced=[second]))
 
     async def execute(name, payload, **kwargs):
@@ -163,9 +165,7 @@ def test_action_captures_selected_branch_before_validation(study, monkeypatch):
             worker,
             ActionRequest(
                 branch="alternative",
-                request=EditModelRequest(
-                    expected_revision=second.revision, model=ModelSpec(question="Stale edit")
-                ),
+                request=EditModelRequest(expected_revision=second.revision, model=ModelSpec()),
             ),
         )
     )
@@ -196,8 +196,8 @@ def test_data_comparison_is_a_saved_leaf_at_dispatch_head(study, monkeypatch, fa
     from tests.helpers import run_async
 
     repository, store = study
-    root = repository.append(_record(1, produced=[_model(store, "Original")])).commit_id
-    head = repository.append(_record(2, produced=[_model(store, "Changed while queued")])).commit_id
+    root = repository.append(_record(1, produced=[_model(store, "1d")])).commit_id
+    head = repository.append(_record(2, produced=[_model(store, "2d")])).commit_id
     left = PanelRef(revision=root)
     right = PanelRef(revision=head)
     request = data_diff.DataDiffRequest(left=left, right=right)
@@ -258,8 +258,8 @@ def test_data_comparison_is_a_saved_leaf_at_dispatch_head(study, monkeypatch, fa
     else:
         assert isinstance(outcome, Applied)
         body = outcome.result
-        assert body.produced == body.retracted == ()
-        assert body.checks is None
+        assert outcome.effects.produced == outcome.effects.retracted == ()
+        assert outcome.effects.checks is None
         assert isinstance(body, DataComparisonResult)
         assert body.report == report
         with pytest.raises(StudyLookupError, match="read-only leaf"):
@@ -273,6 +273,8 @@ def test_timeline_links_named_arguments_and_check_reads():
     def oid(n):
         return f"{n:040x}"
 
+    from datetime import date
+
     from nof1_causal_lab.actions.contracts import FitRequest, SimulateRequest
     from nof1_causal_lab.artifacts.data_preparation import SimulationReplicateRef
     from nof1_causal_lab.artifacts.identity import GitRef
@@ -280,7 +282,6 @@ def test_timeline_links_named_arguments_and_check_reads():
     from nof1_causal_lab.study.records import (
         DataComparisonResult,
         FitAttempt,
-        ModelEditResult,
         ModelSimulationResult,
     )
     from nof1_causal_lab.study.view_models import DataDiffReport, DataDiffRequest
@@ -296,19 +297,18 @@ def test_timeline_links_named_arguments_and_check_reads():
             for artifact_id, n, derived in produced
         )
         if action == "edit_model":
-            result = ModelEditResult(
-                produced=artifacts,
-                base=GitRef(
-                    workspace_id="STUDY", revision=inputs["expected_revision"], path="model.json"
-                )
-                if inputs.get("expected_revision")
-                else None,
+            result = Applied(
+                result=None,
+                effects=ActionEffects(produced=artifacts),
             )
             record = applied_record(result, seq=seq)
         elif action == "prepare_data":
             record = applied_record(
-                DataPreparationResult(
-                    produced=artifacts, simulation_source=SimulationReplicateRef(**inputs["input"])
+                Applied(
+                    result=DataPreparationResult(
+                        simulation_source=SimulationReplicateRef(**inputs["input"])
+                    ),
+                    effects=ActionEffects(produced=artifacts),
                 ),
                 seq=seq,
             )
@@ -316,8 +316,9 @@ def test_timeline_links_named_arguments_and_check_reads():
             ref = GitRef(workspace_id="STUDY", revision=inputs["model_revision"], path="model.json")
             report = SimulationReport(
                 model=ref,
-                design=SimulationSpec(end=10),
-                time_origin=None,
+                design=SimulationSpec(start=date(2026, 1, 1), horizon="10d"),
+                time_origin=datetime(2026, 1, 1, tzinfo=UTC),
+                assignments=(),
                 times=(0, 10),
                 draws=1,
                 seed=0,
@@ -331,12 +332,14 @@ def test_timeline_links_named_arguments_and_check_reads():
                     "support_end_times": "ends",
                     "mask": "mask",
                 },
-                predictive={"states": {}, "indicators": {}, "fit_reliability": "not_fitted"},
+                fit_reliability="not_fitted",
             )
             record = applied_record(
-                ModelSimulationResult(report=report),
+                Applied(result=ModelSimulationResult(report=report), effects=ActionEffects()),
                 seq=seq,
-                request=SimulateRequest(model_revision=ref.revision, end=10),
+                request=SimulateRequest(
+                    model_revision=ref.revision, start=date(2026, 1, 1), horizon="10d"
+                ),
             )
         elif action == "fit":
             request = FitRequest(**inputs)
@@ -345,6 +348,7 @@ def test_timeline_links_named_arguments_and_check_reads():
                     seq=seq,
                     ts="2026-10-01T00:00:00Z",
                     attempt=FitAttempt(
+                        action="fit",
                         request=request,
                         outcome=Raised(error_type="WorkerError", error_message="failed"),
                     ),
@@ -361,27 +365,33 @@ def test_timeline_links_named_arguments_and_check_reads():
                     model, prior_revision=inputs["model_revision"], seq=seq
                 ).record.attempt.outcome.result
                 result = result.revised(
-                    **{
-                        "produced": artifacts,
-                        "panel": GitRef(
-                            workspace_id="STUDY",
-                            revision=inputs["panel_revision"],
-                            path="panel.parquet",
-                        ),
-                    }
+                    panel=GitRef(
+                        workspace_id="STUDY",
+                        revision=inputs["panel_revision"],
+                        path="panel.parquet",
+                    )
                 )
-                record = applied_record(result, seq=seq, request=request)
+                record = applied_record(
+                    Applied(result=result, effects=ActionEffects(produced=artifacts)),
+                    seq=seq,
+                    request=request,
+                )
         else:
             request = DataDiffRequest(**inputs)
             record = applied_record(
-                DataComparisonResult(
-                    report=DataDiffReport(
-                        left=request.left if isinstance(request.left, tuple) else (request.left,),
-                        right=request.right
-                        if isinstance(request.right, tuple)
-                        else (request.right,),
-                        variables=(),
-                    )
+                Applied(
+                    result=DataComparisonResult(
+                        report=DataDiffReport(
+                            left=request.left
+                            if isinstance(request.left, tuple)
+                            else (request.left,),
+                            right=request.right
+                            if isinstance(request.right, tuple)
+                            else (request.right,),
+                            variables=(),
+                        )
+                    ),
+                    effects=ActionEffects(),
                 ),
                 seq=seq,
                 request=request,
@@ -390,7 +400,7 @@ def test_timeline_links_named_arguments_and_check_reads():
 
     records = [
         revision(1, "edit_model", {"expected_revision": None}, ("model", 1, {})),
-        revision(2, "simulate", {"model_revision": oid(1), "end": 10}),
+        revision(2, "simulate", {"model_revision": oid(1)}),
         revision(
             3,
             "prepare_data",

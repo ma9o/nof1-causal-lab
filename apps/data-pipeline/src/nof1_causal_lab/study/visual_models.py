@@ -8,8 +8,9 @@ from typing import Literal
 from pydantic import AwareDatetime, Field, FiniteFloat, model_validator
 
 from nof1_causal_lab.artifacts.base import Value
+from nof1_causal_lab.artifacts.effects import EffectSummary
 from nof1_causal_lab.artifacts.identity import ConstructId, IndicatorId, ParameterRef
-from nof1_causal_lab.artifacts.posterior_diagnostics import PPCOverlay
+from nof1_causal_lab.artifacts.simulation import CategoryProbabilitySummary
 
 
 class RecordedPath(Value):
@@ -35,6 +36,15 @@ class SimulationPaths(Value):
     states: Mapping[ConstructId, PathSeries]
     indicators: Mapping[IndicatorId, PathSeries]
     effect: PathSeries | None = None
+    effect_summary: EffectSummary | None = None
+    reference_mean: FiniteFloat | None = None
+    manifest_effects: Mapping[IndicatorId, FiniteFloat] = Field(default_factory=dict)
+    action_category_probabilities: Mapping[IndicatorId, CategoryProbabilitySummary] = Field(
+        default_factory=dict
+    )
+    reference_category_probabilities: Mapping[IndicatorId, CategoryProbabilitySummary] = Field(
+        default_factory=dict
+    )
 
 
 class EmpiricalPoint(Value):
@@ -55,15 +65,6 @@ class ObservationHistory(Value):
     time_origin: AwareDatetime | None
     levels: tuple[str, ...] | None
     empirical: tuple[EmpiricalPoint, ...]
-
-
-class PredictiveHistory(Value):
-    """A saved check on the exact schedule and scale used to evaluate it."""
-
-    times: tuple[FiniteFloat, ...]
-    time_origin: AwareDatetime | None
-    standardized: bool
-    overlay: PPCOverlay
 
 
 class ParameterDrawColumn(Value):
@@ -99,7 +100,9 @@ class MechanismViewRequest(Value):
         return self
 
 
-class ResponseCurve(RecordedPath):
+class ResponseCurve(Value):
+    draw: int
+    values: tuple[FiniteFloat | None, ...]
     level: FiniteFloat | None = None
 
 

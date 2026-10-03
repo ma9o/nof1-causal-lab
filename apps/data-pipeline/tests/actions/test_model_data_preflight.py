@@ -10,19 +10,21 @@ import pytest
 from nof1_causal_lab.actions.checks import check_model_data, check_specification
 from nof1_causal_lab.actions.contracts import EditModelRequest
 from nof1_causal_lab.actions.data_checks import evaluate_data_checks
+from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.actions.messages import completion_messages
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.validation_report import ValidationReportArtifact
+from nof1_causal_lab.models.model_structure import StructuralSelection
 from nof1_causal_lab.models.ssm.inference import fit
-from nof1_causal_lab.models.ssm.preflight import ObservationPreflightError
-from nof1_causal_lab.models.ssm.runtime import bind_panel
+from nof1_causal_lab.models.ssm.preflight import ObservationPreflightFailure
 from nof1_causal_lab.sampler_config import (
     SamplerSpec,
 )
-from nof1_causal_lab.study.records import DataPreparationResult
+from nof1_causal_lab.study.records import Applied, DataPreparationResult
 from nof1_causal_lab.study.state import StudyState
 from nof1_causal_lab.study.store import ArtifactStore
 from tests.action_fixtures import edit_and_check
+from tests.helpers import write_question
 from tests.integration.runner_fixtures import (
     panel_frame,
     panel_metadata,
@@ -42,16 +44,19 @@ def test_specification_reports_each_distinct_fit_law_reason_once(monkeypatch):
         )
 
     monkeypatch.setattr(compilation, "compile_priors", unsupported)
-    report = check_specification(
+    selection = StructuralSelection(
         ModelSpec.model_validate_json(
             (
                 Path(__file__).resolve().parents[1]
                 / "fixtures/models"
                 / "common/stress_sleep_model.json"
             ).read_text()
-        )
+        ),
+        None,
     )
-    finding = next(finding for finding in report.findings if finding.subject == "fit_laws")
+    compiled = compilation.compile_model(selection)
+    report = check_specification(compiled, compilation.compile_fit_inputs(compiled, selection))
+    finding = next(finding for finding in report if finding.subject == "fit_laws")
     assert finding.kind == "evaluated"
     assert finding.outcome == "failed"
     assert finding.evidence.count("Unsupported joint law.") == 1
@@ -69,26 +74,28 @@ def test_interval_summary_fails_shared_preflight_before_particle_dispatch():
         ),
         panel_frame(n_days=4),
     )
-    report = check_model_data(model, panel, time_origin=panel_metadata().time_origin)
-    finding = report.findings[0]
+    inputs = compile_fit_fixture(model)
+    report = check_model_data(inputs, panel, time_origin=panel_metadata().time_origin)
+    finding = report[0]
     assert finding.subject == "fit_preflight"
     assert finding.kind == "evaluated"
     assert finding.outcome == "failed"
     assert "interval summaries" in finding.evidence
     assert "stress_score" in finding.evidence
-    runtime = bind_panel(
-        panel, model=compile_fit_fixture(model).compiled, time_origin=panel_metadata().time_origin
-    )
-    from nof1_causal_lab.models.ssm.runtime import BoundPanel
+    from nof1_causal_lab.models.ssm.runtime import PreparedFit, prepare_fit
 
-    assert isinstance(runtime, BoundPanel)
-    with pytest.raises(ObservationPreflightError, match="interval summaries"):
-        fit(
-            compile_fit_fixture(model).prior_runtime_bundle,
-            runtime,
-            sampler=SamplerSpec(),
-            clock=time.monotonic,
-        )
+    prepared = prepare_fit(inputs, panel, time_origin=panel_metadata().time_origin)
+    assert isinstance(prepared, PreparedFit)
+    assert prepared.inputs is inputs
+    assert prepared.panel.model is inputs.compiled
+    failure = fit(
+        prepared.inputs.prior_runtime_bundle,
+        prepared.panel,
+        sampler=SamplerSpec(),
+        clock=time.monotonic,
+    )
+    assert isinstance(failure, ObservationPreflightFailure)
+    assert "interval summaries" in failure.message
 
 
 def test_edit_with_missing_panel_variable_saves_compatibility_findings(tmp_path, monkeypatch):
@@ -109,8 +116,12 @@ def test_edit_with_missing_panel_variable_saves_compatibility_findings(tmp_path,
         json_files={"metadata.json": metadata.model_dump(mode="json")},
         parquet_files={"panel.parquet": panel},
     )
-    prepared = evaluate_data_checks("TEST", StudyState(), DataPreparationResult(produced=[record]))
-    state = StudyState().with_artifacts(prepared.produced)
+    prepared = evaluate_data_checks(
+        "TEST",
+        StudyState(),
+        Applied(result=DataPreparationResult(), effects=ActionEffects(produced=[record])),
+    )
+    state = StudyState().with_artifacts([write_question(store), *prepared.effects.produced])
     edited = edit_and_check(
         "TEST",
         EditModelRequest(
@@ -125,21 +136,23 @@ def test_edit_with_missing_panel_variable_saves_compatibility_findings(tmp_path,
         ),
         state,
     )
-    assert "model" in {item.artifact_id for item in edited.produced}
-    validation = next(item for item in edited.produced if item.artifact_id == "validation_report")
+    assert "model" in {item.artifact_id for item in edited.effects.produced}
+    validation = next(
+        item for item in edited.effects.produced if item.artifact_id == "validation_report"
+    )
     report = ValidationReportArtifact.model_validate(
         store.read_json_file("validation_report", validation.revision, "validation_report.json")
     )
-    finding = report.preflight.findings[0]
+    finding = report.preflight[0]
     assert finding.subject == "fit_preflight"
     assert finding.kind == "evaluated"
     assert finding.outcome == "failed"
     assert "missing model indicators" in finding.evidence
     assert "sleep_score" in finding.evidence
-    assert edited.checks.predictive.reason == "NO_COMPATIBLE_PANEL"
+    assert edited.effects.checks.predictive.evaluation.reason == "NO_COMPATIBLE_PANEL"
     messages = completion_messages(
         edited,
         datetime.now(UTC),
-        store.completion_reports(edited.produced),
+        store.completion_reports(edited.effects.produced),
     )
     assert "MODEL_DATA_INCOMPATIBLE" in {message.label for message in messages}

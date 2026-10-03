@@ -38,7 +38,7 @@ with workflow.unsafe.imports_passed_through():
         emit_progress,
         temporal_failure,
     )
-    from nof1_causal_lab.study.records import DataPreparationResult
+    from nof1_causal_lab.study.records import Applied, DataPreparationResult
 
 _PLAN_TIMEOUT = timedelta(minutes=30)
 _FINALIZE_CHUNK_TIMEOUT = timedelta(minutes=5)
@@ -132,7 +132,9 @@ class ExtractionChunkWorkflow:
 class MeasurementsWorkflow:
     @workflow.run
     @execution_failure_handler
-    async def run(self, workflow_input: MeasurementsWorkflowInput) -> DataPreparationResult:
+    async def run(
+        self, workflow_input: MeasurementsWorkflowInput
+    ) -> Applied[DataPreparationResult]:
         chunk_results: list[ExtractionChunkResult] = []
         attempt_id = workflow_input.attempt_id
 
@@ -258,7 +260,7 @@ class MeasurementsWorkflow:
             chunk_results = [await task for task in workflow.as_completed(tasks)]
             chunk_results.sort(key=lambda result: result.worker_id)
 
-            effects: DataPreparationResult = await workflow.execute_activity(
+            applied: Applied[DataPreparationResult] = await workflow.execute_activity(
                 "finalize_measurements_activity",
                 MeasurementsFinalizeInput(
                     workspace_id=workflow_input.workspace_id,
@@ -267,7 +269,7 @@ class MeasurementsWorkflow:
                     pins=plan.pins,
                     chunk_results=chunk_results,
                 ),
-                result_type=DataPreparationResult,
+                result_type=Applied[DataPreparationResult],
                 start_to_close_timeout=_FINALIZE_MEASUREMENTS_TIMEOUT,
                 retry_policy=_ACTIVITY_RETRY,
                 summary="Finalize measurements artifacts",
@@ -284,4 +286,4 @@ class MeasurementsWorkflow:
             )
             raise
         await emit(StepEvent(attempt_id=attempt_id, step="extraction", status="completed"))
-        return effects
+        return applied

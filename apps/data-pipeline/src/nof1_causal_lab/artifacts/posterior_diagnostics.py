@@ -1,12 +1,20 @@
 """Predictive assessments and scientific posterior summaries."""
 
-from typing import Literal
+from typing import Annotated, Literal
 
-from pydantic import ConfigDict, Field, model_validator
+from pydantic import AwareDatetime, ConfigDict, Field, FiniteFloat, computed_field, model_validator
 
 from nof1_causal_lab.artifacts.base import Value
+from nof1_causal_lab.sampler_config import SamplerSpec
 
-from .checks import Assessment, ConvergenceSubject, IndicatorCheckSubject, NumericCriterionEvidence
+from .checks import (
+    Assessment,
+    ConvergenceSubject,
+    Evaluated,
+    IndicatorCheckSubject,
+    NotEvaluated,
+    NumericCriterionEvidence,
+)
 from .effects import HistogramBin
 from .identity import IndicatorId, ParameterRef
 
@@ -40,18 +48,24 @@ class RankHistogram(Value):
     chains: tuple[tuple[int, ...], ...]
 
 
-class DensityHistogram(Value):
-    """A normalized energy histogram at its native bin centers."""
+class DensityCurve(Value):
+    """Aligned density ordinates; the owning field distinguishes PDF samples from histogram heights."""
 
-    bin_centers: tuple[float, ...]
-    density: tuple[float, ...]
+    x: tuple[float, ...] = ()
+    density: tuple[Annotated[float, Field(ge=0)], ...] = ()
+
+    @model_validator(mode="after")
+    def aligned(self) -> "DensityCurve":
+        if len(self.x) != len(self.density):
+            raise ValueError("Density coordinates and ordinates must align")
+        return self
 
 
 class EnergyDiagnostics(Value):
     """Energy distributions and the producer's chain-specific BFMI values."""
 
-    energy_hist: DensityHistogram
-    energy_transition_hist: DensityHistogram
+    energy_hist: DensityCurve
+    energy_transition_hist: DensityCurve
     bfmi: tuple[float, ...]
 
 
@@ -78,10 +92,40 @@ class ParameterConvergenceReport(Value):
     """Recorded-chain criteria cover parameters, not latent-path mixing."""
 
     scope: Literal["recorded_parameter_chains"] = "recorded_parameter_chains"
-    checked: int
-    status: Literal["passed", "failed", "not_evaluated"]
-    messages: tuple[str, ...] = ()
     assessments: tuple[Assessment[ConvergenceAssessmentSubject, NumericCriterionEvidence], ...]
+
+    @computed_field
+    @property
+    def checked(self) -> int:
+        return len(
+            frozenset(
+                item.subject.parameter
+                for item in self.assessments
+                if isinstance(item.subject, ConvergenceSubject)
+            )
+        )
+
+    @computed_field
+    @property
+    def status(self) -> Literal["passed", "failed", "not_evaluated"]:
+        if any(
+            isinstance(item, Evaluated) and item.outcome == "failed" for item in self.assessments
+        ):
+            return "failed"
+        if not self.assessments or any(isinstance(item, NotEvaluated) for item in self.assessments):
+            return "not_evaluated"
+        return "passed"
+
+    @computed_field
+    @property
+    def messages(self) -> tuple[str, ...]:
+        return tuple(
+            item.detail
+            if isinstance(item, NotEvaluated)
+            else f"{item.evidence.criterion} fails for {item.evidence.note}: {item.evidence.value:g}"
+            for item in self.assessments
+            if isinstance(item, NotEvaluated) or item.outcome != "passed"
+        )
 
 
 class ParetoKPoint(Value):
@@ -128,48 +172,25 @@ class ParticleMCMCEvidence(Value):
     latent_transition: Literal["euler_maruyama"] = "euler_maruyama"
 
 
-class PosteriorEstimate(Value):
-    """A posterior estimate reports a mean and a credible interval with explicit semantics."""
+class PosteriorMarginal(Value):
+    """One parameter's posterior interval, scale and density plot."""
 
     model_config = ConfigDict(allow_inf_nan=False)
-
+    parameter: str
+    subject: ParameterRef
+    density_curve: DensityCurve
     mean: float
     lower: float
     upper: float
     interval_kind: Literal["hdi", "equal_tail"]
-    interval_mass: float = Field(
-        gt=0, lt=1, description="Posterior probability mass of the interval."
-    )
+    interval_mass: float = Field(gt=0, lt=1)
+    sd: float = Field(ge=0)
 
     @model_validator(mode="after")
-    def validate_bounds(self) -> "PosteriorEstimate":
+    def validate_bounds(self) -> "PosteriorMarginal":
         if self.lower > self.upper:
             raise ValueError("Posterior interval lower bound must not exceed its upper bound")
         return self
-
-
-class PosteriorMarginal(PosteriorEstimate):
-    """A posterior marginal summarizes uncertainty in one scalar parameter and supplies its
-    density plot.
-    """
-
-    parameter: str
-    subject: ParameterRef
-    x_values: tuple[float, ...]
-    density: tuple[float, ...]
-    sd: float = Field(ge=0)
-
-
-class PosteriorPair(Value):
-    """A posterior pair supplies joint samples of two parameters to visualize their dependence."""
-
-    param_x: str
-    subject_x: ParameterRef
-    param_y: str
-    subject_y: ParameterRef
-    x_values: tuple[float, ...]
-    y_values: tuple[float, ...]
-    divergent: tuple[bool, ...] | None = None
 
 
 class PPCOverlay(Value):
@@ -179,10 +200,25 @@ class PPCOverlay(Value):
     spaghetti plot of a visual predictive check.
     """
 
+    times: tuple[FiniteFloat, ...]
+    time_origin: AwareDatetime | None
+    standardized: bool
     indicator_id: IndicatorId
     observed: tuple[float | None, ...]
     median: tuple[float | None, ...]
     spaghetti_draws: tuple[tuple[float | None, ...], ...] = Field(default_factory=tuple)
+
+    @model_validator(mode="after")
+    def aligned_schedule(self) -> "PPCOverlay":
+        if (
+            len(self.times) != len(self.observed)
+            or len(self.times) != len(self.median)
+            or any(len(draw) != len(self.times) for draw in self.spaghetti_draws)
+        ):
+            raise ValueError("Predictive overlay columns must align with their evaluated schedule")
+        if any(right <= left for left, right in zip(self.times, self.times[1:], strict=False)):
+            raise ValueError("Predictive overlay times must increase")
+        return self
 
 
 class PPCTestStat(Value):
@@ -222,8 +258,13 @@ class ElboScoringDiagnostics(Value):
     best_elbo_candidate_index: int
 
 
-class PathfinderStartDiagnostics(ElboScoringDiagnostics):
+class PathfinderStartDiagnostics(Value):
     """Retained native initialization measurements; never posterior evidence."""
+
+    n_elbo_batch_evaluations: int
+    n_elbo_screen_candidates: int
+    n_elbo_refine_candidates: int
+    best_elbo_candidate_index: int
 
     start_idx: int
     n_trajectory_points: int
@@ -248,7 +289,6 @@ class PathfinderDiagnostics(Value):
     pathfinder_runtime_seconds: float
     pathfinder_total_seconds: float
     best_pathfinder_elbo: float
-    pathfinder_elbo: float
     pathfinder_elbo_min: float
     pathfinder_elbo_max: float
     pathfinder_elbo_spread: float
@@ -262,91 +302,42 @@ class PathfinderDiagnostics(Value):
     pathfinder_per_start: tuple[PathfinderStartDiagnostics, ...]
 
 
-class ParticleInitializationDiagnostics(Value):
-    """Retained native initialization measurements; never posterior evidence."""
+class ParameterWarmupDiagnostics(Value):
+    """Realized initialization and preconditioning, with the complete Pathfinder evidence once."""
 
     pathfinder: PathfinderDiagnostics | None = None
-    init_method: str | None = None
-    pathfinder_sampling_mode: str | None = None
-    pathfinder_init_scale: float | None = None
-    prior_released_site_names: tuple[str, ...] | None = None
-    prior_released_site_indices: tuple[int, ...] | None = None
-    prior_release_scale: float | None = None
-
-
-class ParticlePreconditionerDiagnostics(Value):
-    """Proposal-scale setup, distinct from retained posterior measurements."""
-
-    auto_preconditioner: bool | None = None
-    auto_preconditioner_method: str | None = None
-    auto_preconditioner_device: str | None = None
-    auto_preconditioner_n_pathfinder_starts: int | None = None
-    auto_preconditioner_n_pathfinder_starts_finite: int | None = None
-    auto_preconditioner_best_pathfinder_elbo: float | None = None
-    auto_preconditioner_pathfinder_elbo_spread: float | None = None
-    auto_preconditioner_maxiter: int | None = None
-
-
-class ParameterWarmupDiagnostics(Value):
-    """Timing and ownership of proposal initialization and preconditioning."""
-
-    pathfinder_ran: bool
     pathfinder_run_count: int
     pathfinder_consumers: tuple[str, ...]
     init_source: str
     preconditioner_source: str
-    auto_preconditioner_method: str
+    preconditioner_device: str | None = None
     dim: int
     duration_seconds: float
-    init_scale: float
-    pathfinder_init_scale: float | None
-    pathfinder_setup_seconds: float | None = None
-    pathfinder_jax_compile_seconds: float | None = None
-    pathfinder_runtime_seconds: float | None = None
-    pathfinder_total_seconds: float | None = None
-    pathfinder_jax_compile_batch_sizes: tuple[int, ...] | None = None
+    pathfinder_sampling_mode: str | None = None
+    pathfinder_init_scale: float | None = None
+    prior_released_site_names: tuple[str, ...] = ()
+    prior_released_site_indices: tuple[int, ...] = ()
+    prior_release_scale: float = 0.0
 
 
 class ParticleSamplerDiagnostics(Value):
     """Typed exact-sampler settings and transition telemetry from the native producer."""
 
+    settings: SamplerSpec
     latent_kernel: str
     latent_smoother: str
     latent_smoother_algorithm: str
     latent_smoother_family: str
     latent_smoother_selection: str
     latent_smoother_parallel: bool
-    latent_delta: float
     parameter_kernel: str
     mcmc_phase_seconds: float
-    num_warmup: int
-    num_samples: int
-    num_chains: int
-    n_particles: int
-    n_parameter_particles: int
-    parameter_proposal: str
     latent_backward_sampling: bool
-    amala_delta_init: float
-    amala_delta_min: float
-    amala_delta_max: float
-    amala_target_accept: float
-    amala_adaptation_window: int
-    amala_adaptation_tolerance: float
-    amala_adaptation_rho: float
-    amala_adaptation_rho_min: float
-    amala_adaptation_gamma: float
     amala_delta_adapted: bool
-    amala_kappa: float
-    amala_grad_clip: float | None
     dsmc_leaf_proposal: str
     latent_transition_kind: str
-    diagnostic_metrics_all: bool
     diagnostic_metrics: tuple[str, ...]
-    param_step_size_initial: float
-    param_step_size_min: float
-    param_step_size_max: float
     param_target_accept: float
-    adaptation_scheme: str
     parameter_preconditioned: bool
     diagnostic_summary_phase: str
     parameter_accept_rate: float
@@ -365,8 +356,6 @@ class ParticleSamplerDiagnostics(Value):
     amala_grad_norm_mean: float | None = None
     amala_grad_norm_max: float | None = None
     parameter_warmup: ParameterWarmupDiagnostics
-    initialization: ParticleInitializationDiagnostics
-    preconditioner: ParticlePreconditionerDiagnostics
 
 
 class TemperingDiagnostics(Value):

@@ -1,7 +1,5 @@
 """Scientific identities, retained draws, and sampler evidence in diagnostic reports."""
 
-from dataclasses import replace
-
 import jax.numpy as jnp
 import numpy as np
 import pytest
@@ -9,7 +7,7 @@ from pydantic import ValidationError
 
 from nof1_causal_lab.artifacts.identity import ParameterElementId, ParameterId, ParameterRef
 from nof1_causal_lab.artifacts.parameter import ParameterCoordinate
-from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorEstimate
+from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorMarginal
 from nof1_causal_lab.models.ssm.inference.diagnostics_viz import build_trace_data
 from nof1_causal_lab.models.ssm.inference.types import ProductionDiagnostics
 
@@ -51,6 +49,10 @@ def test_traces_preserve_all_draws_chains_and_scientific_subjects():
 )
 def test_posterior_estimate_rejects_invalid_intervals(invalid):
     payload = {
+        "parameter": "test",
+        "subject": {"parameter_id": "parameter:" + "0" * 64, "element_id": "element:" + "0" * 64},
+        "sd": 0.5,
+        "density_curve": {"x": [], "density": []},
         "mean": 1.0,
         "lower": 0.0,
         "upper": 2.0,
@@ -58,7 +60,7 @@ def test_posterior_estimate_rejects_invalid_intervals(invalid):
         "interval_mass": 0.94,
     }
     with pytest.raises(ValidationError):
-        PosteriorEstimate.model_validate({**payload, **invalid})
+        PosteriorMarginal.model_validate({**payload, **invalid})
 
 
 @pytest.fixture
@@ -90,7 +92,7 @@ def particle_posterior():
         num_samples=64,
         backend="marginal_particle_gibbs",
     )
-    return ParticleMCMCPosterior(
+    return ParticleMCMCPosterior.from_run(
         draws=JointPosteriorDraws(parameters=mcmc.get_samples()),
         diagnostics=ProductionDiagnostics(
             mcmc=mcmc, observation_log_probs=jnp.zeros((mcmc.num_chains, mcmc.num_samples, 0))
@@ -150,40 +152,23 @@ def test_posterior_plots_preserve_all_joint_draws_and_divergences(particle_poste
         assert marginal.lower < marginal.mean < marginal.upper
         assert marginal.interval_kind == "hdi"
         assert marginal.interval_mass == 0.94
-        assert len(marginal.x_values) == len(marginal.density) == 8
-        assert min(marginal.density) >= 0
+        assert len(marginal.density_curve.x) == len(marginal.density_curve.density) == 8
+        assert min(marginal.density_curve.density) >= 0
     pairs = particle_posterior.get_posterior_pairs(refs, max_params=3)
     assert len(pairs) == 3
     expected_divergences = [False] * 128
     expected_divergences[4] = True
+    traces, _ = particle_posterior.get_chain_detail(refs)
+    columns = {trace.subject: np.asarray(trace.chains).reshape(-1) for trace in traces}
+    assert tuple(
+        bool(value)
+        for value in particle_posterior.diagnostics.mcmc.get_extra_fields()["diverging"].reshape(-1)
+    ) == tuple(expected_divergences)
     for pair in pairs:
-        assert pair.divergent == tuple(expected_divergences)
-        for axis in ("x", "y"):
-            coordinate = by_subject[getattr(pair, "subject_" + axis).element_id]
+        assert len(pair) == 2
+        for axis in pair:
+            coordinate = by_subject[axis.element_id]
             values = particle_posterior.get_samples()[coordinate.site_name][
                 (slice(None), *coordinate.indices)
             ]
-            np.testing.assert_array_equal(getattr(pair, axis + "_values"), values)
-
-
-@pytest.mark.inference(concern="sampling")
-def test_loo_report_accepts_joint_particle_emission_factors(particle_posterior):
-    import numpyro.distributions as dist
-
-    x = jnp.linspace(-2, 2, 6)
-    observations = 1.0 + 2.5 * x + jnp.asarray(np.random.default_rng(0).normal(size=6) * 0.5)
-    samples = particle_posterior.diagnostics.mcmc.get_samples(group_by_chain=True)
-    mean = samples["alpha"][..., None] + samples["beta"][..., 0, None] * x
-    factors = dist.Normal(mean, samples["sigma"][..., None]).log_prob(observations)
-    particle_posterior = replace(
-        particle_posterior,
-        diagnostics=replace(particle_posterior.diagnostics, observation_log_probs=factors),
-    )
-
-    estimate, points = particle_posterior.get_loo_diagnostics(observations=observations[:, None])
-    assert estimate.observation_unit == "measurement_row"
-    assert estimate.prediction_task == "interpolation_given_other_measurements"
-    assert estimate.n_data_points == len(points) == 6
-    assert np.isfinite(estimate.elpd_loo)
-    assert all(isinstance(point.k, float) and np.isfinite(point.k) for point in points)
-    assert sorted(point.timestep for point in points) == list(range(1, 7))
+            np.testing.assert_array_equal(columns[axis], values)

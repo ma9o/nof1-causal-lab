@@ -1,4 +1,4 @@
-import type { PosteriorEstimate } from "@nof1-causal-lab/api-types";
+import type { PosteriorMarginal } from "@nof1-causal-lab/api-types";
 
 export function formatNumber(n: number, decimals = 3): string {
   if (Number.isNaN(n)) return "NaN";
@@ -29,7 +29,7 @@ const posteriorMassFormatter = new Intl.NumberFormat("en", {
 });
 
 export function formatPosteriorIntervalLabel(
-  estimate: Pick<PosteriorEstimate, "interval_kind" | "interval_mass">,
+  estimate: Pick<PosteriorMarginal, "interval_kind" | "interval_mass">,
 ): string {
   const kind = { hdi: "HDI", equal_tail: "equal-tail interval" }[estimate.interval_kind];
   return `${posteriorMassFormatter.format(estimate.interval_mass)} ${kind}`;

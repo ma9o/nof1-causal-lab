@@ -12,7 +12,6 @@ from nof1_causal_lab.artifacts.base import Value
 if TYPE_CHECKING:
     from collections.abc import Sequence
 
-    from nof1_causal_lab.json_types import JsonObject
 
 MAX_TOOL_REPAIR_ERROR_CHARS = 1200
 
@@ -24,19 +23,13 @@ class NamedTool(Protocol):
     def name(self) -> str: ...
 
 
-class TraceFunctionCall(TypedDict):
-    """The invoked tool function and its JSON argument string, retained in a trace."""
-
-    name: str
-    arguments: str
-
-
 class TraceToolCall(TypedDict):
     """A function invocation with the call identity used to match its result."""
 
     id: str
     type: Literal["function"]
-    function: TraceFunctionCall
+    name: str
+    arguments: str
 
 
 class TraceMessage(Value):
@@ -52,22 +45,6 @@ class TraceMessage(Value):
     tool_name: str | None = None
     tool_result: str | None = None
     tool_is_error: bool = False
-
-    @classmethod
-    def from_conversation(cls, message: JsonObject) -> TraceMessage:
-        content = str(message.get("content", ""))
-        return cls.model_validate(
-            {
-                "role": message["role"],
-                "content": content,
-                "reasoning": message.get("reasoning"),
-                "tool_calls": message.get("tool_calls"),
-                "tool_call_id": message.get("tool_call_id"),
-                "tool_name": message.get("name"),
-                "tool_result": content if message["role"] == "tool" else None,
-                "tool_is_error": message.get("error") is not None,
-            }
-        )
 
 
 class TraceUsage(Value):

@@ -4,8 +4,8 @@ import type {
   ConstructSpec,
   IndicatorEmpiricalProfile,
   IndicatorSpec,
-  InterventionSpec,
-  PosteriorEstimate,
+  StateAssignment,
+  PosteriorMarginal,
   ActionId,
   DataDiffReport,
   SimulationPaths,
@@ -121,11 +121,8 @@ function LayerPill({
   );
 }
 
-function assignmentLabel(event: InterventionSpec, timeOrigin: string | null): string {
-  const when = timeOrigin
-    ? `${formatModelDate(event.time, timeOrigin)} (day ${event.time})`
-    : `Day ${event.time}`;
-  return `${when}: set to ${event.value}`;
+function assignmentLabel(event: StateAssignment, timeOrigin: string): string {
+  return `${formatModelDate(event.time, timeOrigin)} (day ${event.time}): set to ${event.value}`;
 }
 
 /** The card's chart strip, below its title. */
@@ -356,7 +353,7 @@ function ConstructCard({
   failures: string[];
   status: ConstructStatus | undefined;
   children: ReactNode;
-  assignments: InterventionSpec[];
+  assignments: readonly StateAssignment[];
   timeOrigin: string | null;
   selected: boolean;
   dimmed: boolean;
@@ -401,7 +398,7 @@ function ConstructCard({
             x={LAYERED_NODE_WIDTH - 8}
             label={badge}
             color={badgeColor}
-            {...(hasAssignments
+            {...(hasAssignments && timeOrigin !== null
               ? {
                   description: assignments
                     .map((event) => assignmentLabel(event, timeOrigin))
@@ -476,7 +473,7 @@ function EdgeSlot({
 }: {
   meta: LayeredGraphEdgeMeta;
   disposition: StructuralItemDisposition["disposition"] | undefined;
-  posterior: PosteriorEstimate | undefined;
+  posterior: PosteriorMarginal | undefined;
   /** The edge mechanism's own laws; the first is drawn in the slot. */
   laws: LawCurve[];
   color: string;
@@ -843,14 +840,13 @@ export function LayeredCausalGraph({
                 step === "prepare_data"
                   ? nodeIndicators.flatMap((indicator) => {
                       const profile =
-                        model.data.profile?.value.indicators[indicator.observation.id]?.profile;
+                        model.profile?.value.indicators[indicator.observation.id]?.profile;
                       return profile ? [{ indicator, profile }] : [];
                     })
                   : [];
               const assignments =
-                simulationResult?.design.interventions.filter(
-                  (event) => event.target === construct.id,
-                ) ?? [];
+                simulationResult?.assignments.filter((event) => event.target === construct.id) ??
+                [];
               return (
                 <g
                   key={node.id}
@@ -862,7 +858,7 @@ export function LayeredCausalGraph({
                     construct={construct}
                     isOutcome={
                       construct.id ===
-                      (simulation?.causal_result?.outcome ?? model.model?.value.default_outcome)
+                      (simulation?.causal_result?.outcome ?? model.question?.value.outcome)
                     }
                     failures={dataDiff ? [] : entityFailures(model, construct)}
                     status={nodeStatuses.get(construct.id) ?? undefined}
@@ -946,10 +942,12 @@ export function LayeredCausalGraph({
                           series={pathLines(series)}
                           label={`${humanize(series.label)}: ${series.action.length} individual simulation draws`}
                           markers={[
-                            ...assignments.map((event) => ({
-                              time: event.time,
-                              label: assignmentLabel(event, simulationResult?.time_origin ?? null),
-                            })),
+                            ...(simulationResult
+                              ? assignments.map((event) => ({
+                                  time: event.time,
+                                  label: assignmentLabel(event, simulationResult.time_origin),
+                                }))
+                              : []),
                             ...(variant === "workbench" && currentDay !== undefined
                               ? [{ time: currentDay, label: `Viewed day ${currentDay}` }]
                               : []),

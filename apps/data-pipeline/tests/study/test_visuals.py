@@ -22,7 +22,7 @@ from nof1_causal_lab.artifacts.mechanism import (
     PotentialMechanismSpec,
 )
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.models.model_structure import selected_state_ids
+from nof1_causal_lab.models.model_structure import StructuralSelection, selected_state_ids
 from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.snapshots import ModelReader
 from nof1_causal_lab.study.visual_models import MechanismViewRequest
@@ -63,7 +63,7 @@ def test_observations_keep_irregular_anchors_support_missingness_and_empirical_m
 
 
 @pytest.mark.contract
-def test_paging_original_paths_preserves_opposite_modes_and_paired_effects():
+def test_paging_original_paths_preserves_opposite_modes_and_paired_effects(monkeypatch):
     from nof1_causal_lab.artifacts.identity import ConstructId
 
     state_id = ConstructId("construct:state")
@@ -84,13 +84,18 @@ def test_paging_original_paths_preserves_opposite_modes_and_paired_effects():
         state_ids=(state_id,),
         observation_layout=SimpleNamespace(
             mask="mask",
+            indicator_ids=(indicator,),
             variables=[
                 SimpleNamespace(
-                    id=indicator, name="Observed", ordinal_levels=None, categorical_levels=None
+                    id=indicator,
+                    name="Observed",
+                    measurement_dtype="continuous",
+                    ordinal_levels=None,
+                    categorical_levels=None,
                 )
             ],
         ),
-        predictive=SimpleNamespace(states={state_id: SimpleNamespace(label="State")}),
+        model=SimpleNamespace(revision="pinned-model"),
         causal_result=SimpleNamespace(outcome=state_id, labels={state_id: "State"}),
     )
     reader = Mock(
@@ -98,11 +103,19 @@ def test_paging_original_paths_preserves_opposite_modes_and_paired_effects():
         simulation=lambda: SimpleNamespace(value=report),
         store=SimpleNamespace(read_array=arrays.__getitem__),
     )
+    monkeypatch.setattr(
+        "nof1_causal_lab.study.store.read_model",
+        lambda *_args: SimpleNamespace(
+            get_construct=lambda _identity: SimpleNamespace(name="State")
+        ),
+    )
     view = ModelReader.simulation_paths(reader, start=0, count=2)
     assert view is not None
     assert view.effect is not None
     assert view.times == report.times
     assert view.total_draws == 3
+    assert view.effect_summary is not None
+    assert view.effect_summary.mean == pytest.approx(11 / 3)
     assert [p.values for p in view.states[state_id].action] == [(-5, -4, -5), (5, 4, 5)]
     assert [p.values for p in view.effect.action] == [(1, 1, 1), (3, 3, 3)]
     assert view.indicators[indicator].action[0].values == (-5, None, -5)
@@ -200,7 +213,7 @@ def test_every_parameter_coordinate_and_joint_draw_survives_the_read(monkeypatch
     layout = JointLawLayout.from_bindings(
         bindings,
         parameters=[b.parameter_id for b in bindings],
-        constructs=selected_state_ids(model),
+        constructs=selected_state_ids(StructuralSelection(model, None)),
         time_points=(0, 10),
     )
     atoms = np.arange(503 * layout.width, dtype=float).reshape(503, layout.width)
@@ -221,7 +234,11 @@ def test_every_parameter_coordinate_and_joint_draw_survives_the_read(monkeypatch
         lambda *_args: SimpleNamespace(kind="fitted"),
     )
     reader = Mock(
-        spec=ModelReader, model=model, store=None, state=SimpleNamespace(current={"model": None})
+        spec=ModelReader,
+        model=model,
+        selection=StructuralSelection(model, None),
+        store=None,
+        state=SimpleNamespace(current={"model": None}),
     )
     view = ModelReader.parameter_draws(reader)
     assert len(view.columns) > 6
@@ -260,7 +277,8 @@ def test_declared_scalar_law_can_be_inspected_with_unfinished_unrelated_mechanis
         },
     )
     view = ModelReader.mechanism_curves(
-        Mock(spec=ModelReader, model=model), MechanismViewRequest(owner_id=edge.id, count=2)
+        Mock(spec=ModelReader, model=model, scoped=lambda value: StructuralSelection(value, None)),
+        MechanismViewRequest(owner_id=edge.id, count=2),
     )
     assert view.law == "sampled"
     assert view.count == 2
@@ -277,61 +295,27 @@ def test_predictive_overlay_uses_pinned_schedule_including_support_boundaries(mo
             Path(__file__).resolve().parents[1] / "fixtures/models" / "common/x_y_model.json"
         ).read_text()
     )
-    origin = datetime(2026, 1, 1)
-    panel = pl.DataFrame(
-        [
-            {
-                "indicator_id": indicator.observation.id,
-                "value": 1.0,
-                "anchor_time": origin + timedelta(days=t),
-                "support_start": origin + timedelta(days=t - 1),
-                "support_end": origin + timedelta(days=t),
-                "support_kind": "interval",
-                "summary_operator": "mean",
-                "anchor_policy": "support_end",
-                "observation_window": "1d",
-            }
-            for indicator in model.indicators
-            for t in (1, 10)
-        ]
-    )
     identity = model.indicators[0].observation.id
     overlay = PPCOverlay(
         indicator_id=identity,
+        times=(0, 1, 9, 10),
+        time_origin=datetime(2026, 1, 1, tzinfo=UTC),
+        standardized=True,
         observed=[None, 1.0, None, 1.0],
         median=[None, 2.0, None, 2.0],
         spaghetti_draws=[[None, 3.0, None, 3.0]],
     )
     check = SimpleNamespace(
-        model_revision="pinned-model",
-        panel_revision="pinned-panel",
-        law=SimpleNamespace(fitted_model_revision=None),
-        predictive_checks=SimpleNamespace(overlays=[overlay]),
+        evaluation=SimpleNamespace(
+            kind="evaluated", predictive_checks=SimpleNamespace(overlays=[overlay])
+        )
     )
     monkeypatch.setattr(
         "nof1_causal_lab.study.store.read_model",
-        lambda _store, revision: (
-            model if revision == "pinned-model" else pytest.fail("wrong model")
-        ),
+        lambda *_args: pytest.fail("Overlay reads must not reconstruct their schedule"),
     )
-    monkeypatch.setattr(
-        "nof1_causal_lab.study.lineage.read_data_metadata",
-        lambda _store, revision: (
-            SimpleNamespace(time_origin=origin.replace(tzinfo=UTC))
-            if revision == "pinned-panel"
-            else pytest.fail("wrong panel")
-        ),
-    )
-    reader = Mock(
-        spec=ModelReader,
-        state=SimpleNamespace(checks=SimpleNamespace(predictive=check)),
-        store=SimpleNamespace(
-            read_parquet_file=lambda _artifact, revision, _file: (
-                panel if revision == "pinned-panel" else pytest.fail("wrong panel")
-            )
-        ),
-    )
+    reader = Mock(spec=ModelReader, state=SimpleNamespace(checks=SimpleNamespace(predictive=check)))
     view = ModelReader.predictive_history(reader, identity)
-    assert view is not None
+    assert view is overlay
     assert view.times == (0, 1, 9, 10)
-    assert view.overlay == overlay
+    assert view.standardized is True

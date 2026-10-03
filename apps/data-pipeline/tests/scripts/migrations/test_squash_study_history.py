@@ -1,6 +1,7 @@
 """Saved-effect compaction preserves state and the reader's fresh findings."""
 
 import json
+from datetime import UTC, date, datetime
 from pathlib import Path
 from uuid import uuid4
 
@@ -9,23 +10,25 @@ import pygit2
 import pytest
 from scripts.migrations.squash_study_history import copy_squashed, plan_squash
 
-from nof1_causal_lab.artifacts.checks import NotEvaluated, SpecificationReport
+from nof1_causal_lab.actions.effects import ActionEffects
+from nof1_causal_lab.artifacts.checks import NotEvaluated
 from nof1_causal_lab.artifacts.identity import GitOid, GitRef
 from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.posterior import (
     InferenceMetadata,
     InferenceReport,
+    InferenceReportCore,
     InferenceReportDetail,
 )
 from nof1_causal_lab.artifacts.simulation import SimulationReport, SimulationSpec
 from nof1_causal_lab.models.ssm.inference.convergence import parameter_convergence
 from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.records import (
+    Applied,
     AttemptRecord,
     DataPreparationResult,
     EditAttempt,
-    ModelEditResult,
     ModelFitResult,
     ModelSimulationResult,
     Raised,
@@ -57,14 +60,17 @@ def _append(history, result=None, *, outcome=None, branch="main", logs=None):
         "ts": f"2026-09-30T12:00:{seq:02d}Z",
     }
     record = (
-        applied_record(result if result is not None else ModelEditResult(), **metadata)
+        applied_record(
+            result if result is not None else Applied(result=None, effects=ActionEffects()),
+            **metadata,
+        )
         if outcome is None
         else AttemptRecord(
             seq=seq,
             attempt_id=metadata["attempt_id"],
             branch=branch,
             ts=metadata["ts"],
-            attempt=EditAttempt(request=None, outcome=outcome),
+            attempt=EditAttempt(request=None, outcome=outcome, action="edit_model"),
         )
     )
     return history.append(
@@ -79,16 +85,18 @@ def _append(history, result=None, *, outcome=None, branch="main", logs=None):
 
 def _report():
     return InferenceReport(
-        time_origin=None,
-        inference_metadata=InferenceMetadata(method="test", n_samples=3, duration_seconds=1),
-        engine=NotEvaluated(
-            subject="production_engine",
-            reason="ARCHIVED_ENGINE_NOT_RETAINED",
-            detail="No inference executes in this fixture",
+        core=InferenceReportCore(
+            time_origin=None,
+            inference_metadata=InferenceMetadata(method="test", n_samples=3, duration_seconds=1),
+            engine=NotEvaluated(
+                subject="production_engine",
+                reason="ARCHIVED_ENGINE_NOT_RETAINED",
+                detail="No inference executes in this fixture",
+            ),
+            inference_diagnostics=None,
+            sampler_diagnostics=None,
+            convergence=parameter_convergence(None),
         ),
-        inference_diagnostics=None,
-        sampler_diagnostics=None,
-        convergence=parameter_convergence(None),
         detail=InferenceReportDetail(),
     )
 
@@ -101,26 +109,27 @@ def _model(store, history, *, model=None, fit=False, pins=None):
         produced_by="fit" if fit else "edit_model",
         json_files={
             "model.json": (
-                model or ModelSpec(question=f"Question {history.latest_seq() + 1}")
+                model or ModelSpec(measurement_clock=f"{history.latest_seq() + 1}d")
             ).model_dump(mode="json")
         },
     )
 
 
 def _checks(seq):
-    return ModelCheckReport(
-        input_keys={"specification": str(seq)}, specification=SpecificationReport(findings=())
-    )
+    return ModelCheckReport(input_keys={"specification": str(seq)}, specification=())
 
 
 def _edit(store, history, *, model=None, retracted=()):
     artifact = _model(store, history, model=model)
     return _append(
         history,
-        ModelEditResult(
-            produced=(artifact,),
-            checks=_checks(history.latest_seq() + 1),
-            retracted=tuple(retracted),
+        Applied(
+            result=None,
+            effects=ActionEffects(
+                produced=(artifact,),
+                checks=_checks(history.latest_seq() + 1),
+                retracted=tuple(retracted),
+            ),
         ),
     )
 
@@ -146,9 +155,11 @@ def _prepare(store, history):
     )
     return _append(
         history,
-        DataPreparationResult(
-            produced=(raw, panel, profile),
-            raw_data=GitRef(workspace_id="study", revision=raw.revision, path="data.json"),
+        Applied(
+            result=DataPreparationResult(
+                raw_data=GitRef(workspace_id="study", revision=raw.revision, path="data.json")
+            ),
+            effects=ActionEffects(produced=(raw, panel, profile)),
         ),
     )
 
@@ -160,12 +171,13 @@ def _fit(store, history, *, model=None, pins=None):
     artifact = _model(store, history, model=model, fit=True, pins=pins)
     return _append(
         history,
-        ModelFitResult(
-            produced=(artifact,),
-            checks=_checks(history.latest_seq() + 1),
-            model=GitRef(workspace_id="study", revision=pins["model"], path="model.json"),
-            panel=GitRef(workspace_id="study", revision=pins["panel"], path="panel.parquet"),
-            report=_report(),
+        Applied(
+            result=ModelFitResult(
+                model=GitRef(workspace_id="study", revision=pins["model"], path="model.json"),
+                panel=GitRef(workspace_id="study", revision=pins["panel"], path="panel.parquet"),
+                report=_report(),
+            ),
+            effects=ActionEffects(produced=(artifact,), checks=_checks(history.latest_seq() + 1)),
         ),
     )
 
@@ -177,8 +189,9 @@ def _simulate(history, *, model_revision=None):
         pins["panel"] = state.current["panel"].revision
     report = SimulationReport(
         model=GitRef(workspace_id="study", revision=pins["model"], path="model.json"),
-        design=SimulationSpec(end=1),
-        time_origin=None,
+        design=SimulationSpec(start=date(2026, 1, 1), horizon="1d"),
+        time_origin=datetime(2026, 1, 1, tzinfo=UTC),
+        assignments=(),
         times=(0, 1),
         draws=1,
         seed=history.latest_seq() + 1,
@@ -192,15 +205,18 @@ def _simulate(history, *, model_revision=None):
             "support_end_times": "ends",
             "mask": "mask",
         },
-        predictive={"states": {}, "indicators": {}, "fit_reliability": "not_fitted"},
+        fit_reliability="not_fitted",
     )
     return _append(
         history,
-        ModelSimulationResult(
-            report=report,
-            panel=GitRef(workspace_id="study", revision=pins["panel"], path="panel.parquet")
-            if "panel" in pins
-            else None,
+        Applied(
+            result=ModelSimulationResult(
+                report=report,
+                panel=GitRef(workspace_id="study", revision=pins["panel"], path="panel.parquet")
+                if "panel" in pins
+                else None,
+            ),
+            effects=ActionEffects(),
         ),
     )
 
@@ -383,7 +399,10 @@ def test_inherited_laws_keep_their_fit_but_reset_laws_do_not(
         distributions={key: dist.Normal(42, 0.2) for key in model.distributions}
     )
     fitted = _fit(store, history, model=conditioned)  # 3
-    edited = (model if inherit == "none" else conditioned).revised(question="Revised question")
+    base = model if inherit == "none" else conditioned
+    edited = base.revised(
+        edges=(base.edges[0].revised(description="Revised justification"), *base.edges[1:])
+    )
     if inherit == "some":
         key = next(iter(model.distributions))
         edited = edited.revised(
@@ -426,14 +445,18 @@ def test_reused_report_does_not_pull_its_old_model_producer_and_retractions_are_
         derived_from={"model": old_model.revision},
         json_files={"report.json": {}},
     )
-    _append(history, ModelEditResult(produced=(report,)))  # 2
+    _append(history, Applied(result=None, effects=ActionEffects(produced=(report,))))  # 2
     current = _model(store, history)
     _append(
-        history, ModelEditResult(produced=(current, report), checks=_checks(3))
+        history,
+        Applied(
+            result=None,
+            effects=ActionEffects(produced=(current, report), checks=_checks(3)),
+        ),
     )  # 3 re-emits the report.
     retract = RetractedArtifact(artifact_id="validation_report", reason_ref="saved finding")
     _append(
-        history, ModelEditResult(retracted=(retract,))
+        history, Applied(result=None, effects=ActionEffects(retracted=(retract,)))
     )  # 4 redundant absence still counts as a write.
     boundary = _simulate(history)  # 5
     assert _kept_seqs(plan_squash(source, at=boundary)) == [3, 4, 5]
@@ -459,15 +482,18 @@ def test_refusals_happen_before_destination_creation(study, unsupported):
     elif unsupported == "report_only":
         _append(
             history,
-            ModelFitResult(
-                model=GitRef(
-                    workspace_id="study",
-                    revision=history.state(boundary).current["model"].revision,
-                    path="model.json",
+            Applied(
+                result=ModelFitResult(
+                    model=GitRef(
+                        workspace_id="study",
+                        revision=history.state(boundary).current["model"].revision,
+                        path="model.json",
+                    ),
+                    panel=GitRef(workspace_id="study", revision=boundary, path="panel.parquet"),
+                    report=_report(),
+                    retention="report_only",
                 ),
-                panel=GitRef(workspace_id="study", revision=boundary, path="panel.parquet"),
-                report=_report(),
-                retention="report_only",
+                effects=ActionEffects(),
             ),
         )
     elif unsupported in {"branch", "deleted_branch"}:

@@ -175,7 +175,7 @@ class StudyRepository:
         advances = isinstance(outcome, Applied) and record.attempt.action != "data_diff"
         attempt_ref = f"refs/attempts/{record.seq}"
         branch_ref = self._branch_ref(record.branch)
-        log = record.model_dump(mode="json")
+        log = record.model_dump(mode="json", round_trip=True)
         with self.repo.transaction() as transaction:
             transaction.lock_ref(attempt_ref)
             action_ref = (
@@ -193,7 +193,7 @@ class StudyRepository:
                     )
             existing = self.read_attempt(record.seq)
             if existing is not None:
-                if existing.record.model_dump(mode="json") != log:
+                if existing.record.model_dump(mode="json", round_trip=True) != log:
                     raise FileExistsError(f"Attempt {record.seq} already has different content")
                 if expected_head is not None and existing.parent_ids != (expected_head,):
                     raise BranchConflict(f"Attempt {record.seq} has a different execution base")
@@ -210,19 +210,21 @@ class StudyRepository:
                 else self.repo.TreeBuilder()
             )
             if advances and isinstance(outcome, Applied):
-                for item in outcome.result.retracted:
+                for item in outcome.effects.retracted:
                     if artifacts.get(item.artifact_id) is not None:  # pyright: ignore[reportUnnecessaryComparison] - pygit2 documents None for a missing entry, but its stub returns Object.
                         artifacts.remove(item.artifact_id)
-                for item in outcome.result.produced:
+                for item in outcome.effects.produced:
                     artifacts.insert(
                         item.artifact_id, pygit2.Oid(hex=item.revision), pygit2.GIT_FILEMODE_TREE
                     )
             tree = self.repo.TreeBuilder()
             tree.insert("artifacts", artifacts.write(), pygit2.GIT_FILEMODE_TREE)
-            if advances and isinstance(outcome, Applied) and outcome.result.checks is not None:
+            if advances and isinstance(outcome, Applied) and outcome.effects.checks is not None:
                 tree.insert(
                     "checks.json",
-                    self.repo.create_blob(outcome.result.checks.model_dump_json().encode()),
+                    self.repo.create_blob(
+                        outcome.effects.checks.model_dump_json(round_trip=True).encode()
+                    ),
                     pygit2.GIT_FILEMODE_BLOB,
                 )
             elif "checks.json" in previous:

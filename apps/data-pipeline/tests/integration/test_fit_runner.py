@@ -15,7 +15,7 @@ from nof1_causal_lab.models.ssm.inference.shared import model_draws
 from nof1_causal_lab.study.lineage import inference_is_current
 from nof1_causal_lab.study.state import apply_effects
 from nof1_causal_lab.study.store import read_model
-from tests.helpers import run_async
+from tests.helpers import run_async, write_question
 from tests.inference_fixtures import particle_posterior
 from tests.integration import runner_fixtures as fx
 from tests.model_fixtures import bind_panel_fixture, compile_model_fixture, parameter_draws
@@ -56,7 +56,8 @@ def test_inference_advances_model_and_uses_the_selected_input(
     paths = jnp.arange(4 * 2 * len(states), dtype=jnp.float32).reshape(4, 2, len(states))
     fitted_inputs = []
 
-    def fake_fit_model(model, *_args: Any, **_kwargs: Any) -> dict[str, Any]:
+    def fake_fit_model(selection, *_args: Any, **_kwargs: Any) -> dict[str, Any]:
+        model = selection.model
         fitted_inputs.append(model.model_dump(mode="json"))
         return {
             "fitted": True,
@@ -83,24 +84,27 @@ def test_inference_advances_model_and_uses_the_selected_input(
     revisions = [original.revision]
     # Refit the selected authored revision; conditioned joint laws cannot be fit inputs.
     request = FitRequest(model_revision=original.revision, panel_revision=panel.revision)
-    pins: dict[ArtifactId, GitOid] = {"model": original.revision, "panel": panel.revision}
+    question = write_question(artifact_store)
+    pins: dict[ArtifactId, GitOid] = {
+        "model": original.revision,
+        "panel": panel.revision,
+        "question": question.revision,
+    }
     for _ in range(2):
-        effects = run_async(run_action_locally(integration_workspace, request, pins))
-        info = next(info for info in effects.produced if info.artifact_id == "model")
+        applied = run_async(run_action_locally(integration_workspace, request, pins))
+        info = next(info for info in applied.effects.produced if info.artifact_id == "model")
         assert info.revision not in revisions
         revisions.append(info.revision)
         # Both provenance and computation follow the selected model revision.
-        assert info.derived_from == {
-            "model": original.revision,
-            "panel": panel.revision,
-        }
+        assert info.derived_from == pins
         assert {
-            "model": effects.model.revision,
-            "panel": effects.panel.revision,
+            "model": applied.result.model.revision,
+            "panel": applied.result.panel.revision,
+            "question": question.revision,
         } == info.derived_from
-        assert effects.report.inference_diagnostics == telemetry
-        assert effects.report.inference_metadata.n_samples == 4
-        assert effects.report.engine.evidence.latent_transition == "euler_maruyama"
+        assert applied.result.report.core.inference_diagnostics == telemetry
+        assert applied.result.report.core.inference_metadata.n_samples == 4
+        assert applied.result.report.core.engine.evidence.latent_transition == "euler_maruyama"
         conditioned = read_model(artifact_store, info.revision)
         assert type(conditioned) is type(authored)
         assert conditioned.distributions
@@ -109,7 +113,7 @@ def test_inference_advances_model_and_uses_the_selected_input(
         np.testing.assert_array_equal(retained.latent_paths, paths)
         for name, values in parameters.items():
             np.testing.assert_array_equal(retained.parameters[name], values)
-        state = apply_effects(state, effects.produced, effects.retracted)
+        state = apply_effects(state, applied.effects.produced, applied.effects.retracted)
         assert inference_is_current(state)
     assert fitted_inputs == [
         read_model(artifact_store, original.revision).model_dump(mode="json") for _ in range(2)

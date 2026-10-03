@@ -23,6 +23,8 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, Literal, cast
 
+from nof1_causal_lab.models.ssm.preflight import ObservationPreflightFailure
+
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.inference.types import ParticleMCMCPosterior
 
@@ -119,7 +121,7 @@ def _diagnostic_summary(result: ParticleMCMCPosterior) -> BenchmarkRecord:
         "diagnostic_metrics": _json_ready(diagnostics.diagnostic_metrics),
         "diagnostic_summary_phase": _json_ready(diagnostics.diagnostic_summary_phase),
         "final_param_step_size": _json_ready(diagnostics.final_param_step_size),
-        "latent_delta": _json_ready(diagnostics.latent_delta),
+        "latent_delta": _json_ready(diagnostics.settings.marginal_particle_gibbs.latent_delta),
     }
 
 
@@ -184,6 +186,8 @@ def _run_one(
         ),
         clock=time.monotonic,
     )
+    if isinstance(result, ObservationPreflightFailure):
+        raise ValueError(result.message)
     elapsed_seconds = time.monotonic() - started
     logger.info("finished dSMC/%s in %.1fs", proposal, elapsed_seconds)
     return {

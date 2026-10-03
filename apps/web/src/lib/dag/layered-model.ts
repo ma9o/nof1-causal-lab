@@ -14,12 +14,12 @@ export type CausalGraphLayerId = (typeof CAUSAL_GRAPH_LAYER_ORDER)[number];
 
 /** Resolve the backend's graph selection without changing the scientific definition. */
 export function graphEntities(model: ModelSnapshot, indexed: ModelEntities) {
-  const selectedConstructs = new Set(model.findings.graph.construct_ids);
-  const selectedEdges = new Set(model.findings.graph.edge_ids);
+  const selectedConstructs = new Set(model.graph.construct_ids);
+  const selectedEdges = new Set(model.graph.edge_ids);
   const constructs = indexed.constructs.filter((construct) => selectedConstructs.has(construct.id));
   return {
     constructs,
-    dynamicConstructIds: model.findings.graph.dynamic_construct_ids,
+    dynamicConstructIds: model.graph.dynamic_construct_ids,
     edges: indexed.edges.filter((edge) => selectedEdges.has(edge.id)),
     indicators: constructs.flatMap((construct) => construct.indicators),
   };
@@ -35,11 +35,11 @@ export function availableGraphLayers(
     measurement: modelConstructs(model.model?.value).some(
       (construct) => construct.indicators.length > 0,
     ),
-    design: (model.findings.dispositions?.value.length ?? 0) > 0,
+    design: (model.dispositions?.value.length ?? 0) > 0,
     specification: modelConstructs(model.model?.value).some(
       (c) => c.dynamics.length > 0 || c.indicators.some((i) => i.likelihood != null),
     ),
-    fit: model.findings.fit?.source.validity === "fresh",
+    fit: model.fit?.source.validity === "fresh",
     simulation: simulation != null,
   };
   return CAUSAL_GRAPH_LAYER_ORDER.filter((layer) => available[layer]);

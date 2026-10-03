@@ -13,18 +13,9 @@ from nof1_causal_lab.artifacts.effects import HistogramBin
 from nof1_causal_lab.artifacts.indicator import IndicatorSpec
 from nof1_causal_lab.artifacts.raw_data import column_descriptions
 from nof1_causal_lab.artifacts.validation_report import ValidationReportArtifact
-from nof1_causal_lab.numpyro_json import distribution_shape
-from nof1_causal_lab.study.equations import (
-    confounder_equations,
-    observation_equations,
-    state_equations,
-)
-from nof1_causal_lab.study.prior_views import prior_density
-from nof1_causal_lab.study.snapshot_models import SourceValidity
+from nof1_causal_lab.study.state import SourceValidity
 from nof1_causal_lab.study.view_models import (
-    LikelihoodDiagnostics,
     MeasurementsData,
-    ModelDiagnostics,
     ObservationRecord,
     RawDataColumnDescription,
     RawDataData,
@@ -42,6 +33,7 @@ if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.validation_report import (
         DataProfileArtifact,
     )
+    from nof1_causal_lab.models.model_structure import StructuralSelection
     from nof1_causal_lab.study.snapshot_models import FitSummary, Sourced
 
 
@@ -101,43 +93,23 @@ def measurements_view(
     )
 
 
-def model_diagnostics_view(
-    model: ModelSpec,
-    *,
-    panel: pl.DataFrame | None,
-    validation: ValidationReportArtifact | None,
-) -> ModelDiagnostics:
-    """Compose equations and plots from findings already selected by the revision reader."""
-    diagnostics = {}
-    if panel is not None and validation is not None:
-        audits = validation.data.indicators
-        for indicator, likelihood in model.iter_likelihoods():
-            observations = panel.filter(pl.col("indicator_id") == indicator.observation.id)["value"]
-            numeric = observations.cast(pl.Float64, strict=False).to_numpy()
-            audit = audits.get(indicator.observation.id)
-            discrete = likelihood.law.family.is_discrete
-            bins = observed_histogram(numeric, discrete=discrete)
-            diagnostics[indicator.observation.id] = LikelihoodDiagnostics(
-                indicator_id=indicator.observation.id,
-                profile=audit.profile if audit else None,
-                histogram=tuple(bins),
+def likelihood_histograms(
+    selection: StructuralSelection, panel: pl.DataFrame | None
+) -> dict[IndicatorId, tuple[HistogramBin, ...]]:
+    """Observed histograms keyed by their declared indicator, without copied profiles."""
+    if panel is None:
+        return {}
+    return {
+        indicator.observation.id: tuple(
+            observed_histogram(
+                panel.filter(pl.col("indicator_id") == indicator.observation.id)["value"]
+                .cast(pl.Float64, strict=False)
+                .to_numpy(),
+                discrete=likelihood.law.family.is_discrete,
             )
-    return ModelDiagnostics(
-        prior_densities={
-            parameter.id: prior_density(law)
-            for parameter in model.parameters
-            if (law := model.distribution_for(parameter.id)) is not None
-            and distribution_shape(law) == ((), ())
-        },
-        confounder_equations=tuple(confounder_equations(model))
-        if model.measurement_clock is not None and model.indicators
-        else (),
-        state_equations=tuple(state_equations(model))
-        if model.measurement_clock is not None and model.indicators
-        else (),
-        observation_equations=observation_equations(model),
-        likelihood_diagnostics=diagnostics,
-    )
+        )
+        for indicator, likelihood in selection.model.iter_likelihoods()
+    }
 
 
 def entity_failures(
@@ -172,8 +144,12 @@ def entity_failures(
                     and assessment.subject.parameter.parameter_id in parameters
                 ):
                     messages.append(f"Parameter convergence: {assessment.subject.label}")
-        if predictive is not None and predictive.source.validity == SourceValidity.FRESH:
-            for assessment in predictive.value.findings:
+        if (
+            predictive is not None
+            and predictive.source.validity == SourceValidity.FRESH
+            and predictive.value.evaluation.kind == "evaluated"
+        ):
+            for assessment in predictive.value.evaluation.findings:
                 if not isinstance(assessment, Evaluated) or assessment.outcome not in {
                     "failed",
                     "error",
@@ -189,8 +165,10 @@ def entity_failures(
                     )
                 ):
                     messages.append(f"Predictive checks: {label}")
-            if predictive.value.predictive_checks is not None:
-                for assessment in predictive.value.predictive_checks.per_variable_warnings:
+            if predictive.value.evaluation.predictive_checks is not None:
+                for (
+                    assessment
+                ) in predictive.value.evaluation.predictive_checks.per_variable_warnings:
                     if (
                         isinstance(assessment, Evaluated)
                         and assessment.outcome in {"failed", "warning", "error"}

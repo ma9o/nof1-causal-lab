@@ -11,6 +11,7 @@ import pytest
 from pydantic import TypeAdapter
 
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.models.model_structure import StructuralSelection
 from nof1_causal_lab.numpyro_json import NumPyroDistribution
 from nof1_causal_lab.prior_distributions import interval_effect_to_rate, persistence_to_decay
 from nof1_causal_lab.study.prior_views import prior_density
@@ -28,11 +29,11 @@ def test_prior_curves_preserve_native_gamma_and_transforms_without_mutating_the_
     before = adapter.dump_json(prior)
     for law, rate in ((prior, 3.0), (interval_effect_to_rate(prior, 2.0), 6.0)):
         curve = prior_density(law)
-        assert len(curve) == 100
-        assert all(left.x < right.x for left, right in pairwise(curve))
+        assert len(curve.x) == 100
+        assert all(left < right for left, right in pairwise(curve.x))
         np.testing.assert_allclose(
-            [point.y for point in curve],
-            [rate**2 * point.x * math.exp(-rate * point.x) for point in curve],
+            curve.density,
+            [rate**2 * x * math.exp(-rate * x) for x in curve.x],
             rtol=2e-6,
         )
         assert prior_density(law) == curve
@@ -43,7 +44,7 @@ def test_prior_curves_preserve_native_gamma_and_transforms_without_mutating_the_
         dist.Normal(jnp.zeros(2), 1.0),
         dist.MultivariateNormal(jnp.zeros(2), jnp.eye(2)),
     ):
-        assert prior_density(law) == ()
+        assert not prior_density(law).x
 
 
 def test_quantity_curves_put_authored_laws_on_the_posterior_scale():
@@ -54,7 +55,7 @@ def test_quantity_curves_put_authored_laws_on_the_posterior_scale():
             / "prior_views/quantity_curves_put_authored_laws_on_the_posterior_scale_complete_test_model.json"
         ).read_text()
     )
-    curves = quantity_prior_densities(model)
+    curves = quantity_prior_densities(StructuralSelection(model, None))
     transforms = {parameter.transform.kind for parameter in model.parameters}
     assert "dt_persistence_to_ct_decay" in transforms
     for parameter in model.parameters:
@@ -70,8 +71,8 @@ def test_quantity_curves_put_authored_laws_on_the_posterior_scale():
             case _:
                 continue
         np.testing.assert_allclose(
-            [(point.x, point.y) for point in curves[parameter.id]],
-            [(point.x, point.y) for point in prior_density(native)],
+            tuple(zip(curves[parameter.id].x, curves[parameter.id].density, strict=True)),
+            tuple(zip(prior_density(native).x, prior_density(native).density, strict=True)),
             rtol=1e-6,
             err_msg=parameter.name,
         )

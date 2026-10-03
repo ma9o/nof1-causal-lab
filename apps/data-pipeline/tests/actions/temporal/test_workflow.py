@@ -13,21 +13,23 @@ from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
+from fastapi import HTTPException
 
 from nof1_causal_lab.actions.contracts import (
     EditModelRequest,
     FitRequest,
     PrepareDataRequest,
+    SetQuestionRequest,
     SimulateRequest,
 )
 from nof1_causal_lab.actions.results import CompletedPoll
 from nof1_causal_lab.actions.temporal.workflow import StudyWorkflow
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.question import QuestionSpec
 from nof1_causal_lab.study.history import StudyRepository
-from nof1_causal_lab.study.records import EditAttempt, FitAttempt, Rejected
+from nof1_causal_lab.study.records import Rejected
 from nof1_causal_lab.study.store import ArtifactStore, read_model
 from nof1_causal_lab.utils.openrouter_client import create_openrouter_client
-from tests.git_fixtures import git_oid
 from tests.helpers import graph_constructs
 
 pytestmark = [pytest.mark.workflow, pytest.mark.timeout(60, method="thread")]
@@ -57,8 +59,6 @@ _PREPARATION: dict[str, Any] = {
 
 def _proposed_model() -> dict[str, Any]:
     return {
-        "question": _QUESTION,
-        "default_outcome": "construct:sleep",
         "edges": [
             {
                 "id": "edge:test-outcome-0",
@@ -257,29 +257,30 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                     )
 
                 rejected = await execute(
-                    EditModelRequest(
-                        expected_revision=git_oid(42),
-                        model=ModelSpec(question=_QUESTION),
-                    )
+                    EditModelRequest(expected_revision=None, model=ModelSpec())
                 )
-                assert rejected.record.attempt.outcome.status == "rejected"
                 assert isinstance(rejected.record.attempt.outcome, Rejected)
-                assert rejected.record.attempt.outcome.detail
+                assert rejected.record.attempt.outcome.reason == "input_unavailable"
+                assert rejected.record.attempt.outcome.detail == "Set the study question first"
 
-                initial = await execute(
-                    EditModelRequest(
-                        expected_revision=None,
-                        model=ModelSpec(question=_QUESTION),
-                    )
-                )
-                assert initial.record.attempt.outcome.status == "applied"
+                question = QuestionSpec(text=_QUESTION, outcome="construct:sleep")
+                root = await execute(SetQuestionRequest(question=question))
+                assert root.record.attempt.outcome.status == "applied"
+                assert state(root).has("question")
+                again = await execute(SetQuestionRequest(question=question))
+                assert isinstance(again.record.attempt.outcome, Rejected)
+                assert again.record.attempt.outcome.reason == "revision_conflict"
+
+                # Every edit defines the question's nodes; without them it is an invalid request.
+                with pytest.raises(HTTPException, match="construct:sleep"):
+                    await execute(EditModelRequest(expected_revision=None, model=ModelSpec()))
                 prepared = await execute(PrepareDataRequest(input=_PREPARATION))
                 assert prepared.record.attempt.outcome.status == "applied", prepared
                 assert state(prepared).has("panel")
                 assert state(prepared).has("data_profile")
                 edited = await execute(
                     EditModelRequest(
-                        expected_revision=state(initial).current["model"].revision,
+                        expected_revision=None,
                         model=ModelSpec.model_validate(_measured_model()),
                     )
                 )
@@ -292,7 +293,9 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                     FitRequest(
                         model_revision=model_revision, panel_revision=before["panel"].revision
                     ),
-                    SimulateRequest(model_revision=model_revision, start=0, end=1),
+                    SimulateRequest(
+                        model_revision=model_revision, start="2026-01-01", horizon="1d"
+                    ),
                 ):
                     raised = await execute(request)
                     assert isinstance(raised.record.attempt.outcome, Rejected), raised
@@ -300,8 +303,17 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                     assert state().current == before
 
                 status = await study_api.get_study(workspace_id, clients)
-                assert set(status.actions) == {"edit_model", "prepare_data", "fit", "simulate"}
-                assert not any(artifact.stale for artifact in status.artifacts)
+                assert set(status.actions) == {
+                    "set_question",
+                    "edit_model",
+                    "prepare_data",
+                    "fit",
+                    "simulate",
+                }
+                assert not any(
+                    artifact.kind == "present" and artifact.validity == "stale"
+                    for artifact in status.artifacts
+                )
 
                 # The facade must recover both committed science and the latest
                 # attempt sequence, including failed attempts after the branch head.
@@ -314,8 +326,9 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                 assert recovered.seq == status.seq
 
                 store = ArtifactStore(workspace_id)
-                revised = read_model(store, model_revision).revised(
-                    question="does caffeine harm sleep?"
+                measured = read_model(store, model_revision)
+                revised = measured.revised(
+                    edges=(measured.edges[0].revised(description="Sleep shapes the response"),)
                 )
                 rewritten = await execute(
                     EditModelRequest(expected_revision=model_revision, model=revised)
@@ -323,7 +336,11 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                 assert rewritten.record.attempt.outcome.status == "applied", rewritten
                 assert rewritten.record.seq == recovered.seq + 1
                 status = await study_api.get_study(workspace_id, clients)
-                stale = {a.artifact_id for a in status.artifacts if a.stale}
+                stale = {
+                    a.record.artifact_id
+                    for a in status.artifacts
+                    if a.kind == "present" and a.validity == "stale"
+                }
                 assert "panel" not in stale
                 assert "model" not in stale
                 assert "raw_data" not in stale
@@ -332,6 +349,7 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                 assert [record.record.attempt.outcome.status for record in records] == [
                     "rejected",
                     "applied",
+                    "rejected",
                     "applied",
                     "applied",
                     "rejected",
@@ -340,30 +358,25 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                 ]
                 assert [record.record.attempt.action for record in records] == [
                     "edit_model",
-                    "edit_model",
+                    "set_question",
+                    "set_question",
                     "prepare_data",
                     "edit_model",
                     "fit",
                     "simulate",
                     "edit_model",
                 ]
-                assert isinstance(records[3].record.attempt, EditAttempt)
-                assert records[3].record.attempt.request is not None
-                assert records[3].record.attempt.request.model == ModelSpec.model_validate(
+                assert records[4].record.attempt.action == "edit_model"
+                assert records[4].record.attempt.request is not None
+                assert records[4].record.attempt.request.model == ModelSpec.model_validate(
                     _measured_model()
                 )
-                assert isinstance(records[4].record.attempt, FitAttempt)
-                assert records[4].record.attempt.request is not None
-                assert records[4].record.attempt.request.model_revision == model_revision
+                assert records[5].record.attempt.action == "fit"
+                assert records[5].record.attempt.request is not None
+                assert records[5].record.attempt.request.model_revision == model_revision
                 assert all("move" not in record.model_dump() for record in records)
-                assert (
-                    read_model(store, state(initial).current["model"].revision).question
-                    == _QUESTION
-                )
-                assert (
-                    read_model(store, state(rewritten).current["model"].revision).question
-                    == revised.question
-                )
+                assert read_model(store, state(rewritten).current["model"].revision) == revised
+                assert state(rewritten).current["question"] == state(root).current["question"]
                 await handle.signal(StudyWorkflow.close)
                 await handle.result()
         finally:
@@ -416,7 +429,7 @@ def test_status_reports_only_attempts_a_live_workflow_executes(machine_env, monk
                 handle = await study_api._study_handle(workspace_id, clients)
                 created = await study_api.execute_scientific_action(
                     workspace_id,
-                    EditModelRequest(expected_revision=None, model=ModelSpec(question=_QUESTION)),
+                    SetQuestionRequest(question=QuestionSpec(text=_QUESTION)),
                     clients,
                 )
                 await handle.get_update_handle(str(created.attempt_id)).result()

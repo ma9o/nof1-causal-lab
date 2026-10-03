@@ -12,6 +12,7 @@ from nof1_causal_lab.actions.contracts import (
     FitRequest,
     PrepareDataRequest,
     ScientificActionRequest,
+    SetQuestionRequest,
     SimulateRequest,
 )
 from nof1_causal_lab.actions.effects import ActionEffects
@@ -70,14 +71,7 @@ type ExtractionWorkerResult = Annotated[
 ]
 
 
-class ModelEditResult(ActionEffects):
-    """The model/check artifacts are the result; the selected base remains explicit."""
-
-    action: Literal["edit_model"] = "edit_model"
-    base: GitRef | None = None
-
-
-class DataPreparationResult(ActionEffects):
+class DataPreparationResult(Value):
     """Preparation artifacts and the measurements actually retained by extraction."""
 
     action: Literal["prepare_data"] = "prepare_data"
@@ -90,7 +84,7 @@ class DataPreparationResult(ActionEffects):
     extraction_reused: int | None = None
 
 
-class ModelFitResult(ActionEffects):
+class ModelFitResult(Value):
     """One retained fit report, with the exact inputs and truthful retention state."""
 
     action: Literal["fit"] = "fit"
@@ -99,13 +93,8 @@ class ModelFitResult(ActionEffects):
     report: InferenceReport
     retention: Literal["joint", "report_only"] = "joint"
 
-    @staticmethod
-    def from_remote(payload: object) -> ModelFitResult:
-        """Decode the foreign compute transport once in the target's owner."""
-        return ModelFitResult.model_validate(payload)
 
-
-class ModelSimulationResult(ActionEffects):
+class ModelSimulationResult(Value):
     """The report owns its model reference; the selected panel is separately pinned."""
 
     action: Literal["simulate"] = "simulate"
@@ -113,26 +102,17 @@ class ModelSimulationResult(ActionEffects):
     report: SimulationReport
 
 
-class DataComparisonResult(ActionEffects):
+class DataComparisonResult(Value):
     """A retained data comparison; it never installs scientific artifacts."""
 
     action: Literal["data_diff"] = "data_diff"
     report: DataDiffReport
 
 
-type ActionBody = Annotated[
-    ModelEditResult
-    | DataPreparationResult
-    | ModelFitResult
-    | ModelSimulationResult
-    | DataComparisonResult,
-    Field(discriminator="action"),
-]
-
-
-class Applied[ResultT: ActionEffects](Value):
+class Applied[ResultT](Value):
     status: Literal["applied"] = "applied"
     result: ResultT
+    effects: ActionEffects
 
 
 type RejectionReason = Literal[
@@ -157,7 +137,7 @@ class Raised(Value):
 type FailedOutcome = Rejected | Raised
 
 
-class Attempt[ActionT: str, RequestT: Value, ResultT: ActionEffects](Value):
+class Attempt[ActionT: str, RequestT: Value, ResultT](Value):
     """One action's request and successful result share the same attempt owner."""
 
     action: ActionT
@@ -165,28 +145,21 @@ class Attempt[ActionT: str, RequestT: Value, ResultT: ActionEffects](Value):
     outcome: Annotated[Applied[ResultT] | Rejected | Raised, Field(discriminator="status")]
 
 
-class EditAttempt(Attempt[Literal["edit_model"], EditModelRequest, ModelEditResult]):
-    action: Literal["edit_model"] = "edit_model"
-
-
-class PrepareAttempt(Attempt[Literal["prepare_data"], PrepareDataRequest, DataPreparationResult]):
-    action: Literal["prepare_data"] = "prepare_data"
-
-
-class FitAttempt(Attempt[Literal["fit"], FitRequest, ModelFitResult]):
-    action: Literal["fit"] = "fit"
-
-
-class SimulateAttempt(Attempt[Literal["simulate"], SimulateRequest, ModelSimulationResult]):
-    action: Literal["simulate"] = "simulate"
-
-
-class DataDiffAttempt(Attempt[Literal["data_diff"], DataDiffRequest, DataComparisonResult]):
-    action: Literal["data_diff"] = "data_diff"
+SetQuestionAttempt = Attempt[Literal["set_question"], SetQuestionRequest, None]
+EditAttempt = Attempt[Literal["edit_model"], EditModelRequest, None]
+PrepareAttempt = Attempt[Literal["prepare_data"], PrepareDataRequest, DataPreparationResult]
+FitAttempt = Attempt[Literal["fit"], FitRequest, ModelFitResult]
+SimulateAttempt = Attempt[Literal["simulate"], SimulateRequest, ModelSimulationResult]
+DataDiffAttempt = Attempt[Literal["data_diff"], DataDiffRequest, DataComparisonResult]
 
 
 type ActionAttempt = Annotated[
-    EditAttempt | PrepareAttempt | FitAttempt | SimulateAttempt | DataDiffAttempt,
+    SetQuestionAttempt
+    | EditAttempt
+    | PrepareAttempt
+    | FitAttempt
+    | SimulateAttempt
+    | DataDiffAttempt,
     Field(discriminator="action"),
 ]
 
@@ -206,7 +179,7 @@ class AttemptRecord(AttemptMetadata):
     attempt: ActionAttempt
 
     def with_logs(self, *, messages: tuple[ActionMessage, ...], trace_ids: tuple[str, ...]) -> Self:
-        return self.model_copy(update={"messages": messages, "trace_ids": trace_ids})
+        return self.revised(messages=messages, trace_ids=trace_ids)
 
 
 class StudyRevision(Value):
@@ -231,34 +204,63 @@ def failed_attempt(
 ) -> ActionAttempt:
     """Close the action/request relation for a rejection or execution failure."""
     match request:
+        case SetQuestionRequest():
+            return SetQuestionAttempt(action="set_question", request=request, outcome=outcome)
         case EditModelRequest():
-            return EditAttempt(request=request, outcome=outcome)
+            return EditAttempt(action="edit_model", request=request, outcome=outcome)
         case PrepareDataRequest():
-            return PrepareAttempt(request=request, outcome=outcome)
+            return PrepareAttempt(action="prepare_data", request=request, outcome=outcome)
         case FitRequest():
-            return FitAttempt(request=request, outcome=outcome)
+            return FitAttempt(action="fit", request=request, outcome=outcome)
         case SimulateRequest():
-            return SimulateAttempt(request=request, outcome=outcome)
+            return SimulateAttempt(action="simulate", request=request, outcome=outcome)
         case DataDiffRequest():
-            return DataDiffAttempt(request=request, outcome=outcome)
+            return DataDiffAttempt(action="data_diff", request=request, outcome=outcome)
     raise TypeError("Unknown action request")
 
 
-def applied_attempt(
-    request: ScientificActionRequest | DataDiffRequest, result: ActionBody
+def applied_attempt[ResultT](
+    request: ScientificActionRequest | DataDiffRequest, applied: Applied[ResultT]
 ) -> ActionAttempt:
     """The execution transport is closed again before publication; mismatches are bugs."""
+    result = applied.result
     match request, result:
-        case EditModelRequest(), ModelEditResult():
-            return EditAttempt(request=request, outcome=Applied(result=result))
+        case SetQuestionRequest(), None:
+            return SetQuestionAttempt(
+                action="set_question",
+                request=request,
+                outcome=Applied(result=result, effects=applied.effects),
+            )
+        case EditModelRequest(), None:
+            return EditAttempt(
+                action="edit_model",
+                request=request,
+                outcome=Applied(result=result, effects=applied.effects),
+            )
         case PrepareDataRequest(), DataPreparationResult():
-            return PrepareAttempt(request=request, outcome=Applied(result=result))
+            return PrepareAttempt(
+                action="prepare_data",
+                request=request,
+                outcome=Applied(result=result, effects=applied.effects),
+            )
         case FitRequest(), ModelFitResult():
-            return FitAttempt(request=request, outcome=Applied(result=result))
+            return FitAttempt(
+                action="fit",
+                request=request,
+                outcome=Applied(result=result, effects=applied.effects),
+            )
         case SimulateRequest(), ModelSimulationResult():
-            return SimulateAttempt(request=request, outcome=Applied(result=result))
+            return SimulateAttempt(
+                action="simulate",
+                request=request,
+                outcome=Applied(result=result, effects=applied.effects),
+            )
         case DataDiffRequest(), DataComparisonResult():
-            return DataDiffAttempt(request=request, outcome=Applied(result=result))
+            return DataDiffAttempt(
+                action="data_diff",
+                request=request,
+                outcome=Applied(result=result, effects=applied.effects),
+            )
         case _:
             raise TypeError("Action result does not match its request")
 
@@ -283,12 +285,17 @@ def argument_revisions(attempt: ActionAttempt) -> tuple[tuple[str, GitOid], ...]
                     (selection,) if isinstance(selection, (PanelRef, SimulationRef)) else selection
                 )
             )
-        case PrepareDataRequest() | None:
+        case SetQuestionRequest() | PrepareDataRequest() | None:
             pass
     if isinstance(outcome, Applied):
         match outcome.result:
-            case ModelEditResult(base=base):
-                return (("model", base.revision),) if base is not None else ()
+            case None:
+                return tuple(
+                    ("model", revision)
+                    for artifact in outcome.effects.produced
+                    if artifact.artifact_id == "model"
+                    and (revision := artifact.derived_from.get("model")) is not None
+                )
             case ModelFitResult(model=model, panel=panel):
                 return (("model", model.revision), ("panel", panel.revision))
             case DataPreparationResult(simulation_source=SimulationReplicateRef(revision=revision)):
@@ -318,9 +325,9 @@ def record_dependencies(revisions: Sequence[StudyRevision]) -> list[RecordDepend
         outcome = record.attempt.outcome
         if not isinstance(outcome, Applied):
             continue
-        for artifact in outcome.result.produced:
+        for artifact in outcome.effects.produced:
             producers.setdefault(artifact.revision, record.seq)
-        if isinstance(record.attempt, SimulateAttempt):
+        if record.attempt.action == "simulate":
             producers[revision.commit_id] = record.seq
     dependencies: list[RecordDependency] = []
     for revision in revisions:
@@ -334,7 +341,7 @@ def record_dependencies(revisions: Sequence[StudyRevision]) -> list[RecordDepend
         pins = (
             [
                 (artifact.artifact_id, artifact_id, source)
-                for artifact in outcome.result.produced
+                for artifact in outcome.effects.produced
                 if producers.get(artifact.revision) == record.seq
                 for artifact_id, identity in artifact.derived_from.items()
                 if (source := producers.get(identity)) is not None and source < record.seq
@@ -373,11 +380,11 @@ def inference_record[T: StudyRevision](records: Iterable[T], model_revision: Git
         (
             record
             for record in reversed(list(records))
-            if isinstance(record.record.attempt, FitAttempt)
+            if record.record.attempt.action == "fit"
             and isinstance(record.record.attempt.outcome, Applied)
             and any(
                 info.artifact_id == "model" and info.revision == model_revision
-                for info in record.record.attempt.outcome.result.produced
+                for info in record.record.attempt.outcome.effects.produced
             )
         ),
         None,

@@ -1,6 +1,6 @@
 """Stored histories compare symmetrically without generation or scientific state changes."""
 
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 
 import numpy as np
 import polars as pl
@@ -8,6 +8,7 @@ import pytest
 from pydantic import ValidationError
 
 from nof1_causal_lab.actions.data_diff import read_data_diff
+from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.artifacts.identity import GitRef
 from nof1_causal_lab.artifacts.observations import ObservationSpec
 from nof1_causal_lab.artifacts.simulation import (
@@ -18,7 +19,7 @@ from nof1_causal_lab.artifacts.simulation import (
 from nof1_causal_lab.models.posterior_predictive import data_diff
 from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.history import StudyRepository
-from nof1_causal_lab.study.records import ModelSimulationResult
+from nof1_causal_lab.study.records import Applied, ModelSimulationResult
 from nof1_causal_lab.study.store import ArtifactStore, read_dataset
 from nof1_causal_lab.study.view_models import DataDiffRequest, PanelRef, SimulationRef
 from tests.action_fixtures import applied_record
@@ -78,8 +79,8 @@ def test_single_histories_report_values_missingness_and_schedule_changes():
     right = _dataset([1, 4, 8], times=[0, 1, 3], number=2)
     result = data_diff(left, right)
     variable = result.variables[0]
-    assert [item.change.kind for item in variable.changes] == ["revised", "removed", "added"]
-    revised = variable.changes[0].change
+    assert [item.kind for item in variable.changes] == ["revised", "removed", "added"]
+    revised = variable.changes[0]
     assert revised.kind == "revised"
     assert revised.before.value is None
     assert revised.after.value == 4
@@ -90,7 +91,7 @@ def test_single_histories_report_values_missingness_and_schedule_changes():
     missing = next(item for item in variable.statistics if item.statistic == "missing_count")
     assert (missing.left, missing.right) == ((1,), (0,))
     reverse = data_diff(right, left).variables[0]
-    assert [item.change.kind for item in reverse.changes] == ["revised", "added", "removed"]
+    assert [item.kind for item in reverse.changes] == ["revised", "added", "removed"]
     assert data_diff(left, left).variables[0].changes == ()
 
 
@@ -236,24 +237,10 @@ def test_reads_saved_draws_without_generation_or_writing_models(tmp_path, monkey
     values = np.asarray([[[0], [1], [2]], [[1], [2], [3]], [[2], [3], [4]]], dtype=float)
     report = SimulationReport(
         model=GitRef(workspace_id="DIFF", revision=model.revision, path="model.json"),
-        design=SimulationSpec(end=2),
+        design=SimulationSpec(start=date(2026, 1, 1), horizon="2d"),
         time_origin=datetime(2026, 1, 1, tzinfo=UTC),
-        predictive={
-            "states": {},
-            "indicators": {
-                "indicator:y": {
-                    "label": "Y",
-                    "action": {
-                        "kind": "numeric",
-                        "mean": [1, 2, 3],
-                        "lower": [0.05, 1.05, 2.05],
-                        "upper": [1.95, 2.95, 3.95],
-                        "n_draws": [3, 3, 3],
-                    },
-                }
-            },
-            "fit_reliability": "not_fitted",
-        },
+        assignments=(),
+        fit_reliability="not_fitted",
         times=(0, 1, 2),
         draws=3,
         seed=0,
@@ -270,7 +257,10 @@ def test_reads_saved_draws_without_generation_or_writing_models(tmp_path, monkey
     )
     commit = history.append(
         applied_record(
-            ModelSimulationResult(report=report), seq=1, ts="2026-09-28T00:00:00Z", trace_ids=[]
+            Applied(result=ModelSimulationResult(report=report), effects=ActionEffects()),
+            seq=1,
+            ts="2026-09-28T00:00:00Z",
+            trace_ids=[],
         )
     ).commit_id
     origin = datetime(2026, 1, 1, tzinfo=UTC)
@@ -322,49 +312,51 @@ def test_reads_saved_draws_without_generation_or_writing_models(tmp_path, monkey
     with pytest.raises(StudyLookupError):
         read_data_diff("DIFF", bad)
 
-    # Saved histories keep absolute model days. Materialization alone resets the
-    # origin of a calendar-free replicate; calendar-bound histories keep dates.
+    # Saved histories keep absolute model days, and materialization keeps their dates.
     from nof1_causal_lab.actions.prepare_data import prepare_simulation_panel
 
-    for index, origin in enumerate((None, datetime(2026, 1, 1, tzinfo=UTC))):
-        commits = []
-        for start in (5, 6):
-            times = np.arange(start, start + 3.0)
-            saved = report.revised(
-                time_origin=origin,
-                design=SimulationSpec(start=start, end=start + 2),
-                times=tuple(times),
-                observation_layout=report.observation_layout.revised(
-                    support_start_times=store.write_array(times[:, None]),
-                    support_end_times=store.write_array(times[:, None]),
-                ),
-            )
-            commits.append(
-                history.append(
-                    applied_record(
-                        ModelSimulationResult(report=saved),
-                        seq=2 + index * 2 + start - 5,
-                        ts="2026-09-28T00:00:00Z",
-                        trace_ids=[],
-                    )
-                ).commit_id
-            )
-        aligned = read_data_diff(
-            "DIFF",
-            DataDiffRequest(
-                left=SimulationRef(revision=commits[0], replicate=1),
-                right=SimulationRef(revision=commits[1], replicate=1),
+    origin = datetime(2026, 1, 1, tzinfo=UTC)
+    commits = []
+    for start in (5, 6):
+        times = np.arange(start, start + 3.0)
+        saved = report.revised(
+            time_origin=origin,
+            design=SimulationSpec(start=date(2026, 1, 1 + start), horizon="2d"),
+            times=tuple(times),
+            observation_layout=report.observation_layout.revised(
+                support_start_times=store.write_array(times[:, None]),
+                support_end_times=store.write_array(times[:, None]),
             ),
-        ).variables[0]
-        epoch = origin or datetime(1970, 1, 1, tzinfo=UTC)
-        assert [(change.anchor_time, change.change.kind) for change in aligned.changes] == [
-            (epoch + timedelta(days=5), "removed"),
-            (epoch + timedelta(days=6), "revised"),
-            (epoch + timedelta(days=7), "revised"),
-            (epoch + timedelta(days=8), "added"),
-        ]
-        assert aligned.left[0].time_origin == aligned.right[0].time_origin == origin
-        materialized = prepare_simulation_panel(saved, 1, read_array=store.read_array)
-        assert materialized["anchor_time"][0] == (
-            origin + timedelta(days=6) if origin is not None else epoch
-        ).replace(tzinfo=None)
+        )
+        commits.append(
+            history.append(
+                applied_record(
+                    Applied(result=ModelSimulationResult(report=saved), effects=ActionEffects()),
+                    seq=2 + start - 5,
+                    ts="2026-09-28T00:00:00Z",
+                    trace_ids=[],
+                )
+            ).commit_id
+        )
+    aligned = read_data_diff(
+        "DIFF",
+        DataDiffRequest(
+            left=SimulationRef(revision=commits[0], replicate=1),
+            right=SimulationRef(revision=commits[1], replicate=1),
+        ),
+    ).variables[0]
+    assert [
+        (
+            (change.before.anchor_time if change.kind == "removed" else change.after.anchor_time),
+            change.kind,
+        )
+        for change in aligned.changes
+    ] == [
+        (origin + timedelta(days=5), "removed"),
+        (origin + timedelta(days=6), "revised"),
+        (origin + timedelta(days=7), "revised"),
+        (origin + timedelta(days=8), "added"),
+    ]
+    assert aligned.left[0].time_origin == aligned.right[0].time_origin == origin
+    materialized = prepare_simulation_panel(saved, 1, read_array=store.read_array)
+    assert materialized["anchor_time"][0] == (origin + timedelta(days=6)).replace(tzinfo=None)

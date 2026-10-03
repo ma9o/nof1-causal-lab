@@ -3,14 +3,14 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from enum import StrEnum
 from typing import Literal
 
 from pydantic import Field, model_validator
 
 from nof1_causal_lab.artifacts.base import Value
-from nof1_causal_lab.artifacts.checks import SpecificationReport
+from nof1_causal_lab.artifacts.checks import SpecificationAssessment
 from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata
+from nof1_causal_lab.artifacts.effects import HistogramBin
 from nof1_causal_lab.artifacts.execution import StructuralItemDisposition
 from nof1_causal_lab.artifacts.identification import IdentificationReport
 from nof1_causal_lab.artifacts.identity import (
@@ -21,32 +21,25 @@ from nof1_causal_lab.artifacts.identity import (
     GitRef,
     IndicatorId,
     ParameterId,
+    ParameterRef,
 )
-from nof1_causal_lab.artifacts.model_checks import ModelPredictiveReport
+from nof1_causal_lab.artifacts.model_checks import ModelPredictiveReport, QuestionCheckReport
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.posterior import InferenceReportCore
 from nof1_causal_lab.artifacts.posterior_diagnostics import (
-    PosteriorEstimate,
+    DensityCurve,
 )
+from nof1_causal_lab.artifacts.question import QuestionSpec
 from nof1_causal_lab.artifacts.simulation import SimulationReport
 from nof1_causal_lab.artifacts.validation_report import (
     DataProfileArtifact,
     ValidationReportArtifact,
 )
-from nof1_causal_lab.study.state import ArtifactRecord, StudyState, is_stale
+from nof1_causal_lab.study.state import SourceValidity, StudyState, is_stale
 from nof1_causal_lab.study.view_models import (
-    DensityPoint,
     MeasurementsData,
-    ModelDiagnostics,
     RawDataData,
 )
-
-
-class SourceValidity(StrEnum):
-    """Source validity records whether a fact still matches its pinned inputs."""
-
-    FRESH = "fresh"
-    STALE = "stale"
 
 
 class FactSource(Value):
@@ -71,35 +64,15 @@ class FitSummary(Value):
     """
 
     report: InferenceReportCore
-    edge_estimates: Mapping[EdgeId, PosteriorEstimate] = Field(default_factory=dict)
-    decay_estimates: Mapping[ConstructId, PosteriorEstimate] = Field(default_factory=dict)
-    prior_densities: Mapping[ParameterId, tuple[DensityPoint, ...]] = Field(
+    edge_estimates: Mapping[EdgeId, ParameterRef] = Field(default_factory=dict)
+    decay_estimates: Mapping[ConstructId, ParameterRef] = Field(default_factory=dict)
+    prior_densities: Mapping[ParameterId, DensityCurve] = Field(
         default_factory=dict,
         description=(
             "Conditioned input laws of the fitted parameters, on their posterior marginals' "
             "quantity scale; absent where the current compiler cannot place the input model."
         ),
     )
-
-
-class SnapshotContext(Value):
-    """A snapshot context identifies the selected Git commit and its artifact versions."""
-
-    workspace_id: str = Field(min_length=1)
-    seq: int = Field(ge=0)
-    commit_id: GitOid
-    branch: str = "main"
-    can_simulate: bool = False
-    current: Mapping[ArtifactId, ArtifactRecord] = Field(default_factory=dict)
-
-
-class ModelData(Value):
-    """Observed evidence paired with its source versions."""
-
-    raw_data: Sourced[RawDataData] | None = None
-    measurements: Sourced[MeasurementsData] | None = None
-    metadata: Sourced[PreparedDataMetadata] | None = None
-    profile: Sourced[DataProfileArtifact] | None = None
 
 
 class ModelGraphView(Value):
@@ -113,8 +86,21 @@ class ModelGraphView(Value):
     )
 
 
-class ModelFindings(Value):
-    """ModelSpec findings collect identification, validation, and fitted results with their input references."""
+class ModelSnapshot(Value):
+    """The canonical scientific definition with independently sourced inputs and findings."""
+
+    question: Sourced[QuestionSpec] | None = None
+    model: Sourced[ModelSpec] | None = None
+    workspace_id: str = Field(min_length=1)
+    branch: str = "main"
+    commit_id: GitOid
+    selected_seq: int = Field(ge=0)
+    can_simulate: bool = False
+    state: StudyState
+    raw_data: Sourced[RawDataData] | None = None
+    measurements: Sourced[MeasurementsData] | None = None
+    metadata: Sourced[PreparedDataMetadata] | None = None
+    profile: Sourced[DataProfileArtifact] | None = None
 
     identification: Sourced[IdentificationReport] | None = None
     dispositions: Sourced[tuple[StructuralItemDisposition, ...]] | None = None
@@ -123,20 +109,18 @@ class ModelFindings(Value):
         default_factory=dict
     )
     validation_report: Sourced[ValidationReportArtifact] | None = None
-    diagnostics: ModelDiagnostics | None = None
+    confounder_equations: Mapping[ConstructId, str] = Field(default_factory=dict)
+    state_equations: Mapping[ConstructId, str] = Field(default_factory=dict)
+    observation_equations: Mapping[IndicatorId, str] = Field(default_factory=dict)
+    likelihood_diagnostics: Mapping[IndicatorId, tuple[HistogramBin, ...]] = Field(
+        default_factory=dict
+    )
+    authoring_prior_densities: Mapping[ParameterId, DensityCurve] = Field(default_factory=dict)
     fit: Sourced[FitSummary] | None = None
-    specification: Sourced[SpecificationReport] | None = None
+    specification: Sourced[tuple[SpecificationAssessment, ...]] | None = None
+    question_checks: Sourced[QuestionCheckReport] | None = None
     simulation: Sourced[SimulationReport] | None = None
     predictive: Sourced[ModelPredictiveReport] | None = None
-
-
-class ModelSnapshot(Value):
-    """The canonical scientific definition with independently sourced inputs and findings."""
-
-    model: Sourced[ModelSpec] | None = None
-    context: SnapshotContext
-    data: ModelData = Field(default_factory=ModelData)
-    findings: ModelFindings = Field(default_factory=ModelFindings)
 
     @model_validator(mode="after")
     def validate_ownership_and_sources(self) -> ModelSnapshot:
@@ -149,43 +133,35 @@ class ModelSnapshot(Value):
         ] = (
             (self.model.source if self.model is not None else None, "model"),
             (
-                self.findings.identification.source
-                if self.findings.identification is not None
-                else None,
+                self.identification.source if self.identification is not None else None,
                 "identification_report",
             ),
             (
-                self.findings.dispositions.source
-                if self.findings.dispositions is not None
-                else None,
+                self.dispositions.source if self.dispositions is not None else None,
                 "model",
             ),
-            (self.data.raw_data.source if self.data.raw_data is not None else None, "raw_data"),
+            (self.raw_data.source if self.raw_data is not None else None, "raw_data"),
             (
-                self.data.measurements.source if self.data.measurements is not None else None,
+                self.measurements.source if self.measurements is not None else None,
                 "panel",
             ),
-            (self.data.metadata.source if self.data.metadata is not None else None, "panel"),
-            (self.data.profile.source if self.data.profile is not None else None, "data_profile"),
+            (self.metadata.source if self.metadata is not None else None, "panel"),
+            (self.profile.source if self.profile is not None else None, "data_profile"),
             (
-                self.findings.validation_report.source
-                if self.findings.validation_report is not None
-                else None,
+                self.validation_report.source if self.validation_report is not None else None,
                 "validation_report",
             ),
-            (self.findings.fit.source if self.findings.fit is not None else None, "inference"),
+            (self.fit.source if self.fit is not None else None, "inference"),
             (
-                self.findings.specification.source
-                if self.findings.specification is not None
-                else None,
+                self.specification.source if self.specification is not None else None,
                 "specification",
             ),
             (
-                self.findings.simulation.source if self.findings.simulation is not None else None,
+                self.simulation.source if self.simulation is not None else None,
                 "simulation",
             ),
             (
-                self.findings.predictive.source if self.findings.predictive is not None else None,
+                self.predictive.source if self.predictive is not None else None,
                 "predictive",
             ),
         )
@@ -197,7 +173,7 @@ class ModelSnapshot(Value):
         edges = {item.id for item in model.edges} if model else set()
         indicators = {item.observation.id for item in model.indicators} if model else set()
         parameters = {item.id for item in model.parameters} if model else set()
-        findings = self.findings
+        findings = self
         if (
             not set(findings.graph.dynamic_construct_ids) <= set(findings.graph.construct_ids)
             or not set(findings.graph.construct_ids) <= constructs
@@ -215,7 +191,7 @@ class ModelSnapshot(Value):
             if model is None:
                 raise ValueError("Identification requires its scientific model")
             findings.identification.value.validate_model(model)
-        if self.data.measurements and self.data.metadata is None:
+        if self.measurements and self.metadata is None:
             raise ValueError("Prepared observations require their data-owned metadata")
         # Counts describe the stored table, including data-quality problems.
         # Undeclared variables are reported by preparation checks, never hidden here.
@@ -241,22 +217,21 @@ class ModelSnapshot(Value):
         from nof1_causal_lab.study.artifact_files import artifact_file_spec
 
         ref = source.ref
-        if ref.workspace_id != self.context.workspace_id:
+        if ref.workspace_id != self.workspace_id:
             raise ValueError("Fact source belongs to another study")
         if ref.path == "checks.json":
             if (
                 artifact_id not in {"specification", "predictive"}
-                or ref.revision != self.context.commit_id
+                or ref.revision != self.commit_id
                 or source.pointer != f"/{artifact_id}"
             ):
                 raise ValueError("Check source must identify this snapshot's recorded findings")
-            panel = self.context.current.get("panel")
+            panel = self.state.current.get("panel")
             expected = (
                 "stale"
                 if artifact_id == "predictive"
-                and self.findings.predictive is not None
-                and self.findings.predictive.value.panel_revision
-                != (panel.revision if panel else None)
+                and self.predictive is not None
+                and self.predictive.value.panel_revision != (panel.revision if panel else None)
                 else "fresh"
             )
             if source.validity != expected:
@@ -270,7 +245,7 @@ class ModelSnapshot(Value):
         if artifact_id in {"inference", "simulation", "specification", "predictive"}:
             raise ValueError("Operation findings require an action log or recorded check")
         current = next(
-            (record for key, record in self.context.current.items() if key == artifact_id),
+            (record for key, record in self.state.current.items() if key == artifact_id),
             None,
         )
         if current is None or current.revision != ref.revision:
@@ -283,7 +258,7 @@ class ModelSnapshot(Value):
             }.values()
         ):
             raise ValueError("Fact source does not identify a declared artifact payload")
-        state = StudyState(current=self.context.current)
+        state = self.state
         expected = "stale" if is_stale(state, current.artifact_id) else "fresh"
         if source.validity != expected:
             raise ValueError("Fact validity differs from its snapshot input references")

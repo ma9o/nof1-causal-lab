@@ -16,7 +16,6 @@ import pygit2
 from pydantic import TypeAdapter, ValidationError
 
 from nof1_causal_lab.actions.contracts import ScientificActionRequest
-from nof1_causal_lab.study.records import AttemptRecord
 from nof1_causal_lab.study.view_models import DataDiffRequest
 from scripts.migrations.study_rewrite import rewrite_study
 
@@ -35,8 +34,8 @@ _REQUEST_FIELDS = {
 
 def convert_attempt(
     value: JsonObject, workspace_id: str, comparison: JsonObject | None = None
-) -> tuple[AttemptRecord, JsonObject]:
-    """Return the current record and archival facts with no runtime legacy alternative."""
+) -> tuple[JsonObject, JsonObject]:
+    """Return format-11 wire facts; later converters own later envelopes."""
     action = value["action"]
     inputs = value["inputs"]
     raw_diagnostics = value["diagnostics"]
@@ -160,8 +159,7 @@ def convert_attempt(
         "attempt_id": value.get("attempt_id"),
         "attempt": {"action": action, "request": request, "outcome": outcome},
     }
-    # This is the one-time old-format decoder. Only the current envelope survives.
-    return AttemptRecord.model_validate(record), retained
+    return record, retained
 
 
 def convert_study(source: Path, destination: Path) -> dict[str, str]:
@@ -180,7 +178,7 @@ def convert_study(source: Path, destination: Path) -> dict[str, str]:
         record, retained = convert_attempt(payload, source.name, comparison)
         if retained:
             archives[oid] = retained
-        return record.model_dump(mode="json")
+        return record
 
     return rewrite_study(
         source,

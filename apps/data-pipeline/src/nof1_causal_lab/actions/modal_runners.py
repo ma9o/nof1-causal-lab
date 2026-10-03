@@ -14,6 +14,8 @@ from typing import TYPE_CHECKING
 import modal
 from pydantic import TypeAdapter
 
+from nof1_causal_lab.study.records import Applied
+
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
@@ -109,9 +111,9 @@ async def run_fit_on_modal(
     workspace_id: str,
     request: FitRequest,
     pins: dict[ArtifactId, GitOid],
-) -> ModelFitResult:
+) -> Applied[ModelFitResult]:
     """Run a fit remotely; credentials come from the Modal secret block."""
     from nof1_causal_lab.study.records import ModelFitResult
 
     raw = await _run_fit_gpu.remote.aio(workspace_id, request.model_dump(mode="json"), dict(pins))
-    return ModelFitResult.from_remote(raw)
+    return Applied[ModelFitResult].model_validate(raw)

@@ -132,6 +132,11 @@ function stripFieldTitles(schema: JsonSchema, isTopLevel = true): JsonSchema {
         cleanDefs[defName] = stripFieldTitles(defSchema, true);
       }
       result[key] = cleanDefs;
+    } else if (key === "prefixItems") {
+      // Adapt 2020-12 positional tuples to the declaration compiler's draft-7 form.
+      result.items = (value as JsonSchema[]).map((item) => stripFieldTitles(item, false));
+      result.additionalItems = schema.items ?? false;
+    } else if (key === "items" && schema.prefixItems !== undefined) {
     } else if (key === "items") {
       // Recurse into array items but strip their title
       const cleaned = typeof value === "object" ? { ...value } : value;

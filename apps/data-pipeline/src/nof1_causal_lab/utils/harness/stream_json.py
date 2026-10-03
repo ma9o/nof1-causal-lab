@@ -37,7 +37,6 @@ if TYPE_CHECKING:
 
 
 _EVENT_ADAPTER: TypeAdapter[JsonObject] = TypeAdapter(JsonObject)
-_TOOL_CALL_ADAPTER: TypeAdapter[tuple[TraceToolCall, ...]] = TypeAdapter(tuple[TraceToolCall, ...])
 
 
 def parse_stream_event(event: str | bytes | JsonObject) -> JsonObject:
@@ -110,7 +109,7 @@ def _claude_assistant_message(message: JsonObject) -> TraceMessage:
     """Build a TraceMessage from a Claude assistant stream-json message."""
     content = message.get("content", [])
     text = _coerce_content_text(content)
-    tool_calls: list[ChatCompletionMessageFunctionToolCallParam] = []
+    tool_calls: list[TraceToolCall] = []
     if isinstance(content, list):
         for block in content:
             if not isinstance(block, dict):
@@ -120,10 +119,8 @@ def _claude_assistant_message(message: JsonObject) -> TraceMessage:
                     {
                         "id": str(block.get("id", "")),
                         "type": "function",
-                        "function": {
-                            "name": str(block.get("name", "")),
-                            "arguments": json.dumps(block.get("input") or {}),
-                        },
+                        "name": str(block.get("name", "")),
+                        "arguments": json.dumps(block.get("input") or {}),
                     }
                 )
     return TraceMessage(
@@ -568,7 +565,14 @@ def apply_codex_event(state: CodexStreamState, event: JsonObject) -> None:
             TraceMessage(
                 role="assistant",
                 content="",
-                tool_calls=_TOOL_CALL_ADAPTER.validate_python([tool_call_entry]),
+                tool_calls=(
+                    {
+                        "id": call_id,
+                        "type": "function",
+                        "name": tool_name,
+                        "arguments": arguments_json,
+                    },
+                ),
             )
         )
         state._open_tool_calls[call_id] = tool_call_entry
@@ -634,21 +638,20 @@ def _pi_content_text(content: JsonValue) -> str:
     )
 
 
-def _pi_tool_calls(content: JsonValue) -> list[ChatCompletionMessageFunctionToolCallParam]:
+def _pi_tool_calls(content: JsonValue) -> list[TraceToolCall]:
     if not isinstance(content, list):
         return []
-    calls: list[ChatCompletionMessageFunctionToolCallParam] = []
+    calls: list[TraceToolCall] = []
     for block in content:
         if not isinstance(block, dict) or block.get("type") != "toolCall":
             continue
+        arguments = block.get("arguments") or block.get("input") or {}
         calls.append(
             {
                 "id": str(block.get("id") or block.get("toolCallId") or ""),
                 "type": "function",
-                "function": {
-                    "name": str(block.get("name") or block.get("toolName") or ""),
-                    "arguments": json.dumps(block.get("arguments") or block.get("input") or {}),
-                },
+                "name": str(block.get("name") or block.get("toolName") or ""),
+                "arguments": arguments if isinstance(arguments, str) else json.dumps(arguments),
             }
         )
     return calls

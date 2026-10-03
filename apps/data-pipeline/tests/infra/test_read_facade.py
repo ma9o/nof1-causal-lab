@@ -3,10 +3,12 @@
 import pytest
 from fastapi.testclient import TestClient
 
+from nof1_causal_lab.actions.effects import ActionEffects
+from nof1_causal_lab.artifacts.question import QuestionSpec
 from nof1_causal_lab.read_facade import create_read_facade_app
-from nof1_causal_lab.study.records import DataPreparationResult, ModelEditResult
+from nof1_causal_lab.study.records import Applied, DataPreparationResult
 from nof1_causal_lab.utils import data as data_module
-from tests.action_fixtures import applied_record
+from tests.action_fixtures import applied_record, question_root
 from tests.git_fixtures import artifact_revision, commit_id, git_oid
 
 pytestmark = pytest.mark.contract
@@ -17,13 +19,13 @@ def test_read_facade_serves_reads_and_rejects_actions(monkeypatch, tmp_path):
     monkeypatch.setenv("READ_ONLY_FACADE", "1")
     client = TestClient(create_read_facade_app())
 
-    assert client.get("/api/capabilities").json() == {"actions_enabled": False}
+    assert client.get("/api/actions-enabled").json() is False
 
     status = client.get("/api/studies/WS-READONLY")
     assert status.status_code == 200
     body = status.json()
     assert body["seq"] == 0
-    assert set(body["actions"]) == {"edit_model", "prepare_data", "fit", "simulate"}
+    assert set(body["actions"]) == {"set_question", "edit_model", "prepare_data", "fit", "simulate"}
 
     action = client.post(
         "/api/studies/WS-READONLY/actions",
@@ -53,7 +55,7 @@ def test_artifact_endpoint_serves_pinned_versions(monkeypatch, tmp_path):
         "model",
         derived_from={},
         produced_by=None,
-        json_files={"model.json": {"question": "does X cause Y?"}},
+        json_files={"model.json": {"measurement_clock": "1d"}},
     )
     client = TestClient(create_read_facade_app())
 
@@ -63,7 +65,7 @@ def test_artifact_endpoint_serves_pinned_versions(monkeypatch, tmp_path):
     )
     assert pinned.status_code == 200
     body = pinned.json()
-    assert body["payload"]["model.json"] == {"question": "does X cause Y?"}
+    assert body["payload"]["model.json"] == {"measurement_clock": "1d"}
     assert "provenance" not in body["meta"]
     assert body["binary_files"] == []
 
@@ -72,7 +74,7 @@ def test_artifact_endpoint_serves_pinned_versions(monkeypatch, tmp_path):
     assert client.get("/api/studies/WS-ART/artifacts/model").status_code == 404
     StudyRepository("WS-ART").append(
         applied_record(
-            ModelEditResult(produced=[question]),
+            Applied(result=None, effects=ActionEffects(produced=[question])),
             seq=1,
             ts="2026-07-09T00:00:00+00:00",
             trace_ids=[],
@@ -80,7 +82,7 @@ def test_artifact_endpoint_serves_pinned_versions(monkeypatch, tmp_path):
     )
     current = client.get("/api/studies/WS-ART/artifacts/model")
     assert current.status_code == 200
-    assert current.json()["payload"]["model.json"] == {"question": "does X cause Y?"}
+    assert current.json()["payload"]["model.json"] == {"measurement_clock": "1d"}
     missing = client.get("/api/studies/WS-ART/artifacts/model", params={"revision": git_oid(7)})
     assert missing.status_code == 404
 
@@ -109,7 +111,7 @@ def test_trace_endpoints_join_artifact_version_to_promoted_trace(monkeypatch, tm
     logs = collect_run_traces("WS-TRACE", 1)
     StudyRepository("WS-TRACE").append(
         applied_record(
-            DataPreparationResult(produced=[raw_data]),
+            Applied(result=DataPreparationResult(), effects=ActionEffects(produced=[raw_data])),
             seq=1,
             ts="2026-07-09T00:00:00+00:00",
             trace_ids=["raw-data"],
@@ -127,41 +129,17 @@ def test_trace_endpoints_join_artifact_version_to_promoted_trace(monkeypatch, tm
 
 
 def test_workspaces_endpoint_lists_study_questions(monkeypatch, tmp_path):
-    from nof1_causal_lab.study.history import StudyRepository
-    from nof1_causal_lab.study.store import ArtifactStore
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
     monkeypatch.setenv("READ_ONLY_FACADE", "1")
 
-    store = ArtifactStore("WS-LIST")
-    question = store.write_artifact(
-        "model",
-        derived_from={},
-        produced_by=None,
-        json_files={"model.json": {"question": "does X cause Y?"}},
-    )
-    StudyRepository("WS-LIST").append(
-        applied_record(
-            ModelEditResult(produced=[question]),
-            seq=1,
-            ts="2026-07-09T00:00:00+00:00",
-            trace_ids=[],
-        )
-    )
+    question_root("WS-LIST", QuestionSpec(text="does X cause Y?"))
 
     client = TestClient(create_read_facade_app())
     response = client.get("/api/workspaces")
 
     assert response.status_code == 200
-    assert response.json() == {
-        "workspaces": [
-            {
-                "href": "/v2/WS-LIST",
-                "question": "does X cause Y?",
-                "workspaceId": "WS-LIST",
-            }
-        ]
-    }
+    assert response.json() == {"WS-LIST": "does X cause Y?"}
 
 
 def test_upload_endpoint_stages_input_file(monkeypatch, tmp_path):
@@ -178,7 +156,7 @@ def test_upload_endpoint_stages_input_file(monkeypatch, tmp_path):
     )
 
     assert response.status_code == 200
-    assert response.json() == {"path": "WS-UPLOAD/input/data.csv"}
+    assert response.json() == "WS-UPLOAD/input/data.csv"
     assert storage.read_text(str(tmp_path / "data" / "WS-UPLOAD" / "input" / "data.csv")) == (
         "x,y\n1,2\n"
     )
@@ -189,4 +167,4 @@ def test_full_facade_advertises_actions(monkeypatch):
     from nof1_causal_lab import tool_server
 
     client = TestClient(tool_server.app)
-    assert client.get("/api/capabilities").json() == {"actions_enabled": True}
+    assert client.get("/api/actions-enabled").json() is True

@@ -27,7 +27,6 @@ from nof1_causal_lab.artifacts.posterior_diagnostics import (
 from nof1_causal_lab.study.view_models import (
     Added,
     DataDiffReport,
-    DataPointChange,
     DataSeries,
     Dataset,
     DataStatistic,
@@ -37,9 +36,11 @@ from nof1_causal_lab.study.view_models import (
     Revised,
 )
 from nof1_causal_lab.utils.histograms import histogram_draws
+from nof1_causal_lab.utils.time_coordinates import ObservationInstant
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
+    from datetime import datetime
 
     from nof1_causal_lab.artifacts.observations import ObservationSpec
 
@@ -337,6 +338,10 @@ def _compute_overlays(
     y_sim: jnp.ndarray,
     observations: jnp.ndarray,
     indicator_ids: Sequence[IndicatorId],
+    *,
+    times: tuple[float, ...],
+    time_origin: datetime | None,
+    standardized: tuple[bool, ...],
 ) -> list[PPCOverlay]:
     """Compute per-variable medians and spaghetti draws for PPC plots.
 
@@ -363,6 +368,9 @@ def _compute_overlays(
         overlays.append(
             PPCOverlay(
                 indicator_id=name,
+                times=times,
+                time_origin=time_origin,
+                standardized=standardized[j],
                 observed=tuple(observed),
                 median=tuple(_predictive_value(v) for v in q50[:, j]),
                 spaghetti_draws=tuple(tuple(draw) for draw in spaghetti),
@@ -442,6 +450,10 @@ def measure_predictive_checks(
     y_sim: jnp.ndarray,
     observations: jnp.ndarray,
     indicator_ids: Sequence[IndicatorId],
+    *,
+    times: tuple[float, ...],
+    time_origin: datetime | None,
+    standardized: tuple[bool, ...],
 ) -> PosteriorPredictiveChecks:
     """Measure an existing predictive batch without generating more trajectories."""
     if y_sim.ndim != 3 or observations.shape != y_sim.shape[1:]:
@@ -456,7 +468,14 @@ def measure_predictive_checks(
     warnings.extend(_check_residual_autocorrelation(y_sim, observations, indicator_ids))
     warnings.extend(_check_variance_ratio(y_sim, observations, indicator_ids))
 
-    overlays = _compute_overlays(y_sim, observations, indicator_ids)
+    overlays = _compute_overlays(
+        y_sim,
+        observations,
+        indicator_ids,
+        times=times,
+        time_origin=time_origin,
+        standardized=standardized,
+    )
     test_stats = _compute_test_stats(y_sim, observations, indicator_ids)
 
     return PosteriorPredictiveChecks(
@@ -581,7 +600,17 @@ def _predictive_comparison(
 
     observed = [point.value if point.value is not None else np.nan for point in reference.points]
     checks = measure_predictive_checks(
-        jnp.asarray(aligned)[:, :, None], jnp.asarray(observed)[:, None], (identity,)
+        jnp.asarray(aligned)[:, :, None],
+        jnp.asarray(observed)[:, None],
+        (identity,),
+        times=tuple(
+            ObservationInstant(point.anchor_time)
+            .relative_to(ObservationInstant.origin(reference.time_origin))
+            .days
+            for point in reference.points
+        ),
+        time_origin=reference.time_origin,
+        standardized=(False,),
     )
     return side, checks, None
 
@@ -651,14 +680,11 @@ def data_diff(
                 before, after = old.get(anchor), new.get(anchor)
                 if before != after:
                     changes.append(
-                        DataPointChange(
-                            anchor_time=anchor,
-                            change=Added(after=new[anchor])
-                            if anchor not in old
-                            else Removed(before=old[anchor])
-                            if anchor not in new
-                            else Revised(before=old[anchor], after=new[anchor]),
-                        )
+                        Added(after=new[anchor])
+                        if anchor not in old
+                        else Removed(before=old[anchor])
+                        if anchor not in new
+                        else Revised(before=old[anchor], after=new[anchor])
                     )
         reference, checks, reason = _predictive_comparison(identity, a, b)
         comparisons.append(

@@ -30,9 +30,7 @@ export function constructPresentation(context: ScopeContext, id: ConstructId) {
   const construct = entities.constructById.get(id);
   if (!construct) return null;
   const indicators = construct.indicators;
-  const disposition = context.model.findings.dispositions?.value.find(
-    (item) => item.target.id === id,
-  );
+  const disposition = context.model.dispositions?.value.find((item) => item.target.id === id);
 
   return {
     model,
@@ -46,18 +44,15 @@ export function constructPresentation(context: ScopeContext, id: ConstructId) {
 export function indicatorPresentation(context: ScopeContext, id: IndicatorId) {
   const indicator = context.entities.indicatorById.get(id);
   if (!indicator) return null;
-  const disposition = context.model.findings.dispositions?.value.find(
-    (item) => item.target.id === id,
-  );
-  const data =
-    context.model.findings.validation_report?.value.data ?? context.model.data.profile?.value;
+  const disposition = context.model.dispositions?.value.find((item) => item.target.id === id);
+  const data = context.model.validation_report?.value.data ?? context.model.profile?.value;
   const audit = data?.indicators[id];
-  const counts = context.model.data.measurements?.value.per_indicator_counts[id];
+  const counts = context.model.measurements?.value.per_indicator_counts[id];
   const likelihood = indicator.likelihood;
-  const predictive = context.model.findings.predictive;
+  const predictive = context.model.predictive;
   const checks =
-    (predictive?.source.validity === "fresh"
-      ? predictive.value.predictive_checks?.per_variable_warnings
+    (predictive?.source.validity === "fresh" && predictive.value.evaluation.kind === "evaluated"
+      ? predictive.value.evaluation.predictive_checks?.per_variable_warnings
       : []
     )?.filter((item) => item.subject.target.id === id) ?? [];
   const issues = audit?.issues.filter((issue) => issue.severity !== "info") ?? [];
@@ -79,8 +74,6 @@ export function entityFailures(
   entity: ConstructSpec | CausalEdgeSpec | IndicatorSpec,
 ): string[] {
   return [
-    ...(model.findings.entity_failures[
-      "observation" in entity ? entity.observation.id : entity.id
-    ] ?? []),
+    ...(model.entity_failures["observation" in entity ? entity.observation.id : entity.id] ?? []),
   ];
 }

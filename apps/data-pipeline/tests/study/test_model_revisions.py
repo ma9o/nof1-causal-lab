@@ -8,8 +8,9 @@ from nof1_causal_lab.actions.contracts import EditModelRequest
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.model_inputs import input_fingerprints
 from nof1_causal_lab.study.errors import ArtifactWriteRejected
+from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.state import ArtifactRecord, StudyState, is_stale
-from tests.action_fixtures import edit_and_check
+from tests.action_fixtures import edit_and_check, question_root
 from tests.git_fixtures import artifact_revision, git_oid
 from tests.helpers import make_model
 
@@ -25,6 +26,7 @@ def workspace(monkeypatch, tmp_path):
 
 
 def test_full_model_write_checks_base_before_writing(workspace):
+    root = StudyRepository(workspace).state(question_root(workspace).commit_id)
     effects = edit_and_check(
         workspace,
         EditModelRequest.model_validate(
@@ -33,12 +35,10 @@ def test_full_model_write_checks_base_before_writing(workspace):
                 "expected_revision": None,
             }
         ),
-        StudyState(),
+        root,
     )
-    state = StudyState(
-        current={info.artifact_id: info for info in effects.produced}, checks=effects.checks
-    )
-    assert state.current["model"].revision == effects.produced[0].revision
+    state = root.with_artifacts(effects.effects.produced).with_checks(effects.effects.checks)
+    assert state.current["model"].revision == effects.effects.produced[0].revision
     assert state.has("identification_report")
     with pytest.raises(ArtifactWriteRejected, match="conflict"):
         edit_and_check(
@@ -64,11 +64,12 @@ def test_full_model_write_checks_base_before_writing(workspace):
         ),
         state,
     )
-    assert second.checks is not None
-    assert "identification" in second.checks.reused
-    assert second.produced[0].revision != effects.produced[0].revision
+    assert second.effects.checks is not None
+    assert "identification" in second.effects.checks.reused
+    assert second.effects.produced[0].revision != effects.effects.produced[0].revision
     assert state.current["identification_report"].derived_from == {
-        "model": artifact_revision(workspace, "model", 1)
+        "question": state.current["question"].revision,
+        "model": artifact_revision(workspace, "model", 1),
     }
 
 
@@ -105,7 +106,14 @@ def test_statistical_enrichment_preserves_structural_and_measurement_inputs():
     for purpose in ("identification", "compilation"):
         assert changed[purpose] != before[purpose]
 
-    revised_question = input_fingerprints(measured.revised(question="Does X change Y?"))
-    assert revised_question["observations"] == before["observations"]
-    for purpose in ("identification", "compilation", "belief"):
-        assert revised_question[purpose] == before[purpose]
+    reasoned = input_fingerprints(
+        specified.revised(
+            parameters=tuple(
+                parameter.revised(reasoning="A literature range for this quantity.")
+                for parameter in specified.parameters
+            )
+        )
+    )
+    for purpose in ("observations", "identification", "compilation"):
+        assert reasoned[purpose] == after[purpose]
+    assert reasoned["belief"] != after["belief"]

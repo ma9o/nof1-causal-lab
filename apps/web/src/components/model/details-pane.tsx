@@ -12,12 +12,19 @@ import { humanize } from "@/lib/model-asset/selection";
 import { Katex } from "@/components/analysis-widgets/statistical-model-spec/ssm-equation-display";
 import { DataComparisonEvidence, PreparedObservations } from "./scopes/data-details";
 import { FitDetails } from "./scopes/fit-details";
+import { QuestionChecks, QuestionDetails } from "./scopes/question-details";
 import { SimulationEvidence } from "./simulation-evidence";
 import { PPCWarningsTable } from "@/components/analysis-widgets/posterior/ppc-warnings-table";
 
 function ModelScope({ context, tick }: { context: ScopeContext; tick: StudyRevision | undefined }) {
   if (!tick || tick.record.attempt.outcome.status !== "applied")
     return <Hint>No new model-wide state was produced.</Hint>;
+  if (tick.record.attempt.action === "set_question")
+    return context.model.question ? (
+      <QuestionDetails context={context} question={context.model.question.value} />
+    ) : (
+      <Hint>No question recorded at this version.</Hint>
+    );
   if (tick.record.attempt.action === "fit") return <FitDetails context={context} />;
   if (tick.record.attempt.action === "simulate") return <SimulationEvidence context={context} />;
   if (tick.record.attempt.action === "prepare_data")
@@ -31,40 +38,53 @@ function ModelScope({ context, tick }: { context: ScopeContext; tick: StudyRevis
       />
     );
   const predictive =
-    tick.record.attempt.outcome.result.checks &&
-    !tick.record.attempt.outcome.result.checks.reused.includes("predictive")
-      ? tick.record.attempt.outcome.result.checks.predictive
+    tick.record.attempt.outcome.effects.checks &&
+    !tick.record.attempt.outcome.effects.checks.reused.includes("predictive")
+      ? tick.record.attempt.outcome.effects.checks.predictive
       : null;
-  const identification = context.model.findings.identification;
-  const diagnostics = context.model.findings.diagnostics;
-  const equations = diagnostics
-    ? [
-        ...diagnostics.state_equations.map((equation) => [equation.label, equation.latex] as const),
-        ...diagnostics.confounder_equations.map(
-          (equation) => [equation.label, equation.latex] as const,
-        ),
-        ...context.entities.indicators.flatMap((indicator) => {
-          const latex = diagnostics.observation_equations[indicator.observation.id];
-          return latex === undefined ? [] : [[indicator.observation.name, latex] as const];
-        }),
-      ]
-    : [];
+  const predictivePlots =
+    predictive?.evaluation.kind === "evaluated" ? predictive.evaluation.predictive_checks : null;
+  const identification = context.model.identification;
+  const diagnostics = context.model;
+  const equations = [
+    ...Object.entries({
+      ...diagnostics.state_equations,
+      ...diagnostics.confounder_equations,
+    }).flatMap(([id, latex]) =>
+      latex === undefined
+        ? []
+        : [
+            [
+              context.entities.constructs.find((item) => item.id === id)?.name ?? id,
+              latex,
+            ] as const,
+          ],
+    ),
+    ...context.entities.indicators.flatMap((indicator) => {
+      const latex = diagnostics.observation_equations[indicator.observation.id];
+      return latex === undefined ? [] : [[indicator.observation.name, latex] as const];
+    }),
+  ];
+
   return (
     <>
       {predictive && (
         <Section title="Predictive checks" wide>
-          {predictive.predictive_checks ? (
+          {predictivePlots ? (
             <PPCWarningsTable
               indicators={context.entities.indicators.map((indicator) => indicator.observation)}
-              warnings={predictive.predictive_checks.per_variable_warnings}
-              testStats={predictive.predictive_checks.test_stats}
-              overlays={predictive.predictive_checks.overlays}
+              warnings={predictivePlots.per_variable_warnings}
+              testStats={predictivePlots.test_stats}
+              overlays={predictivePlots.overlays}
             />
           ) : (
-            <Hint>{predictive.detail}</Hint>
+            <Hint>
+              {predictive.evaluation.kind === "unavailable" ? predictive.evaluation.detail : null}
+            </Hint>
           )}
         </Section>
       )}
+      <QuestionChecks context={context} />
       {identification && (
         <Section title="Identification" source={identification.source} wide>
           {Object.keys(identification.value.treatments).length === 0 && (
@@ -118,8 +138,10 @@ function ModelScope({ context, tick }: { context: ScopeContext; tick: StudyRevis
 /**
  * The state the selected action left, in depth. With a graph part selected it shows that part.
  * With nothing selected it shows the model-wide state that action produced, and only that:
- * - edit_model: the model as specified, meaning how the question is identified, the equations,
- *   and the evidence of its predictive checks for every indicator under the laws the model holds.
+ * - set_question: the question, meaning its words, its outcome and each query's dated contrast.
+ * - edit_model: the model as specified, meaning its checks against the question, how the question
+ *   is identified, the equations, and the evidence of its predictive checks for every indicator
+ *   under the laws the model holds.
  * - prepare_data: the panel as a whole, meaning every variable's observations over time and the
  *   dataset-level issues.
  * - fit: the fitted model as a whole, meaning predictive calibration, latent mixing and the

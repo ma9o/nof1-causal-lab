@@ -14,5 +14,5 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
-  args: { loo: fixtureValue(posterior.loo_diagnostics), points: posterior.detail.pareto_k },
+  args: { loo: fixtureValue(posterior.core.loo_diagnostics), points: posterior.detail.pareto_k },
 };

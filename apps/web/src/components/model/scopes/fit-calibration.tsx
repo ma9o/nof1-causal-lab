@@ -8,7 +8,7 @@ import { KeyValue, Section } from "../scope-primitives";
 /** The fit's leave-one-out predictive checks, as the engine recorded them. */
 export function FitCalibration({ context }: { context: ScopeContext }) {
   const detail = useInferenceReport(context.model).data?.value.detail;
-  const fit = context.model.findings.fit;
+  const fit = context.model.fit;
   const loo = fit?.value.report.loo_diagnostics;
   if (!fit || !loo) return null;
   return (

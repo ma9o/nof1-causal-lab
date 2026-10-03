@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING
 
 from nof1_causal_lab.models.posterior_predictive import data_diff
 from nof1_causal_lab.study.errors import StudyLookupError
-from nof1_causal_lab.study.records import Applied, SimulateAttempt
+from nof1_causal_lab.study.records import Applied
 from nof1_causal_lab.study.view_models import (
     DataDiffReport,
     DataDiffRequest,
@@ -50,7 +50,7 @@ def read_data_diff(workspace_id: str, request: DataDiffRequest) -> DataDiffRepor
                 ),
             )
         record = StudyRepository(workspace_id).record(source.revision)
-        if not isinstance(record.record.attempt, SimulateAttempt) or not isinstance(
+        if record.record.attempt.action != "simulate" or not isinstance(
             record.record.attempt.outcome, Applied
         ):
             raise StudyLookupError("Simulation data must select an applied simulation commit")

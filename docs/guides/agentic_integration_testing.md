@@ -129,12 +129,12 @@ New studies initialize their local bare repository on first use. On a fresh chec
 
 ```bash
 git clone --mirror data/DEMO/study/history.bundle data/DEMO/study/history.git
-git --git-dir=data/DEMO/study/history.git config nof1.format 13
+git --git-dir=data/DEMO/study/history.git config nof1.format 15
 ```
 
 #### Migrating a local study
 
-The current runtime requires format 13. To convert a format-12 study:
+The current runtime requires format 15. To convert a format-14 study:
 
 1. Stop work on the study and close its workflow:
 
@@ -142,21 +142,27 @@ The current runtime requires format 13. To convert a format-12 study:
    temporal workflow signal --workflow-id study-STUDY --name close
    ```
 
-2. Run the [format-13 converter](../../apps/data-pipeline/scripts/migrations/migrate_format_13.py). The destination must be new and outside the source, and the source is left untouched.
+2. Run the [format-15 converter](../../apps/data-pipeline/scripts/migrations/migrate_format_15.py). The destination must be new and outside the source, and the source is left untouched.
 
    ```bash
-   uv run --directory apps/data-pipeline python -m scripts.migrations.migrate_format_13 \
-     ../../data/STUDY /tmp/format13/STUDY
+   uv run --directory apps/data-pipeline python -m scripts.migrations.migrate_format_15 \
+     ../../data/STUDY /tmp/format15/STUDY
    ```
 
-   Format 13 composes observation definitions with model bindings or typed
-   extraction recipes, and data profiles with validation preflight reports.
-   The [converter](../../apps/data-pipeline/scripts/migrations/migrate_format_13.py)
-   preserves retained numerical payloads and rewrites revision references. Convert
-   format-11 studies with the [format-12 converter](../../apps/data-pipeline/scripts/migrations/migrate_format_12.py)
-   before this step.
+   The [converter](../../apps/data-pipeline/scripts/migrations/migrate_format_15.py)
+   preserves retained draws and certification, rewrites revision references and
+   binds predictive overlays to their pinned evaluation schedule. If the pinned
+   model cannot compile, it drops only those overlays and logs their commit,
+   sequence, indicator and compile reason. Findings and test statistics remain.
+   A compiled schedule with a different point count stops conversion. Sampler reports require their original
+   resolved controls; supply `--sampler-settings` with full settings keyed by fit
+   commit when those controls were not retained. Convert format-13 studies with
+   the [format-14 converter](../../apps/data-pipeline/scripts/migrations/migrate_format_14.py),
+   format-12 studies with the [format-13 converter](../../apps/data-pipeline/scripts/migrations/migrate_format_13.py),
+   and format-11 studies with the [format-12 converter](../../apps/data-pipeline/scripts/migrations/migrate_format_12.py)
+   first.
 
-3. Review the migrated snapshots and ref mapping before a live cutover. Then, while offline, back up each whole original under `.local/format12-backup-<date>/STUDY`, including `store/`, and replace `data/STUDY` with the migrated repository, keeping one study per ID. Keep backups outside `data/` in durable storage; temporary directories are only converter destinations.
+3. Review the migrated snapshots and ref mapping before a live cutover. Then, while offline, back up each whole original under `.local/format14-backup-<date>/STUDY`, including `store/`, and replace `data/STUDY` with the migrated repository, keeping one study per ID. Keep backups outside `data/` in durable storage; temporary directories are only converter destinations.
 
 4. Restart the workers with the new code and start a fresh `study-STUDY` workflow from the migrated Git state; don't replay the previous workflow. Export any fixture bundle from the migrated repository, then run `bun run fixture:build` and `bun run fixture:check`.
 
@@ -193,7 +199,7 @@ use), the study worker (task queue `nof1-studies`), the tool server
 with the study facade on port `8100`, and the web app on port `3000`.
 Startup order is health-gated (`depends_on` + readiness probes) and
 crashed processes restart automatically. The script **stays in the
-foreground** — wait until `curl -s http://localhost:8100/api/capabilities`
+foreground** — wait until `curl -s http://localhost:8100/api/actions-enabled`
 answers before proceeding (pass `-t=false` to disable the TUI when
 redirecting output to a file).
 
@@ -302,7 +308,7 @@ curl -s -X POST http://localhost:3000/api/runs \
   -d "{\"workspaceId\":\"$WORKSPACE_ID\",\"query\":\"$QUESTION\"}"
 ```
 
-`GET /api/capabilities` reports `actions_enabled`, which is false on a read-only facade. Creating the run submits `edit_model` with the question and returns HTTP `202` with the workspace and `attempt_id`. Poll that attempt until `kind` is `completed`. Submit further actions as the [`nof1-study-api` skill](../../.agents/skills/nof1-study-api/SKILL.md) describes; the [action charts](../../README.md#documentation) show what each one does.
+`GET /api/actions-enabled` returns false on a read-only facade. Creating the run submits `edit_model` with the question and returns HTTP `202` with the workspace and `attempt_id`. Poll that attempt until `kind` is `completed`. Submit further actions as the [`nof1-study-api` skill](../../.agents/skills/nof1-study-api/SKILL.md) describes; the [action charts](../../README.md#documentation) show what each one does.
 
 ### 2. Observe the study
 
@@ -320,7 +326,7 @@ curl -s http://localhost:8100/api/studies/$WORKSPACE_ID/timeline \
 # Live progress of the running attempt (data-preparation steps and extraction fan-out)
 ATTEMPT_ID=$(curl -s http://localhost:8100/api/studies/$WORKSPACE_ID | jq -r '.running.attempt_id')
 curl -s "http://localhost:8100/api/studies/$WORKSPACE_ID/events?attempt_id=$ATTEMPT_ID" \
-  | jq '.events[-3:]'
+  | jq '.[-3:]'
 ```
 
 ### 3. Verify via browser automation

@@ -47,7 +47,45 @@ if TYPE_CHECKING:
     from collections.abc import Awaitable
 
     from nof1_causal_lab.utils.agent_session import TurnResult
+    from nof1_causal_lab.utils.llm import TraceMessage
     from nof1_causal_lab.utils.openrouter_client import Tool
+
+
+def _trace_message(message: JsonObject) -> TraceMessage:
+    from nof1_causal_lab.utils.llm import TraceMessage
+
+    content = str(message.get("content", ""))
+    raw_calls = message.get("tool_calls")
+    calls = (
+        None
+        if raw_calls is None
+        else TypeAdapter(tuple[ChatCompletionMessageFunctionToolCallParam, ...]).validate_python(
+            raw_calls
+        )
+    )
+    return TraceMessage.model_validate(
+        {
+            "role": message["role"],
+            "content": content,
+            "reasoning": message.get("reasoning"),
+            "tool_calls": None
+            if calls is None
+            else tuple(
+                {
+                    "id": call["id"],
+                    "type": call["type"],
+                    "name": call["function"]["name"],
+                    "arguments": call["function"]["arguments"],
+                }
+                for call in calls
+            ),
+            "tool_call_id": message.get("tool_call_id"),
+            "tool_name": message.get("name"),
+            "tool_result": content if message["role"] == "tool" else None,
+            "tool_is_error": message.get("error") is not None,
+        }
+    )
+
 
 _RECOVERABLE_TOOL_EXECUTION_ERRORS = (
     ArithmeticError,
@@ -521,7 +559,7 @@ async def run_harness_turn_activity(activity_input: HarnessTurnInput) -> Harness
 async def finalize_llm_subroutine_trace_activity(
     activity_input: LLMSubroutineTraceInput,
 ) -> LLMSubroutineTraceResult:
-    from nof1_causal_lab.utils.llm import LLMTrace, TraceMessage, TraceUsage, _merge_trace
+    from nof1_causal_lab.utils.llm import LLMTrace, TraceUsage, _merge_trace
 
     root = subroutine_root(
         activity_input.subroutine.workspace_id,
@@ -561,9 +599,7 @@ async def finalize_llm_subroutine_trace_activity(
             reasoning_tokens += reasoning
 
     trace = LLMTrace(
-        messages=tuple(
-            TraceMessage.from_conversation(message) for message in conversation["messages"]
-        ),
+        messages=tuple(_trace_message(message) for message in conversation["messages"]),
         model=model,
         total_time_seconds=total_time,
         usage=TraceUsage(

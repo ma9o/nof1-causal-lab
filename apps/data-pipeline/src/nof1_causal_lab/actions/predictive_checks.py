@@ -14,16 +14,26 @@ from nof1_causal_lab.artifacts.checks import (
     PredictiveSubject,
 )
 from nof1_causal_lab.artifacts.identity import IndicatorRef, scientific_id
-from nof1_causal_lab.artifacts.model_checks import ModelPredictiveReport
+from nof1_causal_lab.artifacts.model_checks import (
+    EvaluatedPredictiveChecks,
+    ModelPredictiveReport,
+    UnavailablePredictiveChecks,
+)
 from nof1_causal_lab.artifacts.predictive_provenance import FittedLawProvenance, MixedLawProvenance
-from nof1_causal_lab.artifacts.simulation import SimulationSpec
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.study.lineage import fitted_law_report, law_provenance, read_data_metadata
 from nof1_causal_lab.study.state import is_stale
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.checks import SpecificationReport
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from collections.abc import Callable
+
+    from nof1_causal_lab.artifacts.checks import (
+        PredictiveAssessment,
+        PredictiveCheckReason,
+    )
+    from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorPredictiveChecks
+    from nof1_causal_lab.models.model_structure import StructuralSelection
+    from nof1_causal_lab.models.ssm.compile.inputs import ModelCompilationResult
     from nof1_causal_lab.study.state import StudyState
     from nof1_causal_lab.study.store import ArtifactStore
 
@@ -37,12 +47,13 @@ PREDICTIVE_SEED = 0
 def check_model_predictive(
     store: ArtifactStore,
     state: StudyState,
-    model: ModelSpec,
-    specification: SpecificationReport,
+    selection: StructuralSelection,
+    compilation: Callable[[], ModelCompilationResult],
     *,
     previous: ModelPredictiveReport | None,
 ) -> tuple[ModelPredictiveReport, bool]:
-    """Reuse a matching report or run one whole-model batch; never fit or repair."""
+    """Reuse a matching report or run one batch of the executed model; never fit or repair."""
+    model = selection.model
     record = state.current["model"]
     panel = state.get("panel")
     panel_revision = panel.revision if panel is not None else None
@@ -60,6 +71,7 @@ def check_model_predictive(
             PREDICTIVE_POLICY_VERSION,
             record.model_inputs["compilation"],
             record.model_inputs["belief"],
+            selection.outcome,
             panel_revision,
             compatible,
             PREDICTIVE_DRAWS,
@@ -69,70 +81,87 @@ def check_model_predictive(
     )
     if previous is not None and previous.input_key == key:
         return previous, True
-    report = ModelPredictiveReport(
-        input_key=key,
-        draws=PREDICTIVE_DRAWS,
-        seed=PREDICTIVE_SEED,
-        model_revision=record.revision,
-        panel_revision=panel_revision,
-        status="not_evaluated",
-        law=law,
-    )
-    execution = next(f for f in specification.findings if f.subject == "model_execution")
-    if isinstance(execution, NotEvaluated) or execution.outcome != "passed":
-        return report.not_evaluated(
-            "MODEL_INCOMPLETE" if isinstance(execution, NotEvaluated) else "MODEL_NOT_EXECUTABLE"
-        ), False
+
+    def not_evaluated(
+        reason: PredictiveCheckReason, detail: str | None = None
+    ) -> ModelPredictiveReport:
+        return ModelPredictiveReport(
+            input_key=key,
+            draws=PREDICTIVE_DRAWS,
+            seed=PREDICTIVE_SEED,
+            model_revision=record.revision,
+            panel_revision=panel_revision,
+            law=law,
+            evaluation=UnavailablePredictiveChecks(reason=reason, detail=detail),
+        )
+
+    def evaluated(
+        findings: tuple[PredictiveAssessment, ...],
+        predictive_checks: PosteriorPredictiveChecks | None = None,
+    ) -> ModelPredictiveReport:
+        return ModelPredictiveReport(
+            input_key=key,
+            draws=PREDICTIVE_DRAWS,
+            seed=PREDICTIVE_SEED,
+            model_revision=record.revision,
+            panel_revision=panel_revision,
+            law=law,
+            evaluation=EvaluatedPredictiveChecks(
+                findings=findings, predictive_checks=predictive_checks
+            ),
+        )
+
+    from nof1_causal_lab.models.ssm.compile.inputs import IncompleteModel, UnsupportedFit
+
+    compiled = compilation()
+    if isinstance(compiled, IncompleteModel):
+        return not_evaluated("MODEL_INCOMPLETE"), False
+    if isinstance(compiled, UnsupportedFit):
+        return not_evaluated("MODEL_NOT_EXECUTABLE"), False
     if not compatible:
-        return report.not_evaluated("NO_COMPATIBLE_PANEL"), False
+        return not_evaluated("NO_COMPATIBLE_PANEL"), False
 
     from nof1_causal_lab.artifacts.likelihood import DistributionFamily
-    from nof1_causal_lab.models.ssm.compile.inputs import compile_executable_model
 
-    compiled = compile_executable_model(model)
     if any(
         family != DistributionFamily.GAUSSIAN for family in numeric.diffusion_families(compiled)
     ):
-        return report.not_evaluated(
+        return not_evaluated(
             "SIMULATION_UNSUPPORTED",
             "Exact forward simulation requires Gaussian process diffusion.",
         ), False
-    from nof1_causal_lab.models.ssm.preflight import ObservationPreflightError
     from nof1_causal_lab.models.ssm.runtime import PanelPreparationFailure, bind_panel
 
     assert panel_revision is not None
     data = store.read_parquet_file("panel", panel_revision, "panel.parquet")
-    try:
-        time_origin = read_data_metadata(store, panel_revision).time_origin
-        if isinstance(law, (FittedLawProvenance, MixedLawProvenance)):
-            from nof1_causal_lab.study.history import StudyRepository
+    time_origin = read_data_metadata(store, panel_revision).time_origin
+    if isinstance(law, (FittedLawProvenance, MixedLawProvenance)):
+        from nof1_causal_lab.study.history import StudyRepository
 
-            fit_origin = fitted_law_report(
-                StudyRepository(store.workspace_id).attempts(), law.fitted_model_revision
-            ).time_origin
-            if (time_origin is None) != (fit_origin is None):
-                raise ObservationPreflightError(
-                    "Calendar-free laws and calendar-bound observations cannot be aligned"
-                )
-            time_origin = fit_origin
-        bound = bind_panel(data, model=compiled, time_origin=time_origin)
-        if isinstance(bound, PanelPreparationFailure):
-            return report.not_evaluated("NO_COMPATIBLE_PANEL", bound.message), False
-        times = bound.times
-        if (
-            len(times)
-            and isinstance(law, (FittedLawProvenance, MixedLawProvenance))
-            and times[0] < model.time_points[0]
-        ):
-            raise ObservationPreflightError(
-                "The current panel begins before the fit's first retained state"
-            )
-    except ObservationPreflightError as exc:
-        return report.not_evaluated("NO_COMPATIBLE_PANEL", str(exc)), False
+        fit_origin = fitted_law_report(
+            StudyRepository(store.workspace_id).attempts(), law.fitted_model_revision
+        ).time_origin
+        if (time_origin is None) != (fit_origin is None):
+            return not_evaluated(
+                "NO_COMPATIBLE_PANEL",
+                "Calendar-free laws and calendar-bound observations cannot be aligned",
+            ), False
+        time_origin = fit_origin
+    bound = bind_panel(data, model=compiled, time_origin=time_origin)
+    if isinstance(bound, PanelPreparationFailure):
+        return not_evaluated("NO_COMPATIBLE_PANEL", bound.message), False
+    times = bound.times
+    if (
+        len(times)
+        and isinstance(law, (FittedLawProvenance, MixedLawProvenance))
+        and times[0] < model.time_points[0]
+    ):
+        return not_evaluated(
+            "NO_COMPATIBLE_PANEL", "The current panel begins before the fit's first retained state"
+        ), False
     times = np.asarray(times)
     if len(times) < 2 or not np.isfinite(times).all() or not np.all(np.diff(times) > 0):
-        return report.not_evaluated("INSUFFICIENT_OBSERVATION_TIMES"), False
-    design = SimulationSpec(start=float(times[0]), end=float(times[-1]))
+        return not_evaluated("INSUFFICIENT_OBSERVATION_TIMES"), False
     from nof1_causal_lab.models.predictive_simulation import PredictiveObservationMeanOverflow
     from nof1_causal_lab.models.ssm.predictive.simulation import (
         generate_simulation_batch,
@@ -142,15 +171,15 @@ def check_model_predictive(
     try:
         batch = generate_simulation_batch(
             bound,
-            design,
+            start=float(times[0]),
+            end=float(times[-1]),
             draws=PREDICTIVE_DRAWS,
             seed=PREDICTIVE_SEED,
         )
     except PredictiveObservationMeanOverflow as exc:
         # This typed scientific failure is raised before an unsafe emission draw.
         # Other generator exceptions still fail the action.
-        return report.evaluated(
-            design,
+        return evaluated(
             (
                 *(
                     Evaluated(
@@ -187,4 +216,4 @@ def check_model_predictive(
     findings, checks = measure_simulation_batch(
         compiled, batch, groups=("dynamics", "measurement", "data_comparison"), clock=time.monotonic
     )
-    return report.evaluated(design, findings, checks), False
+    return evaluated(findings, checks), False

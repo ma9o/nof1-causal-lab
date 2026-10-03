@@ -1,0 +1,17 @@
+import { NextResponse } from "next/server";
+import { getFacadeCapabilities } from "@/lib/server/study-runs";
+
+export const dynamic = "force-dynamic";
+
+/**
+ * GET /api/actions-enabled — proxy over the facade's capability report.
+ * actions_enabled=false means the backing facade is read-only (hosted
+ * viewer): the UI hides run/edit/recompute/simulate affordances.
+ */
+export async function GET() {
+  try {
+    return NextResponse.json(await getFacadeCapabilities());
+  } catch {
+    return NextResponse.json({ error: "Failed to load capabilities" }, { status: 502 });
+  }
+}

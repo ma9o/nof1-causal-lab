@@ -3,13 +3,14 @@
 import type {
   ConstructId,
   EdgeId,
-  FitSummary,
+  PosteriorMarginal,
+  ParameterRef,
   IndicatorSpec,
-  ModelDiffReport,
   ModelSnapshot,
   SimulationReport,
 } from "@nof1-causal-lab/api-types";
 
+import type { ResolvedModelDiff } from "@/lib/hooks/use-model-diff";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ModelEntities } from "@/lib/model-asset/entities";
 import { useDagLayout } from "@/lib/hooks/use-dag-layout";
@@ -32,7 +33,7 @@ export interface LayeredGraphOptions {
   entities: ModelEntities;
   /** A simulation of the viewed model revision; its node histories replace the law charts. */
   simulation?: SimulationReport | null;
-  comparison?: ModelDiffReport | null;
+  comparison?: ResolvedModelDiff | null;
   selection: import("@/lib/model-asset/selection").EntitySelection | null;
 }
 
@@ -83,15 +84,14 @@ export function useLayeredGraph({
   const nodeStatuses = new Map(
     entities.constructs.map((entity) => [
       entity.id,
-      designVisible ? model.findings.graph.status[entity.id] : null,
+      designVisible ? model.graph.status[entity.id] : null,
     ]),
   );
   const edgeDispositions = new Map(
     entities.edges.map((entity) => [
       entity.id,
       designVisible
-        ? model.findings.dispositions?.value.find((item) => item.target.id === entity.id)
-            ?.disposition
+        ? model.dispositions?.value.find((item) => item.target.id === entity.id)?.disposition
         : undefined,
     ]),
   );
@@ -125,12 +125,26 @@ export function useLayeredGraph({
       ),
     [model, entities.edges],
   );
-  const edgePosteriors: Partial<FitSummary["edge_estimates"]> = fitVisible
-    ? (model.findings.fit?.value.edge_estimates ?? {})
+  const marginal = (ref: ParameterRef) =>
+    model.fit?.value.report.posterior_marginals?.find(
+      (row) =>
+        row.subject.parameter_id === ref.parameter_id && row.subject.element_id === ref.element_id,
+    );
+  const edgePosteriors: Partial<Record<EdgeId, PosteriorMarginal | undefined>> = fitVisible
+    ? Object.fromEntries(
+        Object.entries(model.fit?.value.edge_estimates ?? {}).flatMap(([id, ref]) =>
+          ref ? [[id, marginal(ref)]] : [],
+        ),
+      )
     : {};
-  const persistencePosteriors: Partial<FitSummary["decay_estimates"]> = fitVisible
-    ? (model.findings.fit?.value.decay_estimates ?? {})
-    : {};
+  const persistencePosteriors: Partial<Record<ConstructId, PosteriorMarginal | undefined>> =
+    fitVisible
+      ? Object.fromEntries(
+          Object.entries(model.fit?.value.decay_estimates ?? {}).flatMap(([id, ref]) =>
+            ref ? [[id, marginal(ref)]] : [],
+          ),
+        )
+      : {};
 
   const simulationResult = simulationVisible ? simulation : null;
   const days = useMemo(() => simulationResult?.times ?? [], [simulationResult]);

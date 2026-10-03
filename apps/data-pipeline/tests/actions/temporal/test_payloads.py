@@ -60,11 +60,12 @@ def test_prior_request_round_trips_through_a_cold_workflow_sandbox():
                 from temporalio.worker.workflow_sandbox._restrictions import RestrictionContext
 
                 from nof1_causal_lab.actions.contracts import FitRequest, SimulateRequest
-                from nof1_causal_lab.study.records import AttemptRecord, Applied, EditAttempt, ModelEditResult
+                from nof1_causal_lab.study.records import AttemptRecord, Applied, EditAttempt
                 from nof1_causal_lab.actions.temporal.messages import (
                     ActionInput, ActionRequest, EditModelInput, EvaluateChecksInput, AttemptPublication,
                 )
                 from nof1_causal_lab.study.state import ArtifactRecord, StudyState
+                from nof1_causal_lab.actions.effects import ActionEffects
                 from nof1_causal_lab.actions.temporal.worker import study_workflow_runner
 
                 payload = Payload(metadata={"encoding": b"json/plain"}, data=sys.stdin.buffer.read())
@@ -89,12 +90,14 @@ def test_prior_request_round_trips_through_a_cold_workflow_sandbox():
                         ActionInput(
                             workspace_id="test", state=state,
                             request=SimulateRequest(
-                                model_revision=model_record.revision, start=0, end=2
+                                model_revision=model_record.revision,
+                                start="2026-01-01",
+                                horizon="2d",
                             ),
                         ),
-                        EvaluateChecksInput[ModelEditResult](
-                            workspace_id="test", state=state,
-                            effects=ModelEditResult(produced=[model_record]),
+                        EvaluateChecksInput[None](
+                            workspace_id="test", state=state, request=restored.request,
+                            applied=Applied(result=None, effects=ActionEffects(produced=[model_record])),
                         ),
                     ]
                     activity_payloads = converter.to_payloads(inputs)
@@ -102,8 +105,8 @@ def test_prior_request_round_trips_through_a_cold_workflow_sandbox():
                         workspace_id="test", expected_head=None,
                         record=AttemptRecord(
                             seq=1, ts="2026-10-01T00:00:00Z", attempt_id=restored.attempt_id,
-                            attempt=EditAttempt(request=restored.request,
-                                outcome=Applied(result=ModelEditResult(produced=[model_record]))),
+                            attempt=EditAttempt(action="edit_model", request=restored.request,
+                                outcome=Applied(result=None, effects=ActionEffects(produced=[model_record]))),
                         ),
                     )
                     inputs.append(journal)

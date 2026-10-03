@@ -22,9 +22,6 @@ ESS_PER_CHAIN = 100
 def parameter_convergence(chains: ChainDiagnostics | None) -> ParameterConvergenceReport:
     if chains is None:
         return ParameterConvergenceReport(
-            checked=0,
-            messages=("No retained chain measurements are available.",),
-            status="not_evaluated",
             assessments=(
                 NotEvaluated(
                     subject="recorded_parameter_chains",
@@ -67,25 +64,7 @@ def parameter_convergence(chains: ChainDiagnostics | None) -> ParameterConvergen
                         subject=subject, outcome="passed" if passes else "failed", evidence=evidence
                     )
                 )
-    status = (
-        "failed"
-        if any(isinstance(item, Evaluated) and item.outcome == "failed" for item in assessments)
-        else "not_evaluated"
-        if not assessments or any(isinstance(item, NotEvaluated) for item in assessments)
-        else "passed"
-    )
-    return ParameterConvergenceReport(
-        checked=len(chains.per_parameter),
-        status=status,
-        assessments=tuple(assessments),
-        messages=tuple(
-            item.detail
-            if isinstance(item, NotEvaluated)
-            else f"{item.evidence.criterion} fails for {item.evidence.note}: {item.evidence.value:g}"
-            for item in assessments
-            if isinstance(item, NotEvaluated) or item.outcome != "passed"
-        ),
-    )
+    return ParameterConvergenceReport(assessments=tuple(assessments))
 
 
 def convergence_failures(report: ParameterConvergenceReport) -> tuple[str, ...]:

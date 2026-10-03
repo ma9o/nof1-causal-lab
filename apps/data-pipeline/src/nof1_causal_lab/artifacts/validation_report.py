@@ -13,7 +13,7 @@ from pydantic import (
 )
 
 from .base import Value
-from .checks import Evaluated, SpecificationReport
+from .checks import Evaluated, SpecificationAssessment
 from .identity import IndicatorId
 
 
@@ -69,23 +69,19 @@ class IndicatorAudit(Value):
 
     def with_source(self, source: Self) -> Self:
         """Compose retained empirical findings with model-dependent findings."""
-        return self.model_copy(
-            update={
-                "profile": source.profile,
-                "issues": (*source.issues, *self.issues),
-                "checks": {**source.checks, **self.checks},
-            }
+        return self.revised(
+            profile=source.profile,
+            issues=(*source.issues, *self.issues),
+            checks={**source.checks, **self.checks},
         )
 
     def without_data(self) -> Self:
         """Record unavailable observations without revising the published audit."""
-        return self.model_copy(
-            update={"checks": {**self.checks, "data_availability": "not_evaluated"}}
-        )
+        return self.revised(checks={**self.checks, "data_availability": "not_evaluated"})
 
     def with_issue(self, issue: ValidationIssue) -> Self:
         """Append a finding as a new audit, preserving the old value."""
-        return self.model_copy(update={"issues": (*self.issues, issue)})
+        return self.revised(issues=(*self.issues, issue))
 
 
 class DataProfileArtifact(Value):
@@ -95,13 +91,11 @@ class DataProfileArtifact(Value):
     dataset_issues: tuple[ValidationIssue, ...]
 
     def for_indicators(self, identities: frozenset[IndicatorId]) -> Self:
-        return self.model_copy(
-            update={
-                "indicators": {
-                    identity: audit
-                    for identity, audit in self.indicators.items()
-                    if identity in identities
-                }
+        return self.revised(
+            indicators={
+                identity: audit
+                for identity, audit in self.indicators.items()
+                if identity in identities
             }
         )
 
@@ -131,10 +125,10 @@ class ValidationReportArtifact(Value):
     """Data findings composed with model-dependent execution checks."""
 
     data: DataProfileArtifact
-    preflight: SpecificationReport = Field(default_factory=lambda: SpecificationReport(findings=()))
+    preflight: tuple[SpecificationAssessment, ...] = Field(default_factory=lambda: ())
 
     def for_indicators(self, identities: frozenset[IndicatorId]) -> Self:
-        return self.model_copy(update={"data": self.data.for_indicators(identities)})
+        return self.revised(data=self.data.for_indicators(identities))
 
     @computed_field
     @property
@@ -142,7 +136,7 @@ class ValidationReportArtifact(Value):
         """Whether both the data findings and model preflight contain no failures."""
         return self.data.is_valid and not any(
             isinstance(finding, Evaluated) and finding.outcome in {"failed", "error"}
-            for finding in self.preflight.findings
+            for finding in self.preflight
         )
 
     @model_validator(mode="wrap")

@@ -29,7 +29,6 @@ from nof1_causal_lab.study.lineage import fitted_law_report, law_provenance
 from nof1_causal_lab.study.records import (
     Applied,
     DataPreparationResult,
-    ModelEditResult,
     ModelFitResult,
     ModelSimulationResult,
     StudyRevision,
@@ -109,7 +108,7 @@ def plan_squash(source: Path, *, at: str) -> HistorySquashPlan:
     for record in ancestry:
         outcome = record.record.attempt.outcome
         assert isinstance(outcome, Applied)
-        for artifact in outcome.result.produced:
+        for artifact in outcome.effects.produced:
             if artifact.artifact_id not in _PRIMARY:
                 continue
             key = (artifact.artifact_id, artifact.revision)
@@ -148,8 +147,8 @@ def plan_squash(source: Path, *, at: str) -> HistorySquashPlan:
         pins: set[tuple[ArtifactId, GitOid]] = set()
         outcome = record.record.attempt.outcome
         assert isinstance(outcome, Applied)
-        effects = outcome.result
-        match effects:
+        effects = outcome.effects
+        match outcome.result:
             case ModelFitResult(model=model, panel=panel):
                 pins.update((("model", model.revision), ("panel", panel.revision)))
             case ModelSimulationResult(report=report, panel=panel):
@@ -161,7 +160,7 @@ def plan_squash(source: Path, *, at: str) -> HistorySquashPlan:
                     pins.add(("raw_data", raw.revision))
                 if model is not None:
                     pins.add(("model", model.revision))
-            case ModelEditResult():
+            case None:
                 pass
             case _:
                 raise ValueError("Read-only comparisons cannot be squashed")
@@ -192,7 +191,7 @@ def plan_squash(source: Path, *, at: str) -> HistorySquashPlan:
     for record in prefix:
         outcome = record.record.attempt.outcome
         assert isinstance(outcome, Applied)
-        effects = outcome.result
+        effects = outcome.effects
         for artifact in (*effects.retracted, *effects.produced):
             last_writers[artifact.artifact_id] = record.commit_id
         if effects.checks is not None:
@@ -255,7 +254,7 @@ def copy_squashed(plan: HistorySquashPlan, destination: Path) -> dict[str, str |
         )
         outcome = record.record.attempt.outcome
         if isinstance(outcome, Applied):
-            effects = outcome.result
+            effects = outcome.effects
             for artifact in effects.retracted:
                 if artifacts.get(artifact.artifact_id) is not None:
                     artifacts.remove(artifact.artifact_id)
@@ -269,7 +268,7 @@ def copy_squashed(plan: HistorySquashPlan, destination: Path) -> dict[str, str |
         tree.insert("artifacts", artifacts.write(), pygit2.GIT_FILEMODE_TREE)
         checks = (
             original.tree
-            if isinstance(outcome, Applied) and outcome.result.checks is not None
+            if isinstance(outcome, Applied) and outcome.effects.checks is not None
             else previous
         )
         if "checks.json" in checks:

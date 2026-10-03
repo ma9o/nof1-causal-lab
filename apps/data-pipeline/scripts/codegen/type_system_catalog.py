@@ -57,6 +57,7 @@ def _typescript_type(value: Any) -> str:
         float: "number",
         bool: "boolean",
         type(None): "null",
+        None: "null",
         Any: "unknown",
     }[value]
 
@@ -164,6 +165,7 @@ CONCERNS = {
     "scientific_model": (
         "Scientific model",
         (
+            "artifacts.question",
             "artifacts.model_spec",
             "artifacts.construct",
             "artifacts.evidence",
@@ -189,6 +191,7 @@ CONCERNS = {
             "artifacts.execution",
             "artifacts.posterior",
             "artifacts.posterior_diagnostics",
+            "sampler_config",
             "artifacts.effects",
             "artifacts.scenarios",
             "artifacts.simulation",
@@ -261,7 +264,10 @@ ROLE_SENTENCES = {
     "JsonValue": "A JSON value transports a scalar or a recursive array or object.",
     "MeasurementDtype": "A measurement dtype defines the observed value domain of an indicator.",
     "ProgressEvent": "A progress event records one running attempt's step status or extraction telemetry.",
-    "ScientificActionId": "A scientific action identity selects model editing, data preparation, fitting, or simulation.",
+    "ScientificActionId": "A scientific action identity selects setting the question, model editing, data preparation, fitting, or simulation.",
+    "QueryName": "A query name labels one contrast of the study question.",
+    "QuestionSubject": "A question check subject names the outcome, one query's window, or one query's intervention target.",
+    "QuestionAssessment": "A question assessment records one check of the question against the model or the record.",
     "SimulationReport": "A simulation report records forward histories, resolved execution settings, and certified effects when supported.",
     "Sourced": "A sourced value pairs one model finding with its supporting artifact revision.",
     "ToolError": "A tool error reports why a requested operation could not produce a result.",
@@ -315,14 +321,14 @@ def _layer_for(name: str, module: str) -> str:
     if module.endswith("artifacts.scenarios"):
         return (
             "findings"
-            if name.endswith(("Result", "Visualization", "Point", "Trajectory"))
+            if name.endswith(("Result", "Visualization", "Point", "Trajectory", "Assignment"))
             else "authored"
         )
     if module.endswith("artifacts.simulation"):
         return "authored" if name in {"SimulationSpec"} else "findings"
     if module.endswith(("artifacts.checks", "artifacts.model_checks")):
         return "findings"
-    if name == "FitSettingsSpec":
+    if name == "FitSettingsSpec" or module.endswith("sampler_config"):
         return "authored"
     if name.endswith("Artifact"):
         return "artifacts"

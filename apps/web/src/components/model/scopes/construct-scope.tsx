@@ -21,18 +21,19 @@ export function ConstructScope({ context, id }: { context: ScopeContext; id: Con
   const scope = constructPresentation(context, id);
   if (!scope) return null;
   const { model, construct, indicators, disposition } = scope;
-  const equations = model.findings.diagnostics;
-  const predictive = model.findings.predictive;
-  const findings =
-    predictive?.value.findings.filter(
-      (finding) =>
-        finding.subject.construct_id === id &&
-        !indicators.some(
-          (indicator) =>
-            typeof finding.subject.target !== "string" &&
-            indicator.observation.id === finding.subject.target.id,
-        ),
-    ) ?? [];
+  const equations = model;
+  const predictive = model.predictive;
+  const findings = (
+    predictive?.value.evaluation.kind === "evaluated" ? predictive.value.evaluation.findings : []
+  ).filter(
+    (finding) =>
+      finding.subject.construct_id === id &&
+      !indicators.some(
+        (indicator) =>
+          typeof finding.subject.target !== "string" &&
+          indicator.observation.id === finding.subject.target.id,
+      ),
+  );
   return (
     <>
       <Section title="Structure">
@@ -66,28 +67,31 @@ export function ConstructScope({ context, id }: { context: ScopeContext; id: Con
           </ul>
         </Section>
       )}
-      {[...(equations?.state_equations ?? []), ...(equations?.confounder_equations ?? [])]
-        .filter((equation) => equation.construct_id === id)
-        .map((equation) => (
-          <Section key={equation.construct_id} title="Equation" wide>
-            <Katex latex={equation.latex} />
-          </Section>
-        ))}
+      {[equations.state_equations[id], equations.confounder_equations[id]].flatMap(
+        (latex, index) =>
+          latex === undefined
+            ? []
+            : [
+                <Section key={index} title="Equation" wide>
+                  <Katex latex={latex} />
+                </Section>,
+              ],
+      )}
       <LawSections context={context} uses={ownLawUses(construct)} />
       {construct.dynamics.length > 0 && <MechanismResponse context={context} owner={id} />}
       <SimulatedHistory context={context} id={id} kind="states" />
       {disposition && disposition.disposition !== "retained_state" && (
         <Section
           title={dispositionLabel(disposition.disposition)}
-          {...(model.findings.dispositions?.source === undefined
+          {...(model.dispositions?.source === undefined
             ? {}
-            : { source: model.findings.dispositions.source })}
+            : { source: model.dispositions.source })}
         >
           <Hint issue>{disposition.reason}</Hint>
         </Section>
       )}
-      {model.findings.identification?.value.treatments[id] && (
-        <Section title="Identification" source={model.findings.identification.source}>
+      {model.identification?.value.treatments[id] && (
+        <Section title="Identification" source={model.identification.source}>
           <IdentificationFinding context={context} construct={construct} />
         </Section>
       )}
@@ -111,7 +115,7 @@ export function IdentificationFinding({
   context: ScopeContext;
   construct: ConstructSpec;
 }) {
-  const finding = context.model.findings.identification?.value.treatments[construct.id];
+  const finding = context.model.identification?.value.treatments[construct.id];
   const identified = finding?.status === "identified" ? finding : null;
   const notIdentified = finding?.status === "not_identified" ? finding : null;
   const namesFor = (ids: readonly ConstructId[]) =>

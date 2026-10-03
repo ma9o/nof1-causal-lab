@@ -6,11 +6,6 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from nof1_causal_lab.actions.simulation_summaries import (
-    paired_effect_trajectory,
-    summarize_simulation,
-)
-from nof1_causal_lab.artifacts.effects import EffectSummary
 from nof1_causal_lab.artifacts.simulation import SimulationReport
 from nof1_causal_lab.study.visual_models import MechanismViewRequest
 from nof1_causal_lab.study.visuals import (
@@ -62,53 +57,19 @@ def workbench_visuals(reader: ModelReader, template):
         "observations": "observations",
         "reference_observations": "reference_observations",
         "observation_layout": report.observation_layout.revised(mask="mask"),
-        "predictive": summarize_simulation(
-            model,
-            state_ids=report.state_ids,
-            variables=variables,
-            latent_paths=action,
-            observations=observations,
-            mask=mask,
-            reference_latent_paths=reference,
-            reference_observations=reference_observations,
-            fit_reliability="converged",
-        ),
+        "fit_reliability": "converged",
     }
-    if report.causal_result is not None:
-        index = report.state_ids.index(report.causal_result.outcome)
-        delta = action[:, :, index] - reference[:, :, index]
-        final = delta[:, -1]
-        trajectory = paired_effect_trajectory(tuple(float(value) for value in time), delta)
-        updates["causal_result"] = report.causal_result.revised(
-            summary=EffectSummary(
-                mean=float(final.mean()),
-                median=float(np.median(final)),
-                lower_95=float(np.quantile(final, 0.025)),
-                upper_95=float(np.quantile(final, 0.975)),
-                prob_positive=float(np.mean(final > 0)),
-            ),
-            effect_trajectory=trajectory,
-            trajectory_peak=None,
-            reference_mean=float(reference[:, -1, index].mean()),
-            manifest_effects=None,
-        )
     report = report.revised(**updates)
-    effect = None
-    if report.causal_result is not None:
-        effect = (
-            report.causal_result.outcome,
-            action[:, :, report.state_ids.index(report.causal_result.outcome)]
-            - reference[:, :, report.state_ids.index(report.causal_result.outcome)],
-        )
     paths = recorded_simulation_paths(
         report,
+        model,
         action,
         arrays["observations"],
         mask,
         reference,
         reference_observations,
-        effect,
         start=0,
+        count=report.draws,
     )
     observations = {}
     for variable in reader.data_metadata.value.variables:

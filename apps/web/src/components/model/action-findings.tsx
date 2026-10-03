@@ -8,25 +8,25 @@ import { Hint, OwnerLink, Section, StatusIcon } from "./scope-primitives";
 /** Only this action's new checks and produced findings belong in its record. */
 export function ActionFindings({
   context,
-  result,
+  applied,
 }: {
   context: ScopeContext;
-  result: Extract<ActionAttempt["outcome"], { status: "applied" }>["result"];
+  applied: Extract<ActionAttempt["outcome"], { status: "applied" }>;
 }) {
   const { model, entities, select } = context;
-  const produced = new Set(result.produced.map((artifact) => artifact.artifact_id));
-  const reused = result.checks?.reused ?? [];
+  const { result, effects } = applied;
+  const produced = new Set(effects.produced.map((artifact) => artifact.artifact_id));
+  const reused = effects.checks?.reused ?? [];
   const identification =
     produced.has("identification_report") && !reused.includes("identification")
-      ? model.findings.identification?.value
+      ? model.identification?.value
       : null;
   const validation =
     produced.has("validation_report") && !reused.includes("compatibility")
-      ? model.findings.validation_report?.value
+      ? model.validation_report?.value
       : null;
-  const data =
-    validation?.data ?? (produced.has("data_profile") ? model.data.profile?.value : null);
-  const predictive = !reused.includes("predictive") ? result.checks?.predictive : null;
+  const data = validation?.data ?? (produced.has("data_profile") ? model.profile?.value : null);
+  const predictive = !reused.includes("predictive") ? effects.checks?.predictive : null;
   const findings: Array<{
     label: string;
     reason: string | null;
@@ -34,8 +34,8 @@ export function ActionFindings({
     owner?: EntitySelection;
   }> = [];
   for (const finding of [
-    ...(!reused.includes("specification") ? (result.checks?.specification.findings ?? []) : []),
-    ...(validation?.preflight.findings ?? []),
+    ...(!reused.includes("specification") ? (effects.checks?.specification ?? []) : []),
+    ...(validation?.preflight ?? []),
   ]) {
     if (finding.kind !== "evaluated" || finding.outcome !== "passed")
       findings.push({
@@ -54,9 +54,7 @@ export function ActionFindings({
     const indicator = entities.indicators.find(
       (item) => item.observation.id === issue.indicator_id,
     );
-    const variable = model.data.metadata?.value.variables.find(
-      (item) => item.id === issue.indicator_id,
-    );
+    const variable = model.metadata?.value.variables.find((item) => item.id === issue.indicator_id);
     findings.push({
       label: humanize(indicator?.observation.name ?? variable?.name ?? "Dataset"),
       reason: issue.message,
@@ -85,7 +83,35 @@ export function ActionFindings({
         owner: { kind: "construct", id: construct.id },
       });
   }
-  for (const finding of predictive?.findings ?? []) {
+  for (const finding of !reused.includes("question")
+    ? (effects.checks?.question?.findings ?? [])
+    : []) {
+    if (finding.kind === "evaluated" && finding.outcome === "passed") continue;
+    const subject = finding.subject;
+    const construct =
+      subject.check === "outcome"
+        ? subject.outcome.id
+        : subject.check === "window"
+          ? null
+          : subject.target.id;
+    const entity = entities.constructs.find((item) => item.id === construct);
+    findings.push({
+      label:
+        subject.check === "outcome"
+          ? "Question outcome"
+          : `${subject.query} · ${humanize(subject.check)}${
+              subject.check === "window"
+                ? ""
+                : ` · ${entity ? humanize(entity.name) : (construct ?? "")}`
+            }`,
+      reason: finding.kind === "evaluated" ? finding.evidence : finding.detail,
+      status: finding.kind === "evaluated" ? finding.outcome : "not_evaluated",
+      ...(entity ? { owner: { kind: "construct" as const, id: entity.id } } : {}),
+    });
+  }
+  for (const finding of predictive?.evaluation.kind === "evaluated"
+    ? predictive.evaluation.findings
+    : []) {
     if (finding.kind === "evaluated" && finding.outcome === "passed") continue;
     const target = typeof finding.subject.target === "string" ? null : finding.subject.target.id;
     const indicator = entities.indicators.find((item) => item.observation.id === target);
@@ -109,7 +135,9 @@ export function ActionFindings({
       ...(owner ? { owner } : {}),
     });
   }
-  for (const check of predictive?.predictive_checks?.per_variable_warnings ?? []) {
+  for (const check of predictive?.evaluation.kind === "evaluated"
+    ? (predictive.evaluation.predictive_checks?.per_variable_warnings ?? [])
+    : []) {
     if (check.kind === "evaluated" && check.outcome === "passed") continue;
     const target = check.subject.target;
     const indicator =
@@ -128,12 +156,13 @@ export function ActionFindings({
     findings.push({
       label: "Predictive checks",
       reason:
-        predictive.detail ??
-        (predictive.reason === null ? null : humanize(predictive.reason).toLowerCase()),
+        predictive.evaluation.kind === "unavailable"
+          ? (predictive.evaluation.detail ?? humanize(predictive.evaluation.reason).toLowerCase())
+          : null,
       status: "not_evaluated",
     });
   if (
-    result.action === "prepare_data" &&
+    result?.action === "prepare_data" &&
     result.workers.some((worker) => worker.status === "failed")
   )
     findings.push({

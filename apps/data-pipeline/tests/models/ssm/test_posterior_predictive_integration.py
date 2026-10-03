@@ -48,7 +48,14 @@ def test_predictive_draws_feed_mixed_family_diagnostics():
         [[0.2, 1.0], [jnp.nan, 2.0], [-0.1, 0.0], [0.1, 3.0], [-0.2, 2.0], [0.3, 4.0]]
     )
     indicator_ids = [IndicatorId("indicator:signal"), IndicatorId("indicator:count")]
-    result = measure_predictive_checks(samples.trajectory.observations, observations, indicator_ids)
+    result = measure_predictive_checks(
+        samples.trajectory.observations,
+        observations,
+        indicator_ids,
+        times=tuple(float(t) for t in times),
+        time_origin=None,
+        standardized=(False, False),
+    )
 
     assert isinstance(result, PosteriorPredictiveChecks)
     assert result.checked is True

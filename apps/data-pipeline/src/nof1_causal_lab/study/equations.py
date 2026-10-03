@@ -3,24 +3,26 @@
 from __future__ import annotations
 
 from collections import defaultdict
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
+
+from sympy import Float, Function, Integer, Max, Symbol, evaluate, latex, log
 
 from nof1_causal_lab.artifacts.construct import CausalEdgeSpec
-from nof1_causal_lab.artifacts.expressions import fold_expression
+from nof1_causal_lab.artifacts.expressions import (
+    CoefficientExpression,
+    LiteralExpression,
+    StateExpression,
+    symbolic_call,
+    symbolic_expression,
+)
 from nof1_causal_lab.artifacts.parameter import PriorAuthoringTransform
 from nof1_causal_lab.models.model_structure import selected_state_ids
-from nof1_causal_lab.study.expression_latex import (
-    LatexValue,
-    binary_latex,
-    call_latex,
-    literal_latex,
-)
-from nof1_causal_lab.study.view_models import StateEquation
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.expressions import CoefficientExpression, Expression
-    from nof1_causal_lab.artifacts.identity import ConstructId, IndicatorId, ParameterId
+    from nof1_causal_lab.artifacts.expressions import Expression
+    from nof1_causal_lab.artifacts.identity import ConstructId, IndicatorId
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.models.model_structure import StructuralSelection
 
 
 def _text(label: str) -> str:
@@ -45,38 +47,43 @@ def _state_latex(model: ModelSpec, key: ConstructId) -> str:
 
 
 def _expression_latex(model: ModelSpec, expression: Expression) -> str:
-    """Interpret the scientific tree, using authored parameter labels as its legend."""
+    """Render the shared symbolic formula with the authored scientific legend."""
+    symbolic = symbolic_expression(expression)
     parameters = {parameter.id: parameter for parameter in model.parameters}
-
-    def coefficient(value: float | ParameterId) -> str:
-        if isinstance(value, (int, float)):
-            return f"{value:g}"
-        parameter = parameters[value]
-        symbol = r"\theta_{" + _text(parameter.name) + "}"
-        match parameter.transform.kind:
-            case PriorAuthoringTransform.DT_PERSISTENCE_TO_CT_DECAY:
-                return r"\frac{-\log(" + symbol + r")}{\Delta_{" + _text(parameter.name) + "}}"
-            case PriorAuthoringTransform.DT_EFFECT_TO_CT_RATE:
-                return r"\frac{" + symbol + r"}{\Delta_{" + _text(parameter.name) + "}}"
-            case _:
-                return symbol
-
-    def rendered_coefficient(operand: CoefficientExpression) -> LatexValue:
-        reference = operand.value
-        if reference is None:
-            return LatexValue(r"\underbrace{?}_{\text{" + operand.role.replace("_", " ") + "}}")
-        if isinstance(reference, (int, float)):
-            return literal_latex(reference)
-        return LatexValue(coefficient(reference))
-
-    return fold_expression(
-        expression,
-        literal=literal_latex,
-        state_value=lambda key: LatexValue(_state_latex(model, key)),
-        coefficient_value=rendered_coefficient,
-        binary=binary_latex,
-        call=call_latex,
-    ).text
+    replacements, labels = {}, {}
+    for symbol, operand in symbolic.nodes.items():
+        if isinstance(operand, StateExpression):
+            labels[symbol] = _state_latex(model, operand.construct_id)
+        elif isinstance(operand, (CoefficientExpression, LiteralExpression)):
+            reference = operand.value
+            if isinstance(operand, CoefficientExpression) and reference is None:
+                labels[symbol] = r"\underbrace{?}_{\text{" + operand.role.replace("_", " ") + "}}"
+            elif isinstance(reference, (int, float)):
+                replacements[symbol] = (
+                    Integer(reference) if float(reference).is_integer() else Float(reference)
+                )
+            elif isinstance(reference, str):
+                parameter = parameters[reference]
+                theta, interval = Symbol(reference), Symbol("interval:" + reference)
+                labels[theta] = r"\theta_{" + _text(parameter.name) + "}"
+                labels[interval] = r"\Delta_{" + _text(parameter.name) + "}"
+                match parameter.transform.kind:
+                    case PriorAuthoringTransform.DT_PERSISTENCE_TO_CT_DECAY:
+                        replacements[symbol] = -log(theta) / interval
+                    case PriorAuthoringTransform.DT_EFFECT_TO_CT_RATE:
+                        replacements[symbol] = theta / interval
+                    case _:
+                        replacements[symbol] = theta
+    with evaluate(False):
+        root = symbolic.root.xreplace(replacements)
+        root = root.replace(
+            Function("maximum"), lambda left, right: Max(left, right, evaluate=False)
+        )
+        root = root.replace(
+            Function("sigmoid"), lambda argument: symbolic_call("logistic", argument)
+        )
+        root = root.replace(Function("normal_cdf"), lambda argument: symbolic_call("Phi", argument))
+    return cast("str", latex(root, symbol_names=labels))
 
 
 def observation_equations(model: ModelSpec) -> dict[IndicatorId, str]:
@@ -96,8 +103,9 @@ def observation_equations(model: ModelSpec) -> dict[IndicatorId, str]:
     }
 
 
-def state_equations(model: ModelSpec) -> list[StateEquation]:
+def state_equations(selection: StructuralSelection) -> dict[ConstructId, str]:
     """Render actual drift, explicitly converting interval-authored parameters to rates."""
+    model = selection.model
     terms: dict[ConstructId, list[str]] = defaultdict(list)
     for owner, mechanism in model.iter_mechanisms():
         target = owner.effect.id if isinstance(owner, CausalEdgeSpec) else owner.id
@@ -111,8 +119,8 @@ def state_equations(model: ModelSpec) -> list[StateEquation]:
             )
         terms[target].append(expression)
 
-    rows = []
-    for key in selected_state_ids(model):
+    rows: dict[ConstructId, str] = {}
+    for key in selected_state_ids(selection):
         construct = model._constructs[key]
         if construct.temporal_status == "time_invariant":
             equation = r"\mathrm{d}" + _state_latex(model, key) + " = 0"
@@ -127,26 +135,23 @@ def state_equations(model: ModelSpec) -> list[StateEquation]:
                 + r"\right]\mathrm{d}t + "
                 + noise
             )
-        rows.append(StateEquation(construct_id=key, label=construct.name, latex=equation))
+        rows[key] = equation
     return rows
 
 
-def confounder_equations(model: ModelSpec) -> list[StateEquation]:
+def confounder_equations(selection: StructuralSelection) -> dict[ConstructId, str]:
     """Label the shared-noise dependencies derived from the scientific DAG."""
+    model = selection.model
     groups: dict[ConstructId, set[ConstructId]] = defaultdict(set)
-    for (first, second, kind), sources in model.induced_dependencies.items():
+    for (first, second, kind), sources in selection.induced_dependencies.items():
         if kind == "innovation_correlation":
             for owner in sources:
                 groups[owner].update((first, second))
-    return [
-        StateEquation(
-            construct_id=owner,
-            label=model.get_construct(owner).name,
-            latex="U_{"
-            + _text(model.get_construct(owner).name)
-            + r"}\to\{"
-            + ",\\,".join(_text(model.get_construct(key).name) for key in sorted(states))
-            + r"\}",
-        )
+    return {
+        owner: "U_{"
+        + _text(model.get_construct(owner).name)
+        + r"}\to\{"
+        + ",\\,".join(_text(model.get_construct(key).name) for key in sorted(states))
+        + r"\}"
         for owner, states in sorted(groups.items())
-    ]
+    }

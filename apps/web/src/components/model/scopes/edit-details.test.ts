@@ -4,7 +4,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { demoModelSnapshot } from "@/components/__fixtures__/demo-artifacts";
 import { indexModel } from "@/lib/model-asset/entities";
-import type { ModelEditResult, StudyRevision } from "@nof1-causal-lab/api-types";
+import type { Applied, StudyRevision } from "@nof1-causal-lab/api-types";
 import type { ScopeContext } from "@/lib/model-asset/scope";
 import { EditDetails } from "./edit-details";
 import { ActionFindings } from "../action-findings";
@@ -21,22 +21,24 @@ const context: ScopeContext = {
   entities: indexModel(demoModelSnapshot.model?.value),
   select: vi.fn(),
 };
-const result: ModelEditResult = {
-  action: "edit_model",
-  checks: null,
-  retracted: [],
-  base: { workspace_id: "DEMO", revision: "archived-authorship-base", path: "model.json" },
-  produced: [
-    {
-      artifact_id: "model",
-      revision: "edited-model",
-      derived_from: { model: "archived-authorship-base" },
-      model_inputs: {},
-      consumed_model_inputs: {},
-      produced_by: "edit_model",
-      created_at: "2026-09-30T00:00:00Z",
-    },
-  ],
+const applied: Applied<null> = {
+  status: "applied",
+  result: null,
+  effects: {
+    checks: null,
+    retracted: [],
+    produced: [
+      {
+        artifact_id: "model",
+        revision: "edited-model",
+        derived_from: { model: "archived-authorship-base" },
+        model_inputs: {},
+        consumed_model_inputs: {},
+        produced_by: "edit_model",
+        created_at: "2026-09-30T00:00:00Z",
+      },
+    ],
+  },
 };
 const tick: StudyRevision = {
   commit_id: "rewritten-edit",
@@ -48,7 +50,7 @@ const tick: StudyRevision = {
     branch: "main",
     messages: [],
     trace_ids: [],
-    attempt: { action: "edit_model", request: null, outcome: { status: "applied", result } },
+    attempt: { action: "edit_model", request: null, outcome: applied },
   },
 };
 
@@ -66,13 +68,13 @@ describe("edit change summaries after history compaction", () => {
   it("compares to the preceding commit, even when the authorship base differs", () => {
     renderToStaticMarkup(createElement(EditDetails, { context, tick }));
     expect(hooks.snapshot).toHaveBeenCalledWith(
-      context.model.context.workspace_id,
+      context.model.workspace_id,
       "preceding-commit",
       "main",
       true,
     );
     expect(hooks.diff).toHaveBeenCalledWith(
-      context.model.context.workspace_id,
+      context.model.workspace_id,
       "preceding-commit",
       "rewritten-edit",
     );
@@ -85,11 +87,7 @@ describe("edit change summaries after history compaction", () => {
       error: null,
     });
     const html = renderToStaticMarkup(createElement(EditDetails, { context, tick }));
-    expect(hooks.diff).toHaveBeenCalledWith(
-      context.model.context.workspace_id,
-      "preceding-commit",
-      null,
-    );
+    expect(hooks.diff).toHaveBeenCalledWith(context.model.workspace_id, "preceding-commit", null);
     expect(html).toContain("Model created");
     expect(html).not.toContain("Reading model changes");
   });
@@ -102,11 +100,7 @@ describe("edit change summaries after history compaction", () => {
     });
     const html = renderToStaticMarkup(createElement(EditDetails, { context, tick }));
     expect(html).toContain("Reading model changes");
-    expect(hooks.diff).toHaveBeenCalledWith(
-      context.model.context.workspace_id,
-      "preceding-commit",
-      null,
-    );
+    expect(hooks.diff).toHaveBeenCalledWith(context.model.workspace_id, "preceding-commit", null);
   });
 
   it("renders served graph and law changes in model terms, without definition paths or IDs", () => {
@@ -114,17 +108,18 @@ describe("edit change summaries after history compaction", () => {
     const parameter = fixtureValue(context.entities.parameters[0]);
     hooks.diff.mockReturnValue({
       data: {
-        graph: {
-          constructs: [edge.cause, edge.effect].map((construct) => ({
-            construct_id: construct.id,
-            change: {
-              kind: "added",
-              after: fixtureValue(context.entities.constructById.get(construct.id)),
-            },
-          })),
-          edges: [{ edge_id: edge.id, change: { kind: "added", after: edge } }],
-        },
-        parameters: [{ parameter_id: parameter.id, change: { kind: "added", after: parameter } }],
+        constructs: [edge.cause, edge.effect].map((construct) => ({
+          kind: "added",
+          after: { kind: "construct", id: construct.id },
+        })),
+        edges: [{ kind: "added", after: { kind: "edge", id: edge.id } }],
+        before_dispositions: [],
+        after_dispositions: [],
+        before_dynamic_construct_ids: [],
+        after_dynamic_construct_ids: [],
+        beforeModel: fixtureValue(context.model.model).value,
+        afterModel: fixtureValue(context.model.model).value,
+        parameters: [{ kind: "added", after: parameter }],
         changed_inputs: ["compilation", "belief"],
       },
       error: null,
@@ -141,14 +136,16 @@ describe("edit change summaries after history compaction", () => {
 
   it("shows served check reasons unchanged and omits passing checks", () => {
     const indicator = fixtureValue(context.entities.indicators[0]);
-    const checkedResult: ModelEditResult = {
-      ...result,
-      checks: {
-        input_keys: {},
-        predictive: null,
-        reused: [],
-        specification: {
-          findings: [
+    const checkedResult: Applied<null> = {
+      ...applied,
+      effects: {
+        ...applied.effects,
+        checks: {
+          input_keys: {},
+          question: null,
+          predictive: null,
+          reused: [],
+          specification: [
             {
               kind: "evaluated",
               subject: "model_execution",
@@ -166,7 +163,7 @@ describe("edit change summaries after history compaction", () => {
       },
     };
     const html = renderToStaticMarkup(
-      createElement(ActionFindings, { context, result: checkedResult }),
+      createElement(ActionFindings, { context, applied: checkedResult }),
     );
     expect(html).toContain(indicator.observation.id);
     expect(html).toContain("requires a likelihood.");

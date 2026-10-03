@@ -8,31 +8,23 @@ from typing import Annotated, Literal
 from pydantic import AwareDatetime, Field, FiniteFloat
 
 from nof1_causal_lab.artifacts.base import Value
-from nof1_causal_lab.artifacts.checks import SpecificationReport
-from nof1_causal_lab.artifacts.construct import ConstructSpec
+from nof1_causal_lab.artifacts.checks import SpecificationAssessment
 from nof1_causal_lab.artifacts.effects import HistogramBin
 from nof1_causal_lab.artifacts.execution import StructuralItemDisposition
 from nof1_causal_lab.artifacts.identity import (
     ConstructId,
     ConstructRef,
-    EdgeId,
+    EdgeRef,
     GitOid,
     GitRef,
     IndicatorId,
-    ParameterId,
 )
 from nof1_causal_lab.artifacts.measurements import ObservationRecord
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.observations import ObservationSpec
 from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
-from nof1_causal_lab.artifacts.posterior import InferenceReport, InferenceReportCore
+from nof1_causal_lab.artifacts.posterior import InferenceReportCore
 from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorPredictiveChecks
 from nof1_causal_lab.artifacts.simulation import SimulationReport
-from nof1_causal_lab.artifacts.validation_report import (
-    IndicatorEmpiricalProfile,
-    ValidationReportArtifact,
-)
-from nof1_causal_lab.study.state import ArtifactRecord
 
 
 class RawDataDateRange(Value):
@@ -66,59 +58,6 @@ class MeasurementsData(Value):
     n_observations: int
     per_indicator_counts: Mapping[IndicatorId, int]
     combined_extractions_sample: tuple[ObservationRecord, ...]
-
-
-class LikelihoodDiagnostics(Value):
-    """Observed values and validation profile for one likelihood's pinned panel."""
-
-    indicator_id: IndicatorId
-    profile: IndicatorEmpiricalProfile | None
-    histogram: tuple[HistogramBin, ...]
-
-
-class StateEquation(Value):
-    """A continuous-time state equation rendered from declared scientific mechanisms."""
-
-    construct_id: ConstructId
-    label: str
-    latex: str
-
-
-class DensityPoint(Value):
-    """A plotting coordinate evaluated from the native prior's log density."""
-
-    x: float
-    y: float = Field(ge=0)
-
-
-class ModelDiagnostics(Value):
-    """Server-derived equations and comparisons with pinned observations."""
-
-    confounder_equations: tuple[StateEquation, ...] = Field(default_factory=tuple)
-    state_equations: tuple[StateEquation, ...] = Field(default_factory=tuple)
-    observation_equations: Mapping[IndicatorId, str] = Field(default_factory=dict)
-    likelihood_diagnostics: Mapping[IndicatorId, LikelihoodDiagnostics] = Field(
-        default_factory=dict
-    )
-    prior_densities: Mapping[ParameterId, tuple[DensityPoint, ...]] = Field(default_factory=dict)
-
-
-type ArtifactViewResponse = (
-    RawDataData
-    | ModelSpec
-    | MeasurementsData
-    | ValidationReportArtifact
-    | ModelDiagnostics
-    | InferenceReport
-)
-
-
-class RevisionCatalog(Value):
-    """A revision catalog lists immutable model, source and observation inputs for selection."""
-
-    models: tuple[ArtifactRecord, ...]
-    raw_data: tuple[ArtifactRecord, ...]
-    panels: tuple[ArtifactRecord, ...]
 
 
 class Added[PayloadT](Value):
@@ -156,58 +95,21 @@ type Change[PayloadT] = Annotated[
 ]
 
 
-class ParameterChange(Value):
-    """A parameter change compares one parameter's law across model revisions."""
-
-    parameter_id: ParameterId
-    change: Change[ParameterSpec]
-
-
-class ConstructComparison(Value):
-    """A construct's presence and time-slice topology in two model revisions."""
-
-    construct_id: ConstructId
-    change: Change[ConstructSpec] | Unchanged[ConstructSpec]
-    before_disposition: StructuralItemDisposition | None
-    after_disposition: StructuralItemDisposition | None
-
-
-class ComparisonConnection(Value):
-    """Endpoint references and description for one side of a causal edge comparison."""
-
-    cause: ConstructRef
-    effect: ConstructRef
-    description: str
-
-
-class EdgeComparison(Value):
-    """An explicit causal edge's presence and endpoints in two model revisions."""
-
-    edge_id: EdgeId
-    change: Change[ComparisonConnection] | Unchanged[ComparisonConnection]
-    before_disposition: StructuralItemDisposition | None
-    after_disposition: StructuralItemDisposition | None
-
-
-class ModelGraphComparison(Value):
-    """Identity-aligned topology changes, excluding laws and other entity attributes."""
-
-    constructs: tuple[ConstructComparison, ...]
-    edges: tuple[EdgeComparison, ...]
-    before_dynamic_construct_ids: tuple[ConstructId, ...]
-    after_dynamic_construct_ids: tuple[ConstructId, ...]
-
-
 class ModelDiffReport(Value):
     """A model diff joins typed entity comparisons and evidence at two model revisions or checkpoints."""
 
     before: GitRef
     after: GitRef
-    parameters: tuple[ParameterChange, ...]
-    graph: ModelGraphComparison
+    parameters: tuple[Change[ParameterSpec], ...]
+    constructs: tuple[Change[ConstructRef] | Unchanged[ConstructRef], ...]
+    edges: tuple[Change[EdgeRef] | Unchanged[EdgeRef], ...]
+    before_dispositions: tuple[StructuralItemDisposition, ...]
+    after_dispositions: tuple[StructuralItemDisposition, ...]
+    before_dynamic_construct_ids: tuple[ConstructId, ...]
+    after_dynamic_construct_ids: tuple[ConstructId, ...]
     changed_inputs: tuple[str, ...]
-    before_checks: SpecificationReport
-    after_checks: SpecificationReport
+    before_checks: tuple[SpecificationAssessment, ...]
+    after_checks: tuple[SpecificationAssessment, ...]
     before_fit: InferenceReportCore | None
     after_fit: InferenceReportCore | None
     before_simulation: SimulationReport | None
@@ -265,13 +167,6 @@ class DataSeries(Value):
     points: tuple[DataPoint, ...]
 
 
-class DataPointChange(Value):
-    """An added, removed or revised measurement in a single-history comparison."""
-
-    anchor_time: AwareDatetime
-    change: Change[DataPoint]
-
-
 type DataStatistic = Literal[
     "observed_count", "missing_count", "mean", "sd", "min", "max", "proportion"
 ]
@@ -294,7 +189,7 @@ class DataVariableDiff(Value):
     indicator_id: IndicatorId
     left: tuple[DataSeries, ...]
     right: tuple[DataSeries, ...]
-    changes: tuple[DataPointChange, ...]
+    changes: tuple[Change[DataPoint], ...]
     statistics: tuple[DataStatisticComparison, ...]
     comparison_issues: tuple[str, ...]
     reference_side: Literal["left", "right"] | None

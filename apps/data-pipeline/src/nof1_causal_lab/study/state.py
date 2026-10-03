@@ -12,11 +12,18 @@ cross serialization boundaries verbatim: Temporal update/activity payloads
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from enum import StrEnum
+from typing import Annotated, Literal
 
 from pydantic import Field
 
 from nof1_causal_lab.artifacts.base import Value
-from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS, ArtifactId, GitOid
+from nof1_causal_lab.artifacts.identity import (
+    ARTIFACT_IDS,
+    ArtifactId,
+    GitOid,
+    ScientificActionId,
+)
 from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
 
 
@@ -80,12 +87,10 @@ class StudyState(Value):
         merged = dict(self.current)
         for info in infos:
             merged[info.artifact_id] = info
-        return self.model_copy(
-            update={"current": {aid: merged[aid] for aid in ARTIFACT_IDS if aid in merged}}
-        )
+        return self.revised(current={aid: merged[aid] for aid in ARTIFACT_IDS if aid in merged})
 
     def with_checks(self, checks: ModelCheckReport) -> StudyState:
-        return self.model_copy(update={"checks": checks})
+        return self.revised(checks=checks)
 
     def without(self, artifact_ids: list[ArtifactId]) -> StudyState:
         """Return a new state with the given artifacts removed from ``current``.
@@ -96,10 +101,8 @@ class StudyState(Value):
         silently consume a payload derived from superseded inputs.
         """
         removed = set(artifact_ids)
-        return self.model_copy(
-            update={
-                "current": {aid: info for aid, info in self.current.items() if aid not in removed}
-            }
+        return self.revised(
+            current={aid: info for aid, info in self.current.items() if aid not in removed}
         )
 
 
@@ -108,6 +111,13 @@ class RetractedArtifact(Value):
 
     artifact_id: ArtifactId
     reason_ref: str
+
+
+def validate_lineage(state: StudyState, action: ScientificActionId) -> str | None:
+    """The question roots every lineage: it is set first, and only then."""
+    if action == "set_question":
+        return "The question is set by the study's first action" if state.current else None
+    return None if state.has("question") else "Set the study question first"
 
 
 def validate_model_base(state: StudyState, expected_revision: GitOid | None) -> str | None:
@@ -158,27 +168,38 @@ def _staleness(state: StudyState, artifact_id: ArtifactId, visiting: frozenset[A
     return False
 
 
-class ArtifactFreshness(Value):
+class SourceValidity(StrEnum):
+    """Whether a selected artifact still matches its pinned inputs."""
+
+    FRESH = "fresh"
+    STALE = "stale"
+
+
+class Missing(Value):
+    """An artifact absent from the selected state."""
+
+    kind: Literal["missing"] = "missing"
     artifact_id: ArtifactId
-    exists: bool
-    stale: bool
-    revision: GitOid | None = None
-    retracted: bool = False
-    produced_by: str | None = None
+
+
+class Present(Value):
+    """The selected artifact record and its input validity."""
+
+    kind: Literal["present"] = "present"
+    record: ArtifactRecord
+    validity: SourceValidity
+
+
+type ArtifactFreshness = Annotated[Missing | Present, Field(discriminator="kind")]
 
 
 def freshness_report(state: StudyState) -> list[ArtifactFreshness]:
-    """Per-artifact existence/staleness — the navigator's and UI's state view."""
-    report: list[ArtifactFreshness] = []
-    for artifact_id in ARTIFACT_IDS:
-        info = state.get(artifact_id)
-        report.append(
-            ArtifactFreshness(
-                artifact_id=artifact_id,
-                exists=info is not None,
-                stale=is_stale(state, artifact_id),
-                revision=info.revision if info else None,
-                produced_by=info.produced_by if info else None,
-            )
+    return [
+        Missing(artifact_id=artifact_id)
+        if (record := state.get(artifact_id)) is None
+        else Present(
+            record=record,
+            validity=SourceValidity.STALE if is_stale(state, artifact_id) else SourceValidity.FRESH,
         )
-    return report
+        for artifact_id in ARTIFACT_IDS
+    ]

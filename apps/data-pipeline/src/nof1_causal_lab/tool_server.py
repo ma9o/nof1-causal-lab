@@ -57,7 +57,6 @@ from nof1_causal_lab.utils.data import data_root
 from nof1_causal_lab.utils.model_structure import (
     get_constructs,
     get_model_clock,
-    get_state_names,
 )
 
 logger = logging.getLogger(__name__)
@@ -125,16 +124,27 @@ if TYPE_CHECKING:
     from nof1_causal_lab.study.records import StudyRevision
 
 _API_DESCRIPTION = """\
-The scientific interface has four actions: `edit_model`, `prepare_data`, `fit`,
-and `simulate`. Requests commit through the serialized study workflow; reads
+The scientific interface has five actions: `set_question`, `edit_model`, `prepare_data`,
+`fit`, and `simulate`. Requests commit through the serialized study workflow; reads
 come from its versioned artifacts and append-only attempt log.
 
 ## Scientific loop
 
-1. Read `GET /api/studies/{workspace_id}/model` for current model/data versions and findings.
+1. Read `GET /api/studies/{workspace_id}/model` for current question, model/data versions and findings.
 2. Submit to `POST /api/studies/{workspace_id}/actions`:
-   - `edit_model`: `{"action":"edit_model","expected_revision":null,"model":{"question":"Does workload affect sleep?"}}`.
+   - `set_question` is every study's first action, and for now its only point:
+     `{"action":"set_question","question":{"text":"Does workload affect sleep?","outcome":"construct:sleep_quality","queries":{"lighter weeks":{"start":"2026-05-15","horizon":"4w","interventions":[{"target":"construct:workload","value":2}]}}}}`.
+     Each query is a contrast of its interventions with the recorded course. It has one
+     calendar day, `start`; the window is a `horizon` and interventions sit `after` an
+     offset from the start (omitted means at the start), both in `s|m|h|d|w` durations,
+     where `m` is minutes. Name constructs by the identities the model will define.
+     Other actions are rejected until the question exists.
+   - `edit_model`: `{"action":"edit_model","expected_revision":null,"model":{"edges":[...]}}`.
      Model structure, measurements, mechanisms, constants, and laws can be edited together.
+     Define the question's constructs with their identities; question checks report
+     "not evaluated" until the model does. Coefficients that enter only as a sum or only
+     as a product in every use are rejected; merge them into one parameter. Give each
+     parameter's prior law its `reasoning` and `sources`.
      Each observation law has a distribution tag and direct Expression fields, e.g.
      `{"distribution":"Delta","v":{"kind":"state","construct_id":"construct:workload"}}`.
      Bernoulli uses `BernoulliLogits` with `logits` or `BernoulliProbs` with `probs`.
@@ -162,12 +172,12 @@ come from its versioned artifacts and append-only attempt log.
    - `fit`: `{"action":"fit","model_revision":"<model tree OID>","panel_revision":"<panel tree OID>"}` conditions the selected
      model on observations. Returns joint uncertainty and fit diagnostics; predictive
      simulation is a separate request. Current fitting supports independent scalar laws.
-   - `simulate`: `{"action":"simulate","model_revision":"<model tree OID>","end":30,"interventions":[]}`
-     generates forward from the model's current laws. `start` optionally selects an earlier
-     model time; otherwise generation starts at its latest retained state, or zero when it
-     has only an initial-state law. Times use absolute model days. Interventions are optional:
-     `{"target":"<construct ID>","time":5,"value":1}` assigns a state at that time,
-     then its natural dynamics resume. The framework derives the grid and always includes
+   - `simulate`: `{"action":"simulate","model_revision":"<model tree OID>","start":"2026-05-15","horizon":"30d","interventions":[]}`
+     generates a window from the model's current laws, in the same shape as a question query.
+     The record's model day zero places the start: the fit's origin for fitted laws,
+     otherwise the current panel's; without a panel the start is day zero. Interventions are
+     optional: `{"target":"<construct ID>","after":"5d","value":1}` assigns a state that long
+     after the start, then its natural dynamics resume. The framework derives the grid and always includes
      process and observation uncertainty. The saved report includes all state and indicator
      summaries, law provenance and fit reliability, with causal intervals only when certified.
      See [time semantics](../../../docs/assumptions.md#time) for initial laws and calendar binding.
@@ -206,10 +216,10 @@ not_evaluated reasons. Read predictive details and law provenance in the applied
 Simulation reports retain their own generating model revision; a later edit makes that
 report historical rather than evidence for the edited model.
 
-Only the four scientific actions submit scientific work. Execution jobs and
+Only the five scientific actions submit scientific work. Execution jobs and
 LLM subroutines are private implementation details; callers do not select them.
 Simulation always uses the same nonlinear generator. Paired intervention histories share
-joint parameter/state draws and random streams. Causal effects on the model's default
+joint parameter/state draws and random streams. Causal effects on the question's
 outcome are reported only when identification and committed production-fit evidence support
 that interpretation; otherwise the report keeps its histories with an explicit reason.
 The `analysis` context is read-only model introspection.
@@ -224,7 +234,7 @@ the timeline before submitting another request.
 
 ## Read-only deployments
 
-`GET /api/capabilities` reports `actions_enabled`. Read-only deployments reject scientific action submissions with 403.
+`GET /api/actions-enabled` returns a boolean. Read-only deployments reject scientific action submissions with 403.
 """
 
 
@@ -303,11 +313,15 @@ class _LoadedSimulation:
         events = replay_input_events(
             self.compiled,
             self.observation_data,
-            time_origin=self.report.time_origin,
+            time_origin=self.report.core.time_origin,
             start=self.model.time_points[0],
             end=self.model.time_points[-1],
             indicator_column="indicator",
         )
+        from nof1_causal_lab.models.ssm.preflight import ObservationPreflightFailure
+
+        if isinstance(events, ObservationPreflightFailure):
+            raise RuntimeError(f"Committed fit input events are inconsistent: {events.message}")
         return model_draws(
             self.compiled,
             input_values=replay_input_values(self.compiled, self.model.time_points, events),
@@ -342,20 +356,28 @@ def _load_simulation(
     data_for_model = store.read_parquet_file("panel", panel_pin, parquet_filename("panel", "panel"))
     model = read_model(store, model_revision)
 
-    from nof1_causal_lab.models.ssm.compile.inputs import compile_executable_model
+    from nof1_causal_lab.models.model_structure import StructuralSelection
+    from nof1_causal_lab.study.store import read_current_state, read_question
 
-    compiled = compile_executable_model(model)
+    # A study's question is set once, so its outcome scoped every fit in it.
+    question = read_question(store, read_current_state(workspace_id).current["question"].revision)
+    compiled = compile_executable_model(StructuralSelection.for_question(model, question))
 
-    from nof1_causal_lab.study.records import Applied, FitAttempt
+    from nof1_causal_lab.study.records import Applied
 
-    assert isinstance(record.record.attempt, FitAttempt)
+    assert record.record.attempt.action == "fit"
     assert isinstance(record.record.attempt.outcome, Applied)
     report = record.record.attempt.outcome.result.report
-    _, observation_data = project_observation_data(
+    projected = project_observation_data(
         data_for_model=data_for_model,
         model_spec=compiled,
-        time_origin=report.time_origin,
+        time_origin=report.core.time_origin,
     )
+    from nof1_causal_lab.models.ssm.preflight import ObservationPreflightFailure
+
+    if isinstance(projected, ObservationPreflightFailure):
+        raise RuntimeError(f"Committed fit observations are inconsistent: {projected.message}")
+    _, observation_data = projected
     return _LoadedSimulation(model, record, observation_data, report, compiled)
 
 
@@ -377,9 +399,11 @@ def _build_analysis_context(workspace_id: str) -> AnalysisToolContext:
         "identification_report",
     )
     stale_artifacts = [
-        status.artifact_id
+        status.record.artifact_id
         for status in freshness_report(state)
-        if status.stale and status.artifact_id in serving_chain
+        if status.kind == "present"
+        and status.validity == "stale"
+        and status.record.artifact_id in serving_chain
     ]
     if stale_artifacts:
         raise HTTPException(
@@ -409,7 +433,11 @@ def _build_analysis_context(workspace_id: str) -> AnalysisToolContext:
     ]
 
     predictive = state.checks.predictive if state.checks is not None else None
-    checks = predictive.predictive_checks if predictive is not None else None
+    checks = (
+        predictive.evaluation.predictive_checks
+        if predictive is not None and predictive.evaluation.kind == "evaluated"
+        else None
+    )
 
     return {
         "_workspace_id": workspace_id,
@@ -435,11 +463,11 @@ def _build_model_info_payload(ctx: AnalysisToolContext, args: GetModelInfoInput)
     focused = set(args.names)
     model = ctx["model"]
     posterior = ctx["inference_report"]
-    retained_state_names = set(get_state_names(model))
+    compiled = ctx["_simulation"].compiled
+    retained_state_names = {state.name for state in compiled.states}
     constructs = [
         construct for construct in get_constructs(model) if construct.name in retained_state_names
     ]
-    compiled = compile_executable_model(model)
     indicators = [
         (model.indicator_owner(observation.id), model.indicator(observation.id))
         for observation in compiled.observations
@@ -460,7 +488,7 @@ def _build_model_info_payload(ctx: AnalysisToolContext, args: GetModelInfoInput)
             "treatments": [*ctx["_identifiable_treatments"]],
             "n_latent": numeric.n_states(compiled),
             "n_manifest": len(numeric.observation_names(compiled)),
-            "inference_method": posterior.inference_metadata.method,
+            "inference_method": posterior.core.inference_metadata.method,
             "observed_time_range": {
                 "start": ctx["_observation_timestamps"][0].isoformat()
                 if ctx["_observation_timestamps"]

@@ -1,7 +1,7 @@
-import type { LLMTrace, UploadResponse } from "@nof1-causal-lab/api-types";
+import type { LLMTrace } from "@nof1-causal-lab/api-types";
 import { apiClient } from "./client";
 
-export async function uploadFile(file: File, workspaceId: string): Promise<UploadResponse> {
+export async function uploadFile(file: File, workspaceId: string): Promise<string> {
   const { data, response } = await apiClient.POST("/api/upload", {
     body: { file, workspaceId },
     bodySerializer: (body) => {

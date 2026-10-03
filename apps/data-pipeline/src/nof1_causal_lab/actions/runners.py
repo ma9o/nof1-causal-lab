@@ -13,20 +13,21 @@ import os
 from typing import TYPE_CHECKING
 
 from nof1_causal_lab.actions.contracts import FitRequest, PrepareDataRequest, SimulateRequest
+from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.artifacts.data_preparation import SimulationReplicateRef
 from nof1_causal_lab.artifacts.identity import GitRef
 from nof1_causal_lab.artifacts.predictive_provenance import FittedLawProvenance, MixedLawProvenance
 from nof1_causal_lab.artifacts.simulation import SimulationSpec
+from nof1_causal_lab.compilation_errors import AggregatedCompileError
+from nof1_causal_lab.models.model_structure import StructuralSelection
 from nof1_causal_lab.study.artifact_files import json_filename, parquet_filename
 from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.records import (
-    ActionBody,
     Applied,
     DataComparisonResult,
     DataPreparationResult,
     ModelFitResult,
     ModelSimulationResult,
-    SimulateAttempt,
 )
 from nof1_causal_lab.study.store import ArtifactStore
 from nof1_causal_lab.study.view_models import DataDiffRequest
@@ -48,7 +49,7 @@ async def _run_fit(
     store: ArtifactStore,
     pins: dict[ArtifactId, GitOid],
     settings: FitSettingsSpec,
-) -> ModelFitResult:
+) -> Applied[ModelFitResult]:
     from nof1_causal_lab.actions.fit import fit
     from nof1_causal_lab.actions.inference.fit import resolve_sampler_spec
     from nof1_causal_lab.utils.config import get_config
@@ -56,13 +57,14 @@ async def _run_fit(
     panel = _panel_df(store, pins)
     from functools import cache
 
-    from nof1_causal_lab.study.store import read_model
+    from nof1_causal_lab.study.store import read_model, read_question
 
     model_spec = read_model(store, pins["model"])
     from nof1_causal_lab.actions.data_checks import require_data_binding
     from nof1_causal_lab.study.lineage import read_data_metadata
 
     require_data_binding(store, model_spec, pins["panel"])
+    selection = StructuralSelection.for_question(model_spec, read_question(store, pins["question"]))
     sampler = resolve_sampler_spec(settings)
 
     config = get_config().inference
@@ -74,7 +76,7 @@ async def _run_fit(
         compute_fit = fit
     result = await asyncio.to_thread(
         compute_fit,
-        model_spec=model_spec,
+        selection=selection,
         data_for_model=panel,
         time_origin=read_data_metadata(store, pins["panel"]).time_origin,
         sampler=sampler,
@@ -91,11 +93,17 @@ async def _run_fit(
         produced_by="fit",
         json_files={json_filename("model", "model"): conditioned.model_dump(mode="json")},
     )
-    return ModelFitResult(
-        produced=(info,),
-        model=GitRef(workspace_id=store.workspace_id, revision=pins["model"], path="model.json"),
-        panel=GitRef(workspace_id=store.workspace_id, revision=pins["panel"], path="panel.parquet"),
-        report=report,
+    return Applied(
+        result=ModelFitResult(
+            model=GitRef(
+                workspace_id=store.workspace_id, revision=pins["model"], path="model.json"
+            ),
+            panel=GitRef(
+                workspace_id=store.workspace_id, revision=pins["panel"], path="panel.parquet"
+            ),
+            report=report,
+        ),
+        effects=ActionEffects(produced=(info,)),
     )
 
 
@@ -104,7 +112,7 @@ async def _run_simulate(
     store: ArtifactStore,
     pins: dict[ArtifactId, GitOid],
     design: SimulationSpec,
-) -> ModelSimulationResult:
+) -> Applied[ModelSimulationResult]:
     from nof1_causal_lab.actions.scenarios import summarize_causal_simulation
     from nof1_causal_lab.actions.simulate import simulate
     from nof1_causal_lab.artifacts.identity import GitRef
@@ -115,13 +123,19 @@ async def _run_simulate(
     model = read_model(store, pins["model"])
     from nof1_causal_lab.models.ssm.inference.convergence import convergence_failures
     from nof1_causal_lab.study.lineage import fitted_law_report, law_provenance, read_data_metadata
+    from nof1_causal_lab.study.store import read_question
+
+    selection = StructuralSelection.for_question(model, read_question(store, pins["question"]))
 
     records = StudyRepository(workspace_id).attempts()
     law = law_provenance(store, store.read_meta("model", pins["model"]), model, None)
-    time_origin = None
+    # Without a record, the design's start is model day zero for the initial-state law.
     origin_panel_revision = pins.get("panel")
-    if origin_panel_revision is not None:
-        time_origin = read_data_metadata(store, origin_panel_revision).time_origin
+    time_origin = (
+        read_data_metadata(store, origin_panel_revision).time_origin
+        if origin_panel_revision is not None
+        else design.start_instant
+    )
 
     reliability: FitReliability = "unknown" if law.kind == "unknown" else "not_fitted"
     if isinstance(law, (FittedLawProvenance, MixedLawProvenance)):
@@ -129,10 +143,12 @@ async def _run_simulate(
         time_origin = fit_report.time_origin
         origin_panel_revision = law.fitted_panel_revision
         reliability = "unconverged" if convergence_failures(fit_report.convergence) else "converged"
+    if time_origin is None:
+        raise AggregatedCompileError(["A calendar-free record cannot place a dated simulation."])
 
     report = await asyncio.to_thread(
         simulate,
-        model,
+        selection,
         design,
         revision=GitRef(workspace_id=workspace_id, revision=pins["model"], path="model.json"),
         write_array=store.write_array,
@@ -145,18 +161,26 @@ async def _run_simulate(
         and any(construct.role == "exogenous" for construct in model.constructs)
         else None,
     )
+    from nof1_causal_lab.actions.errors import ActionExecutionError
+    from nof1_causal_lab.models.ssm.preflight import ObservationPreflightFailure
+
+    if isinstance(report, ObservationPreflightFailure):
+        raise ActionExecutionError(report.message)
     report = report.with_provenance(law=law, origin_panel_revision=origin_panel_revision)
     report = summarize_causal_simulation(
-        model,
+        selection,
         report,
         store=store,
         inference=inference_record(records, pins["model"]),
     )
-    return ModelSimulationResult(
-        report=report,
-        panel=GitRef(workspace_id=workspace_id, revision=pins["panel"], path="panel.parquet")
-        if "panel" in pins
-        else None,
+    return Applied(
+        result=ModelSimulationResult(
+            report=report,
+            panel=GitRef(workspace_id=workspace_id, revision=pins["panel"], path="panel.parquet")
+            if "panel" in pins
+            else None,
+        ),
+        effects=ActionEffects(),
     )
 
 
@@ -164,7 +188,7 @@ async def _run_simulated_data(
     workspace_id: str,
     store: ArtifactStore,
     source: SimulationReplicateRef,
-) -> DataPreparationResult:
+) -> Applied[DataPreparationResult]:
     """Materialize one recorded simulation replicate; its source owns every input selection."""
     from datetime import timedelta
 
@@ -173,7 +197,7 @@ async def _run_simulated_data(
     from nof1_causal_lab.study.history import StudyRepository
 
     record = StudyRepository(workspace_id).record(source.revision)
-    if not isinstance(record.record.attempt, SimulateAttempt) or not isinstance(
+    if record.record.attempt.action != "simulate" or not isinstance(
         record.record.attempt.outcome, Applied
     ):
         raise StudyLookupError("The source revision must be an applied simulation commit")
@@ -195,15 +219,16 @@ async def _run_simulated_data(
             json_filename("panel", "metadata"): PreparedDataMetadata(
                 source=source,
                 variables=report.observation_layout.variables,
-                time_origin=report.time_origin + timedelta(days=report.times[0])
-                if report.time_origin is not None
-                else None,
+                time_origin=report.time_origin + timedelta(days=report.times[0]),
             ).model_dump(mode="json")
         },
         parquet_files={parquet_filename("panel", "panel"): panel},
     )
-    return DataPreparationResult(
-        produced=(info,), simulation_source=source, n_observations=panel["value"].count()
+    return Applied(
+        result=DataPreparationResult(
+            simulation_source=source, n_observations=panel["value"].count()
+        ),
+        effects=ActionEffects(produced=(info,)),
     )
 
 
@@ -211,20 +236,28 @@ async def run_action_locally(
     workspace_id: str,
     request: FitRequest | SimulateRequest | PrepareDataRequest | DataDiffRequest,
     pins: dict[ArtifactId, GitOid],
-) -> ActionBody:
+) -> (
+    Applied[ModelFitResult]
+    | Applied[ModelSimulationResult]
+    | Applied[DataPreparationResult]
+    | Applied[DataComparisonResult]
+):
     """Run a fit, simulation or simulated-data preparation on this process."""
     store = ArtifactStore(workspace_id)
     if isinstance(request, DataDiffRequest):
         from nof1_causal_lab.actions.data_diff import read_data_diff
 
-        return DataComparisonResult(
-            report=await asyncio.to_thread(read_data_diff, workspace_id, request)
+        return Applied(
+            result=DataComparisonResult(
+                report=await asyncio.to_thread(read_data_diff, workspace_id, request)
+            ),
+            effects=ActionEffects(),
         )
     if isinstance(request, FitRequest):
         return await _run_fit(store, pins, request.settings)
     if isinstance(request, SimulateRequest):
         design = SimulationSpec(
-            start=request.start, end=request.end, interventions=request.interventions
+            start=request.start, horizon=request.horizon, interventions=request.interventions
         )
         return await _run_simulate(workspace_id, store, pins, design)
     if not isinstance(request.input, SimulationReplicateRef):
@@ -243,21 +276,41 @@ async def run_action(
     workspace_id: str,
     request: FitRequest | SimulateRequest | PrepareDataRequest | DataDiffRequest,
     state: StudyState,
-) -> ActionBody:
+) -> (
+    Applied[ModelFitResult]
+    | Applied[ModelSimulationResult]
+    | Applied[DataPreparationResult]
+    | Applied[DataComparisonResult]
+):
     """Pin a request's inputs and run it, routing fits to Modal in production."""
     store = ArtifactStore(workspace_id)
     if isinstance(request, FitRequest):
-        pins = _pinned(store, {"model": request.model_revision, "panel": request.panel_revision})
+        # The question's outcome scopes which part of the model the fit learns.
+        pins = _pinned(
+            store,
+            {
+                "model": request.model_revision,
+                "panel": request.panel_revision,
+                "question": state.current["question"].revision,
+            },
+        )
         from nof1_causal_lab.models.ssm.compile.inputs import compile_executable_model
-        from nof1_causal_lab.study.store import read_model
+        from nof1_causal_lab.study.store import read_model, read_question
 
-        compile_executable_model(read_model(store, pins["model"]))
+        compile_executable_model(
+            StructuralSelection.for_question(
+                read_model(store, pins["model"]), read_question(store, pins["question"])
+            )
+        )
         if os.environ.get("DEPLOYMENT_ENV") == "production":
             from nof1_causal_lab.actions.modal_runners import run_fit_on_modal
 
             return await run_fit_on_modal(workspace_id, request, pins)
     elif isinstance(request, SimulateRequest):
-        pins = _pinned(store, {"model": request.model_revision})
+        pins = _pinned(
+            store,
+            {"model": request.model_revision, "question": state.current["question"].revision},
+        )
         # A simulation compares against the current observations when the study has them.
         if (panel := state.get("panel")) is not None:
             pins["panel"] = panel.revision

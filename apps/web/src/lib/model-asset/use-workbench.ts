@@ -73,13 +73,13 @@ export function useWorkbench({
   );
   const entities = useMemo(() => indexModel(model.model?.value), [model]);
   const ticks = attempts;
-  const latest = currentModel.context.seq;
-  const playhead = model.context.seq;
+  const latest = currentModel.selected_seq;
+  const playhead = model.selected_seq;
   const modelRevision = model.model?.source.ref.revision;
   const activeComparison = comparison?.before === playhead ? comparison : null;
   const compared = useModelDiff(
     workspaceId,
-    model.context.commit_id,
+    model.commit_id,
     attempts.find((record) => record.record.seq === activeComparison?.after)?.commit_id ?? null,
   );
   const retainPreview = () => {
@@ -108,8 +108,8 @@ export function useWorkbench({
     dismissComparison();
     viewAt(seq === latest ? null : seq);
   };
-  const question = model.model?.value.question ?? initialQuestion;
-  const simulation = model.findings.simulation;
+  const question = model.question?.value.text ?? initialQuestion;
+  const simulation = model.simulation;
   // Node histories need a simulation of the viewed model revision, certified or not.
   const simulationResult =
     simulation?.source.validity === "fresh" && simulation.value.model.revision === modelRevision

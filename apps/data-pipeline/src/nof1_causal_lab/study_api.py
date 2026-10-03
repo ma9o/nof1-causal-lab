@@ -26,7 +26,7 @@ from fastapi import (
 )
 from pydantic import Field, TypeAdapter
 
-from nof1_causal_lab.actions.contracts import ScientificActionRequest
+from nof1_causal_lab.actions.contracts import EditModelRequest, ScientificActionRequest
 from nof1_causal_lab.actions.progress import ProgressEvent, read_events
 from nof1_causal_lab.actions.results import ActionPoll, ActionReceipt, CompletedPoll, RunningAction
 from nof1_causal_lab.actions.status import StudyStatus
@@ -42,13 +42,13 @@ from nof1_causal_lab.artifacts.indicator import IndicatorSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 from nof1_causal_lab.artifacts.posterior import InferenceReport
+from nof1_causal_lab.artifacts.posterior_diagnostics import PPCOverlay
 from nof1_causal_lab.artifacts.validation_report import DataProfileArtifact
 from nof1_causal_lab.json_types import JsonObject
 from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.records import (
     Applied,
-    DataDiffAttempt,
     RecordDependency,
     StudyRevision,
     record_dependencies,
@@ -64,18 +64,15 @@ from nof1_causal_lab.study.store import (
     read_current_state,
 )
 from nof1_causal_lab.study.view_models import (
-    ArtifactViewResponse,
     DataDiffReport,
     DataDiffRequest,
     ModelDiffReport,
-    RevisionCatalog,
 )
 from nof1_causal_lab.study.visual_models import (
     MechanismCurves,
     MechanismViewRequest,
     ObservationHistory,
     ParameterDraws,
-    PredictiveHistory,
     SimulationPaths,
 )
 from nof1_causal_lab.utils.data import cache_dir
@@ -125,7 +122,7 @@ _MODEL_DIFF_JSON = TypeAdapter(ModelDiffReport)
 _ACTION_POLL_JSON: TypeAdapter[ActionPoll] = TypeAdapter(ActionPoll)
 _INFERENCE_REPORT_JSON = TypeAdapter(Sourced[InferenceReport] | None)
 _OBSERVATION_HISTORY_JSON = TypeAdapter(ObservationHistory | None)
-_PREDICTIVE_HISTORY_JSON = TypeAdapter(PredictiveHistory | None)
+_PREDICTIVE_HISTORY_JSON = TypeAdapter(PPCOverlay | None)
 _SIMULATION_PATHS_JSON = TypeAdapter(SimulationPaths | None)
 _PARAMETER_DRAWS_JSON = TypeAdapter(ParameterDraws)
 _MECHANISM_CURVES_JSON = TypeAdapter(MechanismCurves)
@@ -137,40 +134,12 @@ workspaces_router = APIRouter(prefix="/api")
 uploads_router = APIRouter(prefix="/api")
 
 
-class CapabilitiesResponse(Value):
-    """This response tells clients whether the study facade supports scientific actions."""
-
-    actions_enabled: bool
-
-
-class WorkspaceEntry(Value):
-    """A workspace entry identifies an available model workspace and its research question."""
-
-    href: str
-    question: str | None = None
-    workspaceId: str
-
-
-class WorkspaceList(Value):
-    """A workspace list provides the available model workspaces for client navigation."""
-
-    workspaces: tuple[WorkspaceEntry, ...]
-
-
-class UploadResponse(Value):
-    """An upload response identifies the stored location of an accepted data upload."""
-
-    path: str
-
-
 class ArtifactEnvelope(Value):
     """An artifact envelope delivers a stored payload with its revision and file
     list.
     """
 
     workspace_id: str
-    artifact_id: ArtifactId
-    revision: GitOid
     meta: ArtifactRecord
     payload: JsonObject
     binary_files: tuple[str, ...]
@@ -204,52 +173,46 @@ def _safe_workspace_id(value: str) -> str:
     return workspace_id
 
 
-@capabilities_router.get("/capabilities", response_model=CapabilitiesResponse)
-def get_capabilities() -> CapabilitiesResponse:
+@capabilities_router.get("/actions-enabled", response_model=bool)
+def get_actions_enabled() -> bool:
     """Whether this deployment serves scientific actions.
 
     `actions_enabled` is `false` on the hosted read-only viewer backend, where
     every `POST` (scientific actions and study management) returns 403 and only the read
     endpoints are live.
     """
-    return CapabilitiesResponse(actions_enabled=actions_enabled())
+    return actions_enabled()
 
 
 def _workspace_question(workspace_id: str) -> str | None:
-    from nof1_causal_lab.study.store import ArtifactStore, read_model
+    from nof1_causal_lab.study.store import ArtifactStore, read_question
 
-    info = read_current_state(workspace_id).get("model")
+    info = read_current_state(workspace_id).get("question")
     if info is None:
         return None
-    return read_model(ArtifactStore(workspace_id), info.revision).question
+    return read_question(ArtifactStore(workspace_id), info.revision).text
 
 
-@workspaces_router.get("/workspaces", response_model=WorkspaceList)
-def list_workspaces() -> WorkspaceList:
+@workspaces_router.get("/workspaces", response_model=Mapping[str, str | None])
+def list_workspaces() -> Mapping[str, str | None]:
     """Published/local workspaces visible through this facade."""
     from nof1_causal_lab.utils import data as data_module
     from nof1_causal_lab.utils import storage
 
-    workspaces: list[WorkspaceEntry] = []
+    workspaces: dict[str, str | None] = {}
     for entry in sorted(storage.listdir(data_module.data_root())):
         workspace_id = entry.rstrip("/").rsplit("/", 1)[-1]
         if not workspace_id or workspace_id.startswith("."):
             continue
-        workspaces.append(
-            WorkspaceEntry(
-                href=f"/v2/{workspace_id}",
-                question=_workspace_question(workspace_id),
-                workspaceId=workspace_id,
-            )
-        )
-    return WorkspaceList(workspaces=tuple(workspaces))
+        workspaces[workspace_id] = _workspace_question(workspace_id)
+    return workspaces
 
 
-@uploads_router.post("/upload", response_model=UploadResponse)
+@uploads_router.post("/upload", response_model=str)
 async def upload_file(
     file: Annotated[UploadFile, File()],
     workspace_id: Annotated[str, Form(alias="workspaceId")],
-) -> UploadResponse:
+) -> str:
     """Stage one raw input file for prepare_data."""
     from nof1_causal_lab.utils import data as data_module
     from nof1_causal_lab.utils import storage
@@ -265,7 +228,7 @@ async def upload_file(
     path = storage.join(upload_dir, filename)
     with storage.open_file(path, "wb") as handle:
         handle.write(await file.read())
-    return UploadResponse(path=f"{safe_workspace_id}/input/{filename}")
+    return f"{safe_workspace_id}/input/{filename}"
 
 
 # ---------------------------------------------------------------------------
@@ -359,6 +322,20 @@ async def execute_scientific_action(
     return await _dispatch_action(workspace_id, body, clients, branch, expected_head)
 
 
+def _require_question_fit(workspace_id: str, head: GitOid, model: ModelSpec) -> None:
+    """An edit that doesn't fit the study question is an invalid request, like a bad model."""
+    from nof1_causal_lab.actions.edit_model import question_edit_reason
+    from nof1_causal_lab.study.store import ArtifactStore, read_question
+
+    state = StudyRepository(workspace_id).state(head)
+    # Before set_question, the workflow's lineage gate refuses every edit.
+    if not state.has("question"):
+        return
+    question = read_question(ArtifactStore(workspace_id), state.current["question"].revision)
+    if (reason := question_edit_reason(model, question)) is not None:
+        raise HTTPException(422, reason)
+
+
 async def _dispatch_action(
     workspace_id: str,
     body: ScientificActionRequest | DataDiffRequest,
@@ -376,6 +353,8 @@ async def _dispatch_action(
         head = StudyRepository(workspace_id).head(branch)
     except StudyLookupError as exc:
         raise HTTPException(404, str(exc)) from exc
+    if isinstance(body, EditModelRequest):
+        _require_question_fit(workspace_id, head, body.model)
     attempt_id = uuid4()
     handle = await _study_handle(workspace_id, clients)
     update = await handle.start_update(
@@ -490,7 +469,7 @@ async def get_study(
 ) -> StudyStatus:
     """Current study state: the single read to poll while navigating.
 
-    Returns the four scientific action names and per-artifact existence,
+    Returns the five scientific action names and per-artifact existence,
     freshness and revision from the selected Git branch snapshot, and the
     attempt the study's Temporal workflow is executing on any branch, if any.
     """
@@ -514,7 +493,7 @@ def get_model_snapshot(reader: Annotated[ModelReader, Depends(model_reader)]) ->
     """Batch canonical aggregates in one committed read transaction.
 
     Omit `at` for the selected branch head, or pass an exact Git commit ID.
-    Use `context.commit_id` to pin subsequent reads. Failed attempts retain logs without advancing scientific state.
+    Use `commit_id` to pin subsequent reads. Failed attempts retain logs without advancing scientific state.
     """
     return _cached_read(
         reader.workspace_id,
@@ -524,25 +503,18 @@ def get_model_snapshot(reader: Annotated[ModelReader, Depends(model_reader)]) ->
     )
 
 
-@router.get("/{workspace_id}/revisions", response_model=RevisionCatalog)
-def get_revisions(workspace_id: str) -> RevisionCatalog:
+@router.get("/{workspace_id}/revisions", response_model=tuple[ArtifactRecord, ...])
+def get_revisions(workspace_id: str) -> tuple[ArtifactRecord, ...]:
     """List stored model, observation and source revisions for deliberate selection."""
     records = StudyRepository(_safe_workspace_id(workspace_id)).attempts()
     committed = {
         (info.artifact_id, info.revision): info
         for record in records
         if isinstance(record.record.attempt.outcome, Applied)
-        for info in record.record.attempt.outcome.result.produced
+        for info in record.record.attempt.outcome.effects.produced
     }
-    return RevisionCatalog(
-        **{
-            field: tuple(info for (aid, _), info in committed.items() if aid == identity)
-            for field, identity in (
-                ("models", "model"),
-                ("panels", "panel"),
-                ("raw_data", "raw_data"),
-            )
-        }
+    return tuple(
+        info for (aid, _), info in committed.items() if aid in {"model", "panel", "raw_data"}
     )
 
 
@@ -619,9 +591,7 @@ async def post_data_diff(
 def get_data_diff(workspace_id: str, commit_id: GitOid) -> Response:
     """Read the comparison report retained by its applied outcome."""
     record = StudyRepository(_safe_workspace_id(workspace_id)).record(commit_id).record
-    if not isinstance(record.attempt, DataDiffAttempt) or not isinstance(
-        record.attempt.outcome, Applied
-    ):
+    if record.attempt.action != "data_diff" or not isinstance(record.attempt.outcome, Applied):
         raise HTTPException(404, "No comparison report recorded at this commit")
     return Response(
         content=record.attempt.outcome.result.report.model_dump_json(),
@@ -682,7 +652,7 @@ def get_observation_history(
 
 @router.get(
     "/{workspace_id}/model/visuals/predictive/{indicator_id}",
-    response_model=PredictiveHistory | None,
+    response_model=PPCOverlay | None,
 )
 def get_predictive_history(
     indicator_id: IndicatorId, reader: Annotated[ModelReader, Depends(model_reader)]
@@ -773,27 +743,6 @@ def get_model_parameters(
     return reader.parameters()
 
 
-@router.get("/{workspace_id}/model/views/{artifact_id}", response_model=ArtifactViewResponse)
-def get_model_view(
-    workspace_id: str,
-    artifact_id: str,
-    branch: str = "main",
-    at: GitOid | None = None,
-) -> ArtifactViewResponse:
-    """One display projection from the selected committed model revision."""
-    try:
-        reader = ModelReader(workspace_id, at=at, branch=branch)
-    except StudyLookupError as exc:
-        raise HTTPException(404, str(exc)) from exc
-    try:
-        value = reader.artifact_view(artifact_id)
-    except StudyLookupError as exc:
-        raise HTTPException(404, f"Unknown artifact view {artifact_id}") from exc
-    if value is None:
-        raise HTTPException(404, f"No compatible {artifact_id} view at {reader.commit_id}")
-    return value
-
-
 class TimelineResponse(Value):
     """Typed attempt journal returned by the study read plane."""
 
@@ -857,24 +806,16 @@ def get_attempt_log(workspace_id: str, commit_id: GitOid) -> StudyRevision:
         raise HTTPException(404, f"No action log at {commit_id}") from exc
 
 
-class EventsResponse(Value):
-    """An events response pages one running attempt's live progress."""
-
-    workspace_id: str
-    events: tuple[ProgressEvent, ...]
-
-
-@router.get("/{workspace_id}/events", response_model=EventsResponse)
-def get_events(workspace_id: str, attempt_id: UUID, after: str | None = None) -> EventsResponse:
+@router.get("/{workspace_id}/events", response_model=tuple[ProgressEvent, ...])
+def get_events(
+    workspace_id: str, attempt_id: UUID, after: str | None = None
+) -> tuple[ProgressEvent, ...]:
     """Live progress of one attempt: data-preparation step status and extraction fan-out.
 
     Pass the last-seen event cursor as `after` to page forward. Progress is disposable
     and never saved with the attempt; its record and traces are authoritative.
     """
-    return EventsResponse(
-        workspace_id=workspace_id,
-        events=tuple(read_events(_safe_workspace_id(workspace_id), attempt_id, after=after)),
-    )
+    return tuple(read_events(_safe_workspace_id(workspace_id), attempt_id, after=after))
 
 
 @router.get("/{workspace_id}/artifacts/{artifact_id}", response_model=ArtifactEnvelope)
@@ -911,8 +852,6 @@ def get_artifact(
 
     return ArtifactEnvelope(
         workspace_id=workspace_id,
-        artifact_id=artifact_id,
-        revision=revision,
         meta=store.read_meta(artifact_id, revision),
         payload=payload,
         binary_files=tuple(sorted(binary_files)),
@@ -922,7 +861,6 @@ def get_artifact(
 class AttemptTraceIndex(Value):
     """Promoted traces identified by their committed execution sequence."""
 
-    workspace_id: str
     commit_id: GitOid
     trace_ids: tuple[str, ...]
 
@@ -948,10 +886,9 @@ def get_artifact_traces(
             continue
         if any(
             item.artifact_id == artifact_id and item.revision == revision
-            for item in record.record.attempt.outcome.result.produced
+            for item in record.record.attempt.outcome.effects.produced
         ):
             return AttemptTraceIndex(
-                workspace_id=workspace_id,
                 commit_id=record.commit_id,
                 trace_ids=record.record.trace_ids,
             )

@@ -35,9 +35,10 @@ from nof1_causal_lab.models.ssm.simulation_checks import (
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from datetime import datetime
 
     from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorPredictiveChecks
-    from nof1_causal_lab.artifacts.simulation import SimulationSpec
+    from nof1_causal_lab.artifacts.scenarios import StateAssignment
     from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
     from nof1_causal_lab.models.ssm.predictive.types import PredictiveDraws
 
@@ -54,34 +55,40 @@ class SimulationBatch:
     prediction: PredictiveDraws
     observations: jnp.ndarray | None
     measurement_design: DesignInfo
+    time_origin: datetime | None = None
 
 
-def _time_grid(model: CompiledModel, design: SimulationSpec, start: float) -> np.ndarray:
+def _time_grid(
+    model: CompiledModel, start: float, end: float, assignments: tuple[StateAssignment, ...]
+) -> np.ndarray:
     times = {
         float(value)
-        for value in np.linspace(
-            start, design.end, max(1, ceil((design.end - start) / model.clock_days)) + 1
-        )
+        for value in np.linspace(start, end, max(1, ceil((end - start) / model.clock_days)) + 1)
     }
-    times.update(event.time for event in design.interventions)
+    times.update(event.time for event in assignments)
     return np.asarray(sorted(times))
 
 
 def generate_simulation_batch(
     source: CompiledModel | BoundPanel,
-    design: SimulationSpec,
     *,
+    start: float,
+    end: float,
+    assignments: tuple[StateAssignment, ...] = (),
     input_events: tuple[ResolvedIntervention, ...] = (),
     times: np.ndarray | jnp.ndarray | None = None,
     draws: int = SIMULATION_DRAWS,
     seed: int = SIMULATION_SEED,
+    time_origin: datetime | None = None,
 ) -> SimulationBatch:
     """Sample current laws once and always generate nonlinear stochastic paths and emissions.
 
-    Internal check callers may supply a prepared observation grid and execution budget.
-    Dated requests derive their grid from the model clock and intervention boundaries.
+    The window and intervention assignments are in model days. Internal check callers
+    may supply a prepared observation grid and execution budget; otherwise the grid
+    follows the model clock and the assignment boundaries.
     """
     if isinstance(source, BoundPanel):
+        time_origin = source.time_origin
         model = source.model
         times = source.times
         observations = source.values
@@ -97,22 +104,14 @@ def generate_simulation_batch(
     time_points: tuple[float, ...] = next(
         (law.layout.time_points for law in model.laws if law.layout.constructs), ()
     )
-    current_time = next(reversed(time_points)) if laws.latent_paths is not None else 0.0
-    start = current_time if design.start is None else design.start
-    # Resolve the omitted start before applying the same window validation.
-    design = design.starting_at(start)
-    grid = _time_grid(model, design, start) if times is None else np.asarray(times)
-    if len(grid) < 2 or grid[0] != start or grid[-1] != design.end or np.any(np.diff(grid) <= 0):
+    grid = _time_grid(model, start, end, assignments) if times is None else np.asarray(times)
+    if len(grid) < 2 or grid[0] != start or grid[-1] != end or np.any(np.diff(grid) <= 0):
         raise ValueError("The prepared simulation grid must increase from start through end")
     grid = np.asarray(
         sorted(
             {
                 *grid,
-                *(
-                    event.spec.time
-                    for event in input_events
-                    if start < event.spec.time < design.end
-                ),
+                *(event.spec.time for event in input_events if start < event.spec.time < end),
             }
         )
     )
@@ -178,7 +177,7 @@ def generate_simulation_batch(
     if support is None:
         support = simulation_observation_support(model, grid)
     interventions = []
-    for event in design.interventions:
+    for event in assignments:
         if event.target not in state_ids:
             raise ValueError(f"Intervention target is not a model state: {event.target}")
         interventions.append(ResolvedIntervention(index=state_ids.index(event.target), spec=event))
@@ -220,6 +219,7 @@ def generate_simulation_batch(
             seed=seed,
             observation_support=support,
         ),
+        time_origin=time_origin,
     )
 
 
@@ -299,6 +299,9 @@ def measure_simulation_batch(
             prediction.trajectory.observations[:, :, modeled_columns],
             observations[:, modeled_columns],
             tuple(indicator_ids[index] for index in modeled_columns),
+            times=batch.times,
+            time_origin=batch.time_origin,
+            standardized=tuple(model.observations[index].standardized for index in modeled_columns),
         )
     )
     if "data_comparison" in groups and checks is None:

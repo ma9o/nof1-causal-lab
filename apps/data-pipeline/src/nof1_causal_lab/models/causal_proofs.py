@@ -5,7 +5,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from nof1_causal_lab.study.records import Applied, FitAttempt
+from nof1_causal_lab.study.records import Applied
 
 
 class CausalCertificationError(Exception):
@@ -16,7 +16,7 @@ if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.identification import IdentificationReport
     from nof1_causal_lab.artifacts.identity import GitRef
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.artifacts.posterior import InferenceReport
+    from nof1_causal_lab.artifacts.posterior import InferenceReportCore
     from nof1_causal_lab.artifacts.posterior_diagnostics import ParticleMCMCEvidence
     from nof1_causal_lab.study.records import StudyRevision
 
@@ -91,20 +91,15 @@ def certify_identified_estimand(
 ) -> IdentifiedEstimand:
     """Validate and materialize identification evidence for one estimand."""
     identification.validate_model(model)
-    default_outcome = model.default_outcome
-    declared_outcome = next(
+    covered = next(
         (
             construct.name
             for construct in model.constructs
-            if default_outcome is not None and construct.id == default_outcome
+            if identification.outcome is not None and construct.id == identification.outcome
         ),
         None,
     )
-    if (
-        default_outcome is None
-        or outcome != declared_outcome
-        or identification.outcome != default_outcome
-    ):
+    if covered is None or outcome != covered:
         raise CausalCertificationError(
             f"{outcome!r} does not match the outcome covered by the model identification"
         )
@@ -133,13 +128,12 @@ def certify_conditioned_model(model: ModelSpec, revision: GitRef, record: StudyR
         raise CausalCertificationError(
             "Causal reporting requires the committed fit for this model revision"
         )
-    from nof1_causal_lab.study.records import FitAttempt
 
-    assert isinstance(record.record.attempt, FitAttempt)
+    assert record.record.attempt.action == "fit"
     assert isinstance(record.record.attempt.outcome, Applied)
     produced = next(
         info
-        for info in record.record.attempt.outcome.result.produced
+        for info in record.record.attempt.outcome.effects.produced
         if info.artifact_id == "model"
     )
     if produced.model_inputs["belief"] != input_fingerprints(model)["belief"]:
@@ -157,12 +151,12 @@ def certify_conditioned_model(model: ModelSpec, revision: GitRef, record: StudyR
         )
 
 
-def read_fit_evidence(record: StudyRevision) -> tuple[InferenceReport, ParticleMCMCEvidence]:
+def read_fit_evidence(record: StudyRevision) -> tuple[InferenceReportCore, ParticleMCMCEvidence]:
     """Consume the already-owned engine assessment; no journal report reconstruction."""
     attempt = record.record.attempt
-    assert isinstance(attempt, FitAttempt)
+    assert attempt.action == "fit"
     assert attempt.outcome.status == "applied"
-    report = attempt.outcome.result.report
+    report = attempt.outcome.result.report.core
     if report.engine.kind != "evaluated":
         raise CausalCertificationError("The recorded fit has no retained exact-engine evidence")
     return report, report.engine.evidence

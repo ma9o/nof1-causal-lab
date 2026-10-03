@@ -17,9 +17,9 @@ from nof1_causal_lab.actions.contracts import (
     FitRequest,
     PrepareDataRequest,
     ScientificActionRequest,
+    SetQuestionRequest,
     SimulateRequest,
 )
-from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.actions.progress import ProgressEvent
 from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.artifacts.data_preparation import (
@@ -37,6 +37,7 @@ from nof1_causal_lab.llm_specs import (
     LLMProfileSpec,
 )
 from nof1_causal_lab.study.records import (
+    Applied,
     AttemptRecord,
     CompletedExtractionWorker,
     FailedExtractionChunk,
@@ -417,6 +418,13 @@ class MeasurementsFinalizeInput(BaseModel):
     chunk_results: list[ExtractionChunkResult] = Field(default_factory=list)
 
 
+class SetQuestionInput(BaseModel):
+    model_config = ConfigDict(frozen=True, extra="forbid")
+
+    workspace_id: str
+    request: SetQuestionRequest
+
+
 class EditModelInput(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
@@ -425,10 +433,11 @@ class EditModelInput(BaseModel):
     state: StudyState
 
 
-class EvaluateChecksInput[ResultT: ActionEffects](Value):
+class EvaluateChecksInput[ResultT](Value):
     workspace_id: str
     state: StudyState
-    effects: ResultT
+    applied: Applied[ResultT]
+    request: EditModelRequest | FitRequest | PrepareDataRequest
 
 
 class AttemptPublication(Value):

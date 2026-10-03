@@ -441,7 +441,7 @@ def test_execute_llm_tool_calls_activity_persists_raw_data_submit_table(
         )
     )
     store = ArtifactStore("ws-test")
-    raw = effects.produced[0]
+    raw = effects.effects.produced[0]
     reloaded = store.read_parquet_table("raw_data", raw.revision, "raw.parquet")
     assert reloaded.equals(table, check_metadata=True)
     assert "profile.json" not in store.filenames("raw_data", raw.revision)
@@ -980,10 +980,8 @@ def test_llm_subroutine_workflow_delegates_harness_tool_to_temporal_activity(
                                 {
                                     "id": "fake-tool-call",
                                     "type": "function",
-                                    "function": {
-                                        "name": "validate_extractions",
-                                        "arguments": "{}",
-                                    },
+                                    "name": "validate_extractions",
+                                    "arguments": "{}",
                                 }
                             ],
                         ),

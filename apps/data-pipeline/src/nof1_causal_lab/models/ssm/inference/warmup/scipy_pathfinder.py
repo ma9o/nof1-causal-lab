@@ -54,10 +54,10 @@ import scipy.optimize
 
 from nof1_causal_lab.artifacts.posterior_diagnostics import (
     ElboScoringDiagnostics,
-    ParticleInitializationDiagnostics,
     PathfinderDiagnostics,
     PathfinderStartDiagnostics,
 )
+from nof1_causal_lab.utils.immutability import freeze_fields
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -90,6 +90,9 @@ class ScipyPathfinderResult:
     chol: np.ndarray  # (p, p) lower-triangular — Cholesky of L-BFGS H^{-1} at that iterate
     best_elbo: float
     diagnostics: PathfinderRunDiagnostics
+
+    def __post_init__(self) -> None:
+        freeze_fields(self)
 
 
 @dataclass(frozen=True)
@@ -855,7 +858,6 @@ def run_scipy_pathfinder_approximation(
         pathfinder_runtime_seconds=float(pathfinder_runtime_seconds),
         pathfinder_total_seconds=float(clock() - total_t0),
         best_pathfinder_elbo=float(result.best_elbo),
-        pathfinder_elbo=float(result.best_elbo),
         pathfinder_elbo_min=float(result.diagnostics.elbo_min),
         pathfinder_elbo_max=float(result.diagnostics.elbo_max),
         pathfinder_elbo_spread=float(result.diagnostics.elbo_spread),
@@ -873,7 +875,6 @@ def run_scipy_pathfinder_approximation(
 
 def sample_scipy_pathfinder_init_positions(
     pathfinder_state: ScipyPathfinderResult,
-    pathfinder_diagnostics: PathfinderDiagnostics,
     *,
     sample_key: jnp.ndarray,
     num_chains: int,
@@ -884,7 +885,7 @@ def sample_scipy_pathfinder_init_positions(
     prior_release_scale: float = 0.05,
     release_jitter_key: jnp.ndarray | None = None,
     method_label: str = "sampler",
-) -> tuple[jnp.ndarray, ParticleInitializationDiagnostics]:
+) -> tuple[jnp.ndarray, str, tuple[str, ...], tuple[int, ...], float]:
     """Sample per-chain initial positions from a fitted scipy Pathfinder state."""
     mean_np = np.asarray(jax.device_get(pathfinder_state.mean), dtype=np.float64)
     chol_np = np.asarray(jax.device_get(pathfinder_state.chol), dtype=np.float64)
@@ -926,16 +927,13 @@ def sample_scipy_pathfinder_init_positions(
             prior_values = flat_example[None, :] + float(prior_release_scale) * noise
             positions = jnp.where(mask_j[None, :], prior_values, positions)
 
-    diagnostics: ParticleInitializationDiagnostics = ParticleInitializationDiagnostics(
-        init_method="pathfinder",
-        pathfinder_sampling_mode=sampling_mode,
-        pathfinder_init_scale=pathfinder_init_scale,
-        pathfinder=pathfinder_diagnostics,
-        prior_released_site_names=tuple(list(prior_released_sites) if prior_site_indices else []),
-        prior_released_site_indices=tuple(prior_site_indices),
-        prior_release_scale=float(prior_release_scale) if prior_site_indices else 0.0,
+    return (
+        positions,
+        sampling_mode,
+        tuple(prior_released_sites) if prior_site_indices else (),
+        tuple(prior_site_indices),
+        float(prior_release_scale) if prior_site_indices else 0.0,
     )
-    return positions, diagnostics
 
 
 def scipy_pathfinder_preconditioner_chol(

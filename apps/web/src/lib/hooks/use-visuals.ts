@@ -16,14 +16,10 @@ export type MechanismViewport = Required<
 
 const client = createModelClient();
 const pinned = (model: ModelSnapshot) => ({
-  path: { workspace_id: model.context.workspace_id },
-  query: { at: model.context.commit_id, branch: model.context.branch },
+  path: { workspace_id: model.workspace_id },
+  query: { at: model.commit_id, branch: model.branch },
 });
-const key = (model: ModelSnapshot) => [
-  model.context.workspace_id,
-  model.context.commit_id,
-  model.context.branch,
-];
+const key = (model: ModelSnapshot) => [model.workspace_id, model.commit_id, model.branch];
 
 async function read<T>(request: Promise<{ data?: T; error?: unknown; response: Response }>) {
   const { data, error, response } = await request;
@@ -69,7 +65,7 @@ export function useSimulationPaths(model: ModelSnapshot, start = 0, count = 24) 
           signal,
         }),
       ),
-    enabled: model.findings.simulation != null,
+    enabled: model.simulation != null,
     staleTime: Infinity,
   });
 }
@@ -84,7 +80,7 @@ export function useParameterDraws(model: ModelSnapshot) {
           signal,
         }),
       ),
-    enabled: model.findings.fit != null,
+    enabled: model.fit != null,
     staleTime: Infinity,
   });
 }

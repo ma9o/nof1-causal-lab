@@ -120,7 +120,6 @@ def fit_marginal_particle_gibbs(
         num_chains=sampler.num_chains,
         init_method=options.init_method,
         initial_positions_override=initial_positions_override,
-        init_scale=options.init_scale,
         parameter_preconditioner_chol=parameter_preconditioner_chol,
         auto_preconditioner_method=options.auto_preconditioner_method,
         auto_preconditioner_maxiter=options.auto_preconditioner_maxiter,
@@ -241,8 +240,8 @@ def fit_marginal_particle_gibbs(
         num_samples=sampler.num_samples,
         num_chains=sampler.num_chains,
         seed=sampler.seed,
-        adaptation_rate=options.adaptation_rate,
         init_scale=options.init_scale,
+        adaptation_rate=options.adaptation_rate,
         latent_delta=options.latent_delta,
         retain_latent_paths=sampler.retain_latent_paths,
         init_positions=init_positions,
@@ -275,47 +274,23 @@ def fit_marginal_particle_gibbs(
     )
     diagnostic_summary_phase = "post_warmup" if sampler.num_samples > 0 else "warmup"
     kernel_diagnostics = ParticleSamplerDiagnostics(
+        settings=sampler,
         latent_kernel=kernel.latent_smoother.algorithm,
         latent_smoother=kernel.latent_smoother.name,
         latent_smoother_algorithm=kernel.latent_smoother.algorithm,
         latent_smoother_family=kernel.latent_smoother.family,
         latent_smoother_selection=kernel.latent_smoother.selection,
         latent_smoother_parallel=bool(kernel.latent_smoother.parallel),
-        latent_delta=float(options.latent_delta),
         parameter_kernel="m_pgibbs_random_walk"
         if options.parameter_proposal == "random_walk"
         else "m_pgibbs_pseudo_langevin",
         mcmc_phase_seconds=float(mcmc_phase_seconds),
-        num_warmup=int(sampler.num_warmup),
-        num_samples=int(sampler.num_samples),
-        num_chains=int(sampler.num_chains),
-        n_particles=int(sampler.n_particles),
-        n_parameter_particles=int(options.n_parameter_particles),
-        parameter_proposal=options.parameter_proposal,
         latent_backward_sampling=bool(kernel.latent_smoother.backward_sampling),
-        amala_delta_init=float(options.amala_delta_init),
-        amala_delta_min=float(options.amala_delta_min),
-        amala_delta_max=float(options.amala_delta_max),
-        amala_target_accept=float(options.amala_target_accept),
-        amala_adaptation_window=int(options.amala_adaptation_window),
-        amala_adaptation_tolerance=float(options.amala_adaptation_tolerance),
-        amala_adaptation_rho=float(options.amala_adaptation_rho),
-        amala_adaptation_rho_min=float(options.amala_adaptation_rho_min),
-        amala_adaptation_gamma=float(options.amala_adaptation_gamma),
         amala_delta_adapted=bool(kernel.adapt_amala_delta),
-        amala_kappa=float(options.amala_kappa),
-        amala_grad_clip=float(options.amala_grad_clip)
-        if options.amala_grad_clip != float("inf")
-        else None,
         dsmc_leaf_proposal=kernel.dsmc_leaf_proposal,
         latent_transition_kind=bundle.latent_transition_kind,
-        diagnostic_metrics_all=bool(options.diagnostic_metrics_all),
         diagnostic_metrics=tuple(sorted(kernel.diagnostic_metrics)),
-        param_step_size_initial=float(options.param_step_size),
-        param_step_size_min=float(options.param_step_size_min),
-        param_step_size_max=float(options.param_step_size_max),
         param_target_accept=float(kernel.target_accept),
-        adaptation_scheme=options.adaptation_scheme,
         parameter_preconditioned=bool(kernel.preconditioned),
         diagnostic_summary_phase=diagnostic_summary_phase,
         parameter_accept_rate=float(jnp.mean(summary_extra_fields["parameter_accept_prob"])),
@@ -329,8 +304,6 @@ def fit_marginal_particle_gibbs(
             run_result.post_warmup_complete_log_posterior_mean
         ).tolist(),
         parameter_warmup=warmup_result.warmup_diagnostics,
-        initialization=warmup_result.init_diagnostics,
-        preconditioner=warmup_result.preconditioner_diagnostics,
         latent_move_rms_mean=float(jnp.mean(summary_extra_fields["latent_move_rms"]))
         if "latent_move_rms" in summary_extra_fields
         else None,
@@ -381,7 +354,7 @@ def fit_marginal_particle_gibbs(
         (clock() - overall_t0),
     )
     latent_paths = run_result.latent_paths
-    return ParticleMCMCPosterior(
+    return ParticleMCMCPosterior.from_run(
         draws=JointPosteriorDraws(
             parameters=mcmc.get_samples(),
             latent_paths=latent_paths.reshape((-1, *latent_paths.shape[2:]))

@@ -36,7 +36,7 @@ export function useAttemptProgress(workspaceId: string, attemptId: string) {
       if (error) {
         throw new Error(`Cannot read progress (${response.status}): ${JSON.stringify(error)}`);
       }
-      return applyProgressEvents(view, data.events);
+      return applyProgressEvents(view, data);
     },
     enabled: !isMockMode(),
     refetchInterval: PROGRESS_POLL_INTERVAL_MS,

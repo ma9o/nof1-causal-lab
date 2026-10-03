@@ -23,35 +23,27 @@ from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS
 from nof1_causal_lab.artifacts.likelihood import OBSERVATION_FAMILY_SPECS
 from nof1_causal_lab.artifacts.scenarios import (
     CausalEffectResult,
-    EffectTrajectoryPoint,
 )
 from nof1_causal_lab.study.snapshot_models import ModelSnapshot
 
 # Import all artifact contracts — this pulls in every nested domain model
 from nof1_causal_lab.study.view_models import (
-    ArtifactViewResponse,
     DataDiffReport,
     DataDiffRequest,
     ModelDiffReport,
-    RevisionCatalog,
 )
 from nof1_causal_lab.study.visual_models import (
     MechanismCurves,
     MechanismViewRequest,
     ObservationHistory,
     ParameterDraws,
-    PredictiveHistory,
     SimulationPaths,
 )
+from nof1_causal_lab.actions.progress import ProgressEvent
 from nof1_causal_lab.study_api import (
     ArtifactEnvelope,
     AttemptTraceIndex,
-    CapabilitiesResponse,
-    EventsResponse,
     TimelineResponse,
-    UploadResponse,
-    WorkspaceEntry,
-    WorkspaceList,
 )
 from nof1_causal_lab.utils.llm import LLMTrace
 from scripts.codegen.type_system_catalog import (
@@ -69,35 +61,27 @@ OUTPUT_DIR = REPO_ROOT / "packages" / "api-types" / "schemas"
 SKILL_PATH = REPO_ROOT / ".agents" / "skills" / "nof1-study-api" / "SKILL.md"
 
 EXPORTED_API_MODELS: tuple[type[BaseModel] | TypeAliasType, ...] = (
-    CapabilitiesResponse,
-    WorkspaceEntry,
-    WorkspaceList,
-    UploadResponse,
     ArtifactEnvelope,
     TimelineResponse,
     AttemptTraceIndex,
-    EventsResponse,
-    RevisionCatalog,
     ModelDiffReport,
     DataDiffReport,
     DataDiffRequest,
     LLMTrace,
     ModelSnapshot,
-    ArtifactViewResponse,
     MechanismCurves,
     MechanismViewRequest,
     ObservationHistory,
     ParameterDraws,
-    PredictiveHistory,
     SimulationPaths,
     StudyStatus,
     ActionReceipt,
     ActionPoll,
+    ProgressEvent,
 )
 
 EXPORTED_TOOL_MODELS: tuple[type[BaseModel], ...] = (
     EffectSummary,
-    EffectTrajectoryPoint,
     CausalEffectResult,
 )
 

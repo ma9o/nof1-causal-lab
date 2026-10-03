@@ -21,7 +21,7 @@ describe("owned journal outcomes", () => {
     const outcome = simulation.record.attempt.outcome;
     expect(outcome.status).toBe("applied");
     if (outcome.status !== "applied") throw new Error("Expected a successful fixture simulation");
-    expect(outcome.result.produced).toEqual([]);
+    expect(outcome.effects.produced).toEqual([]);
     expect(latestSeq(workbenchJournal.slice(0, 9))).toBe(9);
   });
 });

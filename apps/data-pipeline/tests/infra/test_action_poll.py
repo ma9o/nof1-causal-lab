@@ -8,6 +8,7 @@ from pydantic import TypeAdapter, ValidationError
 
 from nof1_causal_lab import study_api, tool_server
 from nof1_causal_lab.actions.contracts import EditModelRequest
+from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.actions.results import ActionPoll, CompletedPoll, RunningPoll
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.study.history import StudyRepository
@@ -15,13 +16,11 @@ from nof1_causal_lab.study.records import (
     Applied,
     AttemptRecord,
     EditAttempt,
-    ModelEditResult,
     Raised,
     Rejected,
 )
-from nof1_causal_lab.study.state import StudyState
 from nof1_causal_lab.utils import data
-from tests.action_fixtures import edit_and_check
+from tests.action_fixtures import edit_and_check, question_root
 from tests.helpers import run_async
 
 pytestmark = pytest.mark.contract
@@ -31,18 +30,19 @@ pytestmark = pytest.mark.contract
 def test_completed_poll_is_typed_for_tools_and_cached_for_http(tmp_path, monkeypatch, status):
     monkeypatch.setattr(data, "_DATA_URI", str(tmp_path))
     attempt_id = UUID(int=1)
-    request = EditModelRequest(expected_revision=None, model=ModelSpec(question="Does X affect Y?"))
+    request = EditModelRequest(expected_revision=None, model=ModelSpec())
+    root = question_root("POLL")
     outcomes = {
-        "applied": Applied(result=edit_and_check("POLL", request, StudyState())),
+        "applied": edit_and_check("POLL", request, StudyRepository("POLL").state(root.commit_id)),
         "rejected": Rejected(reason="revision_conflict", detail="Selected base changed"),
         "raised": Raised(error_type="WorkerError", error_message="failed"),
     }
     publication = StudyRepository("POLL").append(
         AttemptRecord(
-            seq=1,
+            seq=2,
             ts="2026-01-01T00:00:00Z",
             attempt_id=attempt_id,
-            attempt=EditAttempt(request=request, outcome=outcomes[status]),
+            attempt=EditAttempt(request=request, outcome=outcomes[status], action="edit_model"),
         )
     )
     client = TestClient(tool_server.app)
@@ -77,10 +77,12 @@ def test_poll_and_action_schema_reject_unrelated_payloads():
     with pytest.raises(ValidationError):
         adapter.validate_python({"kind": "completed", "commit_id": None})
     # A successful edit cannot carry a preparation payload; nor can failure carry a result.
-    payload = EditAttempt(request=None, outcome=Applied(result=ModelEditResult())).model_dump(
-        mode="json"
-    )
-    payload["outcome"]["result"]["action"] = "prepare_data"
+    payload = EditAttempt(
+        action="edit_model",
+        request=None,
+        outcome=Applied(result=None, effects=ActionEffects()),
+    ).model_dump(mode="json")
+    payload["outcome"]["result"] = {"action": "prepare_data"}
     with pytest.raises(ValidationError):
         EditAttempt.model_validate(payload)
     payload["outcome"] = {

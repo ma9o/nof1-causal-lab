@@ -1,7 +1,7 @@
 import type {
   CausalEdgeSpec,
   ConstructSpec,
-  DensityPoint,
+  DensityCurve,
   IndicatorSpec,
   ModelSnapshot,
   ObservationLawSpec,
@@ -22,7 +22,7 @@ export interface LawCurve {
    * `authored`: the law as written, on its authoring scale.
    */
   kind: "fitted" | "authored";
-  prior: readonly DensityPoint[];
+  prior: DensityCurve;
   posteriors: readonly PosteriorMarginal[];
   /** The fit was conditioned on another panel than the one selected at this version. */
   stale: boolean;
@@ -73,7 +73,7 @@ export function lawCurves(model: ModelSnapshot, uses: readonly CoefficientUse[])
   const parameters = new Map(
     (model.model?.value.parameters ?? []).map((parameter) => [parameter.id, parameter]),
   );
-  const fit = model.findings.fit;
+  const fit = model.fit;
   return uses.flatMap((use): LawCurve[] => {
     const parameter = parameters.get(use.parameterId);
     if (!parameter) return [];
@@ -86,17 +86,20 @@ export function lawCurves(model: ModelSnapshot, uses: readonly CoefficientUse[])
           use,
           parameter,
           kind: "fitted",
-          prior: fit.value.prior_densities[use.parameterId] ?? [],
+          prior: fit.value.prior_densities[use.parameterId] ?? { x: [], density: [] },
           posteriors,
           stale: fit.source.validity === "stale",
           family: null,
         },
       ];
-    const prior = model.findings.diagnostics?.prior_densities[use.parameterId] ?? [];
+    const prior = model.authoring_prior_densities[use.parameterId] ?? {
+      x: [],
+      density: [],
+    };
     const law = parameter.distribution
       ? model.model?.value.distributions[parameter.distribution]
       : null;
-    return prior.length > 0
+    return prior.x.length > 0
       ? [
           {
             use,

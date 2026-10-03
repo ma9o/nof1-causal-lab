@@ -1,4 +1,4 @@
-import type { DensityPoint, PosteriorMarginal } from "@nof1-causal-lab/api-types";
+import type { DensityCurve, PosteriorMarginal } from "@nof1-causal-lab/api-types";
 import { scaleLinear } from "d3-scale";
 import { area, curveLinear, curveStep, line } from "d3-shape";
 import type { ReactNode } from "react";
@@ -12,13 +12,12 @@ const PRIOR_COLOR = "var(--muted-foreground)";
 /** Stable identity color; a nonlinear response's direction cannot be read from a mean. */
 export const POSTERIOR_COLOR = "var(--chart-3)";
 
-const priorPoints = (prior: readonly DensityPoint[]): Point[] =>
-  prior.map((point) => [point.x, point.y]);
+const densityPoints = (curve: DensityCurve): Point[] =>
+  // eslint-disable-next-line @typescript-eslint/no-non-null-assertion -- DensityCurve owns aligned x and density columns at its backend constructor.
+  curve.x.map((x, index) => [x, curve.density[index]!]);
+const priorPoints = densityPoints;
 const posteriorPoints = (marginal: PosteriorMarginal): Point[] =>
-  marginal.x_values.flatMap((x, index) => {
-    const density = marginal.density[index];
-    return density === undefined ? [] : [[x, density] as const];
-  });
+  densityPoints(marginal.density_curve);
 
 /** The value range shared by every backend curve drawn for one law. */
 export function lawExtent(curve: LawCurve): [number, number] {
@@ -34,8 +33,8 @@ export function lawExtent(curve: LawCurve): [number, number] {
 const densityPeak = (curve: LawCurve) =>
   Math.max(
     0,
-    ...curve.prior.map((point) => point.y),
-    ...curve.posteriors.flatMap((marginal) => marginal.density),
+    ...curve.prior.density,
+    ...curve.posteriors.flatMap((marginal) => marginal.density_curve.density),
   ) || 1;
 
 /**
@@ -78,7 +77,7 @@ export function LawPlot({
           .curve(histogram ? curveStep : curveLinear)(points) ?? "",
     };
   };
-  const prior = curve.prior.length > 0 ? shapes(priorPoints(curve.prior)) : null;
+  const prior = curve.prior.x.length > 0 ? shapes(priorPoints(curve.prior)) : null;
   const tone = curve.stale ? PRIOR_COLOR : color;
   const single = curve.posteriors.length === 1;
   const fitted = curve.posteriors.length > 0;
@@ -241,7 +240,7 @@ export function LawChart({
         ))}
       </svg>
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[10px] text-muted-foreground">
-        {curve.prior.length > 0 && (
+        {curve.prior.x.length > 0 && (
           <span className="inline-flex items-center gap-1">
             <LegendSwatch dashed={curve.posteriors.length > 0} color={PRIOR_COLOR} />
             {curve.kind === "fitted" ? "conditioned prior" : "authored prior"}

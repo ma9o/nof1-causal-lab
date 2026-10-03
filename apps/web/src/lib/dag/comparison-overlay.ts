@@ -1,5 +1,7 @@
-import type { ConstructId, ConstructSpec, ModelDiffReport } from "@nof1-causal-lab/api-types";
+import type { ConstructId, ConstructSpec } from "@nof1-causal-lab/api-types";
+import type { ResolvedModelDiff } from "@/lib/hooks/use-model-diff";
 import type { DagLayoutNode, Point } from "@/lib/utils/dag-graph-layout";
+import { modelConstructs } from "@/lib/model-accessors";
 import { humanize } from "@/lib/model-asset/selection";
 import { ghostId, isGhost } from "@/lib/dag/unroll";
 import {
@@ -23,16 +25,26 @@ interface DifferenceMark {
 
 /** Place additions around the selected layout. Existing coordinates are never recomputed. */
 export function placeComparisonOverlay(
-  comparison: ModelDiffReport | null,
+  comparison: ResolvedModelDiff | null,
   topology: LayeredGraphBundle,
   nodes: DagLayoutNode[],
   width: number,
   height: number,
 ) {
-  const dynamicIds = new Set(comparison?.graph.after_dynamic_construct_ids);
-  const previousDynamicIds = new Set(comparison?.graph.before_dynamic_construct_ids);
+  const dynamicIds = new Set(comparison?.after_dynamic_construct_ids);
+  const previousDynamicIds = new Set(comparison?.before_dynamic_construct_ids);
   const positions = new Map(nodes.map((node) => [node.id, node]));
-  const constructs = new Map(comparison?.graph.constructs.map((item) => [item.construct_id, item]));
+  const beforeConstructs = new Map(
+    (comparison ? modelConstructs(comparison.beforeModel) : []).map((item) => [item.id, item]),
+  );
+  const constructs = new Map(
+    (comparison ? modelConstructs(comparison.afterModel) : []).map((item) => [item.id, item]),
+  );
+  const beforeEdges = new Map(comparison?.beforeModel.edges.map((item) => [item.id, item]));
+  const afterEdges = new Map(comparison?.afterModel.edges.map((item) => [item.id, item]));
+  const afterDispositions = new Map(
+    comparison?.after_dispositions.map((item) => [item.target.id, item]),
+  );
   const edgeChanges = new Map<string, Change>();
   const constructChanges = new Map<ConstructId, Change>();
   const addedNodes: Array<{ node: DagLayoutNode; construct: ConstructSpec; history: boolean }> = [];
@@ -74,25 +86,26 @@ export function placeComparisonOverlay(
     });
     return { id, x: middle, y: (start.y + end.y) / 2, width: 0, height: 0 };
   };
-  for (const item of comparison?.graph.constructs ?? []) {
-    const change = item.change;
+  for (const change of comparison?.constructs ?? []) {
+    const id = change.kind === "removed" ? change.before.id : change.after.id;
     if (change.kind === "unchanged") continue;
-    constructChanges.set(item.construct_id, change.kind);
-    const definition = change.kind === "removed" ? change.before : change.after;
-    const node = change.kind === "added" ? addNode(change.after) : positions.get(item.construct_id);
+    constructChanges.set(id, change.kind);
+    const definition = (change.kind === "removed" ? beforeConstructs : constructs).get(id);
+    if (!definition) throw new Error(`Compared construct ${id} is missing from its model`);
+    const node = change.kind === "added" ? addNode(definition) : positions.get(id);
     if (!node) continue;
     if (change.kind !== "removed") {
-      if (dynamicIds.has(item.construct_id) && !previousDynamicIds.has(item.construct_id)) {
-        const source = addNode(change.after, true);
-        addEdge(`self:${item.construct_id}`, source, node, true);
+      if (dynamicIds.has(id) && !previousDynamicIds.has(id)) {
+        const source = addNode(definition, true);
+        addEdge(`self:${id}`, source, node, true);
       }
     }
-    if (previousDynamicIds.has(item.construct_id) && !dynamicIds.has(item.construct_id)) {
-      edgeChanges.set(`self:${item.construct_id}`, "removed");
+    if (previousDynamicIds.has(id) && !dynamicIds.has(id)) {
+      edgeChanges.set(`self:${id}`, "removed");
     }
-    const exclusion = change.kind === "removed" ? item.after_disposition : null;
+    const exclusion = change.kind === "removed" ? afterDispositions.get(id) : null;
     marks.push({
-      id: item.construct_id,
+      id: id,
       x: node.x + node.width,
       y: node.y,
       change: change.kind,
@@ -100,23 +113,23 @@ export function placeComparisonOverlay(
       detail: exclusion
         ? `${humanize(exclusion.disposition)}: ${exclusion.reason}`
         : change.kind === "revised"
-          ? dynamicIds.has(item.construct_id)
+          ? dynamicIds.has(id)
             ? "History node and persistence added"
             : "History node and persistence removed"
           : humanize(definition.name),
     });
   }
-  for (const item of comparison?.graph.edges ?? []) {
-    const change = item.change;
+  for (const change of comparison?.edges ?? []) {
+    const id = change.kind === "removed" ? change.before.id : change.after.id;
     if (change.kind === "unchanged") continue;
-    edgeChanges.set(item.edge_id, change.kind);
-    const definition = change.kind === "removed" ? change.before : change.after;
-    const existing = topology.edgeMeta.get(item.edge_id);
+    edgeChanges.set(id, change.kind);
+    const definition = (change.kind === "removed" ? beforeEdges : afterEdges).get(id);
+    if (!definition) throw new Error(`Compared edge ${id} is missing from its model`);
+    const existing = topology.edgeMeta.get(id);
     let anchor = existing ? positions.get(existing.slotId) : undefined;
     if (change.kind !== "removed") {
-      const causeChange = constructs.get(change.after.cause.id)?.change;
-      const cause = causeChange && causeChange.kind !== "removed" ? causeChange.after : undefined;
-      const target = positions.get(change.after.effect.id);
+      const cause = constructs.get(definition.cause.id);
+      const target = positions.get(definition.effect.id);
       const source = cause
         ? dynamicIds.has(cause.id)
           ? addNode(cause, true)
@@ -127,21 +140,21 @@ export function placeComparisonOverlay(
         target &&
         (!existing || existing.source !== source.id || existing.target !== target.id)
       ) {
-        if (existing) edgeChanges.set(item.edge_id, "removed");
-        anchor = addEdge(item.edge_id, source, target, isGhost(source.id));
+        if (existing) edgeChanges.set(id, "removed");
+        anchor = addEdge(id, source, target, isGhost(source.id));
       }
     }
+    const exclusion = change.kind === "removed" ? afterDispositions.get(id) : null;
     if (anchor)
       marks.push({
-        id: item.edge_id,
+        id: id,
         x: anchor.x + anchor.width / 2,
         y: anchor.y + anchor.height / 2,
         change: change.kind,
         title: `${change.kind === "revised" ? "Rerouted" : humanize(change.kind)} connection`,
-        detail:
-          change.kind === "removed" && item.after_disposition
-            ? `${humanize(item.after_disposition.disposition)}: ${item.after_disposition.reason}`
-            : definition.description,
+        detail: exclusion
+          ? `${humanize(exclusion.disposition)}: ${exclusion.reason}`
+          : definition.description,
       });
   }
   return {

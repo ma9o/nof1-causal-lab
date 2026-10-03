@@ -7,7 +7,11 @@ from typing import TYPE_CHECKING, TypedDict
 from nof1_causal_lab.actions.errors import ModelFitError
 from nof1_causal_lab.artifacts.checks import Evaluated
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.artifacts.posterior import InferenceMetadata, InferenceReport
+from nof1_causal_lab.artifacts.posterior import (
+    InferenceMetadata,
+    InferenceReport,
+    InferenceReportCore,
+)
 from nof1_causal_lab.artifacts.posterior_diagnostics import ParticleMCMCEvidence
 from nof1_causal_lab.models.ssm.inference.convergence import parameter_convergence
 from nof1_causal_lab.models.ssm.inference.persistence import condition_model
@@ -19,6 +23,7 @@ if TYPE_CHECKING:
     import numpy as np
     import polars as pl
 
+    from nof1_causal_lab.models.model_structure import StructuralSelection
     from nof1_causal_lab.numpyro_json import ArrayLoader
     from nof1_causal_lab.sampler_config import SamplerSpec
 
@@ -33,7 +38,7 @@ class FitResult(TypedDict):
 
 def fit(
     *,
-    model_spec: ModelSpec,
+    selection: StructuralSelection,
     data_for_model: pl.DataFrame,
     time_origin: datetime | None,
     sampler: SamplerSpec,
@@ -45,7 +50,7 @@ def fit(
     from nof1_causal_lab.actions.inference.fit import fit_model
 
     fitted_result = fit_model(
-        model_spec,
+        selection,
         data_for_model,
         time_origin=time_origin,
         sampler=sampler,
@@ -60,7 +65,7 @@ def fit(
         )
 
         conditioned = condition_model(
-            model_spec,
+            selection.model,
             fitted_result["panel"].model,
             result,
             times=fitted_result["panel"].times,
@@ -72,18 +77,20 @@ def fit(
             "_model": conditioned,
             "engine_evidence": result.evidence,
             "report": InferenceReport(
-                time_origin=time_origin,
-                inference_metadata=inference_metadata,
-                engine=Evaluated(
-                    subject="production_engine", outcome="passed", evidence=result.evidence
+                core=InferenceReportCore(
+                    time_origin=time_origin,
+                    inference_metadata=inference_metadata,
+                    engine=Evaluated(
+                        subject="production_engine", outcome="passed", evidence=result.evidence
+                    ),
+                    inference_diagnostics=fitted_result["inference_diagnostics"],
+                    sampler_diagnostics=result.diagnostics.marginal_particle_gibbs,
+                    convergence=parameter_convergence(fitted_result["inference_diagnostics"]),
+                    loo_diagnostics=fitted_result["loo_diagnostics"][0]
+                    if fitted_result["loo_diagnostics"]
+                    else None,
+                    posterior_marginals=fitted_result["posterior_marginals"],
                 ),
-                inference_diagnostics=fitted_result["inference_diagnostics"],
-                sampler_diagnostics=result.diagnostics.marginal_particle_gibbs,
-                convergence=parameter_convergence(fitted_result["inference_diagnostics"]),
-                loo_diagnostics=fitted_result["loo_diagnostics"][0]
-                if fitted_result["loo_diagnostics"]
-                else None,
-                posterior_marginals=fitted_result["posterior_marginals"],
                 detail=fitted_result["detail"],
             ),
         }

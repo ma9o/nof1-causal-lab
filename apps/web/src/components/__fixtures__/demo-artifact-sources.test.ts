@@ -1,5 +1,4 @@
 import { fixtureValue } from "@/components/__fixtures__/fixture-value";
-import { presentEntries } from "@/lib/model-accessors";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -50,8 +49,8 @@ describe("promoted DEMO fixture", () => {
   });
 
   it("keeps retained numerical findings on scientific IDs without compiler coordinates", () => {
-    expect(demoModelSnapshot.findings).not.toHaveProperty("execution");
-    const posterior = fixtureValue(demoModelSnapshot.findings.fit).value.report;
+    expect(demoModelSnapshot).not.toHaveProperty("execution");
+    const posterior = fixtureValue(demoModelSnapshot.fit).value.report;
     const parameters = new Set(demoModel.parameters.map((p) => p.id));
     expect(
       fixtureValue(posterior.posterior_marginals).every((m) =>
@@ -80,8 +79,6 @@ describe("promoted DEMO fixture", () => {
 
     expect(simulations).toHaveLength(5);
     for (const result of simulations) {
-      const trajectories = result.predictive.states;
-      const trajectory = fixtureValue(result.causal_result.effect_trajectory);
       expect(
         result.causal_result.warnings.some((warning) =>
           warning.includes("Artificial Storybook simulation"),
@@ -92,16 +89,12 @@ describe("promoted DEMO fixture", () => {
         "internalizing_symptom_burden",
       );
       expect(result.design.interventions).toHaveLength(1);
-      expect(Object.keys(trajectories).sort()).toEqual(stateIds);
-      expect(trajectory).toHaveLength(61);
-      for (const series of presentEntries(trajectories).map(([, series]) => series)) {
-        expect(series.reference?.kind).toBe("numeric");
-        expect(series.action.kind).toBe("numeric");
-        if (series.reference?.kind === "numeric" && series.action.kind === "numeric") {
-          expect(series.reference.mean).toHaveLength(result.times.length);
-          expect(series.action.mean).toHaveLength(result.times.length);
-        }
-      }
+      expect([...result.state_ids].sort()).toEqual(stateIds);
+      expect(result.times).toHaveLength(61);
+      expect(result.latent_paths).toBeTruthy();
+      expect(result.reference_latent_paths).toBeTruthy();
+      expect(result).not.toHaveProperty("predictive");
+      expect(result.causal_result).not.toHaveProperty("effect_trajectory");
     }
   });
 });

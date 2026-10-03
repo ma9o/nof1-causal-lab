@@ -1,4 +1,3 @@
-import { presentEntries } from "@/lib/model-accessors";
 import { useInferenceReport } from "@/lib/hooks/use-inference-report";
 import { distributionText } from "@/lib/utils/distribution-format";
 import { ChainLegend, TraceSparkline, RankBars } from "./fit-charts";
@@ -20,7 +19,7 @@ function interval(days: number | "model_clock"): string {
 /** Only scale changes and missing priors need words; the legend names the curves. */
 function lawHint(curve: LawCurve): string | null {
   if (curve.kind === "fitted")
-    return curve.prior.length > 0
+    return curve.prior.x.length > 0
       ? null
       : "The fit's input model has no prior curve on the fitted scale.";
   const transform = curve.parameter.transform;
@@ -39,7 +38,7 @@ export function LawSections({
   context: ScopeContext;
   uses: readonly CoefficientUse[];
 }) {
-  const fit = context.model.findings.fit;
+  const fit = context.model.fit;
   const detail = useInferenceReport(context.model);
   const chains = detail.data?.value.detail;
   const mcmc = fit?.value.report.inference_diagnostics;
@@ -147,22 +146,25 @@ export function SimulatedHistory({
   id: string;
   kind: "states" | "indicators";
 }) {
-  const simulation = context.model.findings.simulation;
-  const series = simulation
-    ? presentEntries(simulation.value.predictive[kind]).find(([key]) => key === id)?.[1]
-    : undefined;
-  if (!simulation || !series) return null;
+  const simulation = context.model.simulation;
+  const included =
+    simulation &&
+    (kind === "states"
+      ? simulation.value.state_ids.some((state) => state === id)
+      : simulation.value.observation_layout.variables.some((variable) => variable.id === id));
+  if (!simulation || !included) return null;
   return (
     <Section title="Simulated history" source={simulation.source} wide>
-      <SimulationHistory model={context.model} id={id} kind={kind} summary={series} />
+      <SimulationHistory model={context.model} id={id} kind={kind} />
     </Section>
   );
 }
 
 /** All retained coordinates and their empirical marginal, without a preselected report subset. */
 export function PosteriorPairs({ context }: { context: ScopeContext }) {
-  const fit = context.model.findings.fit;
+  const fit = context.model.fit;
   const draws = useParameterDraws(context.model);
+  const report = useInferenceReport(context.model);
   const [xId, setX] = useState<string | null>(null);
   const [yId, setY] = useState<string | null>(null);
   const columns = draws.data?.columns ?? [];
@@ -208,15 +210,9 @@ export function PosteriorPairs({ context }: { context: ScopeContext }) {
           <EmpiricalPlot points={x.empirical} label={x.label} xLabel={humanize(x.label)} />
           {y && (
             <PosteriorPairsChart
-              pair={{
-                param_x: x.label,
-                subject_x: x.subject,
-                x_values: x.values,
-                param_y: y.label,
-                subject_y: y.subject,
-                y_values: y.values,
-                divergent: null,
-              }}
+              x={x}
+              y={y}
+              divergent={report.data?.value.detail.divergent ?? null}
             />
           )}
           <Hint>

@@ -1,16 +1,13 @@
 """Saved scientific summaries retain masks, paired uncertainty and absolute time."""
 
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 
 import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 
-from nof1_causal_lab.actions.simulation_summaries import (
-    paired_effect_trajectory,
-    summarize_simulation,
-)
+from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.identity import GitRef
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
@@ -19,21 +16,21 @@ from nof1_causal_lab.artifacts.simulation import (
     SimulationReport,
     SimulationSpec,
 )
-from nof1_causal_lab.models.model_structure import selected_state_ids
+from nof1_causal_lab.models.model_structure import StructuralSelection, selected_state_ids
 from nof1_causal_lab.models.ssm.predictive.simulation import generate_simulation_batch
 from nof1_causal_lab.read_facade import create_read_facade_app
 from nof1_causal_lab.study.history import StudyRepository
-from nof1_causal_lab.study.records import ModelEditResult, ModelSimulationResult
+from nof1_causal_lab.study.records import Applied, ModelSimulationResult
 from nof1_causal_lab.study.store import ArtifactStore
 from tests.action_fixtures import applied_record
 from tests.data_fixtures import metadata_for_model
-from tests.helpers import make_model
+from tests.helpers import make_model, write_question
 from tests.model_fixtures import compile_model_fixture
 
 pytestmark = pytest.mark.inference(concern="simulation")
 
 
-def test_all_summary_types_and_paired_intervals_are_persisted_before_reads(tmp_path, monkeypatch):
+def test_full_categories_and_paired_paths_are_derived_on_read_and_cached(tmp_path, monkeypatch):
     from nof1_causal_lab.utils import data
 
     monkeypatch.setattr(data, "_DATA_URI", str(tmp_path))
@@ -73,7 +70,13 @@ def test_all_summary_types_and_paired_intervals_are_persisted_before_reads(tmp_p
     )
     history.append(
         applied_record(
-            ModelEditResult(produced=[definition]), seq=1, ts="2026-01-01T00:00:00Z", trace_ids=[]
+            Applied(
+                result=None,
+                effects=ActionEffects(produced=[write_question(store), definition]),
+            ),
+            seq=1,
+            ts="2026-01-01T00:00:00Z",
+            trace_ids=[],
         )
     )
     by_type = {
@@ -101,64 +104,41 @@ def test_all_summary_types_and_paired_intervals_are_persisted_before_reads(tmp_p
         support_end_times=store.write_array(support_times),
         mask=store.write_array(mask),
     )
-    summary = summarize_simulation(
-        model,
-        state_ids=tuple(selected_state_ids(model)),
-        variables=layout.variables,
-        latent_paths=states,
-        observations=observations,
-        mask=mask,
-        reference_latent_paths=states - 1,
-        reference_observations=observations,
-        fit_reliability="unconverged",
-    )
-    assert summary.states[selected_state_ids(model)[0]].action.n_draws == (
-        2,
-        3,
-    )
-    for variable in layout.variables:
-        series = summary.indicators[variable.id].action
-        if variable.measurement_dtype == "binary":
-            assert series.kind == "categorical"
-            assert series.probabilities["1"][1] == pytest.approx(2 / 3)
-        if variable.measurement_dtype == "ordinal":
-            assert series.kind == "categorical"
-            assert series.probabilities["medium"][1] == pytest.approx(1 / 3)
-        if variable.measurement_dtype == "categorical":
-            assert series.kind == "categorical"
-            assert series.probabilities["b"][1] == pytest.approx(2 / 3)
-    assert summary.indicators[layout.variables[0].id].action.n_draws == (0, 3)
-    paired = paired_effect_trajectory((5, 7), np.array([[1.0, 2.0], [3.0, 4.0]]))
-    assert [(p.day, p.lower_95, p.upper_95) for p in paired] == [(5, 1.05, 2.95), (7, 2.05, 3.95)]
     report = SimulationReport(
         model=GitRef(workspace_id="SUMMARY", revision=definition.revision, path="model.json"),
         design=SimulationSpec(
-            start=5,
-            end=7,
+            start=date(2026, 1, 6),
+            horizon="2d",
             interventions=(
-                {
-                    "target": selected_state_ids(model)[0],
-                    "time": 5,
-                    "value": 1,
-                },
+                {"target": selected_state_ids(StructuralSelection(model, None))[0], "value": 1},
             ),
+        ),
+        assignments=(
+            {
+                "target": selected_state_ids(StructuralSelection(model, None))[0],
+                "time": 5,
+                "value": 1,
+            },
         ),
         times=(5, 7),
         draws=3,
         seed=0,
         time_origin=datetime(2026, 1, 1, tzinfo=UTC),
-        state_ids=tuple(selected_state_ids(model)),
+        state_ids=tuple(selected_state_ids(StructuralSelection(model, None))),
         parameter_draws={},
         latent_paths=store.write_array(states),
         observations=store.write_array(observations),
         reference_latent_paths=store.write_array(states - 1),
         reference_observations=store.write_array(observations),
         observation_layout=layout,
-        predictive=summary,
+        fit_reliability="not_fitted",
     )
     history.append(
         applied_record(
-            ModelSimulationResult(report=report), seq=2, ts="2026-01-01T01:00:00Z", trace_ids=[]
+            Applied(result=ModelSimulationResult(report=report), effects=ActionEffects()),
+            seq=2,
+            ts="2026-01-01T01:00:00Z",
+            trace_ids=[],
         )
     )
 
@@ -169,21 +149,38 @@ def test_all_summary_types_and_paired_intervals_are_persisted_before_reads(tmp_p
     assert path_data["total_draws"] == 3
     assert path_data["count"] == 2
     assert path_data["times"] == [5, 7]
-    identity = selected_state_ids(model)[0]
+    identity = selected_state_ids(StructuralSelection(model, None))[0]
     assert path_data["states"][identity]["action"][0]["draw"] == 1
     assert path_data["states"][identity]["action"][0]["values"] == states[1, :, 0].tolist()
     assert client.get("/api/studies/SUMMARY/model/visuals/simulation?start=3").status_code == 422
     assert client.get("/api/studies/SUMMARY/model/visuals/simulation?count=0").status_code == 422
 
+    for variable in layout.variables:
+        if variable.measurement_dtype == "binary":
+            assert path_data["action_category_probabilities"][variable.id]["probabilities"]["1"][
+                1
+            ] == pytest.approx(2 / 3)
+        if variable.measurement_dtype == "ordinal":
+            assert path_data["action_category_probabilities"][variable.id]["probabilities"][
+                "medium"
+            ][1] == pytest.approx(1 / 3)
+        if variable.measurement_dtype == "categorical":
+            assert path_data["action_category_probabilities"][variable.id]["probabilities"]["b"][
+                1
+            ] == pytest.approx(2 / 3)
+
     def no_array_reads(*args, **kwargs):
-        pytest.fail("Reading saved summaries must not load draws")
+        pytest.fail("A cached draw read must not reload arrays")
 
     monkeypatch.setattr(ArtifactStore, "read_array", no_array_reads)
-    client = TestClient(create_read_facade_app())
+    assert (
+        client.get("/api/studies/SUMMARY/model/visuals/simulation?start=1&count=128").json()
+        == path_data
+    )
     response = client.get("/api/studies/SUMMARY/model")
     assert response.status_code == 200, response.text
-    assert response.json()["findings"]["simulation"]["value"] == report.model_dump(mode="json")
-    assert client.get("/api/studies/SUMMARY/model/simulation-trajectories").status_code == 404
+    assert response.json()["simulation"]["value"] == report.model_dump(mode="json")
+    assert "predictive" not in response.json()["simulation"]["value"]
 
 
 def test_authored_law_advances_from_zero_before_a_later_requested_start():
@@ -222,13 +219,9 @@ def test_authored_law_advances_from_zero_before_a_later_requested_start():
         for c in model.constructs
     )
     model = model.revised(edges=replace_constructs(model.edges, constructs))
-    batch = generate_simulation_batch(
-        compile_model_fixture(model), SimulationSpec(start=2, end=3), draws=2
-    )
+    batch = generate_simulation_batch(compile_model_fixture(model), start=2.0, end=3.0, draws=2)
     np.testing.assert_allclose(
         batch.prediction.trajectory.latents[:, 0], 10 * np.exp(-1), rtol=0.002
     )
     with pytest.raises(ValueError, match="before the initial law"):
-        generate_simulation_batch(
-            compile_model_fixture(model), SimulationSpec(start=-1, end=1), draws=2
-        )
+        generate_simulation_batch(compile_model_fixture(model), start=-1.0, end=1.0, draws=2)

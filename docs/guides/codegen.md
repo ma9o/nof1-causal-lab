@@ -86,7 +86,7 @@ without retaining compatibility aliases.
 ### Identity and revision conventions
 
 Use a scalar ID when a field identifies one known kind of entity: scenario
-`target` and `outcome`, model `default_outcome`, and validation `indicator_id`.
+`target` and `outcome`, question `outcome`, and validation `indicator_id`.
 Keep tagged references for mixed entity kinds and for shared graph endpoints.
 Python edges hold canonical `ConstructSpec` objects; their JSON representation
 defines a shared construct once and refers to it at subsequent endpoints.
@@ -102,7 +102,7 @@ Entity identity survives renames and revisions. Exact provenance remains separat
 `GitRef` records a workspace, a Git object ID and a path within that object;
 `StudyRevision` records one commit of the study history with its action log. A
 commit is not a model artifact version.
-Snapshots carry `context.workspace_id` and the selected journal sequence, and pin
+Snapshots carry `workspace_id` and `selected_seq`, and pin
 each sourced value to its supporting version.
 
 ## Changing the schema

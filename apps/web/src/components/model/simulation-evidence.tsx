@@ -1,18 +1,18 @@
-import { presentEntries } from "@/lib/model-accessors";
 import type { ModelPredictiveReport } from "@nof1-causal-lab/api-types";
 import { resolveEntity, type ModelEntities } from "@/lib/model-asset/entities";
 import type { ScopeContext } from "@/lib/model-asset/scope";
 import { formatPlain, humanize } from "@/lib/model-asset/selection";
 import { hasCausalEffects } from "@/lib/simulation-report";
+import { useSimulationPaths } from "@/lib/hooks/use-visuals";
 import { formatModelDate } from "@/lib/utils/format";
 import { SimulationHistory } from "./scopes/recorded-history";
-import { EffectChart } from "./effect-chart";
 import { Hint, KeyValue, Section, StatusIcon } from "./scope-primitives";
 
 /** The design, saved histories and certified effect of the selected simulation. */
 export function SimulationEvidence({ context }: { context: ScopeContext }) {
   const { model, entities } = context;
-  const simulation = model.findings.simulation;
+  const simulation = model.simulation;
+  const paths = useSimulationPaths(model);
   if (!simulation)
     return (
       <Section title="Simulation">
@@ -22,8 +22,7 @@ export function SimulationEvidence({ context }: { context: ScopeContext }) {
   const report = simulation.value;
   const names = new Map(entities.constructs.map((item) => [item.id, humanize(item.name)]));
 
-  const timeLabel = (day: number) =>
-    report.time_origin ? `${formatModelDate(day, report.time_origin)} (day ${day})` : `Day ${day}`;
+  const timeLabel = (day: number) => `${formatModelDate(day, report.time_origin)} (day ${day})`;
   return (
     <>
       <Section title="Causal effect" source={simulation.source} wide>
@@ -37,16 +36,19 @@ export function SimulationEvidence({ context }: { context: ScopeContext }) {
               )}{" "}
               at the end of the simulation.
             </Hint>
-            <KeyValue
-              rows={[
-                ["Mean", formatPlain(report.causal_result.summary.mean)],
-                [
-                  "95% interval",
-                  `[${formatPlain(report.causal_result.summary.lower_95)}, ${formatPlain(report.causal_result.summary.upper_95)}]`,
-                ],
-              ]}
-            />
-            <EffectChart simulation={report} />
+            {paths.data?.effect_summary && (
+              <KeyValue
+                rows={[
+                  ["Mean", formatPlain(paths.data.effect_summary.mean)],
+                  ["Median", formatPlain(paths.data.effect_summary.median)],
+                  [
+                    "95% interval",
+                    `[${formatPlain(paths.data.effect_summary.lower_95)}, ${formatPlain(paths.data.effect_summary.upper_95)}]`,
+                  ],
+                  ["Probability positive", formatPlain(paths.data.effect_summary.prob_positive)],
+                ]}
+              />
+            )}
             <SimulationHistory model={model} id={report.causal_result.outcome} kind="effect" />
 
             {report.causal_result.warnings.map((warning) => (
@@ -68,30 +70,35 @@ export function SimulationEvidence({ context }: { context: ScopeContext }) {
         <KeyValue
           rows={[
             ["Start", timeLabel(report.times[0])],
-            ["End", timeLabel(report.design.end)],
+            ["Horizon", report.design.horizon],
+            ["End", timeLabel(report.times.at(-1) ?? report.times[1])],
             ["Draws", report.draws.toLocaleString()],
-            ["Fit reliability", humanize(report.predictive.fit_reliability)],
+            ["Fit reliability", humanize(report.fit_reliability)],
             ["Laws", humanize(report.law?.interpretation ?? "unknown")],
           ]}
         />
         {report.design.interventions.length === 0 ? (
           <Hint>No intervention requested.</Hint>
         ) : (
-          report.design.interventions.map((event) => (
-            <p key={`${event.target}-${event.time}`} className="m-0 border-t pt-2">
-              {timeLabel(event.time)}: set {names.get(event.target) ?? event.target} to{" "}
-              {event.value}.
+          report.design.interventions.map((event, index) => (
+            <p key={`${event.target}-${event.after ?? "start"}`} className="m-0 border-t pt-2">
+              {event.after ? `${event.after} after the start` : "At the start"} (
+              {timeLabel(report.assignments[index]?.time ?? report.times[0])}): set{" "}
+              {names.get(event.target) ?? event.target} to {event.value}.
             </p>
           ))
         )}
       </Section>
-      {(["states", "indicators"] as const).flatMap((kind) =>
-        presentEntries(report.predictive[kind]).map(([id, series]) => (
-          <Section key={id} title={humanize(series.label)} source={simulation.source} wide>
-            <SimulationHistory model={model} id={id} kind={kind} summary={series} />
-          </Section>
-        )),
-      )}
+      {report.state_ids.map((id) => (
+        <Section key={id} title={names.get(id) ?? id} source={simulation.source} wide>
+          <SimulationHistory model={model} id={id} kind="states" />
+        </Section>
+      ))}
+      {report.observation_layout.variables.map((variable) => (
+        <Section key={variable.id} title={humanize(variable.name)} source={simulation.source} wide>
+          <SimulationHistory model={model} id={variable.id} kind="indicators" />
+        </Section>
+      ))}
       {report.findings.length > 0 && (
         <Section title="Simulation checks" source={simulation.source} wide>
           <PredictiveFindings findings={report.findings} entities={entities} />
@@ -105,7 +112,7 @@ export function PredictiveFindings({
   findings,
   entities,
 }: {
-  findings: ModelPredictiveReport["findings"];
+  findings: Extract<ModelPredictiveReport["evaluation"], { kind: "evaluated" }>["findings"];
   entities: ModelEntities;
 }) {
   const names = new Map<string, string>([

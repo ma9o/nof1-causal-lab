@@ -7,13 +7,13 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from nof1_causal_lab.actions.simulation_summaries import summarize_simulation
 from nof1_causal_lab.artifacts.simulation import SimulationObservationLayout, SimulationReport
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.predictive.simulation import (
     generate_simulation_batch,
     measure_simulation_batch,
 )
+from nof1_causal_lab.models.ssm.preflight import ObservationPreflightFailure
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -22,31 +22,31 @@ if TYPE_CHECKING:
     import polars as pl
 
     from nof1_causal_lab.artifacts.identity import GitRef
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.simulation import FitReliability, SimulationSpec
+    from nof1_causal_lab.models.model_structure import StructuralSelection
 
 
 def simulate(
-    model: ModelSpec,
+    selection: StructuralSelection,
     design: SimulationSpec,
     *,
     revision: GitRef,
     write_array: Callable[[np.ndarray], str],
-    time_origin: datetime | None,
+    time_origin: datetime,
     fit_reliability: FitReliability = "not_fitted",
     input_data: pl.DataFrame | None = None,
-) -> SimulationReport:
+) -> SimulationReport | ObservationPreflightFailure:
     """Generate current model histories; data_diff compares the saved observations separately."""
     from nof1_causal_lab.models.ssm.compile.inputs import compile_executable_model
 
-    compiled = compile_executable_model(model)
+    model = selection.model
+    compiled = compile_executable_model(selection)
     from nof1_causal_lab.models.ssm.runtime import replay_input_events
 
+    start, end = design.start_day(time_origin), design.end_day(time_origin)
+    assignments = design.assignments(time_origin)
     retained_times = next(
         (law.layout.time_points for law in compiled.laws if law.layout.constructs), ()
-    )
-    start = (
-        (retained_times[-1] if retained_times else 0.0) if design.start is None else design.start
     )
     history_start = (
         retained_times[int(np.searchsorted(retained_times, start, side="right")) - 1]
@@ -58,9 +58,18 @@ def simulate(
         input_data,
         time_origin=time_origin,
         start=history_start,
-        end=design.end,
+        end=end,
     )
-    batch = generate_simulation_batch(compiled, design, input_events=input_events)
+    if isinstance(input_events, ObservationPreflightFailure):
+        return input_events
+    batch = generate_simulation_batch(
+        compiled,
+        start=start,
+        end=end,
+        assignments=assignments,
+        input_events=input_events,
+        time_origin=time_origin,
+    )
     findings, _ = measure_simulation_batch(compiled, batch, clock=time.monotonic)
     support = batch.measurement_design.observation_support
     if support is None:
@@ -75,25 +84,12 @@ def simulate(
     return SimulationReport(
         model=revision,
         design=design,
+        time_origin=time_origin,
+        assignments=assignments,
         times=batch.times,
         draws=prediction.n_draws,
         seed=batch.measurement_design.seed,
-        time_origin=time_origin,
-        predictive=summarize_simulation(
-            model,
-            state_ids=state_ids,
-            variables=variables,
-            latent_paths=np.asarray(prediction.trajectory.latents),
-            observations=np.asarray(prediction.trajectory.observations),
-            mask=np.asarray(prediction.trajectory.observations_mask),
-            reference_latent_paths=np.asarray(prediction.reference.latents)
-            if prediction.reference is not None
-            else None,
-            reference_observations=np.asarray(prediction.reference.observations)
-            if prediction.reference is not None
-            else None,
-            fit_reliability=fit_reliability,
-        ),
+        fit_reliability=fit_reliability,
         state_ids=state_ids,
         parameter_draws={
             name: write_array(np.asarray(value)) for name, value in prediction.parameters.items()

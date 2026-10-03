@@ -17,6 +17,7 @@ import { ActionFindings } from "./action-findings";
 import { Hint, Section } from "./scope-primitives";
 import { DataComparisonOutcome, DataDetails } from "./scopes/data-details";
 import { EditDetails } from "./scopes/edit-details";
+import { QuestionDetails } from "./scopes/question-details";
 import { FitOutcome } from "./scopes/fit-details";
 
 export type ActionTraceState =
@@ -139,6 +140,7 @@ function ActionTrace({
  * What the selected action did and what came of it, stated rather than shown: its verdicts, its
  * warnings with their reasons, and the results that matter. The state the action left belongs to
  * the graph and the details pane.
+ * - set_question: the question it set, as the root of every lineage.
  * - edit_model: what changed, in model terms, and what its checks concluded (identification kept
  *   or lost, which predictive checks failed and why).
  * - prepare_data: which data arrived (source, window, variables, volume) and the problems found.
@@ -197,11 +199,17 @@ export function ActionRecord({
               </section>
             ) : (
               <>
+                {tick.record.attempt.action === "set_question" && tick.record.attempt.request && (
+                  <QuestionDetails
+                    context={context}
+                    question={tick.record.attempt.request.question}
+                  />
+                )}
                 {tick.record.attempt.action === "edit_model" && (
                   <EditDetails context={context} tick={tick} />
                 )}
                 {tick.record.attempt.action === "prepare_data" && (
-                  <DataDetails context={context} result={tick.record.attempt.outcome.result} />
+                  <DataDetails context={context} applied={tick.record.attempt.outcome} />
                 )}
                 {tick.record.attempt.action === "fit" && <FitOutcome context={context} />}
                 {tick.record.attempt.action === "data_diff" && (
@@ -210,7 +218,7 @@ export function ActionRecord({
                     report={tick.record.attempt.outcome.result.report}
                   />
                 )}
-                <ActionFindings context={context} result={tick.record.attempt.outcome.result} />
+                <ActionFindings context={context} applied={tick.record.attempt.outcome} />
               </>
             )}
             {tick.record.attempt.action !== "simulate" && tick.record.trace_ids.length > 0 && (

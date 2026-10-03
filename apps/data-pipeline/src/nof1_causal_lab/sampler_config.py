@@ -6,7 +6,7 @@ import math
 from typing import Literal
 
 import jax
-from pydantic import Field, InstanceOf
+from pydantic import Field, FiniteFloat, InstanceOf, field_serializer, field_validator
 
 from nof1_causal_lab.artifacts.base import Value
 
@@ -30,7 +30,7 @@ class MarginalParticleGibbsSpec(Value):
     amala_adaptation_rho_min: float = 1e-3
     amala_adaptation_gamma: float = -0.5
     amala_kappa: float = 0.75
-    amala_grad_clip: float = math.inf
+    amala_grad_clip: float = Field(default=math.inf, gt=0)
     dsmc_leaf_proposal: DSMCLeafProposal = "amala_exact"
     # Coordinate-block proposals: number of latent coordinates proposed per sweep
     # (None = all). Blocks of 2-4 sidestep the joint-coherence weight degeneracy of
@@ -65,6 +65,15 @@ class MarginalParticleGibbsSpec(Value):
     compute_latent_posterior_summary: bool = True
 
     n_ieks_iters: int = 6
+
+    @field_validator("amala_grad_clip", mode="before")
+    @classmethod
+    def parse_gradient_clip(cls, value: float | Literal["infinity"]) -> float:
+        return math.inf if value == "infinity" else value
+
+    @field_serializer("amala_grad_clip")
+    def serialize_gradient_clip(self, value: float) -> FiniteFloat | Literal["infinity"]:
+        return "infinity" if math.isinf(value) else value
 
 
 class SamplerSpec(Value):

@@ -7,10 +7,12 @@ import asyncio
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
+from nof1_causal_lab.actions.contracts import PrepareDataRequest
 from nof1_causal_lab.actions.edit_model import edit_model
 from nof1_causal_lab.actions.errors import ActionExecutionError
 from nof1_causal_lab.actions.messages import completion_messages
 from nof1_causal_lab.actions.runners import run_action
+from nof1_causal_lab.actions.set_question import set_question
 from nof1_causal_lab.actions.temporal.ingestion_activities import INGESTION_ACTIVITIES
 from nof1_causal_lab.actions.temporal.llm_subroutine_activities import LLM_SUBROUTINE_ACTIVITIES
 from nof1_causal_lab.actions.temporal.measurement_activities import MEASUREMENT_ACTIVITIES
@@ -20,6 +22,7 @@ from nof1_causal_lab.actions.temporal.messages import (
     EditModelInput,
     EvaluateChecksInput,
     ReadBranchInput,
+    SetQuestionInput,
 )
 from nof1_causal_lab.compilation_errors import AggregatedCompileError, IncompleteModelError
 from nof1_causal_lab.study.errors import ArtifactWriteRejected, StudyLookupError
@@ -30,9 +33,9 @@ from nof1_causal_lab.study.records import (
     BranchBase,
     DataPreparationResult,
     EditAttempt,
-    ModelEditResult,
     ModelFitResult,
     Rejected,
+    SetQuestionAttempt,
     StudyRevision,
     applied_attempt,
     failed_attempt,
@@ -59,7 +62,9 @@ async def run_action_activity(activity_input: ActionInput) -> ActionAttempt:
         raise ApplicationError(
             str(exc), exc.diagnostics, type=type(exc).__name__, non_retryable=True
         ) from exc
-    return applied_attempt(activity_input.request, result)
+    return applied_attempt(
+        activity_input.request, Applied(result=result.result, effects=result.effects)
+    )
 
 
 @activity.defn
@@ -70,24 +75,34 @@ async def edit_model_activity(activity_input: EditModelInput) -> EditAttempt:
         )
     except ArtifactWriteRejected as exc:
         return EditAttempt(
+            action="edit_model",
             request=activity_input.request,
             outcome=Rejected(reason="revision_conflict", detail=str(exc)),
         )
-    return EditAttempt(request=activity_input.request, outcome=Applied(result=result))
+    return EditAttempt(request=activity_input.request, outcome=result, action="edit_model")
+
+
+@activity.defn
+async def set_question_activity(activity_input: SetQuestionInput) -> SetQuestionAttempt:
+    result = set_question(activity_input.workspace_id, activity_input.request)
+    return SetQuestionAttempt(request=activity_input.request, outcome=result, action="set_question")
 
 
 @activity.defn
 async def evaluate_model_checks_activity(
-    activity_input: EvaluateChecksInput[ModelEditResult | ModelFitResult],
-) -> ModelEditResult | ModelFitResult:
+    activity_input: EvaluateChecksInput[ModelFitResult | None],
+) -> Applied[ModelFitResult | None]:
     from nof1_causal_lab.actions.model_checks import evaluate_model_checks
 
+    if isinstance(activity_input.request, PrepareDataRequest):
+        raise TypeError("Model checks require an edit or fit request")
+    action = activity_input.request.action
     return await asyncio.to_thread(
         lambda: evaluate_model_checks(
             activity_input.workspace_id,
             activity_input.state,
-            activity_input.effects,
-            action=activity_input.effects.action,
+            activity_input.applied,
+            action=action,
         )
     )
 
@@ -95,14 +110,14 @@ async def evaluate_model_checks_activity(
 @activity.defn
 async def evaluate_data_checks_activity(
     activity_input: EvaluateChecksInput[DataPreparationResult],
-) -> DataPreparationResult:
+) -> Applied[DataPreparationResult]:
     from nof1_causal_lab.actions.data_checks import evaluate_data_checks
 
     return await asyncio.to_thread(
         evaluate_data_checks,
         activity_input.workspace_id,
         activity_input.state,
-        activity_input.effects,
+        activity_input.applied,
     )
 
 
@@ -129,10 +144,12 @@ async def journal_activity(activity_input: AttemptPublication) -> StudyRevision:
         messages = (
             messages[:-1]
             + completion_messages(
-                record.attempt.outcome.result,
+                Applied(
+                    result=record.attempt.outcome.result, effects=record.attempt.outcome.effects
+                ),
                 messages[-1].timestamp,
                 ArtifactStore(activity_input.workspace_id).completion_reports(
-                    record.attempt.outcome.result.produced
+                    record.attempt.outcome.effects.produced
                 ),
             )
             + messages[-1:]
@@ -155,6 +172,7 @@ async def collect_completed_runs_activity(workspace_id: str) -> None:
 
 ALL_ACTIVITIES = [
     run_action_activity,
+    set_question_activity,
     edit_model_activity,
     journal_activity,
     read_branch_activity,

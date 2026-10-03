@@ -14,20 +14,21 @@ import jax
 import jax.numpy as jnp
 from typing_extensions import TypedDict
 
+from nof1_causal_lab.artifacts.identity import ParameterRef
 from nof1_causal_lab.artifacts.posterior import InferenceReportDetail
 from nof1_causal_lab.artifacts.posterior_diagnostics import (
     ChainDiagnostics,
     LOODiagnostics,
     ParetoKPoint,
     PosteriorMarginal,
-    PosteriorPair,
 )
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior
+from nof1_causal_lab.models.ssm.preflight import ObservationPreflightFailure
 from nof1_causal_lab.models.ssm.runtime import (
     BoundPanel,
-    PanelPreparationFailure,
-    bind_panel,
+    PreparedFit,
+    prepare_fit,
 )
 from nof1_causal_lab.sampler_config import SamplerSpec
 
@@ -38,9 +39,8 @@ if TYPE_CHECKING:
     import polars as pl
     from jax.stages import Compiled
 
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.posterior import FitSettingsSpec
-    from nof1_causal_lab.models.ssm.compile.inputs import CompiledFitInputs
+    from nof1_causal_lab.models.model_structure import StructuralSelection
     from nof1_causal_lab.sampler_config import SamplerInitialization
 
 logger = logging.getLogger(__name__)
@@ -56,7 +56,7 @@ class FittedModelResult(TypedDict, closed=True):
     inference_diagnostics: ChainDiagnostics
     loo_diagnostics: tuple[LOODiagnostics, tuple[ParetoKPoint, ...]] | None
     posterior_marginals: tuple[PosteriorMarginal, ...]
-    posterior_pairs: tuple[PosteriorPair, ...]
+    posterior_pairs: tuple[tuple[ParameterRef, ParameterRef], ...]
     detail: InferenceReportDetail
 
 
@@ -89,12 +89,11 @@ def resolve_sampler_spec(settings: FitSettingsSpec) -> SamplerSpec:
 
 
 def fit_prepared_model(
-    inputs: CompiledFitInputs,
-    panel: BoundPanel,
+    prepared: PreparedFit,
     *,
     sampler: SamplerSpec,
     initialization: SamplerInitialization | None = None,
-) -> ParticleMCMCPosterior:
+) -> ParticleMCMCPosterior | ObservationPreflightFailure:
     """Run on resolved sampler choices and explicit initialization buffers."""
     from nof1_causal_lab.models.ssm.inference import fit
 
@@ -102,14 +101,16 @@ def fit_prepared_model(
     start_trace(profile_dir, label="fit")
     try:
         result = fit(
-            inputs.prior_runtime_bundle,
-            panel,
+            prepared.inputs.prior_runtime_bundle,
+            prepared.panel,
             sampler=sampler,
             initialization=initialization,
             clock=time.monotonic,
         )
     finally:
         stop_trace(profile_dir)
+    if isinstance(result, ObservationPreflightFailure):
+        return result
     if profile_dir is not None:
         compiled_step = result.diagnostics.compiled_step
         if compiled_step is None:
@@ -155,7 +156,7 @@ def _support_summary(panel: BoundPanel) -> str:
 
 
 def fit_model(
-    model_spec: ModelSpec,
+    selection: StructuralSelection,
     data_for_model: pl.DataFrame,
     *,
     time_origin: datetime | None,
@@ -165,7 +166,7 @@ def fit_model(
     """Fit the SSM model to data.
 
     Args:
-        model_spec: Complete scientific definition pinned to this fit
+        selection: The pinned model, scoped by the question's outcome
         data_for_model: Canonical observation rows (indicator, value, anchor_time, support metadata)
         sampler: Fully resolved numerical controls
 
@@ -184,39 +185,18 @@ def fit_model(
     )
     t0 = time.monotonic()
 
-    from typing import assert_never
+    from nof1_causal_lab.models.ssm.compile.inputs import compile_ssm_inputs_from_model
 
-    from nof1_causal_lab.models.ssm.compile.inputs import (
-        CompiledFitInputs,
-        IncompleteModel,
-        UnsupportedFit,
-        compile_ssm_inputs_from_model,
-    )
-
-    inputs = compile_ssm_inputs_from_model(model_spec)
-    match inputs:
-        case IncompleteModel() | UnsupportedFit():
-            return {
-                "fitted": False,
-                "error": inputs.message,
-                "duration_seconds": _fit_elapsed_seconds(t0),
-            }
-        case CompiledFitInputs():
-            pass
-        case _:
-            assert_never(inputs)
+    inputs = compile_ssm_inputs_from_model(selection)
     prep_t0 = time.monotonic()
-    panel = bind_panel(
-        data_for_model=data_for_model,
-        time_origin=time_origin,
-        model=inputs.compiled,
-    )
-    if isinstance(panel, PanelPreparationFailure):
+    prepared = prepare_fit(inputs, data_for_model, time_origin=time_origin)
+    if not isinstance(prepared, PreparedFit):
         return {
             "fitted": False,
-            "error": panel.message,
+            "error": prepared.message,
             "duration_seconds": _fit_elapsed_seconds(t0),
         }
+    panel = prepared.panel
     observed_cells, total_cells = _observed_cell_counts(panel.observations)
     logger.info(
         "Prepared runtime in %.1fs: wide_rows=%d timepoints=%d manifest_vars=%d "
@@ -238,7 +218,13 @@ def fit_model(
     # Fit the model — returns a production particle posterior.
     logger.info("Starting inference kernel...")
     fit_t0 = time.monotonic()
-    result = fit_prepared_model(inputs, panel, sampler=sampler)
+    result = fit_prepared_model(prepared, sampler=sampler)
+    if isinstance(result, ObservationPreflightFailure):
+        return {
+            "fitted": False,
+            "error": result.message,
+            "duration_seconds": _fit_elapsed_seconds(t0),
+        }
     logger.info(
         "Inference kernel complete in %.1fs: method=%s wide_rows=%d manifest_vars=%d",
         _fit_elapsed_seconds(fit_t0),
@@ -251,7 +237,7 @@ def fit_model(
     logger.info("Collecting sampler diagnostics...")
     from nof1_causal_lab.actions.inference.subjects import parameter_references
 
-    references = parameter_references(inputs)
+    references = parameter_references(prepared.inputs)
     inference_diagnostics = result.get_inference_diagnostics(references)
 
     loo_diag = None
@@ -272,6 +258,11 @@ def fit_model(
         rank_histograms=ranks,
         pareto_k=loo_diag[1] if loo_diag else (),
         posterior_pairs=posterior_pairs,
+        divergent=tuple(
+            bool(v) for v in result.diagnostics.mcmc.get_extra_fields()["diverging"].reshape(-1)
+        )
+        if "diverging" in result.diagnostics.mcmc.get_extra_fields()
+        else None,
         initial_latent_delta=tuple(
             tuple(float(v) for v in row) for row in result.initial_latent_delta
         )

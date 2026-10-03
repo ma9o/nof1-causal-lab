@@ -13,6 +13,7 @@ from typing import TYPE_CHECKING
 from pydantic import TypeAdapter
 from temporalio import activity
 
+from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.actions.errors import execution_failure_handler
 from nof1_causal_lab.actions.temporal.activity_errors import (
     as_non_retryable_application_error,
@@ -38,7 +39,7 @@ from nof1_causal_lab.artifacts.measurements import ObservationRecord
 from nof1_causal_lab.json_types import JsonObject
 from nof1_causal_lab.llm_specs import EmbeddedLLMSpec
 from nof1_causal_lab.study.artifact_files import json_filename, parquet_filename
-from nof1_causal_lab.study.records import DataPreparationResult
+from nof1_causal_lab.study.records import Applied, DataPreparationResult
 from nof1_causal_lab.study.store import ArtifactStore
 from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
@@ -323,7 +324,7 @@ async def finalize_extraction_chunk_activity(
 @execution_failure_handler
 async def finalize_measurements_activity(
     activity_input: MeasurementsFinalizeInput,
-) -> DataPreparationResult:
+) -> Applied[DataPreparationResult]:
     import polars as pl
 
     from nof1_causal_lab.actions.extraction.materialization import (
@@ -374,26 +375,32 @@ async def finalize_measurements_activity(
             time_origin=prepared_time_origin(panel, preparation.source.start),
         )
         store = ArtifactStore(activity_input.workspace_id)
-        return DataPreparationResult(
-            produced=(
-                store.write_artifact(
-                    "panel",
-                    derived_from=activity_input.pins,
-                    produced_by="prepare_data",
-                    parquet_files={parquet_filename("panel", "panel"): panel},
-                    json_files={
-                        json_filename("panel", "metadata"): metadata.model_dump(mode="json")
-                    },
+        return Applied(
+            result=DataPreparationResult(
+                workers=tuple(results_by_worker[spec.worker_id] for spec in chunk_specs),
+                raw_data=GitRef(
+                    workspace_id=activity_input.workspace_id,
+                    revision=activity_input.pins["raw_data"],
+                    path="raw.parquet",
+                ),
+                n_observations=len(panel),
+                extraction_reused=sum(
+                    result.reused is True for result in activity_input.chunk_results
                 ),
             ),
-            workers=tuple(results_by_worker[spec.worker_id] for spec in chunk_specs),
-            raw_data=GitRef(
-                workspace_id=activity_input.workspace_id,
-                revision=activity_input.pins["raw_data"],
-                path="raw.parquet",
+            effects=ActionEffects(
+                produced=(
+                    store.write_artifact(
+                        "panel",
+                        derived_from=activity_input.pins,
+                        produced_by="prepare_data",
+                        parquet_files={parquet_filename("panel", "panel"): panel},
+                        json_files={
+                            json_filename("panel", "metadata"): metadata.model_dump(mode="json")
+                        },
+                    ),
+                )
             ),
-            n_observations=len(panel),
-            extraction_reused=sum(result.reused is True for result in activity_input.chunk_results),
         )
     except Exception as exc:
         raise as_non_retryable_application_error(exc) from exc

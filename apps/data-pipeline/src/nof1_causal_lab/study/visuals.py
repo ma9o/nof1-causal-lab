@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 import polars as pl
@@ -18,6 +18,7 @@ from nof1_causal_lab.utils.time_coordinates import ObservationInstant
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.observations import ObservationSpec
     from nof1_causal_lab.artifacts.simulation import SimulationReport
 
@@ -64,32 +65,72 @@ def observation_history(
 
 def recorded_simulation_paths(
     report: SimulationReport,
+    model: ModelSpec,
     latent: np.ndarray,
     observed: np.ndarray,
     mask: np.ndarray,
     reference: np.ndarray | None,
     reference_observed: np.ndarray | None,
-    effect: tuple[str, np.ndarray] | None,
     *,
     start: int,
+    count: int,
 ) -> SimulationPaths:
-    """Project materialized paths without reducing their histories."""
+    """Project draw pages and surviving labels from the full retained buffers."""
+    import jax.numpy as jnp
+
+    from nof1_causal_lab.actions.simulation_summaries import category_probabilities
+    from nof1_causal_lab.models.ssm.counterfactual.estimands import summarize_draws
+
+    stop = min(start + count, report.draws)
 
     def paths(values: np.ndarray) -> tuple[RecordedPath, ...]:
         return tuple(
             RecordedPath(draw=start + index, values=finite_values(row))
-            for index, row in enumerate(values)
+            for index, row in enumerate(values[start:stop])
         )
 
+    effect = None
+    summary = None
+    reference_mean = None
+    manifest = {}
+    if report.causal_result is not None:
+        # Certification owns both reference keys; the reader hydrates those exact buffers.
+        reference = cast("np.ndarray", reference)
+        reference_observed = cast("np.ndarray", reference_observed)
+        outcome = report.state_ids.index(report.causal_result.outcome)
+        differences = latent[:, :, outcome] - reference[:, :, outcome]
+        effect = PathSeries(
+            label=report.causal_result.labels[report.causal_result.outcome],
+            action=paths(differences),
+        )
+        summary = summarize_draws(jnp.asarray(differences[:, -1]))
+        reference_mean = float(reference[:, -1, outcome].mean())
+        difference = observed - reference_observed
+        manifest = {
+            identity: float(difference[:, -1, index].mean())
+            for index, identity in enumerate(report.observation_layout.indicator_ids)
+            if np.isfinite(difference[:, -1, index]).all()
+        }
+
+    variables = report.observation_layout.variables
+    category_levels = {
+        index: ("0", "1")
+        if variable.measurement_dtype == "binary"
+        else variable.ordinal_levels or variable.categorical_levels
+        for index, variable in enumerate(variables)
+        if variable.measurement_dtype == "binary"
+        or variable.ordinal_levels
+        or variable.categorical_levels
+    }
     return SimulationPaths(
         times=report.times,
         time_origin=report.time_origin,
         total_draws=report.draws,
         start=start,
-        count=len(latent),
+        count=stop - start,
         states={
             identity: PathSeries(
-                label=report.predictive.states[identity].label,
+                label=model.get_construct(identity).name,
                 action=paths(latent[:, :, index]),
                 reference=paths(reference[:, :, index]) if reference is not None else (),
             )
@@ -106,7 +147,26 @@ def recorded_simulation_paths(
                 else (),
                 levels=variable.ordinal_levels or variable.categorical_levels,
             )
-            for index, variable in enumerate(report.observation_layout.variables)
+            for index, variable in enumerate(variables)
         },
-        effect=PathSeries(label=effect[0], action=paths(effect[1])) if effect is not None else None,
+        effect=effect,
+        effect_summary=summary,
+        reference_mean=reference_mean,
+        manifest_effects=manifest,
+        action_category_probabilities={
+            variables[index].id: category_probabilities(
+                observed[:, :, index], mask[:, :, index], levels
+            )
+            for index, levels in category_levels.items()
+            if levels is not None
+        },
+        reference_category_probabilities={
+            variables[index].id: category_probabilities(
+                reference_observed[:, :, index], mask[:, :, index], levels
+            )
+            for index, levels in category_levels.items()
+            if levels is not None
+        }
+        if reference_observed is not None
+        else {},
     )

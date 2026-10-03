@@ -44,7 +44,9 @@ def test_offline_run_collection_removes_completed_and_abandoned_runs(monkeypatch
             seq=3,
             ts="2026-07-15T00:00:00Z",
             attempt=EditAttempt(
-                request=None, outcome=Raised(error_type="SavedError", error_message="failed")
+                action="edit_model",
+                request=None,
+                outcome=Raised(error_type="SavedError", error_message="failed"),
             ),
         )
     )

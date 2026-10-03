@@ -9,34 +9,55 @@ def edit_and_check(workspace_id, request, state):
     return evaluate_model_checks(workspace_id, state, staged, action="edit_model")
 
 
+def question_root(workspace_id, question=None):
+    """Publish the study question as the lineage root, as set_question does."""
+    from nof1_causal_lab.actions.contracts import SetQuestionRequest
+    from nof1_causal_lab.actions.set_question import set_question
+    from nof1_causal_lab.artifacts.question import QuestionSpec
+    from nof1_causal_lab.study.history import StudyRepository
+
+    request = SetQuestionRequest(
+        question=question if question is not None else QuestionSpec(text="What does it answer?")
+    )
+    journal = StudyRepository(workspace_id)
+    return journal.append(
+        applied_record(
+            set_question(workspace_id, request), request=request, seq=journal.latest_seq() + 1
+        )
+    )
+
+
 def applied_record(result, *, seq, request=None, ts="2026-01-01T00:00:00Z", **metadata):
     """A successful test publication composes the actual owned action payload."""
     from nof1_causal_lab.study.records import (
-        Applied,
         AttemptRecord,
         DataComparisonResult,
         DataDiffAttempt,
         DataPreparationResult,
         EditAttempt,
         FitAttempt,
-        ModelEditResult,
         ModelFitResult,
         ModelSimulationResult,
         PrepareAttempt,
+        SetQuestionAttempt,
         SimulateAttempt,
     )
 
-    match result:
-        case ModelEditResult():
-            attempt = EditAttempt(request=request, outcome=Applied(result=result))
+    match result.result:
+        case None:
+            attempt = (
+                EditAttempt(action="edit_model", request=request, outcome=result)
+                if any(artifact.artifact_id == "model" for artifact in result.effects.produced)
+                else SetQuestionAttempt(action="set_question", request=request, outcome=result)
+            )
         case DataPreparationResult():
-            attempt = PrepareAttempt(request=request, outcome=Applied(result=result))
+            attempt = PrepareAttempt(action="prepare_data", request=request, outcome=result)
         case ModelFitResult():
-            attempt = FitAttempt(request=request, outcome=Applied(result=result))
+            attempt = FitAttempt(action="fit", request=request, outcome=result)
         case ModelSimulationResult():
-            attempt = SimulateAttempt(request=request, outcome=Applied(result=result))
+            attempt = SimulateAttempt(action="simulate", request=request, outcome=result)
         case DataComparisonResult():
-            attempt = DataDiffAttempt(request=request, outcome=Applied(result=result))
+            attempt = DataDiffAttempt(action="data_diff", request=request, outcome=result)
         case _:
             raise TypeError("A publication fixture needs an owned action result")
     return AttemptRecord(seq=seq, ts=ts, attempt=attempt, **metadata)

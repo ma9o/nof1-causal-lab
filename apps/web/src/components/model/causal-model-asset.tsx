@@ -157,7 +157,7 @@ function ModelRevision({
         dependencies={dependencies}
         playhead={focusSeq}
         latest={latest}
-        branch={model.context.branch}
+        branch={model.branch}
         comparedSeq={activeComparison?.after ?? null}
         onPlayhead={selectVersion}
         onPreviewComparison={(seq) => previewComparison(seq)}
@@ -191,8 +191,8 @@ function ModelRevision({
                     Topology · {playhead} → {activeComparison.after}
                   </span>
                   {compared.data &&
-                    ([...compared.data.graph.constructs, ...compared.data.graph.edges].every(
-                      (item) => item.change.kind === "unchanged",
+                    ([...compared.data.constructs, ...compared.data.edges].every(
+                      (item) => item.kind === "unchanged",
                     ) ? (
                       <span className="whitespace-nowrap text-muted-foreground">
                         No topology changes
@@ -239,7 +239,7 @@ function ModelRevision({
                   {compared.error ? compared.error.message : "Reading differences…"}
                 </p>
               )}
-              {model.findings.graph.construct_ids.length > 0 || activeComparison ? (
+              {model.graph.construct_ids.length > 0 || activeComparison ? (
                 <LayeredCausalGraph
                   model={model}
                   entities={context.entities}
@@ -284,9 +284,7 @@ function ModelRevision({
               tick={tick}
               running={
                 // Work dispatched after a branch head has no node yet; it runs under that head.
-                running &&
-                focusSeq === playhead &&
-                model.context.commit_id === branches[running.branch]
+                running && focusSeq === playhead && model.commit_id === branches[running.branch]
                   ? running
                   : null
               }

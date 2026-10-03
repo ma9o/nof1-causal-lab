@@ -19,12 +19,9 @@ describe("semantic graph layers", () => {
     const base = demoSnapshotAt(8);
     const revised = {
       ...base,
-      findings: {
-        ...base.findings,
-        fit: {
-          ...fixtureValue(base.findings.fit),
-          source: { ...fixtureValue(base.findings.fit).source, validity: "stale" as const },
-        },
+      fit: {
+        ...fixtureValue(base.fit),
+        source: { ...fixtureValue(base.fit).source, validity: "stale" as const },
       },
     };
     expect(availableGraphLayers(revised)).not.toContain("fit");
@@ -44,19 +41,16 @@ describe("semantic graph layers", () => {
     expect(graph.constructs.map((item) => item.name)).not.toContain(
       "duration_current_escitalopram_use",
     );
-    expect(graph.constructs.map((item) => item.id)).toEqual(measured.findings.graph.construct_ids);
-    expect(graph.edges.map((item) => item.id)).toEqual(measured.findings.graph.edge_ids);
+    expect(graph.constructs.map((item) => item.id)).toEqual(measured.graph.construct_ids);
+    expect(graph.edges.map((item) => item.id)).toEqual(measured.graph.edge_ids);
     // Identification status does not override the backend's retained-state selection.
     const marked = {
       ...measured,
-      findings: {
-        ...measured.findings,
-        graph: {
-          ...measured.findings.graph,
-          status: {
-            ...measured.findings.graph.status,
-            [fixtureValue(graph.constructs[0]).id]: "blocking" as const,
-          },
+      graph: {
+        ...measured.graph,
+        status: {
+          ...measured.graph.status,
+          [fixtureValue(graph.constructs[0]).id]: "blocking" as const,
         },
       },
     };
