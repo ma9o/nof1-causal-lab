@@ -41,8 +41,8 @@ def test_recovery_and_ess_share_target_coordinates_and_scales(monkeypatch):
         num_chains=1,
         num_samples=4,
     )
-    result = ParticleMCMCPosterior(
-        JointPosteriorDraws(mcmc.get_samples()),
+    result = ParticleMCMCPosterior.from_run(
+        draws=JointPosteriorDraws(mcmc.get_samples()),
         diagnostics=ProductionDiagnostics(
             mcmc=mcmc, observation_log_probs=jnp.zeros((mcmc.num_chains, mcmc.num_samples, 0))
         ),

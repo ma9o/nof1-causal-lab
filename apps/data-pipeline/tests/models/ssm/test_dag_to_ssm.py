@@ -19,7 +19,7 @@ from nof1_causal_lab.artifacts.identity import ConstructId
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
 from nof1_causal_lab.distributions import PriorDistributionFamily
-from nof1_causal_lab.models.model_structure import validate_execution_structure
+from nof1_causal_lab.models.model_structure import StructuralSelection, validate_execution_structure
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.inference.utils import _DummyLikelihoodBackend
 from nof1_causal_lab.models.ssm.model import numpyro_model
@@ -420,7 +420,7 @@ class TestRuntimeStructuralSupport:
             # Equivalent marginalized roots reference one aggregate scale, not two draws.
             assert second.coefficient("initial_scale") == source.coefficient("initial_scale")
         compile_model_fixture(model)
-        validate_execution_structure(model)
+        validate_execution_structure(StructuralSelection(model, None))
         spec = model
         np.testing.assert_array_equal(
             compile_model_fixture(spec).static_scale_block.free_support, [True]

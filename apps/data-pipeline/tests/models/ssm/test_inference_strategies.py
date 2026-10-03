@@ -53,15 +53,18 @@ from nof1_causal_lab.models.ssm.inference.targets.laplace import (
     _predictive_latent_init,
     _should_use_dense_support_laplace,
     _solve_block_banded_from_cholesky,
-    _solve_block_tridiagonal,
-    _support_aware_step_halving_search,
     block_profile_logdet_packed_cotangent,
+)
+from nof1_causal_lab.models.ssm.inference.targets.laplace.shared import (
+    _solve_block_profile_from_cholesky,
+    precision_logdet,
 )
 from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
 from nof1_causal_lab.models.ssm.inference.utils import _discover_sites
 from nof1_causal_lab.models.ssm.inference.warmup.map import (
     _build_map_laplace_bundle,
 )
+from nof1_causal_lab.models.ssm.preflight import ObservationPreflightFailure
 from nof1_causal_lab.sampler_config import (
     SamplerSpec,
 )
@@ -175,27 +178,6 @@ class TestLaplaceEMBlockSolver:
                 nxt = slice((i + 1) * block_dim, (i + 2) * block_dim)
                 mat[row, nxt] = upper_np[i]
         return jnp.asarray(mat)
-
-    def test_block_solver_matches_dense_reference(self):
-        """Recursive block solver should agree with a dense solve on SPD systems."""
-        key = random.PRNGKey(7)
-        n_blocks = 7
-        block_dim = 3
-
-        key, diag_key, lower_key, x_key = random.split(key, 4)
-        raw_diag = random.normal(diag_key, (n_blocks, block_dim, block_dim))
-        diag = jnp.matmul(raw_diag, jnp.swapaxes(raw_diag, -1, -2)) + 4.0 * jnp.eye(block_dim)
-        lower = jnp.zeros((n_blocks, block_dim, block_dim))
-        lower_noise = random.normal(lower_key, (n_blocks - 1, block_dim, block_dim)) * 0.05
-        lower = lower.at[1:].set(lower_noise)
-        upper = jnp.zeros_like(lower).at[:-1].set(jnp.swapaxes(lower[1:], -1, -2))
-
-        dense = self._dense_block_matrix(lower, diag, upper)
-        x_true = random.normal(x_key, (n_blocks, block_dim))
-        rhs = (dense @ x_true.reshape(-1)).reshape(n_blocks, block_dim)
-
-        x_solved = _solve_block_tridiagonal(lower, diag, upper, rhs)
-        np.testing.assert_allclose(x_solved, x_true, atol=1e-5, rtol=1e-5)
 
     def test_gaussian_ieks_mode_matches_dense_system(self):
         """For Gaussian observations, one IEKS step should equal the exact mode solve."""
@@ -595,8 +577,9 @@ class TestLaplaceSolverState:
     """Explicit solver initialization and stateless support-window derivatives."""
 
     @pytest.mark.inference(concern="warmup")
-    def test_block_profile_logdet_cotangent_matches_direct_autodiff(self):
-        row_upper_bandwidths = jnp.array([2, 2, 1, 0], dtype=jnp.int32)
+    @pytest.mark.parametrize("profile", [(2, 2, 1, 0), (1, 0, 1, 0)])
+    def test_block_profile_logdet_cotangent_matches_direct_autodiff(self, profile):
+        row_upper_bandwidths = jnp.array(profile, dtype=jnp.int32)
         row_lower_bandwidths = jnp.asarray(
             _compute_profile_lower_bandwidths(np.asarray(row_upper_bandwidths)),
             dtype=jnp.int32,
@@ -615,6 +598,7 @@ class TestLaplaceSolverState:
         upper = upper.at[1, 0].set(jnp.array([[0.04, 0.01], [-0.02, 0.03]], dtype=jnp.float32))
         upper = upper.at[0, 1].set(jnp.array([[0.09, 0.02], [0.01, 0.07]], dtype=jnp.float32))
         upper = upper.at[0, 2].set(jnp.array([[0.06, -0.01], [0.02, 0.05]], dtype=jnp.float32))
+        upper = upper[: max(profile)]
 
         def _packed_logdet(diag_blocks, upper_blocks):
             chol_diag, _lower = _factor_block_banded_cholesky(
@@ -626,11 +610,36 @@ class TestLaplaceSolverState:
             return _block_banded_logdet(chol_diag)
 
         direct_diag_bar, direct_upper_bar = jax.grad(_packed_logdet, argnums=(0, 1))(diag, upper)
+        value, (compiled_diag_bar, compiled_upper_bar) = jax.jit(
+            jax.value_and_grad(
+                lambda diagonal, off_diagonal: precision_logdet(
+                    diagonal, off_diagonal, row_upper_bandwidths, row_lower_bandwidths
+                ),
+                argnums=(0, 1),
+            )
+        )(diag, upper)
+        np.testing.assert_allclose(value, _packed_logdet(diag, upper), rtol=1e-5)
+        np.testing.assert_allclose(compiled_diag_bar, direct_diag_bar, rtol=1e-4, atol=1e-4)
+        np.testing.assert_allclose(compiled_upper_bar, direct_upper_bar, rtol=1e-4, atol=1e-4)
         chol_diag, lower = _factor_block_profile_cholesky(
             diag,
             upper,
             row_upper_bandwidths,
             row_lower_bandwidths,
+        )
+        reference_chol, reference_lower = _factor_block_banded_cholesky(
+            diag, upper, row_upper_bandwidths, row_lower_bandwidths
+        )
+        rhs = jnp.arange(8, dtype=diag.dtype).reshape(4, 2) / 10
+        np.testing.assert_allclose(
+            _solve_block_profile_from_cholesky(
+                chol_diag, lower, rhs, row_upper_bandwidths, row_lower_bandwidths
+            ),
+            _solve_block_banded_from_cholesky(
+                reference_chol, reference_lower, rhs, row_upper_bandwidths, row_lower_bandwidths
+            ),
+            rtol=1e-5,
+            atol=1e-6,
         )
         diag_bar, upper_bar = block_profile_logdet_packed_cotangent(
             chol_diag,
@@ -886,30 +895,9 @@ class TestDefaultMethodRouting:
             sampler=SamplerSpec(),
             clock=time.monotonic,
         )
+        assert not isinstance(result, ObservationPreflightFailure)
 
         assert result.method == "marginal_particle_gibbs"
-
-
-@pytest.mark.inference(concern="warmup")
-def test_support_aware_step_halving_search_backtracks_to_improving_step():
-    z_start = jnp.array([0.0], dtype=jnp.float32)
-    step_direction = jnp.array([3.0], dtype=jnp.float32)
-
-    def objective_fn(z):
-        return -jnp.sum((z - 1.0) ** 2)
-
-    z_next, objective_next, accepted, alpha = _support_aware_step_halving_search(
-        z_start,
-        step_direction,
-        objective_fn(z_start),
-        objective_fn,
-        max_halvings=4,
-    )
-
-    assert bool(accepted)
-    np.testing.assert_allclose(np.asarray(z_next), np.array([1.5], dtype=np.float32), atol=1e-6)
-    assert float(alpha) == pytest.approx(0.5)
-    assert float(objective_next) > float(objective_fn(z_start))
 
 
 @pytest.mark.contract

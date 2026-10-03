@@ -1,5 +1,4 @@
 {
-  "question": null,
   "edges": [
     {
       "id": "edge:ad03f161f2eaffaa1a02",
@@ -434,6 +433,5 @@
     }
   },
   "time_points": [],
-  "measurement_clock": "1d",
-  "default_outcome": null
+  "measurement_clock": "1d"
 }

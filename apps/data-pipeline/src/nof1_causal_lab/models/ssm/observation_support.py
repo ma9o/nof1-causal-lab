@@ -3,13 +3,14 @@
 from __future__ import annotations
 
 import heapq
-from dataclasses import dataclass, fields
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Self
 
 import numpy as np
 import polars as pl
 
-from nof1_causal_lab.models.ssm.preflight import ObservationPreflightError
+from nof1_causal_lab.models.ssm.preflight import ObservationPreflightFailure
+from nof1_causal_lab.utils.immutability import freeze_fields
 from nof1_causal_lab.utils.time_coordinates import ModelTime, ObservationInstant
 
 if TYPE_CHECKING:
@@ -37,12 +38,40 @@ class ObservationSupportRuntime:
     emission_slot_indices: np.ndarray  # shape (T, n_manifest), -1 when not emitted
 
     def __post_init__(self) -> None:
-        for field in fields(self):
-            value = getattr(self, field.name)
-            if isinstance(value, np.ndarray):
-                owned = value.copy()
-                owned.setflags(write=False)
-                object.__setattr__(self, field.name, owned)
+        freeze_fields(self)
+
+    @classmethod
+    def assembled(
+        cls,
+        *,
+        anchor_times: np.ndarray,
+        manifest_names: Sequence[str],
+        support_kinds: Sequence[str | None],
+        summary_operators: Sequence[str | None],
+        anchor_policies: Sequence[str | None],
+        observation_windows: Sequence[str | None],
+        support_start_times: np.ndarray,
+        support_end_times: np.ndarray,
+        interval_prev_coeffs: np.ndarray,
+        interval_curr_coeffs: np.ndarray,
+        interval_weights: np.ndarray,
+        emission_slot_indices: np.ndarray,
+    ) -> Self:
+        """Own resolved support metadata and detach every native buffer."""
+        return cls(
+            anchor_times=anchor_times,
+            manifest_names=tuple(manifest_names),
+            support_kinds=tuple(support_kinds),
+            summary_operators=tuple(summary_operators),
+            anchor_policies=tuple(anchor_policies),
+            observation_windows=tuple(observation_windows),
+            support_start_times=support_start_times,
+            support_end_times=support_end_times,
+            interval_prev_coeffs=interval_prev_coeffs,
+            interval_curr_coeffs=interval_curr_coeffs,
+            interval_weights=interval_weights,
+            emission_slot_indices=emission_slot_indices,
+        )
 
     @property
     def requires_interval_summary_handling(self) -> bool:
@@ -101,7 +130,7 @@ def _assign_support_slots(
     support_end_times: np.ndarray,
     support_kinds: list[str | None],
     manifest_names: Sequence[str],
-) -> tuple[list[list[tuple[float, float, int, int]]], int]:
+) -> tuple[list[list[tuple[float, float, int, int]]], int] | ObservationPreflightFailure:
     """Assign concurrent interval windows to reusable slots per manifest."""
     tol = 1e-8
     manifest_windows: list[list[tuple[float, float, int, int]]] = []
@@ -126,12 +155,12 @@ def _assign_support_slots(
             end = float(ends[row_idx])
             anchor = float(anchor_times[row_idx])
             if end + tol < start:
-                raise ObservationPreflightError(
+                return ObservationPreflightFailure.rejected(
                     f"Indicator '{manifest_name}' has support_end before support_start "
                     f"at row {row_idx}: {start} -> {end}"
                 )
             if abs(anchor - end) > tol:
-                raise ObservationPreflightError(
+                return ObservationPreflightFailure.rejected(
                     f"Indicator '{manifest_name}' has support_end={end} that does not match "
                     f"its anchored observation time {anchor} at row {row_idx}."
                 )
@@ -139,7 +168,7 @@ def _assign_support_slots(
 
         windows.sort(key=lambda item: (item[0], item[1], item[2]))
         if windows[0][0] < anchor_times[0] - tol:
-            raise ObservationPreflightError(
+            return ObservationPreflightFailure.rejected(
                 f"Indicator '{manifest_name}' has support starting before the first model time. "
                 "Add earlier model-clock rows or shift the observation anchor."
             )
@@ -174,17 +203,20 @@ def _compile_interval_support_coefficients(
     support_end_times: np.ndarray,
     support_kinds: list[str | None],
     manifest_names: Sequence[str],
-) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
+) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray] | ObservationPreflightFailure:
     """Compile per-interval trapezoidal coefficients for concurrent support windows."""
     T = anchor_times.shape[0]
     n_manifest = support_start_times.shape[1]
-    assigned_windows, max_slots = _assign_support_slots(
+    assigned = _assign_support_slots(
         anchor_times,
         support_start_times,
         support_end_times,
         support_kinds,
         manifest_names,
     )
+    if isinstance(assigned, ObservationPreflightFailure):
+        return assigned
+    assigned_windows, max_slots = assigned
     n_slots = max(max_slots, 1)
     prev_coeffs = np.zeros((T, n_manifest, n_slots), dtype=np.float64)
     curr_coeffs = np.zeros((T, n_manifest, n_slots), dtype=np.float64)
@@ -234,7 +266,7 @@ def compile_observation_support_runtime(
     manifest_names: Sequence[str],
     *,
     time_origin: datetime | None,
-) -> ObservationSupportRuntime:
+) -> ObservationSupportRuntime | ObservationPreflightFailure:
     """Compile long-format observation support metadata into wide aligned arrays."""
     df = observation_data
 
@@ -284,17 +316,16 @@ def compile_observation_support_runtime(
     observation_windows = [
         kind_window_lookup[name]["observation_window"] for name in manifest_names
     ]
+    coefficients = _compile_interval_support_coefficients(
+        anchor_times, support_start_times, support_end_times, support_kinds, manifest_names
+    )
+    if isinstance(coefficients, ObservationPreflightFailure):
+        return coefficients
     interval_prev_coeffs, interval_curr_coeffs, interval_weights, emission_slot_indices = (
-        _compile_interval_support_coefficients(
-            anchor_times,
-            support_start_times,
-            support_end_times,
-            support_kinds,
-            manifest_names,
-        )
+        coefficients
     )
 
-    return ObservationSupportRuntime(
+    return ObservationSupportRuntime.assembled(
         anchor_times=anchor_times,
         manifest_names=tuple(manifest_names),
         support_kinds=tuple(support_kinds),
@@ -389,7 +420,9 @@ def extract_numeric_column_values(X: pl.DataFrame, column: str) -> np.ndarray:
     return values[~np.isnan(values)]
 
 
-def validate_discrete_manifest_metadata(spec: CompiledModel, X: pl.DataFrame) -> None:
+def validate_discrete_manifest_metadata(
+    spec: CompiledModel, X: pl.DataFrame
+) -> ObservationPreflightFailure | None:
     """Check encoded observations against the levels declared on their indicators."""
     from nof1_causal_lab.artifacts.likelihood import CategoricalLawSpec, OrderedLogisticLawSpec
 
@@ -398,22 +431,26 @@ def validate_discrete_manifest_metadata(spec: CompiledModel, X: pl.DataFrame) ->
             continue
         column, count = observation.name, len(observation.levels)
         if count < 2:
-            raise ObservationPreflightError(
+            return ObservationPreflightFailure.rejected(
                 f"Indicator {column!r} requires at least two declared levels"
             )
         values = extract_numeric_column_values(X, column)
         rounded = np.rint(values)
         if not np.allclose(values, rounded, atol=1e-6):
-            raise ObservationPreflightError(
+            return ObservationPreflightFailure.rejected(
                 f"Indicator {column!r} observations are not integer-encoded"
             )
         if np.any((rounded < 0) | (rounded >= count)):
-            raise ObservationPreflightError(
+            return ObservationPreflightFailure.rejected(
                 f"Indicator {column!r} observations fall outside declared range 0..{count - 1}"
             )
 
+    return None
 
-def validate_observation_support(spec: CompiledModel, X: pl.DataFrame) -> None:
+
+def validate_observation_support(
+    spec: CompiledModel, X: pl.DataFrame
+) -> ObservationPreflightFailure | None:
     """Reject likelihoods whose support is incompatible with observed data."""
     from nof1_causal_lab.artifacts.likelihood import (
         BernoulliLogitsLawSpec,
@@ -460,7 +497,11 @@ def validate_observation_support(spec: CompiledModel, X: pl.DataFrame) -> None:
         )
 
     if issues:
-        raise ObservationPreflightError("Observation support check failed:\n" + "\n".join(issues))
+        return ObservationPreflightFailure.rejected(
+            "Observation support check failed:\n" + "\n".join(issues)
+        )
+
+    return None
 
 
 def simulation_observation_support(
@@ -481,10 +522,11 @@ def simulation_observation_support(
             absent = starts[:, i] < times[0] - 1e-8
             starts[absent, i] = np.nan
             ends[absent, i] = np.nan
-    previous, current, weights, slots = _compile_interval_support_coefficients(
-        times, starts, ends, kinds, names
-    )
-    return ObservationSupportRuntime(
+    coefficients = _compile_interval_support_coefficients(times, starts, ends, kinds, names)
+    if isinstance(coefficients, ObservationPreflightFailure):
+        raise RuntimeError(f"Generated simulation support is inconsistent: {coefficients.message}")
+    previous, current, weights, slots = coefficients
+    return ObservationSupportRuntime.assembled(
         anchor_times=times,
         manifest_names=tuple(names),
         support_kinds=tuple(kinds),

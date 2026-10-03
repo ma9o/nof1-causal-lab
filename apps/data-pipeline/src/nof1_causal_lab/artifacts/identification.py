@@ -47,7 +47,7 @@ class NonIdentifiableTreatmentStatus(Value):
 
 
 class IdentificationReport(Value):
-    """Positive and negative causal identification findings for the model's default query."""
+    """Positive and negative causal identification findings for the study question's outcome."""
 
     outcome: ConstructId | None
     treatments: Mapping[

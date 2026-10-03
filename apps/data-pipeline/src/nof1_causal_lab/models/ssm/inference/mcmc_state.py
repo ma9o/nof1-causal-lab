@@ -9,6 +9,8 @@ from typing import TYPE_CHECKING, NamedTuple
 import jax
 import jax.numpy as jnp
 
+from nof1_causal_lab.utils.immutability import freeze_fields
+
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
@@ -83,6 +85,7 @@ class TrajectoryMCMCResult:
         object.__setattr__(
             self, "chain_extra_fields", MappingProxyType(dict(self.chain_extra_fields))
         )
+        freeze_fields(self)
 
 
 def _adapt_scale(

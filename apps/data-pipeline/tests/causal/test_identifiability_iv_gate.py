@@ -9,6 +9,7 @@ from __future__ import annotations
 import pytest
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.models.model_structure import StructuralSelection
 from nof1_causal_lab.utils.identifiability import check_identifiability
 from tests.causal.graph_fixtures import make_graph
 from tests.helpers import fixture_entity_id
@@ -33,7 +34,7 @@ class TestIVAllowedDefault:
     def test_default_does_not_promote_a_linear_iv_candidate(self):
         result = check_identifiability(
             *_iv_graph(),
-            default_outcome=fixture_entity_id("construct", "Y"),
+            outcome_id=fixture_entity_id("construct", "Y"),
             observed_constructs={"X", "Y", "Z"},
         )
         assert "X" not in result.identifiable_treatments
@@ -47,13 +48,13 @@ class TestIVAllowedFalse:
         graph = _iv_graph()
         result_with_iv = check_identifiability(
             *graph,
-            default_outcome=fixture_entity_id("construct", "Y"),
+            outcome_id=fixture_entity_id("construct", "Y"),
             observed_constructs={"X", "Y", "Z"},
             iv_allowed=True,
         )
         result_no_iv = check_identifiability(
             *graph,
-            default_outcome=fixture_entity_id("construct", "Y"),
+            outcome_id=fixture_entity_id("construct", "Y"),
             observed_constructs={"X", "Y", "Z"},
             iv_allowed=False,
         )
@@ -72,13 +73,13 @@ class TestIVAllowedFalse:
         )
         result_with_iv = check_identifiability(
             *graph,
-            default_outcome=fixture_entity_id("construct", "Y"),
+            outcome_id=fixture_entity_id("construct", "Y"),
             observed_constructs={"X", "Y"},
             iv_allowed=True,
         )
         result_no_iv = check_identifiability(
             *graph,
-            default_outcome=fixture_entity_id("construct", "Y"),
+            outcome_id=fixture_entity_id("construct", "Y"),
             observed_constructs={"X", "Y"},
             iv_allowed=False,
         )
@@ -110,14 +111,13 @@ def test_model_reporting_keeps_nonparametric_findings_without_linear_iv_assumpti
                 for construct in model.constructs
             ),
         ),
-        default_outcome=y_id,
     )
-    report = identify_model(model)
+    report = identify_model(StructuralSelection(model, y_id))
     assert x_id not in report.estimable_treatments
     assert x_id in report.non_identifiable
 
     unconfounded = model.revised(edges=tuple(edge for edge in model.edges if edge.cause.id != u_id))
-    identified = identify_model(unconfounded)
+    identified = identify_model(StructuralSelection(unconfounded, y_id))
     finding = identified.treatments[x_id]
     assert finding.status == "identified"
     assert finding.method == "do_calculus"

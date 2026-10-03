@@ -8,13 +8,11 @@ This module implements Bayesian state-space models with:
 """
 
 from nof1_causal_lab.models.ssm.autoreparam import AutoReparam, Strategy
-from nof1_causal_lab.models.ssm.parameter_layout import SSMParameterLayout
 from nof1_causal_lab.models.ssm.transition_kinds import (
     LATENT_TRANSITION_EULER_MARUYAMA,
 )
 
 __all__ = [
-    "SSMParameterLayout",
     # Model
     "LATENT_TRANSITION_EULER_MARUYAMA",
     # Reparameterization

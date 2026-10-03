@@ -26,6 +26,4 @@ class ActionEffects(Value):
         checks: ModelCheckReport | None,
     ) -> Self:
         """Revise only the typed publication fields, preserving the scientific result."""
-        return self.model_copy(
-            update={"produced": produced, "retracted": retracted, "checks": checks}
-        )
+        return self.revised(produced=produced, retracted=retracted, checks=checks)

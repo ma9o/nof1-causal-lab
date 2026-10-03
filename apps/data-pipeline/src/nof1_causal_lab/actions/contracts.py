@@ -1,4 +1,4 @@
-"""Typed inputs to the four scientific primitives."""
+"""Typed inputs to the five scientific primitives."""
 
 from __future__ import annotations
 
@@ -14,10 +14,18 @@ from nof1_causal_lab.artifacts.data_preparation import (
 from nof1_causal_lab.artifacts.identity import GitOid
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.posterior import FitSettingsSpec
+from nof1_causal_lab.artifacts.question import QuestionSpec
 from nof1_causal_lab.artifacts.simulation import SimulationSpec
 
 if TYPE_CHECKING:
     from nof1_causal_lab.actions.tool_definition import ToolDefinition
+
+
+class SetQuestionRequest(Value):
+    """Set the study question; it is the first action of every study."""
+
+    action: Literal["set_question"] = "set_question"
+    question: QuestionSpec
 
 
 class EditModelRequest(Value):
@@ -47,14 +55,14 @@ class FitRequest(Value):
 
 
 class SimulateRequest(SimulationSpec):
-    """Generate through end with optional start and interventions; compare saved data with data_diff."""
+    """Generate a dated window with optional interventions; compare saved data with data_diff."""
 
     action: Literal["simulate"] = "simulate"
     model_revision: GitOid = Field()
 
 
 type ScientificActionRequest = Annotated[
-    EditModelRequest | PrepareDataRequest | FitRequest | SimulateRequest,
+    SetQuestionRequest | EditModelRequest | PrepareDataRequest | FitRequest | SimulateRequest,
     Field(discriminator="action"),
 ]
 
@@ -74,8 +82,12 @@ def scientific_tool_contracts() -> list[ToolDefinition]:
         )
         for request, description in (
             (
+                SetQuestionRequest,
+                "Set the study question as the study's first action: the user's words, the outcome, and named queries, each a dated window whose interventions are contrasted with the recorded course. Name constructs by the identities the model will define.",
+            ),
+            (
                 EditModelRequest,
-                "Revise scientific definitions and current laws; run or reuse applicable specification, identification, compatibility and exact predictive checks.",
+                "Revise scientific definitions and current laws; run or reuse applicable specification, identification, question, compatibility and exact predictive checks.",
             ),
             (
                 PrepareDataRequest,
@@ -87,7 +99,7 @@ def scientific_tool_contracts() -> list[ToolDefinition]:
             ),
             (
                 SimulateRequest,
-                "Generate requested quantities from current model uncertainty and measure the shared predictive batch.",
+                "Generate a window starting on a calendar day, with interventions placed after the start, from current model uncertainty; measure the shared predictive batch.",
             ),
         )
     ] + [

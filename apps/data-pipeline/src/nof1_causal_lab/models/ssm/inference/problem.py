@@ -24,6 +24,7 @@ from nof1_causal_lab.models.ssm.inference.utils import (
     prepare_model_parameters,
 )
 from nof1_causal_lab.models.ssm.transition_kinds import LATENT_TRANSITION_EULER_MARUYAMA
+from nof1_causal_lab.utils.immutability import freeze_fields
 
 if TYPE_CHECKING:
     import jax
@@ -48,6 +49,7 @@ class ParticleProblem:
     def __post_init__(self) -> None:
         object.__setattr__(self, "site_info", MappingProxyType(dict(self.site_info)))
         object.__setattr__(self, "public_sites", frozenset(self.public_sites))
+        freeze_fields(self)
 
 
 def build_particle_problem(

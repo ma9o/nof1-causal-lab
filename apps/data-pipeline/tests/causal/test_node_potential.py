@@ -9,7 +9,7 @@ import pytest
 
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind
-from nof1_causal_lab.models.model_structure import selected_edges
+from nof1_causal_lab.models.model_structure import StructuralSelection, selected_edges
 from nof1_causal_lab.models.ssm.dynamics import (
     ConstantValueFn,
     Intervention,
@@ -115,7 +115,7 @@ def test_directed_edges_cannot_be_reinterpreted_as_potentials():
             / "node_potential/directed_edges_cannot_be_reinterpreted_as_potentials_model_fixture.json"
         ).read_text()
     )
-    edge = selected_edges(model)[0]
+    edge = selected_edges(StructuralSelection(model, None))[0]
     with pytest.raises(ValueError, match="literal_error"):
         edge.revised(
             mechanisms=tuple(

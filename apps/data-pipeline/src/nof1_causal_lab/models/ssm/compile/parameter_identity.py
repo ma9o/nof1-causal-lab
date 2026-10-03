@@ -18,8 +18,8 @@ from nof1_causal_lab.models.ssm.structure.sites import WholeSiteSelection
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.identity import ParameterElementId
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
+    from nof1_causal_lab.models.model_structure import StructuralSelection
     from nof1_causal_lab.models.ssm.compile.bindings import CompiledSiteCoordinate
     from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor, SiteSelection
 
@@ -37,7 +37,7 @@ def component_identity(
     coordinate: CompiledSiteCoordinate,
     selection: SiteSelection,
     site: SiteDescriptor,
-    spec: ModelSpec,
+    structure: StructuralSelection,
 ) -> tuple[ParameterElementId, str] | None:
     """Identify category components by labels and covariance components by their ordered basis.
 
@@ -53,8 +53,8 @@ def component_identity(
         SiteKind.OBS_CAT_INTERCEPTS,
         SiteKind.OBS_CAT_SLOPES,
     }:
-        indicators = {item.observation.name: item for item in spec.indicators}
-        indicator = indicators[numeric.observation_names(spec)[indices[0]]]
+        indicators = {item.observation.name: item for item in structure.model.indicators}
+        indicator = indicators[numeric.observation_names(structure)[indices[0]]]
         levels = (
             indicator.observation.ordinal_levels
             if kind in {SiteKind.OBS_ORDERED_BASE, SiteKind.OBS_ORDERED_GAPS}
@@ -85,10 +85,10 @@ def component_identity(
     }:
         # A Cholesky entry is conditional on the preceding ordered basis. Reordering
         # that basis changes the quantity even if the endpoint labels survive.
-        constructs = {item.name: item.id for item in spec.constructs}
+        constructs = {item.name: item.id for item in structure.model.constructs}
         position = site.positions[coordinate.flat_index]
         row = position[0] if isinstance(position, tuple) else position
-        basis = [constructs[name] for name in numeric.state_names(spec)[: row + 1]]
+        basis = [constructs[name] for name in numeric.state_names(structure)[: row + 1]]
         key = ["cholesky", basis]
     elif any(n > 1 for n in site.shape) and isinstance(selection, WholeSiteSelection):
         raise ValueError(f"Parameter {parameter.name!r} needs explicit scientific component axes")

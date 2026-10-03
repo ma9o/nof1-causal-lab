@@ -21,6 +21,7 @@ if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.identity import ConstructId
     from nof1_causal_lab.artifacts.mechanism import DynamicsMechanismSpec
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.models.model_structure import StructuralSelection
 
 
 def _is_projected_loading(
@@ -36,10 +37,11 @@ def _is_projected_loading(
     return True
 
 
-def lower_mechanisms(model: ModelSpec) -> tuple[ExpressionComponentSpec, ...]:
+def lower_mechanisms(selection: StructuralSelection) -> tuple[ExpressionComponentSpec, ...]:
     """Require executable coverage, then bind every scalar expression without kind dispatch."""
-    states = set(selected_state_ids(model))
-    retained_edges = {edge.id for edge in selected_edges(model)}
+    model = selection.model
+    states = set(selected_state_ids(selection))
+    retained_edges = {edge.id for edge in selected_edges(selection)}
     modeled_edges: set[str] = set()
     modeled_nodes: set[str] = set()
     for owner, mechanism in model.iter_mechanisms():
@@ -69,7 +71,8 @@ def lower_mechanisms(model: ModelSpec) -> tuple[ExpressionComponentSpec, ...]:
             f"missing edges={sorted(retained_edges - modeled_edges)}"
         )
     return tuple(
-        component for _, component in iter_mechanism_components(model, selected_state_ids(model))
+        component
+        for _, component in iter_mechanism_components(model, selected_state_ids(selection))
     )
 
 

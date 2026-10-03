@@ -14,16 +14,34 @@ from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
 from nof1_causal_lab.models.ssm import parameterization
 from nof1_causal_lab.models.ssm.model import sample_parameters
-from nof1_causal_lab.models.ssm.structure.sites import make_site
+from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
 from tests.model_fixtures import compile_fit_fixture
 
 
 @pytest.mark.inference(concern="predictive")
 def test_prior_draws_keep_native_values_and_the_existing_random_streams():
     sites = [
-        make_site("tiny", (), SupportClass.POSITIVE, "diffusion", SiteKind.DIFFUSION_DIAG),
-        make_site("rho", (), SupportClass.CORRELATION, "t0", SiteKind.T0_VAR_LOWER),
-        make_site("normal", (2,), SupportClass.REAL, "t0", SiteKind.T0_MEANS),
+        SiteDescriptor(
+            name="tiny",
+            shape=(),
+            support=SupportClass.POSITIVE,
+            assembly_group="diffusion",
+            site_kind=SiteKind.DIFFUSION_DIAG,
+        ),
+        SiteDescriptor(
+            name="rho",
+            shape=(),
+            support=SupportClass.CORRELATION,
+            assembly_group="t0",
+            site_kind=SiteKind.T0_VAR_LOWER,
+        ),
+        SiteDescriptor(
+            name="normal",
+            shape=(2,),
+            support=SupportClass.REAL,
+            assembly_group="t0",
+            site_kind=SiteKind.T0_MEANS,
+        ),
     ]
     laws = {
         "tiny": dist.Delta(jnp.array(1e-35)),

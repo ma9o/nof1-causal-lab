@@ -12,6 +12,12 @@ here follow the module roles owned by ``architecture_roles``:
     Pure roles never reach edge or shell modules, I/O, clock or environment
     acquisition, directly or transitively.
 
+``ARCH009``
+    Pure roles cannot call known input/output, filesystem, clock or ambient-randomness
+    primitives, including imported and assigned aliases. Date arithmetic and
+    explicitly seeded local generators are allowed. This checks primitive calls,
+    not arbitrary callback effects or ownership of mutable generator arguments.
+
 Imports guarded by ``TYPE_CHECKING`` are excluded because these rules constrain
 runtime ownership and initialization, not type annotation dependencies.
 """
@@ -24,12 +30,319 @@ import importlib
 import sys
 from dataclasses import dataclass
 from pathlib import Path
+from typing import override
 
 import grimp
 
 from scripts.checks.architecture_roles import PACKAGE, fix_owner, role_for_module, role_inventory
 
 _PACKAGE = PACKAGE
+_PURE_ROLES = frozenset({"domain", "compiler", "execution", "projection"})
+_INPUT_CALLS = frozenset(
+    {
+        "builtins.open",
+        "builtins.input",
+        "builtins.print",
+        "io.open",
+        "codecs.open",
+        "datetime.datetime.now",
+        "datetime.datetime.utcnow",
+        "datetime.datetime.today",
+        "datetime.date.today",
+        "uuid.uuid1",
+        "uuid.uuid4",
+    }
+)
+_PATH_TYPES = frozenset({"pathlib.Path", "pathlib.PosixPath", "pathlib.WindowsPath"})
+_PATH_EFFECTS = frozenset(
+    {
+        "absolute",
+        "chmod",
+        "cwd",
+        "exists",
+        "expanduser",
+        "glob",
+        "home",
+        "is_block_device",
+        "is_char_device",
+        "is_dir",
+        "is_fifo",
+        "is_file",
+        "is_junction",
+        "is_mount",
+        "is_socket",
+        "is_symlink",
+        "iterdir",
+        "lchmod",
+        "lstat",
+        "mkdir",
+        "open",
+        "owner",
+        "group",
+        "read_bytes",
+        "read_text",
+        "readlink",
+        "rename",
+        "replace",
+        "resolve",
+        "rglob",
+        "rmdir",
+        "samefile",
+        "stat",
+        "symlink_to",
+        "hardlink_to",
+        "touch",
+        "unlink",
+        "walk",
+        "write_bytes",
+        "write_text",
+    }
+)
+_PATH_BUILDERS = frozenset({"joinpath", "with_name", "with_stem", "with_suffix"})
+_RANDOM_FACTORIES = {
+    "random.Random": "x",
+    "numpy.random.default_rng": "seed",
+    "numpy.random.RandomState": "seed",
+    "numpy.random.SeedSequence": "entropy",
+    "numpy.random.MT19937": "seed",
+    "numpy.random.PCG64": "seed",
+    "numpy.random.PCG64DXSM": "seed",
+    "numpy.random.Philox": "seed",
+    "numpy.random.SFC64": "seed",
+}
+
+
+def _scope_bindings(body: list[ast.stmt]) -> dict[str, str]:
+    """Collect lexical bindings without entering nested scopes."""
+    names: set[str] = set()
+    imports: dict[str, str] = {}
+    pending: list[ast.AST] = list(body)
+    while pending:
+        node = pending.pop()
+        if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+            names.add(node.name)
+            continue
+        if isinstance(
+            node, ast.Lambda | ast.ListComp | ast.SetComp | ast.DictComp | ast.GeneratorExp
+        ):
+            continue
+        if isinstance(node, ast.Name) and isinstance(node.ctx, ast.Store | ast.Del):
+            names.add(node.id)
+        elif isinstance(node, ast.Import | ast.ImportFrom):
+            for alias in node.names:
+                if isinstance(node, ast.Import):
+                    imports[alias.asname or alias.name.split(".")[0]] = (
+                        alias.name if alias.asname else alias.name.split(".")[0]
+                    )
+                else:
+                    imports[alias.asname or alias.name] = (node.module or "") + "." + alias.name
+        elif isinstance(node, ast.ExceptHandler | ast.MatchAs | ast.MatchStar) and node.name:
+            names.add(node.name)
+        elif isinstance(node, ast.MatchMapping) and node.rest:
+            names.add(node.rest)
+        pending.extend(ast.iter_child_nodes(node))
+    return dict.fromkeys(names, "") | imports
+
+
+class _RuntimeEffects(ast.NodeVisitor):
+    """Resolve primitive origins within lexical scopes without importing src."""
+
+    def __init__(self, tree: ast.Module) -> None:
+        self.scopes: list[dict[str, str]] = [_scope_bindings(tree.body)]
+        self.class_scopes: list[dict[str, str]] = []
+        self.calls: list[tuple[ast.Call, str]] = []
+
+    def _origin(self, node: ast.expr) -> str:
+        if isinstance(node, ast.Name):
+            for scope in reversed(self.scopes):
+                if node.id in scope:
+                    return scope[node.id]
+            return "builtins." + node.id if node.id in {"open", "input", "print"} else ""
+        if isinstance(node, ast.Attribute):
+            owner = self._origin(node.value)
+            if owner in _PATH_TYPES and node.attr == "parent":
+                return owner
+            return owner + "." + node.attr if owner else ""
+        if isinstance(node, ast.Call):
+            origin = self._origin(node.func)
+            owner, _, method = origin.rpartition(".")
+            if origin in _PATH_TYPES:
+                return origin
+            if owner in _PATH_TYPES and method in _PATH_BUILDERS:
+                return owner
+        if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Attribute):
+            owner = self._origin(node.value.value)
+            if owner in _PATH_TYPES and node.value.attr == "parents":
+                return owner
+        if isinstance(node, ast.BinOp) and isinstance(node.op, ast.Div):
+            owner = self._origin(node.left)
+            return owner if owner in _PATH_TYPES else ""
+        return ""
+
+    @override
+    def visit_Import(self, node: ast.Import) -> None:
+        for alias in node.names:
+            self.scopes[-1][alias.asname or alias.name.split(".")[0]] = (
+                alias.name if alias.asname else alias.name.split(".")[0]
+            )
+
+    @override
+    def visit_ImportFrom(self, node: ast.ImportFrom) -> None:
+        for alias in node.names:
+            self.scopes[-1][alias.asname or alias.name] = (node.module or "") + "." + alias.name
+
+    @override
+    def visit_If(self, node: ast.If) -> None:
+        if self._origin(node.test) == "typing.TYPE_CHECKING":
+            for statement in node.orelse:
+                self.visit(statement)
+            return
+        if (
+            isinstance(node.test, ast.UnaryOp)
+            and isinstance(node.test.op, ast.Not)
+            and self._origin(node.test.operand) == "typing.TYPE_CHECKING"
+        ):
+            for statement in node.body:
+                self.visit(statement)
+            return
+        self.generic_visit(node)
+
+    def _function(self, node: ast.FunctionDef | ast.AsyncFunctionDef | ast.Lambda) -> None:
+        if not isinstance(node, ast.Lambda):
+            for decorator in node.decorator_list:
+                self.visit(decorator)
+        for expression in (*node.args.defaults, *node.args.kw_defaults):
+            if expression is not None:
+                self.visit(expression)
+        arguments = (
+            *node.args.posonlyargs,
+            *node.args.args,
+            *node.args.kwonlyargs,
+            node.args.vararg,
+            node.args.kwarg,
+        )
+        bindings = {} if isinstance(node, ast.Lambda) else _scope_bindings(node.body)
+        for argument in arguments:
+            if argument is not None:
+                origin = (
+                    self._origin(argument.annotation) if argument.annotation is not None else ""
+                )
+                bindings[argument.arg] = origin if origin in _PATH_TYPES else ""
+        enclosing = self.scopes
+        self.scopes = [
+            scope
+            for scope in enclosing
+            if all(scope is not class_scope for class_scope in self.class_scopes)
+        ] + [bindings]
+        if isinstance(node, ast.Lambda):
+            self.visit(node.body)
+        else:
+            for statement in node.body:
+                self.visit(statement)
+        self.scopes = enclosing
+
+    @override
+    def visit_FunctionDef(self, node: ast.FunctionDef) -> None:
+        self._function(node)
+
+    @override
+    def visit_AsyncFunctionDef(self, node: ast.AsyncFunctionDef) -> None:
+        self._function(node)
+
+    @override
+    def visit_Lambda(self, node: ast.Lambda) -> None:
+        self._function(node)
+
+    @override
+    def visit_ClassDef(self, node: ast.ClassDef) -> None:
+        for expression in (*node.decorator_list, *node.bases):
+            self.visit(expression)
+        for keyword in node.keywords:
+            self.visit(keyword.value)
+        bindings = _scope_bindings(node.body)
+        self.scopes.append(bindings)
+        self.class_scopes.append(bindings)
+        for statement in node.body:
+            self.visit(statement)
+        self.class_scopes.pop()
+        self.scopes.pop()
+
+    def _comprehension(
+        self, node: ast.ListComp | ast.SetComp | ast.DictComp | ast.GeneratorExp
+    ) -> None:
+        self.visit(node.generators[0].iter)
+        self.scopes.append({})
+        for position, generator in enumerate(node.generators):
+            if position:
+                self.visit(generator.iter)
+            for name in ast.walk(generator.target):
+                if isinstance(name, ast.Name):
+                    self.scopes[-1][name.id] = ""
+            for condition in generator.ifs:
+                self.visit(condition)
+        if isinstance(node, ast.DictComp):
+            self.visit(node.key)
+            self.visit(node.value)
+        else:
+            self.visit(node.elt)
+        self.scopes.pop()
+
+    @override
+    def visit_ListComp(self, node: ast.ListComp) -> None:
+        self._comprehension(node)
+
+    @override
+    def visit_SetComp(self, node: ast.SetComp) -> None:
+        self._comprehension(node)
+
+    @override
+    def visit_DictComp(self, node: ast.DictComp) -> None:
+        self._comprehension(node)
+
+    @override
+    def visit_GeneratorExp(self, node: ast.GeneratorExp) -> None:
+        self._comprehension(node)
+
+    @override
+    def visit_Assign(self, node: ast.Assign) -> None:
+        self.visit(node.value)
+        for target in node.targets:
+            if isinstance(target, ast.Name):
+                self.scopes[-1][target.id] = self._origin(node.value)
+
+    @override
+    def visit_AnnAssign(self, node: ast.AnnAssign) -> None:
+        if node.value is not None:
+            self.visit(node.value)
+        if isinstance(node.target, ast.Name):
+            annotation = self._origin(node.annotation)
+            value = self._origin(node.value) if node.value is not None else ""
+            self.scopes[-1][node.target.id] = annotation if annotation in _PATH_TYPES else value
+
+    @override
+    def visit_Call(self, node: ast.Call) -> None:
+        origin = self._origin(node.func)
+        owner, _, method = origin.rpartition(".")
+        forbidden = origin in _INPUT_CALLS or (owner in _PATH_TYPES and method in _PATH_EFFECTS)
+        if origin in _RANDOM_FACTORIES:
+            seed = (
+                node.args[0]
+                if node.args
+                else next(
+                    (
+                        keyword.value
+                        for keyword in node.keywords
+                        if keyword.arg == _RANDOM_FACTORIES[origin]
+                    ),
+                    None,
+                )
+            )
+            forbidden = seed is None or (isinstance(seed, ast.Constant) and seed.value is None)
+        elif origin.startswith(("random.", "secrets.", "numpy.random.")):
+            forbidden = origin != "numpy.random.Generator"
+        if forbidden:
+            self.calls.append((node, origin))
+        self.generic_visit(node)
 
 
 @dataclass(frozen=True, slots=True)
@@ -70,13 +383,13 @@ def find_violations(source_root: Path) -> tuple[Violation, ...]:
     from scripts.checks.check_type_boundaries import TypeIndex
 
     inventory = role_inventory(source_root)
-    sources = list(
+    sources = [
         (
             "src/" + _PACKAGE + "/" + path.relative_to(source_root).as_posix(),
             ast.parse(path.read_text(encoding="utf-8")),
         )
         for path in inventory
-    )
+    ]
     index = TypeIndex(sources)
     raw = {
         f"{_PACKAGE}.artifacts.model_spec.ModelSpec",
@@ -156,9 +469,21 @@ def find_violations(source_root: Path) -> tuple[Violation, ...]:
         )
 
     for (relative, tree), (path, role) in zip(sources, inventory.items(), strict=True):
+        importer = index.module(relative)
+        if role in _PURE_ROLES:
+            effects = _RuntimeEffects(tree)
+            effects.visit(tree)
+            violations.extend(
+                Violation(
+                    ImportRef(path, call.lineno, importer, primitive),
+                    "ARCH009",
+                    f"pure roles cannot perform runtime effects through {primitive}; "
+                    "acquire it at an edge or shell and pass the owned value explicitly",
+                )
+                for call, primitive in effects.calls
+            )
         if role != "execution":
             continue
-        importer = index.module(relative)
         for node in ast.walk(tree):
             if not isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef):
                 continue
@@ -205,7 +530,6 @@ def find_violations(source_root: Path) -> tuple[Violation, ...]:
         ): path
         for path in inventory
     }
-    pure_roles = {"domain", "compiler", "execution", "projection"}
     acquisition = {
         "os",
         "time",
@@ -228,7 +552,7 @@ def find_violations(source_root: Path) -> tuple[Violation, ...]:
         "zipfile",
     }
     for importer, path in sorted(modules.items()):
-        if role_for_module(importer) not in pure_roles:
+        if role_for_module(importer) not in _PURE_ROLES:
             continue
         for imported in sorted(graph.find_upstream_modules(importer)):
             if imported in acquisition or (

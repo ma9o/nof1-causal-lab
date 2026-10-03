@@ -30,8 +30,8 @@ if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.distributions import DistributionFamily
     from nof1_causal_lab.models.model_parameters import CoefficientUse
+    from nof1_causal_lab.models.model_structure import StructuralSelection
     from nof1_causal_lab.models.ssm.dynamics.expression import ExpressionComponentSpec
-    from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
 
 from nof1_causal_lab.artifacts.likelihood import DistributionFamily
 from nof1_causal_lab.compilation_errors import AggregatedCompileError
@@ -42,7 +42,7 @@ from nof1_causal_lab.models.ssm.structure.assembly import (
     dense_vector_positions,
     rect_matrix_positions,
 )
-from nof1_causal_lab.models.ssm.structure.sites import make_site
+from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
 from nof1_causal_lab.utils.model_structure import (
     get_model_clock,
     get_reference_indicator_lookup,
@@ -65,12 +65,13 @@ def get_construct_dt_days(
     return get_model_clock(model).days
 
 
-def categorical_anchors(model: ModelSpec) -> tuple[bool, ...]:
+def categorical_anchors(selection: StructuralSelection) -> tuple[bool, ...]:
     """Pin the reference contrast only for states with exclusively nominal emissions."""
-    references = get_reference_indicator_lookup(model)
+    model = selection.model
+    references = get_reference_indicator_lookup(selection)
     categorical_states = {
         identity
-        for identity in selected_state_ids(model)
+        for identity in selected_state_ids(selection)
         if all(
             indicator.likelihood is not None
             and indicator.likelihood.law.family == DistributionFamily.CATEGORICAL
@@ -81,20 +82,21 @@ def categorical_anchors(model: ModelSpec) -> tuple[bool, ...]:
         model.indicator_owner(indicator.observation.id).id in categorical_states
         and indicator.observation.name
         == references[model.indicator_owner(indicator.observation.id).name]
-        for indicator in observed_indicators(model)
+        for indicator in observed_indicators(selection)
     )
 
 
 def _build_static_factor_structure(
-    model: ModelSpec, latent_names: tuple[str, ...]
+    selection: StructuralSelection, latent_names: tuple[str, ...]
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, tuple[str, ...]]:
     """Derive baseline-factor incidence and fixed loadings from explicit common causes."""
     from nof1_causal_lab.artifacts.expressions import linear_coefficient
     from nof1_causal_lab.models.model_parameters import baseline_factor_groups, coefficient_value
 
-    groups = baseline_factor_groups(model)
+    model = selection.model
+    groups = baseline_factor_groups(selection)
     factors = [group[0] for group in groups]
-    state_index = {identity: index for index, identity in enumerate(selected_state_ids(model))}
+    state_index = {identity: index for index, identity in enumerate(selected_state_ids(selection))}
     loadings = np.zeros((len(latent_names), len(factors)))
     for index, group in enumerate(groups):
         sources = {construct.id for construct in group}
@@ -142,39 +144,43 @@ def _build_static_factor_structure(
     )
 
 
-def state_ids(model: ModelSpec) -> tuple[ConstructId, ...]:
-    return selected_state_ids(model)
+def state_ids(selection: StructuralSelection) -> tuple[ConstructId, ...]:
+    return selected_state_ids(selection)
 
 
-def state_names(model: ModelSpec) -> tuple[str, ...]:
-    return tuple(model.get_construct(identity).name for identity in state_ids(model))
+def state_names(selection: StructuralSelection) -> tuple[str, ...]:
+    model = selection.model
+    return tuple(model.get_construct(identity).name for identity in state_ids(selection))
 
 
-def n_states(model: ModelSpec) -> int:
-    return len(state_ids(model))
+def n_states(selection: StructuralSelection) -> int:
+    return len(state_ids(selection))
 
 
-def observed_indicators(model: ModelSpec) -> tuple[IndicatorSpec, ...]:
+def observed_indicators(selection: StructuralSelection) -> tuple[IndicatorSpec, ...]:
+    model = selection.model
     return tuple(
         model.indicator(identity)
-        for identity in tuple(indicator.observation.id for indicator in selected_indicators(model))
+        for identity in tuple(
+            indicator.observation.id for indicator in selected_indicators(selection)
+        )
     )
 
 
-def observation_ids(model: ModelSpec) -> tuple[IndicatorId, ...]:
-    return tuple(indicator.observation.id for indicator in observed_indicators(model))
+def observation_ids(selection: StructuralSelection) -> tuple[IndicatorId, ...]:
+    return tuple(indicator.observation.id for indicator in observed_indicators(selection))
 
 
-def observation_names(model: ModelSpec) -> tuple[str, ...]:
-    return tuple(indicator.observation.name for indicator in observed_indicators(model))
+def observation_names(selection: StructuralSelection) -> tuple[str, ...]:
+    return tuple(indicator.observation.name for indicator in observed_indicators(selection))
 
 
-def n_observations(model: ModelSpec) -> int:
-    return len(observed_indicators(model))
+def n_observations(selection: StructuralSelection) -> int:
+    return len(observed_indicators(selection))
 
 
-def _likelihoods(model: ModelSpec) -> Iterator[LikelihoodSpec]:
-    for indicator in observed_indicators(model):
+def _likelihoods(selection: StructuralSelection) -> Iterator[LikelihoodSpec]:
+    for indicator in observed_indicators(selection):
         if indicator.likelihood is None:
             raise IncompleteModelError(
                 f"Retained indicator {indicator.observation.name!r} requires a likelihood"
@@ -182,25 +188,25 @@ def _likelihoods(model: ModelSpec) -> Iterator[LikelihoodSpec]:
         yield indicator.likelihood
 
 
-def observation_families(model: ModelSpec) -> tuple[DistributionFamily, ...]:
-    return tuple(likelihood.law.family for likelihood in _likelihoods(model))
+def observation_families(selection: StructuralSelection) -> tuple[DistributionFamily, ...]:
+    return tuple(likelihood.law.family for likelihood in _likelihoods(selection))
 
 
-def observation_level_counts(model: ModelSpec) -> tuple[int, ...]:
+def observation_level_counts(selection: StructuralSelection) -> tuple[int, ...]:
     return tuple(
         len(indicator.observation.ordinal_levels or indicator.observation.categorical_levels or ())
         if indicator.likelihood is not None
         and indicator.likelihood.law.family
         in {DistributionFamily.ORDERED_LOGISTIC, DistributionFamily.CATEGORICAL}
         else 0
-        for indicator in observed_indicators(model)
+        for indicator in observed_indicators(selection)
     )
 
 
-def quantity_position(model: ModelSpec, parameter: CoefficientUse) -> tuple[int, ...]:
+def quantity_position(selection: StructuralSelection, parameter: CoefficientUse) -> tuple[int, ...]:
     """Locate a scientific scalar by its owners in the derived execution axes."""
-    state = {key: i for i, key in enumerate(state_ids(model))}
-    observation = {key: i for i, key in enumerate(observation_ids(model))}
+    state = {key: i for i, key in enumerate(state_ids(selection))}
+    observation = {key: i for i, key in enumerate(observation_ids(selection))}
     owners = {owner.id for owner in parameter.owners}
 
     def one(axis: Mapping[ConstructId, int] | Mapping[IndicatorId, int]) -> int:
@@ -228,7 +234,7 @@ def quantity_position(model: ModelSpec, parameter: CoefficientUse) -> tuple[int,
 
         matches = [
             index
-            for index, group in enumerate(baseline_factor_groups(model))
+            for index, group in enumerate(baseline_factor_groups(selection))
             if owners & {construct.id for construct in group}
         ]
         if len(matches) != 1:
@@ -238,7 +244,7 @@ def quantity_position(model: ModelSpec, parameter: CoefficientUse) -> tuple[int,
 
 
 def _quantity_values(
-    model: ModelSpec,
+    selection: StructuralSelection,
     kind: SiteKind,
     template: np.ndarray,
     support: np.ndarray,
@@ -249,18 +255,18 @@ def _quantity_values(
     values = np.array(template, dtype=float, copy=True)
     free = np.array(support, dtype=bool, copy=True)
     occupied = {}
-    for parameter in execution_coefficient_uses(model):
+    for parameter in execution_coefficient_uses(selection):
         if parameter.quantity != kind:
             continue
         if kind == SiteKind.T0_MEANS and not any(
-            owner.id in state_ids(model) for owner in parameter.owners
+            owner.id in state_ids(selection) for owner in parameter.owners
         ):
             continue
-        position = quantity_position(model, parameter)
+        position = quantity_position(selection, parameter)
         value = coefficient_value(parameter.value)
         if (
             kind in {SiteKind.DIFFUSION_DIAG, SiteKind.DIFFUSION_LOWER}
-            and any(time_invariant_mask(model)[index] for index in position)
+            and any(time_invariant_mask(selection)[index] for index in position)
             and value != 0.0
         ):
             raise NumericalSupportError(["Time-invariant constructs cannot have innovations"])
@@ -270,10 +276,10 @@ def _quantity_values(
                 if kind == SiteKind.DIFFUSION_LOWER
                 else "initial_state_correlation"
             )
-            pair = {state_ids(model)[index] for index in position}
+            pair = {state_ids(selection)[index] for index in position}
             if not any(
                 kind == expected_kind and {first, second} == pair
-                for first, second, kind in model.induced_dependencies
+                for first, second, kind in selection.induced_dependencies
             ):
                 raise NumericalSupportError(
                     [
@@ -307,29 +313,27 @@ def _quantity_values(
     return values, free
 
 
-def loading_block(model: ModelSpec) -> SparseBlockSpec[tuple[int, int]]:
-    shape = (n_observations(model), n_states(model))
+def loading_block(selection: StructuralSelection) -> SparseBlockSpec[tuple[int, int]]:
+    shape = (n_observations(selection), n_states(selection))
     template, support = _quantity_values(
-        model, SiteKind.LOADING, np.zeros(shape), np.zeros(shape, dtype=bool)
+        selection, SiteKind.LOADING, np.zeros(shape), np.zeros(shape, dtype=bool)
     )
     return SparseBlockSpec[tuple[int, int]](
         free_support=support,
         template=jnp.asarray(template),
         free_positions=tuple(rect_matrix_positions(support, *shape)),
         free_site_name="lambda_free",
-        det_site_name="lambda",
         support=SupportClass.REAL,
         site_kind=SiteKind.LOADING,
         assembly_group="lambda",
-        fixed_spec_field="lambda_mat",
-        priors_field="lambda_free",
+        prior_field="lambda_free",
     )
 
 
-def observation_mean_block(model: ModelSpec) -> SparseBlockSpec[int]:
+def observation_mean_block(selection: StructuralSelection) -> SparseBlockSpec[int]:
     inactive = [
         indicator.observation.name
-        for indicator in observed_indicators(model)
+        for indicator in observed_indicators(selection)
         if indicator.likelihood is not None
         and isinstance(indicator.likelihood.parsed.intercept.value, str)
         and not indicator_requires_observation_intercept(
@@ -347,58 +351,63 @@ def observation_mean_block(model: ModelSpec) -> SparseBlockSpec[int]:
             ]
         )
     template, support = _quantity_values(
-        model,
+        selection,
         SiteKind.MANIFEST_MEANS,
-        np.zeros(n_observations(model)),
-        np.zeros(n_observations(model), dtype=bool),
+        np.zeros(n_observations(selection)),
+        np.zeros(n_observations(selection), dtype=bool),
     )
     return SparseBlockSpec[int](
         free_support=support,
         template=jnp.asarray(template),
-        free_positions=tuple(dense_vector_positions(support, n_observations(model))),
+        free_positions=tuple(dense_vector_positions(support, n_observations(selection))),
         free_site_name="manifest_means_free",
-        det_site_name="manifest_means",
         support=SupportClass.REAL,
         site_kind=SiteKind.MANIFEST_MEANS,
         assembly_group="manifest",
-        fixed_spec_field="manifest_means",
-        priors_field="manifest_means",
+        prior_field="manifest_means",
     )
 
 
-def observation_noise_block(model: ModelSpec) -> ManifestCholBlockSpec:
-    n = n_observations(model)
+def observation_noise_block(selection: StructuralSelection) -> ManifestCholBlockSpec:
+    n = n_observations(selection)
     template, support = _quantity_values(
-        model, SiteKind.MANIFEST_VAR_DIAG, np.zeros((n, n)), np.zeros(n, dtype=bool), diagonal=True
+        selection,
+        SiteKind.MANIFEST_VAR_DIAG,
+        np.zeros((n, n)),
+        np.zeros(n, dtype=bool),
+        diagonal=True,
     )
     return ManifestCholBlockSpec(
-        n_manifest=n_observations(model), diag_support=support, template=jnp.asarray(template)
+        n_manifest=n_observations(selection), diag_support=support, template=jnp.asarray(template)
     )
 
 
-def time_invariant_mask(model: ModelSpec) -> np.ndarray:
+def time_invariant_mask(selection: StructuralSelection) -> np.ndarray:
+    model = selection.model
     return np.asarray(
         [
             model.get_construct(identity).temporal_status == "time_invariant"
-            for identity in state_ids(model)
+            for identity in state_ids(selection)
         ],
         dtype=bool,
     )
 
 
-def input_mask(model: ModelSpec) -> np.ndarray:
+def input_mask(selection: StructuralSelection) -> np.ndarray:
     """Coordinates read from the panel instead of generated under a state law."""
+    model = selection.model
     return np.asarray(
-        [model.get_construct(identity).role == "exogenous" for identity in state_ids(model)],
+        [model.get_construct(identity).role == "exogenous" for identity in state_ids(selection)],
         dtype=bool,
     )
 
 
-def diffusion_families(model: ModelSpec) -> tuple[DistributionFamily, ...]:
+def diffusion_families(selection: StructuralSelection) -> tuple[DistributionFamily, ...]:
     from nof1_causal_lab.distributions import DistributionFamily
 
+    model = selection.model
     result = []
-    for identity in state_ids(model):
+    for identity in state_ids(selection):
         construct = model.get_construct(identity)
         if construct.role == "exogenous" or construct.temporal_status == "time_invariant":
             result.append(DistributionFamily.GAUSSIAN)
@@ -409,21 +418,21 @@ def diffusion_families(model: ModelSpec) -> tuple[DistributionFamily, ...]:
     return tuple(result)
 
 
-def diffusion_block(model: ModelSpec) -> DiffusionBlockSpec:
-    count = n_states(model)
+def diffusion_block(selection: StructuralSelection) -> DiffusionBlockSpec:
+    count = n_states(selection)
     support = np.eye(count, dtype=bool)
-    axis = {identity: index for index, identity in enumerate(state_ids(model))}
-    for first_id, second_id, kind in model.induced_dependencies:
+    axis = {identity: index for index, identity in enumerate(state_ids(selection))}
+    for first_id, second_id, kind in selection.induced_dependencies:
         if kind == "innovation_correlation":
             first, second = axis[first_id], axis[second_id]
             support[max(first, second), min(first, second)] = True
-    static = time_invariant_mask(model) | input_mask(model)
+    static = time_invariant_mask(selection) | input_mask(selection)
     support[static, :] = False
     support[:, static] = False
     template, support = _quantity_values(
-        model, SiteKind.DIFFUSION_DIAG, np.eye(count), np.zeros_like(support), diagonal=True
+        selection, SiteKind.DIFFUSION_DIAG, np.eye(count), np.zeros_like(support), diagonal=True
     )
-    template, support = _quantity_values(model, SiteKind.DIFFUSION_LOWER, template, support)
+    template, support = _quantity_values(selection, SiteKind.DIFFUSION_LOWER, template, support)
     template[static, :] = 0.0
     template[:, static] = 0.0
     support[static, :] = False
@@ -436,32 +445,30 @@ def diffusion_block(model: ModelSpec) -> DiffusionBlockSpec:
     )
 
 
-def initial_mean_block(model: ModelSpec) -> SparseBlockSpec[int]:
-    support = np.zeros(n_states(model), dtype=bool)
+def initial_mean_block(selection: StructuralSelection) -> SparseBlockSpec[int]:
+    support = np.zeros(n_states(selection), dtype=bool)
     template, support = _quantity_values(
-        model, SiteKind.T0_MEANS, np.zeros(n_states(model)), support
+        selection, SiteKind.T0_MEANS, np.zeros(n_states(selection)), support
     )
     return SparseBlockSpec[int](
         free_support=support,
         template=jnp.asarray(template),
-        free_positions=tuple(dense_vector_positions(support, n_states(model))),
+        free_positions=tuple(dense_vector_positions(support, n_states(selection))),
         free_site_name="t0_means_free",
-        det_site_name="t0_means",
         support=SupportClass.REAL,
         site_kind=SiteKind.T0_MEANS,
         assembly_group="t0",
-        fixed_spec_field="t0_means",
-        priors_field="t0_means",
+        prior_field="t0_means",
     )
 
 
-def initial_covariance_block(model: ModelSpec) -> T0CholBlockSpec:
-    count = n_states(model)
+def initial_covariance_block(selection: StructuralSelection) -> T0CholBlockSpec:
+    count = n_states(selection)
     support = np.zeros(count, dtype=bool)
-    std, support = _quantity_values(model, SiteKind.T0_VAR_DIAG, np.ones(count), support)
-    std[input_mask(model)] = 0.0
+    std, support = _quantity_values(selection, SiteKind.T0_VAR_DIAG, np.ones(count), support)
+    std[input_mask(selection)] = 0.0
     correlations, correlation_support = _quantity_values(
-        model, SiteKind.T0_VAR_LOWER, np.eye(count), np.zeros((count, count), dtype=bool)
+        selection, SiteKind.T0_VAR_LOWER, np.eye(count), np.zeros((count, count), dtype=bool)
     )
     lower = np.tril(np.asarray(correlations), -1)
     corr = np.eye(count) + lower + lower.T
@@ -474,16 +481,16 @@ def initial_covariance_block(model: ModelSpec) -> T0CholBlockSpec:
     )
 
 
-def static_factor_ids(model: ModelSpec) -> tuple[ConstructId, ...]:
+def static_factor_ids(selection: StructuralSelection) -> tuple[ConstructId, ...]:
     from nof1_causal_lab.models.model_parameters import baseline_factor_groups
 
-    return tuple(group[0].id for group in baseline_factor_groups(model))
+    return tuple(group[0].id for group in baseline_factor_groups(selection))
 
 
-def static_factor_names(model: ModelSpec) -> tuple[str, ...]:
-
+def static_factor_names(selection: StructuralSelection) -> tuple[str, ...]:
+    model = selection.model
     names = []
-    for identity in static_factor_ids(model):
+    for identity in static_factor_ids(selection):
         construct = model.get_construct(identity)
         coefficient = construct.coefficient("initial_scale")
         assert coefficient is not None
@@ -493,41 +500,39 @@ def static_factor_names(model: ModelSpec) -> tuple[str, ...]:
     return tuple(names)
 
 
-def static_factor_loadings(model: ModelSpec) -> jnp.ndarray:
-    return jnp.asarray(_build_static_factor_structure(model, state_names(model))[2])
+def static_factor_loadings(selection: StructuralSelection) -> jnp.ndarray:
+    return jnp.asarray(_build_static_factor_structure(selection, state_names(selection))[2])
 
 
-def static_scale_block(model: ModelSpec) -> SparseBlockSpec[int]:
-    n = len(static_factor_ids(model))
+def static_scale_block(selection: StructuralSelection) -> SparseBlockSpec[int]:
+    n = len(static_factor_ids(selection))
     values, support = _quantity_values(
-        model, SiteKind.STATIC_STATE_SD, np.zeros(n), np.ones(n, dtype=bool)
+        selection, SiteKind.STATIC_STATE_SD, np.zeros(n), np.ones(n, dtype=bool)
     )
     return SparseBlockSpec[int](
         free_support=support,
         template=jnp.asarray(values),
         free_positions=tuple(dense_vector_positions(support, len(values))),
         free_site_name="static_state_sd_free",
-        det_site_name="static_state_sds",
         support=SupportClass.POSITIVE,
         site_kind=SiteKind.STATIC_STATE_SD,
         assembly_group="t0",
-        fixed_spec_field="static_state_sds",
-        priors_field="static_state_sd",
+        prior_field="static_state_sd",
     )
 
 
-def dynamics_expressions(model: ModelSpec) -> tuple[ExpressionComponentSpec, ...]:
+def dynamics_expressions(selection: StructuralSelection) -> tuple[ExpressionComponentSpec, ...]:
     from nof1_causal_lab.models.ssm.compile.mechanisms import lower_mechanisms
 
-    return lower_mechanisms(model)
+    return lower_mechanisms(selection)
 
 
-def dynamics_components(model: ModelSpec) -> DynamicsSpec:
-    return DynamicsSpec(n_latent=n_states(model), components=dynamics_expressions(model))
+def dynamics_components(selection: StructuralSelection) -> DynamicsSpec:
+    return DynamicsSpec(n_latent=n_states(selection), components=dynamics_expressions(selection))
 
 
 def parameter_blocks(
-    model: ModelSpec,
+    selection: StructuralSelection,
 ) -> tuple[
     DiffusionBlockSpec,
     SparseBlockSpec[tuple[int, int]],
@@ -538,28 +543,29 @@ def parameter_blocks(
     SparseBlockSpec[int],
 ]:
     return (
-        diffusion_block(model),
-        loading_block(model),
-        observation_mean_block(model),
-        observation_noise_block(model),
-        initial_mean_block(model),
-        initial_covariance_block(model),
-        static_scale_block(model),
+        diffusion_block(selection),
+        loading_block(selection),
+        observation_mean_block(selection),
+        observation_noise_block(selection),
+        initial_mean_block(selection),
+        initial_covariance_block(selection),
+        static_scale_block(selection),
     )
 
 
-def _require_execution_choices(model: ModelSpec) -> None:
+def _require_execution_choices(selection: StructuralSelection) -> None:
     """Check numerical execution requirements."""
+    from nof1_causal_lab.distributions import DistributionFamily
     from nof1_causal_lab.models.model_structure import validate_execution_structure
 
-    validate_execution_structure(model)
-    from nof1_causal_lab.distributions import DistributionFamily
+    validate_execution_structure(selection)
+    model = selection.model
 
     def require_hyperparameter(coefficient: float | ParameterId | None, label: str) -> None:
         if not isinstance(coefficient, str):
             raise IncompleteModelError(f"{label} requires a prior parameter")
 
-    for identity in state_ids(model):
+    for identity in state_ids(selection):
         construct = model.get_construct(identity)
         if construct.role == "exogenous":
             continue
@@ -579,7 +585,7 @@ def _require_execution_choices(model: ModelSpec) -> None:
                 construct.coefficient("process_degrees_of_freedom"),
                 f"{construct.name}.process_degrees_of_freedom",
             )
-    for indicator in observed_indicators(model):
+    for indicator in observed_indicators(selection):
         likelihood = indicator.likelihood
         if likelihood is None:
             raise IncompleteModelError(
@@ -598,10 +604,10 @@ def _require_execution_choices(model: ModelSpec) -> None:
                 )
 
 
-def likelihood_sites(spec: ModelSpec) -> tuple[SiteDescriptor, ...]:
+def likelihood_sites(selection: StructuralSelection) -> tuple[SiteDescriptor, ...]:
     """Declare emission/process hyperparameters in their native sampling order."""
     sites = []
-    families = set(observation_families(spec))
+    families = set(observation_families(selection))
     for law in OBSERVATION_FAMILY_SPECS:
         if len(law.parameter_roles) != 1:
             continue
@@ -610,32 +616,39 @@ def likelihood_sites(spec: ModelSpec) -> tuple[SiteDescriptor, ...]:
         name = kind.value
         if family in families:
             sites.append(
-                make_site(name, (), meaning.support, "likelihood", kind, priors_field=name)
+                SiteDescriptor(
+                    name=name,
+                    shape=(),
+                    support=meaning.support,
+                    assembly_group="likelihood",
+                    site_kind=kind,
+                    prior_field=name,
+                )
             )
-    n = n_observations(spec)
-    cutpoints = max(max(observation_level_counts(spec), default=0) - 1, 0)
+    n = n_observations(selection)
+    cutpoints = max(max(observation_level_counts(selection), default=0) - 1, 0)
     if DistributionFamily.ORDERED_LOGISTIC in families and cutpoints:
         base = COEFFICIENT_MEANINGS["cutpoint_base"]
         sites.append(
-            make_site(
-                base.quantity.value,
-                (n,),
-                base.support,
-                "likelihood",
-                base.quantity,
-                priors_field=base.quantity.value,
+            SiteDescriptor(
+                name=base.quantity.value,
+                shape=(n,),
+                support=base.support,
+                assembly_group="likelihood",
+                site_kind=base.quantity,
+                prior_field=base.quantity.value,
             )
         )
         if cutpoints > 1:
             gaps = COEFFICIENT_MEANINGS["cutpoint_gaps"]
             sites.append(
-                make_site(
-                    gaps.quantity.value,
-                    (n, cutpoints - 1),
-                    gaps.support,
-                    "likelihood",
-                    gaps.quantity,
-                    priors_field=gaps.quantity.value,
+                SiteDescriptor(
+                    name=gaps.quantity.value,
+                    shape=(n, cutpoints - 1),
+                    support=gaps.support,
+                    assembly_group="likelihood",
+                    site_kind=gaps.quantity,
+                    prior_field=gaps.quantity.value,
                 )
             )
     if DistributionFamily.CATEGORICAL in families and cutpoints:
@@ -644,20 +657,25 @@ def likelihood_sites(spec: ModelSpec) -> tuple[SiteDescriptor, ...]:
             kind = meaning.quantity
             name = kind.value
             sites.append(
-                make_site(
-                    name, (n, cutpoints), meaning.support, "likelihood", kind, priors_field=name
+                SiteDescriptor(
+                    name=name,
+                    shape=(n, cutpoints),
+                    support=meaning.support,
+                    assembly_group="likelihood",
+                    site_kind=kind,
+                    prior_field=name,
                 )
             )
-    if DistributionFamily.STUDENT_T in diffusion_families(spec):
+    if DistributionFamily.STUDENT_T in diffusion_families(selection):
         meaning = COEFFICIENT_MEANINGS["process_degrees_of_freedom"]
         sites.append(
-            make_site(
-                meaning.quantity.value,
-                (),
-                meaning.support,
-                "process",
-                meaning.quantity,
-                priors_field=meaning.quantity.value,
+            SiteDescriptor(
+                name=meaning.quantity.value,
+                shape=(),
+                support=meaning.support,
+                assembly_group="process",
+                site_kind=meaning.quantity,
+                prior_field=meaning.quantity.value,
             )
         )
     return tuple(sites)

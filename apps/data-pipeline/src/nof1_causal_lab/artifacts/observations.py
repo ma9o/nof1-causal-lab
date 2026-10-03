@@ -63,9 +63,7 @@ class ObservationSpec(Value):
 
     def resolved(self, window: str | None) -> ObservationSpec:
         """Retain the observation definition with an explicitly resolved window."""
-        return self.model_copy(
-            update={"observation_window": Duration(window) if window is not None else None}
-        )
+        return self.revised(observation_window=Duration(window) if window is not None else None)
 
     @model_validator(mode="after")
     def validate_discrete_levels(self) -> ObservationSpec:

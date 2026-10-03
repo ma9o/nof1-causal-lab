@@ -23,7 +23,7 @@ from nof1_causal_lab.models.ssm.dynamics import (
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
-    from nof1_causal_lab.artifacts.scenarios import InterventionSpec
+    from nof1_causal_lab.artifacts.scenarios import StateAssignment
     from nof1_causal_lab.models.ssm.dynamics.draws import DynamicsDraws
 
 
@@ -32,7 +32,7 @@ class ResolvedIntervention:
     """A dated intervention bound to its numerical state axis."""
 
     index: int
-    spec: InterventionSpec
+    spec: StateAssignment
 
 
 def build_segment_bounds(

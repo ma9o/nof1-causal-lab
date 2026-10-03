@@ -14,7 +14,11 @@ from nof1_causal_lab.artifacts.likelihood import (
     ObservationLawSpec,
 )
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.models.model_structure import selected_state_ids, validate_execution_structure
+from nof1_causal_lab.models.model_structure import (
+    StructuralSelection,
+    selected_state_ids,
+    validate_execution_structure,
+)
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.execution.dynamical_model import (
     HeterogeneousObservation,
@@ -156,31 +160,38 @@ def test_conditioning_revises_the_same_type_and_retains_joint_uncertainty(
         empirical_atoms(next(iter(conditioned.distributions.values()))),
     )
     identity, law = next(iter(loaded.distributions.items()))
+    # A joint law's coordinates follow the outcome's scope, which checks them.
     with pytest.raises(ValueError, match="one event coordinate per scientific quantity"):
-        loaded.revised(
-            distributions={identity: empirical_distribution(empirical_atoms(law)[:, :-1])}
+        StructuralSelection(
+            loaded.revised(
+                distributions={identity: empirical_distribution(empirical_atoms(law)[:, :-1])}
+            ),
+            None,
         )
     with pytest.raises(ValueError, match="identity does not match"):
-        loaded.revised(time_points=(0.0, 1.0, 2.0, 5.0))
+        StructuralSelection(loaded.revised(time_points=(0.0, 1.0, 2.0, 5.0)), None)
     if categorical:
         construct = loaded.constructs[1]
         indicator = construct.indicators[0]
         with pytest.raises(ValueError, match="identity does not match"):
-            loaded.revised(
-                edges=replace_constructs(
-                    loaded.edges,
-                    (
-                        construct.revised(
-                            indicators=(
-                                indicator.revised(
-                                    observation=indicator.observation.revised(
-                                        categorical_levels=("medium", "low", "high")
-                                    )
-                                ),
-                            )
+            StructuralSelection(
+                loaded.revised(
+                    edges=replace_constructs(
+                        loaded.edges,
+                        (
+                            construct.revised(
+                                indicators=(
+                                    indicator.revised(
+                                        observation=indicator.observation.revised(
+                                            categorical_levels=("medium", "low", "high")
+                                        )
+                                    ),
+                                )
+                            ),
                         ),
-                    ),
-                )
+                    )
+                ),
+                None,
             )
 
 
@@ -316,8 +327,8 @@ def test_predictive_edge_off_reaches_the_native_state_evolution(model, monkeypat
 def test_model_equality_does_not_depend_on_execution_cache(model):
 
     restored = ModelSpec.model_validate_json(model.model_dump_json())
-    validate_execution_structure(model)
-    validate_execution_structure(restored)
+    validate_execution_structure(StructuralSelection(model, None))
+    validate_execution_structure(StructuralSelection(restored, None))
     assert restored == model
 
 
@@ -384,7 +395,12 @@ def test_fixed_quantities_and_interactions_remain_effective_in_edge_off_checks(m
     )
     source = ModelSpec.model_validate_json(source.model_dump_json())
     terms = compile_model_fixture(source).dynamics.spec.components
-    assert linear_coefficient(terms[3].expression, selected_state_ids(source)[0]) == 0.7
+    assert (
+        linear_coefficient(
+            terms[3].expression, selected_state_ids(StructuralSelection(source, None))[0]
+        )
+        == 0.7
+    )
     assert not terms[3].parameters
     target = _incoming_edge_off_target(
         compile_model_fixture(source),

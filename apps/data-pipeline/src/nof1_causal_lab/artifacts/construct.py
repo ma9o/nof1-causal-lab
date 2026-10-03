@@ -83,7 +83,7 @@ class ConstructSpec(Value):
     )
 
     def with_distribution(self, identity: DistributionId | None) -> ConstructSpec:
-        return self.model_copy(update={"distribution": identity})
+        return self.revised(distribution=identity)
 
     @property
     def is_dynamic(self) -> bool:

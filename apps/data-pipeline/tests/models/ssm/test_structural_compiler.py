@@ -15,6 +15,7 @@ from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.model_parameters import execution_parameters
 from nof1_causal_lab.models.model_structure import (
     StructuralCompilationError,
+    StructuralSelection,
     reference_indicators,
     selected_edges,
     selected_indicators,
@@ -43,7 +44,7 @@ def test_planner_rejects_retained_static_target_edge():
         )
     )
     with pytest.raises(StructuralCompilationError, match="static-target edge"):
-        validate_execution_structure(model)
+        validate_execution_structure(StructuralSelection(model, None))
 
 
 @pytest.mark.contract
@@ -94,30 +95,31 @@ def test_projected_coefficients_require_literals():
         )
         return model.revised(edges=edges, parameters=parameters)
 
-    literal = _with_loading(0.5, ())
+    literal = StructuralSelection(_with_loading(0.5, ()), None)
     assert np.any(
         np.asarray(
             _build_static_factor_structure(
                 literal,
                 tuple(
-                    literal.get_construct(identity).name for identity in selected_state_ids(literal)
+                    literal.model.get_construct(identity).name
+                    for identity in selected_state_ids(literal)
                 ),
             )[2]
         )
         == 0.5
     )
-    tuple(iter_mechanism_components(literal, selected_state_ids(literal)))
-    unresolved = _with_loading(parameter.id, (parameter,))
+    tuple(iter_mechanism_components(literal.model, selected_state_ids(literal)))
+    unresolved = StructuralSelection(_with_loading(parameter.id, (parameter,)), None)
     with pytest.raises(ValueError, match="fixed linear"):
         _build_static_factor_structure(
             unresolved,
             tuple(
-                unresolved.get_construct(identity).name
+                unresolved.model.get_construct(identity).name
                 for identity in selected_state_ids(unresolved)
             ),
         )[2]
     with pytest.raises(ValueError, match="fixed linear"):
-        tuple(iter_mechanism_components(unresolved, selected_state_ids(unresolved)))
+        tuple(iter_mechanism_components(unresolved.model, selected_state_ids(unresolved)))
 
 
 def _model_with_exact_measurement():
@@ -152,9 +154,10 @@ def _model_with_exact_measurement():
 @pytest.mark.contract
 def test_exact_measurements_retain_scientific_states_and_project_only_supported_roots():
     model = _model_with_exact_measurement()
-    dispositions = {d.target.id: d.disposition for d in model.structural_dispositions}
+    selection = StructuralSelection(model, None)
+    dispositions = {d.target.id: d.disposition for d in selection.structural_dispositions}
     by_name = {c.name: c for c in model.constructs}
-    assert [model.get_construct(key).name for key in selected_state_ids(model)] == [
+    assert [model.get_construct(key).name for key in selected_state_ids(selection)] == [
         "X",
         "Y",
         "Driver",
@@ -164,18 +167,23 @@ def test_exact_measurements_retain_scientific_states_and_project_only_supported_
     assert dispositions[by_name["History"].id] == "retained_state"
     assert dispositions[by_name["U"].id] == "marginalized"
     assert by_name["Driver"].indicators[0].observation.id in tuple(
-        indicator.observation.id for indicator in selected_indicators(model)
+        indicator.observation.id for indicator in selected_indicators(selection)
     )
-    assert model.induced_dependencies
-    assert selected_edges(model)[0] is model.edges[0]
+    assert selection.induced_dependencies
+    assert selected_edges(selection)[0] is model.edges[0]
 
 
 @pytest.mark.contract
 def test_source_ids_are_stable_across_authoring_reordering():
     model = _model_with_exact_measurement()
-    original = model
-    reordered = model.revised(
-        edges=replace_constructs(tuple(reversed(model.edges)), tuple(reversed(model.constructs)))
+    original = StructuralSelection(model, None)
+    reordered = StructuralSelection(
+        model.revised(
+            edges=replace_constructs(
+                tuple(reversed(model.edges)), tuple(reversed(model.constructs))
+            )
+        ),
+        None,
     )
     assert {d.target.id: d.disposition for d in original.structural_dispositions} == {
         d.target.id: d.disposition for d in reordered.structural_dispositions
@@ -207,7 +215,6 @@ def test_required_unmeasured_mediator_cannot_be_silently_excluded():
     model = make_model(["X", "Mediator", "Y"], [("X", "Mediator"), ("Mediator", "Y")])
     x, mediator, y = model.constructs
     model = model.revised(
-        default_outcome=y.id,
         edges=replace_constructs(
             model.edges,
             (
@@ -217,9 +224,10 @@ def test_required_unmeasured_mediator_cannot_be_silently_excluded():
             ),
         ),
     )
-    assert any(d.disposition == "unsupported" for d in model.structural_dispositions)
+    selection = StructuralSelection(model, y.id)
+    assert any(d.disposition == "unsupported" for d in selection.structural_dispositions)
     with pytest.raises(StructuralCompilationError, match="Required constructs"):
-        validate_execution_structure(model)
+        validate_execution_structure(selection)
 
 
 @pytest.mark.inference(concern="predictive")
@@ -248,8 +256,8 @@ def test_severed_components_do_not_require_priors_or_bind_numerical_parameters()
         ).read_text()
     )
     island_parameter = model.parameters_for(nodes["A"].id)[0]
-    selected = model.revised(
-        default_outcome=nodes["Y"].id,
+    outcome = nodes["Y"].id
+    unassigned = model.revised(
         parameters=tuple(
             item.revised(distribution=None) if item.id == island_parameter.id else item
             for item in model.parameters
@@ -260,57 +268,56 @@ def test_severed_components_do_not_require_priors_or_bind_numerical_parameters()
             if key != island_parameter.distribution
         },
     )
-    before = selected.model_dump(mode="json")
-    assert set(numeric.state_names(compile_model_fixture(selected))) == {"X", "Y"}
+    selected = StructuralSelection(unassigned, outcome)
+    before = unassigned.model_dump(mode="json")
+    assert set(numeric.state_names(compile_model_fixture(unassigned, outcome))) == {"X", "Y"}
     assert len(tuple(indicator.observation.id for indicator in selected_indicators(selected))) == 2
     assert island_parameter.id not in {item.id for item in execution_parameters(selected)}
-    compile_model_fixture(selected)
-    bindings = compile_fit_fixture(selected).compiled.bindings
+    bindings = compile_fit_fixture(unassigned, outcome).compiled.bindings
     assert {item.parameter_id for item in bindings} == {
         item.id for item in execution_parameters(selected)
     }
-    assert selected.model_dump(mode="json") == before
+    assert unassigned.model_dump(mode="json") == before
 
-    draws = sample_model_laws(compile_model_fixture(selected), draws=2, key=jax.random.PRNGKey(0))
+    draws = sample_model_laws(
+        compile_model_fixture(unassigned, outcome), draws=2, key=jax.random.PRNGKey(0)
+    )
     assert set(draws.state_ids) == {nodes["X"].id, nodes["Y"].id}
     # Exercise persistence with synthetic draws; no fitting or trajectory simulation.
     conditioned = condition_model(
-        selected,
-        compile_model_fixture(selected),
+        unassigned,
+        compile_model_fixture(unassigned, outcome),
         particle_posterior(
             JointPosteriorDraws(draws.parameters, jnp.zeros((2, 2, 2)), draws.state_ids)
         ),
         times=jnp.array([0.0, 1.0]),
     )
-    assert conditioned.parameter(island_parameter.id) == selected.parameter(island_parameter.id)
-    assert set(conditioned.distributions) & set(selected.distributions)
-    assert model_draws(compile_model_fixture(conditioned)).state_ids == draws.state_ids
+    assert conditioned.parameter(island_parameter.id) == unassigned.parameter(island_parameter.id)
+    assert set(conditioned.distributions) & set(unassigned.distributions)
+    assert model_draws(compile_model_fixture(conditioned, outcome)).state_ids == draws.state_ids
     assert (
         sample_model_laws(
-            compile_model_fixture(conditioned), draws=2, key=jax.random.PRNGKey(1)
+            compile_model_fixture(conditioned, outcome), draws=2, key=jax.random.PRNGKey(1)
         ).state_ids
         == draws.state_ids
     )
 
-    # Without a selected outcome, the operation still covers all measured components.
-    assert set(numeric.state_names(compile_model_fixture(model.revised(default_outcome=None)))) == {
-        "A",
-        "B",
-        "X",
-        "Y",
-    }
+    # Without an outcome, the operation covers every measured component.
+    assert set(numeric.state_names(compile_model_fixture(model))) == {"A", "B", "X", "Y"}
 
 
 @pytest.mark.contract
 def test_projected_latent_dependencies_keep_their_connected_states():
     model = make_model(["U", "X", "Y", "A"], [("U", "X"), ("U", "A"), ("X", "Y")])
     nodes = {item.name: item for item in model.constructs}
-    selected = model.revised(
-        default_outcome=nodes["Y"].id,
-        edges=replace_constructs(
-            model.edges,
-            (nodes["U"].revised(role=Role.ENDOGENOUS, indicators=()),),
+    selected = StructuralSelection(
+        model.revised(
+            edges=replace_constructs(
+                model.edges,
+                (nodes["U"].revised(role=Role.ENDOGENOUS, indicators=()),),
+            ),
         ),
+        nodes["Y"].id,
     )
     assert nodes["U"].id in selected.marginalized_construct_ids
     assert set(selected_state_ids(selected)) == {nodes[name].id for name in ("X", "Y", "A")}

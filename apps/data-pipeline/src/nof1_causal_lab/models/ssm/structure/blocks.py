@@ -10,8 +10,7 @@ Each block is a frozen dataclass with:
 - Its structural data (free supports + templates) — direct fields
 - An ``iter_sites()`` method declaring names, shapes, supports, and prior bindings
   interpreted by the shared NumPyro site sampler
-- Assembly delegated to ``structure.assembly`` (single algorithmic
-  source of truth shared with ``SSMParameterLayout``)
+- Assembly delegated to the shared algorithms in ``structure.assembly``
 """
 
 from __future__ import annotations
@@ -20,7 +19,8 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
 from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
-from nof1_causal_lab.models.ssm.structure.sites import make_site
+from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
+from nof1_causal_lab.utils.immutability import freeze_fields
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator
@@ -29,15 +29,10 @@ if TYPE_CHECKING:
     import numpy as np
     import numpyro.distributions as dist
 
-    from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
-
     PriorFn = Callable[[str], dist.Distribution]
 
 
-# Position extractors live in ``structure.assembly`` — the single
-# canonical implementation also used by ``SSMParameterLayout``. The
-# block specs below import them lazily to avoid an eager dependency at
-# module-load time.
+# Block specs share the position extractors in ``structure.assembly``.
 
 
 # ---------------------------------------------------------------------------
@@ -59,17 +54,20 @@ class DiffusionBlockSpec:
     diffusion_chol_template: jnp.ndarray
     time_invariant_mask: np.ndarray | None = None
 
+    def __post_init__(self) -> None:
+        freeze_fields(self)
+
     @property
-    def diffusion_diag_positions(self) -> list[int]:
+    def diffusion_diag_positions(self) -> tuple[int, ...]:
         from nof1_causal_lab.models.ssm.structure.assembly import chol_diag_positions
 
-        return chol_diag_positions(self.diffusion_chol_support, self.n_latent)
+        return tuple(chol_diag_positions(self.diffusion_chol_support, self.n_latent))
 
     @property
-    def diffusion_lower_positions(self) -> list[tuple[int, int]]:
+    def diffusion_lower_positions(self) -> tuple[tuple[int, int], ...]:
         from nof1_causal_lab.models.ssm.structure.assembly import strict_lower_positions
 
-        return strict_lower_positions(self.diffusion_chol_support, self.n_latent)
+        return tuple(strict_lower_positions(self.diffusion_chol_support, self.n_latent))
 
     @property
     def n_diffusion_diag(self) -> int:
@@ -81,28 +79,24 @@ class DiffusionBlockSpec:
 
     def iter_sites(self) -> Iterator[SiteDescriptor]:
         if self.n_diffusion_diag > 0:
-            yield make_site(
-                "diffusion_diag_free",
-                (self.n_diffusion_diag,),
-                SupportClass.POSITIVE,
-                "diffusion",
-                SiteKind.DIFFUSION_DIAG,
+            yield SiteDescriptor(
+                name="diffusion_diag_free",
+                shape=(self.n_diffusion_diag,),
+                support=SupportClass.POSITIVE,
+                assembly_group="diffusion",
+                site_kind=SiteKind.DIFFUSION_DIAG,
                 positions=tuple(self.diffusion_diag_positions),
-                deterministic_name="diffusion",
-                fixed_spec_field="diffusion_chol",
-                priors_field="diffusion_diag",
+                prior_field="diffusion_diag",
             )
         if self.n_diffusion_lower > 0:
-            yield make_site(
-                "diffusion_lower_free",
-                (self.n_diffusion_lower,),
-                SupportClass.REAL,
-                "diffusion",
-                SiteKind.DIFFUSION_LOWER,
+            yield SiteDescriptor(
+                name="diffusion_lower_free",
+                shape=(self.n_diffusion_lower,),
+                support=SupportClass.REAL,
+                assembly_group="diffusion",
+                site_kind=SiteKind.DIFFUSION_LOWER,
                 positions=tuple(self.diffusion_lower_positions),
-                deterministic_name="diffusion",
-                fixed_spec_field="diffusion_chol",
-                priors_field="diffusion_offdiag",
+                prior_field="diffusion_offdiag",
             )
 
     def assemble(
@@ -135,12 +129,13 @@ class SparseBlockSpec[Position: int | tuple[int, int]]:
     template: jnp.ndarray
     free_positions: tuple[Position, ...]
     free_site_name: str
-    det_site_name: str
     support: SupportClass
     site_kind: SiteKind
     assembly_group: str
-    fixed_spec_field: str
-    priors_field: str
+    prior_field: str
+
+    def __post_init__(self) -> None:
+        freeze_fields(self)
 
     @property
     def n_free(self) -> int:
@@ -148,16 +143,14 @@ class SparseBlockSpec[Position: int | tuple[int, int]]:
 
     def iter_sites(self) -> Iterator[SiteDescriptor]:
         if self.n_free > 0:
-            yield make_site(
-                self.free_site_name,
-                (self.n_free,),
-                self.support,
-                self.assembly_group,
-                self.site_kind,
+            yield SiteDescriptor(
+                name=self.free_site_name,
+                shape=(self.n_free,),
+                support=self.support,
+                assembly_group=self.assembly_group,
+                site_kind=self.site_kind,
                 positions=self.free_positions,
-                deterministic_name=self.det_site_name,
-                fixed_spec_field=self.fixed_spec_field,
-                priors_field=self.priors_field,
+                prior_field=self.prior_field,
             )
 
     def assemble(self, free: jnp.ndarray | None = None) -> jnp.ndarray:
@@ -186,11 +179,14 @@ class ManifestCholBlockSpec:
     diag_support: np.ndarray
     template: jnp.ndarray
 
+    def __post_init__(self) -> None:
+        freeze_fields(self)
+
     @property
-    def free_positions(self) -> list[int]:
+    def free_positions(self) -> tuple[int, ...]:
         from nof1_causal_lab.models.ssm.structure.assembly import dense_vector_positions
 
-        return dense_vector_positions(self.diag_support, self.n_manifest)
+        return tuple(dense_vector_positions(self.diag_support, self.n_manifest))
 
     @property
     def n_free(self) -> int:
@@ -198,16 +194,14 @@ class ManifestCholBlockSpec:
 
     def iter_sites(self) -> Iterator[SiteDescriptor]:
         if self.n_free > 0:
-            yield make_site(
-                "manifest_var_diag_free",
-                (self.n_free,),
-                SupportClass.POSITIVE,
-                "manifest",
-                SiteKind.MANIFEST_VAR_DIAG,
+            yield SiteDescriptor(
+                name="manifest_var_diag_free",
+                shape=(self.n_free,),
+                support=SupportClass.POSITIVE,
+                assembly_group="manifest",
+                site_kind=SiteKind.MANIFEST_VAR_DIAG,
                 positions=tuple(self.free_positions),
-                deterministic_name="manifest_cov",
-                fixed_spec_field="manifest_chol",
-                priors_field="manifest_var_diag",
+                prior_field="manifest_var_diag",
             )
 
     def assemble(self, free: jnp.ndarray | None = None) -> jnp.ndarray:
@@ -246,17 +240,20 @@ class T0CholBlockSpec:
     correlation_support: np.ndarray  # (n_latent, n_latent) strict lower bool
     template: jnp.ndarray  # (n_latent, n_latent) lower-Cholesky factor
 
+    def __post_init__(self) -> None:
+        freeze_fields(self)
+
     @property
-    def diag_positions(self) -> list[int]:
+    def diag_positions(self) -> tuple[int, ...]:
         from nof1_causal_lab.models.ssm.structure.assembly import dense_vector_positions
 
-        return dense_vector_positions(self.diag_support, self.n_latent)
+        return tuple(dense_vector_positions(self.diag_support, self.n_latent))
 
     @property
-    def correlation_positions(self) -> list[tuple[int, int]]:
+    def correlation_positions(self) -> tuple[tuple[int, int], ...]:
         from nof1_causal_lab.models.ssm.structure.assembly import strict_lower_positions
 
-        return strict_lower_positions(self.correlation_support, self.n_latent)
+        return tuple(strict_lower_positions(self.correlation_support, self.n_latent))
 
     @property
     def n_diag_free(self) -> int:
@@ -268,28 +265,24 @@ class T0CholBlockSpec:
 
     def iter_sites(self) -> Iterator[SiteDescriptor]:
         if self.n_diag_free > 0:
-            yield make_site(
-                "t0_var_diag_free",
-                (self.n_diag_free,),
-                SupportClass.POSITIVE,
-                "t0",
-                SiteKind.T0_VAR_DIAG,
+            yield SiteDescriptor(
+                name="t0_var_diag_free",
+                shape=(self.n_diag_free,),
+                support=SupportClass.POSITIVE,
+                assembly_group="t0",
+                site_kind=SiteKind.T0_VAR_DIAG,
                 positions=tuple(self.diag_positions),
-                deterministic_name="t0_cov",
-                fixed_spec_field="t0_chol",
-                priors_field="t0_var_diag",
+                prior_field="t0_var_diag",
             )
         if self.n_correlation_free > 0:
-            yield make_site(
-                "t0_var_lower_free",
-                (self.n_correlation_free,),
-                SupportClass.CORRELATION,
-                "t0",
-                SiteKind.T0_VAR_LOWER,
+            yield SiteDescriptor(
+                name="t0_var_lower_free",
+                shape=(self.n_correlation_free,),
+                support=SupportClass.CORRELATION,
+                assembly_group="t0",
+                site_kind=SiteKind.T0_VAR_LOWER,
                 positions=tuple(self.correlation_positions),
-                deterministic_name="t0_cov",
-                fixed_spec_field="t0_chol",
-                priors_field="t0_var_offdiag",
+                prior_field="t0_var_offdiag",
             )
 
     @property

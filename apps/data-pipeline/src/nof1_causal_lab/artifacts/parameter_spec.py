@@ -8,6 +8,7 @@ from pydantic import ConfigDict, Field
 
 from nof1_causal_lab.artifacts.base import Value
 
+from .evidence import LiteratureSource
 from .identity import DistributionId, ParameterId
 from .parameter import PriorAuthoringTransform
 
@@ -71,11 +72,13 @@ class ParameterSpec(Value):
             "None means the law has not been assigned yet."
         ),
     )
+    reasoning: str | None = Field(
+        default=None,
+        description="Why the authored prior law fits this quantity, and where its values come from.",
+    )
+    sources: tuple[LiteratureSource, ...] = Field(
+        default=(), description="Evidence behind the authored prior law."
+    )
 
     def conditioned(self, identity: DistributionId) -> ParameterSpec:
-        return self.model_copy(
-            update={
-                "distribution": identity,
-                "transform": IdentityTransformSpec(),
-            }
-        )
+        return self.revised(distribution=identity, transform=IdentityTransformSpec())

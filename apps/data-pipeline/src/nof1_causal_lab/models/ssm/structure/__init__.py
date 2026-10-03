@@ -11,13 +11,13 @@ from nof1_causal_lab.models.ssm.structure.blocks import (
     SparseBlockSpec,
     T0CholBlockSpec,
 )
-from nof1_causal_lab.models.ssm.structure.sites import SemanticBinding, SiteDescriptor
+from nof1_causal_lab.models.ssm.structure.sites import CompiledSiteBinding, SiteDescriptor
 
 __all__ = [
     "DiffusionBlockSpec",
     "ManifestCholBlockSpec",
     "PriorAuthoringTransform",
-    "SemanticBinding",
+    "CompiledSiteBinding",
     "SiteDescriptor",
     "SiteKind",
     "SparseBlockSpec",

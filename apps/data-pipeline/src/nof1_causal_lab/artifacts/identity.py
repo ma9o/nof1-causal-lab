@@ -88,6 +88,7 @@ class ParameterElementId(_IdentityString):
 
 
 type ArtifactId = Literal[
+    "question",
     "raw_data",
     "model",
     "identification_report",
@@ -97,7 +98,7 @@ type ArtifactId = Literal[
 ]
 
 # Actions name work; several actions can enrich the same model artifact.
-type ScientificActionId = Literal["edit_model", "prepare_data", "fit", "simulate"]
+type ScientificActionId = Literal["set_question", "edit_model", "prepare_data", "fit", "simulate"]
 type ActionId = ScientificActionId | Literal["data_diff"]
 
 ARTIFACT_IDS: tuple[ArtifactId, ...] = get_args(ArtifactId.__value__)

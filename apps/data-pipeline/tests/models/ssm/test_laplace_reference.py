@@ -31,70 +31,105 @@ from tests.observation_fixtures import mean_density, observation_kernel, observa
 pytestmark = pytest.mark.inference(concern="warmup")
 
 
-@pytest.mark.parametrize("interval", [False, True], ids=["point", "interval"])
-def test_student_t_laplace_value_and_gradient_match_scalar_reference(monkeypatch, interval):
+@pytest.mark.parametrize("solver", ["point", "interval", "dense", "interval_blocks"])
+def test_student_t_laplace_value_and_gradient_match_scalar_reference(monkeypatch, solver):
     """A single observation of a Gaussian path reduces to a scalar Laplace integral.
 
     The reference integrates all orthogonal latent directions analytically and
-    solves the remaining scalar mode with SciPy. This checks both custom gradient
-    paths without differentiating a second iterative solver.
+    solves the remaining scalar mode with SciPy. This checks all three
+    Optimistix paths against an independent reference.
     """
     from nof1_causal_lab.models.ssm.inference.targets import laplace
 
     monkeypatch.setattr(laplace, "_should_use_dense_support_laplace", lambda **_kwargs: False)
+    n_time, n_latent = (4, 2) if solver == "interval_blocks" else (2, 1)
+    state_mean = np.array([0.05, -0.03])[:n_latent]
+    state_variance = np.array([0.6, 0.45])[:n_latent]
+    process_variance = np.array([0.07, 0.04])[:n_latent]
+    loadings = np.array([1.0, 0.4])[:n_latent]
+    anchor_times = np.arange(n_time, dtype=float)
+    observations = jnp.full((n_time, 1), jnp.nan).at[-1, 0].set(0.25)
     support = None
     weights = np.array([0.0, 1.0])
-    if interval:
-        weights = np.array([0.5, 0.5])
+    if solver != "point":
+        weights = np.ones(n_time) / (n_time - 1)
+        weights[[0, -1]] /= 2
+        start_times, end_times = np.full((2, n_time, 1), np.nan)
+        start_times[-1, 0], end_times[-1, 0] = 0.0, n_time - 1
+        coefficients = np.full((n_time, 1), 0.5)
+        coefficients[0, 0] = 0.0
         support = make_observation_support_runtime(
-            anchor_times=np.array([0.0, 1.0]),
+            anchor_times=anchor_times,
             manifest_names=["avg_signal"],
             support_kinds=["interval"],
-            observation_windows=["1d"],
-            support_start_times=np.array([[np.nan], [0.0]]),
-            support_end_times=np.array([[np.nan], [1.0]]),
-            interval_prev_coeffs=np.array([[0.0], [0.5]]),
-            interval_curr_coeffs=np.array([[0.0], [0.5]]),
-            interval_weights=np.array([[0.0], [1.0]]),
+            observation_windows=[f"{n_time - 1}d"],
+            support_start_times=start_times,
+            support_end_times=end_times,
+            interval_prev_coeffs=coefficients,
+            interval_curr_coeffs=coefficients,
+            interval_weights=coefficients * 2,
         )
     backend = LaplaceLikelihood(
-        n_latent=1,
+        n_latent=n_latent,
         n_manifest=1,
         n_ieks_iters=4,
         observation_support=support,
     )
     dynamics = _runtime_dynamics(
-        dynamics=jnp.array([[-0.09]], dtype=jnp.float32),
-        diffusion=jnp.linalg.cholesky(jnp.array([[0.07]], dtype=jnp.float32)),
+        dynamics=-0.09 * jnp.eye(n_latent, dtype=jnp.float32),
+        diffusion=jnp.diag(jnp.sqrt(jnp.asarray(process_variance, dtype=jnp.float32))),
     )
     initial = MultivariateNormal(
-        loc=jnp.array([0.05], dtype=jnp.float32),
-        covariance_matrix=jnp.array([[0.6]], dtype=jnp.float32),
+        loc=jnp.asarray(state_mean, dtype=jnp.float32),
+        covariance_matrix=jnp.diag(jnp.asarray(state_variance, dtype=jnp.float32)),
     )
 
     def _objective(raw):
         measurement = MeasurementParams(
-            lambda_mat=jnp.ones((1, 1), dtype=jnp.float32),
+            lambda_mat=jnp.asarray(loadings[None], dtype=jnp.float32),
             manifest_means=jnp.zeros(1, dtype=jnp.float32),
             manifest_cov=(jnp.exp(raw[1]) + 0.1).reshape(1, 1),
         )
+        if solver == "dense":
+            parameters = {"obs_df": jnp.exp(raw[0]) + 2.5}
+            law = observation_laws([DistributionFamily.STUDENT_T], parameters=parameters)[0]
+            value, _aux = _dense_support_laplace_log_lik(
+                jnp.array([[0.0], [0.25]], dtype=jnp.float32),
+                jnp.array([[False], [True]]),
+                jnp.full((2, 1, 1), np.exp(-0.09), dtype=jnp.float32),
+                jnp.full((2, 1, 1), -0.07 * np.expm1(-0.18) / 0.18, dtype=jnp.float32),
+                jnp.zeros((2, 1), dtype=jnp.float32),
+                measurement.lambda_mat,
+                measurement.manifest_means,
+                measurement.manifest_cov,
+                initial.mean,
+                initial.covariance_matrix,
+                observation_kernel(
+                    [DistributionFamily.STUDENT_T], [LinkFunction.IDENTITY], parameters
+                ),
+                mean_density(law),
+                support,
+                8,
+            )
+            return value
         return backend.compute_log_likelihood(
             dynamics,
             measurement,
             initial,
-            jnp.array([[jnp.nan], [0.25]], dtype=jnp.float32),
-            jnp.ones(2, dtype=jnp.float32),
+            observations,
+            jnp.ones(n_time, dtype=jnp.float32),
             observation_laws=observation_laws(
                 [DistributionFamily.STUDENT_T], parameters={"obs_df": jnp.exp(raw[0]) + 2.5}
             ),
         )
 
-    anchors = np.array([1.0, 2.0])
-    stationary_var = 0.07 / (2 * 0.09)
+    anchors = anchor_times + 1
+    stationary_var = np.dot(loadings**2, process_variance) / (2 * 0.09)
+    initial_variance = np.dot(loadings**2, state_variance)
     covariance = stationary_var * np.exp(-0.09 * np.abs(anchors[:, None] - anchors[None, :])) + (
-        0.6 - stationary_var
+        initial_variance - stationary_var
     ) * np.exp(-0.09 * (anchors[:, None] + anchors[None, :]))
-    prior_mean = weights @ (0.05 * np.exp(-0.09 * anchors))
+    prior_mean = weights @ (np.dot(loadings, state_mean) * np.exp(-0.09 * anchors))
     prior_var = weights @ covariance @ weights
 
     def _reference(raw):

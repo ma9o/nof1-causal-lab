@@ -12,8 +12,12 @@ from pydantic import TypeAdapter, ValidationError
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.expressions import (
+    BinaryExpression,
+    CallExpression,
+    CoefficientExpression,
+    LiteralExpression,
+    StateExpression,
     coefficient,
-    fold_expression,
 )
 from nof1_causal_lab.artifacts.identity import ConstructId, scientific_id
 from nof1_causal_lab.artifacts.likelihood import (
@@ -190,14 +194,22 @@ def test_native_conditional_law_matches_exact_emission_lowering(
     }
 
     def evaluate(expression):
-        return fold_expression(
-            expression,
-            literal=jnp.asarray,
-            state_value=lambda _identity: jnp.asarray(0.35),
-            coefficient_value=lambda operand: values[operand.role],
-            binary=lambda operation, left, right: operations[operation](left, right),
-            call=lambda name, arguments: functions[name](*arguments),
-        )
+        # Independent authored-tree reference; it does not call the SymPy compiler.
+        match expression:
+            case LiteralExpression():
+                return jnp.asarray(expression.value)
+            case StateExpression():
+                return jnp.asarray(0.35)
+            case CoefficientExpression():
+                return values[expression.role]
+            case BinaryExpression():
+                return operations[expression.operator](
+                    evaluate(expression.left), evaluate(expression.right)
+                )
+            case CallExpression():
+                return functions[expression.function](
+                    *(evaluate(argument) for argument in expression.arguments)
+                )
 
     arguments = {name: evaluate(value) for name, value in likelihood.law.operands()}
     expected = getattr(dist, likelihood.law.distribution)(**arguments).log_prob(observed)

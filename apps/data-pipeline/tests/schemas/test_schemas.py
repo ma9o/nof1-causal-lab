@@ -34,6 +34,7 @@ from nof1_causal_lab.artifacts.identity import (
 )
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.observations import ObservationSpec
+from nof1_causal_lab.artifacts.question import QuestionSpec
 from nof1_causal_lab.utils.observation_semantics import (
     AnchorPolicy,
     SummaryOperator,
@@ -43,6 +44,12 @@ from nof1_causal_lab.utils.observation_semantics import (
 from tests.helpers import graph_constructs, make_model
 
 pytestmark = pytest.mark.contract
+
+_QUERY = {
+    "start": "2026-05-15",
+    "horizon": "9w",
+    "interventions": [{"target": "construct:x", "value": 10}],
+}
 
 
 class TestConstruct:
@@ -104,32 +111,30 @@ class TestModel:
                 )
             )
 
-    def test_default_query_outcome_does_not_require_incoming_edges(self):
-        model = make_model(["mood", "sleep"], [("mood", "sleep")])
-        identity = model.edges[0].cause.id
-        assert model.revised(default_outcome=identity).default_outcome == identity
-
-    def test_structure_can_precede_outcome_selection(self):
-        assert make_model(["stress", "mood"], [("stress", "mood")]).default_outcome is None
-
-    def test_default_query_outcome_must_exist(self):
-        with pytest.raises(ValueError, match="unknown construct"):
-            make_model(["mood"]).revised(default_outcome="construct:unknown")
-
-    def test_default_query_outcome_must_be_endogenous(self, construct_factory):
-        target = construct_factory("weather", Role.EXOGENOUS)
-        with pytest.raises(ValueError, match="endogenous"):
-            ModelSpec(
-                edges=(
-                    CausalEdgeSpec(
-                        id="edge:weather-mood",
-                        cause=target,
-                        effect=construct_factory("mood"),
-                        description="Weather affects mood",
-                    ),
-                ),
-                default_outcome=target.id,
-            )
+    @pytest.mark.parametrize(
+        ("question", "message"),
+        [
+            ({"text": "   "}, "at least 1 character"),
+            ({"text": "Why?", "queries": {"q": _QUERY}}, "require the outcome"),
+            (
+                {
+                    "text": "Why?",
+                    "outcome": "construct:y",
+                    "queries": {"q": {**_QUERY, "interventions": []}},
+                },
+                "needs an intervention",
+            ),
+            (
+                {"text": "Why?", "outcome": "construct:x", "queries": {"q": _QUERY}},
+                "intervenes on the outcome",
+            ),
+            ({"text": "Why?", "outcome": "construct:y", "queries": {" ": _QUERY}}, "at least 1"),
+        ],
+    )
+    def test_question_names_an_outcome_and_contrasts_interventions(self, question, message):
+        with pytest.raises(ValidationError, match=message):
+            QuestionSpec.model_validate(question)
+        assert QuestionSpec(text="  Why?  ").text == "Why?"
 
 
 class TestDataVariable:

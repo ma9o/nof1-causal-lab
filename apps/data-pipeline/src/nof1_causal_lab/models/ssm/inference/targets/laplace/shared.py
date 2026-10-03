@@ -28,34 +28,6 @@ if TYPE_CHECKING:
 
 _DENSE_SUPPORT_LAPLACE_MAX_FLAT_DIM = 160
 
-_SUPPORT_AWARE_IEKS_CONVERGENCE_RTOL = 1e-3
-
-_SUPPORT_AWARE_LM_DAMPING = 1e-3
-
-_SUPPORT_AWARE_LM_DAMPING_MIN = 1e-6
-
-_SUPPORT_AWARE_LM_DAMPING_MAX = 1e6
-
-_SUPPORT_AWARE_LM_DAMPING_GROWTH = 10.0
-
-_SUPPORT_AWARE_LM_DAMPING_SHRINK = 0.5
-
-_SUPPORT_AWARE_LINE_SEARCH_MAX_HALVINGS = 6
-
-_POINT_IEKS_CONVERGENCE_RTOL = _SUPPORT_AWARE_IEKS_CONVERGENCE_RTOL
-
-_POINT_LM_DAMPING = _SUPPORT_AWARE_LM_DAMPING
-
-_POINT_LM_DAMPING_MIN = _SUPPORT_AWARE_LM_DAMPING_MIN
-
-_POINT_LM_DAMPING_MAX = _SUPPORT_AWARE_LM_DAMPING_MAX
-
-_POINT_LM_DAMPING_GROWTH = _SUPPORT_AWARE_LM_DAMPING_GROWTH
-
-_POINT_LM_DAMPING_SHRINK = _SUPPORT_AWARE_LM_DAMPING_SHRINK
-
-_POINT_LINE_SEARCH_MAX_HALVINGS = _SUPPORT_AWARE_LINE_SEARCH_MAX_HALVINGS
-
 
 @dataclass(frozen=True)
 class SupportObservationWindowBatch:
@@ -165,12 +137,6 @@ def _predictive_latent_init(
 def _batched_spd_solve(mats: jnp.ndarray, rhs: jnp.ndarray) -> jnp.ndarray:
     """Solve a batch of SPD linear systems with matching right-hand sides."""
     return jax.vmap(lambda mat, b: jla.solve(mat, b, assume_a="pos"))(mats, rhs)
-
-
-def _solve_spd_from_cholesky(chol: jnp.ndarray, rhs: jnp.ndarray) -> jnp.ndarray:
-    """Solve A x = rhs given a lower-triangular Cholesky factor A = L L^T."""
-    y = jla.solve_triangular(chol, rhs, lower=True)
-    return jla.solve_triangular(chol.T, y, lower=False)
 
 
 def _gaussian_log_prob_from_cholesky(
@@ -318,57 +284,6 @@ def _build_ieks_system_from_prior(
     diag_blocks = prior_diag + J_t
     rhs = prior_rhs + tilde_y
     return prior_lower, _symmetrize_psd(diag_blocks, jitter=jitter), prior_upper, rhs
-
-
-def _solve_block_tridiagonal(
-    lower: jnp.ndarray,
-    diag: jnp.ndarray,
-    upper: jnp.ndarray,
-    rhs: jnp.ndarray,
-) -> jnp.ndarray:
-    """Solve a block-tridiagonal linear system via block Thomas elimination."""
-    n = diag.shape[0]
-    if n == 1:
-        base_diag = _symmetrize_psd(diag[0], jitter=1e-6)
-        return jla.solve(base_diag, rhs[0], assume_a="pos")[None]
-
-    diag0 = _symmetrize_psd(diag[0], jitter=1e-6)
-    chol0 = jnp.linalg.cholesky(diag0)
-    rhs0 = rhs[0]
-
-    def _forward_step(carry, inputs):
-        chol_prev, rhs_prev = carry
-        lower_i, diag_i, upper_prev, rhs_i = inputs
-        solve_prev_upper = _solve_spd_from_cholesky(chol_prev, upper_prev)
-        solve_prev_rhs = _solve_spd_from_cholesky(chol_prev, rhs_prev)
-        schur = diag_i - lower_i @ solve_prev_upper
-        rhs_tilde_i = rhs_i - lower_i @ solve_prev_rhs
-        chol_i = jnp.linalg.cholesky(_symmetrize_psd(schur, jitter=1e-6))
-        return (chol_i, rhs_tilde_i), (chol_i, rhs_tilde_i)
-
-    (_, _), (chol_rest, rhs_rest) = jax.lax.scan(
-        _forward_step,
-        (chol0, rhs0),
-        (lower[1:], diag[1:], upper[:-1], rhs[1:]),
-    )
-    chol_diag = jnp.concatenate([chol0[None], chol_rest], axis=0)
-    rhs_tilde = jnp.concatenate([rhs0[None], rhs_rest], axis=0)
-
-    x_last = _solve_spd_from_cholesky(chol_diag[-1], rhs_tilde[-1])
-
-    def _backward_step(x_next, inputs):
-        chol_i, upper_i, rhs_i = inputs
-        rhs_eff = rhs_i - upper_i @ x_next
-        x_i = _solve_spd_from_cholesky(chol_i, rhs_eff)
-        return x_i, x_i
-
-    _, x_rest = jax.lax.scan(
-        _backward_step,
-        x_last,
-        (chol_diag[:-1], upper[:-1], rhs_tilde[:-1]),
-        reverse=True,
-    )
-    return jnp.concatenate([x_rest, x_last[None]], axis=0)
 
 
 def _build_prior_banded_system(
@@ -591,6 +506,26 @@ def _factor_block_profile_cholesky(
     jitter: float = 1e-6,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
     """Exact block-profile Cholesky factorization A = L L^T."""
+    if upper.shape[0] == 1:
+        # Point observations have a tridiagonal precision. Carry its preceding
+        # block directly rather than running the general profile's inner loops.
+        off_diagonal = jnp.where(row_upper_bandwidths[:-1, None, None] > 0, upper[0, :-1], 0)
+        first = jnp.linalg.cholesky(_symmetrize_psd(diag[0], jitter=jitter))
+
+        def _tridiagonal_step(previous, blocks):
+            diagonal, off = blocks
+            lower_block = jla.solve_triangular(previous, off, lower=True).T
+            chol = jnp.linalg.cholesky(
+                _symmetrize_psd(diagonal - lower_block @ lower_block.T, jitter=jitter)
+            )
+            return chol, (chol, lower_block)
+
+        _, (rest, lower_blocks) = jax.lax.scan(_tridiagonal_step, first, (diag[1:], off_diagonal))
+        return (
+            jnp.concatenate((first[None], rest)),
+            jnp.concatenate((jnp.zeros_like(first)[None], lower_blocks))[None],
+        )
+
     T, _D = diag.shape[:2]
     chol_diag = jnp.zeros_like(diag)
     lower = jnp.zeros_like(upper)
@@ -677,6 +612,31 @@ def _solve_block_profile_from_cholesky(
     row_lower_bandwidths: jnp.ndarray,
 ) -> jnp.ndarray:
     """Solve A x = rhs from exact block-profile Cholesky factors."""
+    if lower.shape[0] == 1:
+        first = jla.solve_triangular(chol_diag[0], rhs[0], lower=True)
+
+        def _tridiagonal_forward(previous, blocks):
+            diagonal, off, value = blocks
+            result = jla.solve_triangular(diagonal, value - off @ previous, lower=True)
+            return result, result
+
+        _, rest = jax.lax.scan(_tridiagonal_forward, first, (chol_diag[1:], lower[0, 1:], rhs[1:]))
+        forward = jnp.concatenate((first[None], rest))
+        last = jla.solve_triangular(chol_diag[-1].T, forward[-1], lower=False)
+
+        def _tridiagonal_backward(following, blocks):
+            diagonal, off, value = blocks
+            result = jla.solve_triangular(diagonal.T, value - off.T @ following, lower=False)
+            return result, result
+
+        _, rest = jax.lax.scan(
+            _tridiagonal_backward,
+            last,
+            (chol_diag[:-1], lower[0, 1:], forward[:-1]),
+            reverse=True,
+        )
+        return jnp.concatenate((rest, last[None]))
+
     T = rhs.shape[0]
     y = jnp.zeros_like(rhs)
 
@@ -893,6 +853,26 @@ def block_profile_logdet_packed_cotangent(
     return scale * inv_diag, 2.0 * scale * inv_upper
 
 
+@jax.custom_jvp
+def precision_logdet(
+    diag: jax.Array, upper: jax.Array, row_upper: jax.Array, row_lower: jax.Array
+) -> jax.Array:
+    """Sparse log determinant; its derivative needs only the inverse's occupied bands."""
+    chol, _lower = _factor_block_profile_cholesky(diag, upper, row_upper, row_lower)
+    return _block_banded_logdet(chol)
+
+
+@precision_logdet.defjvp
+def _precision_logdet_jvp(primals, tangents):
+    diag, upper, row_upper, row_lower = primals
+    diag_dot, upper_dot, _row_upper_dot, _row_lower_dot = tangents
+    chol, lower = _factor_block_profile_cholesky(diag, upper, row_upper, row_lower)
+    diag_bar, upper_bar = block_profile_logdet_packed_cotangent(
+        chol, lower, row_upper, row_lower, scale=jnp.asarray(1.0, dtype=diag.dtype)
+    )
+    return _block_banded_logdet(chol), jnp.sum(diag_bar * diag_dot) + jnp.sum(upper_bar * upper_dot)
+
+
 def _infer_support_groups(
     observation_support: ObservationSupportRuntime,
 ) -> tuple[tuple[SupportObservationWindowBatch, ...], int, jnp.ndarray]:
@@ -1077,70 +1057,3 @@ def _infer_support_groups(
         max_bandwidth,
         jnp.asarray(row_upper_bandwidths, dtype=jnp.int32),
     )
-
-
-def _step_halving_search(
-    z_curr: jnp.ndarray,
-    step_direction: jnp.ndarray,
-    current_log_joint: jnp.ndarray,
-    objective_fn: Callable[[jnp.ndarray], jnp.ndarray],
-    *,
-    max_halvings: int = _SUPPORT_AWARE_LINE_SEARCH_MAX_HALVINGS,
-) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    """Backtracking step-halving line search for latent-mode Newton updates."""
-    if max_halvings < 0:
-        raise ValueError("max_halvings must be non-negative")
-    zero_step = jnp.all(step_direction == 0)
-
-    def _zero_step_result(_: None) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-        return (
-            z_curr,
-            current_log_joint,
-            jnp.asarray(True),
-            jnp.asarray(1.0, dtype=z_curr.dtype),
-        )
-
-    def _run_search(_: None) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-        alphas = jnp.asarray(
-            [0.5**i for i in range(max_halvings + 1)],
-            dtype=z_curr.dtype,
-        )
-
-        def _ls_step(
-            carry: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray], alpha: jnp.ndarray
-        ) -> tuple[tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray], None]:
-            accepted, z_best, log_best, alpha_best = carry
-
-            def _evaluate(
-                _: None,
-            ) -> tuple[tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray], None]:
-                z_cand = jnp.asarray(z_curr + alpha * step_direction, dtype=z_curr.dtype)
-                cand_log_joint = jnp.asarray(
-                    objective_fn(z_cand),
-                    dtype=current_log_joint.dtype,
-                )
-                improved = jnp.isfinite(cand_log_joint) & (cand_log_joint >= current_log_joint)
-                next_z = jnp.where(improved, z_cand, z_best)
-                next_log = jnp.where(improved, cand_log_joint, log_best)
-                next_alpha = jnp.where(improved, alpha, alpha_best)
-                return (improved, next_z, next_log, next_alpha), None
-
-            result: tuple[tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray], None] = (
-                jax.lax.cond(accepted, lambda _: (carry, None), _evaluate, operand=None)
-            )
-            return result
-
-        init_carry = (
-            jnp.asarray(False),
-            z_curr,
-            current_log_joint,
-            jnp.asarray(0.0, dtype=z_curr.dtype),
-        )
-        final_carry, _ = jax.lax.scan(_ls_step, init_carry, alphas)
-        accepted, z_next, log_joint_next, alpha_next = final_carry
-        return z_next, log_joint_next, accepted, alpha_next
-
-    result: tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray] = jax.lax.cond(
-        zero_step, _zero_step_result, _run_search, operand=None
-    )
-    return result

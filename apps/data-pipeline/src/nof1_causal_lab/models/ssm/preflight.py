@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING
+from dataclasses import dataclass
+from typing import TYPE_CHECKING, Self
 
 import numpy as np
 import numpyro.distributions as dist
@@ -17,11 +18,19 @@ if TYPE_CHECKING:
 LOCATION_REACH_SIGMAS = 6.0
 
 
-class ObservationPreflightError(ValueError):
+@dataclass(frozen=True)
+class ObservationPreflightFailure:
     """Observed data is inconsistent with the spec/prior configuration."""
 
+    message: str
 
-def validate_observation_support_for_fit(panel: BoundPanel) -> None:
+    @classmethod
+    def rejected(cls, message: str) -> Self:
+        """Own the rejection value shared by observation preparation and fitting."""
+        return cls(message)
+
+
+def validate_observation_support_for_fit(panel: BoundPanel) -> ObservationPreflightFailure | None:
     """Reject observation semantics the particle target cannot represent."""
     intervals = [
         indicator.name
@@ -31,10 +40,11 @@ def validate_observation_support_for_fit(panel: BoundPanel) -> None:
     ]
     if intervals:
         names = ", ".join(intervals)
-        raise ObservationPreflightError(
+        return ObservationPreflightFailure.rejected(
             "Particle inference supports only point measurements; "
             f"unsupported interval summaries: {names}."
         )
+    return None
 
 
 def _prior_loc_scale(
@@ -55,13 +65,16 @@ def _prior_loc_scale(
     return family, float(mu[free_idx]), float(sigma[free_idx])
 
 
-def validate_observations_for_fit(priors: PriorRuntimeBundle, panel: BoundPanel) -> None:
+def validate_observations_for_fit(
+    priors: PriorRuntimeBundle, panel: BoundPanel
+) -> ObservationPreflightFailure | None:
     """Validate (spec, priors, observations) consistency before fitting.
 
-    Raises:
-        ObservationPreflightError: listing every violating channel.
+    Return an expected scientific rejection listing every violating channel.
     """
-    validate_observation_support_for_fit(panel)
+    failure = validate_observation_support_for_fit(panel)
+    if failure is not None:
+        return failure
     spec = panel.model
     obs = np.asarray(panel.observations, dtype=np.float64)
     standardized = numeric.observation_standardized(spec)
@@ -106,6 +119,7 @@ def validate_observations_for_fit(priors: PriorRuntimeBundle, panel: BoundPanel)
             )
 
     if problems:
-        raise ObservationPreflightError(
+        return ObservationPreflightFailure.rejected(
             "Observation/prior preflight failed:\n- " + "\n- ".join(problems)
         )
+    return None

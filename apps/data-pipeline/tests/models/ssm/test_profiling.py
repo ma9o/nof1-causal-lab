@@ -37,7 +37,7 @@ def test_fit_shell_closes_trace_and_owns_artifact_writes(monkeypatch, tmp_path, 
     from unittest.mock import Mock
 
     from nof1_causal_lab.models.ssm.compile.inputs import CompiledFitInputs
-    from nof1_causal_lab.models.ssm.runtime import BoundPanel
+    from nof1_causal_lab.models.ssm.runtime import BoundPanel, PreparedFit
     from nof1_causal_lab.sampler_config import SamplerSpec
 
     shell = import_module("nof1_causal_lab.actions.inference.fit")
@@ -70,10 +70,11 @@ def test_fit_shell_closes_trace_and_owns_artifact_writes(monkeypatch, tmp_path, 
     monkeypatch.setattr(shell, "dump_compiled_analysis", dump)
     inputs = Mock(spec=CompiledFitInputs, prior_runtime_bundle=object())
     panel = Mock(spec=BoundPanel)
+    prepared = Mock(spec=PreparedFit, inputs=inputs, panel=panel)
     if failed:
         with pytest.raises(ExecutionFailed):
-            shell.fit_prepared_model(inputs, panel, sampler=SamplerSpec())
+            shell.fit_prepared_model(prepared, sampler=SamplerSpec())
         assert calls == ["start", "fit", "stop"]
     else:
-        assert shell.fit_prepared_model(inputs, panel, sampler=SamplerSpec()) is result
+        assert shell.fit_prepared_model(prepared, sampler=SamplerSpec()) is result
         assert calls == ["start", "fit", "stop", "dump"]

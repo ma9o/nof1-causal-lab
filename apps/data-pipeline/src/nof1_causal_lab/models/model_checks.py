@@ -4,22 +4,27 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from nof1_causal_lab.models.model_structure import reference_indicators, selected_state_ids
+from nof1_causal_lab.models.model_structure import (
+    StructuralSelectionError,
+    reference_indicators,
+    selected_state_ids,
+)
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.models.model_structure import StructuralSelection
 
 
-def validate_parameter_anchors(model: ModelSpec) -> None:
+def validate_parameter_anchors(selection: StructuralSelection) -> None:
     """Reject unanchored retained constructs once their anchor inputs are authored."""
     from nof1_causal_lab.artifacts.construct import CausalEdgeSpec
     from nof1_causal_lab.artifacts.expressions import StateExpression, restoring_coefficients
     from nof1_causal_lab.distributions import DistributionFamily
 
+    model = selection.model
     if model.measurement_clock is None or not model.indicators:
         return
 
-    for identity in selected_state_ids(model):
+    for identity in selected_state_ids(selection):
         construct = model.get_construct(identity)
         initial_mean = construct.coefficient("initial_mean")
         channels = [
@@ -61,7 +66,7 @@ def validate_parameter_anchors(model: ModelSpec) -> None:
             else any(not isinstance(center, str) for center in centers)
         )
         if not channel_location and not fixed_location:
-            raise ValueError(f"Construct {construct.name!r} has no location anchor")
+            raise StructuralSelectionError(f"Construct {construct.name!r} has no location anchor")
 
         fixed_scale = False
         all_categorical = True
@@ -70,15 +75,15 @@ def validate_parameter_anchors(model: ModelSpec) -> None:
             loading = likelihood.parsed.loadings[identity].value
             value = None if isinstance(loading, str) else loading
             if categorical and value is None:
-                raise ValueError(
+                raise StructuralSelectionError(
                     f"Construct {construct.name!r} has a free categorical loading on "
                     f"indicator {indicator.observation.name!r}"
                 )
             all_categorical &= categorical
             fixed_scale |= not categorical and value is not None and value != 0.0
         if not fixed_scale and not all_categorical:
-            reference = model.indicator(reference_indicators(model)[identity])
-            raise ValueError(
+            reference = model.indicator(reference_indicators(selection)[identity])
+            raise StructuralSelectionError(
                 f"Construct {construct.name!r} has no scale anchor "
                 f"(reference indicator {reference.observation.name!r})"
             )

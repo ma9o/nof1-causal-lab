@@ -6,7 +6,7 @@ from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
-import numpy as np
+import optimistix as optx
 
 from nof1_causal_lab.models.ssm.execution.contracts import (
     LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS,
@@ -22,16 +22,8 @@ from nof1_causal_lab.models.ssm.execution.observation_operator import (
 )
 
 from .shared import (
-    _SUPPORT_AWARE_IEKS_CONVERGENCE_RTOL,
-    _SUPPORT_AWARE_LINE_SEARCH_MAX_HALVINGS,
-    _SUPPORT_AWARE_LM_DAMPING,
-    _SUPPORT_AWARE_LM_DAMPING_GROWTH,
-    _SUPPORT_AWARE_LM_DAMPING_MAX,
-    _SUPPORT_AWARE_LM_DAMPING_MIN,
-    _SUPPORT_AWARE_LM_DAMPING_SHRINK,
     GaussianTrajectoryPriorTerms,
     SupportObservationWindowBatch,
-    _block_banded_logdet,
     _build_prior_banded_system,
     _factor_block_banded_cholesky,
     _factor_block_profile_cholesky,
@@ -39,17 +31,16 @@ from .shared import (
     _prepare_linearized_path,
     _solve_block_banded_from_cholesky,
     _solve_block_profile_from_cholesky,
-    _step_halving_search,
-    block_profile_logdet_packed_cotangent,
     build_gaussian_trajectory_prior_terms,
+    precision_logdet,
     trajectory_prior_log_prob_from_terms,
 )
+from .solvers import solve_latent_mode
 
 if TYPE_CHECKING:
     from collections.abc import Callable
 
     from dynestyx import StochasticContinuousTimeStateEvolution
-    from jaxtyping import PyTree
 
     from nof1_causal_lab.models.ssm.execution.observation_model import (
         CompiledObservationModel,
@@ -345,79 +336,6 @@ def _support_aware_joint_log_prob(
     )
 
 
-def _support_aware_step_halving_search(
-    z_curr: jnp.ndarray,
-    step_direction: jnp.ndarray,
-    current_log_joint: jnp.ndarray,
-    objective_fn: Callable[[jnp.ndarray], jnp.ndarray],
-    *,
-    max_halvings: int = _SUPPORT_AWARE_LINE_SEARCH_MAX_HALVINGS,
-) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    """Backtracking step-halving line search for the support-aware latent mode."""
-    return _step_halving_search(
-        z_curr,
-        step_direction,
-        current_log_joint,
-        objective_fn,
-        max_halvings=max_halvings,
-    )
-
-
-def _block_banded_matvec(
-    diag: jnp.ndarray,
-    upper: jnp.ndarray,
-    x: jnp.ndarray,
-) -> jnp.ndarray:
-    """Apply a symmetric block-banded matrix to a trajectory-shaped vector."""
-    result: jnp.ndarray = jax.vmap(lambda diag_t, x_t: diag_t @ x_t)(diag, x)
-    bandwidth = upper.shape[0]
-    T = x.shape[0]
-
-    for offset in range(1, bandwidth + 1):
-        if offset >= T:
-            break
-        upper_blocks = upper[offset - 1, : T - offset]
-        result = result.at[: T - offset].add(
-            jax.vmap(lambda upper_t, x_next: upper_t @ x_next)(upper_blocks, x[offset:])
-        )
-        result = result.at[offset:].add(
-            jax.vmap(lambda upper_t, x_prev: upper_t.T @ x_prev)(upper_blocks, x[: T - offset])
-        )
-
-    return result
-
-
-type Cotangent = jax.Array | np.ndarray | None
-
-
-def _negate_cotangent_tree(tree: PyTree[Cotangent]) -> PyTree[Cotangent]:
-    """Negate a cotangent pytree while preserving `None` and `float0` leaves."""
-
-    def _negate_leaf(leaf: Cotangent) -> Cotangent:
-        if leaf is None or leaf.dtype == jax.dtypes.float0:
-            return leaf
-        return -leaf
-
-    return jax.tree_util.tree_map(_negate_leaf, tree)
-
-
-def _add_cotangent_trees(lhs: PyTree[Cotangent], rhs: PyTree[Cotangent]) -> PyTree[Cotangent]:
-    """Add cotangent pytrees while preserving `None` and `float0` leaves."""
-
-    def _add_leaves(left: Cotangent, right: Cotangent) -> Cotangent:
-        if left is None:
-            return right
-        if right is None:
-            return left
-        if left.dtype == jax.dtypes.float0:
-            return right
-        if right.dtype == jax.dtypes.float0:
-            return left
-        return left + right
-
-    return jax.tree_util.tree_map(_add_leaves, lhs, rhs)
-
-
 def _support_aware_posterior_system(
     z_est: jnp.ndarray,
     observations: jnp.ndarray,
@@ -461,377 +379,76 @@ def _support_aware_posterior_system(
     return prior_diag + obs_diag, prior_upper + obs_upper, prior_rhs + obs_rhs
 
 
-def _support_aware_mode_optimality(
-    z_est: jnp.ndarray,
-    observations: jnp.ndarray,
-    obs_mask: jnp.ndarray,
-    Ad: jnp.ndarray,
-    Qd: jnp.ndarray,
-    cd: jnp.ndarray,
-    H: jnp.ndarray,
-    d: jnp.ndarray,
-    R: jnp.ndarray,
-    init_mean: jnp.ndarray,
-    init_cov: jnp.ndarray,
-    obs_kernel: ObservationKernel,
-    support_window_batches: tuple[SupportObservationWindowBatch, ...],
-    point_like_mask: jnp.ndarray,
-    window_derivatives: tuple[SupportWindowDerivatives, ...],
-    bandwidth: int,
-) -> jnp.ndarray:
-    """Return the latent-mode optimality residual F(z, theta) = 0."""
-    system_diag, system_upper, system_rhs = _support_aware_posterior_system(
-        z_est,
-        observations,
-        obs_mask,
-        Ad,
-        Qd,
-        cd,
-        H,
-        d,
-        R,
-        init_mean,
-        init_cov,
-        obs_kernel,
-        support_window_batches,
-        point_like_mask,
-        window_derivatives,
-        bandwidth,
-    )
-    return _block_banded_matvec(system_diag, system_upper, z_est) - system_rhs
-
-
-def _support_aware_ieks_mode(
-    observations: jnp.ndarray,
-    obs_mask: jnp.ndarray,
-    Ad: jnp.ndarray,
-    Qd: jnp.ndarray,
-    cd: jnp.ndarray,
-    H: jnp.ndarray,
-    d: jnp.ndarray,
-    R: jnp.ndarray,
-    init_mean: jnp.ndarray,
-    init_cov: jnp.ndarray,
-    obs_kernel: ObservationKernel,
-    mean_log_prob_fn: EmissionLogProbFn | None,
-    observation_support: ObservationSupportRuntime,
-    support_window_batches: tuple[SupportObservationWindowBatch, ...],
-    bandwidth: int,
-    row_upper_bandwidths: jnp.ndarray,
-    row_lower_bandwidths: jnp.ndarray,
-    window_derivatives: tuple[SupportWindowDerivatives, ...],
-    n_ieks_iters: int,
-    z_init: jnp.ndarray | None = None,
+def _support_latent_mode(
+    observations,
+    obs_mask,
+    initial,
+    parameters,
+    objects,
+    observation_support,
+    support_window_batches,
+    bandwidth,
+    row_upper,
+    row_lower,
+    n_iters,
     *,
-    iterate_to_convergence: bool = False,
-    factor_block_cholesky_fn=_factor_block_profile_cholesky,
-    solve_block_from_cholesky_fn=_solve_block_profile_from_cholesky,
-) -> tuple[
-    jnp.ndarray,
-    tuple[
-        jnp.ndarray,
-        jnp.ndarray,
-        jnp.ndarray,
-        jnp.ndarray,
-        jnp.ndarray,
-        jnp.ndarray,
-        jnp.ndarray,
-    ],
-]:
-    """Run the support-aware IEKS Newton iterations and return the latent mode."""
-    _T, D = observations.shape[0], init_mean.shape[0]
-    prior_diag, prior_upper, prior_rhs = _build_prior_banded_system(
-        Ad,
-        Qd,
-        cd,
-        init_mean,
-        init_cov,
-        bandwidth,
-    )
-    prior_terms = build_gaussian_trajectory_prior_terms(
-        Ad,
-        Qd,
-        cd,
-        init_mean,
-        init_cov,
-    )
-    point_like_mask = get_point_like_mask(
+    factor=_factor_block_profile_cholesky,
+    solve=_solve_block_profile_from_cholesky,
+) -> tuple[jax.Array, dict[str, jax.Array]]:
+    point_mask = get_point_like_mask(
         get_support_kind_codes(observation_support), observations.dtype
     )
 
-    def _support_log_joint(latent_trajectory: jnp.ndarray) -> jnp.ndarray:
+    def log_joint(z, args):
+        A, Q, c, H, d, R, mean, covariance, kernel, mean_density, _derivatives = objects(args)
+        prior = build_gaussian_trajectory_prior_terms(A, Q, c, mean, covariance)
         return _support_aware_joint_log_prob(
-            latent_trajectory,
+            z,
             observations=observations,
             obs_mask=obs_mask,
-            Ad=Ad,
-            cd=cd,
-            prior_terms=prior_terms,
+            Ad=A,
+            cd=c,
+            prior_terms=prior,
             H=H,
             d=d,
             R=R,
-            obs_kernel=obs_kernel,
-            mean_log_prob_fn=mean_log_prob_fn,
+            obs_kernel=kernel,
+            mean_log_prob_fn=mean_density,
             observation_support=observation_support,
         )
 
-    system_dtype = jnp.result_type(
-        prior_diag.dtype,
-        observations.dtype,
-        H.dtype,
-        d.dtype,
-        R.dtype,
-    )
-    if z_init is None:
-        z_est = _predictive_latent_init(Ad, cd, init_mean)
-    else:
-        z_est = jnp.asarray(z_init)
-    z_est = z_est.astype(system_dtype)
-
-    log_joint_curr = _support_log_joint(z_est)
-    init_log_joint = log_joint_curr
-
-    def _newton_step(
-        carry: tuple[
-            jnp.ndarray,
-            jnp.ndarray,
-            jnp.ndarray,
-            jnp.ndarray,
-            jnp.ndarray,
-            jnp.ndarray,
-            jnp.ndarray,
-            jnp.ndarray,
-            jnp.ndarray,
-        ],
-    ) -> tuple[
-        jnp.ndarray,
-        jnp.ndarray,
-        jnp.ndarray,
-        jnp.ndarray,
-        jnp.ndarray,
-        jnp.ndarray,
-        jnp.ndarray,
-        jnp.ndarray,
-        jnp.ndarray,
-    ]:
-        (
-            z_curr,
-            log_joint_prev,
-            damping,
-            _active,
-            n_iterations,
-            n_accepted_steps,
-            _last_rel_change,
-            _last_alpha,
-            _last_step_norm,
-        ) = carry
-        damping_curr = damping
-        with jax.named_scope("map/support_aware_observation_system"):
-            obs_diag, obs_upper, obs_rhs = _assemble_support_aware_observation_system(
-                z_curr,
-                observations,
-                obs_mask,
-                H,
-                d,
-                R,
-                obs_kernel,
-                support_window_batches,
-                point_like_mask,
-                window_derivatives,
-                bandwidth,
-            )
-        system_diag = (
-            prior_diag + obs_diag + damping_curr * jnp.eye(D, dtype=z_curr.dtype)[None, :, :]
-        )
-        system_upper = prior_upper + obs_upper
-        system_rhs = prior_rhs + obs_rhs
-        system_diag = system_diag.astype(system_dtype)
-        system_upper = system_upper.astype(system_dtype)
-        system_rhs = system_rhs.astype(system_dtype)
-        with jax.named_scope("map/support_aware_solve"):
-            chol_diag, lower = factor_block_cholesky_fn(
-                system_diag,
-                system_upper,
-                row_upper_bandwidths,
-                row_lower_bandwidths,
-            )
-            z_newton = solve_block_from_cholesky_fn(
-                chol_diag,
-                lower,
-                system_rhs,
-                row_upper_bandwidths,
-                row_lower_bandwidths,
-            )
-
-        step_direction = z_newton - z_curr
-        step_norm: jnp.ndarray = jnp.linalg.norm(step_direction)
-        z_next, log_joint_next, accepted, accepted_alpha = _support_aware_step_halving_search(
-            z_curr,
-            step_direction,
-            log_joint_prev,
-            _support_log_joint,
+    def system(z, args):
+        A, Q, c, H, d, R, mean, covariance, kernel, _mean_density, derivatives = objects(args)
+        return _support_aware_posterior_system(
+            z,
+            observations,
+            obs_mask,
+            A,
+            Q,
+            c,
+            H,
+            d,
+            R,
+            mean,
+            covariance,
+            kernel,
+            support_window_batches,
+            point_mask,
+            derivatives,
+            bandwidth,
         )
 
-        rel_change: jnp.ndarray = jnp.linalg.norm(z_next - z_curr) / (1.0 + jnp.linalg.norm(z_curr))
-        accepted_full_step = accepted & (accepted_alpha > 0.999)
-
-        damping_next: jnp.ndarray = jax.lax.cond(
-            accepted_full_step,
-            lambda _: jnp.maximum(
-                damping * jnp.asarray(_SUPPORT_AWARE_LM_DAMPING_SHRINK, dtype=z_curr.dtype),
-                jnp.asarray(_SUPPORT_AWARE_LM_DAMPING_MIN, dtype=z_curr.dtype),
-            ),
-            lambda _: jax.lax.cond(
-                accepted,
-                lambda __: damping_curr,
-                lambda __: jnp.minimum(
-                    damping_curr
-                    * jnp.asarray(_SUPPORT_AWARE_LM_DAMPING_GROWTH, dtype=z_curr.dtype),
-                    jnp.asarray(_SUPPORT_AWARE_LM_DAMPING_MAX, dtype=z_curr.dtype),
-                ),
-                operand=None,
-            ),
-            operand=None,
-        )
-        next_active: jnp.ndarray = jax.lax.cond(
-            accepted,
-            lambda _: rel_change > _SUPPORT_AWARE_IEKS_CONVERGENCE_RTOL,
-            lambda _: damping_next < jnp.asarray(_SUPPORT_AWARE_LM_DAMPING_MAX, dtype=z_curr.dtype),
-            operand=None,
-        )
-        return (
-            z_next,
-            log_joint_next,
-            damping_next,
-            next_active,
-            n_iterations + jnp.asarray(1, dtype=jnp.int32),
-            n_accepted_steps + accepted.astype(jnp.int32),
-            rel_change,
-            accepted_alpha,
-            step_norm,
-        )
-
-    init_carry = (
-        z_est,
-        log_joint_curr,
-        jnp.asarray(_SUPPORT_AWARE_LM_DAMPING, dtype=z_est.dtype),
-        jnp.asarray(True),
-        jnp.asarray(0, dtype=jnp.int32),
-        jnp.asarray(0, dtype=jnp.int32),
-        jnp.asarray(jnp.nan, dtype=z_est.dtype),
-        jnp.asarray(jnp.nan, dtype=z_est.dtype),
-        jnp.asarray(jnp.nan, dtype=z_est.dtype),
-    )
-    max_iters = jnp.asarray(max(n_ieks_iters, 1), dtype=jnp.int32)
-
-    with jax.named_scope("map/support_aware_newton"):
-        if iterate_to_convergence:
-
-            def _continue(
-                carry: tuple[
-                    jnp.ndarray,
-                    jnp.ndarray,
-                    jnp.ndarray,
-                    jnp.ndarray,
-                    jnp.ndarray,
-                    jnp.ndarray,
-                    jnp.ndarray,
-                    jnp.ndarray,
-                    jnp.ndarray,
-                ],
-            ) -> jnp.ndarray:
-                return carry[3] & (carry[4] < max_iters)
-
-            (
-                z_est,
-                _mode_log_joint,
-                final_damping,
-                _active,
-                n_iterations,
-                n_accepted_steps,
-                final_rel_change,
-                final_step_alpha,
-                final_step_norm,
-            ) = jax.lax.while_loop(
-                _continue,
-                _newton_step,
-                init_carry,
-            )
-        else:
-
-            def _scan_step(
-                carry: tuple[
-                    jnp.ndarray,
-                    jnp.ndarray,
-                    jnp.ndarray,
-                    jnp.ndarray,
-                    jnp.ndarray,
-                    jnp.ndarray,
-                    jnp.ndarray,
-                    jnp.ndarray,
-                    jnp.ndarray,
-                ],
-                _idx: jnp.ndarray,
-            ) -> tuple[
-                tuple[
-                    jnp.ndarray,
-                    jnp.ndarray,
-                    jnp.ndarray,
-                    jnp.ndarray,
-                    jnp.ndarray,
-                    jnp.ndarray,
-                    jnp.ndarray,
-                    jnp.ndarray,
-                    jnp.ndarray,
-                ],
-                None,
-            ]:
-                carry_cast = carry
-                result: tuple[
-                    jnp.ndarray,
-                    jnp.ndarray,
-                    jnp.ndarray,
-                    jnp.ndarray,
-                    jnp.ndarray,
-                    jnp.ndarray,
-                    jnp.ndarray,
-                    jnp.ndarray,
-                    jnp.ndarray,
-                ] = jax.lax.cond(
-                    carry[3],
-                    _newton_step,
-                    lambda _: carry_cast,
-                    operand=carry,
-                )
-                return result, None
-
-            (
-                (
-                    z_est,
-                    _mode_log_joint,
-                    final_damping,
-                    _active,
-                    n_iterations,
-                    n_accepted_steps,
-                    final_rel_change,
-                    final_step_alpha,
-                    final_step_norm,
-                ),
-                _,
-            ) = jax.lax.scan(
-                _scan_step,
-                init_carry,
-                xs=jnp.arange(max(n_ieks_iters, 1)),
-            )
-
-    return z_est, (
-        init_log_joint,
-        n_iterations,
-        n_accepted_steps,
-        final_rel_change,
-        final_damping,
-        final_step_alpha,
-        final_step_norm,
+    return solve_latent_mode(
+        log_joint,
+        system,
+        initial,
+        parameters,
+        bandwidth=bandwidth,
+        row_upper=row_upper,
+        row_lower=row_lower,
+        max_steps=n_iters,
+        factor=factor,
+        solve=solve,
     )
 
 
@@ -907,7 +524,9 @@ def _support_aware_laplace_terms_from_mode(
         )
 
     flat_dim = observations.shape[0] * init_mean.shape[0]
-    laplace_logdet = _block_banded_logdet(chol_diag)
+    laplace_logdet = precision_logdet(
+        system_diag, system_upper, row_upper_bandwidths, row_lower_bandwidths
+    )
     min_chol_diag = jnp.min(jnp.diagonal(chol_diag, axis1=1, axis2=2))
     log_lik = mode_log_joint + 0.5 * flat_dim * jnp.log(2.0 * jnp.pi) - 0.5 * laplace_logdet
     return log_lik, mode_log_joint, laplace_logdet, min_chol_diag
@@ -937,13 +556,11 @@ def _support_dynamic_transition_ieks_laplace(
     factor_block_cholesky_fn=_factor_block_banded_cholesky,
     solve_block_from_cholesky_fn=_solve_block_banded_from_cholesky,
 ) -> tuple[jnp.ndarray, jnp.ndarray, dict[str, jnp.ndarray]]:
-    """Support-aware IEKS/Laplace path with per-iteration dynamics linearization."""
-    D = init_mean.shape[0]
-    point_like_mask = get_point_like_mask(
+    """Optimistix fixed points over support-aware local initialization modes."""
+    point_mask = get_point_like_mask(
         get_support_kind_codes(observation_support), observations.dtype
     )
-
-    _transitions_at, z_est = _prepare_linearized_path(
+    transitions_at, initial = _prepare_linearized_path(
         dynamics,
         time_intervals,
         init_mean,
@@ -951,176 +568,44 @@ def _support_dynamic_transition_ieks_laplace(
         dtype=observations.dtype,
     )
 
-    Ad_curr, Qd_curr, cd_curr = _transitions_at(z_est)
-    prior_terms_curr = build_gaussian_trajectory_prior_terms(
-        Ad_curr,
-        Qd_curr,
-        cd_curr,
-        init_mean,
-        init_cov,
+    def objects(parameters):
+        return (*parameters, obs_kernel, mean_log_prob_fn, window_derivatives)
+
+    def update(path, _args):
+        A, Q, c = transitions_at(path)
+        mode, _aux = _support_latent_mode(
+            observations,
+            obs_mask,
+            path,
+            (A, Q, c, H, d, R, init_mean, init_cov),
+            objects,
+            observation_support,
+            support_window_batches,
+            bandwidth,
+            row_upper_bandwidths,
+            row_lower_bandwidths,
+            1,
+            factor=factor_block_cholesky_fn,
+            solve=solve_block_from_cholesky_fn,
+        )
+        return mode
+
+    solution = optx.fixed_point(
+        update,
+        optx.FixedPointIteration(rtol=1e-3, atol=1e-3),
+        initial,
+        max_steps=max(n_ieks_iters, 1),
+        throw=False,
     )
-    init_log_joint = _support_aware_joint_log_prob(
-        z_est,
-        observations=observations,
-        obs_mask=obs_mask,
-        Ad=Ad_curr,
-        cd=cd_curr,
-        prior_terms=prior_terms_curr,
-        H=H,
-        d=d,
-        R=R,
-        obs_kernel=obs_kernel,
-        mean_log_prob_fn=mean_log_prob_fn,
-        observation_support=observation_support,
-    )
-
-    system_dtype = jnp.result_type(
-        observations.dtype,
-        H.dtype,
-        d.dtype,
-        R.dtype,
-        dynamics.diffusion.as_matrix(x=None, u=None, t=0, state_dim=D).dtype,
-        init_mean.dtype,
-        init_cov.dtype,
-    )
-    z_est = z_est.astype(system_dtype)
-    damping = jnp.asarray(_SUPPORT_AWARE_LM_DAMPING, dtype=z_est.dtype)
-    active = jnp.asarray(True)
-    n_iterations = jnp.asarray(0, dtype=jnp.int32)
-    n_accepted_steps = jnp.asarray(0, dtype=jnp.int32)
-    final_rel_change = jnp.asarray(jnp.nan, dtype=z_est.dtype)
-    final_step_alpha = jnp.asarray(jnp.nan, dtype=z_est.dtype)
-    final_step_norm = jnp.asarray(jnp.nan, dtype=z_est.dtype)
-    eye = jnp.eye(D, dtype=z_est.dtype)
-
-    with jax.named_scope("map/support_dynamic_newton"):
-        for _ in range(max(n_ieks_iters, 1)):
-            Ad_step, Qd_step, cd_step = _transitions_at(z_est)
-            prior_diag, prior_upper, prior_rhs = _build_prior_banded_system(
-                Ad_step,
-                Qd_step,
-                cd_step,
-                init_mean,
-                init_cov,
-                bandwidth,
-            )
-            prior_terms_step = build_gaussian_trajectory_prior_terms(
-                Ad_step,
-                Qd_step,
-                cd_step,
-                init_mean,
-                init_cov,
-            )
-
-            def _support_log_joint(
-                latent_trajectory: jnp.ndarray,
-                *,
-                Ad_step=Ad_step,
-                cd_step=cd_step,
-                prior_terms_step=prior_terms_step,
-            ) -> jnp.ndarray:
-                return _support_aware_joint_log_prob(
-                    latent_trajectory,
-                    observations=observations,
-                    obs_mask=obs_mask,
-                    Ad=Ad_step,
-                    cd=cd_step,
-                    prior_terms=prior_terms_step,
-                    H=H,
-                    d=d,
-                    R=R,
-                    obs_kernel=obs_kernel,
-                    mean_log_prob_fn=mean_log_prob_fn,
-                    observation_support=observation_support,
-                )
-
-            log_joint_prev = _support_log_joint(z_est)
-            obs_diag, obs_upper, obs_rhs = _assemble_support_aware_observation_system(
-                z_est,
-                observations,
-                obs_mask,
-                H,
-                d,
-                R,
-                obs_kernel,
-                support_window_batches,
-                point_like_mask,
-                window_derivatives,
-                bandwidth,
-            )
-            system_diag = prior_diag + obs_diag + damping * eye[None, :, :]
-            system_upper = prior_upper + obs_upper
-            system_rhs = prior_rhs + obs_rhs
-            system_diag = system_diag.astype(system_dtype)
-            system_upper = system_upper.astype(system_dtype)
-            system_rhs = system_rhs.astype(system_dtype)
-            chol_diag, lower = factor_block_cholesky_fn(
-                system_diag,
-                system_upper,
-                row_upper_bandwidths,
-                row_lower_bandwidths,
-            )
-            z_newton = solve_block_from_cholesky_fn(
-                chol_diag,
-                lower,
-                system_rhs,
-                row_upper_bandwidths,
-                row_lower_bandwidths,
-            )
-
-            step_direction = jnp.asarray(z_newton - z_est, dtype=z_est.dtype)
-            step_norm = jnp.asarray(jnp.linalg.norm(step_direction), dtype=z_est.dtype)
-            z_next, _log_joint_next, accepted, accepted_alpha = _support_aware_step_halving_search(
-                z_est,
-                step_direction,
-                log_joint_prev,
-                _support_log_joint,
-            )
-            rel_change = jnp.asarray(
-                jnp.linalg.norm(z_next - z_est) / (1.0 + jnp.linalg.norm(z_est)),
-                dtype=z_est.dtype,
-            )
-            damping_shrunk = jnp.maximum(
-                damping * jnp.asarray(_SUPPORT_AWARE_LM_DAMPING_SHRINK, dtype=z_est.dtype),
-                jnp.asarray(_SUPPORT_AWARE_LM_DAMPING_MIN, dtype=z_est.dtype),
-            )
-            damping_grown = jnp.minimum(
-                damping * jnp.asarray(_SUPPORT_AWARE_LM_DAMPING_GROWTH, dtype=z_est.dtype),
-                jnp.asarray(_SUPPORT_AWARE_LM_DAMPING_MAX, dtype=z_est.dtype),
-            )
-            accepted_full_step = accepted & (accepted_alpha > 0.999)
-            damping_next = jnp.where(
-                accepted_full_step,
-                damping_shrunk,
-                jnp.where(accepted, damping, damping_grown),
-            )
-            next_active = jnp.where(
-                accepted,
-                rel_change > _SUPPORT_AWARE_IEKS_CONVERGENCE_RTOL,
-                damping_next < jnp.asarray(_SUPPORT_AWARE_LM_DAMPING_MAX, dtype=z_est.dtype),
-            )
-
-            z_est = jnp.where(active, z_next, z_est)
-            damping = jnp.where(active, damping_next, damping)
-            n_iterations = n_iterations + active.astype(jnp.int32)
-            n_accepted_steps = n_accepted_steps + (active & accepted).astype(jnp.int32)
-            final_rel_change = jnp.where(active, rel_change, final_rel_change)
-            final_step_alpha = jnp.where(active, accepted_alpha, final_step_alpha)
-            final_step_norm = jnp.where(active, step_norm, final_step_norm)
-            active = active & next_active
-
-    # Treat the IEKS solve as the latent fixed point for the outer parameter
-    # objective. This avoids differentiating through rejected line-search
-    # branches while preserving gradients through the final local model.
-    z_mode = jax.lax.stop_gradient(z_est)
-    Ad_final, Qd_final, cd_final = _transitions_at(z_mode)
-    log_lik, mode_log_joint, laplace_logdet, min_chol_diag = _support_aware_laplace_terms_from_mode(
-        z_mode,
+    mode = jax.lax.stop_gradient(jnp.asarray(solution.value))
+    A, Q, c = transitions_at(mode)
+    log_lik, mode_log_joint, logdet, min_chol = _support_aware_laplace_terms_from_mode(
+        mode,
         observations,
         obs_mask,
-        Ad_final,
-        Qd_final,
-        cd_final,
+        A,
+        Q,
+        c,
         H,
         d,
         R,
@@ -1130,29 +615,38 @@ def _support_dynamic_transition_ieks_laplace(
         mean_log_prob_fn,
         observation_support,
         support_window_batches,
-        point_like_mask,
+        point_mask,
         window_derivatives,
         bandwidth,
         row_upper_bandwidths,
         row_lower_bandwidths,
         factor_block_cholesky_fn=factor_block_cholesky_fn,
     )
-    inner_eval_aux = build_likelihood_eval_aux(
+    A0, Q0, c0 = transitions_at(initial)
+    prior0 = build_gaussian_trajectory_prior_terms(A0, Q0, c0, init_mean, init_cov)
+    aux = build_likelihood_eval_aux(
         observations.dtype,
         solver_kind=LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS,
-        n_iterations=n_iterations,
-        n_accepted_steps=n_accepted_steps,
-        init_log_joint=init_log_joint,
+        n_iterations=solution.stats["num_steps"],
+        init_log_joint=_support_aware_joint_log_prob(
+            initial,
+            observations=observations,
+            obs_mask=obs_mask,
+            Ad=A0,
+            cd=c0,
+            prior_terms=prior0,
+            H=H,
+            d=d,
+            R=R,
+            obs_kernel=obs_kernel,
+            mean_log_prob_fn=mean_log_prob_fn,
+            observation_support=observation_support,
+        ),
         final_log_joint=mode_log_joint,
-        final_rel_change=final_rel_change,
-        final_damping=damping,
-        final_step_alpha=final_step_alpha,
-        final_step_norm=final_step_norm,
-        laplace_logdet=laplace_logdet,
-        min_chol_diag=min_chol_diag,
+        laplace_logdet=logdet,
+        min_chol_diag=min_chol,
     )
-    inner_eval_aux["latent_mode"] = z_mode
-    return log_lik, z_mode, inner_eval_aux
+    return log_lik, mode, {**aux, "latent_mode": mode}
 
 
 def _support_aware_ieks_laplace_core(
@@ -1183,424 +677,67 @@ def _support_aware_ieks_laplace_core(
     z_init: jnp.ndarray | None = None,
     final_factor_block_cholesky_fn=_factor_block_profile_cholesky,
 ) -> tuple[jnp.ndarray, jnp.ndarray, dict[str, jnp.ndarray]]:
-    """Support-aware IEKS solve plus Laplace log-likelihood."""
+    """Sparse support-aware Newton mode and implicit gradients owned by Optimistix."""
     del obs_kernel, mean_log_prob_fn, window_derivatives
-    point_like_mask = get_point_like_mask(
+    point_mask = get_point_like_mask(
         get_support_kind_codes(observation_support), observations.dtype
     )
 
-    def _mode_core(
-        mode_params,
-    ) -> tuple[
-        jnp.ndarray,
-        tuple[
-            jnp.ndarray,
-            jnp.ndarray,
-            jnp.ndarray,
-            jnp.ndarray,
-            jnp.ndarray,
-            jnp.ndarray,
-            jnp.ndarray,
-        ],
-    ]:
-        (
-            Ad_curr,
-            Qd_curr,
-            cd_curr,
-            H_curr,
-            d_curr,
-            R_curr,
-            init_mean_curr,
-            init_cov_curr,
-            observation_laws_curr,
-        ) = mode_params
-        measurement_semantics_curr, window_derivatives_curr = build_measurement_objects(
-            R_curr,
-            observation_laws_curr,
-        )
-        return _support_aware_ieks_mode(
-            observations=observations,
-            obs_mask=obs_mask,
-            Ad=Ad_curr,
-            Qd=Qd_curr,
-            cd=cd_curr,
-            H=H_curr,
-            d=d_curr,
-            R=R_curr,
-            init_mean=init_mean_curr,
-            init_cov=init_cov_curr,
-            obs_kernel=measurement_semantics_curr.kernel,
-            mean_log_prob_fn=measurement_semantics_curr.mean_log_prob_fn,
-            observation_support=observation_support,
-            support_window_batches=support_window_batches,
-            bandwidth=bandwidth,
-            row_upper_bandwidths=row_upper_bandwidths,
-            row_lower_bandwidths=row_lower_bandwidths,
-            window_derivatives=window_derivatives_curr,
-            n_ieks_iters=n_ieks_iters,
-            z_init=z_init,
-            iterate_to_convergence=True,
-        )
+    def objects(parameters):
+        measurement, derivatives = build_measurement_objects(parameters[5], parameters[8])
+        return (*parameters[:8], measurement.kernel, measurement.mean_log_prob_fn, derivatives)
 
-    @jax.custom_vjp
-    def _implicit_mode_solve(
-        mode_params,
-    ) -> tuple[
-        jnp.ndarray,
-        tuple[
-            jnp.ndarray,
-            jnp.ndarray,
-            jnp.ndarray,
-            jnp.ndarray,
-            jnp.ndarray,
-            jnp.ndarray,
-            jnp.ndarray,
-        ],
-    ]:
-        return _mode_core(mode_params)
-
-    def _implicit_mode_solve_fwd(mode_params):
-        z_mode, mode_aux = _mode_core(mode_params)
-        return (z_mode, mode_aux), (mode_params, z_mode)
-
-    def _implicit_mode_solve_bwd(res, output_ct):
-        mode_params, z_mode = res
-        z_mode_bar, _mode_aux_bar = output_ct
-        del _mode_aux_bar
-        (
-            Ad_curr,
-            Qd_curr,
-            cd_curr,
-            H_curr,
-            d_curr,
-            R_curr,
-            init_mean_curr,
-            init_cov_curr,
-            observation_laws_curr,
-        ) = mode_params
-        measurement_semantics_curr, window_derivatives_curr = build_measurement_objects(
-            R_curr,
-            observation_laws_curr,
-        )
-        system_diag, system_upper, _system_rhs = _support_aware_posterior_system(
-            z_mode,
-            observations,
-            obs_mask,
-            Ad_curr,
-            Qd_curr,
-            cd_curr,
-            H_curr,
-            d_curr,
-            R_curr,
-            init_mean_curr,
-            init_cov_curr,
-            measurement_semantics_curr.kernel,
-            support_window_batches,
-            point_like_mask,
-            window_derivatives_curr,
-            bandwidth,
-        )
-        chol_diag, lower = _factor_block_profile_cholesky(
-            system_diag,
-            system_upper,
-            row_upper_bandwidths,
-            row_lower_bandwidths,
-        )
-        lambda_mode = _solve_block_profile_from_cholesky(
-            chol_diag,
-            lower,
-            z_mode_bar,
-            row_upper_bandwidths,
-            row_lower_bandwidths,
-        )
-
-        def _optimality(mode_params_inner):
-            (
-                Ad_inner,
-                Qd_inner,
-                cd_inner,
-                H_inner,
-                d_inner,
-                R_inner,
-                init_mean_inner,
-                init_cov_inner,
-                observation_laws_inner,
-            ) = mode_params_inner
-            measurement_semantics_inner, window_derivatives_inner = build_measurement_objects(
-                R_inner,
-                observation_laws_inner,
-            )
-            return _support_aware_mode_optimality(
-                z_mode,
-                observations,
-                obs_mask,
-                Ad_inner,
-                Qd_inner,
-                cd_inner,
-                H_inner,
-                d_inner,
-                R_inner,
-                init_mean_inner,
-                init_cov_inner,
-                measurement_semantics_inner.kernel,
-                support_window_batches,
-                point_like_mask,
-                window_derivatives_inner,
-                bandwidth,
-            )
-
-        _, vjp_fn = jax.vjp(_optimality, mode_params)
-        (mode_params_bar,) = vjp_fn(lambda_mode)
-        return (_negate_cotangent_tree(mode_params_bar),)
-
-    _implicit_mode_solve.defvjp(_implicit_mode_solve_fwd, _implicit_mode_solve_bwd)
-
-    def _laplace_from_mode_core(
-        mode_params, z_mode, *, factor_block_cholesky_fn
-    ) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
-        (
-            Ad_curr,
-            Qd_curr,
-            cd_curr,
-            H_curr,
-            d_curr,
-            R_curr,
-            init_mean_curr,
-            init_cov_curr,
-            observation_laws_curr,
-        ) = mode_params
-        measurement_semantics_curr, window_derivatives_curr = build_measurement_objects(
-            R_curr,
-            observation_laws_curr,
-        )
-        log_lik, mode_log_joint, laplace_logdet, min_chol_diag = (
-            _support_aware_laplace_terms_from_mode(
-                z_mode,
-                observations,
-                obs_mask,
-                Ad_curr,
-                Qd_curr,
-                cd_curr,
-                H_curr,
-                d_curr,
-                R_curr,
-                init_mean_curr,
-                init_cov_curr,
-                measurement_semantics_curr.kernel,
-                measurement_semantics_curr.mean_log_prob_fn,
-                observation_support,
-                support_window_batches,
-                point_like_mask,
-                window_derivatives_curr,
-                bandwidth,
-                row_upper_bandwidths,
-                row_lower_bandwidths,
-                factor_block_cholesky_fn=factor_block_cholesky_fn,
-            )
-        )
-        laplace_aux = {
-            "mode_log_joint": mode_log_joint,
-            "laplace_logdet": laplace_logdet,
-            "min_chol_diag": min_chol_diag,
-        }
-        return log_lik, laplace_aux
-
-    @jax.custom_vjp
-    def _laplace_from_mode_eval(mode_params, z_mode) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
-        return _laplace_from_mode_core(
-            mode_params,
-            z_mode,
-            factor_block_cholesky_fn=final_factor_block_cholesky_fn,
-        )
-
-    def _laplace_from_mode_eval_fwd(mode_params, z_mode):
-        outputs = _laplace_from_mode_core(
-            mode_params,
-            z_mode,
-            factor_block_cholesky_fn=final_factor_block_cholesky_fn,
-        )
-        return outputs, (mode_params, z_mode)
-
-    def _laplace_from_mode_eval_bwd(res, output_ct):
-        mode_params, z_mode = res
-        log_lik_bar, _laplace_aux_bar = output_ct
-        del _laplace_aux_bar
-        (
-            Ad_curr,
-            Qd_curr,
-            cd_curr,
-            H_curr,
-            d_curr,
-            R_curr,
-            init_mean_curr,
-            init_cov_curr,
-            observation_laws_curr,
-        ) = mode_params
-        measurement_semantics_curr, window_derivatives_curr = build_measurement_objects(
-            R_curr,
-            observation_laws_curr,
-        )
-
-        def _mode_log_joint_eval(mode_params_inner, z_inner):
-            (
-                Ad_inner,
-                Qd_inner,
-                cd_inner,
-                H_inner,
-                d_inner,
-                R_inner,
-                init_mean_inner,
-                init_cov_inner,
-                observation_laws_inner,
-            ) = mode_params_inner
-            measurement_semantics_inner, _window_derivatives_inner = build_measurement_objects(
-                R_inner,
-                observation_laws_inner,
-            )
-            prior_terms_inner = build_gaussian_trajectory_prior_terms(
-                Ad_inner,
-                Qd_inner,
-                cd_inner,
-                init_mean_inner,
-                init_cov_inner,
-            )
-            return _support_aware_joint_log_prob(
-                z_inner,
-                observations=observations,
-                obs_mask=obs_mask,
-                Ad=Ad_inner,
-                cd=cd_inner,
-                prior_terms=prior_terms_inner,
-                H=H_inner,
-                d=d_inner,
-                R=R_inner,
-                obs_kernel=measurement_semantics_inner.kernel,
-                mean_log_prob_fn=measurement_semantics_inner.mean_log_prob_fn,
-                observation_support=observation_support,
-            )
-
-        _, mode_log_joint_vjp = jax.vjp(_mode_log_joint_eval, mode_params, z_mode)
-        mode_params_joint_bar, z_mode_joint_bar = mode_log_joint_vjp(log_lik_bar)
-
-        system_diag, system_upper, _system_rhs = _support_aware_posterior_system(
-            z_mode,
-            observations,
-            obs_mask,
-            Ad_curr,
-            Qd_curr,
-            cd_curr,
-            H_curr,
-            d_curr,
-            R_curr,
-            init_mean_curr,
-            init_cov_curr,
-            measurement_semantics_curr.kernel,
-            support_window_batches,
-            point_like_mask,
-            window_derivatives_curr,
-            bandwidth,
-        )
-        chol_diag, lower = _factor_block_profile_cholesky(
-            system_diag,
-            system_upper,
-            row_upper_bandwidths,
-            row_lower_bandwidths,
-        )
-        system_diag_bar, system_upper_bar = block_profile_logdet_packed_cotangent(
-            chol_diag,
-            lower,
-            row_upper_bandwidths,
-            row_lower_bandwidths,
-            scale=-0.5 * log_lik_bar,
-        )
-
-        def _posterior_system_eval(mode_params_inner, z_inner):
-            (
-                Ad_inner,
-                Qd_inner,
-                cd_inner,
-                H_inner,
-                d_inner,
-                R_inner,
-                init_mean_inner,
-                init_cov_inner,
-                observation_laws_inner,
-            ) = mode_params_inner
-            measurement_semantics_inner, window_derivatives_inner = build_measurement_objects(
-                R_inner,
-                observation_laws_inner,
-            )
-            return _support_aware_posterior_system(
-                z_inner,
-                observations,
-                obs_mask,
-                Ad_inner,
-                Qd_inner,
-                cd_inner,
-                H_inner,
-                d_inner,
-                R_inner,
-                init_mean_inner,
-                init_cov_inner,
-                measurement_semantics_inner.kernel,
-                support_window_batches,
-                point_like_mask,
-                window_derivatives_inner,
-                bandwidth,
-            )
-
-        _, posterior_system_vjp = jax.vjp(_posterior_system_eval, mode_params, z_mode)
-        mode_params_logdet_bar, z_mode_logdet_bar = posterior_system_vjp(
-            (
-                system_diag_bar,
-                system_upper_bar,
-                jnp.zeros_like(z_mode),
-            )
-        )
-        mode_params_bar = _add_cotangent_trees(mode_params_joint_bar, mode_params_logdet_bar)
-        z_mode_bar = z_mode_joint_bar + z_mode_logdet_bar
-        return mode_params_bar, z_mode_bar
-
-    _laplace_from_mode_eval.defvjp(_laplace_from_mode_eval_fwd, _laplace_from_mode_eval_bwd)
-
-    mode_params = (
-        Ad,
-        Qd,
-        cd,
-        H,
-        d,
-        R,
-        init_mean,
-        init_cov,
-        observation_laws,
+    parameters = (Ad, Qd, cd, H, d, R, init_mean, init_cov, observation_laws)
+    initial = _predictive_latent_init(Ad, cd, init_mean) if z_init is None else jnp.asarray(z_init)
+    initial = initial.astype(jnp.result_type(observations, Ad, H, R, init_mean, init_cov))
+    mode, mode_aux = _support_latent_mode(
+        observations,
+        obs_mask,
+        initial,
+        parameters,
+        objects,
+        observation_support,
+        support_window_batches,
+        bandwidth,
+        row_upper_bandwidths,
+        row_lower_bandwidths,
+        n_ieks_iters,
     )
-    z_est, mode_aux = _implicit_mode_solve(mode_params)
-    (
-        init_log_joint,
-        n_iterations,
-        n_accepted_steps,
-        final_rel_change,
-        final_damping,
-        final_step_alpha,
-        final_step_norm,
-    ) = mode_aux
-    log_lik, laplace_aux = _laplace_from_mode_eval(mode_params, z_est)
-    inner_eval_aux = build_likelihood_eval_aux(
+    A, Q, c, loading, intercept, variance, mean, covariance, kernel, mean_density, derivatives = (
+        objects(parameters)
+    )
+    log_lik, mode_log_joint, logdet, min_chol = _support_aware_laplace_terms_from_mode(
+        mode,
+        observations,
+        obs_mask,
+        A,
+        Q,
+        c,
+        loading,
+        intercept,
+        variance,
+        mean,
+        covariance,
+        kernel,
+        mean_density,
+        observation_support,
+        support_window_batches,
+        point_mask,
+        derivatives,
+        bandwidth,
+        row_upper_bandwidths,
+        row_lower_bandwidths,
+        factor_block_cholesky_fn=final_factor_block_cholesky_fn,
+    )
+    aux = build_likelihood_eval_aux(
         observations.dtype,
         solver_kind=LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS,
-        n_iterations=n_iterations,
-        n_accepted_steps=n_accepted_steps,
-        init_log_joint=init_log_joint,
-        final_log_joint=laplace_aux["mode_log_joint"],
-        final_rel_change=final_rel_change,
-        final_damping=final_damping,
-        final_step_alpha=final_step_alpha,
-        final_step_norm=final_step_norm,
-        laplace_logdet=laplace_aux["laplace_logdet"],
-        min_chol_diag=laplace_aux["min_chol_diag"],
+        final_log_joint=mode_log_joint,
+        laplace_logdet=logdet,
+        min_chol_diag=min_chol,
+        **mode_aux,
     )
-    inner_eval_aux["latent_mode"] = z_est
-    return log_lik, z_est, inner_eval_aux
+    return log_lik, mode, {**aux, "latent_mode": mode}
 
 
 def _support_aware_ieks_laplace(

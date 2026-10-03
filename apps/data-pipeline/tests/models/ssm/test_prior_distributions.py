@@ -13,6 +13,7 @@ from pydantic import TypeAdapter
 
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.distributions import PriorDistributionFamily
+from nof1_causal_lab.models.model_structure import StructuralSelection
 from nof1_causal_lab.numpyro_json import NumPyroDistribution
 from nof1_causal_lab.prior_distributions import (
     batch_prior_distributions,
@@ -211,8 +212,12 @@ def test_scientific_roundtrip_preserves_distinct_native_coordinate_laws():
     )
     restored = ModelSpec.model_validate_json(model.model_dump_json())
     assert restored == model
-    before = compile_priors(compile_model_fixture(model), model)[0]["t0_means_free"]
-    after = compile_priors(compile_model_fixture(restored), restored)[0]["t0_means_free"]
+    before = compile_priors(compile_model_fixture(model), StructuralSelection(model, None))[0][
+        "t0_means_free"
+    ]
+    after = compile_priors(compile_model_fixture(restored), StructuralSelection(restored, None))[0][
+        "t0_means_free"
+    ]
     value = jnp.array([-1.2, 0.5])
     np.testing.assert_allclose(after.log_prob(value), before.log_prob(value), atol=2e-6)
     key = jax.random.PRNGKey(7)
@@ -253,11 +258,11 @@ def test_compiler_and_dynestyx_parameter_trace_use_the_exact_persistence_law():
         if b.parameter_id == decay.id
     )
     value = jnp.array(0.2)
-    with handlers.substitute(data={binding.site_name: value}):
+    with handlers.substitute(data={binding.site.name: value}):
         trace = handlers.trace(model.compiled.dynamics.sample_params).get_trace(
             model.prior_runtime_bundle.priors.__getitem__
         )
-    law = trace[binding.site_name]["fn"]
+    law = trace[binding.site.name]["fn"]
     expected = dist.Beta(2.0, 3.0).log_prob(jnp.exp(-7.0 * value)) + jnp.log(7.0) - 7.0 * value
     np.testing.assert_allclose(law.log_prob(value), expected, atol=2e-6)
     assert np.isfinite(jax.grad(law.log_prob)(value))

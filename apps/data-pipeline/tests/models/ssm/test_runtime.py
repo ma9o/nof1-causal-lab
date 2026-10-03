@@ -15,8 +15,10 @@ import pytest
 
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind
+from nof1_causal_lab.models.model_structure import StructuralSelection
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.compile.inputs import compile_priors
+from nof1_causal_lab.models.ssm.preflight import ObservationPreflightFailure
 from nof1_causal_lab.models.ssm.runtime import (
     BoundPanel,
     bind_panel,
@@ -49,12 +51,15 @@ class TestBuilderPriorConversion:
                         ).read_text()
                     )
                 ),
-                ModelSpec.model_validate_json(
-                    (
-                        Path(__file__).resolve().parents[2]
-                        / "fixtures/models"
-                        / "runtime/testbuilderpriorconversion_test_ar_prior_rejects_negative_support_make_prior_model.json"
-                    ).read_text()
+                StructuralSelection(
+                    ModelSpec.model_validate_json(
+                        (
+                            Path(__file__).resolve().parents[2]
+                            / "fixtures/models"
+                            / "runtime/testbuilderpriorconversion_test_ar_prior_rejects_negative_support_make_prior_model.json"
+                        ).read_text()
+                    ),
+                    None,
                 ),
             )
 
@@ -66,7 +71,9 @@ class TestBuilderPriorConversion:
                 / "runtime/testbuilderpriorconversion_test_initial_state_correlation_priors_are_bounded_to_correlation_scale_with_parameter_distributions.json"
             ).read_text()
         )
-        law = compile_priors(compile_model_fixture(model), model)[0]["t0_var_lower_free"]
+        law = compile_priors(compile_model_fixture(model), StructuralSelection(model, None))[0][
+            "t0_var_lower_free"
+        ]
         np.testing.assert_allclose(law.base_dist.loc, [0.2])
         np.testing.assert_allclose(law.base_dist.scale, [0.8])
         np.testing.assert_allclose(law.low, [-1.0])
@@ -92,7 +99,9 @@ class TestBuilderPriorConversion:
                 / "runtime/testbuilderpriorconversion_test_initial_state_mean_and_sd_priors_bind_to_t0_sites_with_parameter_distributions.json"
             ).read_text()
         )
-        priors, bindings, _ = compile_priors(compile_model_fixture(model), model)
+        priors, bindings, _ = compile_priors(
+            compile_model_fixture(model), StructuralSelection(model, None)
+        )
         np.testing.assert_allclose(priors["t0_means_free"].loc, [0.2, 0.4])
         np.testing.assert_allclose(priors["t0_var_diag_free"].scale, [0.7, 0.9])
         assert [
@@ -109,7 +118,9 @@ class TestBuilderPriorConversion:
                 / "runtime/testbuilderpriorconversion_test_initial_state_correlation_prior_indices_are_dense_after_mask_filtering__make_spec.json"
             ).read_text()
         )
-        _, bindings, _ = compile_priors(compile_model_fixture(model), model)
+        _, bindings, _ = compile_priors(
+            compile_model_fixture(model), StructuralSelection(model, None)
+        )
         correlation = next(
             p
             for p in model.parameters
@@ -118,11 +129,16 @@ class TestBuilderPriorConversion:
         assert {binding.parameter_id: binding for binding in bindings}[
             correlation.id
         ].flat_index == 0
-        assert compile_model_fixture(model).initial_covariance_block.correlation_positions == [
-            (2, 1)
-        ]
+        assert compile_model_fixture(model).initial_covariance_block.correlation_positions == (
+            (2, 1),
+        )
 
     def test_component_dynamics_parameters_bind_to_their_own_terms(self):
+        from nof1_causal_lab.models.ssm.structure.sites import (
+            CompiledEdgeTarget,
+            CompiledNodeTarget,
+        )
+
         model = ModelSpec.model_validate_json(
             (
                 Path(__file__).resolve().parents[2]
@@ -130,14 +146,25 @@ class TestBuilderPriorConversion:
                 / "runtime/stress_mood_model.json"
             ).read_text()
         )
-        _, bindings, _ = compile_priors(compile_model_fixture(model), model)
+        compiled = compile_model_fixture(model)
+        _, bindings, _ = compile_priors(compiled, StructuralSelection(model, None))
+        by_parameter = {binding.parameter_id: binding for binding in bindings}
+        sites = {site.name: site for site in compiled.site_registry}
         for parameter in model.parameters:
             if any(
                 owner.kind == "mechanism" for owner in model.parameter_context(parameter.id).owners
             ):
-                assert {binding.parameter_id: binding for binding in bindings}[
-                    parameter.id
-                ].component_index is not None
+                binding = by_parameter[parameter.id]
+                assert binding.site is sites[binding.site.name]
+                target = binding.target
+                assert isinstance(target, (CompiledNodeTarget, CompiledEdgeTarget))
+                component = compiled.dynamics.spec.components[target.component_index]
+                assert target.target_index == component.target
+                if component.source is None:
+                    assert isinstance(target, CompiledNodeTarget)
+                else:
+                    assert isinstance(target, CompiledEdgeTarget)
+                    assert target.source_index == component.source
 
     def test_cross_lag_prior_requires_the_declared_measurement_clock(self):
         model = ModelSpec.model_validate_json(
@@ -148,7 +175,7 @@ class TestBuilderPriorConversion:
             ).read_text()
         ).revised(measurement_clock=None)
         with pytest.raises(ValueError, match="measurement clock"):
-            compile_priors(compile_model_fixture(model), model)
+            compile_priors(compile_model_fixture(model), StructuralSelection(model, None))
 
 
 @pytest.mark.contract
@@ -166,8 +193,9 @@ class TestObservationSupportValidation:
 
         from nof1_causal_lab.models.ssm.observation_support import validate_observation_support
 
-        with pytest.raises(ValueError, match="Observation support check failed"):
-            validate_observation_support(compile_model_fixture(spec), X)
+        failure = validate_observation_support(compile_model_fixture(spec), X)
+        assert isinstance(failure, ObservationPreflightFailure)
+        assert "Observation support check failed" in failure.message
 
 
 @pytest.mark.contract
@@ -279,9 +307,11 @@ class TestPrepareModelRuntime:
         origin = prepared_time_origin(rows, None)
         assert origin == datetime(2024, 1, 1, tzinfo=UTC)
         for model, expected in ((early, 1.0), (late, 11.0)):
-            wide, selected = project_observation_data(
+            projected = project_observation_data(
                 rows, model_spec=compile_model_fixture(model), time_origin=origin
             )
+            assert not isinstance(projected, ObservationPreflightFailure)
+            (wide, selected) = projected
             assert wide["time"].to_list() == [expected]
             augmented = augment_wide_data_with_support_boundaries(
                 selected, wide, time_origin=origin
@@ -426,14 +456,11 @@ class TestPrepareModelRuntime:
             model=model.compiled,
         )
 
-        from nof1_causal_lab.artifacts.simulation import SimulationSpec
         from nof1_causal_lab.models.ssm.predictive.simulation import generate_simulation_batch
 
         assert isinstance(runtime, BoundPanel)
         samples = generate_simulation_batch(
-            runtime,
-            SimulationSpec(start=float(runtime.times[0]), end=float(runtime.times[-1])),
-            draws=3,
+            runtime, start=float(runtime.times[0]), end=float(runtime.times[-1]), draws=3
         ).prediction
 
         assert samples.trajectory.observations.shape == (3, 2, 1)
@@ -479,7 +506,7 @@ def test_compiled_inputs_own_runtime_derivations(monkeypatch):
 def test_compile_distinguishes_incomplete_unsupported_and_bugs(monkeypatch):
     from nof1_causal_lab.models.ssm.compile import inputs as compiler
 
-    incomplete = compiler.compile_ssm_inputs_from_model(ModelSpec())
+    incomplete = compiler.compile_ssm_inputs_from_model(StructuralSelection(ModelSpec(), None))
     assert isinstance(incomplete, compiler.IncompleteModel)
     spec = ModelSpec.model_validate_json(
         (
@@ -495,24 +522,33 @@ def test_compile_distinguishes_incomplete_unsupported_and_bugs(monkeypatch):
             / "runtime/compile_distinguishes_incomplete_unsupported_and_bugs_with_parameter_distributions.json"
         ).read_text()
     )
-    assert isinstance(compiler.compile_ssm_inputs_from_model(unsupported), compiler.UnsupportedFit)
+    assert isinstance(
+        compiler.compile_ssm_inputs_from_model(StructuralSelection(unsupported, None)),
+        compiler.UnsupportedFit,
+    )
 
     def broken_compiler(_compiled, _authored):
         raise ValueError("internal compiler bug")
 
     monkeypatch.setattr(compiler, "compile_priors", broken_compiler)
     with pytest.raises(ValueError, match="internal compiler bug"):
-        compiler.compile_ssm_inputs_from_model(spec)
+        compiler.compile_ssm_inputs_from_model(StructuralSelection(spec, None))
 
 
 @pytest.mark.contract
 def test_fit_resolves_incomplete_model_before_panel_preparation(monkeypatch):
     from nof1_causal_lab.actions.inference import fit as fitting
+    from nof1_causal_lab.models.ssm import runtime
 
     def unexpected_panel(*_args, **_kwargs):
         raise AssertionError("panel prepared before fit capability was resolved")
 
-    monkeypatch.setattr(fitting, "bind_panel", unexpected_panel)
-    result = fitting.fit_model(ModelSpec(), pl.DataFrame(), time_origin=None, sampler=SamplerSpec())
+    monkeypatch.setattr(runtime, "bind_panel", unexpected_panel)
+    result = fitting.fit_model(
+        StructuralSelection(ModelSpec(), None),
+        pl.DataFrame(),
+        time_origin=None,
+        sampler=SamplerSpec(),
+    )
     assert not result["fitted"]
     assert result["error"]

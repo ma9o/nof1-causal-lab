@@ -28,6 +28,9 @@ from nof1_causal_lab.models.ssm.inference.types import (
     WarmupProposal as WarmupProposal,
 )
 from nof1_causal_lab.models.ssm.preflight import (
+    ObservationPreflightFailure,
+)
+from nof1_causal_lab.models.ssm.preflight import (
     validate_observations_for_fit as validate_observations_for_fit,
 )
 
@@ -53,9 +56,11 @@ def fit(
     initialization: SamplerInitialization | None = None,
     reparam: Strategy | Literal["auto"] | None = "auto",
     clock: Callable[[], float],
-) -> ParticleMCMCPosterior:
+) -> ParticleMCMCPosterior | ObservationPreflightFailure:
     """Run the production particle sampler on resolved numerical controls."""
-    validate_observations_for_fit(priors, panel)
+    failure = validate_observations_for_fit(priors, panel)
+    if failure is not None:
+        return failure
     resolved_reparam = AutoReparam(centered=0.0) if reparam == "auto" else reparam
     from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs import (
         fit_marginal_particle_gibbs,

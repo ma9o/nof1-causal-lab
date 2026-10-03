@@ -16,6 +16,8 @@ from nof1_causal_lab.artifacts.likelihood import (
 )
 from nof1_causal_lab.artifacts.mechanism import DriftMechanismSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.models.model_parameters import require_priors
+from nof1_causal_lab.models.model_structure import StructuralSelection
 from tests.helpers import graph_constructs
 from tests.model_fixtures import compile_model_fixture
 
@@ -133,8 +135,7 @@ def test_entities_gain_detail_with_one_owner_and_native_prior():
 
 
 def test_partial_model_is_valid_but_operation_requirements_are_explicit():
-    initial = ModelSpec(question="  Does X change Y?  ")
-    assert initial.question == "Does X change Y?"
+    initial = ModelSpec()
     assert initial.edges == initial.constructs == ()
     assert ModelSpec.model_validate({}).edges == ()
     with pytest.raises(ValueError, match="clock"):
@@ -143,7 +144,7 @@ def test_partial_model_is_valid_but_operation_requirements_are_explicit():
     with pytest.raises(ValueError, match="clock"):
         partial.require_measurements()
     with pytest.raises(ValueError, match="prior laws"):
-        partial.require_priors()
+        require_priors(StructuralSelection(partial, None))
     complete_measurements = partial.revised(measurement_clock="1d")
     complete_measurements.require_measurements()
     assert partial.measurement_clock is None

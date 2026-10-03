@@ -2,10 +2,13 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Annotated, Literal
+from types import MappingProxyType
+from typing import TYPE_CHECKING, Annotated, Literal, cast
 
 from pydantic import ConfigDict, Field, FiniteFloat, model_validator
+from sympy import Add, Basic, Expr, Float, Function, Mul, Pow, Symbol, preorder_traversal
 
 from nof1_causal_lab.artifacts.base import Value
 
@@ -16,7 +19,7 @@ from .identity import (
 from .parameter import SiteKind, SupportClass
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator, Mapping
+    from collections.abc import Callable, Iterator
 
 type CoefficientRole = Literal[
     "center",
@@ -274,14 +277,63 @@ def hill(
     )
 
 
+class SymbolicExpression(Value):
+    """Unevaluated SymPy arithmetic with the authored nodes as its identity legend."""
+
+    model_config = ConfigDict(arbitrary_types_allowed=True)
+    root: Expr
+    nodes: Mapping[Basic, Expression]
+    operands: Mapping[Symbol, StateExpression | CoefficientExpression]
+
+
+def symbolic_call(name: str, *arguments: Expr) -> Expr:
+    """SymPy returns a callable undefined-function class from its dynamic factory."""
+    return cast("Callable[..., Expr]", Function(name))(*arguments)
+
+
+def symbolic_expression(value: Expression) -> SymbolicExpression:
+    """Lower once without cancelling operands, reordering uses, or erasing their roles."""
+    nodes: dict[Basic, Expression] = {}
+    operands: dict[Symbol, StateExpression | CoefficientExpression] = {}
+
+    def lower(node: Expression) -> Expr:
+        match node:
+            case LiteralExpression():
+                result = Float(node.value)
+            case StateExpression() | CoefficientExpression():
+                result = Symbol(node.model_dump_json())
+                operands[result] = node
+            case BinaryExpression():
+                left, right = lower(node.left), lower(node.right)
+                match node.operator:
+                    case "add":
+                        result = Add(left, right, evaluate=False)
+                    case "subtract":
+                        result = Add(left, Mul(-1, right, evaluate=False), evaluate=False)
+                    case "multiply":
+                        result = Mul(left, right, evaluate=False)
+                    case "divide":
+                        result = Mul(left, Pow(right, -1, evaluate=False), evaluate=False)
+                    case "power":
+                        result = Pow(left, right, evaluate=False)
+                    case "maximum":
+                        result = symbolic_call("maximum", left, right)
+            case CallExpression():
+                result = symbolic_call(node.function, *(lower(arg) for arg in node.arguments))
+        nodes[result] = node
+        return result
+
+    root = lower(value)
+    return SymbolicExpression(
+        root=root, nodes=MappingProxyType(nodes), operands=MappingProxyType(operands)
+    )
+
+
 def walk_expression(value: Expression) -> Iterator[Expression]:
-    yield value
-    if isinstance(value, BinaryExpression):
-        yield from walk_expression(value.left)
-        yield from walk_expression(value.right)
-    elif isinstance(value, CallExpression):
-        for argument in value.arguments:
-            yield from walk_expression(argument)
+    symbolic = symbolic_expression(value)
+    yield from (
+        symbolic.nodes[node] for node in preorder_traversal(symbolic.root) if node in symbolic.nodes
+    )
 
 
 def expression_states(value: Expression) -> frozenset[ConstructId]:
@@ -297,36 +349,6 @@ def expression_coefficients(value: Expression) -> tuple[CoefficientExpression, .
             node for node in walk_expression(value) if isinstance(node, CoefficientExpression)
         )
     )
-
-
-def fold_expression[T](
-    value: Expression,
-    *,
-    literal: Callable[[float], T],
-    state_value: Callable[[ConstructId], T],
-    coefficient_value: Callable[[CoefficientExpression], T],
-    binary: Callable[[BinaryOperator, T, T], T],
-    call: Callable[[ExpressionFunction, tuple[T, ...]], T],
-    substitution: tuple[Expression, T] | None = None,
-) -> T:
-    """Interpret a tree as executable scalar arithmetic or rendered mathematics."""
-
-    def visit(node: Expression) -> T:
-        if substitution is not None and node == substitution[0]:
-            return substitution[1]
-        match node:
-            case LiteralExpression():
-                return literal(node.value)
-            case StateExpression():
-                return state_value(node.construct_id)
-            case CoefficientExpression():
-                return coefficient_value(node)
-            case BinaryExpression():
-                return binary(node.operator, visit(node.left), visit(node.right))
-            case CallExpression():
-                return call(node.function, tuple(visit(argument) for argument in node.arguments))
-
-    return visit(value)
 
 
 def linear_coefficient(value: Expression, source: ConstructId) -> float | ParameterId:

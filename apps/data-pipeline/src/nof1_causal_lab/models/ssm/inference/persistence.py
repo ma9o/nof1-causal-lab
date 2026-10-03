@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 import numpy as np
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
-from nof1_causal_lab.models.model_parameters import execution_parameters
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.joint_layout import JointLawLayout
 from nof1_causal_lab.numpyro_json import empirical_distribution
@@ -52,7 +51,7 @@ def condition_model(
         raise ValueError("Conditioning must retain the complete aligned latent trajectories")
     if result.draws.state_ids and tuple(result.draws.state_ids) != tuple(state_ids):
         raise ValueError("Engine latent trajectories do not match the model's state identities")
-    conditioned_parameters = {parameter.id for parameter in execution_parameters(model_spec)}
+    conditioned_parameters = {binding.parameter_id for binding in bindings}
     layout = JointLawLayout.from_bindings(
         bindings,
         parameters=conditioned_parameters,

@@ -245,13 +245,14 @@ def load_synthetic_nonlinear_spec(*, diffusion_scale: float = 1.0) -> ModelSpec:
 
 
 def load_synthetic_nonlinear_model(*, diffusion_scale: float = 1.0) -> CompiledFitInputs:
+    from nof1_causal_lab.models.model_structure import StructuralSelection
     from nof1_causal_lab.models.ssm.compile.inputs import (
         CompiledFitInputs,
         compile_ssm_inputs_from_model,
     )
 
     inputs = compile_ssm_inputs_from_model(
-        load_synthetic_nonlinear_spec(diffusion_scale=diffusion_scale)
+        StructuralSelection(load_synthetic_nonlinear_spec(diffusion_scale=diffusion_scale), None)
     )
     assert isinstance(inputs, CompiledFitInputs), inputs
     return inputs
@@ -366,7 +367,7 @@ def _make_observation_support_runtime(**kwargs) -> ObservationSupportRuntime:
         support_end = np.asarray(kwargs["support_end_times"])
         emission_slots = np.where(np.isfinite(support_end), 0, -1).astype(np.int64)
     kwargs["emission_slot_indices"] = emission_slots
-    return ObservationSupportRuntime(**kwargs)
+    return ObservationSupportRuntime.assembled(**kwargs)
 
 
 def _sample_negative_binomial(rng: np.random.Generator, mean: np.ndarray, r: float) -> np.ndarray:
@@ -510,6 +511,7 @@ def _scalar_recovery_targets() -> dict[str, float]:
     """Bind retained truths through their mechanism identities to current sample sites."""
     from nof1_causal_lab.artifacts.identity import MechanismRef
     from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
+    from nof1_causal_lab.models.ssm.structure.sites import CompiledEdgeTarget, CompiledNodeTarget
 
     truths = {
         **{
@@ -535,13 +537,13 @@ def _scalar_recovery_targets() -> dict[str, float]:
     model = load_synthetic_nonlinear_spec()
     targets = {"obs_r": TRUE_OBS_R, "obs_shape": TRUE_OBS_SHAPE}
     for binding in parameter_bindings(load_synthetic_nonlinear_model().compiled)[0]:
-        if binding.component_index is not None:
+        if isinstance(binding.target, (CompiledNodeTarget, CompiledEdgeTarget)):
             mechanism_id = next(
                 ref.id
                 for ref in model.parameter_context(binding.parameter_id).owners
                 if isinstance(ref, MechanismRef)
             )
-            targets[binding.site_name] = truths[mechanism_id]
+            targets[binding.site.name] = truths[mechanism_id]
     return targets
 
 

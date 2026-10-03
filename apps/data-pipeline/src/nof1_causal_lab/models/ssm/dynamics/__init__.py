@@ -45,7 +45,6 @@ from .spec import (
     CompiledDynamics,
     DynamicsSpec,
     compile_dynamics,
-    iter_dynamics_semantic_bindings,
 )
 from .vector_field import VectorField, VectorFieldArgs
 
@@ -77,7 +76,6 @@ __all__ = [
     "compile_dynamics",
     "dynamics_spec_to_dict",
     "infer_linearisation",
-    "iter_dynamics_semantic_bindings",
     "dynamics_from_samples",
     "simulate",
 ]

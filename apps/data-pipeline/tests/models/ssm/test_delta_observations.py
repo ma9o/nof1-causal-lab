@@ -22,7 +22,11 @@ from nof1_causal_lab.artifacts.likelihood import (
 )
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.model_parameters import iter_coefficient_uses
-from nof1_causal_lab.models.model_structure import selected_indicators, selected_state_ids
+from nof1_causal_lab.models.model_structure import (
+    StructuralSelection,
+    selected_indicators,
+    selected_state_ids,
+)
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.execution.observation_model import compile_observation_model
 from nof1_causal_lab.models.ssm.inference import problem as problem_module
@@ -79,7 +83,7 @@ def test_exact_binding_roundtrips_without_authored_measurement_parameters(exact_
     np.testing.assert_array_equal(
         compile_model_fixture(model).observation_noise_block.template[0], [0, 0]
     )
-    assert owner.id in selected_state_ids(model)
+    assert owner.id in selected_state_ids(StructuralSelection(model, None))
     assert "usage" not in type(owner).model_fields
     compile_model_fixture(model)
     assert r"\operatorname{Delta}" in observation_equations(model)[indicator.observation.id]
@@ -233,7 +237,7 @@ def test_mixed_delta_density_draws_and_missingness_remain_exact():
 @pytest.mark.inference(concern="sampling")
 @pytest.mark.inference(concern="predictive")
 def test_exact_window_mean_constrains_the_summary_without_pinning_the_path():
-    support = ObservationSupportRuntime(
+    support = ObservationSupportRuntime.assembled(
         anchor_times=np.array([0.0, 2.0]),
         manifest_names=("setting_mean",),
         support_kinds=("interval",),
@@ -311,7 +315,7 @@ def test_unsupported_delta_constraints_fail_before_parameter_initialization(
             compile_ssm_inputs_from_model,
         )
 
-        result = compile_ssm_inputs_from_model(exact_model)
+        result = compile_ssm_inputs_from_model(StructuralSelection(exact_model, None))
         assert isinstance(result, IncompleteModel)
         assert "measurement coefficients" in result.message
         return
@@ -368,7 +372,10 @@ def test_multiple_exact_indicators_must_agree_at_shared_times(exact_model):
     columns = {
         identity: column
         for column, identity in enumerate(
-            tuple(indicator.observation.id for indicator in selected_indicators(model))
+            tuple(
+                indicator.observation.id
+                for indicator in selected_indicators(StructuralSelection(model, None))
+            )
         )
     }
     observations = jnp.full((2, 3), jnp.nan)

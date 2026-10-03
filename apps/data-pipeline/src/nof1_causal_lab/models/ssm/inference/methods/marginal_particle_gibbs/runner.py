@@ -25,6 +25,7 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._math 
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.diagnostics import (
     build_mpgibbs_diagnostic_flags,
 )
+from nof1_causal_lab.utils.immutability import freeze_fields
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping
@@ -81,6 +82,7 @@ class ParticleChainResult:
                 "latent_posterior_summary",
                 MappingProxyType(dict(self.latent_posterior_summary)),
             )
+        freeze_fields(self)
 
 
 def _initialize_chain_state(
@@ -305,68 +307,15 @@ def run_marginal_particle_gibbs(
     amala_grad_norm_mean_history: list[jnp.ndarray] = []
     amala_grad_norm_max_history: list[jnp.ndarray] = []
 
-    progress_started = clock()
-    progress_every = max(1, min(250, total_steps // 20))
-    print(
-        "marginal_particle_gibbs progress: "
-        f"chains={num_chains} warmup={num_warmup} samples={num_samples} "
-        f"total_steps={total_steps} n_particles={kernel.num_particles} "
-        f"n_parameter_particles={kernel.num_parameter_particles} "
-        f"latent_smoother={kernel.latent_smoother.name} "
-        f"dsmc_leaf_proposal={kernel.dsmc_leaf_proposal} "
-        f"latent_block_coords={kernel.latent_block_coords} progress_every={progress_every}",
-        flush=True,
-    )
-
     sampling_loop_started = clock()
     first_step_seconds = 0.0
-    print("marginal_particle_gibbs progress: first step compile/run start", flush=True)
     compiled_step = _run_batched_step.lower(states, step_keys[0], step_fn=kernel.step_fn).compile()
     for step_idx in range(total_steps):
         step_started = sampling_loop_started if step_idx == 0 else clock()
         states, step_info = compiled_step(states, step_keys[step_idx])
-        if (
-            step_idx == 0
-            or (step_idx + 1) % progress_every == 0
-            or step_idx + 1 == num_warmup
-            or step_idx + 1 == total_steps
-        ):
-            param_accept_now = jax.device_get(jnp.mean(step_info["parameter_accepted"]))
-            latent_accept_now = jax.device_get(
-                jnp.mean(_masked_mean(step_info["latent_accepted"], latent_active, axis=-1))
-            )
-            param_step_now = jax.device_get(states.param_step_size)
-            latent_delta_now = jax.device_get(states.latent_delta)
-            complete_lp_now = jax.device_get(states.complete_log_posterior)
-            phase = "warmup" if step_idx < num_warmup else "sample"
-            elapsed = clock() - progress_started
-            latent_delta_status = (
-                f"amala_delta_range=[{float(jnp.min(latent_delta_now)):.3g},"
-                f"{float(jnp.max(latent_delta_now)):.3g}] "
-                if kernel.adapt_amala_delta
-                else ""
-            )
-            print(
-                "marginal_particle_gibbs progress: "
-                f"step={step_idx + 1}/{total_steps} phase={phase} elapsed={elapsed:.1f}s "
-                f"parameter_accept_now={float(param_accept_now):.3f} "
-                f"latent_update_now={float(latent_accept_now):.3f} "
-                f"param_step_range=[{float(jnp.min(param_step_now)):.3g},"
-                f"{float(jnp.max(param_step_now)):.3g}] "
-                f"{latent_delta_status}"
-                f"complete_lp_range=[{float(jnp.min(complete_lp_now)):.3g},"
-                f"{float(jnp.max(complete_lp_now)):.3g}]",
-                flush=True,
-            )
-
         if step_idx == 0:
             states.complete_log_posterior.block_until_ready()
             first_step_seconds = clock() - step_started
-            print(
-                "marginal_particle_gibbs progress: "
-                f"first step compile/run complete elapsed={first_step_seconds:.1f}s",
-                flush=True,
-            )
 
         if step_idx >= num_warmup:
             observation_log_prob_history.append(

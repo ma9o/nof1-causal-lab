@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
+from nof1_causal_lab.utils.immutability import freeze_fields
+
 from .spec import compile_dynamics, pack_component_params_from_samples
 
 if TYPE_CHECKING:
@@ -44,6 +46,7 @@ class DynamicsDraws:
             for name, values in component.items():
                 if values.ndim < 1 or values.shape[0] != self.n_draws:
                     raise ValueError(f"{name} must share the dynamics draw axis")
+        freeze_fields(self)
 
 
 def dynamics_from_samples(

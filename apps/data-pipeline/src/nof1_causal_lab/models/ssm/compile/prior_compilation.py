@@ -28,6 +28,7 @@ from nof1_causal_lab.artifacts.prior import (
 from nof1_causal_lab.compilation_errors import AggregatedCompileError
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.compile.bindings import (
+    CompiledEffectInterval,
     CompiledParameterBinding,
     resolve_site_selection,
 )
@@ -38,7 +39,11 @@ from nof1_causal_lab.models.ssm.priors import (
     site_constraint,
     validate_site_prior,
 )
-from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor, site_size
+from nof1_causal_lab.models.ssm.structure.sites import (
+    CompiledEdgeTarget,
+    CompiledNodeTarget,
+    site_size,
+)
 from nof1_causal_lab.prior_distributions import (
     batch_prior_distributions,
     interval_effect_to_rate,
@@ -51,8 +56,10 @@ if TYPE_CHECKING:
 
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
+    from nof1_causal_lab.models.model_structure import StructuralSelection
     from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
-    from nof1_causal_lab.models.ssm.compile.prior_indexing import SemanticBindingRegistry
+    from nof1_causal_lab.models.ssm.compile.prior_indexing import CompiledBindingRegistry
+    from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
 
 logger = logging.getLogger("nof1_causal_lab.models.ssm.compile.inputs")
 CompileDiagnostic = PriorValidationResult
@@ -71,68 +78,29 @@ class PriorCompilationError(AggregatedCompileError):
     header = "Prior compilation failed"
 
 
-def _component_semantic_bindings(model_spec: CompiledModel) -> tuple[CompiledParameterBinding, ...]:
-    from nof1_causal_lab.models.ssm.dynamics.spec import iter_dynamics_semantic_bindings
-
-    component_sites = {
-        binding.site_name
-        for binding in iter_dynamics_semantic_bindings(
-            model_spec.dynamics.spec,
-            latent_names=tuple(numeric.state_names(model_spec)),
-        )
-    }
-    return tuple(binding for binding in model_spec.bindings if binding.site_name in component_sites)
-
-
-def _decay_bindings(model_spec: CompiledModel) -> tuple[CompiledParameterBinding, ...]:
+def _decay_bindings(
+    model_spec: CompiledModel,
+) -> tuple[tuple[CompiledParameterBinding, CompiledNodeTarget | CompiledEdgeTarget], ...]:
     return tuple(
-        binding
-        for binding in _component_semantic_bindings(model_spec)
-        if binding.site_kind == SiteKind.DYNAMICS_DECAY
+        (binding, binding.target)
+        for binding in model_spec.bindings
+        if isinstance(binding.target, (CompiledNodeTarget, CompiledEdgeTarget))
+        and binding.site.site_kind == SiteKind.DYNAMICS_DECAY
         and binding.transform == PriorAuthoringTransform.DT_PERSISTENCE_TO_CT_DECAY
     )
 
 
 def _linear_effect_bindings(
     model_spec: CompiledModel,
-) -> tuple[tuple[CompiledParameterBinding, int, int], ...]:
-    """Linear (``beta_``) effect bindings, paired with their non-None
-    ``(effect_idx, cause_idx)`` so callers receive narrowed ``int`` indices."""
-    result: list[tuple[CompiledParameterBinding, int, int]] = []
-    for binding in _component_semantic_bindings(model_spec):
-        effect_idx = binding.effect_idx
-        cause_idx = binding.cause_idx
-        if (
-            binding.site_kind == SiteKind.DYNAMICS_WEIGHT
-            and binding.transform == PriorAuthoringTransform.DT_EFFECT_TO_CT_RATE
-            and effect_idx is not None
-            and cause_idx is not None
-        ):
-            result.append((binding, int(effect_idx), int(cause_idx)))
-    return tuple(result)
-
-
-def _binding_latent_index(
-    binding: CompiledParameterBinding, model_spec: CompiledModel
-) -> int | None:
-    if binding.construct_names:
-        latent_names = numeric.state_names(model_spec)
-        return {name: idx for idx, name in enumerate(latent_names)}.get(binding.construct_names[0])
-    site = next(
-        (
-            candidate
-            for candidate in build_site_registry(model_spec)
-            if candidate.name == binding.site_name
-        ),
-        None,
+) -> tuple[tuple[CompiledParameterBinding, CompiledEdgeTarget], ...]:
+    """Transformed linear effects carry their resolved edge coordinates."""
+    return tuple(
+        (binding, binding.target)
+        for binding in model_spec.bindings
+        if isinstance(binding.target, CompiledEdgeTarget)
+        and binding.site.site_kind == SiteKind.DYNAMICS_WEIGHT
+        and binding.transform == PriorAuthoringTransform.DT_EFFECT_TO_CT_RATE
     )
-    if site is not None and site.positions:
-        position = site.positions[min(binding.flat_index, len(site.positions) - 1)]
-        if isinstance(position, int):
-            return int(position)
-    if 0 <= binding.flat_index < numeric.n_states(model_spec):
-        return int(binding.flat_index)
-    return None
 
 
 def _resolve_transform_interval_days(
@@ -229,8 +197,8 @@ def collect_first_order_approximation_warnings(
     min_diag_name = next(
         (
             binding.parameter_name
-            for binding in _decay_bindings(model_spec)
-            if _binding_latent_index(binding, model_spec) == min_diag_latent_idx
+            for binding, target in _decay_bindings(model_spec)
+            if target.target_index == min_diag_latent_idx
         ),
         None,
     )
@@ -238,8 +206,8 @@ def collect_first_order_approximation_warnings(
 
     warnings: list[CompileDiagnostic] = []
     latent_names = numeric.state_names(model_spec)
-    for binding, effect_idx, cause_idx in _linear_effect_bindings(model_spec):
-        prior = prior_registry.get(binding.site_name)
+    for binding, target in _linear_effect_bindings(model_spec):
+        prior = prior_registry.get(binding.site.name)
         if prior is None:
             continue
         offdiag_mu = np.asarray(prior_reference_value(prior)).reshape(-1)
@@ -247,15 +215,15 @@ def collect_first_order_approximation_warnings(
             continue
         offdiag_value = _value_at(offdiag_mu, binding.flat_index, default=0.0)
         interval_days = _resolve_offdiag_interval_days(
-            effect_idx=effect_idx,
-            cause_idx=cause_idx,
+            effect_idx=target.target_index,
+            cause_idx=target.source_index,
             offdiag_interval_days=offdiag_interval_days,
         )
         if interval_days is None:
             continue
 
-        cause_name = latent_names[cause_idx]
-        effect_name = latent_names[effect_idx]
+        cause_name = latent_names[target.source_index]
+        effect_name = latent_names[target.target_index]
         offdiag_label = f"{binding.parameter_name} ({cause_name} -> {effect_name})"
 
         try:
@@ -267,13 +235,13 @@ def collect_first_order_approximation_warnings(
             warnings.append(
                 _compile_warning(
                     code="dt_ct_approximation_warning",
-                    parameter=binding.prior_field or binding.site_name,
+                    parameter=binding.site.prior_field or binding.site.name,
                     issue=f"{offdiag_label}: exact matrix-log CT diagnostic failed: {exc}",
                     suggested_adjustment=(
                         "Shrink the DT beta prior or elicit the prior directly on a real, stable "
                         "CT drift scale."
                     ),
-                    compiled_site_name=binding.site_name,
+                    compiled_site_name=binding.site.name,
                     compiled_flat_index=binding.flat_index,
                     failure_stage="compiled_parameters",
                     pathology_certificate=PriorPathologyCertificate(
@@ -284,7 +252,7 @@ def collect_first_order_approximation_warnings(
             )
             continue
 
-        exact_value = float(exact_drift[effect_idx, cause_idx])
+        exact_value = float(exact_drift[target.target_index, target.source_index])
         deviation = abs(exact_value - float(offdiag_value)) / max(
             abs(exact_value), NUMERICAL_EPSILON
         )
@@ -294,7 +262,7 @@ def collect_first_order_approximation_warnings(
         warnings.append(
             _compile_warning(
                 code="dt_ct_approximation_warning",
-                parameter=binding.prior_field or binding.site_name,
+                parameter=binding.site.prior_field or binding.site.name,
                 issue=(
                     f"{offdiag_label}: matrix-log mismatch; exact CT coupling at "
                     f"{_format_interval_days(interval_days)} is {abs(exact_value):.3f} 1/day "
@@ -308,7 +276,7 @@ def collect_first_order_approximation_warnings(
                     "reference interval, shrink the DT beta prior, or elicit the prior directly "
                     "on the CT rate."
                 ),
-                compiled_site_name=binding.site_name,
+                compiled_site_name=binding.site.name,
                 compiled_flat_index=binding.flat_index,
                 failure_stage="compiled_parameters",
                 pathology_certificate=PriorPathologyCertificate(
@@ -338,29 +306,28 @@ def _assemble_reference_drift_from_component_priors(
     drift = np.zeros((numeric.n_states(model_spec), numeric.n_states(model_spec)), dtype=float)
     populated = False
 
-    for binding in _decay_bindings(model_spec):
-        prior = prior_registry.get(binding.site_name)
-        latent_idx = _binding_latent_index(binding, model_spec)
-        if prior is None or latent_idx is None:
+    for binding, target in _decay_bindings(model_spec):
+        prior = prior_registry.get(binding.site.name)
+        if prior is None:
             continue
         decay_mu = np.asarray(prior_reference_value(prior)).reshape(-1)
         if decay_mu.size == 0:
             continue
-        drift[latent_idx, latent_idx] = -_value_at(
+        drift[target.target_index, target.target_index] = -_value_at(
             decay_mu,
             binding.flat_index,
             default=0.0,
         )
         populated = True
 
-    for binding, effect_idx, cause_idx in _linear_effect_bindings(model_spec):
-        prior = prior_registry.get(binding.site_name)
+    for binding, target in _linear_effect_bindings(model_spec):
+        prior = prior_registry.get(binding.site.name)
         if prior is None:
             continue
         weight_mu = np.asarray(prior_reference_value(prior)).reshape(-1)
         if weight_mu.size == 0:
             continue
-        drift[effect_idx, cause_idx] = _value_at(
+        drift[target.target_index, target.source_index] = _value_at(
             weight_mu,
             binding.flat_index,
             default=0.0,
@@ -453,15 +420,16 @@ def compile_parameter_law(
     model: ModelSpec,
     parameter: ParameterSpec,
     binding: CompiledParameterBinding,
-) -> tuple[dist.Distribution, float | None]:
+) -> tuple[dist.Distribution, CompiledEffectInterval | None]:
     """Translate one scalar scientific law into its native numerical coordinates."""
-    if binding.transform == PriorAuthoringTransform.DT_EFFECT_TO_CT_RATE and (
-        binding.effect_idx is None or binding.cause_idx is None
-    ):
+    prior, interval = quantity_parameter_law(model, parameter)
+    if interval is None:
+        return prior, None
+    if not isinstance(binding.target, CompiledEdgeTarget):
         raise PriorCompilationError(
             [f"Dynamics effect prior {parameter.id!r} is missing effect/cause metadata"]
         )
-    return quantity_parameter_law(model, parameter)
+    return prior, CompiledEffectInterval(target=binding.target, days=interval)
 
 
 def quantity_parameter_law(
@@ -496,14 +464,15 @@ def quantity_parameter_law(
 
 def compile_priors(
     model: CompiledModel,
-    authored: ModelSpec,
+    selection: StructuralSelection,
 ) -> tuple[
     dict[str, dist.Distribution], tuple[CompiledParameterBinding, ...], list[CompileDiagnostic]
 ]:
     """Bind the model's native distributions to their declared execution coordinates."""
     from nof1_causal_lab.models.model_parameters import execution_parameters
 
-    parameters = {parameter.id: parameter for parameter in execution_parameters(authored)}
+    authored = selection.model
+    parameters = {parameter.id: parameter for parameter in execution_parameters(selection)}
     missing = [parameter.id for parameter in parameters.values() if parameter.distribution is None]
     if missing:
         raise PriorCompilationError(
@@ -533,11 +502,12 @@ def compile_priors(
 
             prior, effect_interval = compile_parameter_law(authored, parameter, binding)
             if effect_interval is not None:
-                assert binding.effect_idx is not None
-                assert binding.cause_idx is not None
-                offdiag_interval_days[(binding.effect_idx, binding.cause_idx)] = effect_interval
+                target = effect_interval.target
+                offdiag_interval_days[(target.target_index, target.source_index)] = (
+                    effect_interval.days
+                )
 
-            site = site_by_name[binding.site_name]
+            site = site_by_name[binding.site.name]
             validate_site_prior(site, prior)
             per_site.setdefault(site.name, {}).update(
                 {coordinate.flat_index: prior for coordinate in binding.native_coordinates}
@@ -571,8 +541,8 @@ def compile_priors(
 
 
 def bind_parameters(
-    bindings: SemanticBindingRegistry,
-    model_spec: ModelSpec,
+    bindings: CompiledBindingRegistry,
+    structure: StructuralSelection,
     parameters: Sequence[ParameterSpec],
     registry: tuple[SiteDescriptor, ...],
 ) -> tuple[tuple[CompiledParameterBinding, ...], tuple[ParameterCoordinate, ...]]:
@@ -590,7 +560,7 @@ def bind_parameters(
     auxiliary = []
     for parameter_id, binding in sorted(all_bindings.items()):
         definition = definitions[parameter_id]
-        site = sites[binding.site_name]
+        site = binding.site
         native_coordinates = resolve_site_selection(site, binding.selection)
         elements, coordinates = {}, {}
         for native in native_coordinates:
@@ -600,7 +570,7 @@ def bind_parameters(
                     [f"Runtime coordinate {coordinate.label} has multiple scientific owners"]
                 )
             bound_coordinates.add(coordinate)
-            component = component_identity(definition, native, binding.selection, site, model_spec)
+            component = component_identity(definition, native, binding.selection, site, structure)
             if component is None:
                 auxiliary.append(coordinate)
                 continue
@@ -620,16 +590,9 @@ def bind_parameters(
                 coordinates=coordinates,
                 elements=elements,
                 native_coordinates=native_coordinates,
-                site_name=site.name,
-                prior_field=binding.prior_field,
-                flat_index=native_coordinates[0].flat_index,
-                site_kind=binding.site_kind,
+                site=site,
+                target=binding.target,
                 transform=definition.transform.kind,
-                construct_names=binding.construct_names,
-                indicator_names=binding.indicator_names,
-                component_index=binding.component_index,
-                effect_idx=binding.effect_idx,
-                cause_idx=binding.cause_idx,
             )
         )
     # Rectangular likelihood tensors contain padded/unused indicator rows. Their

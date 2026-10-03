@@ -8,12 +8,12 @@ from typing import TYPE_CHECKING
 from .vector_field import VectorField
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator, Mapping
+    from collections.abc import Callable, Mapping
 
     import numpyro.distributions as dist
     from jax import Array
 
-    from nof1_causal_lab.models.ssm.structure.sites import SemanticBinding, SiteDescriptor
+    from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
 
     from .expression import ExpressionComponentSpec
 
@@ -78,21 +78,6 @@ def compile_dynamics(spec: DynamicsSpec, *, prefix: str = "vf") -> CompiledDynam
         site_registry=site_registry,
         site_prefix=prefix,
     )
-
-
-def iter_dynamics_semantic_bindings(
-    spec: DynamicsSpec,
-    *,
-    latent_names: tuple[str, ...],
-    prefix: str = "vf",
-) -> Iterator[SemanticBinding]:
-    """Yield semantic prior bindings owned by vector-field component specs."""
-    for component_index, component_spec in enumerate(spec.components):
-        yield from component_spec.iter_semantic_bindings(
-            prefix=f"{prefix}_{component_index}",
-            latent_names=latent_names,
-            component_index=component_index,
-        )
 
 
 def pack_component_params_from_samples(

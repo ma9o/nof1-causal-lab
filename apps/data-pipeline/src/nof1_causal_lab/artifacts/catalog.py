@@ -10,9 +10,11 @@ from .data_preparation import PreparedDataMetadata
 from .identification import IdentificationReport
 from .identity import ArtifactId
 from .model_spec import ModelSpec
+from .question import QuestionSpec
 from .validation_report import DataProfileArtifact, ValidationReportArtifact
 
 ARTIFACT_CONTRACTS: dict[ArtifactId, type[BaseModel]] = {
+    "question": QuestionSpec,
     "panel": PreparedDataMetadata,
     "model": ModelSpec,
     "identification_report": IdentificationReport,

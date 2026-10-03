@@ -10,7 +10,7 @@ import pytest
 
 from nof1_causal_lab.artifacts.likelihood import DeltaLawSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.artifacts.scenarios import InterventionSpec
+from nof1_causal_lab.artifacts.scenarios import StateAssignment
 from nof1_causal_lab.models.ssm.counterfactual import (
     ResolvedIntervention,
     build_segment_bounds,
@@ -18,6 +18,7 @@ from nof1_causal_lab.models.ssm.counterfactual import (
 )
 from nof1_causal_lab.models.ssm.dynamics import DynamicsDraws, ProcessNoise, VectorField
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
+from nof1_causal_lab.models.ssm.preflight import ObservationPreflightFailure
 from tests.model_fixtures import compile_model_fixture
 
 # var1 is driven by var0; both stable. Baseline steady state is η* = -A⁻¹c = [1, 1].
@@ -27,7 +28,7 @@ _TIME_GRID = jnp.linspace(0.0, 12.0, 13)  # daily grid, day == index
 
 
 def _event(index, **payload):
-    spec = InterventionSpec.model_validate({"target": f"construct:state{index}", **payload})
+    spec = StateAssignment.model_validate({"target": f"construct:state{index}", **payload})
     return ResolvedIntervention(index=index, spec=spec)
 
 
@@ -118,6 +119,7 @@ def test_given_inputs_replay_windows_hold_and_override_later_records(monkeypatch
     events = replay_input_events(
         model, panel, time_origin=origin.astimezone(timezone(timedelta(hours=2))), start=0, end=7
     )
+    assert not isinstance(events, ObservationPreflightFailure)
     values = replay_input_values(model, grid, events)
     np.testing.assert_array_equal(values[:, 0], [10, 10, 8, 8, 12, 12, 12, 12])
     constraints = compile_exact_state_constraints(
@@ -125,8 +127,9 @@ def test_given_inputs_replay_windows_hold_and_override_later_records(monkeypatch
     )
     assert constraints is not None
     assert not constraints.free_mask[:, 0].any()
-    with pytest.raises(ValueError, match="no value at the start"):
-        replay_input_events(model, panel, time_origin=origin, start=-3, end=7)
+    failure = replay_input_events(model, panel, time_origin=origin, start=-3, end=7)
+    assert isinstance(failure, ObservationPreflightFailure)
+    assert "no value at the start" in failure.message
     # Isolate dated assignment control flow; no scientific solver runs in this contract.
     monkeypatch.setattr(
         orchestration,

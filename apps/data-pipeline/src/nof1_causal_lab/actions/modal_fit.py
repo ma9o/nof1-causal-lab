@@ -22,7 +22,9 @@ if TYPE_CHECKING:
     import polars as pl
 
     from nof1_causal_lab.actions.fit import FitResult
+    from nof1_causal_lab.artifacts.identity import ConstructId
     from nof1_causal_lab.json_types import JsonObject, JsonValue
+    from nof1_causal_lab.models.model_structure import StructuralSelection
     from nof1_causal_lab.numpyro_json import ArrayLoader
     from nof1_causal_lab.sampler_config import SamplerSpec
 
@@ -32,6 +34,7 @@ class FitComputeInput:
     """Pinned, self-contained inputs; no remote workspace or storage credentials."""
 
     model_json: str
+    outcome: ConstructId | None
     panel_parquet: bytes
     time_origin: datetime | None
     arrays: dict[str, bytes]
@@ -74,11 +77,13 @@ def execute_fit_compute(payload: FitComputeInput) -> FitComputeResult:
         arrays[identity] = decode_array(identity, data)
         return identity
 
+    from nof1_causal_lab.models.model_structure import StructuralSelection
+
     model = ModelSpec.model_validate_json(
         payload.model_json, context={"distribution_array_loader": arrays.__getitem__}
     )
     result = fit(
-        model_spec=model,
+        selection=StructuralSelection(model, payload.outcome),
         data_for_model=pl.read_parquet(io.BytesIO(payload.panel_parquet)),
         time_origin=payload.time_origin,
         sampler=payload.sampler,
@@ -143,7 +148,7 @@ def _dispatch_fit(payload: FitComputeInput, *, timeout: int = 10800) -> FitCompu
 
 def fit_on_modal(
     *,
-    model_spec: ModelSpec,
+    selection: StructuralSelection,
     data_for_model: pl.DataFrame,
     time_origin: datetime | None,
     sampler: SamplerSpec,
@@ -153,7 +158,7 @@ def fit_on_modal(
 ) -> FitResult:
     """Transfer pinned values, compute once on Modal, then retain returned arrays locally."""
     inputs: dict[str, bytes] = {}
-    for identity in _array_references(model_spec.model_dump(mode="json")):
+    for identity in _array_references(selection.model.model_dump(mode="json")):
         actual, data = encode_array(array_loader(identity))
         if actual != identity:
             raise ValueError("Fit input array does not match its content identity")
@@ -162,7 +167,8 @@ def fit_on_modal(
     data_for_model.write_parquet(panel)
     result = _dispatch_fit(
         FitComputeInput(
-            model_json=model_spec.model_dump_json(),
+            model_json=selection.model.model_dump_json(),
+            outcome=selection.outcome,
             panel_parquet=panel.getvalue(),
             time_origin=time_origin,
             arrays=inputs,

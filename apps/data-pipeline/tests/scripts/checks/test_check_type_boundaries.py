@@ -227,24 +227,38 @@ def consumer(value):
     assert "owner" in violations[0].message
 
 
-def test_core_bypasses_allow_self_revision_and_unmodified_copies() -> None:
+def test_core_bypasses_reject_self_updates_and_allow_validated_revisions() -> None:
     checker = _load_checker()
     source = """class Request:
     def revise(self, value, changes):
         self.model_copy(update={})
         self.model_copy(**changes)
         object.__setattr__(self, 'question', 'changed')
+        self.revised(question='changed')
         value.model_copy()
         cast('Mapping[str, int]', value)
 """
-    assert (
-        checker.scan_text(
-            source,
-            path="src/nof1_causal_lab/artifacts/model_spec.py",
-            rules=frozenset({"CORE001"}),
-        )
-        == []
+    violations = checker.scan_text(
+        source,
+        path="src/nof1_causal_lab/artifacts/model_spec.py",
+        rules=frozenset({"CORE001"}),
     )
+    assert [item.target for item in violations] == ["model_copy", "model_copy", "__setattr__"]
+
+
+def test_core_initialization_is_local_to_constructor_scope() -> None:
+    checker = _load_checker()
+    violations = checker.scan_text(
+        """class Owned:
+    def __post_init__(self):
+        object.__setattr__(self, 'items', immutable_items)
+        def revise_later():
+            object.__setattr__(self, 'items', mutable_items)
+""",
+        path="src/nof1_causal_lab/models/new_owner.py",
+        rules=frozenset({"CORE001"}),
+    )
+    assert [item.target for item in violations] == ["__setattr__"]
 
 
 def test_core_owner_file_only_exempts_evidence_construction() -> None:
@@ -347,7 +361,7 @@ def test_expected_syntax_error_is_local_to_one_parse_operation() -> None:
     ] == ["ERR001"]
 
 
-def test_core_collections_cover_fields_and_public_properties_only() -> None:
+def test_core_collections_cover_private_owned_data_and_properties() -> None:
     checker = _load_checker()
     violations = checker.scan_text(
         """from typing import Dict as MutableDict
@@ -371,6 +385,7 @@ class Request:
     )
     assert [(v.code, v.target) for v in violations] == [
         ("CORE002", "field:entries"),
+        ("CORE002", "field:_builder"),
         ("CORE002", "return"),
     ]
 
@@ -549,3 +564,103 @@ def execute():
         )
         == 2
     )
+
+
+@pytest.mark.parametrize("annotation", ["Mapping[str, tuple[np.ndarray, ...]]", "np.ndarray"])
+def test_compiled_records_must_own_nested_mapping_and_numpy_storage(annotation: str) -> None:
+    source = f"""from dataclasses import dataclass
+from collections.abc import Mapping
+import numpy as np
+from nof1_causal_lab.utils.immutability import freeze_fields as own_fields
+
+@dataclass(frozen=True)
+class Compiled:
+    values: {annotation}
+
+def compile_values() -> Compiled:
+    return Compiled(values)
+"""
+    checker = _load_checker()
+    path = "src/nof1_causal_lab/models/new_owner.py"
+    violations = checker.scan_text(source, path=path, rules=frozenset({"IMM002"}))
+    assert [item.target for item in violations] == ["Compiled"]
+    initialized = source.replace(
+        "\ndef compile_values",
+        "\n    def __post_init__(self):\n        own_fields(self)\n\ndef compile_values",
+    )
+    assert checker.scan_text(initialized, path=path, rules=frozenset({"IMM002"})) == []
+    skipped = initialized.replace(
+        "        own_fields(self)", "        if skip:\n            return\n        own_fields(self)"
+    )
+    assert [
+        item.code for item in checker.scan_text(skipped, path=path, rules=frozenset({"IMM002"}))
+    ] == ["IMM002"]
+
+
+def test_jax_buffers_and_callable_arguments_need_no_numpy_ownership() -> None:
+    source = """from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+import jax.numpy as jnp
+import numpy as np
+@dataclass(frozen=True)
+class Compiled:
+    values: jnp.ndarray
+    compute: Callable[[Mapping[str, np.ndarray]], jnp.ndarray]
+def compile_values() -> Compiled:
+    return Compiled(values, compute)
+"""
+    assert (
+        _load_checker().scan_text(
+            source, path="src/nof1_causal_lab/models/new_owner.py", rules=frozenset({"IMM002"})
+        )
+        == []
+    )
+
+
+@pytest.mark.parametrize("outcome", ["Ready | Rejected", "Optional[Rejected]", "Outcome"])
+def test_declared_sum_outcomes_cannot_be_discarded(outcome: str) -> None:
+    source = f"""from dataclasses import dataclass
+from typing import Optional
+@dataclass(frozen=True)
+class Ready:
+    value: int
+@dataclass(frozen=True)
+class Rejected:
+    message: str
+type Outcome = Ready | Rejected
+def decide() -> {outcome}:
+    return Rejected('missing')
+def caller():
+    decide()
+    _ = decide()
+    result = decide()
+    return result
+def callback(decide):
+    decide()
+"""
+    violations = _load_checker().scan_text(
+        source, path="src/nof1_causal_lab/models/new_owner.py", rules=frozenset({"ERR002"})
+    )
+    assert len(violations) == 2
+    assert all(item.scope == "caller" for item in violations)
+
+
+def test_field_ownership_cannot_be_reused_for_later_mutation() -> None:
+    violations = _load_checker().scan_text(
+        """from dataclasses import dataclass
+from collections.abc import Mapping
+from nof1_causal_lab.utils.immutability import freeze_fields
+@dataclass(frozen=True)
+class Compiled:
+    values: Mapping[str, int]
+    def __post_init__(self):
+        freeze_fields(self)
+    def revise(self):
+        freeze_fields(self)
+def compile_values() -> Compiled:
+    return Compiled(values)
+""",
+        path="src/nof1_causal_lab/models/new_owner.py",
+        rules=frozenset({"CORE001"}),
+    )
+    assert [item.target for item in violations] == ["freeze_fields"]

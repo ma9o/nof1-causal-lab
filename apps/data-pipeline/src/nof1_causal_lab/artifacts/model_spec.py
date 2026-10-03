@@ -6,6 +6,7 @@ from collections.abc import (
     Mapping,
 )
 from functools import cached_property
+from types import MappingProxyType
 from typing import TYPE_CHECKING, cast, override
 
 from pydantic import (
@@ -48,18 +49,15 @@ if TYPE_CHECKING:
     from collections.abc import Iterator
 
     from nof1_causal_lab.models.model_parameters import ParameterContext
-    from nof1_causal_lab.models.model_structure import DependencyKey
 
-    from .execution import StructuralItemDisposition
     from .indicator import IndicatorSpec
     from .likelihood import LikelihoodSpec
     from .mechanism import DynamicsMechanismSpec
 
 
 class ModelSpec(Value):
-    """An evolving research question and connected causal graph with owned scientific detail."""
+    """A connected causal graph with owned scientific detail, built to answer the study question."""
 
-    question: str | None = Field(default=None, min_length=1)
     edges: tuple[CausalEdgeSpec, ...] = ()
     parameters: tuple[ParameterSpec, ...] = ()
     distributions: Mapping[DistributionId, NumPyroDistribution] = Field(
@@ -72,17 +70,6 @@ class ModelSpec(Value):
     )
     time_points: tuple[FiniteFloat, ...] = ()
     measurement_clock: Duration | None = None
-    default_outcome: ConstructId | None = None
-
-    @field_validator("question")
-    @classmethod
-    def validate_question(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        value = value.strip()
-        if not value:
-            raise ValueError("question text must be non-empty")
-        return value
 
     @field_validator("edges", mode="wrap")
     @classmethod
@@ -114,54 +101,38 @@ class ModelSpec(Value):
         )
 
     @cached_property
-    def _constructs(self) -> dict[ConstructId, ConstructSpec]:
-        return {
-            endpoint.id: endpoint for edge in self.edges for endpoint in (edge.cause, edge.effect)
-        }
+    def _constructs(self) -> Mapping[ConstructId, ConstructSpec]:
+        return MappingProxyType(
+            {endpoint.id: endpoint for edge in self.edges for endpoint in (edge.cause, edge.effect)}
+        )
 
     @cached_property
-    def _edges(self) -> dict[EdgeId, CausalEdgeSpec]:
-        return {item.id: item for item in self.edges}
+    def _edges(self) -> Mapping[EdgeId, CausalEdgeSpec]:
+        return MappingProxyType({item.id: item for item in self.edges})
 
     @cached_property
-    def _indicators(self) -> dict[IndicatorId, IndicatorSpec]:
-        return {item.observation.id: item for _, item in self.iter_indicators()}
+    def _indicators(self) -> Mapping[IndicatorId, IndicatorSpec]:
+        return MappingProxyType({item.observation.id: item for _, item in self.iter_indicators()})
 
     @cached_property
-    def _indicator_owners(self) -> dict[IndicatorId, ConstructSpec]:
-        return {item.observation.id: owner for owner, item in self.iter_indicators()}
+    def _indicator_owners(self) -> Mapping[IndicatorId, ConstructSpec]:
+        return MappingProxyType(
+            {item.observation.id: owner for owner, item in self.iter_indicators()}
+        )
 
     @cached_property
-    def _parameters(self) -> dict[ParameterId, ParameterSpec]:
-        return {item.id: item for item in self.parameters}
+    def _parameters(self) -> Mapping[ParameterId, ParameterSpec]:
+        return MappingProxyType({item.id: item for item in self.parameters})
 
     @cached_property
-    def _mechanisms(self) -> dict[MechanismId, DynamicsMechanismSpec]:
-        return {item.id: item for _, item in self.iter_mechanisms()}
-
-    @cached_property
-    def marginalized_construct_ids(self) -> frozenset[ConstructId]:
-        from nof1_causal_lab.models.model_structure import marginalized_construct_ids
-
-        return marginalized_construct_ids(self)
-
-    @cached_property
-    def induced_dependencies(self) -> Mapping[DependencyKey, tuple[ConstructId, ...]]:
-        from nof1_causal_lab.models.model_structure import induced_dependencies
-
-        return induced_dependencies(self)
-
-    @cached_property
-    def structural_dispositions(self) -> tuple[StructuralItemDisposition, ...]:
-        from nof1_causal_lab.models.model_structure import structural_dispositions
-
-        return structural_dispositions(self)
+    def _mechanisms(self) -> Mapping[MechanismId, DynamicsMechanismSpec]:
+        return MappingProxyType({item.id: item for _, item in self.iter_mechanisms()})
 
     @cached_property
     def _parameter_contexts(self) -> Mapping[ParameterId, ParameterContext]:
         from nof1_causal_lab.models.model_parameters import parameter_contexts
 
-        return parameter_contexts(self)
+        return MappingProxyType(dict(parameter_contexts(self)))
 
     def parameter_context(self, identity: ParameterId) -> ParameterContext:
         return self._parameter_contexts[identity]
@@ -254,12 +225,6 @@ class ModelSpec(Value):
         for label, items in (("construct", self.constructs), ("indicator", observations)):
             if len({item.name for item in items}) != len(items):
                 raise ValueError(f"Duplicate {label} names")
-        if self.default_outcome is not None:
-            target = self._constructs.get(self.default_outcome)
-            if target is None:
-                raise ValueError("Default outcome references an unknown construct")
-            if target.role != Role.ENDOGENOUS:
-                raise ValueError("Default outcome must reference an endogenous construct")
         endpoint_pairs = [(edge.cause.id, edge.effect.id) for edge in self.edges]
         if len(endpoint_pairs) != len(set(endpoint_pairs)):
             raise ValueError("Declare one causal edge per endpoint pair and compose its mechanisms")
@@ -333,22 +298,11 @@ class ModelSpec(Value):
             from nof1_causal_lab.models.model_distributions import validate_distribution_memberships
 
             validate_distribution_memberships(self)
-        from nof1_causal_lab.models.model_checks import validate_parameter_anchors
+        from nof1_causal_lab.models.coefficient_redundancy import validate_coefficient_redundancy
 
-        validate_parameter_anchors(self)
+        validate_coefficient_redundancy(self)
         return self
 
     def require_measurements(self) -> None:
         if self.measurement_clock is None or not self.indicators:
             raise IncompleteModelError("Measurements require a measurement clock and indicators")
-
-    def require_priors(self) -> None:
-        from nof1_causal_lab.models.model_parameters import execution_parameters
-
-        missing = [
-            parameter.id
-            for parameter in execution_parameters(self)
-            if parameter.distribution is None
-        ]
-        if missing:
-            raise IncompleteModelError(f"Compilation requires declared prior laws for {missing}")

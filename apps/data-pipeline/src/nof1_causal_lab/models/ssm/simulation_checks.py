@@ -10,16 +10,13 @@ import numpy as np
 from nof1_causal_lab.artifacts.checks import NumericCriterionEvidence
 from nof1_causal_lab.artifacts.expressions import (
     LiteralExpression,
+    StateExpression,
     expression_states,
-    fold_expression,
     hill_applications,
     restoring_coefficients,
 )
 from nof1_causal_lab.models.ssm import numerics as numeric
-from nof1_causal_lab.models.ssm.dynamics.expression import (
-    SCALAR_OPERATIONS,
-    apply_expression_function,
-)
+from nof1_causal_lab.models.ssm.compile.expressions import compile_expression
 from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
 from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
     predictive_keys,
@@ -37,6 +34,7 @@ from nof1_causal_lab.models.ssm.reachability import (
     check_scale,
     check_transmission,
 )
+from nof1_causal_lab.utils.immutability import freeze_fields
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Mapping, Sequence
@@ -111,6 +109,9 @@ class DesignInfo:
     c1b_growth_ratio: float = C1B_GROWTH_RATIO
     c1b_max_explosive_frac: float = C1B_MAX_EXPLOSIVE_FRAC
     observation_support: ObservationSupportRuntime | None = None
+
+    def __post_init__(self) -> None:
+        freeze_fields(self)
 
     @property
     def pooled_obs_index(self) -> np.ndarray:
@@ -375,17 +376,21 @@ def measure_construct_dynamics(
             raise ValueError(f"No Hill expression for {parent!r} -> {target.name!r}")
         for comp_idx, comp, source, ec50, exponent in applications:
             started = clock()
-            parent_vals = fold_expression(
-                source,
-                literal=lambda value: np.asarray(value),
-                state_value=lambda key, comp=comp: np.asarray(
-                    pred.trajectory.latents[:, structural_indices, comp.state_ids.index(key)]
+            operands, numerical = compile_expression(source)
+            parent_vals = numerical(
+                0.0,
+                *(
+                    np.asarray(
+                        pred.trajectory.latents[
+                            :, structural_indices, comp.state_ids.index(operand.construct_id)
+                        ]
+                    )
+                    if isinstance(operand, StateExpression)
+                    else np.asarray(
+                        _coefficient_draws(operand, comp, pred, f"vf_{comp_idx}")
+                    ).reshape(-1, 1)
+                    for operand in operands
                 ),
-                coefficient_value=lambda operand, comp=comp, comp_idx=comp_idx: np.asarray(
-                    _coefficient_draws(operand, comp, pred, f"vf_{comp_idx}")
-                ).reshape(-1, 1),
-                binary=lambda operation, left, right: SCALAR_OPERATIONS[operation](left, right),
-                call=lambda name, arguments: np.asarray(apply_expression_function(name, arguments)),
             )
             result = check_saturation(
                 f"{parent}->{target.name}",

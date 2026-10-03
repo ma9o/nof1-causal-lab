@@ -1,11 +1,14 @@
 import type { ActionId, RecordDependency } from "@nof1-causal-lab/api-types";
 import type { StudyRevision } from "@nof1-causal-lab/api-types";
 
-/** Lanes group actions by what they produce: comparisons read histories, data makes them. */
+/**
+ * Lanes group actions by what they produce: comparisons read histories, data makes them, and the
+ * model lane starts from the question every model is built to answer.
+ */
 export const TIMELINE_LANES: ReadonlyArray<{ name: string; actions: readonly ActionId[] }> = [
   { name: "Comparisons", actions: ["data_diff"] },
   { name: "Data", actions: ["prepare_data", "simulate"] },
-  { name: "Model", actions: ["edit_model", "fit"] },
+  { name: "Model", actions: ["set_question", "edit_model", "fit"] },
 ];
 
 export interface RevisionTimelineNode {

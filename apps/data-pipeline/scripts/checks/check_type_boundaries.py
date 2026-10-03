@@ -13,13 +13,14 @@ express. Explicit ``Any`` belongs to basedpyright's ``reportExplicitAny``.
     type checker push absence handling to the boundary where it originates.
 
 ``CORE001``
-    Construction bypasses and mutable casts are checked by call name. Only
-    self-revision and owner construction of compiler/execution evidence are permitted.
+    Construction bypasses and mutable casts are checked by call name. Revisions
+    use validated owner construction; frozen-field initialization is constructor-only.
     Dump-spread rebuilds are forbidden throughout every checked Python tree.
 
 ``CORE002``
     Owned Value contracts and published compiler/execution outputs expose read-only
-    collections, including composed fields, container members, aliases and properties.
+    collections, including composed fields, container members, aliases and private
+    fields/properties. An attached cache is owned data, not a private builder.
 
 ``VIEW001``
     Declared pure projections cannot raise, assert, or revalidate the core.
@@ -28,6 +29,11 @@ express. Explicit ``Any`` belongs to basedpyright's ``reportExplicitAny``.
 ``IMM001``
     Owned contracts inherit the shared frozen Value configuration; compiled
     alternatives are frozen dataclasses. Private builders are not values.
+
+``IMM002``
+    Owned compiled dataclasses detach nested mappings and NumPy arrays through
+    freeze_fields(self) at the end of __post_init__. Value owns the same work
+    in its field constructor. JAX arrays and callable annotations are excluded.
 
 ``PARSE001``
     Across every production role, serialized value parsing belongs to its
@@ -38,6 +44,12 @@ express. Explicit ``Any`` belongs to basedpyright's ``reportExplicitAny``.
     Only a single expected
     parser/foreign-constructor error around its operation, or a declared shell
     failure/retry handler, can be translated. Every production role is checked.
+
+``ERR002``
+    Calls to declared compiler/execution sum outcomes cannot be discarded as a
+    statement or assigned to _. Consume or forward the result so its alternatives
+    reach the caller's type checking. This resolves named functions and imports,
+    not arbitrary callbacks or data flow after assignment.
 
 """
 
@@ -62,6 +74,7 @@ from scripts.checks.architecture_roles import (
     role_for_path,
     role_inventory,
 )
+from scripts.checks.check_architecture_boundaries import _scope_bindings
 
 _DOMAIN_DICT_UNION = "CUSTOM002"
 _REJECT_ONLY_OPTIONAL_PARAMETER = "CUSTOM003"
@@ -69,7 +82,9 @@ _CORE_BYPASS = "CORE001"
 _MUTABLE_CORE = "CORE002"
 _PARTIAL_VIEW = "VIEW001"
 _FROZEN_VALUE = "IMM001"
+_OWNED_COLLECTIONS = "IMM002"
 _BUILTIN_CATCH = "ERR001"
+_DISCARDED_OUTCOME = "ERR002"
 _OWNER_PARSE = "PARSE001"
 _ALL_RULES = frozenset(
     {
@@ -79,7 +94,9 @@ _ALL_RULES = frozenset(
         _MUTABLE_CORE,
         _PARTIAL_VIEW,
         _FROZEN_VALUE,
+        _OWNED_COLLECTIONS,
         _BUILTIN_CATCH,
+        _DISCARDED_OUTCOME,
         _OWNER_PARSE,
     }
 )
@@ -520,6 +537,7 @@ class TypeIndex:
         self.classes: dict[str, tuple[str, ast.ClassDef]] = {}
         self.aliases: dict[str, ast.expr] = {}
         self.imports: dict[str, dict[str, str]] = {}
+        self.functions: dict[str, tuple[str, ast.FunctionDef | ast.AsyncFunctionDef]] = {}
         for path, tree in sources:
             module = self.module(path)
             imports: dict[str, str] = {}
@@ -542,6 +560,8 @@ class TypeIndex:
             for node in tree.body:
                 if isinstance(node, ast.ClassDef):
                     self.classes[module + "." + node.name] = (path, node)
+                elif isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    self.functions[module + "." + node.name] = (path, node)
                 elif isinstance(node, ast.TypeAlias):
                     self.aliases[module + "." + node.name.id] = node.value
                 elif (
@@ -607,11 +627,17 @@ class TypeIndex:
     ) -> set[str]:
         """Follow owned outputs, distinguishing a sum's alternatives from product members."""
         node = _annotation_expr(node)
+        if isinstance(node, ast.Constant) and node.value is None:
+            return {"builtins.None"}
         if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
             return self.return_variants(
                 node.left, module, seen, containers=containers
             ) | self.return_variants(node.right, module, seen, containers=containers)
         name = self.resolve(node, module)
+        if isinstance(node, ast.Subscript) and name.rsplit(".", 1)[-1] == "Optional":
+            return {"builtins.None"} | self.return_variants(
+                node.slice, module, seen, containers=containers
+            )
         if name in self.aliases and name not in seen:
             return self.return_variants(
                 self.aliases[name], name.rpartition(".")[0], seen | {name}, containers=containers
@@ -648,6 +674,8 @@ class TypeIndex:
                     for member in members
                 )
             )
+        if isinstance(node, ast.Subscript) and name in self.classes:
+            return {name}
         return {name} if isinstance(node, (ast.Name, ast.Attribute)) else set()
 
     @staticmethod
@@ -660,7 +688,16 @@ class TypeIndex:
 
     def resolve(self, node: ast.expr, module: str) -> str:
         if isinstance(node, ast.Name):
-            return self.imports.get(module, {}).get(node.id, module + "." + node.id)
+            name = self.imports.get(module, {}).get(node.id, module + "." + node.id)
+            seen: set[str] = set()
+            while name not in seen:
+                seen.add(name)
+                parent, _, member = name.rpartition(".")
+                target = self.imports.get(parent, {}).get(member)
+                if target is None or target == name:
+                    break
+                name = target
+            return name
         if isinstance(node, ast.Attribute):
             return self.resolve(node.value, module) + "." + node.attr
         if isinstance(node, ast.Subscript):
@@ -715,6 +752,29 @@ class TypeIndex:
             return True
         return any(
             self.mutable(child, module, seen)
+            for child in ast.iter_child_nodes(node)
+            if isinstance(child, ast.expr)
+        )
+
+    def needs_ownership(
+        self, node: ast.expr, module: str, seen: frozenset[str] = frozenset()
+    ) -> bool:
+        """Read-only interfaces still need construction-time detachment."""
+        node = _annotation_expr(node)
+        name = self.resolve(node, module)
+        if name in seen:
+            return False
+        if name in self.aliases:
+            return self.needs_ownership(self.aliases[name], name.rpartition(".")[0], seen | {name})
+        if name.rsplit(".", 1)[-1] == "Callable":
+            return False
+        if (
+            name in {"numpy.ndarray", "numpy.typing.NDArray"}
+            or name.rsplit(".", 1)[-1] == "Mapping"
+        ):
+            return True
+        return any(
+            self.needs_ownership(child, module, seen)
             for child in ast.iter_child_nodes(node)
             if isinstance(child, ast.expr)
         )
@@ -805,6 +865,15 @@ def _annotation_expr(node: ast.expr) -> ast.expr:
     return node
 
 
+def _constructor_returns(node: ast.AST) -> bool:
+    """An early constructor return can skip field ownership; nested helpers cannot."""
+    if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)):
+        return False
+    return isinstance(node, ast.Return) or any(
+        _constructor_returns(child) for child in ast.iter_child_nodes(node)
+    )
+
+
 class _CoreVisitor(ast.NodeVisitor):
     """Syntactic call-name and core collection checks, without receiver inference."""
 
@@ -818,6 +887,7 @@ class _CoreVisitor(ast.NodeVisitor):
         self.scope: list[str] = []
         self.class_name: str | None = None
         self.in_function = False
+        self.local_bindings: list[dict[str, str]] = []
         self.failure_handler = False
         self.names: dict[str, str] = {}
         self.violations: list[Violation] = []
@@ -892,6 +962,55 @@ class _CoreVisitor(ast.NodeVisitor):
                 node.name,
                 "Owned values are frozen; use the shared Value configuration or a frozen compiled dataclass",
             )
+        owned_fields = [
+            field
+            for field in node.body
+            if isinstance(field, ast.AnnAssign)
+            and self.index.needs_ownership(field.annotation, self.module)
+        ]
+        if (
+            self._class_owned()
+            and owned_fields
+            and not self.index.value_contract(qualified)
+            and any(
+                isinstance(decorator, ast.Call)
+                and self.index.resolve(decorator.func, self.module) == "dataclasses.dataclass"
+                for decorator in node.decorator_list
+            )
+        ):
+            constructor = next(
+                (
+                    item
+                    for item in node.body
+                    if isinstance(item, ast.FunctionDef) and item.name == "__post_init__"
+                ),
+                None,
+            )
+            body = constructor.body if constructor is not None else []
+            if (
+                body
+                and isinstance(body[0], ast.Expr)
+                and isinstance(body[0].value, ast.Constant)
+                and isinstance(body[0].value.value, str)
+            ):
+                body = body[1:]
+            if not (
+                body
+                and isinstance(body[-1], ast.Expr)
+                and isinstance(body[-1].value, ast.Call)
+                and self.index.resolve(body[-1].value.func, self.module)
+                == PACKAGE + ".utils.immutability.freeze_fields"
+                and len(body[-1].value.args) == 1
+                and isinstance(body[-1].value.args[0], ast.Name)
+                and body[-1].value.args[0].id == "self"
+                and not any(_constructor_returns(statement) for statement in body[:-1])
+            ):
+                self._add(
+                    node,
+                    _OWNED_COLLECTIONS,
+                    node.name,
+                    "Detach owned mappings and NumPy buffers with freeze_fields(self) last in __post_init__",
+                )
         self.generic_visit(node)
         self.scope.pop()
         self.class_name = previous
@@ -905,9 +1024,19 @@ class _CoreVisitor(ast.NodeVisitor):
             for decorator in node.decorator_list
         )
         self.scope.append(node.name)
+        bindings = _scope_bindings(node.body)
+        for parameter in (
+            *node.args.posonlyargs,
+            *node.args.args,
+            *node.args.kwonlyargs,
+            node.args.vararg,
+            node.args.kwarg,
+        ):
+            if parameter is not None:
+                bindings[parameter.arg] = ""
+        self.local_bindings.append(bindings)
         if (
             self._class_owned()
-            and not node.name.startswith("_")
             and node.returns is not None
             and any(
                 self._name(decorator) in {"property", "cached_property"}
@@ -924,6 +1053,7 @@ class _CoreVisitor(ast.NodeVisitor):
         self.in_function = True
         self.generic_visit(node)
         self.scope.pop()
+        self.local_bindings.pop()
         self.in_function = previous_function
         self.failure_handler = previous_failure_handler
 
@@ -941,7 +1071,6 @@ class _CoreVisitor(ast.NodeVisitor):
             isinstance(node.target, ast.Name)
             and self._class_owned()
             and not self.in_function
-            and not node.target.id.startswith("_")
             and self._mutable(node.annotation)
         ):
             self._add(
@@ -960,6 +1089,43 @@ class _CoreVisitor(ast.NodeVisitor):
                 target,
                 "Projections are total; fix the core type/constructor, or resolve external input at the boundary before projecting",
             )
+
+    def _discarded_outcome(self, node: ast.expr) -> None:
+        if not isinstance(node, ast.Call):
+            return
+        if isinstance(node.func, ast.Name):
+            for bindings in reversed(self.local_bindings):
+                if node.func.id in bindings:
+                    if not bindings[node.func.id]:
+                        return
+                    break
+        name = self.index.resolve(node.func, self.module)
+        if name not in self.index.functions:
+            return
+        path, function = self.index.functions[name]
+        if role_for_path(path) not in {"compiler", "execution"} or function.returns is None:
+            return
+        alternatives = self.index.return_variants(
+            function.returns, self.index.module(path), containers=False
+        )
+        if len(alternatives) > 1 and any(self.index.owned(member) for member in alternatives):
+            self._add(
+                node,
+                _DISCARDED_OUTCOME,
+                name,
+                "Consume or forward the typed outcome; an expected rejection cannot be discarded",
+            )
+
+    @override
+    def visit_Expr(self, node: ast.Expr) -> None:
+        self._discarded_outcome(node.value)
+        self.generic_visit(node)
+
+    @override
+    def visit_Assign(self, node: ast.Assign) -> None:
+        if any(isinstance(target, ast.Name) and target.id == "_" for target in node.targets):
+            self._discarded_outcome(node.value)
+        self.generic_visit(node)
 
     @override
     def visit_Raise(self, node: ast.Raise) -> None:
@@ -1020,11 +1186,6 @@ class _CoreVisitor(ast.NodeVisitor):
             or (
                 name == "model_copy"
                 and any(keyword.arg in {"update", None} for keyword in node.keywords)
-                and not (
-                    isinstance(node.func, ast.Attribute)
-                    and isinstance(node.func.value, ast.Name)
-                    and node.func.value.id == "self"
-                )
             )
             or (qualified in self.index.evidence and not self._owned_here(qualified))
         )
@@ -1034,7 +1195,27 @@ class _CoreVisitor(ast.NodeVisitor):
             and self._name(node.func.value) == "object"
             and node.args
         ):
-            bypass = not (isinstance(node.args[0], ast.Name) and node.args[0].id == "self")
+            bypass = not (
+                isinstance(node.args[0], ast.Name)
+                and node.args[0].id == "self"
+                and self.in_function
+                and (
+                    self.scope[-1] in {"__init__", "__post_init__"}
+                    or (
+                        self.module == PACKAGE + ".utils.immutability"
+                        and self.scope == ["freeze_fields"]
+                    )
+                )
+            )
+        if qualified == PACKAGE + ".utils.immutability.freeze_fields":
+            bypass = not (
+                self._class_owned()
+                and self.in_function
+                and self.scope[-1] == "__post_init__"
+                and len(node.args) == 1
+                and isinstance(node.args[0], ast.Name)
+                and node.args[0].id == "self"
+            )
         if name == "cast" and len(node.args) == 2:
             target = _annotation_expr(node.args[0])
             bypass = self._mutable(target) or any(

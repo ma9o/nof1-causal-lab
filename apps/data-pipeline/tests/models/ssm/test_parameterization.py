@@ -548,6 +548,7 @@ class TestCompiledArtifactIntegration:
 
     @pytest.mark.contract
     def test_ordered_threshold_priors_bind_per_manifest_component_and_row(self):
+        from nof1_causal_lab.models.model_structure import StructuralSelection
         from nof1_causal_lab.models.ssm.compile.prior_compilation import compile_priors
 
         priors, bindings, _diagnostics = compile_priors(
@@ -560,12 +561,15 @@ class TestCompiledArtifactIntegration:
                     ).read_text()
                 )
             ),
-            ModelSpec.model_validate_json(
-                (
-                    Path(__file__).resolve().parents[2]
-                    / "fixtures/models"
-                    / "parameterization/testcompiledartifactintegration_test_ordered_threshold_priors_bind_per_manifest_component_and_row_model_with_prior_payloads.json"
-                ).read_text()
+            StructuralSelection(
+                ModelSpec.model_validate_json(
+                    (
+                        Path(__file__).resolve().parents[2]
+                        / "fixtures/models"
+                        / "parameterization/testcompiledartifactintegration_test_ordered_threshold_priors_bind_per_manifest_component_and_row_model_with_prior_payloads.json"
+                    ).read_text()
+                ),
+                None,
             ),
         )
 

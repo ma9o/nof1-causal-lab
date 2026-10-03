@@ -19,6 +19,7 @@ from nof1_causal_lab.artifacts.likelihood import (
     LinkFunction,
     ObservationLawSpec,
 )
+from nof1_causal_lab.utils.immutability import freeze_fields
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -64,6 +65,9 @@ class LikelihoodAnalysis:
     intercept: CoefficientExpression
     loadings: Mapping[ConstructId, CoefficientExpression]
     auxiliary: tuple[CoefficientExpression, ...]
+
+    def __post_init__(self) -> None:
+        freeze_fields(self)
 
     @property
     def operands(self) -> tuple[CoefficientExpression, ...]:

@@ -39,6 +39,9 @@ dependencies = [
     "y0 @ git+https://github.com/y0-causal-inference/y0.git",
     "temporalio>=1.33.0",
     "pygit2>=1.20.1",
+    "optimistix>=0.1.0",
+    "sympy>=1.14.0",
+    "lineax>=0.1.1",
 ]
 
 [project.scripts]
@@ -66,7 +69,6 @@ dev = [
     "matplotlib>=3.11.2",
     "nbconvert>=7.17.1",
     "nbformat>=5.11.1",
-    "optimistix>=0.1.0",
     "plotly>=7.1.0",
     # Marimo's OpenAI integration needs only this provider extra.
     "pydantic-ai-slim[openai]>=2.52.0",

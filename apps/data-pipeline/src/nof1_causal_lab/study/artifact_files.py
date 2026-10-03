@@ -35,6 +35,7 @@ class ArtifactFileSpec:
 
 
 ARTIFACT_FILE_SPECS: dict[ArtifactId, ArtifactFileSpec] = {
+    "question": ArtifactFileSpec(json={"question": "question.json"}),
     "raw_data": ArtifactFileSpec(parquet={"raw": "raw.parquet"}),
     "model": ArtifactFileSpec(json={"model": "model.json"}),
     "identification_report": ArtifactFileSpec(

@@ -164,3 +164,250 @@ def test_pure_roles_reject_transitive_function_local_acquisition(tmp_path: Path)
         "role=" in item.diagnostic(source_root) and "fix at" in item.diagnostic(source_root)
         for item in violations
     )
+
+
+@pytest.mark.parametrize(
+    "relative",
+    [
+        "artifacts/new_value.py",
+        "models/new_compiler.py",
+        "models/ssm/new_engine.py",
+        "workers/prompts/new_projection.py",
+    ],
+)
+def test_pure_roles_reject_primitive_acquisition_and_aliases(tmp_path: Path, relative: str) -> None:
+    checker = _load_checker()
+    source_root = tmp_path / "nof1_causal_lab"
+    _write_module(
+        source_root,
+        relative,
+        """
+import builtins as py
+from datetime import datetime as Clock, date as Day
+from pathlib import Path as File
+from uuid import uuid4 as random_id
+
+def derive(path: File):
+    read = py.open
+    read("model.json")
+    input("question")
+    output = py.print
+    output("derived")
+    now = Clock.now
+    now()
+    Day.today()
+    random_id()
+    path.read_bytes()
+    (File("data") / "model.json").read_text()
+    File.cwd()
+""",
+    )
+
+    violations = checker.find_violations(source_root)
+
+    assert {item.ref.imported for item in violations} == {
+        "builtins.open",
+        "builtins.input",
+        "builtins.print",
+        "datetime.datetime.now",
+        "datetime.date.today",
+        "uuid.uuid4",
+        "pathlib.Path.read_bytes",
+        "pathlib.Path.read_text",
+        "pathlib.Path.cwd",
+    }
+    assert len(violations) == 9
+    assert all(item.code == "ARCH009" for item in violations)
+    assert all("role=" in item.diagnostic(source_root) for item in violations)
+
+
+def test_ambient_randomness_requires_explicit_local_seeds(tmp_path: Path) -> None:
+    checker = _load_checker()
+    source_root = tmp_path / "nof1_causal_lab"
+    _write_module(
+        source_root,
+        "models/new_compiler.py",
+        """
+import random as ambient
+from numpy.random import default_rng as generator, SeedSequence
+import numpy as np
+from secrets import token_hex
+
+def derive():
+    ambient.random()
+    ambient.Random()
+    ambient.SystemRandom(42)
+    np.random.normal()
+    generator()
+    generator(seed=None)
+    SeedSequence()
+    token_hex()
+""",
+    )
+
+    violations = checker.find_violations(source_root)
+
+    assert [item.ref.imported for item in violations] == [
+        "random.random",
+        "random.Random",
+        "random.SystemRandom",
+        "numpy.random.normal",
+        "numpy.random.default_rng",
+        "numpy.random.default_rng",
+        "numpy.random.SeedSequence",
+        "secrets.token_hex",
+    ]
+    assert all(item.code == "ARCH009" for item in violations)
+
+
+def test_pure_operations_shadowed_names_and_seeded_generators_are_allowed(tmp_path: Path) -> None:
+    checker = _load_checker()
+    source_root = tmp_path / "nof1_causal_lab"
+    _write_module(
+        source_root,
+        "models/new_compiler.py",
+        """
+from datetime import datetime as Clock, timedelta
+from pathlib import Path
+from random import Random
+from numpy.random import default_rng, SeedSequence, Generator, PCG64
+
+def derive(open, input, Clock, seed):
+    open()
+    input()
+    Clock.now()
+    local = Random(seed)
+    local.random()
+    generator = default_rng(seed=seed)
+    generator.normal()
+    SeedSequence(entropy=seed)
+    Generator(PCG64(seed))
+    return (Path("data") / "model.json").with_suffix(".csv")
+
+def date_arithmetic():
+    return Clock(2020, 1, 1) + timedelta(days=1)
+
+def shadowed_clock():
+    Clock = PureClock
+    return Clock.now()
+""",
+    )
+
+    assert checker.find_violations(source_root) == ()
+
+
+def test_local_imports_assigned_paths_and_type_only_effects(tmp_path: Path) -> None:
+    checker = _load_checker()
+    source_root = tmp_path / "nof1_causal_lab"
+    _write_module(
+        source_root,
+        "models/new_compiler.py",
+        """
+from typing import TYPE_CHECKING as TYPES
+import typing as t
+
+if TYPES:
+    from datetime import datetime
+    datetime.now()
+    open("types-only")
+
+if t.TYPE_CHECKING:
+    input("types-only")
+
+def derive():
+    from datetime import datetime as Clock
+    import pathlib as files
+    now = Clock.now
+    now()
+    path = files.Path("data")
+    path.parent.joinpath("model.json").read_text()
+    path.parents[0].read_bytes()
+    other: files.Path = supplied_path()
+    other.exists()
+
+if not TYPES:
+    input("runtime")
+else:
+    open("types-only")
+""",
+    )
+
+    violations = checker.find_violations(source_root)
+
+    assert [item.ref.imported for item in violations] == [
+        "datetime.datetime.now",
+        "pathlib.Path.read_text",
+        "pathlib.Path.read_bytes",
+        "pathlib.Path.exists",
+        "builtins.input",
+    ]
+
+
+def test_classes_lambdas_and_comprehensions_preserve_lexical_origins(tmp_path: Path) -> None:
+    checker = _load_checker()
+    source_root = tmp_path / "nof1_causal_lab"
+    _write_module(
+        source_root,
+        "models/new_compiler.py",
+        """
+from datetime import datetime as Clock
+
+class PureClock:
+    def now(self):
+        return 0
+
+class Reader:
+    Clock = PureClock
+    Clock.now()
+
+    def read(self):
+        return Clock.now()
+
+def callbacks(clocks, readers):
+    (lambda Clock: Clock.now())(PureClock)
+    [input() for input in readers]
+    {Clock.now() for Clock in clocks}
+    {Clock: Clock.now() for Clock in clocks}
+    tuple(Clock.now() for Clock in clocks)
+    return Clock.now()
+
+def local_import():
+    from builtins import input as ask
+    ask("runtime")
+
+def separate_scope(ask):
+    ask("pure callback")
+""",
+    )
+
+    violations = checker.find_violations(source_root)
+
+    assert [item.ref.imported for item in violations] == [
+        "datetime.datetime.now",
+        "datetime.datetime.now",
+        "builtins.input",
+    ]
+
+
+@pytest.mark.parametrize("relative", ["study/new_reader.py", "actions/new_action.py"])
+def test_edges_and_shells_own_primitive_effects(tmp_path: Path, relative: str) -> None:
+    checker = _load_checker()
+    source_root = tmp_path / "nof1_causal_lab"
+    _write_module(
+        source_root,
+        relative,
+        """
+from datetime import datetime
+from pathlib import Path
+from numpy.random import default_rng
+
+def acquire():
+    open("model.json")
+    input("question")
+    datetime.now()
+    Path("model.json").read_text()
+    default_rng()
+""",
+    )
+
+    assert checker.find_violations(source_root) == ()

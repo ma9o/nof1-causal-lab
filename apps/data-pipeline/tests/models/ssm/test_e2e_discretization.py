@@ -16,6 +16,7 @@ from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.expressions import expression_coefficients
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind
+from nof1_causal_lab.models.model_structure import StructuralSelection
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
 from nof1_causal_lab.models.ssm.compile.inputs import (
@@ -35,7 +36,7 @@ def _compile_structure(payload: dict[str, Any]) -> ModelSpec:
 
 def _compile_priors_for_test(scientific_model: ModelSpec):
     prior_registry, index_maps, _diagnostics = compile_ssm_priors(
-        compile_model_fixture(scientific_model), scientific_model
+        compile_model_fixture(scientific_model), StructuralSelection(scientific_model, None)
     )
     return prior_registry, index_maps
 
@@ -113,7 +114,6 @@ def two_construct_structure() -> ModelSpec:
     """
     return _compile_structure(
         {
-            "default_outcome": "construct:bbc87212909e45b9e6c3",
             "edges": [
                 {
                     "cause": {
@@ -314,7 +314,7 @@ class TestE2ESpecToDiscretization:
                     for p in typed_scientific_model.parameters
                     if p.id == binding.parameter_id
                 ),
-                "site_name": binding.site_name,
+                "site_name": binding.site.name,
                 "flat_index": binding.flat_index,
             }
             for binding in parameter_bindings(

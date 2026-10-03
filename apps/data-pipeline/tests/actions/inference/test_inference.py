@@ -12,6 +12,9 @@ import pytest
 
 from nof1_causal_lab.actions.inference import fit as stage5_inference
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.models.model_structure import StructuralSelection
+from nof1_causal_lab.models.ssm import runtime as runtime_module
+from nof1_causal_lab.models.ssm.compile import inputs as compilation
 from nof1_causal_lab.models.ssm.compile.inputs import CompiledFitInputs
 from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior
 from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
@@ -61,7 +64,7 @@ class _FakeResult(ParticleMCMCPosterior):
 
 
 def _make_observation_support_runtime() -> ObservationSupportRuntime:
-    return ObservationSupportRuntime(
+    return ObservationSupportRuntime.assembled(
         manifest_names=("sleep_avg", "energy"),
         anchor_times=np.array([0.0, 1.5]),
         support_kinds=("interval", "point"),
@@ -113,9 +116,10 @@ def test_fit_model_logs_runtime_summary_and_diagnostic_boundaries(monkeypatch, c
     fake_model = compile_fit_fixture(spec)
     runtime = _make_panel(fake_model)
 
-    monkeypatch.setattr(stage5_inference, "bind_panel", lambda **_kwargs: runtime)
+    monkeypatch.setattr(compilation, "compile_ssm_inputs_from_model", lambda _selection: fake_model)
+    monkeypatch.setattr(runtime_module, "bind_panel", lambda *_args, **_kwargs: runtime)
     monkeypatch.setattr(
-        stage5_inference, "fit_prepared_model", lambda _inputs, _panel, **_kwargs: fake_result
+        stage5_inference, "fit_prepared_model", lambda _prepared, **_kwargs: fake_result
     )
 
     data_for_model = pl.DataFrame(
@@ -132,7 +136,7 @@ def test_fit_model_logs_runtime_summary_and_diagnostic_boundaries(monkeypatch, c
 
     with caplog.at_level(logging.INFO, logger=stage5_inference.logger.name):
         result = stage5_inference.fit_model(
-            spec,
+            StructuralSelection(spec, None),
             data_for_model,
             time_origin=datetime(2024, 1, 1, tzinfo=UTC),
             sampler=SamplerSpec(),
@@ -166,9 +170,10 @@ def test_fit_model_can_skip_loo_diagnostics(monkeypatch, caplog):
     fake_model = compile_fit_fixture(spec)
     runtime = _make_panel(fake_model)
 
-    monkeypatch.setattr(stage5_inference, "bind_panel", lambda **_kwargs: runtime)
+    monkeypatch.setattr(compilation, "compile_ssm_inputs_from_model", lambda _selection: fake_model)
+    monkeypatch.setattr(runtime_module, "bind_panel", lambda *_args, **_kwargs: runtime)
     monkeypatch.setattr(
-        stage5_inference, "fit_prepared_model", lambda _inputs, _panel, **_kwargs: fake_result
+        stage5_inference, "fit_prepared_model", lambda _prepared, **_kwargs: fake_result
     )
 
     data_for_model = pl.DataFrame(
@@ -181,7 +186,7 @@ def test_fit_model_can_skip_loo_diagnostics(monkeypatch, caplog):
 
     with caplog.at_level(logging.INFO, logger=stage5_inference.logger.name):
         result = stage5_inference.fit_model(
-            spec,
+            StructuralSelection(spec, None),
             data_for_model,
             time_origin=datetime(2024, 1, 1, tzinfo=UTC),
             sampler=SamplerSpec(),

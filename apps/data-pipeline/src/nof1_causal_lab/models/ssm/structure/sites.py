@@ -10,17 +10,13 @@ binding keys used by compile-time and runtime layers.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
+from nof1_causal_lab.artifacts.base import Value
+from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
 
 type SitePosition = int | tuple[int, ...]
 
 
-@dataclass(frozen=True)
-class SiteDescriptor:
+class SiteDescriptor(Value):
     """Metadata for a single sample site.
 
     ``positions`` is the free-entry index list owned by the originating
@@ -35,74 +31,52 @@ class SiteDescriptor:
     assembly_group: str
     site_kind: SiteKind
     positions: tuple[SitePosition, ...] = ()
-    deterministic_name: str | None = None
-    fixed_spec_field: str | None = None
-    priors_field: str | None = None
-    runtime_prior_key: str | None = None
-    is_runtime_prior_controlled: bool = True
+    prior_field: str | None = None
 
 
-@dataclass(frozen=True)
-class ScalarSiteSelection:
+class ScalarSiteSelection(Value):
     flat_index: int
 
 
-@dataclass(frozen=True)
-class RowSiteSelection:
+class RowSiteSelection(Value):
     row: int
 
 
-@dataclass(frozen=True)
-class WholeSiteSelection:
+class WholeSiteSelection(Value):
     """Select every native coordinate, including execution-only padding."""
 
 
 type SiteSelection = ScalarSiteSelection | RowSiteSelection | WholeSiteSelection
 
 
-@dataclass(frozen=True)
-class SemanticBinding:
-    """One semantic model parameter bound to a runtime sample-site component."""
+class CompiledBlockTarget(Value):
+    """A parameter whose placement is owned by its block's site coordinates."""
 
-    parameter_name: str
-    site_name: str
+
+class CompiledNodeTarget(Value):
+    """A node expression's component and owning state coordinate."""
+
+    component_index: int
+    target_index: int
+
+
+class CompiledEdgeTarget(Value):
+    """An edge expression's component and resolved effect/cause coordinates."""
+
+    component_index: int
+    target_index: int
+    source_index: int
+
+
+type CompiledBindingTarget = CompiledBlockTarget | CompiledNodeTarget | CompiledEdgeTarget
+
+
+class CompiledSiteBinding(Value):
+    """A selected native site and its resolved structural owner."""
+
+    site: SiteDescriptor
     selection: SiteSelection
-    site_kind: SiteKind
-    prior_field: str | None = None
-    construct_names: tuple[str, ...] = ()
-    indicator_names: tuple[str, ...] = ()
-    component_index: int | None = None
-    effect_idx: int | None = None
-    cause_idx: int | None = None
-
-
-def make_site(
-    name: str,
-    shape: tuple[int, ...],
-    support: SupportClass,
-    assembly_group: str,
-    site_kind: SiteKind,
-    *,
-    positions: tuple[SitePosition, ...] = (),
-    deterministic_name: str | None = None,
-    fixed_spec_field: str | None = None,
-    priors_field: str | None = None,
-    runtime_prior_key: str | None = None,
-) -> SiteDescriptor:
-    """Construct the scientific metadata for one authored sample site."""
-    return SiteDescriptor(
-        name=name,
-        shape=shape,
-        support=support,
-        assembly_group=assembly_group,
-        site_kind=site_kind,
-        positions=positions,
-        deterministic_name=deterministic_name,
-        fixed_spec_field=fixed_spec_field,
-        priors_field=priors_field,
-        runtime_prior_key=runtime_prior_key or name,
-        is_runtime_prior_controlled=True,
-    )
+    target: CompiledBindingTarget
 
 
 def site_size(shape: tuple[int, ...]) -> int:

@@ -26,6 +26,8 @@ Endogenous means modeled, with or without causal parents. Every latent construct
 
 Declared edges specify direct causal parents. Their [temporal interpretation](../apps/data-pipeline/src/nof1_causal_lab/utils/identifiability.py) follows the constructs’ temporal status.
 
+The model is built to answer the study [question](../apps/data-pipeline/src/nof1_causal_lab/artifacts/question.py), which every study sets first. The question names its outcome and intervention targets by construct identity before any model exists, and every edited model must define them. Its outcome scopes execution: only the outcome's connected component is compiled, fitted and simulated, so the rest of the graph needs no prior laws. An unmeasured root is projected out as correlated noise or a shared baseline factor, except a confounder that blocks identification of an effect on the outcome, which must be measured or modeled before the model runs.
+
 ### A3. Markov dynamics
 
 Time-varying endogenous states follow first-order Markov dynamics: the current state summarizes earlier history. Explicit delay equations and higher-order lags are not modeled. Residual autocorrelation can indicate missing state dynamics or confounders. First-order within-person dynamics are the standard starting point in [dynamic SEM](https://doi.org/10.1080/10705511.2017.1406803).
@@ -90,11 +92,13 @@ Historical fits migrated from the old anchor-based convention retain their origi
 
 These choices are substantive: a daily mean mood and an end-of-day mood encode different theories of what matters. Neither a point summary nor an exact (`Delta`) observation implies that a value persists between observations.
 
+A simulation window, like each question query, has one calendar date, its `start`; the window lasts a `horizon`, and interventions sit `after` offsets from the start. The record's day zero places the start in model days: the fit's origin for fitted laws, otherwise the current panel's. Without a panel the start is day zero, so the initial-state law applies there.
+
 A historical simulation start still uses the selected revision's current joint law, including later observations used to fit it. Changing `start` does not undo conditioning or restrict the simulation to information available at that date.
 
 ## Causal identification
 
-Identification is checked separately for each treatment's effect on the model's default outcome, using nonparametric do-calculus and the ID algorithm of [Shpitser & Pearl (2006)](https://aaai.org/Papers/AAAI/2006/AAAI06-191.pdf). One unidentified effect does not affect the others. Linear instrumental-variable arguments are not accepted, because the nonlinear model does not make the linearity assumptions they need.
+Identification is checked separately for each treatment's effect on the question's outcome, using nonparametric do-calculus and the ID algorithm of [Shpitser & Pearl (2006)](https://aaai.org/Papers/AAAI/2006/AAAI06-191.pdf). One unidentified effect does not affect the others. Linear instrumental-variable arguments are not accepted, because the nonlinear model does not make the linearity assumptions they need.
 
 ### A3a. Scope of the two-slice check
 
@@ -112,7 +116,9 @@ The graph users see stays a DAG with explicit latent confounders. Internally, th
 
 ## Parameter anchors
 
-Every retained construct has exactly one location anchor and one scale anchor. Any shift or rescaling of a latent state that the anchors leave free must be absorbed by exactly one free parameter group. Two such groups would create an exact likelihood ridge, and none would over-constrain the model. A model whose complete constructs break this invariant cannot be constructed.
+Every retained construct has exactly one location anchor and one scale anchor. Any shift or rescaling of a latent state that the anchors leave free must be absorbed by exactly one free parameter group. Two such groups would create an exact likelihood ridge, and none would over-constrain the model. A model whose complete retained constructs break this invariant is refused.
+
+A model whose free coefficients enter only through a sum, or only through a product, in every use cannot be constructed: the observed-data law depends only on that combination, so no data can separate them. Two linear mechanisms on one edge, `a·X + b·X`, are the common case. The [check](../apps/data-pipeline/src/nof1_causal_lab/models/coefficient_redundancy.py) expands each equation into terms and tests the rank of the linear and multiplicative forms exactly; it misses redundancies it cannot see and never reports one that is absent. Passing it is not an identifiability proof. Redundancy that depends on the data, such as a cause the record holds constant, is reported against the question instead, because an intervention can break it.
 
 - **Location** is anchored by the first of these that applies:
   1. A standardized channel: a mean-centered Gaussian or Student-t identity-link indicator whose intercept is fixed at zero.
@@ -135,12 +141,12 @@ Some parameter pairs are only weakly separated, and the invariant deliberately d
 
 `simulate` reports a numeric effect only when all of these hold:
 
-- The treatment's effect on the model's default outcome is identified within the [implemented graph check's scope](#a3a-scope-of-the-two-slice-check).
+- The treatment's effect on the question's outcome is identified within the [implemented graph check's scope](#a3a-scope-of-the-two-slice-check).
 - The simulated model was conditioned by a committed production fit, using the particle engine with the nonlinear Euler–Maruyama target, and it matches that fit's record exactly.
 - That fit passed its [convergence checks](assets/action-flows/fit.svg), within the [sampler diagnostics' limits](#reading-results). A fit that fails them still saves with a warning, and the model needs revising before its effects are reported.
 - The simulated paths are finite.
 
-Otherwise it still returns the generated histories and records why no effect is reported. Interventions are dated state assignments, after which the model's dynamics resume. Effects are reported for the default outcome only. Certification covers the identified treatment and outcome; it does not add a separate identification proof for a general timed joint intervention.
+Otherwise it still returns the generated histories and records why no effect is reported. Interventions are dated state assignments, after which the model's dynamics resume. Effects are reported for the question's outcome only. Certification covers the identified treatment and outcome; it does not add a separate identification proof for a general timed joint intervention.
 
 Certification does not look at predictive checks or LOO. Read those before trusting a reported effect.
 
@@ -154,3 +160,4 @@ Certification does not look at predictive checks or LOO. Read those before trust
 - **The DT-to-CT diagnostic** compares the elementwise conversion of a linear reference matrix, built from the priors, with its matrix logarithm. Its warning says nothing about the full nonlinear system.
 - **C3 resolvability** is a screen that compares `1 / decay` with the observation gaps and span. It is not a nonlinear relaxation analysis or an identification test.
 - **Data pattern warnings**, such as dominant duplicate values or arithmetic sequences, flag possible fabrication; they do not prove it.
+- **Question checks** compare each query with the model and the record. An intervention value outside an exactly read input's recorded range, or a record that holds the input constant, means the answer there comes from the model's assumptions, not from this person's data.

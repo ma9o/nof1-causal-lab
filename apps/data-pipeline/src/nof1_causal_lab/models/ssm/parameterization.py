@@ -20,6 +20,7 @@ import jax.random as random
 
 from nof1_causal_lab.models.ssm.execution.parameters import assemble_model_matrices
 from nof1_causal_lab.models.ssm.priors import resolve_site_priors
+from nof1_causal_lab.utils.immutability import freeze_fields
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -36,6 +37,9 @@ class PriorRuntimeBundle:
 
     registry: tuple[SiteDescriptor, ...]
     priors: Mapping[str, dist.Distribution]
+
+    def __post_init__(self) -> None:
+        freeze_fields(self)
 
 
 # ---------------------------------------------------------------------------

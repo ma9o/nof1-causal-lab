@@ -14,7 +14,7 @@ from nof1_causal_lab.artifacts.likelihood import (
 )
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind
-from nof1_causal_lab.models.model_structure import selected_state_ids
+from nof1_causal_lab.models.model_structure import StructuralSelection, selected_state_ids
 from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
 from tests.model_fixtures import compile_fit_fixture, compile_model_fixture
 
@@ -61,7 +61,9 @@ def test_scalar_identity_survives_reordered_execution_axes():
             / "scientific_parameter_identity/scalar_identity_survives_reordered_execution_axes__compile_2.json"
         ).read_text()
     )
-    assert selected_state_ids(model) == tuple(reversed(selected_state_ids(reordered)))
+    assert selected_state_ids(StructuralSelection(model, None)) == tuple(
+        reversed(selected_state_ids(StructuralSelection(reordered, None)))
+    )
     decay = next(
         p
         for p in model.parameters
@@ -393,8 +395,10 @@ def _assert_same_prior_laws(first, second):
 
     from nof1_causal_lab.models.ssm.compile.prior_compilation import compile_priors
 
-    first_laws = compile_priors(compile_model_fixture(first), first)[0]
-    second_laws = compile_priors(compile_model_fixture(second), second)[0]
+    first_laws = compile_priors(compile_model_fixture(first), StructuralSelection(first, None))[0]
+    second_laws = compile_priors(compile_model_fixture(second), StructuralSelection(second, None))[
+        0
+    ]
     assert first_laws.keys() == second_laws.keys()
     for name, law in first_laws.items():
         for value in (0.15, 0.5, 1.25):

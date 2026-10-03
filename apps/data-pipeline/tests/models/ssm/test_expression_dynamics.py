@@ -10,6 +10,7 @@ from pydantic import TypeAdapter
 
 from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec, replace_constructs
 from nof1_causal_lab.artifacts.expressions import (
+    CallExpression,
     CoefficientExpression,
     coefficient,
     expression_coefficients,
@@ -109,6 +110,39 @@ def test_existing_functions_and_composition_preserve_drift_and_intervention_inpu
     gradient = jax.grad(lambda x: derivative(x, Intervention.none())[1])(values)
     assert np.all(np.isfinite(gradient))
     np.testing.assert_allclose(gradient[1], -0.7 - 3 * 0.2 * 0.5**2, rtol=1e-6)
+
+
+@pytest.mark.inference(concern="simulation")
+def test_symbolic_compilation_preserves_native_values_gradients_and_domains():
+    x = state(ConstructId("construct:x"))
+    identity = scientific_id("parameter", "gain")
+    gain = coefficient(identity, "weight")
+    formula = (
+        hill(x, emax=2, ec50=1.5, n=2)
+        + CallExpression(function="exp", arguments=(gain * x,))
+        - CallExpression(function="sigmoid", arguments=(x,))
+    ) / (CallExpression(function="normal_cdf", arguments=(x,)) + 1)
+    component = _component(formula, source=0).build()
+
+    def compiled(values):
+        return component.evaluate(jnp.array([values[0], 0.0, 0.0]), {identity: values[1]})
+
+    def native(values):
+        dose, amplitude = values
+        positive = jnp.maximum(dose, 0.0)
+        saturation = 2 * positive**2 / (1.5**2 + positive**2 + 1e-12)
+        return (saturation + jnp.exp(amplitude * dose) - jax.nn.sigmoid(dose)) / (
+            1 + jax.scipy.special.ndtr(dose)
+        )
+
+    values = jnp.array([1.2, 0.4])
+    actual = jax.jit(jax.value_and_grad(compiled))(values)
+    expected = jax.value_and_grad(native)(values)
+    for result, reference in zip(actual, expected, strict=True):
+        np.testing.assert_allclose(result, reference, rtol=1e-6, atol=1e-7)
+    quotient = _component(x / x, source=0).build()
+    assert np.isnan(quotient.evaluate(jnp.zeros(3), {}))
+    assert expression_states(x / x) == {"construct:x"}
 
 
 @pytest.mark.inference(concern="sampling")

@@ -10,15 +10,13 @@ the helpers with real transformation or graph logic:
 
 import pytest
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.utils.causal_design import (
     build_digraph,
     get_all_treatments,
     get_outcome_name,
 )
-from nof1_causal_lab.utils.model_structure import get_state_names
 from tests.causal.graph_fixtures import make_graph
-from tests.helpers import fixture_entity_id, make_model
+from tests.helpers import fixture_entity_id
 
 pytestmark = pytest.mark.contract
 
@@ -101,11 +99,5 @@ class TestGetAllTreatments:
             [{"name": name} for name in names],
             [{"cause": cause, "effect": effect} for cause, effect in pairs],
         )
-        default_outcome = fixture_entity_id("construct", outcome) if outcome is not None else None
-        assert get_all_treatments(constructs, edges, default_outcome) == expected
-
-
-class TestModelSpecAccessors:
-    def test_get_state_names_preserves_compiled_order(self):
-        plan = make_model(["stress", "mood"], [("stress", "mood")])
-        assert get_state_names(ModelSpec.model_validate(plan)) == ["stress", "mood"]
+        outcome_id = fixture_entity_id("construct", outcome) if outcome is not None else None
+        assert get_all_treatments(constructs, edges, outcome_id) == expected

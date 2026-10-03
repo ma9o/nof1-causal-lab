@@ -12,24 +12,26 @@ from nof1_causal_lab.artifacts.identification import (
 from nof1_causal_lab.utils.identifiability import check_identifiability, get_observed_constructs
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.models.model_structure import StructuralSelection
 
 
-def identify_model(model: ModelSpec) -> IdentificationReport:
-    if model.default_outcome is None:
+def identify_model(selection: StructuralSelection) -> IdentificationReport:
+    """Identify each treatment's effect on the outcome that scopes the selection."""
+    model, outcome = selection.model, selection.outcome
+    if outcome is None:
         return IdentificationReport(outcome=None)
     # ModelSpec permits nonlinear dynamics; a linear-IV argument cannot establish
     # identification for this model, including during partial authoring.
     result = check_identifiability(
         model.constructs,
         model.edges,
-        default_outcome=model.default_outcome,
+        outcome_id=outcome,
         observed_constructs=get_observed_constructs(model.constructs),
         iv_allowed=False,
     )
     by_name = {construct.name: construct.id for construct in model.constructs}
     return IdentificationReport(
-        outcome=model.default_outcome,
+        outcome=outcome,
         treatments={
             **{
                 by_name[name]: IdentifiedTreatmentStatus(

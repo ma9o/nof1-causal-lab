@@ -11,6 +11,8 @@ from pydantic import TypeAdapter, ValidationError
 
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter_spec import PersistenceTransformSpec
+from nof1_causal_lab.models.model_parameters import require_priors
+from nof1_causal_lab.models.model_structure import StructuralSelection
 from nof1_causal_lab.numpyro_json import NumPyroDistribution
 from nof1_causal_lab.prior_distributions import persistence_to_decay
 
@@ -142,13 +144,13 @@ def test_completed_model_requires_a_prior_on_each_parameter():
         parameters=tuple(parameter.revised(distribution=None) for parameter in science.parameters),
     )
     with pytest.raises(IncompleteModelError, match="prior"):
-        draft.require_priors()
+        require_priors(StructuralSelection(draft, None))
     completed = ModelSpec.model_validate_json(
         (
             Path(__file__).resolve().parents[1] / "fixtures/models" / "common/x_model.json"
         ).read_text()
     )
-    completed.require_priors()
+    require_priors(StructuralSelection(completed, None))
     assert [p.id for p in completed.parameters] == [p.id for p in draft.parameters]
     assert all(p.distribution is not None for p in completed.parameters)
     assert all(p.distribution is None for p in draft.parameters)

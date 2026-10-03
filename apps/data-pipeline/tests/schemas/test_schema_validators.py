@@ -205,9 +205,11 @@ def test_response_presence_is_independent_of_request_defaults_and_excluded_field
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
     model = ModelSpec()
-    assert model.model_dump(mode="json")["question"] is None
-    assert "question" in ModelSpec.model_json_schema(mode="serialization")["required"]
-    assert "question" not in ModelSpec.model_json_schema(mode="validation").get("required", [])
+    assert model.model_dump(mode="json")["measurement_clock"] is None
+    assert "measurement_clock" in ModelSpec.model_json_schema(mode="serialization")["required"]
+    assert "measurement_clock" not in ModelSpec.model_json_schema(mode="validation").get(
+        "required", []
+    )
 
     class PrivateField(Value):
         visible: int = 0
@@ -216,3 +218,33 @@ def test_response_presence_is_independent_of_request_defaults_and_excluded_field
     value = PrivateField(excluded="private")
     assert value.model_dump(mode="json") == {"visible": 0}
     assert "excluded" not in PrivateField.model_json_schema(mode="serialization")["properties"]
+
+
+def test_owned_mappings_detach_nested_inputs_defaults_and_revisions() -> None:
+    from collections.abc import Mapping
+    from types import MappingProxyType
+
+    from pydantic import Field
+
+    from nof1_causal_lab.artifacts.base import Value
+
+    class Contract(Value):
+        groups: Mapping[str, Mapping[str, tuple[int, ...]]] = Field(default_factory=dict)
+
+    source: dict[str, dict[str, tuple[int, ...]]] = {"first": {"values": (1, 2)}}
+    value = Contract(groups=source)
+    source["first"]["values"] = (9,)
+    assert value.groups["first"]["values"] == (1, 2)
+    assert isinstance(value.groups, MappingProxyType)
+    assert isinstance(value.groups["first"], MappingProxyType)
+    assert isinstance(Contract().groups, MappingProxyType)
+
+    changes = {"second": {"values": (3,)}}
+    revised = value.revised(groups=changes)
+    changes["second"]["values"] = (4,)
+    assert revised.groups["second"]["values"] == (3,)
+    assert revised.model_dump(mode="json") == {"groups": {"second": {"values": [3]}}}
+    assert Contract.model_validate_json(revised.model_dump_json()) == revised
+    assert (
+        Contract.model_json_schema(mode="serialization")["properties"]["groups"]["type"] == "object"
+    )

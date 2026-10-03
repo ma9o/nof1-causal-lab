@@ -7,6 +7,8 @@ from typing import TYPE_CHECKING
 import jax.numpy as jnp
 
 if TYPE_CHECKING:
+    from collections.abc import Sequence
+
     import numpy as np
 
 
@@ -34,7 +36,7 @@ def strict_lower_positions(mask: np.ndarray | jnp.ndarray, n: int) -> list[tuple
 
 # ---------------------------------------------------------------------------
 # Generic sparse-substitution helpers (used by the BlockSpec abstraction
-# in ``blocks.py`` and by ``SSMParameterLayout``)
+# in ``blocks.py``)
 # ---------------------------------------------------------------------------
 
 
@@ -54,8 +56,8 @@ def assemble_sparse[Position: int | tuple[int, int]](
 
 def assemble_diffusion_chol(
     diffusion_chol_template: jnp.ndarray,
-    diag_positions: list[int],
-    lower_positions: list[tuple[int, int]],
+    diag_positions: Sequence[int],
+    lower_positions: Sequence[tuple[int, int]],
     diag_free: jnp.ndarray | None,
     lower_free: jnp.ndarray | None,
     time_invariant_mask: np.ndarray | jnp.ndarray | None,
@@ -80,7 +82,7 @@ def assemble_diffusion_chol(
 
 def assemble_manifest_chol(
     template: jnp.ndarray,
-    free_positions: list[int],
+    free_positions: Sequence[int],
     free: jnp.ndarray | None,
 ) -> jnp.ndarray:
     """Manifest-noise diagonal-Cholesky assembler. Inserts free diagonal

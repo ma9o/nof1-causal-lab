@@ -23,7 +23,7 @@ from nof1_causal_lab.artifacts.likelihood import (
 )
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.compilation_errors import AggregatedCompileError
-from nof1_causal_lab.models.model_structure import selected_state_ids
+from nof1_causal_lab.models.model_structure import StructuralSelection, selected_state_ids
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.compile.observations import materialize_observation_laws
 from tests.helpers import fixture_entity_id, make_model
@@ -198,14 +198,15 @@ class TestLocationAnchors:
         assert compile_model_fixture(spec).observation_mean_block.free_support.tolist() == [True]
 
     def test_free_center_without_standardized_channel_fails(self):
+        model = ModelSpec.model_validate_json(
+            (
+                Path(__file__).resolve().parents[2]
+                / "fixtures/models"
+                / "identification_anchors/testlocationanchors_test_free_center_without_standardized_channel_fails__with_likelihoods.json"
+            ).read_text()
+        )
         with pytest.raises(ValueError, match="Construct 'mood' has no location anchor"):
-            ModelSpec.model_validate_json(
-                (
-                    Path(__file__).resolve().parents[2]
-                    / "fixtures/models"
-                    / "identification_anchors/testlocationanchors_test_free_center_without_standardized_channel_fails__with_likelihoods.json"
-                ).read_text()
-            )
+            StructuralSelection(model, None)
 
     def test_free_center_with_standardized_channel_compiles(self):
         spec = ModelSpec.model_validate_json(
@@ -257,11 +258,12 @@ class TestLocationAnchors:
         payload = (
             Path(__file__).resolve().parents[2] / "fixtures/models" / model_payload
         ).read_text()
+        model = ModelSpec.model_validate_json(payload)
         if affine:
             with pytest.raises(ValueError, match="Construct 'mood' has no location anchor"):
-                ModelSpec.model_validate_json(payload)
+                StructuralSelection(model, None)
         else:
-            ModelSpec.model_validate_json(payload)
+            StructuralSelection(model, None)
 
     def test_static_t0_mean_gated_without_standardized_channel(self):
         spec = ModelSpec.model_validate_json(
@@ -290,7 +292,9 @@ class TestLocationAnchors:
     def test_unmeasured_construct_stays_scientific_without_an_unidentified_state(self):
         plan = _structure(["mood", "ghost"], [_indicator("mood_rating", "mood", "continuous")])
         assert plan.get_construct(fixture_entity_id("construct", "ghost")).indicators == ()
-        assert fixture_entity_id("construct", "ghost") not in selected_state_ids(plan)
+        assert fixture_entity_id("construct", "ghost") not in selected_state_ids(
+            StructuralSelection(plan, None)
+        )
 
 
 # ═══════════════════════════════════════════════════════════════════════

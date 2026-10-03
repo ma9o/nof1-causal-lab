@@ -10,7 +10,7 @@ import pytest
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.ssm.inference import fit
 from nof1_causal_lab.models.ssm.preflight import (
-    ObservationPreflightError,
+    ObservationPreflightFailure,
     validate_observations_for_fit,
 )
 from nof1_causal_lab.sampler_config import (
@@ -33,7 +33,7 @@ def _panel(inputs, observations):
     )
 
 
-def test_raises_on_unreachable_free_manifest_mean():
+def test_returns_rejection_for_unreachable_free_manifest_mean():
     model = compile_fit_fixture(
         ModelSpec.model_validate_json(
             (
@@ -43,10 +43,11 @@ def test_raises_on_unreachable_free_manifest_mean():
             ).read_text()
         )
     )
-    with pytest.raises(ObservationPreflightError, match="raw_channel"):
-        validate_observations_for_fit(
-            model.prior_runtime_bundle, _panel(model, _observations(87.0, 0.1))
-        )
+    failure = validate_observations_for_fit(
+        model.prior_runtime_bundle, _panel(model, _observations(87.0, 0.1))
+    )
+    assert isinstance(failure, ObservationPreflightFailure)
+    assert "raw_channel" in failure.message
 
 
 def test_passes_when_free_mean_is_within_prior_reach():
@@ -59,8 +60,11 @@ def test_passes_when_free_mean_is_within_prior_reach():
             ).read_text()
         )
     )
-    validate_observations_for_fit(
-        model.prior_runtime_bundle, _panel(model, _observations(0.5, -0.3))
+    assert (
+        validate_observations_for_fit(
+            model.prior_runtime_bundle, _panel(model, _observations(0.5, -0.3))
+        )
+        is None
     )
 
 
@@ -74,8 +78,11 @@ def test_preflight_uses_compiled_authored_location_laws():
         ).read_text()
     )
     model = compile_fit_fixture(spec)
-    validate_observations_for_fit(
-        model.prior_runtime_bundle, _panel(model, _observations(87.0, 0.1))
+    assert (
+        validate_observations_for_fit(
+            model.prior_runtime_bundle, _panel(model, _observations(87.0, 0.1))
+        )
+        is None
     )
 
 
@@ -89,8 +96,11 @@ def test_fixed_manifest_means_are_not_judged():
             ).read_text()
         )
     )
-    validate_observations_for_fit(
-        model.prior_runtime_bundle, _panel(model, _observations(87.0, 0.1))
+    assert (
+        validate_observations_for_fit(
+            model.prior_runtime_bundle, _panel(model, _observations(87.0, 0.1))
+        )
+        is None
     )
 
 
@@ -105,7 +115,7 @@ def test_binding_standardizes_flagged_channels_before_preflight():
         )
     )
     obs = _observations(87.0, 0.1)
-    validate_observations_for_fit(model.prior_runtime_bundle, _panel(model, obs))
+    assert validate_observations_for_fit(model.prior_runtime_bundle, _panel(model, obs)) is None
 
 
 def test_non_identity_links_are_not_judged():
@@ -120,7 +130,7 @@ def test_non_identity_links_are_not_judged():
     )
     obs = _observations(0.0, 0.1)
     obs[:, 0] = RNG.poisson(80.0, size=obs.shape[0]).astype(np.float64)
-    validate_observations_for_fit(model.prior_runtime_bundle, _panel(model, obs))
+    assert validate_observations_for_fit(model.prior_runtime_bundle, _panel(model, obs)) is None
 
 
 def test_nan_only_channels_are_skipped():
@@ -135,7 +145,7 @@ def test_nan_only_channels_are_skipped():
     )
     obs = _observations(0.2, 0.1)
     obs[:, 0] = np.nan
-    validate_observations_for_fit(model.prior_runtime_bundle, _panel(model, obs))
+    assert validate_observations_for_fit(model.prior_runtime_bundle, _panel(model, obs)) is None
 
 
 def test_fit_runs_preflight_before_dispatch():
@@ -149,12 +159,13 @@ def test_fit_runs_preflight_before_dispatch():
         )
     )
     obs = _observations(87.0, 0.1)
-    with pytest.raises(ObservationPreflightError, match="raw_channel"):
-        fit(
-            model.prior_runtime_bundle,
-            bind_panel_fixture(
-                model.compiled, jnp.asarray(obs), jnp.arange(obs.shape[0], dtype=jnp.float32)
-            ),
-            sampler=SamplerSpec(),
-            clock=time.monotonic,
-        )
+    failure = fit(
+        model.prior_runtime_bundle,
+        bind_panel_fixture(
+            model.compiled, jnp.asarray(obs), jnp.arange(obs.shape[0], dtype=jnp.float32)
+        ),
+        sampler=SamplerSpec(),
+        clock=time.monotonic,
+    )
+    assert isinstance(failure, ObservationPreflightFailure)
+    assert "raw_channel" in failure.message

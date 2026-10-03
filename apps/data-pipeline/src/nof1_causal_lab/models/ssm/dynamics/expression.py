@@ -2,66 +2,38 @@
 
 from __future__ import annotations
 
-import operator
 from dataclasses import dataclass, field
 from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal
 
 import equinox as eqx
-import jax
 import jax.numpy as jnp
 import numpyro
 
 from nof1_causal_lab.artifacts.expressions import (
     CoefficientExpression,
     Expression,
-    ExpressionFunction,
+    StateExpression,
     expression_coefficients,
     expression_states,
-    fold_expression,
 )
 from nof1_causal_lab.artifacts.parameter import SiteKind
+from nof1_causal_lab.models.ssm.compile.expressions import compile_expression
 from nof1_causal_lab.models.ssm.structure.sites import (
-    ScalarSiteSelection,
-    SemanticBinding,
-    make_site,
+    SiteDescriptor,
 )
+from nof1_causal_lab.utils.immutability import freeze_fields
 
 if TYPE_CHECKING:
     from collections.abc import Callable, Iterator, Mapping
 
     from jax import Array
-    from jax.typing import ArrayLike
 
     from nof1_causal_lab.artifacts.identity import ConstructId, ParameterId
     from nof1_causal_lab.artifacts.likelihood import LinkFunction
     from nof1_causal_lab.artifacts.parameter import ParameterCoordinate
-    from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
 
     from .spec import PriorFn
-
-
-SCALAR_OPERATIONS = {
-    "add": operator.add,
-    "subtract": operator.sub,
-    "multiply": operator.mul,
-    "divide": operator.truediv,
-    "power": operator.pow,
-    "maximum": jnp.maximum,
-}
-
-
-def apply_expression_function(name: ExpressionFunction, arguments: tuple[ArrayLike, ...]) -> Array:
-    """Interpret scalar functions; discrete contrasts require observation context."""
-    match name:
-        case "exp":
-            return jnp.exp(arguments[0])
-        case "sigmoid":
-            return jax.nn.sigmoid(arguments[0])
-        case "normal_cdf":
-            return jax.scipy.special.ndtr(arguments[0])
-        case _:
-            raise ValueError(f"{name} requires observation category metadata")
 
 
 class ExpressionComponent(eqx.Module):
@@ -70,22 +42,10 @@ class ExpressionComponent(eqx.Module):
     target: int = eqx.field(static=True)
     edge_owned: bool = eqx.field(static=True)
     expression: Expression = eqx.field(static=True)
-    state_index: Mapping[ConstructId, int] = eqx.field(static=True)
-    coefficients: Mapping[CoefficientExpression, float | ParameterId] = eqx.field(static=True)
+    evaluate_fn: Callable[[Array, Mapping[str, Array]], Array] = eqx.field(static=True)
 
     def evaluate(self, values: Array, params: Mapping[str, Array]) -> Array:
-        def coefficient(operand: CoefficientExpression) -> Array:
-            reference = self.coefficients[operand]
-            return params[reference] if isinstance(reference, str) else jnp.asarray(reference)
-
-        return fold_expression(
-            self.expression,
-            literal=jnp.asarray,
-            state_value=lambda identity: values[self.state_index[identity]],
-            coefficient_value=coefficient,
-            binary=lambda name, left, right: jnp.asarray(SCALAR_OPERATIONS[name](left, right)),
-            call=apply_expression_function,
-        )
+        return self.evaluate_fn(values, params)
 
     def contribute(self, accumulator, eta, eta_per_edge, _t, params: Mapping[str, Array]):
         values = eta_per_edge[self.target] if self.edge_owned else eta
@@ -121,6 +81,7 @@ class ExpressionComponentSpec:
         object.__setattr__(self, "coefficients", MappingProxyType(resolved))
         if self.kind == "potential" and (self.source is not None or self.sources - {self.target}):
             raise ValueError("A node potential may depend only on its owning state")
+        freeze_fields(self)
 
     @property
     def edge_owned(self) -> bool:
@@ -139,12 +100,28 @@ class ExpressionComponentSpec:
         )
 
     def build(self) -> ExpressionComponent:
+        operands, numerical = compile_expression(self.expression)
+
+        def evaluate(values: Array, params: Mapping[str, Array]) -> Array:
+            def operand_value(operand: StateExpression | CoefficientExpression) -> Array:
+                match operand:
+                    case StateExpression():
+                        return values[self.state_index[operand.construct_id]]
+                    case CoefficientExpression():
+                        reference = self.coefficients[operand]
+                        return (
+                            params[reference]
+                            if isinstance(reference, str)
+                            else jnp.asarray(reference)
+                        )
+
+            return jnp.asarray(numerical(0.0, *(operand_value(operand) for operand in operands)))
+
         return ExpressionComponent(
             target=self.target,
             edge_owned=self.edge_owned,
             expression=self.expression,
-            state_index=self.state_index,
-            coefficients=self.coefficients,
+            evaluate_fn=evaluate,
         )
 
     def parameter_sites(self, prefix: str) -> Iterator[tuple[ParameterId, SiteDescriptor]]:
@@ -162,14 +139,14 @@ class ExpressionComponentSpec:
                 )
             yield (
                 identity,
-                make_site(
-                    f"{prefix}_p{index}",
-                    (),
-                    meaning.support,
-                    "dynamics",
-                    meaning.quantity,
+                SiteDescriptor(
+                    name=f"{prefix}_p{index}",
+                    shape=(),
+                    support=meaning.support,
+                    assembly_group="dynamics",
+                    site_kind=meaning.quantity,
                     positions=positions,
-                    priors_field=prior_field,
+                    prior_field=prior_field,
                 ),
             )
 
@@ -184,24 +161,6 @@ class ExpressionComponentSpec:
             identity: jnp.asarray(numpyro.sample(site.name, prior_fn(site.name)))
             for identity, site in self.parameter_sites(prefix)
         }
-
-    def iter_semantic_bindings(
-        self, prefix: str, *, latent_names: tuple[str, ...], component_index: int
-    ):
-        for identity, site in self.parameter_sites(prefix):
-            yield SemanticBinding(
-                parameter_name=identity,
-                site_name=site.name,
-                selection=ScalarSiteSelection(0),
-                site_kind=site.site_kind,
-                prior_field=site.priors_field,
-                construct_names=tuple(
-                    latent_names[i] for i in sorted(self.sources | {self.target})
-                ),
-                component_index=component_index,
-                effect_idx=self.target if self.edge_owned else None,
-                cause_idx=self.source,
-            )
 
     def pack_params(self, prefix: str, samples: Mapping[str, Array]) -> dict[str, Array]:
         return {

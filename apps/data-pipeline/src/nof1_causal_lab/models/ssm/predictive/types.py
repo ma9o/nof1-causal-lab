@@ -8,6 +8,8 @@ from typing import TYPE_CHECKING
 
 import jax
 
+from nof1_causal_lab.utils.immutability import freeze_fields
+
 if TYPE_CHECKING:
     from collections.abc import Mapping
 
@@ -62,6 +64,7 @@ class PredictiveDraws:
             or self.reference.observations.shape != self.trajectory.observations.shape
         ):
             raise ValueError("Reference trajectories must match the predictive axes")
+        freeze_fields(self)
 
     @property
     def n_draws(self) -> int:

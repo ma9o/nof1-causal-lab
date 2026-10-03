@@ -13,18 +13,20 @@ from nof1_causal_lab.artifacts.identity import ParameterElementId, ParameterId
 from nof1_causal_lab.artifacts.parameter import (
     ParameterCoordinate,
     PriorAuthoringTransform,
-    SiteKind,
 )
 from nof1_causal_lab.models.ssm.structure.sites import (
+    CompiledBindingTarget,
+    CompiledEdgeTarget,
     RowSiteSelection,
     ScalarSiteSelection,
+    SiteDescriptor,
     WholeSiteSelection,
     site_size,
 )
 
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
-    from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor, SiteSelection
+    from nof1_causal_lab.models.ssm.structure.sites import SiteSelection
 
 
 class CompiledSiteCoordinate(Value):
@@ -39,9 +41,9 @@ def resolve_site_selection(
 ) -> tuple[CompiledSiteCoordinate, ...]:
     """Resolve a compiler-owned selection once, before binding or prior attachment."""
     match selection:
-        case ScalarSiteSelection(flat_index):
+        case ScalarSiteSelection(flat_index=flat_index):
             indices = (flat_index,)
-        case RowSiteSelection(row):
+        case RowSiteSelection(row=row):
             indices = tuple(
                 int(np.ravel_multi_index((row, column), site.shape))
                 for column in range(site.shape[1])
@@ -70,16 +72,21 @@ class CompiledParameterBinding(Value):
     coordinates: Mapping[ParameterElementId, ParameterCoordinate] = Field(min_length=1)
     elements: Mapping[ParameterElementId, str] = Field(min_length=1)
     native_coordinates: tuple[CompiledSiteCoordinate, ...] = Field(min_length=1)
-    site_name: str
-    prior_field: str | None
-    flat_index: int = Field(ge=0)
-    site_kind: SiteKind
+    site: SiteDescriptor
+    target: CompiledBindingTarget
     transform: PriorAuthoringTransform
-    construct_names: tuple[str, ...]
-    indicator_names: tuple[str, ...]
-    component_index: int | None
-    effect_idx: int | None
-    cause_idx: int | None
+
+    @property
+    def flat_index(self) -> int:
+        """The first native coordinate; the constructor owns nonempty selection."""
+        return self.native_coordinates[0].flat_index
+
+
+class CompiledEffectInterval(Value):
+    """An interval-effect prior carries its resolved edge owner."""
+
+    target: CompiledEdgeTarget
+    days: float
 
 
 def parameter_bindings(

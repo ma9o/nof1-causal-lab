@@ -112,7 +112,7 @@ def _trajectory_runtime_dynamics() -> StochasticContinuousTimeStateEvolution:
 
 
 def _interval_mean_support_runtime() -> ObservationSupportRuntime:
-    return ObservationSupportRuntime(
+    return ObservationSupportRuntime.assembled(
         anchor_times=np.array([0.0, 0.50, 1.25], dtype=np.float64),
         manifest_names=("mean_signal",),
         support_kinds=("interval",),

@@ -27,7 +27,6 @@ def graph_input(model: ModelSpec) -> JsonObject:
             }
             for item in model.edges
         ],
-        "default_outcome": model.default_outcome,
     }
     return result
 
@@ -59,11 +58,10 @@ def compilation_input(model: ModelSpec) -> JsonObject:
         **model.model_dump(
             mode="json",
             exclude={
-                "question": True,
                 "edges": True,
                 "distributions": True,
                 "time_points": True,
-                "parameters": {"__all__": {"distribution", "transform"}},
+                "parameters": {"__all__": {"distribution", "transform", "reasoning", "sources"}},
             },
         ),
         "constructs": [
@@ -90,7 +88,7 @@ def input_fingerprints(model: ModelSpec) -> dict[str, str]:
         "observations": observation_input(model),
         "identification": identification_input(model),
         "compilation": compilation_input(model),
-        "belief": model.model_dump(mode="json", exclude={"question"}),
+        "belief": model.model_dump(mode="json"),
     }
     return {
         purpose: scientific_id("input", ["additive-model-v1", value])

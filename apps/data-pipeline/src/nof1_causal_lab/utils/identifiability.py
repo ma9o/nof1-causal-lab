@@ -36,6 +36,7 @@ from nof1_causal_lab.utils.causal_design import (
     get_all_treatments,
     get_outcome_name,
 )
+from nof1_causal_lab.utils.immutability import freeze_fields
 
 if TYPE_CHECKING:
     from collections.abc import Mapping, Sequence
@@ -84,6 +85,7 @@ class IdentificationResult:
             "non_identifiable_treatments",
             MappingProxyType(dict(self.non_identifiable_treatments)),
         )
+        freeze_fields(self)
 
 
 logger = logging.getLogger(__name__)
@@ -93,7 +95,7 @@ def check_identifiability(
     constructs: Sequence[ConstructSpec],
     edges: Sequence[CausalEdgeSpec],
     *,
-    default_outcome: ConstructId | None,
+    outcome_id: ConstructId | None,
     observed_constructs: set[str],
     iv_allowed: bool = False,
 ) -> IdentificationResult:
@@ -106,7 +108,7 @@ def check_identifiability(
     Args:
         constructs: Canonical construct definitions, including latent confounders
         edges: Canonical directed causal assumptions
-        default_outcome: Identity of the selected outcome construct
+        outcome_id: Identity of the question's outcome construct
         observed_constructs: Names of constructs with measurements
         iv_allowed: When explicitly True and y0's nonparametric check fails,
             report IV identification via ``find_instruments`` under the
@@ -126,15 +128,15 @@ def check_identifiability(
             - graph_info: Debug info about the graph structure
                 * iv_allowed: Whether IV fallback was used
     """
-    outcome = get_outcome_name(constructs, default_outcome)
+    outcome = get_outcome_name(constructs, outcome_id)
     if not outcome:
-        raise ValueError("No default outcome selected for identification")
+        raise ValueError("No outcome selected for identification")
 
     # Get all potential treatments (observed constructs with paths to outcome)
     # Only observed constructs can be treatments - you can't do(X) on unobserved X
     all_treatments = [
         treatment
-        for treatment in get_all_treatments(constructs, edges, default_outcome)
+        for treatment in get_all_treatments(constructs, edges, outcome_id)
         if treatment in observed_constructs
     ]
 

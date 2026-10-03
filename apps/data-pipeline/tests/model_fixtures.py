@@ -19,6 +19,8 @@ from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRun
 if TYPE_CHECKING:
     from numpyro.primitives import Message
 
+    from nof1_causal_lab.artifacts.identity import ConstructId
+
 
 def affine_test_evolution(A, covariance, b=None, B=None):
     """Library-owned exact affine reference, restricted to test data and comparisons."""
@@ -125,15 +127,16 @@ def make_observation_support_runtime(**kwargs: Any) -> ObservationSupportRuntime
         support_end = np.asarray(kwargs["support_end_times"])
         emission_slots = np.where(np.isfinite(support_end), 0, -1).astype(np.int64)
     kwargs["emission_slot_indices"] = emission_slots
-    return ObservationSupportRuntime(**kwargs)
+    return ObservationSupportRuntime.assembled(**kwargs)
 
 
 def parameter_draws(model: ModelSpec, n_draws: int) -> dict[str, jnp.ndarray]:
     """Repeat the authored prior reference point without invoking inference."""
+    from nof1_causal_lab.models.model_structure import StructuralSelection
     from nof1_causal_lab.models.ssm.compile.inputs import compile_priors
     from nof1_causal_lab.prior_distributions import prior_reference_value
 
-    priors, _, _ = compile_priors(compile_model_fixture(model), model)
+    priors, _, _ = compile_priors(compile_model_fixture(model), StructuralSelection(model, None))
     return {
         name: jnp.broadcast_to(value, (n_draws, *value.shape))
         for name, law in priors.items()
@@ -141,23 +144,25 @@ def parameter_draws(model: ModelSpec, n_draws: int) -> dict[str, jnp.ndarray]:
     }
 
 
-def compile_fit_fixture(spec: ModelSpec):
+def compile_fit_fixture(spec: ModelSpec, outcome: ConstructId | None = None):
     """Require real compilation in fixtures instead of forging fit evidence."""
+    from nof1_causal_lab.models.model_structure import StructuralSelection
     from nof1_causal_lab.models.ssm.compile.inputs import (
         CompiledFitInputs,
         compile_ssm_inputs_from_model,
     )
 
-    inputs = compile_ssm_inputs_from_model(spec)
+    inputs = compile_ssm_inputs_from_model(StructuralSelection(spec, outcome))
     assert isinstance(inputs, CompiledFitInputs), inputs
     return inputs
 
 
-def compile_model_fixture(spec: ModelSpec):
+def compile_model_fixture(spec: ModelSpec, outcome: ConstructId | None = None):
     """Compile native execution facts without imposing the fitting law restrictions."""
+    from nof1_causal_lab.models.model_structure import StructuralSelection
     from nof1_causal_lab.models.ssm.compile.inputs import compile_executable_model
 
-    return compile_executable_model(spec)
+    return compile_executable_model(StructuralSelection(spec, outcome))
 
 
 def bind_panel_fixture(model, observations, times, *, support=None):

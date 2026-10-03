@@ -134,7 +134,7 @@ def test_loo_uses_joint_emissions_and_omits_only_completely_missing_rows(monkeyp
     factors = jnp.arange(24.0).reshape(2, 3, 4) / -10
     observations = jnp.array([[1.0, 2.0], [jnp.nan, jnp.nan], [3.0, jnp.nan], [jnp.nan, 4.0]])
     mcmc = TrajectoryMCMCResult(samples, {}, num_chains=2, num_samples=3)
-    posterior = ParticleMCMCPosterior(
+    posterior = ParticleMCMCPosterior.from_run(
         draws=JointPosteriorDraws(parameters=mcmc.get_samples()),
         diagnostics=ProductionDiagnostics(mcmc=mcmc, observation_log_probs=factors),
     )
@@ -151,7 +151,7 @@ def test_loo_uses_joint_emissions_and_omits_only_completely_missing_rows(monkeyp
             p=0.4,
             se=0.2,
             n_data_points=3,
-            pareto_k=Mock(values=np.array([0.2, 0.8, 0.4])),
+            pareto_k=Mock(values=np.array([0.2, 0.8, 0.6])),
         )
 
     # Test the scientific factor boundary without computing PSIS or fitting.
@@ -159,16 +159,24 @@ def test_loo_uses_joint_emissions_and_omits_only_completely_missing_rows(monkeyp
     measured = posterior.get_loo_diagnostics(observations=observations)
     assert measured is not None
     result, points = measured
-    assert [point.timestep for point in points] == [3, 4, 1]
-    assert result.n_data_points == 3
+    assert [(point.rank, point.timestep, point.k, point.status) for point in points] == [
+        (1, 3, 0.8, "failed"),
+        (2, 4, 0.6, "warning"),
+        (3, 1, 0.2, "passed"),
+    ]
+    assert result.elpd_loo == -7.0
+    assert result.p_loo == 0.4
+    assert result.se == 0.2
+    assert result.n_data_points == len(points) == 3
     assert result.n_bad_k == 1
+    assert result.n_warn_k == 1
     assert result.observation_unit == "measurement_row"
     assert result.prediction_task == "interpolation_given_other_measurements"
     assert result.likelihood_source == "exact_emission_on_joint_particle_draws"
 
 
 def test_loo_all_missing_rows_have_no_predictive_estimate():
-    posterior = ParticleMCMCPosterior(
+    posterior = ParticleMCMCPosterior.from_run(
         draws=JointPosteriorDraws(parameters={}),
         diagnostics=ProductionDiagnostics(
             observation_log_probs=jnp.zeros((2, 3, 4)),
@@ -179,7 +187,7 @@ def test_loo_all_missing_rows_have_no_predictive_estimate():
 
 
 def test_loo_cannot_reweight_away_an_exact_state_constraint():
-    posterior = ParticleMCMCPosterior(
+    posterior = ParticleMCMCPosterior.from_run(
         draws=JointPosteriorDraws(parameters={}),
         diagnostics=ProductionDiagnostics(
             observation_log_probs=jnp.zeros((2, 3, 2)),

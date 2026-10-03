@@ -104,3 +104,16 @@ def graph_constructs(payload):
         for endpoint in (edge["cause"], edge["effect"])
         if "name" in endpoint
     ]
+
+
+def write_question(store, question=None):
+    """Write the study question that roots a test lineage and return its artifact record."""
+    from nof1_causal_lab.artifacts.question import QuestionSpec
+
+    value = question if question is not None else QuestionSpec(text="What does the model answer?")
+    return store.write_artifact(
+        "question",
+        derived_from={},
+        produced_by="set_question",
+        json_files={"question.json": value.model_dump(mode="json")},
+    )

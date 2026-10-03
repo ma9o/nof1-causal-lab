@@ -1,5 +1,7 @@
 """Runner requests keep their concrete type through Temporal."""
 
+from datetime import date
+
 import pytest
 
 from nof1_causal_lab.actions.contracts import FitRequest, PrepareDataRequest, SimulateRequest
@@ -17,7 +19,12 @@ pytestmark = pytest.mark.contract
     "action",
     [
         FitRequest(model_revision=git_oid(1), panel_revision=git_oid(2)),
-        SimulateRequest(model_revision=git_oid(1), start=0, end=1),
+        SimulateRequest(
+            model_revision=git_oid(1),
+            start=date(2026, 1, 1),
+            horizon="1w",
+            interventions=({"target": "construct:x", "after": "2d", "value": 1},),
+        ),
         PrepareDataRequest(input=SimulationReplicateRef(revision=git_oid(3), replicate=0)),
     ],
 )

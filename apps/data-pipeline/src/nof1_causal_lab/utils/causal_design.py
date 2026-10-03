@@ -50,20 +50,20 @@ def choose_reference_indicator(
 
 def get_outcome_construct(
     constructs: Sequence[ConstructSpec],
-    default_outcome: ConstructId | None,
+    outcome: ConstructId | None,
 ) -> ConstructSpec | None:
     """Resolve the selected outcome from its canonical construct identity."""
-    if default_outcome is None:
+    if outcome is None:
         return None
-    return next((item for item in constructs if item.id == default_outcome), None)
+    return next((item for item in constructs if item.id == outcome), None)
 
 
 def get_outcome_name(
-    constructs: Sequence[ConstructSpec], default_outcome: ConstructId | None
+    constructs: Sequence[ConstructSpec], outcome: ConstructId | None
 ) -> str | None:
     """Resolve the selected outcome display name from its construct."""
-    outcome = get_outcome_construct(constructs, default_outcome)
-    return outcome.name if outcome is not None else None
+    construct = get_outcome_construct(constructs, outcome)
+    return construct.name if construct is not None else None
 
 
 # ---------------------------------------------------------------------------
@@ -84,10 +84,10 @@ def build_digraph(
 def get_all_treatments(
     constructs: Sequence[ConstructSpec],
     edges: Sequence[CausalEdgeSpec],
-    default_outcome: ConstructId | None,
+    outcome_id: ConstructId | None,
 ) -> list[str]:
     """Return construct names with a directed path to the selected outcome."""
-    outcome = get_outcome_name(constructs, default_outcome)
+    outcome = get_outcome_name(constructs, outcome_id)
     if outcome is None:
         return []
     graph = build_digraph(constructs, edges)

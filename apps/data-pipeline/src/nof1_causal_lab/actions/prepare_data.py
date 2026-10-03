@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from datetime import timedelta
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -25,7 +24,7 @@ def read_simulation_observations(
     *,
     read_array: Callable[[str], np.ndarray],
 ) -> pl.DataFrame:
-    """Read emitted observations on their recorded dates or absolute model days."""
+    """Read emitted observations on their recorded dates."""
     if not 0 <= replicate < report.draws:
         raise StudyLookupError(f"Simulation replicate must be between 0 and {report.draws - 1}")
     times = np.asarray(report.times)
@@ -56,7 +55,7 @@ def read_simulation_observations(
     if not (np.isfinite(starts[observed]).all() and np.isfinite(ends[observed]).all()):
         raise ValueError("Observed simulation values must have finite support boundaries")
 
-    origin = ObservationInstant.origin(report.time_origin)
+    origin = ObservationInstant(report.time_origin)
 
     def _timestamp(day: float) -> str | None:
         if np.isnan(day):
@@ -98,10 +97,5 @@ def prepare_simulation_panel(
     *,
     read_array: Callable[[str], np.ndarray],
 ) -> pl.DataFrame:
-    """Materialize a replicate with day zero at its first time, preserving known dates."""
-    panel = read_simulation_observations(report, replicate, read_array=read_array)
-    if report.time_origin is None:
-        panel = panel.with_columns(
-            pl.col("anchor_time", "support_start", "support_end") - timedelta(days=report.times[0])
-        )
-    return panel
+    """Materialize a replicate with day zero at its first time, preserving its dates."""
+    return read_simulation_observations(report, replicate, read_array=read_array)

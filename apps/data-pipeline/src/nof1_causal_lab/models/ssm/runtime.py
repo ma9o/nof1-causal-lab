@@ -9,8 +9,9 @@ import jax.numpy as jnp
 import numpy as np
 import polars as pl
 
-from nof1_causal_lab.artifacts.scenarios import InterventionSpec
+from nof1_causal_lab.artifacts.scenarios import StateAssignment
 from nof1_causal_lab.models.ssm import numerics as numeric
+from nof1_causal_lab.models.ssm.compile.inputs import CompiledFitInputs
 from nof1_causal_lab.models.ssm.counterfactual.orchestration import ResolvedIntervention
 from nof1_causal_lab.models.ssm.observation_support import (
     ObservationSupportRuntime,
@@ -19,7 +20,7 @@ from nof1_causal_lab.models.ssm.observation_support import (
     validate_discrete_manifest_metadata,
     validate_observation_support,
 )
-from nof1_causal_lab.models.ssm.preflight import ObservationPreflightError
+from nof1_causal_lab.models.ssm.preflight import ObservationPreflightFailure
 from nof1_causal_lab.utils.observation_rows import (
     ensure_datetime_column,
     observation_row_schema,
@@ -35,7 +36,22 @@ if TYPE_CHECKING:
     import pyarrow as pa
 
     from nof1_causal_lab.artifacts.identity import IndicatorId
-    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
+    from nof1_causal_lab.models.ssm.compile.inputs import (
+        CompilationFailure,
+        CompiledModel,
+        FitCompilationResult,
+    )
+
+
+def reading_level(
+    value: float, support_start: datetime, support_end: datetime, summary_operator: str
+) -> float:
+    """An input reading's constant level: its value, or a count or sum per model day."""
+    if summary_operator in {"count", "sum"}:
+        return value / (
+            ObservationInstant(support_end).relative_to(ObservationInstant(support_start)).days
+        )
+    return value
 
 
 def replay_input_events(
@@ -46,13 +62,13 @@ def replay_input_events(
     start: float,
     end: float,
     indicator_column: str = "indicator_id",
-) -> tuple[ResolvedIntervention, ...]:
+) -> tuple[ResolvedIntervention, ...] | ObservationPreflightFailure:
     """Read constant input levels over their windows, then hold to the next reading."""
     events = []
     for index in np.flatnonzero(numeric.input_mask(spec)):
         construct = spec.states[index]
         if panel is None:
-            raise ObservationPreflightError(
+            return ObservationPreflightFailure.rejected(
                 f"Input {construct.name!r} requires a panel with a time origin"
             )
         origin = ObservationInstant.origin(time_origin)
@@ -63,39 +79,36 @@ def replay_input_events(
             identity = indicator.id if indicator_column == "indicator_id" else indicator.name
             rows = panel.filter(pl.col(indicator_column) == identity).drop_nulls("value")
             for row in rows.iter_rows(named=True):
-                at = row["support_start"]
-                time = ObservationInstant(at).relative_to(origin).days
-                value = float(row["value"])
-                if indicator.support.summary_operator in {"count", "sum"}:
-                    duration = (
-                        ObservationInstant(row["support_end"])
-                        .relative_to(ObservationInstant(row["support_start"]))
-                        .days
-                    )
-                    value /= duration
+                time = ObservationInstant(row["support_start"]).relative_to(origin).days
+                value = reading_level(
+                    float(row["value"]),
+                    row["support_start"],
+                    row["support_end"],
+                    indicator.support.summary_operator,
+                )
                 if not np.isfinite(value):
-                    raise ObservationPreflightError(
+                    return ObservationPreflightFailure.rejected(
                         f"Input {construct.name!r} requires finite readings"
                     )
                 if time in readings and readings[time] != value:
-                    raise ObservationPreflightError(
+                    return ObservationPreflightFailure.rejected(
                         f"Input {construct.name!r} has conflicting readings at {time}"
                     )
                 readings[time] = value
         eligible = sorted(time for time in readings if time <= start)
         if not eligible:
-            raise ObservationPreflightError(
+            return ObservationPreflightFailure.rejected(
                 f"Input {construct.name!r} has no value at the start of the requested history"
             )
         record = [(start, readings[eligible[-1]])]
         record.extend((time, readings[time]) for time in sorted(readings) if start < time <= end)
         if construct.time_invariant and len({value for _, value in record}) != 1:
-            raise ObservationPreflightError(
+            return ObservationPreflightFailure.rejected(
                 f"Time-invariant input {construct.name!r} has varying readings"
             )
         events.extend(
             ResolvedIntervention(
-                int(index), InterventionSpec(target=construct.id, time=time, value=value)
+                int(index), StateAssignment(target=construct.id, time=time, value=value)
             )
             for time, value in record
         )
@@ -190,6 +203,29 @@ class PanelPreparationFailure:
     message: str
 
 
+@dataclass(frozen=True)
+class PreparedFit:
+    """Fit laws and observations bound to the same compiled model."""
+
+    inputs: CompiledFitInputs
+    panel: BoundPanel
+
+
+def prepare_fit(
+    inputs: FitCompilationResult,
+    data_for_model: pl.DataFrame,
+    *,
+    time_origin: datetime | None,
+) -> PreparedFit | CompilationFailure | PanelPreparationFailure:
+    """Forward compilation failures or bind the resolved fitting inputs once."""
+    if not isinstance(inputs, CompiledFitInputs):
+        return inputs
+    panel = bind_panel(data_for_model, model=inputs.compiled, time_origin=time_origin)
+    if isinstance(panel, PanelPreparationFailure):
+        return panel
+    return PreparedFit(inputs, panel)
+
+
 def prepare_fit_inputs(
     spec: CompiledModel,
     wide_data: pl.DataFrame,
@@ -219,49 +255,46 @@ def bind_panel(
         return PanelPreparationFailure(
             f"Observation table is missing canonical columns: {sorted(missing)}"
         )
-    try:
-        wide, selected = project_observation_data(
-            data_for_model, model_spec=model, time_origin=time_origin
-        )
-        rows = selected
-        for column in ("anchor_time", "support_start", "support_end"):
-            rows = ensure_datetime_column(rows, column)
-        if rows["anchor_time"].null_count():
-            return PanelPreparationFailure("Observations require non-null anchor_time")
-        labels = {observation.id: observation.name for observation in model.observations}
-        support_rows = rows.with_columns(
-            pl.col("indicator_id").replace_strict(labels).alias("indicator")
-        )
-        wide = augment_wide_data_with_support_boundaries(
-            support_rows, wide, time_origin=time_origin
-        )
-        validate_discrete_manifest_metadata(model, wide)
-        validate_observation_support(model, wide)
-        observations, times, names, wide = prepare_fit_inputs(model, wide)
-        support = compile_observation_support_runtime(
-            support_rows, wide, names, time_origin=time_origin
-        )
-        events = replay_input_events(
-            model, rows, time_origin=time_origin, start=float(times[0]), end=float(times[-1])
-        )
-        input_values = replay_input_values(model, times, events)
-        return BoundPanel(
-            model,
-            selected.to_arrow(),
-            time_origin,
-            observations,
-            times,
-            support,
-            input_values,
-            events,
-        )
-    except ObservationPreflightError as exc:
-        return PanelPreparationFailure(str(exc))
+    projected = project_observation_data(data_for_model, model_spec=model, time_origin=time_origin)
+    if isinstance(projected, ObservationPreflightFailure):
+        return PanelPreparationFailure(projected.message)
+    wide, selected = projected
+    rows = selected
+    for column in ("anchor_time", "support_start", "support_end"):
+        rows = ensure_datetime_column(rows, column)
+    if rows["anchor_time"].null_count():
+        return PanelPreparationFailure("Observations require non-null anchor_time")
+    labels = {observation.id: observation.name for observation in model.observations}
+    support_rows = rows.with_columns(
+        pl.col("indicator_id").replace_strict(labels).alias("indicator")
+    )
+    wide = augment_wide_data_with_support_boundaries(support_rows, wide, time_origin=time_origin)
+    discrete_failure = validate_discrete_manifest_metadata(model, wide)
+    if discrete_failure is not None:
+        return PanelPreparationFailure(discrete_failure.message)
+    support_failure = validate_observation_support(model, wide)
+    if support_failure is not None:
+        return PanelPreparationFailure(support_failure.message)
+    observations, times, names, wide = prepare_fit_inputs(model, wide)
+    support = compile_observation_support_runtime(
+        support_rows, wide, names, time_origin=time_origin
+    )
+    if isinstance(support, ObservationPreflightFailure):
+        return PanelPreparationFailure(support.message)
+    events = replay_input_events(
+        model, rows, time_origin=time_origin, start=float(times[0]), end=float(times[-1])
+    )
+    if isinstance(events, ObservationPreflightFailure):
+        return PanelPreparationFailure(events.message)
+    input_values = replay_input_values(model, times, events)
+    return BoundPanel(
+        model, selected.to_arrow(), time_origin, observations, times, support, input_values, events
+    )
 
 
 def project_observation_data(
     data_for_model: pl.DataFrame, *, model_spec: CompiledModel, time_origin: datetime | None
-) -> tuple[pl.DataFrame, pl.DataFrame]:
+) -> tuple[pl.DataFrame, pl.DataFrame] | ObservationPreflightFailure:
     """Project selected identities to display columns without changing the exact rows."""
     labels = {indicator.id: indicator.name for indicator in model_spec.observations}
     selected = data_for_model.filter(pl.col("indicator_id").is_in(list(labels)))
@@ -270,7 +303,7 @@ def project_observation_data(
         f"{name} ({identity})" for identity, name in labels.items() if identity not in present
     ]
     if missing:
-        raise ObservationPreflightError(
+        return ObservationPreflightFailure.rejected(
             "Prepared observations are missing model indicators: " + ", ".join(missing)
         )
     wide_data = pivot_to_wide(selected, time_origin=time_origin)

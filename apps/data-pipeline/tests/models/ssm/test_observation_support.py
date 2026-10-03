@@ -6,6 +6,7 @@ import pytest
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.observation_support import validate_discrete_manifest_metadata
+from nof1_causal_lab.models.ssm.preflight import ObservationPreflightFailure
 from tests.model_fixtures import compile_model_fixture
 
 pytestmark = pytest.mark.contract
@@ -37,7 +38,10 @@ def test_declared_discrete_levels_allow_one_observed_level():
         ).read_text()
     )
 
-    validate_discrete_manifest_metadata(compile_model_fixture(spec), _single_row_panel())
+    assert (
+        validate_discrete_manifest_metadata(compile_model_fixture(spec), _single_row_panel())
+        is None
+    )
 
     counts = dict(
         zip(
@@ -58,10 +62,11 @@ def test_declared_discrete_levels_reject_out_of_range_code():
         ).read_text()
     )
 
-    with pytest.raises(ValueError, match=r"outside declared range 0\.\.3"):
-        validate_discrete_manifest_metadata(
-            compile_model_fixture(spec), _single_row_panel(symptom_severity=4.0)
-        )
+    failure = validate_discrete_manifest_metadata(
+        compile_model_fixture(spec), _single_row_panel(symptom_severity=4.0)
+    )
+    assert isinstance(failure, ObservationPreflightFailure)
+    assert "outside declared range 0..3" in failure.message
 
 
 def test_missing_declared_levels_are_rejected_in_the_scientific_definition():

@@ -39,7 +39,6 @@ from .point import (
     _dense_support_laplace_log_lik,
     _ieks_smooth,
     _point_dynamic_transition_ieks_laplace,
-    _point_ieks_mode,
 )
 from .shared import (
     _block_banded_logdet,
@@ -53,15 +52,12 @@ from .shared import (
     _should_use_dense_support_laplace,
     _solve_block_banded_from_cholesky,
     _solve_block_profile_from_cholesky,
-    _solve_block_tridiagonal,
     block_profile_logdet_packed_cotangent,
 )
 from .support import (
     _assemble_support_aware_observation_system,
     _make_support_window_derivatives,
     _support_aware_ieks_laplace,
-    _support_aware_ieks_mode,
-    _support_aware_step_halving_search,
     _support_dynamic_transition_ieks_laplace,
 )
 
@@ -473,7 +469,6 @@ __all__ = [
     # point.py re-exports
     "_dense_support_laplace_log_lik",
     "_ieks_smooth",
-    "_point_ieks_mode",
     # shared.py re-exports
     "_block_banded_logdet",
     "_build_ieks_system_from_prior",
@@ -486,12 +481,9 @@ __all__ = [
     "_should_use_dense_support_laplace",
     "_solve_block_banded_from_cholesky",
     "_solve_block_profile_from_cholesky",
-    "_solve_block_tridiagonal",
     "block_profile_logdet_packed_cotangent",
     # support.py re-exports
     "_assemble_support_aware_observation_system",
     "_make_support_window_derivatives",
     "_support_aware_ieks_laplace",
-    "_support_aware_ieks_mode",
-    "_support_aware_step_halving_search",
 ]

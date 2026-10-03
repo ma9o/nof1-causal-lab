@@ -6,7 +6,7 @@ import numpy as np
 import pytest
 
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.models.model_structure import selected_state_ids
+from nof1_causal_lab.models.model_structure import StructuralSelection, selected_state_ids
 from nof1_causal_lab.models.ssm.dynamics.serialization import dynamics_spec_to_dict
 from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec, compile_dynamics
 from tests.dynamics_fixtures import decay_term, hill_term, potential_term
@@ -49,7 +49,10 @@ def test_scientific_model_roundtrip_preserves_derived_dynamics():
         compile_model_fixture(model).dynamics.spec
     ) == dynamics_spec_to_dict(compile_model_fixture(restored).dynamics.spec)
     assert any(term.kind == "potential" for _, term in restored.iter_mechanisms())
-    np.testing.assert_array_equal(selected_state_ids(model), selected_state_ids(restored))
+    np.testing.assert_array_equal(
+        selected_state_ids(StructuralSelection(model, None)),
+        selected_state_ids(StructuralSelection(restored, None)),
+    )
 
 
 def test_expression_coordinates_must_fit_the_declared_states():

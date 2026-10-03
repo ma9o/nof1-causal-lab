@@ -229,7 +229,7 @@ def test_diagnostic_noise_matches_point_and_interval_execution(
     )
     support = None
     if interval:
-        support = ObservationSupportRuntime(
+        support = ObservationSupportRuntime.assembled(
             anchor_times=np.arange(3.0),
             manifest_names=numeric.observation_names(compile_model_fixture(spec)),
             support_kinds=("interval",) * channels,

@@ -57,9 +57,9 @@ DEFAULT_PRIORS_BY_FIELD: dict[str, dist.Distribution] = {
 
 def default_prior_for_descriptor(site: SiteDescriptor) -> dist.Distribution:
     """Return the scientific default for an active site."""
-    if site.priors_field is None:
+    if site.prior_field is None:
         raise AggregatedCompileError([f"Site {site.name!r} has no prior field"])
-    return DEFAULT_PRIORS_BY_FIELD[site.priors_field]
+    return DEFAULT_PRIORS_BY_FIELD[site.prior_field]
 
 
 def site_constraint(site: SiteDescriptor) -> constraints.Constraint:

@@ -36,6 +36,7 @@ if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.measurements import ObservationRecord
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.observations import ObservationSpec
+    from nof1_causal_lab.artifacts.question import QuestionSpec
     from nof1_causal_lab.artifacts.validation_report import (
         DataProfileArtifact,
         ValidationReportArtifact,
@@ -57,6 +58,13 @@ def read_model(store: ArtifactStore, revision: GitOid) -> ModelSpec:
         store.read_json_file("model", revision, "model.json"),
         context={"distribution_array_loader": cache(store.read_array)},
     )
+
+
+def read_question(store: ArtifactStore, revision: GitOid) -> QuestionSpec:
+    """Decode the study question pinned at one revision."""
+    from nof1_causal_lab.artifacts.question import QuestionSpec
+
+    return store.read_value("question", revision, "question.json", QuestionSpec)
 
 
 # ---------------------------------------------------------------------------

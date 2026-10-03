@@ -24,6 +24,7 @@ from nof1_causal_lab.artifacts.checks import (
     PredictiveSubject,
 )
 from nof1_causal_lab.distributions import DistributionFamily
+from nof1_causal_lab.utils.immutability import freeze_fields
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -39,6 +40,9 @@ class CheckResult:
     assessment: Assessment[str, tuple[NumericCriterionEvidence, ...]]
     diagnosis: tuple[str, ...] = ()
     evidence: Mapping[str, np.ndarray | float] | None = None
+
+    def __post_init__(self) -> None:
+        freeze_fields(self)
 
     @classmethod
     def measured(

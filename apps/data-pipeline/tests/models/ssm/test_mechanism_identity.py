@@ -7,6 +7,7 @@ import pytest
 
 from nof1_causal_lab.artifacts.expressions import BinaryExpression
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.models.model_structure import StructuralSelection
 from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
 from nof1_causal_lab.models.ssm.compile.prior_compilation import compile_priors
 from tests.model_fixtures import compile_model_fixture
@@ -29,26 +30,30 @@ def test_independent_hill_coefficients_survive_reorder_rename_and_submission(two
     edge = model.edges[0]
     compile_model_fixture(model)
     before = parameter_bindings(compile_model_fixture(model))[0]
-    before_priors = compile_priors(compile_model_fixture(model), model)[0]
+    before_priors = compile_priors(compile_model_fixture(model), StructuralSelection(model, None))[
+        0
+    ]
     revised = model.revised(
         edges=(edge.revised(mechanisms=tuple(reversed(edge.mechanisms))),),
         parameters=tuple(p.revised(name=f"new label {i}") for i, p in enumerate(model.parameters)),
     )
     compile_model_fixture(revised)
     after = parameter_bindings(compile_model_fixture(revised))[0]
-    after_priors = compile_priors(compile_model_fixture(revised), revised)[0]
+    after_priors = compile_priors(
+        compile_model_fixture(revised), StructuralSelection(revised, None)
+    )[0]
     identities = {p.id for term in edge.mechanisms for p in model.parameters_for(term.id)}
     assert len(identities) == 6
     old = {b.parameter_id: b for b in before if b.parameter_id in identities}
     new = {b.parameter_id: b for b in after if b.parameter_id in identities}
     assert old.keys() == new.keys() == identities
-    assert len({b.site_name for b in old.values()}) == 6
+    assert len({b.site.name for b in old.values()}) == 6
     for identity in identities:
         assert old[identity].elements.keys() == new[identity].elements.keys()
         assert old[identity].coordinates != new[identity].coordinates
         np.testing.assert_allclose(
-            before_priors[old[identity].site_name].log_prob(0.7),
-            after_priors[new[identity].site_name].log_prob(0.7),
+            before_priors[old[identity].site.name].log_prob(0.7),
+            after_priors[new[identity].site.name].log_prob(0.7),
         )
     # Incremental edits submit the whole authored model directly.
 
