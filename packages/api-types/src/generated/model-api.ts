@@ -52,7 +52,7 @@ export interface paths {
          * Get Study
          * @description Current study state: the single read to poll while navigating.
          *
-         *     Returns the four scientific action names and per-artifact existence,
+         *     Returns the five scientific action names and per-artifact existence,
          *     freshness and revision from the selected Git branch snapshot, and the
          *     attempt the study's Temporal workflow is executing on any branch, if any.
          */
@@ -77,7 +77,7 @@ export interface paths {
          * @description Batch canonical aggregates in one committed read transaction.
          *
          *     Omit `at` for the selected branch head, or pass an exact Git commit ID.
-         *     Use `context.commit_id` to pin subsequent reads. Failed attempts retain logs without advancing scientific state.
+         *     Use `commit_id` to pin subsequent reads. Failed attempts retain logs without advancing scientific state.
          */
         readonly get: operations["get_model_snapshot_api_studies__workspace_id__model_get"];
         readonly put?: never;
@@ -444,26 +444,6 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
-    readonly "/api/studies/{workspace_id}/model/views/{artifact_id}": {
-        readonly parameters: {
-            readonly query?: never;
-            readonly header?: never;
-            readonly path?: never;
-            readonly cookie?: never;
-        };
-        /**
-         * Get Model View
-         * @description One display projection from the selected committed model revision.
-         */
-        readonly get: operations["get_model_view_api_studies__workspace_id__model_views__artifact_id__get"];
-        readonly put?: never;
-        readonly post?: never;
-        readonly delete?: never;
-        readonly options?: never;
-        readonly head?: never;
-        readonly patch?: never;
-        readonly trace?: never;
-    };
     readonly "/api/studies/{workspace_id}/timeline": {
         readonly parameters: {
             readonly query?: never;
@@ -641,7 +621,7 @@ export interface paths {
         readonly patch?: never;
         readonly trace?: never;
     };
-    readonly "/api/capabilities": {
+    readonly "/api/actions-enabled": {
         readonly parameters: {
             readonly query?: never;
             readonly header?: never;
@@ -649,14 +629,14 @@ export interface paths {
             readonly cookie?: never;
         };
         /**
-         * Get Capabilities
+         * Get Actions Enabled
          * @description Whether this deployment serves scientific actions.
          *
          *     `actions_enabled` is `false` on the hosted read-only viewer backend, where
          *     every `POST` (scientific actions and study management) returns 403 and only the read
          *     endpoints are live.
          */
-        readonly get: operations["get_capabilities_api_capabilities_get"];
+        readonly get: operations["get_actions_enabled_api_actions_enabled_get"];
         readonly put?: never;
         readonly post?: never;
         readonly delete?: never;
@@ -760,6 +740,11 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         readonly ActionAttempt: Domain.ActionAttempt;
+        /**
+         * ActionEffects
+         * @description What an executed action did to the store: the workflow installs this.
+         */
+        readonly ActionEffects: Domain.ActionEffects;
         readonly ActionId: Domain.ActionId;
         /**
          * ActionMessage
@@ -769,31 +754,30 @@ export interface components {
         readonly ActionPoll: Domain.ActionPoll;
         /** ActionReceipt */
         readonly ActionReceipt: Domain.ActionReceipt;
-        /** Added[ComparisonConnection] */
-        readonly Added_ComparisonConnection_: Domain.Added<Domain.ComparisonConnection>;
-        /** Added[ConstructSpec] */
-        readonly Added_ConstructSpec_: Domain.Added<Domain.ConstructSpec>;
+        /** Added[ConstructRef] */
+        readonly Added_ConstructRef_: Domain.Added<Domain.ConstructRef>;
         /** Added[DataPoint] */
         readonly Added_DataPoint_: Domain.Added<Domain.DataPoint>;
+        /** Added[EdgeRef] */
+        readonly Added_EdgeRef_: Domain.Added<Domain.EdgeRef>;
         /** Added[ParameterSpec] */
         readonly Added_ParameterSpec_: Domain.Added<Domain.ParameterSpec>;
         /** Applied[DataComparisonResult] */
         readonly Applied_DataComparisonResult_: Domain.Applied<Domain.DataComparisonResult>;
         /** Applied[DataPreparationResult] */
         readonly Applied_DataPreparationResult_: Domain.Applied<Domain.DataPreparationResult>;
-        /** Applied[ModelEditResult] */
-        readonly Applied_ModelEditResult_: Domain.Applied<Domain.ModelEditResult>;
         /** Applied[ModelFitResult] */
         readonly Applied_ModelFitResult_: Domain.Applied<Domain.ModelFitResult>;
         /** Applied[ModelSimulationResult] */
         readonly Applied_ModelSimulationResult_: Domain.Applied<Domain.ModelSimulationResult>;
+        /** Applied[NoneType] */
+        readonly Applied_NoneType_: Domain.Applied<null>;
         /**
          * ArtifactEnvelope
          * @description An artifact envelope delivers a stored payload with its revision and file
          *     list.
          */
         readonly ArtifactEnvelope: Domain.ArtifactEnvelope;
-        /** ArtifactFreshness */
         readonly ArtifactFreshness: Domain.ArtifactFreshness;
         /** @enum {string} */
         readonly ArtifactId: Domain.ArtifactId;
@@ -808,7 +792,6 @@ export interface components {
          *     code, where wall-clock time is non-deterministic.
          */
         readonly ArtifactRecord: Domain.ArtifactRecord;
-        readonly ArtifactViewResponse: Domain.ArtifactViewResponse;
         readonly Assessment_ConvergenceAssessmentSubject_NumericCriterionEvidence_: Domain.Assessment<Domain.ConvergenceAssessmentSubject, Domain.NumericCriterionEvidence>;
         readonly Assessment_IndicatorCheckSubject_NumericCriterionEvidence_: Domain.Assessment<Domain.IndicatorCheckSubject, Domain.NumericCriterionEvidence>;
         readonly Assessment_str_ParticleMCMCEvidence_: Domain.Assessment<string, Domain.ParticleMCMCEvidence>;
@@ -822,6 +805,18 @@ export interface components {
          * @description Promoted traces identified by their committed execution sequence.
          */
         readonly AttemptTraceIndex: Domain.AttemptTraceIndex;
+        /** Attempt[Literal['data_diff'], DataDiffRequest, DataComparisonResult] */
+        readonly Attempt_Literal__data_diff___DataDiffRequest_DataComparisonResult_: Domain.Attempt<"data_diff", Domain.DataDiffRequest, Domain.DataComparisonResult>;
+        /** Attempt[Literal['edit_model'], EditModelRequest, NoneType] */
+        readonly Attempt_Literal__edit_model___EditModelRequest_NoneType_: Domain.Attempt<"edit_model", Domain.EditModelRequest, null>;
+        /** Attempt[Literal['fit'], FitRequest, ModelFitResult] */
+        readonly Attempt_Literal__fit___FitRequest_ModelFitResult_: Domain.Attempt<"fit", Domain.FitRequest, Domain.ModelFitResult>;
+        /** Attempt[Literal['prepare_data'], PrepareDataRequest, DataPreparationResult] */
+        readonly Attempt_Literal__prepare_data___PrepareDataRequest_DataPreparationResult_: Domain.Attempt<"prepare_data", Domain.PrepareDataRequest, Domain.DataPreparationResult>;
+        /** Attempt[Literal['set_question'], SetQuestionRequest, NoneType] */
+        readonly Attempt_Literal__set_question___SetQuestionRequest_NoneType_: Domain.Attempt<"set_question", Domain.SetQuestionRequest, null>;
+        /** Attempt[Literal['simulate'], SimulateRequest, ModelSimulationResult] */
+        readonly Attempt_Literal__simulate___SimulateRequest_ModelSimulationResult_: Domain.Attempt<"simulate", Domain.SimulateRequest, Domain.ModelSimulationResult>;
         /**
          * AuthoredLawProvenance
          * @description The current laws have authored ancestry without retained fitting.
@@ -908,11 +903,6 @@ export interface components {
          * @description A supported mathematical function, including explicit discrete contrasts.
          */
         readonly "CallExpression-Output": Domain.CallExpression;
-        /**
-         * CapabilitiesResponse
-         * @description This response tells clients whether the study facade supports scientific actions.
-         */
-        readonly CapabilitiesResponse: Domain.CapabilitiesResponse;
         /** CategoricalLawSpec[Expression] */
         readonly "CategoricalLawSpec_Expression_-Input": {
             /**
@@ -971,9 +961,9 @@ export interface components {
          * @description Compact retained-chain measurements; plot series compose the report detail.
          */
         readonly ChainDiagnostics: Domain.ChainDiagnostics;
-        readonly Change_ComparisonConnection_: Domain.Change<Domain.ComparisonConnection>;
-        readonly Change_ConstructSpec_: Domain.Change<Domain.ConstructSpec>;
+        readonly Change_ConstructRef_: Domain.Change<Domain.ConstructRef>;
         readonly Change_DataPoint_: Domain.Change<Domain.DataPoint>;
+        readonly Change_EdgeRef_: Domain.Change<Domain.EdgeRef>;
         readonly Change_ParameterSpec_: Domain.Change<Domain.ParameterSpec>;
         /** @enum {string} */
         readonly CheckGroup: Domain.CheckGroup;
@@ -1007,11 +997,6 @@ export interface components {
         readonly "CoefficientExpression-Output": Domain.CoefficientExpression;
         /** @enum {string} */
         readonly CoefficientRole: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
-        /**
-         * ComparisonConnection
-         * @description Endpoint references and description for one side of a causal edge comparison.
-         */
-        readonly ComparisonConnection: Domain.ComparisonConnection;
         /**
          * CompletedExtractionWorker
          * @description Retained measurements from a completed worker; no failure field exists.
@@ -1054,11 +1039,6 @@ export interface components {
          * @description Compute a deterministic support-window measurement from source columns.
          */
         readonly "ComputedExtractionSpec-Output": Domain.ComputedExtractionSpec;
-        /**
-         * ConstructComparison
-         * @description A construct's presence and time-slice topology in two model revisions.
-         */
-        readonly ConstructComparison: Domain.ConstructComparison;
         readonly "ConstructId-Input": string;
         readonly "ConstructId-Output": Domain.ConstructId;
         /**
@@ -1148,13 +1128,13 @@ export interface components {
             readonly name: string;
             readonly at: components["schemas"]["GitOid-Input"];
         };
+        /** @enum {string} */
+        readonly DSMCLeafProposal: Domain.DSMCLeafProposal;
         /**
          * DataComparisonResult
          * @description A retained data comparison; it never installs scientific artifacts.
          */
         readonly DataComparisonResult: Domain.DataComparisonResult;
-        /** DataDiffAttempt */
-        readonly DataDiffAttempt: Domain.Attempt<"data_diff", Domain.DataDiffRequest, Domain.DataComparisonResult>;
         /**
          * DataDiffReport
          * @description Comparisons of existing data, preserving each history's immutable source reference.
@@ -1184,11 +1164,6 @@ export interface components {
          * @description An observed anchor and support; dates are synthetic for a calendar-free series.
          */
         readonly DataPoint: Domain.DataPoint;
-        /**
-         * DataPointChange
-         * @description An added, removed or revised measurement in a single-history comparison.
-         */
-        readonly DataPointChange: Domain.DataPointChange;
         /**
          * DataPreparationResult
          * @description Preparation artifacts and the measurements actually retained by extraction.
@@ -1270,15 +1245,10 @@ export interface components {
         /** DeltaLawSpec[Expression] */
         readonly "DeltaLawSpec_Expression_-Output": Domain.DeltaLawSpec<Domain.Expression>;
         /**
-         * DensityHistogram
-         * @description A normalized energy histogram at its native bin centers.
+         * DensityCurve
+         * @description Aligned density ordinates; the owning field distinguishes PDF samples from histogram heights.
          */
-        readonly DensityHistogram: Domain.DensityHistogram;
-        /**
-         * DensityPoint
-         * @description A plotting coordinate evaluated from the native prior's log density.
-         */
-        readonly DensityPoint: Domain.DensityPoint;
+        readonly DensityCurve: Domain.DensityCurve;
         readonly "DistributionId-Input": string;
         readonly "DistributionId-Output": Domain.DistributionId;
         /**
@@ -1301,11 +1271,6 @@ export interface components {
         readonly "DriftMechanismSpec-Output": Domain.DriftMechanismSpec;
         readonly "DynamicsMechanismSpec-Input": components["schemas"]["DriftMechanismSpec-Input"] | components["schemas"]["PotentialMechanismSpec-Input"];
         readonly "DynamicsMechanismSpec-Output": Domain.DynamicsMechanismSpec;
-        /**
-         * EdgeComparison
-         * @description An explicit causal edge's presence and endpoints in two model revisions.
-         */
-        readonly EdgeComparison: Domain.EdgeComparison;
         readonly "EdgeId-Input": string;
         readonly "EdgeId-Output": Domain.EdgeId;
         /**
@@ -1314,8 +1279,6 @@ export interface components {
          *     definition.
          */
         readonly EdgeRef: Domain.EdgeRef;
-        /** EditAttempt */
-        readonly EditAttempt: Domain.Attempt<"edit_model", Domain.EditModelRequest, Domain.ModelEditResult>;
         /**
          * EditModelRequest
          * @description Replace one named base revision with a validated scientific definition.
@@ -1340,11 +1303,6 @@ export interface components {
          * @description An effect summary reports posterior location, uncertainty, and sign probability.
          */
         readonly EffectSummary: Domain.EffectSummary;
-        /**
-         * EffectTrajectoryPoint
-         * @description A certified paired contrast and 95% interval at one absolute model time.
-         */
-        readonly EffectTrajectoryPoint: Domain.EffectTrajectoryPoint;
         /** EmpiricalPoint */
         readonly EmpiricalPoint: Domain.EmpiricalPoint;
         /**
@@ -1353,21 +1311,23 @@ export interface components {
          */
         readonly EnergyDiagnostics: Domain.EnergyDiagnostics;
         readonly EntityRef: Domain.EntityRef;
+        /**
+         * EvaluatedPredictiveChecks
+         * @description An evaluated run may retain failed and partially unavailable scientific evidence.
+         */
+        readonly EvaluatedPredictiveChecks: Domain.EvaluatedPredictiveChecks;
         /** Evaluated[ConvergenceAssessmentSubject, NumericCriterionEvidence] */
         readonly Evaluated_ConvergenceAssessmentSubject_NumericCriterionEvidence_: Domain.Evaluated<Domain.ConvergenceAssessmentSubject, Domain.NumericCriterionEvidence>;
         /** Evaluated[IndicatorCheckSubject, NumericCriterionEvidence] */
         readonly Evaluated_IndicatorCheckSubject_NumericCriterionEvidence_: Domain.Evaluated<Domain.IndicatorCheckSubject, Domain.NumericCriterionEvidence>;
         /** Evaluated[PredictiveSubject, tuple[NumericCriterionEvidence, ...]] */
         readonly Evaluated_PredictiveSubject_tuple_NumericCriterionEvidence__________: Domain.Evaluated<Domain.PredictiveSubject, readonly (Domain.NumericCriterionEvidence)[]>;
+        /** Evaluated[QuestionSubject, str] */
+        readonly Evaluated_QuestionSubject_str_: Domain.Evaluated<Domain.QuestionSubject, string>;
         /** Evaluated[str, ParticleMCMCEvidence] */
         readonly Evaluated_str_ParticleMCMCEvidence_: Domain.Evaluated<string, Domain.ParticleMCMCEvidence>;
         /** Evaluated[str, str] */
         readonly Evaluated_str_str_: Domain.Evaluated<string, string>;
-        /**
-         * EventsResponse
-         * @description An events response pages one running attempt's live progress.
-         */
-        readonly EventsResponse: Domain.EventsResponse;
         readonly "Expression-Input": components["schemas"]["LiteralExpression-Input"] | components["schemas"]["StateExpression-Input"] | components["schemas"]["CoefficientExpression-Input"] | components["schemas"]["BinaryExpression-Input"] | components["schemas"]["CallExpression-Input"];
         readonly "Expression-Output": Domain.Expression;
         /** @enum {string} */
@@ -1436,8 +1396,6 @@ export interface components {
          * @description Explicit uploaded filenames, relative to this study's input directory.
          */
         readonly "FileSourceRef-Output": Domain.FileSourceRef;
-        /** FitAttempt */
-        readonly FitAttempt: Domain.Attempt<"fit", Domain.FitRequest, Domain.ModelFitResult>;
         /** @enum {string} */
         readonly FitReliability: Domain.FitReliability;
         /**
@@ -1523,7 +1481,7 @@ export interface components {
         readonly HistogramBin: Domain.HistogramBin;
         /**
          * IdentificationReport
-         * @description Positive and negative causal identification findings for the model's default query.
+         * @description Positive and negative causal identification findings for the study question's outcome.
          */
         readonly IdentificationReport: Domain.IdentificationReport;
         /**
@@ -1656,21 +1614,21 @@ export interface components {
         readonly "IntervalEffectTransformSpec-Output": Domain.IntervalEffectTransformSpec;
         /**
          * InterventionSpec
-         * @description Set a latent state at one model time, then let its dynamics resume.
+         * @description Set a state some time after the design's start, then let its dynamics resume.
          */
         readonly "InterventionSpec-Input": {
             readonly target: components["schemas"]["ConstructId-Input"];
             /**
-             * Time
-             * @description Absolute time in model days.
+             * After
+             * @description Offset from the design's start; omitted means at the start.
              */
-            readonly time: number;
+            readonly after?: string | null;
             /** Value */
             readonly value: number;
         };
         /**
          * InterventionSpec
-         * @description Set a latent state at one model time, then let its dynamics resume.
+         * @description Set a state some time after the design's start, then let its dynamics resume.
          */
         readonly "InterventionSpec-Output": Domain.InterventionSpec;
         readonly "JsonArray-Input": Domain.JsonArray;
@@ -1695,11 +1653,6 @@ export interface components {
          * @description A retained PIT value and its empirical and reference cumulative probabilities.
          */
         readonly LOOPITPoint: Domain.LOOPITPoint;
-        /**
-         * LikelihoodDiagnostics
-         * @description Observed values and validation profile for one likelihood's pinned panel.
-         */
-        readonly LikelihoodDiagnostics: Domain.LikelihoodDiagnostics;
         /**
          * LikelihoodSpec
          * @description An indicator's conditional probability law and its scientific justification.
@@ -1772,6 +1725,11 @@ export interface components {
          * @description A literature source records cited evidence supporting a scientific modeling decision.
          */
         readonly "LiteratureSource-Output": Domain.LiteratureSource;
+        /**
+         * MarginalParticleGibbsSpec
+         * @description Marginalized Particle Gibbs inference settings.
+         */
+        readonly MarginalParticleGibbsSpec: Domain.MarginalParticleGibbsSpec;
         /** @enum {string} */
         readonly MeasurementDtype: "continuous" | "binary" | "count" | "ordinal" | "categorical";
         /**
@@ -1837,6 +1795,11 @@ export interface components {
             readonly points?: number;
         };
         /**
+         * Missing
+         * @description An artifact absent from the selected state.
+         */
+        readonly Missing: Domain.Missing;
+        /**
          * MixedLawProvenance
          * @description Some laws retain a committed fit and others have different ancestry.
          */
@@ -1847,45 +1810,21 @@ export interface components {
          */
         readonly ModelCheckReport: Domain.ModelCheckReport;
         /**
-         * ModelData
-         * @description Observed evidence paired with its source versions.
-         */
-        readonly ModelData: Domain.ModelData;
-        /**
-         * ModelDiagnostics
-         * @description Server-derived equations and comparisons with pinned observations.
-         */
-        readonly ModelDiagnostics: Domain.ModelDiagnostics;
-        /**
          * ModelDiffReport
          * @description A model diff joins typed entity comparisons and evidence at two model revisions or checkpoints.
          */
         readonly ModelDiffReport: Domain.ModelDiffReport;
-        /**
-         * ModelEditResult
-         * @description The model/check artifacts are the result; the selected base remains explicit.
-         */
-        readonly ModelEditResult: Domain.ModelEditResult;
-        /**
-         * ModelFindings
-         * @description ModelSpec findings collect identification, validation, and fitted results with their input references.
-         */
-        readonly ModelFindings: Domain.ModelFindings;
         /**
          * ModelFitResult
          * @description One retained fit report, with the exact inputs and truthful retention state.
          */
         readonly ModelFitResult: Domain.ModelFitResult;
         /**
-         * ModelGraphComparison
-         * @description Identity-aligned topology changes, excluding laws and other entity attributes.
-         */
-        readonly ModelGraphComparison: Domain.ModelGraphComparison;
-        /**
          * ModelGraphView
          * @description Scientific entity identities selected for the graph at this authoring checkpoint.
          */
         readonly ModelGraphView: Domain.ModelGraphView;
+        readonly ModelPredictiveEvaluation: Domain.ModelPredictiveEvaluation;
         /**
          * ModelPredictiveReport
          * @description One automatic, reproducible battery over the full model's current laws.
@@ -1903,11 +1842,9 @@ export interface components {
         readonly ModelSnapshot: Domain.ModelSnapshot;
         /**
          * ModelSpec
-         * @description An evolving research question and connected causal graph with owned scientific detail.
+         * @description A connected causal graph with owned scientific detail, built to answer the study question.
          */
         readonly "ModelSpec-Input": {
-            /** Question */
-            readonly question?: string | null;
             /**
              * Edges
              * @default []
@@ -1932,11 +1869,10 @@ export interface components {
             readonly time_points?: readonly number[];
             /** Measurement Clock */
             readonly measurement_clock?: string | null;
-            readonly default_outcome?: components["schemas"]["ConstructId-Input"] | null;
         };
         /**
          * ModelSpec
-         * @description An evolving research question and connected causal graph with owned scientific detail.
+         * @description A connected causal graph with owned scientific detail, built to answer the study question.
          */
         readonly "ModelSpec-Output": Domain.ModelSpec;
         /** NegativeBinomial2LawSpec[Expression] */
@@ -1975,6 +1911,8 @@ export interface components {
         readonly NotEvaluated_IndicatorCheckSubject_: Domain.NotEvaluated<Domain.IndicatorCheckSubject>;
         /** NotEvaluated[PredictiveSubject] */
         readonly NotEvaluated_PredictiveSubject_: Domain.NotEvaluated<Domain.PredictiveSubject>;
+        /** NotEvaluated[QuestionSubject] */
+        readonly NotEvaluated_QuestionSubject_: Domain.NotEvaluated<Domain.QuestionSubject>;
         /** NotEvaluated[str] */
         readonly NotEvaluated_str_: Domain.NotEvaluated<string>;
         readonly "NumPyroDistribution-Input": {
@@ -2053,6 +1991,11 @@ export interface components {
         /** OrderedLogisticLawSpec[Expression] */
         readonly "OrderedLogisticLawSpec_Expression_-Output": Domain.OrderedLogisticLawSpec<Domain.Expression>;
         /**
+         * OutcomeSubject
+         * @description Whether the model defines the question's outcome as a measured, modeled course.
+         */
+        readonly OutcomeSubject: Domain.OutcomeSubject;
+        /**
          * PPCOverlay
          * @description A predictive overlay sets one indicator's observed values against simulated ones.
          *
@@ -2086,11 +2029,6 @@ export interface components {
          * @description An immutable observed panel with its own calendar history.
          */
         readonly "PanelRef-Output": Domain.PanelRef;
-        /**
-         * ParameterChange
-         * @description A parameter change compares one parameter's law across model revisions.
-         */
-        readonly ParameterChange: Domain.ParameterChange;
         /**
          * ParameterConvergenceReport
          * @description Recorded-chain criteria cover parameters, not latent-path mixing.
@@ -2135,6 +2073,17 @@ export interface components {
             readonly transform?: components["schemas"]["ParameterTransformSpec-Input"];
             /** @description Membership in a native law in ModelSpec.distributions; may be joint. None means the law has not been assigned yet. */
             readonly distribution?: components["schemas"]["DistributionId-Input"] | null;
+            /**
+             * Reasoning
+             * @description Why the authored prior law fits this quantity, and where its values come from.
+             */
+            readonly reasoning?: string | null;
+            /**
+             * Sources
+             * @description Evidence behind the authored prior law.
+             * @default []
+             */
+            readonly sources?: readonly components["schemas"]["LiteratureSource-Input"][];
         };
         /**
          * ParameterSpec
@@ -2145,7 +2094,7 @@ export interface components {
         readonly "ParameterTransformSpec-Output": Domain.ParameterTransformSpec;
         /**
          * ParameterWarmupDiagnostics
-         * @description Timing and ownership of proposal initialization and preconditioning.
+         * @description Realized initialization and preconditioning, with the complete Pathfinder evidence once.
          */
         readonly ParameterWarmupDiagnostics: Domain.ParameterWarmupDiagnostics;
         /**
@@ -2154,20 +2103,10 @@ export interface components {
          */
         readonly ParetoKPoint: Domain.ParetoKPoint;
         /**
-         * ParticleInitializationDiagnostics
-         * @description Retained native initialization measurements; never posterior evidence.
-         */
-        readonly ParticleInitializationDiagnostics: Domain.ParticleInitializationDiagnostics;
-        /**
          * ParticleMCMCEvidence
          * @description The production particle-MCMC target and its exact latent transition.
          */
         readonly ParticleMCMCEvidence: Domain.ParticleMCMCEvidence;
-        /**
-         * ParticlePreconditionerDiagnostics
-         * @description Proposal-scale setup, distinct from retained posterior measurements.
-         */
-        readonly ParticlePreconditionerDiagnostics: Domain.ParticlePreconditionerDiagnostics;
         /**
          * ParticleSamplerDiagnostics
          * @description Typed exact-sampler settings and transition telemetry from the native producer.
@@ -2215,21 +2154,10 @@ export interface components {
         /** PoissonLawSpec[Expression] */
         readonly "PoissonLawSpec_Expression_-Output": Domain.PoissonLawSpec<Domain.Expression>;
         /**
-         * PosteriorEstimate
-         * @description A posterior estimate reports a mean and a credible interval with explicit semantics.
-         */
-        readonly PosteriorEstimate: Domain.PosteriorEstimate;
-        /**
          * PosteriorMarginal
-         * @description A posterior marginal summarizes uncertainty in one scalar parameter and supplies its
-         *     density plot.
+         * @description One parameter's posterior interval, scale and density plot.
          */
         readonly PosteriorMarginal: Domain.PosteriorMarginal;
-        /**
-         * PosteriorPair
-         * @description A posterior pair supplies joint samples of two parameters to visualize their dependence.
-         */
-        readonly PosteriorPair: Domain.PosteriorPair;
         /**
          * PosteriorPredictiveChecks
          * @description Posterior predictive checks report exact-model checks and their supporting plot data.
@@ -2256,20 +2184,12 @@ export interface components {
         readonly PredictiveAssessment: Domain.PredictiveAssessment;
         /** @enum {string} */
         readonly PredictiveCheckReason: Domain.PredictiveCheckReason;
-        /**
-         * PredictiveHistory
-         * @description A saved check on the exact schedule and scale used to evaluate it.
-         */
-        readonly PredictiveHistory: Domain.PredictiveHistory;
         readonly PredictiveLawProvenance: Domain.PredictiveLawProvenance;
         /**
          * PredictiveSubject
          * @description One named check and its stable target in a construct's scientific context.
          */
         readonly PredictiveSubject: Domain.PredictiveSubject;
-        readonly PredictiveSummary: Domain.PredictiveSummary;
-        /** PrepareAttempt */
-        readonly PrepareAttempt: Domain.Attempt<"prepare_data", Domain.PrepareDataRequest, Domain.DataPreparationResult>;
         /**
          * PrepareDataRequest
          * @description Prepare uploaded sources or a simulation replicate without a model.
@@ -2293,9 +2213,63 @@ export interface components {
          * @description Self-contained semantics and provenance of one prepared observation table.
          */
         readonly PreparedDataMetadata: Domain.PreparedDataMetadata;
+        /**
+         * Present
+         * @description The selected artifact record and its input validity.
+         */
+        readonly Present: Domain.Present;
         readonly ProgressEvent: Domain.ProgressEvent;
         /** @enum {string} */
         readonly ProgressStep: Domain.ProgressStep;
+        readonly QueryName: string;
+        /**
+         * QueryTargetSubject
+         * @description One query's intervention target: defined, identified, or set inside the record.
+         */
+        readonly QueryTargetSubject: Domain.QueryTargetSubject;
+        /**
+         * QueryWindowSubject
+         * @description Whether the record supports one query's window.
+         */
+        readonly QueryWindowSubject: Domain.QueryWindowSubject;
+        readonly QuestionAssessment: Domain.QuestionAssessment;
+        /**
+         * QuestionCheckReport
+         * @description The study question checked against the model and, once prepared, the record.
+         */
+        readonly QuestionCheckReport: Domain.QuestionCheckReport;
+        /**
+         * QuestionSpec
+         * @description What the study asks: the user's words, the outcome, and named contrasts.
+         *
+         *     Each query is a contrast of its interventions against the recorded course.
+         *     Constructs are named by identity before a model defines them.
+         */
+        readonly "QuestionSpec-Input": {
+            /**
+             * Text
+             * @description The user's question in their own words.
+             */
+            readonly text: string;
+            /** @description The construct whose course answers the question. */
+            readonly outcome?: components["schemas"]["ConstructId-Input"] | null;
+            /**
+             * Queries
+             * @description Named contrasts against the recorded course, each with at least one intervention.
+             */
+            readonly queries?: {
+                readonly [key: string]: components["schemas"]["SimulationSpec-Input"];
+            };
+        };
+        /**
+         * QuestionSpec
+         * @description What the study asks: the user's words, the outcome, and named contrasts.
+         *
+         *     Each query is a contrast of its interventions against the recorded course.
+         *     Constructs are named by identity before a model defines them.
+         */
+        readonly "QuestionSpec-Output": Domain.QuestionSpec;
+        readonly QuestionSubject: Domain.QuestionSubject;
         /** Raised */
         readonly Raised: Domain.Raised;
         /**
@@ -2326,12 +2300,12 @@ export interface components {
         readonly Rejected: Domain.Rejected;
         /** @enum {string} */
         readonly RejectionReason: Domain.RejectionReason;
-        /** Removed[ComparisonConnection] */
-        readonly Removed_ComparisonConnection_: Domain.Removed<Domain.ComparisonConnection>;
-        /** Removed[ConstructSpec] */
-        readonly Removed_ConstructSpec_: Domain.Removed<Domain.ConstructSpec>;
+        /** Removed[ConstructRef] */
+        readonly Removed_ConstructRef_: Domain.Removed<Domain.ConstructRef>;
         /** Removed[DataPoint] */
         readonly Removed_DataPoint_: Domain.Removed<Domain.DataPoint>;
+        /** Removed[EdgeRef] */
+        readonly Removed_EdgeRef_: Domain.Removed<Domain.EdgeRef>;
         /** Removed[ParameterSpec] */
         readonly Removed_ParameterSpec_: Domain.Removed<Domain.ParameterSpec>;
         /** ResponseCurve */
@@ -2341,19 +2315,14 @@ export interface components {
          * @description A current artifact removed by an action, with the finding that caused it.
          */
         readonly RetractedArtifact: Domain.RetractedArtifact;
-        /** Revised[ComparisonConnection] */
-        readonly Revised_ComparisonConnection_: Domain.Revised<Domain.ComparisonConnection>;
-        /** Revised[ConstructSpec] */
-        readonly Revised_ConstructSpec_: Domain.Revised<Domain.ConstructSpec>;
+        /** Revised[ConstructRef] */
+        readonly Revised_ConstructRef_: Domain.Revised<Domain.ConstructRef>;
         /** Revised[DataPoint] */
         readonly Revised_DataPoint_: Domain.Revised<Domain.DataPoint>;
+        /** Revised[EdgeRef] */
+        readonly Revised_EdgeRef_: Domain.Revised<Domain.EdgeRef>;
         /** Revised[ParameterSpec] */
         readonly Revised_ParameterSpec_: Domain.Revised<Domain.ParameterSpec>;
-        /**
-         * RevisionCatalog
-         * @description A revision catalog lists immutable model, source and observation inputs for selection.
-         */
-        readonly RevisionCatalog: Domain.RevisionCatalog;
         /**
          * Role
          * @description A construct role states whether the variable is modeled as endogenous or treated as
@@ -2365,6 +2334,11 @@ export interface components {
         readonly RunningAction: Domain.RunningAction;
         /** RunningPoll */
         readonly RunningPoll: Domain.RunningPoll;
+        /**
+         * SamplerSpec
+         * @description Fully resolved controls for the exact particle sampler.
+         */
+        readonly SamplerSpec: Domain.SamplerSpec;
         /** @enum {string} */
         readonly ScientificActionId: Domain.ScientificActionId;
         /**
@@ -2394,23 +2368,39 @@ export interface components {
          * @description Interpret source records using an explicit measurement rubric.
          */
         readonly "SemanticExtractionSpec-Output": Domain.SemanticExtractionSpec;
-        /** SimulateAttempt */
-        readonly SimulateAttempt: Domain.Attempt<"simulate", Domain.SimulateRequest, Domain.ModelSimulationResult>;
+        /**
+         * SetQuestionRequest
+         * @description Set the study question; it is the first action of every study.
+         */
+        readonly "SetQuestionRequest-Input": {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            readonly action: "set_question";
+            readonly question: components["schemas"]["QuestionSpec-Input"];
+        };
+        /**
+         * SetQuestionRequest
+         * @description Set the study question; it is the first action of every study.
+         */
+        readonly "SetQuestionRequest-Output": Domain.SetQuestionRequest;
         /**
          * SimulateRequest
-         * @description Generate through end with optional start and interventions; compare saved data with data_diff.
+         * @description Generate a dated window with optional interventions; compare saved data with data_diff.
          */
         readonly "SimulateRequest-Input": {
             /**
-             * End
-             * @description Absolute end time in model days.
-             */
-            readonly end: number;
-            /**
              * Start
-             * @description Absolute start time in model days; omitted uses the model's latest state time, or zero for its initial-state law.
+             * Format: date
+             * @description Calendar day the window starts, at 00:00 UTC.
              */
-            readonly start?: number | null;
+            readonly start: string;
+            /**
+             * Horizon
+             * @description How long the window lasts, such as 9w or 61d.
+             */
+            readonly horizon: string;
             /**
              * Interventions
              * @default []
@@ -2425,7 +2415,7 @@ export interface components {
         };
         /**
          * SimulateRequest
-         * @description Generate through end with optional start and interventions; compare saved data with data_diff.
+         * @description Generate a dated window with optional interventions; compare saved data with data_diff.
          */
         readonly "SimulateRequest-Output": Domain.SimulateRequest;
         /**
@@ -2438,11 +2428,6 @@ export interface components {
          * @description Contiguous pages of original draws, with every recorded time point intact.
          */
         readonly SimulationPaths: Domain.SimulationPaths;
-        /**
-         * SimulationPredictiveReport
-         * @description Model implications, independently of whether a causal contrast is certified.
-         */
-        readonly SimulationPredictiveReport: Domain.SimulationPredictiveReport;
         /**
          * SimulationRef
          * @description A saved simulation; a null replicate selects all its recorded draws.
@@ -2482,23 +2467,41 @@ export interface components {
          */
         readonly SimulationReport: Domain.SimulationReport;
         /**
-         * SimulationSeriesSummary
-         * @description One state's or indicator's generated distribution in each simulated arm.
+         * SimulationSpec
+         * @description Generate from a calendar day over a horizon, with interventions placed after the start.
+         *
+         *     The start is the only absolute time. A record's origin places it in model days;
+         *     without a record, the start is model day zero.
          */
-        readonly SimulationSeriesSummary: Domain.SimulationSeriesSummary;
+        readonly "SimulationSpec-Input": {
+            /**
+             * Start
+             * Format: date
+             * @description Calendar day the window starts, at 00:00 UTC.
+             */
+            readonly start: string;
+            /**
+             * Horizon
+             * @description How long the window lasts, such as 9w or 61d.
+             */
+            readonly horizon: string;
+            /**
+             * Interventions
+             * @default []
+             */
+            readonly interventions?: readonly components["schemas"]["InterventionSpec-Input"][];
+        };
         /**
          * SimulationSpec
-         * @description Generate through end, optionally starting earlier and applying dated interventions.
+         * @description Generate from a calendar day over a horizon, with interventions placed after the start.
+         *
+         *     The start is the only absolute time. A record's origin places it in model days;
+         *     without a record, the start is model day zero.
          */
-        readonly SimulationSpec: Domain.SimulationSpec;
-        /**
-         * SnapshotContext
-         * @description A snapshot context identifies the selected Git commit and its artifact versions.
-         */
-        readonly SnapshotContext: Domain.SnapshotContext;
+        readonly "SimulationSpec-Output": Domain.SimulationSpec;
         /**
          * SourceValidity
-         * @description Source validity records whether a fact still matches its pinned inputs.
+         * @description Whether a selected artifact still matches its pinned inputs.
          * @enum {string}
          */
         readonly SourceValidity: Domain.SourceValidity;
@@ -2521,27 +2524,26 @@ export interface components {
         readonly Sourced_ModelSpec_: Domain.Sourced<Domain.ModelSpec>;
         /** Sourced[PreparedDataMetadata] */
         readonly Sourced_PreparedDataMetadata_: Domain.Sourced<Domain.PreparedDataMetadata>;
+        /** Sourced[QuestionCheckReport] */
+        readonly Sourced_QuestionCheckReport_: Domain.Sourced<Domain.QuestionCheckReport>;
+        /** Sourced[QuestionSpec] */
+        readonly Sourced_QuestionSpec_: Domain.Sourced<Domain.QuestionSpec>;
         /** Sourced[RawDataData] */
         readonly Sourced_RawDataData_: Domain.Sourced<Domain.RawDataData>;
         /** Sourced[SimulationReport] */
         readonly Sourced_SimulationReport_: Domain.Sourced<Domain.SimulationReport>;
-        /** Sourced[SpecificationReport] */
-        readonly Sourced_SpecificationReport_: Domain.Sourced<Domain.SpecificationReport>;
         /** Sourced[ValidationReportArtifact] */
         readonly Sourced_ValidationReportArtifact_: Domain.Sourced<Domain.ValidationReportArtifact>;
+        /** Sourced[tuple[SpecificationAssessment, ...]] */
+        readonly Sourced_tuple_SpecificationAssessment__________: Domain.Sourced<readonly (Domain.SpecificationAssessment)[]>;
         /** Sourced[tuple[StructuralItemDisposition, ...]] */
         readonly Sourced_tuple_StructuralItemDisposition__________: Domain.Sourced<readonly (Domain.StructuralItemDisposition)[]>;
         readonly SpecificationAssessment: Domain.SpecificationAssessment;
         /**
-         * SpecificationReport
-         * @description Model-only findings; compatibility reports have their own paired input references.
+         * StateAssignment
+         * @description A state set at one model time: a resolved intervention or a replayed input reading.
          */
-        readonly SpecificationReport: Domain.SpecificationReport;
-        /**
-         * StateEquation
-         * @description A continuous-time state equation rendered from declared scientific mechanisms.
-         */
-        readonly StateEquation: Domain.StateEquation;
+        readonly StateAssignment: Domain.StateAssignment;
         /**
          * StateExpression
          * @description A construct's state or declared known input, referenced by identity.
@@ -2672,11 +2674,6 @@ export interface components {
             } | null;
         };
         /**
-         * TraceFunctionCall
-         * @description The invoked tool function and its JSON argument string, retained in a trace.
-         */
-        readonly TraceFunctionCall: Domain.TraceFunctionCall;
-        /**
          * TraceMessage
          * @description A trace message records one conversational step, including any reasoning or tool
          *     interaction.
@@ -2698,24 +2695,19 @@ export interface components {
          */
         readonly TraceUsage: Domain.TraceUsage;
         /**
-         * TrajectorySummary
-         * @description Pointwise means and fixed 95% quantiles across generated numeric draws.
+         * UnavailablePredictiveChecks
+         * @description The run could not evaluate its scientific battery.
          */
-        readonly TrajectorySummary: Domain.TrajectorySummary;
-        /** Unchanged[ComparisonConnection] */
-        readonly Unchanged_ComparisonConnection_: Domain.Unchanged<Domain.ComparisonConnection>;
-        /** Unchanged[ConstructSpec] */
-        readonly Unchanged_ConstructSpec_: Domain.Unchanged<Domain.ConstructSpec>;
+        readonly UnavailablePredictiveChecks: Domain.UnavailablePredictiveChecks;
+        /** Unchanged[ConstructRef] */
+        readonly Unchanged_ConstructRef_: Domain.Unchanged<Domain.ConstructRef>;
+        /** Unchanged[EdgeRef] */
+        readonly Unchanged_EdgeRef_: Domain.Unchanged<Domain.EdgeRef>;
         /**
          * UnknownLawProvenance
          * @description Imported laws do not establish a conditioning history.
          */
         readonly UnknownLawProvenance: Domain.UnknownLawProvenance;
-        /**
-         * UploadResponse
-         * @description An upload response identifies the stored location of an accepted data upload.
-         */
-        readonly UploadResponse: Domain.UploadResponse;
         /** ValidationError */
         readonly ValidationError: {
             /** Location */
@@ -2742,16 +2734,6 @@ export interface components {
         readonly ValidationReportArtifact: Domain.ValidationReportArtifact;
         /** @description Deterministic support-window expression that returns one scalar per window. Use Python-like syntax over source_columns with arithmetic, comparisons, if/else, and helper functions such as any(), sum(), mean(), std(), first(), last(), count_true(), count_non_null(), lower(), contains(), and contains_any(). Use None for missing values. */
         readonly WindowExpression: string;
-        /**
-         * WorkspaceEntry
-         * @description A workspace entry identifies an available model workspace and its research question.
-         */
-        readonly WorkspaceEntry: Domain.WorkspaceEntry;
-        /**
-         * WorkspaceList
-         * @description A workspace list provides the available model workspaces for client navigation.
-         */
-        readonly WorkspaceList: Domain.WorkspaceList;
     };
     responses: never;
     parameters: never;
@@ -2775,7 +2757,7 @@ export interface operations {
         };
         readonly requestBody: {
             readonly content: {
-                readonly "application/json": components["schemas"]["EditModelRequest-Input"] | components["schemas"]["PrepareDataRequest-Input"] | components["schemas"]["FitRequest-Input"] | components["schemas"]["SimulateRequest-Input"];
+                readonly "application/json": components["schemas"]["SetQuestionRequest-Input"] | components["schemas"]["EditModelRequest-Input"] | components["schemas"]["PrepareDataRequest-Input"] | components["schemas"]["FitRequest-Input"] | components["schemas"]["SimulateRequest-Input"];
             };
         };
         readonly responses: {
@@ -2915,7 +2897,7 @@ export interface operations {
                     readonly [name: string]: unknown;
                 };
                 content: {
-                    readonly "application/json": components["schemas"]["RevisionCatalog"];
+                    readonly "application/json": readonly components["schemas"]["ArtifactRecord"][];
                 };
             };
             /** @description Validation Error */
@@ -3220,7 +3202,7 @@ export interface operations {
                     readonly [name: string]: unknown;
                 };
                 content: {
-                    readonly "application/json": components["schemas"]["PredictiveHistory"] | null;
+                    readonly "application/json": components["schemas"]["PPCOverlay"] | null;
                 };
             };
             /** @description Validation Error */
@@ -3478,41 +3460,6 @@ export interface operations {
             };
         };
     };
-    readonly get_model_view_api_studies__workspace_id__model_views__artifact_id__get: {
-        readonly parameters: {
-            readonly query?: {
-                readonly branch?: string;
-                readonly at?: components["schemas"]["GitOid-Input"] | null;
-            };
-            readonly header?: never;
-            readonly path: {
-                readonly workspace_id: string;
-                readonly artifact_id: string;
-            };
-            readonly cookie?: never;
-        };
-        readonly requestBody?: never;
-        readonly responses: {
-            /** @description Successful Response */
-            readonly 200: {
-                headers: {
-                    readonly [name: string]: unknown;
-                };
-                content: {
-                    readonly "application/json": components["schemas"]["ArtifactViewResponse"];
-                };
-            };
-            /** @description Validation Error */
-            readonly 422: {
-                headers: {
-                    readonly [name: string]: unknown;
-                };
-                content: {
-                    readonly "application/json": components["schemas"]["HTTPValidationError"];
-                };
-            };
-        };
-    };
     readonly get_timeline_api_studies__workspace_id__timeline_get: {
         readonly parameters: {
             readonly query?: never;
@@ -3664,7 +3611,7 @@ export interface operations {
                     readonly [name: string]: unknown;
                 };
                 content: {
-                    readonly "application/json": components["schemas"]["EventsResponse"];
+                    readonly "application/json": readonly components["schemas"]["ProgressEvent"][];
                 };
             };
             /** @description Validation Error */
@@ -3687,7 +3634,7 @@ export interface operations {
             readonly header?: never;
             readonly path: {
                 readonly workspace_id: string;
-                readonly artifact_id: "raw_data" | "model" | "identification_report" | "panel" | "data_profile" | "validation_report";
+                readonly artifact_id: "question" | "raw_data" | "model" | "identification_report" | "panel" | "data_profile" | "validation_report";
             };
             readonly cookie?: never;
         };
@@ -3722,7 +3669,7 @@ export interface operations {
             readonly header?: never;
             readonly path: {
                 readonly workspace_id: string;
-                readonly artifact_id: "raw_data" | "model" | "identification_report" | "panel" | "data_profile" | "validation_report";
+                readonly artifact_id: "question" | "raw_data" | "model" | "identification_report" | "panel" | "data_profile" | "validation_report";
             };
             readonly cookie?: never;
         };
@@ -3790,7 +3737,7 @@ export interface operations {
             readonly header?: never;
             readonly path: {
                 readonly workspace_id: string;
-                readonly artifact_id: "raw_data" | "model" | "identification_report" | "panel" | "data_profile" | "validation_report";
+                readonly artifact_id: "question" | "raw_data" | "model" | "identification_report" | "panel" | "data_profile" | "validation_report";
                 readonly filename: string;
             };
             readonly cookie?: never;
@@ -3817,7 +3764,7 @@ export interface operations {
             };
         };
     };
-    readonly get_capabilities_api_capabilities_get: {
+    readonly get_actions_enabled_api_actions_enabled_get: {
         readonly parameters: {
             readonly query?: never;
             readonly header?: never;
@@ -3832,7 +3779,7 @@ export interface operations {
                     readonly [name: string]: unknown;
                 };
                 content: {
-                    readonly "application/json": components["schemas"]["CapabilitiesResponse"];
+                    readonly "application/json": boolean;
                 };
             };
         };
@@ -3852,7 +3799,9 @@ export interface operations {
                     readonly [name: string]: unknown;
                 };
                 content: {
-                    readonly "application/json": components["schemas"]["WorkspaceList"];
+                    readonly "application/json": {
+                        readonly [key: string]: string | null;
+                    };
                 };
             };
         };
@@ -3876,7 +3825,7 @@ export interface operations {
                     readonly [name: string]: unknown;
                 };
                 content: {
-                    readonly "application/json": components["schemas"]["UploadResponse"];
+                    readonly "application/json": string;
                 };
             };
             /** @description Validation Error */

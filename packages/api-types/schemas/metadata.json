@@ -1,5 +1,6 @@
 {
   "artifactIds": [
+    "question",
     "raw_data",
     "model",
     "identification_report",

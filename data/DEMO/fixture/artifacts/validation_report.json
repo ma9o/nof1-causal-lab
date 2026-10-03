@@ -786,7 +786,5 @@
     "is_valid": true
   },
   "is_valid": true,
-  "preflight": {
-    "findings": []
-  }
+  "preflight": []
 }

@@ -1,5 +1,4 @@
 {
-  "default_outcome": "construct:6ca86c47aaf18b2472ce",
   "distributions": {
     "distribution:053137cbe0d8d602a32b5d31de9a8e810429848ceb4da7fa2519e5f137d9f6bb": {
       "distribution": "Beta",
@@ -3417,6 +3416,5 @@
       }
     }
   ],
-  "question": "I've been on escitalopram for about two and a half years. I'm thinking about tapering. Has the medication actually been moving the needle, or did I just get better on my own — and what would my likely trajectory look like over the next two months if I taper off now versus stay on it?",
   "time_points": []
 }

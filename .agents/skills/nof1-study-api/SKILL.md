@@ -7,16 +7,27 @@ description: "Drive or inspect a nof1-causal-lab study over HTTP with curl: edit
 
 > Auto-generated from `packages/api-types/schemas/openapi.json` (the FastAPI OpenAPI spec) by `apps/data-pipeline/scripts/codegen/export_api.py`. Edit the route docstrings, not this file.
 
-The scientific interface has four actions: `edit_model`, `prepare_data`, `fit`,
-and `simulate`. Requests commit through the serialized study workflow; reads
+The scientific interface has five actions: `set_question`, `edit_model`, `prepare_data`,
+`fit`, and `simulate`. Requests commit through the serialized study workflow; reads
 come from its versioned artifacts and append-only attempt log.
 
 ## Scientific loop
 
-1. Read `GET /api/studies/{workspace_id}/model` for current model/data versions and findings.
+1. Read `GET /api/studies/{workspace_id}/model` for current question, model/data versions and findings.
 2. Submit to `POST /api/studies/{workspace_id}/actions`:
-   - `edit_model`: `{"action":"edit_model","expected_revision":null,"model":{"question":"Does workload affect sleep?"}}`.
+   - `set_question` is every study's first action, and for now its only point:
+     `{"action":"set_question","question":{"text":"Does workload affect sleep?","outcome":"construct:sleep_quality","queries":{"lighter weeks":{"start":"2026-05-15","horizon":"4w","interventions":[{"target":"construct:workload","value":2}]}}}}`.
+     Each query is a contrast of its interventions with the recorded course. It has one
+     calendar day, `start`; the window is a `horizon` and interventions sit `after` an
+     offset from the start (omitted means at the start), both in `s|m|h|d|w` durations,
+     where `m` is minutes. Name constructs by the identities the model will define.
+     Other actions are rejected until the question exists.
+   - `edit_model`: `{"action":"edit_model","expected_revision":null,"model":{"edges":[...]}}`.
      Model structure, measurements, mechanisms, constants, and laws can be edited together.
+     Define the question's constructs with their identities; question checks report
+     "not evaluated" until the model does. Coefficients that enter only as a sum or only
+     as a product in every use are rejected; merge them into one parameter. Give each
+     parameter's prior law its `reasoning` and `sources`.
      Each observation law has a distribution tag and direct Expression fields, e.g.
      `{"distribution":"Delta","v":{"kind":"state","construct_id":"construct:workload"}}`.
      Bernoulli uses `BernoulliLogits` with `logits` or `BernoulliProbs` with `probs`.
@@ -44,12 +55,12 @@ come from its versioned artifacts and append-only attempt log.
    - `fit`: `{"action":"fit","model_revision":"<model tree OID>","panel_revision":"<panel tree OID>"}` conditions the selected
      model on observations. Returns joint uncertainty and fit diagnostics; predictive
      simulation is a separate request. Current fitting supports independent scalar laws.
-   - `simulate`: `{"action":"simulate","model_revision":"<model tree OID>","end":30,"interventions":[]}`
-     generates forward from the model's current laws. `start` optionally selects an earlier
-     model time; otherwise generation starts at its latest retained state, or zero when it
-     has only an initial-state law. Times use absolute model days. Interventions are optional:
-     `{"target":"<construct ID>","time":5,"value":1}` assigns a state at that time,
-     then its natural dynamics resume. The framework derives the grid and always includes
+   - `simulate`: `{"action":"simulate","model_revision":"<model tree OID>","start":"2026-05-15","horizon":"30d","interventions":[]}`
+     generates a window from the model's current laws, in the same shape as a question query.
+     The record's model day zero places the start: the fit's origin for fitted laws,
+     otherwise the current panel's; without a panel the start is day zero. Interventions are
+     optional: `{"target":"<construct ID>","after":"5d","value":1}` assigns a state that long
+     after the start, then its natural dynamics resume. The framework derives the grid and always includes
      process and observation uncertainty. The saved report includes all state and indicator
      summaries, law provenance and fit reliability, with causal intervals only when certified.
      See [time semantics](../../../docs/assumptions.md#time) for initial laws and calendar binding.
@@ -88,10 +99,10 @@ not_evaluated reasons. Read predictive details and law provenance in the applied
 Simulation reports retain their own generating model revision; a later edit makes that
 report historical rather than evidence for the edited model.
 
-Only the four scientific actions submit scientific work. Execution jobs and
+Only the five scientific actions submit scientific work. Execution jobs and
 LLM subroutines are private implementation details; callers do not select them.
 Simulation always uses the same nonlinear generator. Paired intervention histories share
-joint parameter/state draws and random streams. Causal effects on the model's default
+joint parameter/state draws and random streams. Causal effects on the question's
 outcome are reported only when identification and committed production-fit evidence support
 that interpretation; otherwise the report keeps its histories with an explicit reason.
 The `analysis` context is read-only model introspection.
@@ -106,11 +117,11 @@ the timeline before submitting another request.
 
 ## Read-only deployments
 
-`GET /api/capabilities` reports `actions_enabled`. Read-only deployments reject scientific action submissions with 403.
+`GET /api/actions-enabled` returns a boolean. Read-only deployments reject scientific action submissions with 403.
 
 ## Endpoints
 
-### GET `/api/capabilities`
+### GET `/api/actions-enabled`
 
 Whether this deployment serves scientific actions.
 
@@ -119,14 +130,14 @@ every `POST` (scientific actions and study management) returns 403 and only the 
 endpoints are live.
 
 ```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/capabilities"
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/actions-enabled"
 ```
 
 ### GET `/api/studies/{workspace_id}`
 
 Current study state: the single read to poll while navigating.
 
-Returns the four scientific action names and per-artifact existence,
+Returns the five scientific action names and per-artifact existence,
 freshness and revision from the selected Git branch snapshot, and the
 attempt the study's Temporal workflow is executing on any branch, if any.
 
@@ -153,7 +164,7 @@ Accept durable work and return its receipt; retrieve results by polling the atte
 curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/actions" \
   -X POST \
   -H 'Content-Type: application/json' \
-  -d '{"action": "edit_model", "expected_revision": "string", "model": {}}'
+  -d '{"action": "set_question", "question": {"text": "string"}}'
 ```
 
 ### GET `/api/studies/{workspace_id}/actions/{attempt_id}`
@@ -327,7 +338,7 @@ curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/logs
 Batch canonical aggregates in one committed read transaction.
 
 Omit `at` for the selected branch head, or pass an exact Git commit ID.
-Use `context.commit_id` to pin subsequent reads. Failed attempts retain logs without advancing scientific state.
+Use `commit_id` to pin subsequent reads. Failed attempts retain logs without advancing scientific state.
 
 **Parameters**
 
@@ -440,21 +451,6 @@ Scientific parameter definitions from the selected model, without inference exec
 
 ```bash
 curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/model/parameters"
-```
-
-### GET `/api/studies/{workspace_id}/model/views/{artifact_id}`
-
-One display projection from the selected committed model revision.
-
-**Parameters**
-
-- `workspace_id` (path, required)
-- `artifact_id` (path, required)
-- `branch` (query, optional)
-- `at` (query, optional)
-
-```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/model/views/ARTIFACT_ID"
 ```
 
 ### POST `/api/studies/{workspace_id}/model/visuals/mechanism`

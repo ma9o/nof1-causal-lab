@@ -28,10 +28,8 @@
         {
           "id": "call_f1bac8ded4ca48c686d9dec6",
           "type": "function",
-          "function": {
-            "name": "validate_extractions",
-            "arguments": "{\"output_json\": \"{}\"}"
-          }
+          "name": "validate_extractions",
+          "arguments": "{\"output_json\": \"{}\"}"
         }
       ],
       "tool_call_id": null,

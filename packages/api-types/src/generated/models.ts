@@ -10,6 +10,11 @@
  * plus facade API models exported from apps/data-pipeline/src/nof1_causal_lab/study_api.py
  */
 /**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ConstructId".
+ */
+export type ConstructId = `construct:${string}`;
+/**
  * Uploaded sources or one recorded simulation replicate.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
@@ -22,8 +27,6 @@ export type DataSourceRef = FileSourceRef | SimulationReplicateRef;
  */
 export type GitOid = string;
 /**
- * A persistent indicator identity survives changes to its measurement label.
- *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "IndicatorId".
  */
@@ -56,15 +59,11 @@ export type ExtractionSpec = ComputedExtractionSpec | SemanticExtractionSpec;
  */
 export type WindowExpression = string;
 /**
- * A persistent edge identity identifies one authored causal relationship.
- *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "EdgeId".
  */
 export type EdgeId = `edge:${string}`;
 /**
- * A persistent mechanism identity distinguishes additive terms through reordering and revision.
- *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "MechanismId".
  */
@@ -76,13 +75,6 @@ export type MechanismId = `mechanism:${string}`;
  * via the `definition` "Expression".
  */
 export type Expression = LiteralExpression | StateExpression | CoefficientExpression | BinaryExpression | CallExpression;
-/**
- * A persistent construct identity survives changes to its display name.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ConstructId".
- */
-export type ConstructId = `construct:${string}`;
 /**
  * A coefficient role identifies an expression operand’s scientific quantity and support.
  *
@@ -188,19 +180,54 @@ export type SpecificationAssessment = Evaluated<string, string> | NotEvaluated<s
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "ActionAttempt".
  */
-export type ActionAttempt = Attempt<"edit_model", EditModelRequest, ModelEditResult> | Attempt<"prepare_data", PrepareDataRequest, DataPreparationResult> | Attempt<"fit", FitRequest, ModelFitResult> | Attempt<"simulate", SimulateRequest, ModelSimulationResult> | Attempt<"data_diff", DataDiffRequest, DataComparisonResult>;
+export type ActionAttempt = Attempt<"set_question", SetQuestionRequest, null> | Attempt<"edit_model", EditModelRequest, null> | Attempt<"prepare_data", PrepareDataRequest, DataPreparationResult> | Attempt<"fit", FitRequest, ModelFitResult> | Attempt<"simulate", SimulateRequest, ModelSimulationResult> | Attempt<"data_diff", DataDiffRequest, DataComparisonResult>;
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ArtifactId".
+ */
+export type ArtifactId = "question" | "raw_data" | "model" | "identification_report" | "panel" | "data_profile" | "validation_report";
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "QuestionAssessment".
+ */
+export type QuestionAssessment = Evaluated<QuestionSubject, string> | NotEvaluated<QuestionSubject>;
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "PredictiveLawProvenance".
+ */
+export type PredictiveLawProvenance = AuthoredLawProvenance | FittedLawProvenance | MixedLawProvenance | UnknownLawProvenance;
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ModelPredictiveEvaluation".
+ */
+export type ModelPredictiveEvaluation = EvaluatedPredictiveChecks | UnavailablePredictiveChecks;
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "PredictiveAssessment".
+ */
+export type PredictiveAssessment = Evaluated<PredictiveSubject, readonly NumericCriterionEvidence[]> | NotEvaluated<PredictiveSubject>;
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "PredictiveCheckReason".
+ */
+export type PredictiveCheckReason = "MODEL_INCOMPLETE" | "MODEL_NOT_EXECUTABLE" | "NO_COMPATIBLE_PANEL" | "INSUFFICIENT_OBSERVATION_TIMES" | "SIMULATION_UNSUPPORTED" | "ARCHIVED_MEASUREMENT_NOT_RETAINED";
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "CheckGroup".
+ */
+export type CheckGroup = "specification" | "identification" | "compatibility" | "question";
 /**
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "ActionId".
  */
 export type ActionId = ScientificActionId | "data_diff";
 /**
- * A scientific action identity selects model editing, data preparation, fitting, or simulation.
+ * A scientific action identity selects setting the question, model editing, data preparation, fitting, or simulation.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "ScientificActionId".
  */
-export type ScientificActionId = "edit_model" | "prepare_data" | "fit" | "simulate";
+export type ScientificActionId = "set_question" | "edit_model" | "prepare_data" | "fit" | "simulate";
 /**
  * A poll is either running labels or a completed typed attempt with its optional publication identity.
  *
@@ -209,17 +236,19 @@ export type ScientificActionId = "edit_model" | "prepare_data" | "fit" | "simula
  */
 export type ActionPoll = RunningPoll | CompletedPoll;
 /**
- * An artifact identity selects one node in the study's artifact graph.
+ * An artifact's presence and freshness are derived from the selected journal revision.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ArtifactId".
+ * via the `definition` "ArtifactFreshness".
  */
-export type ArtifactId = "raw_data" | "model" | "identification_report" | "panel" | "data_profile" | "validation_report";
+export type ArtifactFreshness = Missing | Present;
 /**
+ * Whether a selected artifact still matches its pinned inputs.
+ *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ArtifactViewResponse".
+ * via the `definition` "SourceValidity".
  */
-export type ArtifactViewResponse = RawDataData | ModelSpec | MeasurementsData | ValidationReportArtifact | ModelDiagnostics | InferenceReport;
+export type SourceValidity = "fresh" | "stale";
 /**
  * A parameter element identity identifies a logical scalar component across model revisions.
  *
@@ -227,21 +256,6 @@ export type ArtifactViewResponse = RawDataData | ModelSpec | MeasurementsData | 
  * via the `definition` "ParameterElementId".
  */
 export type ParameterElementId = `element:${string}`;
-/**
- * A group of model checks is selected by the inputs it consumes.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "CheckGroup".
- */
-export type CheckGroup = "specification" | "identification" | "compatibility";
-/**
- * A structural disposition classifies how compilation uses or excludes an authored model
- * entity.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "StructuralDisposition".
- */
-export type StructuralDisposition = "retained_state" | "marginalized" | "identification_only" | "retained_edge" | "projected_edge" | "manifest" | "excluded_indicator" | "unsupported";
 /**
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "ConvergenceAssessmentSubject".
@@ -254,19 +268,9 @@ export type ConvergenceAssessmentSubject = ConvergenceSubject | "recorded_parame
 export type ConvergenceCriterion = "r_hat" | "ess_bulk" | "ess_tail";
 /**
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "PredictiveCheckReason".
+ * via the `definition` "DSMCLeafProposal".
  */
-export type PredictiveCheckReason = "MODEL_INCOMPLETE" | "MODEL_NOT_EXECUTABLE" | "NO_COMPATIBLE_PANEL" | "INSUFFICIENT_OBSERVATION_TIMES" | "SIMULATION_UNSUPPORTED" | "ARCHIVED_MEASUREMENT_NOT_RETAINED";
-/**
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "PredictiveLawProvenance".
- */
-export type PredictiveLawProvenance = AuthoredLawProvenance | FittedLawProvenance | MixedLawProvenance | UnknownLawProvenance;
-/**
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "PredictiveAssessment".
- */
-export type PredictiveAssessment = Evaluated<PredictiveSubject, readonly NumericCriterionEvidence[]> | NotEvaluated<PredictiveSubject>;
+export type DSMCLeafProposal = "amala_exact" | "paid_mix";
 /**
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "DataRef".
@@ -293,12 +297,28 @@ export type DataSelection = DataRef | readonly [
  */
 export type ExtractionWorkerResult = CompletedExtractionWorker | FailedExtractionChunk;
 /**
- * An entity reference identifies a construct, edge, indicator, or mechanism by its persistent identity.
- *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "EntityRef".
  */
 export type EntityRef = ConstructRef | EdgeRef | IndicatorRef | MechanismRef;
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "FitReliability".
+ */
+export type FitReliability = "not_fitted" | "converged" | "unconverged" | "unknown";
+/**
+ * A structural disposition classifies how compilation uses or excludes an authored model
+ * entity.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "StructuralDisposition".
+ */
+export type StructuralDisposition = "retained_state" | "marginalized" | "identification_only" | "retained_edge" | "projected_edge" | "manifest" | "excluded_indicator" | "unsupported";
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "NotEvaluatedReason".
+ */
+export type NotEvaluatedReason = PredictiveCheckReason | ("NONFINITE_EMISSION_MEAN" | "INSUFFICIENT_TIMES" | "NO_RELAXATION_TERM" | "EDGE_CONTRASTS_EXPLICIT" | "NO_OBSERVATION_SUPPORT" | "NO_OBSERVATIONS" | "STATIC_CONSTRUCT" | "INSUFFICIENT_OBSERVATIONS" | "ZERO_RESIDUAL_VARIANCE" | "ZERO_OBSERVED_VARIANCE" | "NONFINITE_PATHS" | "NONFINITE_SIGNAL" | "COMPARISON_INPUTS_MISSING" | "INSUFFICIENT_CHAIN_SAMPLES" | "NO_RETAINED_CHAINS" | "ARCHIVED_ENGINE_NOT_RETAINED" | "NO_OUTCOME" | "CONSTRUCT_UNDEFINED" | "NO_PANEL" | "STATE_NOT_RECORDED");
 /**
  * A progress event records one running attempt's step status or extraction telemetry.
  *
@@ -317,27 +337,17 @@ export type ProgressStep = "ingestion" | "extraction";
  */
 export type StepStatus = "running" | "completed" | "failed";
 /**
- * Source validity records whether a fact still matches its pinned inputs.
+ * A query name labels one contrast of the study question.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "SourceValidity".
+ * via the `definition` "QueryName".
  */
-export type SourceValidity = "fresh" | "stale";
+export type QueryName = string;
 /**
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "FitReliability".
+ * via the `definition` "QuestionSubject".
  */
-export type FitReliability = "not_fitted" | "converged" | "unconverged" | "unknown";
-/**
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "PredictiveSummary".
- */
-export type PredictiveSummary = TrajectorySummary | CategoryProbabilitySummary;
-/**
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "NotEvaluatedReason".
- */
-export type NotEvaluatedReason = PredictiveCheckReason | ("NONFINITE_EMISSION_MEAN" | "INSUFFICIENT_TIMES" | "NO_RELAXATION_TERM" | "EDGE_CONTRASTS_EXPLICIT" | "NO_OBSERVATION_SUPPORT" | "NO_OBSERVATIONS" | "STATIC_CONSTRUCT" | "INSUFFICIENT_OBSERVATIONS" | "ZERO_RESIDUAL_VARIANCE" | "ZERO_OBSERVED_VARIANCE" | "NONFINITE_PATHS" | "NONFINITE_SIGNAL" | "COMPARISON_INPUTS_MISSING" | "INSUFFICIENT_CHAIN_SAMPLES" | "NO_RETAINED_CHAINS" | "ARCHIVED_ENGINE_NOT_RETAINED");
+export type QuestionSubject = OutcomeSubject | QueryTargetSubject | QueryWindowSubject;
 /**
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "RejectionReason".
@@ -357,11 +367,69 @@ export type Change<PayloadT> = Added<PayloadT> | Removed<PayloadT> | Revised<Pay
  * Combined JSON Schema for exported artifact contracts and facade API models. Generated from Python Pydantic models.
  */
 export interface CausalSSMContracts {
+    readonly question?: QuestionSpec;
     readonly panel?: PreparedDataMetadata;
     readonly model?: ModelSpec;
     readonly identification_report?: IdentificationReport;
     readonly data_profile?: DataProfileArtifact;
     readonly validation_report?: ValidationReportArtifact;
+}
+/**
+ * What the study asks: the user's words, the outcome, and named contrasts.
+ *
+ * Each query is a contrast of its interventions against the recorded course.
+ * Constructs are named by identity before a model defines them.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "QuestionSpec".
+ */
+export interface QuestionSpec {
+    /**
+     * The user's question in their own words.
+     */
+    readonly text: string;
+    /**
+     * The construct whose course answers the question.
+     */
+    readonly outcome: ConstructId | null;
+    /**
+     * Named contrasts against the recorded course, each with at least one intervention.
+     */
+    readonly queries: Readonly<Partial<Record<QueryName, SimulationSpec>>>;
+}
+/**
+ * Generate from a calendar day over a horizon, with interventions placed after the start.
+ *
+ * The start is the only absolute time. A record's origin places it in model days;
+ * without a record, the start is model day zero.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "SimulationSpec".
+ */
+export interface SimulationSpec {
+    /**
+     * Calendar day the window starts, at 00:00 UTC.
+     */
+    readonly start: string;
+    /**
+     * How long the window lasts, such as 9w or 61d.
+     */
+    readonly horizon: string;
+    readonly interventions: readonly InterventionSpec[];
+}
+/**
+ * Set a state some time after the design's start, then let its dynamics resume.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "InterventionSpec".
+ */
+export interface InterventionSpec {
+    readonly target: ConstructId;
+    /**
+     * Offset from the design's start; omitted means at the start.
+     */
+    readonly after: string | null;
+    readonly value: number;
 }
 /**
  * Self-contained semantics and provenance of one prepared observation table.
@@ -524,13 +592,12 @@ export interface SemanticExtractionSpec {
     readonly source_columns: readonly string[];
 }
 /**
- * An evolving research question and connected causal graph with owned scientific detail.
+ * A connected causal graph with owned scientific detail, built to answer the study question.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "ModelSpec".
  */
 export interface ModelSpec {
-    readonly question: string | null;
     readonly edges: readonly CausalEdgeSpec[];
     readonly parameters: readonly ParameterSpec[];
     /**
@@ -539,7 +606,6 @@ export interface ModelSpec {
     readonly distributions: Readonly<Partial<Record<DistributionId, NumPyroDistribution>>>;
     readonly time_points: readonly number[];
     readonly measurement_clock: string | null;
-    readonly default_outcome: ConstructId | null;
 }
 /**
  * A specification of a directed causal relationship between two constructs.
@@ -761,6 +827,14 @@ export interface ParameterSpec {
      * Membership in a native law in ModelSpec.distributions; may be joint. None means the law has not been assigned yet.
      */
     readonly distribution: DistributionId | null;
+    /**
+     * Why the authored prior law fits this quantity, and where its values come from.
+     */
+    readonly reasoning: string | null;
+    /**
+     * Evidence behind the authored prior law.
+     */
+    readonly sources: readonly LiteratureSource[];
 }
 /**
  * Keep the authored probability law on the scientific quantity's native scale.
@@ -822,7 +896,7 @@ export interface JsonObject {
     readonly [k: string]: JsonValue | undefined;
 }
 /**
- * Positive and negative causal identification findings for the model's default query.
+ * Positive and negative causal identification findings for the study question's outcome.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "IdentificationReport".
@@ -958,20 +1032,224 @@ export interface ValidationIssue {
  */
 export interface ValidationReportArtifact {
     readonly data: DataProfileArtifact;
-    readonly preflight: SpecificationReport;
+    readonly preflight: readonly SpecificationAssessment[];
     /**
      * Whether both the data findings and model preflight contain no failures.
      */
     readonly is_valid: boolean;
 }
 /**
- * Model-only findings; compatibility reports have their own paired input references.
+ * What an executed action did to the store: the workflow installs this.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "SpecificationReport".
+ * via the `definition` "ActionEffects".
  */
-export interface SpecificationReport {
-    readonly findings: readonly SpecificationAssessment[];
+export interface ActionEffects {
+    readonly produced: readonly ArtifactRecord[];
+    readonly retracted: readonly RetractedArtifact[];
+    readonly checks: ModelCheckReport | null;
+}
+/**
+ * Artifact revision metadata records how a stored artifact was produced and which inputs it
+ * used.
+ *
+ * ``derived_from`` pins the exact input versions the payload was computed
+ * from. For initial model revisions it is empty. ``created_at`` is
+ * stamped by the activity that produced the revision — never inside workflow
+ * code, where wall-clock time is non-deterministic.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ArtifactRecord".
+ */
+export interface ArtifactRecord {
+    readonly artifact_id: ArtifactId;
+    readonly revision: GitOid;
+    readonly derived_from: Readonly<Partial<Record<ArtifactId, GitOid>>>;
+    readonly model_inputs: {
+        readonly [k: string]: string | undefined;
+    };
+    readonly consumed_model_inputs: {
+        readonly [k: string]: string | undefined;
+    };
+    readonly produced_by: string | null;
+    readonly created_at: string;
+}
+/**
+ * A current artifact removed by an action, with the finding that caused it.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "RetractedArtifact".
+ */
+export interface RetractedArtifact {
+    readonly artifact_id: ArtifactId;
+    readonly reason_ref: string;
+}
+/**
+ * Checks selected by their consumed inputs, retained with the study snapshot.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ModelCheckReport".
+ */
+export interface ModelCheckReport {
+    readonly input_keys: Readonly<Partial<Record<CheckGroup, string>>>;
+    readonly specification: readonly SpecificationAssessment[];
+    readonly question: QuestionCheckReport | null;
+    readonly predictive: ModelPredictiveReport | null;
+    readonly reused: readonly (CheckGroup | "predictive")[];
+}
+/**
+ * The study question checked against the model and, once prepared, the record.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "QuestionCheckReport".
+ */
+export interface QuestionCheckReport {
+    readonly question_revision: GitOid;
+    readonly panel_revision: GitOid | null;
+    readonly findings: readonly QuestionAssessment[];
+}
+/**
+ * One automatic, reproducible battery over the full model's current laws.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ModelPredictiveReport".
+ */
+export interface ModelPredictiveReport {
+    readonly input_key: string;
+    readonly model_revision: GitOid;
+    readonly panel_revision: GitOid | null;
+    readonly draws: number;
+    readonly seed: number;
+    readonly law: PredictiveLawProvenance;
+    readonly evaluation: ModelPredictiveEvaluation;
+    readonly status: "passed" | "failed" | "not_evaluated";
+}
+/**
+ * The current laws have authored ancestry without retained fitting.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "AuthoredLawProvenance".
+ */
+export interface AuthoredLawProvenance {
+    readonly kind: "authored";
+    readonly interpretation: "prior_predictive";
+}
+/**
+ * All current laws retain one committed fit's model and observation panel.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "FittedLawProvenance".
+ */
+export interface FittedLawProvenance {
+    readonly kind: "fitted";
+    readonly fitted_panel_revision: GitOid;
+    readonly fitted_model_revision: GitOid;
+    readonly interpretation: "in_sample_posterior_predictive" | "posterior_predictive";
+}
+/**
+ * Some laws retain a committed fit and others have different ancestry.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "MixedLawProvenance".
+ */
+export interface MixedLawProvenance {
+    readonly kind: "mixed";
+    readonly fitted_panel_revision: GitOid;
+    readonly fitted_model_revision: GitOid;
+    readonly interpretation: "mixed";
+}
+/**
+ * Imported laws do not establish a conditioning history.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "UnknownLawProvenance".
+ */
+export interface UnknownLawProvenance {
+    readonly kind: "unknown";
+    readonly interpretation: "unknown";
+}
+/**
+ * An evaluated run may retain failed and partially unavailable scientific evidence.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "EvaluatedPredictiveChecks".
+ */
+export interface EvaluatedPredictiveChecks {
+    readonly kind: "evaluated";
+    readonly findings: readonly PredictiveAssessment[];
+    readonly predictive_checks: PosteriorPredictiveChecks | null;
+}
+/**
+ * Posterior predictive checks report exact-model checks and their supporting plot data.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "PosteriorPredictiveChecks".
+ */
+export interface PosteriorPredictiveChecks {
+    readonly per_variable_warnings: readonly Assessment<IndicatorCheckSubject, NumericCriterionEvidence>[];
+    readonly checked: boolean;
+    readonly n_subsample: number;
+    readonly overlays: readonly PPCOverlay[];
+    readonly test_stats: readonly PPCTestStat[];
+}
+/**
+ * A predictive overlay sets one indicator's observed values against simulated ones.
+ *
+ * It carries the predictive median and a few individual replicated series, the
+ * spaghetti plot of a visual predictive check.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "PPCOverlay".
+ */
+export interface PPCOverlay {
+    readonly times: readonly number[];
+    readonly time_origin: string | null;
+    readonly standardized: boolean;
+    readonly indicator_id: IndicatorId;
+    readonly observed: readonly (number | null)[];
+    readonly median: readonly (number | null)[];
+    readonly spaghetti_draws: readonly (readonly (number | null)[])[];
+}
+/**
+ * A predictive test statistic compares an observed summary with its distribution under
+ * replicated data.
+ *
+ * Provides the data for Gabry's ppc_stat plots: histogram of T(y_rep)
+ * with a vertical line at T(y_observed).
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "PPCTestStat".
+ */
+export interface PPCTestStat {
+    readonly indicator_id: IndicatorId;
+    readonly stat_name: "mean" | "sd" | "min" | "max";
+    readonly observed_value: number;
+    readonly rep_values: readonly number[];
+    readonly p_value: number | null;
+    readonly histogram: readonly HistogramBin[];
+}
+/**
+ * A histogram bin gives its interval, center, and number of posterior draws.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "HistogramBin".
+ */
+export interface HistogramBin {
+    readonly bin_center: number;
+    readonly bin_start: number;
+    readonly bin_end: number;
+    readonly count: number;
+}
+/**
+ * The run could not evaluate its scientific battery.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "UnavailablePredictiveChecks".
+ */
+export interface UnavailablePredictiveChecks {
+    readonly kind: "unavailable";
+    readonly reason: PredictiveCheckReason;
+    readonly detail: string | null;
 }
 /**
  * A label emitted by an attempt; measurements belong in its scientific result.
@@ -1018,199 +1296,79 @@ export interface ActionReceipt {
  */
 export interface ArtifactEnvelope {
     readonly workspace_id: string;
-    readonly artifact_id: ArtifactId;
-    readonly revision: GitOid;
     readonly meta: ArtifactRecord;
     readonly payload: JsonObject;
     readonly binary_files: readonly string[];
 }
 /**
- * Artifact revision metadata records how a stored artifact was produced and which inputs it
- * used.
- *
- * ``derived_from`` pins the exact input versions the payload was computed
- * from. For initial model revisions it is empty. ``created_at`` is
- * stamped by the activity that produced the revision — never inside workflow
- * code, where wall-clock time is non-deterministic.
+ * An artifact absent from the selected state.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ArtifactRecord".
+ * via the `definition` "Missing".
  */
-export interface ArtifactRecord {
+export interface Missing {
+    readonly kind: "missing";
     readonly artifact_id: ArtifactId;
-    readonly revision: GitOid;
-    readonly derived_from: Readonly<Partial<Record<ArtifactId, GitOid>>>;
-    readonly model_inputs: {
-        readonly [k: string]: string | undefined;
+}
+/**
+ * The selected artifact record and its input validity.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "Present".
+ */
+export interface Present {
+    readonly kind: "present";
+    readonly record: ArtifactRecord;
+    readonly validity: SourceValidity;
+}
+/**
+ * Stored inside the Git object, with no self-referential publication ID.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "AttemptRecord".
+ */
+export interface AttemptRecord {
+    readonly seq: number;
+    readonly attempt_id: string | null;
+    readonly branch: string;
+    readonly ts: string;
+    readonly messages: readonly ActionMessage[];
+    readonly trace_ids: readonly string[];
+    readonly attempt: ActionAttempt;
+}
+/**
+ * Promoted traces identified by their committed execution sequence.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "AttemptTraceIndex".
+ */
+export interface AttemptTraceIndex {
+    readonly commit_id: GitOid;
+    readonly trace_ids: readonly string[];
+}
+/**
+ * Predictive probabilities for each declared level; unobserved anchors are null.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "CategoryProbabilitySummary".
+ */
+export interface CategoryProbabilitySummary {
+    readonly kind: "categorical";
+    readonly probabilities: {
+        readonly [k: string]: readonly (number | null)[] | undefined;
     };
-    readonly consumed_model_inputs: {
-        readonly [k: string]: string | undefined;
-    };
-    readonly produced_by: string | null;
-    readonly created_at: string;
+    readonly n_draws: readonly number[];
 }
 /**
- * An artifact's presence and freshness are derived from the selected journal revision.
+ * Causal effects and realized trajectories under the enclosing report's design.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ArtifactFreshness".
+ * via the `definition` "CausalEffectResult".
  */
-export interface ArtifactFreshness {
-    readonly artifact_id: ArtifactId;
-    readonly exists: boolean;
-    readonly stale: boolean;
-    readonly revision: GitOid | null;
-    readonly retracted: boolean;
-    readonly produced_by: string | null;
-}
-/**
- * Profile and representative rows from one uploaded table revision.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "RawDataData".
- */
-export interface RawDataData {
-    readonly n_records: number;
-    readonly n_columns: number;
-    readonly date_range: RawDataDateRange | null;
-    readonly sample: readonly {
-        readonly [k: string]: (string | null) | undefined;
-    }[];
-    readonly column_descriptions: readonly RawDataColumnDescription[];
-}
-/**
- * Observed date bounds of the uploaded table, when it contains a date column.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "RawDataDateRange".
- */
-export interface RawDataDateRange {
-    readonly start: string;
-    readonly end: string;
-}
-/**
- * A stored column's physical type and authored interpretation.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "RawDataColumnDescription".
- */
-export interface RawDataColumnDescription {
-    readonly name: string;
-    readonly dtype: string;
-    readonly description: string;
-}
-/**
- * Counts and representative observations read directly from one panel revision.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "MeasurementsData".
- */
-export interface MeasurementsData {
-    readonly n_observations: number;
-    readonly per_indicator_counts: Readonly<Partial<Record<IndicatorId, number>>>;
-    readonly combined_extractions_sample: readonly ObservationRecord[];
-}
-/**
- * Canonical serialized extraction observation row.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ObservationRecord".
- */
-export interface ObservationRecord {
-    readonly indicator_id: IndicatorId;
-    readonly value: string | number | boolean | null;
-    readonly anchor_time: string | null;
-    readonly support_kind: string | null;
-    readonly summary_operator: string | null;
-    readonly anchor_policy: string | null;
-    readonly observation_window: string | null;
-    readonly support_start: string | null;
-    readonly support_end: string | null;
-}
-/**
- * Server-derived equations and comparisons with pinned observations.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ModelDiagnostics".
- */
-export interface ModelDiagnostics {
-    readonly confounder_equations: readonly StateEquation[];
-    readonly state_equations: readonly StateEquation[];
-    readonly observation_equations: Readonly<Partial<Record<IndicatorId, string>>>;
-    readonly likelihood_diagnostics: Readonly<Partial<Record<IndicatorId, LikelihoodDiagnostics>>>;
-    readonly prior_densities: Readonly<Partial<Record<ParameterId, readonly DensityPoint[]>>>;
-}
-/**
- * A continuous-time state equation rendered from declared scientific mechanisms.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "StateEquation".
- */
-export interface StateEquation {
-    readonly construct_id: ConstructId;
-    readonly label: string;
-    readonly latex: string;
-}
-/**
- * Observed values and validation profile for one likelihood's pinned panel.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "LikelihoodDiagnostics".
- */
-export interface LikelihoodDiagnostics {
-    readonly indicator_id: IndicatorId;
-    readonly profile: IndicatorEmpiricalProfile | null;
-    readonly histogram: readonly HistogramBin[];
-}
-/**
- * A histogram bin gives its interval, center, and number of posterior draws.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "HistogramBin".
- */
-export interface HistogramBin {
-    readonly bin_center: number;
-    readonly bin_start: number;
-    readonly bin_end: number;
-    readonly count: number;
-}
-/**
- * A plotting coordinate evaluated from the native prior's log density.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "DensityPoint".
- */
-export interface DensityPoint {
-    readonly x: number;
-    readonly y: number;
-}
-/**
- * The compact core composed with retained detail, without filtering or re-parsing.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "InferenceReport".
- */
-export interface InferenceReport {
-    readonly time_origin: string | null;
-    readonly inference_metadata: InferenceMetadata;
-    readonly engine: Assessment<string, ParticleMCMCEvidence>;
-    readonly inference_diagnostics: ChainDiagnostics | null;
-    readonly sampler_diagnostics: ParticleSamplerDiagnostics | null;
-    readonly convergence: ParameterConvergenceReport;
-    readonly loo_diagnostics: LOODiagnostics | null;
-    readonly posterior_marginals: readonly PosteriorMarginal[] | null;
-    readonly detail: InferenceReportDetail;
-}
-/**
- * Inference metadata records the sampling method, sample count, and run duration.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "InferenceMetadata".
- */
-export interface InferenceMetadata {
-    readonly method: string;
-    readonly n_samples: number;
-    readonly duration_seconds: number;
+export interface CausalEffectResult {
+    readonly outcome: ConstructId;
+    readonly labels: Readonly<Partial<Record<ConstructId, string>>>;
+    readonly warnings: readonly string[];
 }
 /**
  * Compact retained-chain measurements; plot series compose the report detail.
@@ -1262,19 +1420,397 @@ export interface ParameterRef {
  * via the `definition` "EnergyDiagnostics".
  */
 export interface EnergyDiagnostics {
-    readonly energy_hist: DensityHistogram;
-    readonly energy_transition_hist: DensityHistogram;
+    readonly energy_hist: DensityCurve;
+    readonly energy_transition_hist: DensityCurve;
     readonly bfmi: readonly number[];
 }
 /**
- * A normalized energy histogram at its native bin centers.
+ * Aligned density ordinates; the owning field distinguishes PDF samples from histogram heights.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "DensityHistogram".
+ * via the `definition` "DensityCurve".
  */
-export interface DensityHistogram {
-    readonly bin_centers: readonly number[];
+export interface DensityCurve {
+    readonly x: readonly number[];
     readonly density: readonly number[];
+}
+/**
+ * Retained measurements from a completed worker; no failure field exists.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "CompletedExtractionWorker".
+ */
+export interface CompletedExtractionWorker {
+    readonly worker_id: number;
+    readonly n_extractions: number;
+    readonly n_windows: number;
+    readonly n_llm_calls: number | null;
+    readonly reused: boolean | null;
+    readonly status: "completed";
+}
+/**
+ * A convergence criterion on one stable scientific scalar.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ConvergenceSubject".
+ */
+export interface ConvergenceSubject {
+    readonly parameter: ParameterRef;
+    readonly criterion: ConvergenceCriterion;
+    readonly label: string;
+}
+/**
+ * A retained data comparison; it never installs scientific artifacts.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "DataComparisonResult".
+ */
+export interface DataComparisonResult {
+    readonly action: "data_diff";
+    readonly report: DataDiffReport;
+}
+/**
+ * Comparisons of existing data, preserving each history's immutable source reference.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "DataDiffReport".
+ */
+export interface DataDiffReport {
+    readonly left: readonly DataRef[];
+    readonly right: readonly DataRef[];
+    readonly variables: readonly DataVariableDiff[];
+}
+/**
+ * An immutable observed panel with its own calendar history.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "PanelRef".
+ */
+export interface PanelRef {
+    readonly kind: "panel";
+    readonly revision: GitOid;
+}
+/**
+ * A saved simulation; a null replicate selects all its recorded draws.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "SimulationRef".
+ */
+export interface SimulationRef {
+    readonly kind: "simulation";
+    readonly revision: GitOid;
+    readonly replicate: number | null;
+}
+/**
+ * Definitions, histories and comparisons for one persistent observation identity.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "DataVariableDiff".
+ */
+export interface DataVariableDiff {
+    readonly indicator_id: IndicatorId;
+    readonly left: readonly DataSeries[];
+    readonly right: readonly DataSeries[];
+    readonly changes: readonly Change<DataPoint>[];
+    readonly statistics: readonly DataStatisticComparison[];
+    readonly comparison_issues: readonly string[];
+    readonly reference_side: ("left" | "right") | null;
+    readonly predictive_checks: PosteriorPredictiveChecks | null;
+    readonly predictive_unavailable_reason: string | null;
+}
+/**
+ * One variable's recorded measurements in one history; no pooling across replicas.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "DataSeries".
+ */
+export interface DataSeries {
+    readonly variable: ObservationSpec | null;
+    /**
+     * Recorded calendar binding; null means the point dates are serialization coordinates, not real dates.
+     */
+    readonly time_origin: string | null;
+    readonly points: readonly DataPoint[];
+}
+/**
+ * An observed anchor and support; dates are synthetic for a calendar-free series.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "DataPoint".
+ */
+export interface DataPoint {
+    readonly anchor_time: string;
+    readonly support_start: string | null;
+    readonly support_end: string | null;
+    readonly value: number | null;
+}
+/**
+ * The same descriptive statistic measured independently in every selected history.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "DataStatisticComparison".
+ */
+export interface DataStatisticComparison {
+    readonly statistic: DataStatistic;
+    readonly level: string | null;
+    readonly left: readonly (number | null)[];
+    readonly right: readonly (number | null)[];
+    readonly left_histogram: readonly HistogramBin[];
+    readonly right_histogram: readonly HistogramBin[];
+}
+/**
+ * Compare two immutable data selections, each containing one or more histories.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "DataDiffRequest".
+ */
+export interface DataDiffRequest {
+    readonly action: "data_diff";
+    readonly left: DataSelection;
+    readonly right: DataSelection;
+}
+/**
+ * Preparation artifacts and the measurements actually retained by extraction.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "DataPreparationResult".
+ */
+export interface DataPreparationResult {
+    readonly action: "prepare_data";
+    readonly raw_data: GitRef | null;
+    readonly model: GitRef | null;
+    readonly simulation_source: SimulationReplicateRef | null;
+    readonly n_observations: number | null;
+    readonly workers: readonly ExtractionWorkerResult[];
+    readonly ingestion_reused: boolean | null;
+    readonly extraction_reused: number | null;
+}
+/**
+ * An exact file in a study's Git object database: repository, object, and path.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "GitRef".
+ */
+export interface GitRef {
+    readonly workspace_id: string;
+    readonly revision: GitOid;
+    readonly path: string;
+}
+/**
+ * An extraction failure with its error and no usable result-file reference.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "FailedExtractionChunk".
+ */
+export interface FailedExtractionChunk {
+    readonly worker_id: number;
+    readonly n_extractions: number;
+    readonly n_windows: number;
+    readonly n_llm_calls: number | null;
+    readonly reused: boolean | null;
+    readonly status: "failed";
+    readonly error: string;
+}
+/**
+ * An edge reference identifies a causal relationship independently of edits to its
+ * definition.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "EdgeRef".
+ */
+export interface EdgeRef {
+    readonly kind: "edge";
+    readonly id: EdgeId;
+}
+/**
+ * Replace one named base revision with a validated scientific definition.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "EditModelRequest".
+ */
+export interface EditModelRequest {
+    readonly action: "edit_model";
+    readonly expected_revision: GitOid | null;
+    readonly model: ModelSpec;
+}
+/**
+ * An effect summary reports posterior location, uncertainty, and sign probability.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "EffectSummary".
+ */
+export interface EffectSummary {
+    readonly mean: number;
+    readonly median: number;
+    readonly lower_95: number;
+    readonly upper_95: number;
+    readonly prob_positive: number;
+}
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "EmpiricalPoint".
+ */
+export interface EmpiricalPoint {
+    readonly value: number;
+    readonly probability: number;
+    readonly count: number;
+}
+/**
+ * An indicator reference identifies a measurement definition independently of its name or
+ * revision.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "IndicatorRef".
+ */
+export interface IndicatorRef {
+    readonly kind: "indicator";
+    readonly id: IndicatorId;
+}
+/**
+ * A particular additive term, independently of its position or coefficient values.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "MechanismRef".
+ */
+export interface MechanismRef {
+    readonly kind: "mechanism";
+    readonly id: MechanismId;
+}
+/**
+ * The extraction fan-out plan.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ExtractionPlanEvent".
+ */
+export interface ExtractionPlanEvent {
+    readonly attempt_id: string;
+    readonly cursor: string;
+    readonly event: "nof1-causal-lab.extraction.plan";
+    readonly total_workers: number;
+    readonly max_concurrent_workers: number | null;
+}
+/**
+ * Aggregate extraction worker counts.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ExtractionSnapshotEvent".
+ */
+export interface ExtractionSnapshotEvent {
+    readonly attempt_id: string;
+    readonly cursor: string;
+    readonly event: "nof1-causal-lab.extraction.snapshot";
+    readonly total_workers: number;
+    readonly pending_workers: number;
+    readonly running_workers: number;
+    readonly completed_workers: number;
+    readonly failed_workers: number;
+}
+/**
+ * One extraction worker's state; a worker reports its LLM calls when it finishes.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ExtractionWorkerEvent".
+ */
+export interface ExtractionWorkerEvent {
+    readonly attempt_id: string;
+    readonly cursor: string;
+    readonly event: "nof1-causal-lab.extraction.worker";
+    readonly worker_id: number;
+    readonly state: "pending" | "running" | "completed" | "failed";
+    readonly n_windows: number;
+    readonly n_extractions: number | null;
+    readonly n_llm_calls: number | null;
+    readonly error: string | null;
+}
+/**
+ * A fact source locates supporting content within an artifact revision and records its freshness.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "FactSource".
+ */
+export interface FactSource {
+    readonly ref: GitRef;
+    readonly pointer: string;
+    readonly validity: SourceValidity;
+}
+/**
+ * Uploaded sources and the complete recipe for preparing their observations.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "FilePreparationSpec".
+ */
+export interface FilePreparationSpec {
+    readonly source: FileSourceRef;
+    readonly definition: DataPreparationSpec;
+}
+/**
+ * Condition explicitly selected model and observation revisions.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "FitRequest".
+ */
+export interface FitRequest {
+    readonly action: "fit";
+    readonly model_revision: GitOid;
+    readonly panel_revision: GitOid;
+    readonly settings: FitSettingsSpec;
+}
+/**
+ * Optional numerical controls applied to the configured particle sampler.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "FitSettingsSpec".
+ */
+export interface FitSettingsSpec {
+    readonly num_samples: number | null;
+    readonly num_warmup: number | null;
+    readonly num_chains: number | null;
+    readonly n_particles: number | null;
+    readonly seed: number | null;
+}
+/**
+ * A fit read contains the inference report summary and server-composed display findings.
+ *
+ * Per-draw diagnostics load separately from the inference report endpoint.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "FitSummary".
+ */
+export interface FitSummary {
+    readonly report: InferenceReportCore;
+    readonly edge_estimates: Readonly<Partial<Record<EdgeId, ParameterRef>>>;
+    readonly decay_estimates: Readonly<Partial<Record<ConstructId, ParameterRef>>>;
+    /**
+     * Conditioned input laws of the fitted parameters, on their posterior marginals' quantity scale; absent where the current compiler cannot place the input model.
+     */
+    readonly prior_densities: Readonly<Partial<Record<ParameterId, DensityCurve>>>;
+}
+/**
+ * Compact scientific report shared by snapshots and the full report.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "InferenceReportCore".
+ */
+export interface InferenceReportCore {
+    readonly time_origin: string | null;
+    readonly inference_metadata: InferenceMetadata;
+    readonly engine: Assessment<string, ParticleMCMCEvidence>;
+    readonly inference_diagnostics: ChainDiagnostics | null;
+    readonly sampler_diagnostics: ParticleSamplerDiagnostics | null;
+    readonly convergence: ParameterConvergenceReport;
+    readonly loo_diagnostics: LOODiagnostics | null;
+    readonly posterior_marginals: readonly PosteriorMarginal[] | null;
+}
+/**
+ * Inference metadata records the sampling method, sample count, and run duration.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "InferenceMetadata".
+ */
+export interface InferenceMetadata {
+    readonly method: string;
+    readonly n_samples: number;
+    readonly duration_seconds: number;
 }
 /**
  * Typed exact-sampler settings and transition telemetry from the native producer.
@@ -1283,43 +1819,21 @@ export interface DensityHistogram {
  * via the `definition` "ParticleSamplerDiagnostics".
  */
 export interface ParticleSamplerDiagnostics {
+    readonly settings: SamplerSpec;
     readonly latent_kernel: string;
     readonly latent_smoother: string;
     readonly latent_smoother_algorithm: string;
     readonly latent_smoother_family: string;
     readonly latent_smoother_selection: string;
     readonly latent_smoother_parallel: boolean;
-    readonly latent_delta: number;
     readonly parameter_kernel: string;
     readonly mcmc_phase_seconds: number;
-    readonly num_warmup: number;
-    readonly num_samples: number;
-    readonly num_chains: number;
-    readonly n_particles: number;
-    readonly n_parameter_particles: number;
-    readonly parameter_proposal: string;
     readonly latent_backward_sampling: boolean;
-    readonly amala_delta_init: number;
-    readonly amala_delta_min: number;
-    readonly amala_delta_max: number;
-    readonly amala_target_accept: number;
-    readonly amala_adaptation_window: number;
-    readonly amala_adaptation_tolerance: number;
-    readonly amala_adaptation_rho: number;
-    readonly amala_adaptation_rho_min: number;
-    readonly amala_adaptation_gamma: number;
     readonly amala_delta_adapted: boolean;
-    readonly amala_kappa: number;
-    readonly amala_grad_clip: number | null;
     readonly dsmc_leaf_proposal: string;
     readonly latent_transition_kind: string;
-    readonly diagnostic_metrics_all: boolean;
     readonly diagnostic_metrics: readonly string[];
-    readonly param_step_size_initial: number;
-    readonly param_step_size_min: number;
-    readonly param_step_size_max: number;
     readonly param_target_accept: number;
-    readonly adaptation_scheme: string;
     readonly parameter_preconditioned: boolean;
     readonly diagnostic_summary_phase: string;
     readonly parameter_accept_rate: number;
@@ -1338,46 +1852,91 @@ export interface ParticleSamplerDiagnostics {
     readonly amala_grad_norm_mean: number | null;
     readonly amala_grad_norm_max: number | null;
     readonly parameter_warmup: ParameterWarmupDiagnostics;
-    readonly initialization: ParticleInitializationDiagnostics;
-    readonly preconditioner: ParticlePreconditionerDiagnostics;
 }
 /**
- * Timing and ownership of proposal initialization and preconditioning.
+ * Fully resolved controls for the exact particle sampler.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "SamplerSpec".
+ */
+export interface SamplerSpec {
+    readonly num_warmup: number;
+    readonly num_samples: number;
+    readonly num_chains: number;
+    readonly seed: number;
+    readonly n_particles: number;
+    readonly retain_latent_paths: boolean;
+    readonly marginal_particle_gibbs: MarginalParticleGibbsSpec;
+}
+/**
+ * Marginalized Particle Gibbs inference settings.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "MarginalParticleGibbsSpec".
+ */
+export interface MarginalParticleGibbsSpec {
+    readonly n_parameter_particles: number;
+    readonly latent_smoother: "dsmc";
+    readonly latent_delta: number;
+    readonly parameter_proposal: "random_walk" | "pseudo_langevin";
+    readonly amala_delta_init: number;
+    readonly amala_delta_min: number;
+    readonly amala_delta_max: number;
+    readonly amala_target_accept: number;
+    readonly amala_adaptation_window: number;
+    readonly amala_adaptation_tolerance: number;
+    readonly amala_adaptation_rho: number;
+    readonly amala_adaptation_rho_min: number;
+    readonly amala_adaptation_gamma: number;
+    readonly amala_kappa: number;
+    readonly amala_grad_clip: number | "infinity";
+    readonly dsmc_leaf_proposal: DSMCLeafProposal;
+    readonly latent_block_coords: number | null;
+    readonly paid_mix_z_weight: number;
+    readonly paid_mix_pilot_weight: number;
+    readonly paid_mix_pilot_var_scale: number;
+    readonly paid_mix_wide_mult: number;
+    readonly diagnostic_metrics_all: boolean;
+    readonly diagnostic_metrics: readonly string[];
+    readonly param_step_size: number;
+    readonly param_step_size_min: number;
+    readonly param_step_size_max: number;
+    readonly param_target_accept: number;
+    readonly adaptation_rate: number;
+    readonly adaptation_scheme: "simple" | "dual_averaging";
+    readonly init_method: "random" | "pathfinder";
+    readonly latent_init_method: "predictive";
+    readonly pathfinder_num_elbo_samples: number;
+    readonly pathfinder_maxiter: number;
+    readonly n_pathfinder_starts: number;
+    readonly pathfinder_parallel_workers: number | null;
+    readonly pathfinder_init_scale: number | null;
+    readonly auto_preconditioner_method: "map" | "none" | "pathfinder";
+    readonly auto_preconditioner_maxiter: number;
+    readonly init_scale: number;
+    readonly compute_latent_posterior_summary: boolean;
+    readonly n_ieks_iters: number;
+}
+/**
+ * Realized initialization and preconditioning, with the complete Pathfinder evidence once.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "ParameterWarmupDiagnostics".
  */
 export interface ParameterWarmupDiagnostics {
-    readonly pathfinder_ran: boolean;
+    readonly pathfinder: PathfinderDiagnostics | null;
     readonly pathfinder_run_count: number;
     readonly pathfinder_consumers: readonly string[];
     readonly init_source: string;
     readonly preconditioner_source: string;
-    readonly auto_preconditioner_method: string;
+    readonly preconditioner_device: string | null;
     readonly dim: number;
     readonly duration_seconds: number;
-    readonly init_scale: number;
-    readonly pathfinder_init_scale: number | null;
-    readonly pathfinder_setup_seconds: number | null;
-    readonly pathfinder_jax_compile_seconds: number | null;
-    readonly pathfinder_runtime_seconds: number | null;
-    readonly pathfinder_total_seconds: number | null;
-    readonly pathfinder_jax_compile_batch_sizes: readonly number[] | null;
-}
-/**
- * Retained native initialization measurements; never posterior evidence.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ParticleInitializationDiagnostics".
- */
-export interface ParticleInitializationDiagnostics {
-    readonly pathfinder: PathfinderDiagnostics | null;
-    readonly init_method: string | null;
     readonly pathfinder_sampling_mode: string | null;
     readonly pathfinder_init_scale: number | null;
-    readonly prior_released_site_names: readonly string[] | null;
-    readonly prior_released_site_indices: readonly number[] | null;
-    readonly prior_release_scale: number | null;
+    readonly prior_released_site_names: readonly string[];
+    readonly prior_released_site_indices: readonly number[];
+    readonly prior_release_scale: number;
 }
 /**
  * Retained native initialization measurements; never posterior evidence.
@@ -1395,7 +1954,6 @@ export interface PathfinderDiagnostics {
     readonly pathfinder_runtime_seconds: number;
     readonly pathfinder_total_seconds: number;
     readonly best_pathfinder_elbo: number;
-    readonly pathfinder_elbo: number;
     readonly pathfinder_elbo_min: number;
     readonly pathfinder_elbo_max: number;
     readonly pathfinder_elbo_spread: number;
@@ -1430,22 +1988,6 @@ export interface PathfinderStartDiagnostics {
     readonly scipy_status: number;
 }
 /**
- * Proposal-scale setup, distinct from retained posterior measurements.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ParticlePreconditionerDiagnostics".
- */
-export interface ParticlePreconditionerDiagnostics {
-    readonly auto_preconditioner: boolean | null;
-    readonly auto_preconditioner_method: string | null;
-    readonly auto_preconditioner_device: string | null;
-    readonly auto_preconditioner_n_pathfinder_starts: number | null;
-    readonly auto_preconditioner_n_pathfinder_starts_finite: number | null;
-    readonly auto_preconditioner_best_pathfinder_elbo: number | null;
-    readonly auto_preconditioner_pathfinder_elbo_spread: number | null;
-    readonly auto_preconditioner_maxiter: number | null;
-}
-/**
  * Recorded-chain criteria cover parameters, not latent-path mixing.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
@@ -1453,10 +1995,10 @@ export interface ParticlePreconditionerDiagnostics {
  */
 export interface ParameterConvergenceReport {
     readonly scope: "recorded_parameter_chains";
+    readonly assessments: readonly Assessment<ConvergenceAssessmentSubject, NumericCriterionEvidence>[];
     readonly checked: number;
     readonly status: "passed" | "failed" | "not_evaluated";
     readonly messages: readonly string[];
-    readonly assessments: readonly Assessment<ConvergenceAssessmentSubject, NumericCriterionEvidence>[];
 }
 /**
  * Exact-emission leave-one-measurement-row-out interpolation diagnostics.
@@ -1478,26 +2020,41 @@ export interface LOODiagnostics {
     readonly pareto_failure_limit: number;
 }
 /**
- * A posterior marginal summarizes uncertainty in one scalar parameter and supplies its
- * density plot.
+ * One parameter's posterior interval, scale and density plot.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "PosteriorMarginal".
  */
 export interface PosteriorMarginal {
+    readonly parameter: string;
+    readonly subject: ParameterRef;
+    readonly density_curve: DensityCurve;
     readonly mean: number;
     readonly lower: number;
     readonly upper: number;
     readonly interval_kind: "hdi" | "equal_tail";
-    /**
-     * Posterior probability mass of the interval.
-     */
     readonly interval_mass: number;
-    readonly parameter: string;
-    readonly subject: ParameterRef;
-    readonly x_values: readonly number[];
-    readonly density: readonly number[];
     readonly sd: number;
+}
+/**
+ * The indicator and criterion remain present when evaluation is unavailable.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "IndicatorCheckSubject".
+ */
+export interface IndicatorCheckSubject {
+    readonly target: IndicatorRef;
+    readonly check: "calibration" | "autocorrelation" | "variance";
+}
+/**
+ * The compact core composed with retained detail, without filtering or re-parsing.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "InferenceReport".
+ */
+export interface InferenceReport {
+    readonly core: InferenceReportCore;
+    readonly detail: InferenceReportDetail;
 }
 /**
  * Retained plot series served in full by the report endpoint.
@@ -1511,7 +2068,11 @@ export interface InferenceReportDetail {
     readonly rank_histograms: readonly RankHistogram[];
     readonly pareto_k: readonly ParetoKPoint[];
     readonly loo_pit: readonly LOOPITPoint[];
-    readonly posterior_pairs: readonly PosteriorPair[] | null;
+    readonly posterior_pairs: readonly (readonly [
+        ParameterRef,
+        ParameterRef
+    ])[];
+    readonly divergent: readonly boolean[] | null;
     readonly initial_latent_delta: readonly (readonly number[])[] | null;
     readonly final_latent_delta: readonly (readonly number[])[] | null;
 }
@@ -1576,752 +2137,6 @@ export interface LOOPITPoint {
     readonly uniform: number;
 }
 /**
- * A posterior pair supplies joint samples of two parameters to visualize their dependence.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "PosteriorPair".
- */
-export interface PosteriorPair {
-    readonly param_x: string;
-    readonly subject_x: ParameterRef;
-    readonly param_y: string;
-    readonly subject_y: ParameterRef;
-    readonly x_values: readonly number[];
-    readonly y_values: readonly number[];
-    readonly divergent: readonly boolean[] | null;
-}
-/**
- * Stored inside the Git object, with no self-referential publication ID.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "AttemptRecord".
- */
-export interface AttemptRecord {
-    readonly seq: number;
-    readonly attempt_id: string | null;
-    readonly branch: string;
-    readonly ts: string;
-    readonly messages: readonly ActionMessage[];
-    readonly trace_ids: readonly string[];
-    readonly attempt: ActionAttempt;
-}
-/**
- * Promoted traces identified by their committed execution sequence.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "AttemptTraceIndex".
- */
-export interface AttemptTraceIndex {
-    readonly workspace_id: string;
-    readonly commit_id: GitOid;
-    readonly trace_ids: readonly string[];
-}
-/**
- * The current laws have authored ancestry without retained fitting.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "AuthoredLawProvenance".
- */
-export interface AuthoredLawProvenance {
-    readonly kind: "authored";
-    readonly interpretation: "prior_predictive";
-}
-/**
- * This response tells clients whether the study facade supports scientific actions.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "CapabilitiesResponse".
- */
-export interface CapabilitiesResponse {
-    readonly actions_enabled: boolean;
-}
-/**
- * Predictive probabilities for each declared level; unobserved anchors are null.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "CategoryProbabilitySummary".
- */
-export interface CategoryProbabilitySummary {
-    readonly kind: "categorical";
-    readonly probabilities: {
-        readonly [k: string]: readonly (number | null)[] | undefined;
-    };
-    readonly n_draws: readonly number[];
-}
-/**
- * Causal effects and realized trajectories under the enclosing report's design.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "CausalEffectResult".
- */
-export interface CausalEffectResult {
-    readonly outcome: ConstructId;
-    readonly labels: Readonly<Partial<Record<ConstructId, string>>>;
-    readonly summary: EffectSummary;
-    readonly effect_trajectory: readonly EffectTrajectoryPoint[];
-    readonly trajectory_peak: EffectTrajectoryPoint | null;
-    readonly manifest_effects: {
-        readonly [k: string]: number | undefined;
-    } | null;
-    readonly reference_mean: number;
-    readonly warnings: readonly string[];
-}
-/**
- * An effect summary reports posterior location, uncertainty, and sign probability.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "EffectSummary".
- */
-export interface EffectSummary {
-    readonly mean: number;
-    readonly median: number;
-    readonly lower_95: number;
-    readonly upper_95: number;
-    readonly prob_positive: number;
-}
-/**
- * An effect trajectory point records a causal delta at one rollout time.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "EffectTrajectoryPoint".
- */
-export interface EffectTrajectoryPoint {
-    readonly day: number;
-    readonly effect: number;
-    readonly lower_95: number;
-    readonly upper_95: number;
-}
-/**
- * Endpoint references and description for one side of a causal edge comparison.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ComparisonConnection".
- */
-export interface ComparisonConnection {
-    readonly cause: ConstructRef;
-    readonly effect: ConstructRef;
-    readonly description: string;
-}
-/**
- * Retained measurements from a completed worker; no failure field exists.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "CompletedExtractionWorker".
- */
-export interface CompletedExtractionWorker {
-    readonly worker_id: number;
-    readonly n_extractions: number;
-    readonly n_windows: number;
-    readonly n_llm_calls: number | null;
-    readonly reused: boolean | null;
-    readonly status: "completed";
-}
-/**
- * A construct's presence and time-slice topology in two model revisions.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ConstructComparison".
- */
-export interface ConstructComparison {
-    readonly construct_id: ConstructId;
-    readonly change: Change<ConstructSpec> | Unchanged<ConstructSpec>;
-    readonly before_disposition: StructuralItemDisposition | null;
-    readonly after_disposition: StructuralItemDisposition | null;
-}
-/**
- * An item disposition explains the compilation decision for one identified authored
- * entity.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "StructuralItemDisposition".
- */
-export interface StructuralItemDisposition {
-    readonly target: ConstructRef | EdgeRef | IndicatorRef;
-    readonly disposition: StructuralDisposition;
-    readonly reason: string;
-}
-/**
- * An edge reference identifies a causal relationship independently of edits to its
- * definition.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "EdgeRef".
- */
-export interface EdgeRef {
-    readonly kind: "edge";
-    readonly id: EdgeId;
-}
-/**
- * An indicator reference identifies a measurement definition independently of its name or
- * revision.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "IndicatorRef".
- */
-export interface IndicatorRef {
-    readonly kind: "indicator";
-    readonly id: IndicatorId;
-}
-/**
- * A convergence criterion on one stable scientific scalar.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ConvergenceSubject".
- */
-export interface ConvergenceSubject {
-    readonly parameter: ParameterRef;
-    readonly criterion: ConvergenceCriterion;
-    readonly label: string;
-}
-/**
- * A retained data comparison; it never installs scientific artifacts.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "DataComparisonResult".
- */
-export interface DataComparisonResult {
-    readonly produced: readonly ArtifactRecord[];
-    readonly retracted: readonly RetractedArtifact[];
-    readonly checks: ModelCheckReport | null;
-    readonly action: "data_diff";
-    readonly report: DataDiffReport;
-}
-/**
- * A current artifact removed by an action, with the finding that caused it.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "RetractedArtifact".
- */
-export interface RetractedArtifact {
-    readonly artifact_id: ArtifactId;
-    readonly reason_ref: string;
-}
-/**
- * Checks selected by their consumed inputs, retained with the study snapshot.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ModelCheckReport".
- */
-export interface ModelCheckReport {
-    readonly input_keys: Readonly<Partial<Record<CheckGroup, string>>>;
-    readonly specification: SpecificationReport;
-    readonly predictive: ModelPredictiveReport | null;
-    readonly reused: readonly (CheckGroup | "predictive")[];
-}
-/**
- * One automatic, reproducible battery over the full model's current laws.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ModelPredictiveReport".
- */
-export interface ModelPredictiveReport {
-    readonly input_key: string;
-    readonly model_revision: GitOid;
-    readonly panel_revision: GitOid | null;
-    readonly status: "passed" | "failed" | "not_evaluated";
-    readonly reason: PredictiveCheckReason | null;
-    readonly detail: string | null;
-    readonly design: SimulationSpec | null;
-    readonly draws: number;
-    readonly seed: number;
-    readonly law: PredictiveLawProvenance;
-    readonly findings: readonly PredictiveAssessment[];
-    readonly predictive_checks: PosteriorPredictiveChecks | null;
-}
-/**
- * Generate through end, optionally starting earlier and applying dated interventions.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "SimulationSpec".
- */
-export interface SimulationSpec {
-    /**
-     * Absolute end time in model days.
-     */
-    readonly end: number;
-    /**
-     * Absolute start time in model days; omitted uses the model's latest state time, or zero for its initial-state law.
-     */
-    readonly start: number | null;
-    readonly interventions: readonly InterventionSpec[];
-}
-/**
- * Set a latent state at one model time, then let its dynamics resume.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "InterventionSpec".
- */
-export interface InterventionSpec {
-    readonly target: ConstructId;
-    /**
-     * Absolute time in model days.
-     */
-    readonly time: number;
-    readonly value: number;
-}
-/**
- * All current laws retain one committed fit's model and observation panel.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "FittedLawProvenance".
- */
-export interface FittedLawProvenance {
-    readonly kind: "fitted";
-    readonly fitted_panel_revision: GitOid;
-    readonly fitted_model_revision: GitOid;
-    readonly interpretation: "in_sample_posterior_predictive" | "posterior_predictive";
-}
-/**
- * Some laws retain a committed fit and others have different ancestry.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "MixedLawProvenance".
- */
-export interface MixedLawProvenance {
-    readonly kind: "mixed";
-    readonly fitted_panel_revision: GitOid;
-    readonly fitted_model_revision: GitOid;
-    readonly interpretation: "mixed";
-}
-/**
- * Imported laws do not establish a conditioning history.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "UnknownLawProvenance".
- */
-export interface UnknownLawProvenance {
-    readonly kind: "unknown";
-    readonly interpretation: "unknown";
-}
-/**
- * Posterior predictive checks report exact-model checks and their supporting plot data.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "PosteriorPredictiveChecks".
- */
-export interface PosteriorPredictiveChecks {
-    readonly per_variable_warnings: readonly Assessment<IndicatorCheckSubject, NumericCriterionEvidence>[];
-    readonly checked: boolean;
-    readonly n_subsample: number;
-    readonly overlays: readonly PPCOverlay[];
-    readonly test_stats: readonly PPCTestStat[];
-}
-/**
- * A predictive overlay sets one indicator's observed values against simulated ones.
- *
- * It carries the predictive median and a few individual replicated series, the
- * spaghetti plot of a visual predictive check.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "PPCOverlay".
- */
-export interface PPCOverlay {
-    readonly indicator_id: IndicatorId;
-    readonly observed: readonly (number | null)[];
-    readonly median: readonly (number | null)[];
-    readonly spaghetti_draws: readonly (readonly (number | null)[])[];
-}
-/**
- * A predictive test statistic compares an observed summary with its distribution under
- * replicated data.
- *
- * Provides the data for Gabry's ppc_stat plots: histogram of T(y_rep)
- * with a vertical line at T(y_observed).
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "PPCTestStat".
- */
-export interface PPCTestStat {
-    readonly indicator_id: IndicatorId;
-    readonly stat_name: "mean" | "sd" | "min" | "max";
-    readonly observed_value: number;
-    readonly rep_values: readonly number[];
-    readonly p_value: number | null;
-    readonly histogram: readonly HistogramBin[];
-}
-/**
- * Comparisons of existing data, preserving each history's immutable source reference.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "DataDiffReport".
- */
-export interface DataDiffReport {
-    readonly left: readonly DataRef[];
-    readonly right: readonly DataRef[];
-    readonly variables: readonly DataVariableDiff[];
-}
-/**
- * An immutable observed panel with its own calendar history.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "PanelRef".
- */
-export interface PanelRef {
-    readonly kind: "panel";
-    readonly revision: GitOid;
-}
-/**
- * A saved simulation; a null replicate selects all its recorded draws.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "SimulationRef".
- */
-export interface SimulationRef {
-    readonly kind: "simulation";
-    readonly revision: GitOid;
-    readonly replicate: number | null;
-}
-/**
- * Definitions, histories and comparisons for one persistent observation identity.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "DataVariableDiff".
- */
-export interface DataVariableDiff {
-    readonly indicator_id: IndicatorId;
-    readonly left: readonly DataSeries[];
-    readonly right: readonly DataSeries[];
-    readonly changes: readonly DataPointChange[];
-    readonly statistics: readonly DataStatisticComparison[];
-    readonly comparison_issues: readonly string[];
-    readonly reference_side: ("left" | "right") | null;
-    readonly predictive_checks: PosteriorPredictiveChecks | null;
-    readonly predictive_unavailable_reason: string | null;
-}
-/**
- * One variable's recorded measurements in one history; no pooling across replicas.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "DataSeries".
- */
-export interface DataSeries {
-    readonly variable: ObservationSpec | null;
-    /**
-     * Recorded calendar binding; null means the point dates are serialization coordinates, not real dates.
-     */
-    readonly time_origin: string | null;
-    readonly points: readonly DataPoint[];
-}
-/**
- * An observed anchor and support; dates are synthetic for a calendar-free series.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "DataPoint".
- */
-export interface DataPoint {
-    readonly anchor_time: string;
-    readonly support_start: string | null;
-    readonly support_end: string | null;
-    readonly value: number | null;
-}
-/**
- * An added, removed or revised measurement in a single-history comparison.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "DataPointChange".
- */
-export interface DataPointChange {
-    readonly anchor_time: string;
-    readonly change: Change<DataPoint>;
-}
-/**
- * The same descriptive statistic measured independently in every selected history.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "DataStatisticComparison".
- */
-export interface DataStatisticComparison {
-    readonly statistic: DataStatistic;
-    readonly level: string | null;
-    readonly left: readonly (number | null)[];
-    readonly right: readonly (number | null)[];
-    readonly left_histogram: readonly HistogramBin[];
-    readonly right_histogram: readonly HistogramBin[];
-}
-/**
- * Compare two immutable data selections, each containing one or more histories.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "DataDiffRequest".
- */
-export interface DataDiffRequest {
-    readonly action: "data_diff";
-    readonly left: DataSelection;
-    readonly right: DataSelection;
-}
-/**
- * Preparation artifacts and the measurements actually retained by extraction.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "DataPreparationResult".
- */
-export interface DataPreparationResult {
-    readonly produced: readonly ArtifactRecord[];
-    readonly retracted: readonly RetractedArtifact[];
-    readonly checks: ModelCheckReport | null;
-    readonly action: "prepare_data";
-    readonly raw_data: GitRef | null;
-    readonly model: GitRef | null;
-    readonly simulation_source: SimulationReplicateRef | null;
-    readonly n_observations: number | null;
-    readonly workers: readonly ExtractionWorkerResult[];
-    readonly ingestion_reused: boolean | null;
-    readonly extraction_reused: number | null;
-}
-/**
- * An exact file in a study's Git object database: repository, object, and path.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "GitRef".
- */
-export interface GitRef {
-    readonly workspace_id: string;
-    readonly revision: GitOid;
-    readonly path: string;
-}
-/**
- * An extraction failure with its error and no usable result-file reference.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "FailedExtractionChunk".
- */
-export interface FailedExtractionChunk {
-    readonly worker_id: number;
-    readonly n_extractions: number;
-    readonly n_windows: number;
-    readonly n_llm_calls: number | null;
-    readonly reused: boolean | null;
-    readonly status: "failed";
-    readonly error: string;
-}
-/**
- * An explicit causal edge's presence and endpoints in two model revisions.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "EdgeComparison".
- */
-export interface EdgeComparison {
-    readonly edge_id: EdgeId;
-    readonly change: Change<ComparisonConnection> | Unchanged<ComparisonConnection>;
-    readonly before_disposition: StructuralItemDisposition | null;
-    readonly after_disposition: StructuralItemDisposition | null;
-}
-/**
- * Replace one named base revision with a validated scientific definition.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "EditModelRequest".
- */
-export interface EditModelRequest {
-    readonly action: "edit_model";
-    readonly expected_revision: GitOid | null;
-    readonly model: ModelSpec;
-}
-/**
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "EmpiricalPoint".
- */
-export interface EmpiricalPoint {
-    readonly value: number;
-    readonly probability: number;
-    readonly count: number;
-}
-/**
- * A particular additive term, independently of its position or coefficient values.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "MechanismRef".
- */
-export interface MechanismRef {
-    readonly kind: "mechanism";
-    readonly id: MechanismId;
-}
-/**
- * An events response pages one running attempt's live progress.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "EventsResponse".
- */
-export interface EventsResponse {
-    readonly workspace_id: string;
-    readonly events: readonly ProgressEvent[];
-}
-/**
- * A data-preparation step changed status.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "StepEvent".
- */
-export interface StepEvent {
-    readonly attempt_id: string;
-    readonly cursor: string;
-    readonly event: "nof1-causal-lab.step";
-    readonly step: ProgressStep;
-    readonly status: StepStatus;
-    readonly error: StepError | null;
-}
-/**
- * The error type and message of a failed step.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "StepError".
- */
-export interface StepError {
-    readonly type: string;
-    readonly message: string;
-}
-/**
- * The extraction fan-out plan.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ExtractionPlanEvent".
- */
-export interface ExtractionPlanEvent {
-    readonly attempt_id: string;
-    readonly cursor: string;
-    readonly event: "nof1-causal-lab.extraction.plan";
-    readonly total_workers: number;
-    readonly max_concurrent_workers: number | null;
-}
-/**
- * One extraction worker's state; a worker reports its LLM calls when it finishes.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ExtractionWorkerEvent".
- */
-export interface ExtractionWorkerEvent {
-    readonly attempt_id: string;
-    readonly cursor: string;
-    readonly event: "nof1-causal-lab.extraction.worker";
-    readonly worker_id: number;
-    readonly state: "pending" | "running" | "completed" | "failed";
-    readonly n_windows: number;
-    readonly n_extractions: number | null;
-    readonly n_llm_calls: number | null;
-    readonly error: string | null;
-}
-/**
- * Aggregate extraction worker counts.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ExtractionSnapshotEvent".
- */
-export interface ExtractionSnapshotEvent {
-    readonly attempt_id: string;
-    readonly cursor: string;
-    readonly event: "nof1-causal-lab.extraction.snapshot";
-    readonly total_workers: number;
-    readonly pending_workers: number;
-    readonly running_workers: number;
-    readonly completed_workers: number;
-    readonly failed_workers: number;
-}
-/**
- * A fact source locates supporting content within an artifact revision and records its freshness.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "FactSource".
- */
-export interface FactSource {
-    readonly ref: GitRef;
-    readonly pointer: string;
-    readonly validity: SourceValidity;
-}
-/**
- * Uploaded sources and the complete recipe for preparing their observations.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "FilePreparationSpec".
- */
-export interface FilePreparationSpec {
-    readonly source: FileSourceRef;
-    readonly definition: DataPreparationSpec;
-}
-/**
- * Condition explicitly selected model and observation revisions.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "FitRequest".
- */
-export interface FitRequest {
-    readonly action: "fit";
-    readonly model_revision: GitOid;
-    readonly panel_revision: GitOid;
-    readonly settings: FitSettingsSpec;
-}
-/**
- * Optional numerical controls applied to the configured particle sampler.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "FitSettingsSpec".
- */
-export interface FitSettingsSpec {
-    readonly num_samples: number | null;
-    readonly num_warmup: number | null;
-    readonly num_chains: number | null;
-    readonly n_particles: number | null;
-    readonly seed: number | null;
-}
-/**
- * A fit read contains the inference report summary and server-composed display findings.
- *
- * Per-draw diagnostics load separately from the inference report endpoint.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "FitSummary".
- */
-export interface FitSummary {
-    readonly report: InferenceReportCore;
-    readonly edge_estimates: Readonly<Partial<Record<EdgeId, PosteriorEstimate>>>;
-    readonly decay_estimates: Readonly<Partial<Record<ConstructId, PosteriorEstimate>>>;
-    /**
-     * Conditioned input laws of the fitted parameters, on their posterior marginals' quantity scale; absent where the current compiler cannot place the input model.
-     */
-    readonly prior_densities: Readonly<Partial<Record<ParameterId, readonly DensityPoint[]>>>;
-}
-/**
- * Compact scientific report shared by snapshots and the full report.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "InferenceReportCore".
- */
-export interface InferenceReportCore {
-    readonly time_origin: string | null;
-    readonly inference_metadata: InferenceMetadata;
-    readonly engine: Assessment<string, ParticleMCMCEvidence>;
-    readonly inference_diagnostics: ChainDiagnostics | null;
-    readonly sampler_diagnostics: ParticleSamplerDiagnostics | null;
-    readonly convergence: ParameterConvergenceReport;
-    readonly loo_diagnostics: LOODiagnostics | null;
-    readonly posterior_marginals: readonly PosteriorMarginal[] | null;
-}
-/**
- * A posterior estimate reports a mean and a credible interval with explicit semantics.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "PosteriorEstimate".
- */
-export interface PosteriorEstimate {
-    readonly mean: number;
-    readonly lower: number;
-    readonly upper: number;
-    readonly interval_kind: "hdi" | "equal_tail";
-    /**
-     * Posterior probability mass of the interval.
-     */
-    readonly interval_mass: number;
-}
-/**
- * The indicator and criterion remain present when evaluation is unavailable.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "IndicatorCheckSubject".
- */
-export interface IndicatorCheckSubject {
-    readonly target: IndicatorRef;
-    readonly check: "calibration" | "autocorrelation" | "variance";
-}
-/**
  * An LLM trace records a conversation, its model, elapsed time, and token usage.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
@@ -2359,15 +2174,6 @@ export interface TraceMessage {
 export interface TraceToolCall {
     readonly id: string;
     readonly type: "function";
-    readonly function: TraceFunctionCall;
-}
-/**
- * The invoked tool function and its JSON argument string, retained in a trace.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "TraceFunctionCall".
- */
-export interface TraceFunctionCall {
     readonly name: string;
     readonly arguments: string;
 }
@@ -2381,6 +2187,34 @@ export interface TraceUsage {
     readonly input_tokens: number;
     readonly output_tokens: number;
     readonly reasoning_tokens: number | null;
+}
+/**
+ * Counts and representative observations read directly from one panel revision.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "MeasurementsData".
+ */
+export interface MeasurementsData {
+    readonly n_observations: number;
+    readonly per_indicator_counts: Readonly<Partial<Record<IndicatorId, number>>>;
+    readonly combined_extractions_sample: readonly ObservationRecord[];
+}
+/**
+ * Canonical serialized extraction observation row.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "ObservationRecord".
+ */
+export interface ObservationRecord {
+    readonly indicator_id: IndicatorId;
+    readonly value: string | number | boolean | null;
+    readonly anchor_time: string | null;
+    readonly support_kind: string | null;
+    readonly summary_operator: string | null;
+    readonly anchor_policy: string | null;
+    readonly observation_window: string | null;
+    readonly support_start: string | null;
+    readonly support_end: string | null;
 }
 /**
  * Exact conditional drift contributions, not marginal or total causal effects.
@@ -2453,18 +2287,6 @@ export interface MechanismViewRequest {
     readonly points: number;
 }
 /**
- * Observed evidence paired with its source versions.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ModelData".
- */
-export interface ModelData {
-    readonly raw_data: Sourced<RawDataData> | null;
-    readonly measurements: Sourced<MeasurementsData> | null;
-    readonly metadata: Sourced<PreparedDataMetadata> | null;
-    readonly profile: Sourced<DataProfileArtifact> | null;
-}
-/**
  * A model diff joins typed entity comparisons and evidence at two model revisions or checkpoints.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
@@ -2473,37 +2295,32 @@ export interface ModelData {
 export interface ModelDiffReport {
     readonly before: GitRef;
     readonly after: GitRef;
-    readonly parameters: readonly ParameterChange[];
-    readonly graph: ModelGraphComparison;
+    readonly parameters: readonly Change<ParameterSpec>[];
+    readonly constructs: readonly (Change<ConstructRef> | Unchanged<ConstructRef>)[];
+    readonly edges: readonly (Change<EdgeRef> | Unchanged<EdgeRef>)[];
+    readonly before_dispositions: readonly StructuralItemDisposition[];
+    readonly after_dispositions: readonly StructuralItemDisposition[];
+    readonly before_dynamic_construct_ids: readonly ConstructId[];
+    readonly after_dynamic_construct_ids: readonly ConstructId[];
     readonly changed_inputs: readonly string[];
-    readonly before_checks: SpecificationReport;
-    readonly after_checks: SpecificationReport;
+    readonly before_checks: readonly SpecificationAssessment[];
+    readonly after_checks: readonly SpecificationAssessment[];
     readonly before_fit: InferenceReportCore | null;
     readonly after_fit: InferenceReportCore | null;
     readonly before_simulation: SimulationReport | null;
     readonly after_simulation: SimulationReport | null;
 }
 /**
- * A parameter change compares one parameter's law across model revisions.
+ * An item disposition explains the compilation decision for one identified authored
+ * entity.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ParameterChange".
+ * via the `definition` "StructuralItemDisposition".
  */
-export interface ParameterChange {
-    readonly parameter_id: ParameterId;
-    readonly change: Change<ParameterSpec>;
-}
-/**
- * Identity-aligned topology changes, excluding laws and other entity attributes.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ModelGraphComparison".
- */
-export interface ModelGraphComparison {
-    readonly constructs: readonly ConstructComparison[];
-    readonly edges: readonly EdgeComparison[];
-    readonly before_dynamic_construct_ids: readonly ConstructId[];
-    readonly after_dynamic_construct_ids: readonly ConstructId[];
+export interface StructuralItemDisposition {
+    readonly target: ConstructRef | EdgeRef | IndicatorRef;
+    readonly disposition: StructuralDisposition;
+    readonly reason: string;
 }
 /**
  * A simulation report records forward histories, resolved execution settings, and certified effects when supported.
@@ -2515,6 +2332,14 @@ export interface SimulationReport {
     readonly model: GitRef;
     readonly design: SimulationSpec;
     /**
+     * Calendar instant of model day zero.
+     */
+    readonly time_origin: string;
+    /**
+     * The design's interventions in model days.
+     */
+    readonly assignments: readonly StateAssignment[];
+    /**
      * @minItems 2
      */
     readonly times: readonly [
@@ -2524,10 +2349,6 @@ export interface SimulationReport {
     ];
     readonly draws: number;
     readonly seed: number;
-    /**
-     * Known calendar instant of model day zero.
-     */
-    readonly time_origin: string | null;
     /**
      * Panel that supplied the time origin: the fit's panel for fitted laws, otherwise the current panel when present.
      */
@@ -2543,9 +2364,23 @@ export interface SimulationReport {
     readonly reference_latent_paths: string | null;
     readonly reference_observations: string | null;
     readonly findings: readonly PredictiveAssessment[];
-    readonly predictive: SimulationPredictiveReport;
+    readonly fit_reliability: FitReliability;
     readonly causal_result: CausalEffectResult | null;
     readonly causal_unavailable_reason: string | null;
+}
+/**
+ * A state set at one model time: a resolved intervention or a replayed input reading.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "StateAssignment".
+ */
+export interface StateAssignment {
+    readonly target: ConstructId;
+    /**
+     * Absolute time in model days.
+     */
+    readonly time: number;
+    readonly value: number;
 }
 /**
  * Saved observation semantics and coordinates; generation truths remain separate.
@@ -2560,72 +2395,17 @@ export interface SimulationObservationLayout {
     readonly mask: string;
 }
 /**
- * Model implications, independently of whether a causal contrast is certified.
+ * One retained fit report, with the exact inputs and truthful retention state.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "SimulationPredictiveReport".
+ * via the `definition` "ModelFitResult".
  */
-export interface SimulationPredictiveReport {
-    readonly states: Readonly<Partial<Record<ConstructId, SimulationSeriesSummary>>>;
-    readonly indicators: Readonly<Partial<Record<IndicatorId, SimulationSeriesSummary>>>;
-    readonly fit_reliability: FitReliability;
-}
-/**
- * One state's or indicator's generated distribution in each simulated arm.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "SimulationSeriesSummary".
- */
-export interface SimulationSeriesSummary {
-    readonly label: string;
-    readonly action: PredictiveSummary;
-    readonly reference: PredictiveSummary | null;
-}
-/**
- * Pointwise means and fixed 95% quantiles across generated numeric draws.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "TrajectorySummary".
- */
-export interface TrajectorySummary {
-    readonly kind: "numeric";
-    readonly mean: readonly (number | null)[];
-    readonly lower: readonly (number | null)[];
-    readonly upper: readonly (number | null)[];
-    readonly n_draws: readonly number[];
-}
-/**
- * The model/check artifacts are the result; the selected base remains explicit.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ModelEditResult".
- */
-export interface ModelEditResult {
-    readonly produced: readonly ArtifactRecord[];
-    readonly retracted: readonly RetractedArtifact[];
-    readonly checks: ModelCheckReport | null;
-    readonly action: "edit_model";
-    readonly base: GitRef | null;
-}
-/**
- * ModelSpec findings collect identification, validation, and fitted results with their input references.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ModelFindings".
- */
-export interface ModelFindings {
-    readonly identification: Sourced<IdentificationReport> | null;
-    readonly dispositions: Sourced<readonly StructuralItemDisposition[]> | null;
-    readonly graph: ModelGraphView;
-    readonly entity_failures: {
-        readonly [k: string]: readonly string[] | undefined;
-    };
-    readonly validation_report: Sourced<ValidationReportArtifact> | null;
-    readonly diagnostics: ModelDiagnostics | null;
-    readonly fit: Sourced<FitSummary> | null;
-    readonly specification: Sourced<SpecificationReport> | null;
-    readonly simulation: Sourced<SimulationReport> | null;
-    readonly predictive: Sourced<ModelPredictiveReport> | null;
+export interface ModelFitResult {
+    readonly action: "fit";
+    readonly model: GitRef;
+    readonly panel: GitRef;
+    readonly report: InferenceReport;
+    readonly retention: "joint" | "report_only";
 }
 /**
  * Scientific entity identities selected for the graph at this authoring checkpoint.
@@ -2640,31 +2420,12 @@ export interface ModelGraphView {
     readonly status: Readonly<Partial<Record<ConstructId, ("observed" | "marginalized" | "blocking")>>>;
 }
 /**
- * One retained fit report, with the exact inputs and truthful retention state.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "ModelFitResult".
- */
-export interface ModelFitResult {
-    readonly produced: readonly ArtifactRecord[];
-    readonly retracted: readonly RetractedArtifact[];
-    readonly checks: ModelCheckReport | null;
-    readonly action: "fit";
-    readonly model: GitRef;
-    readonly panel: GitRef;
-    readonly report: InferenceReport;
-    readonly retention: "joint" | "report_only";
-}
-/**
  * The report owns its model reference; the selected panel is separately pinned.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "ModelSimulationResult".
  */
 export interface ModelSimulationResult {
-    readonly produced: readonly ArtifactRecord[];
-    readonly retracted: readonly RetractedArtifact[];
-    readonly checks: ModelCheckReport | null;
     readonly action: "simulate";
     readonly panel: GitRef | null;
     readonly report: SimulationReport;
@@ -2676,24 +2437,49 @@ export interface ModelSimulationResult {
  * via the `definition` "ModelSnapshot".
  */
 export interface ModelSnapshot {
+    readonly question: Sourced<QuestionSpec> | null;
     readonly model: Sourced<ModelSpec> | null;
-    readonly context: SnapshotContext;
-    readonly data: ModelData;
-    readonly findings: ModelFindings;
+    readonly workspace_id: string;
+    readonly branch: string;
+    readonly commit_id: GitOid;
+    readonly selected_seq: number;
+    readonly can_simulate: boolean;
+    readonly state: StudyState;
+    readonly raw_data: Sourced<RawDataData> | null;
+    readonly measurements: Sourced<MeasurementsData> | null;
+    readonly metadata: Sourced<PreparedDataMetadata> | null;
+    readonly profile: Sourced<DataProfileArtifact> | null;
+    readonly identification: Sourced<IdentificationReport> | null;
+    readonly dispositions: Sourced<readonly StructuralItemDisposition[]> | null;
+    readonly graph: ModelGraphView;
+    readonly entity_failures: {
+        readonly [k: string]: readonly string[] | undefined;
+    };
+    readonly validation_report: Sourced<ValidationReportArtifact> | null;
+    readonly confounder_equations: Readonly<Partial<Record<ConstructId, string>>>;
+    readonly state_equations: Readonly<Partial<Record<ConstructId, string>>>;
+    readonly observation_equations: Readonly<Partial<Record<IndicatorId, string>>>;
+    readonly likelihood_diagnostics: Readonly<Partial<Record<IndicatorId, readonly HistogramBin[]>>>;
+    readonly authoring_prior_densities: Readonly<Partial<Record<ParameterId, DensityCurve>>>;
+    readonly fit: Sourced<FitSummary> | null;
+    readonly specification: Sourced<readonly SpecificationAssessment[]> | null;
+    readonly question_checks: Sourced<QuestionCheckReport> | null;
+    readonly simulation: Sourced<SimulationReport> | null;
+    readonly predictive: Sourced<ModelPredictiveReport> | null;
 }
 /**
- * A snapshot context identifies the selected Git commit and its artifact versions.
+ * Study state projects the artifact trees selected by one Git commit.
+ *
+ * ``current`` maps artifact id → the revision info that is *current* for the
+ * study. Absent key = the artifact does not exist (either never produced,
+ * or produced-when-nonempty semantics withheld it).
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "SnapshotContext".
+ * via the `definition` "StudyState".
  */
-export interface SnapshotContext {
-    readonly workspace_id: string;
-    readonly seq: number;
-    readonly commit_id: GitOid;
-    readonly branch: string;
-    readonly can_simulate: boolean;
+export interface StudyState {
     readonly current: Readonly<Partial<Record<ArtifactId, ArtifactRecord>>>;
+    readonly checks: ModelCheckReport | null;
 }
 /**
  * A measured scalar and the producer's numerical acceptance region.
@@ -2728,6 +2514,16 @@ export interface ObservationHistory {
     readonly time_origin: string | null;
     readonly levels: readonly string[] | null;
     readonly empirical: readonly EmpiricalPoint[];
+}
+/**
+ * Whether the model defines the question's outcome as a measured, modeled course.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "OutcomeSubject".
+ */
+export interface OutcomeSubject {
+    readonly check: "outcome";
+    readonly outcome: ConstructRef;
 }
 /**
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
@@ -2778,18 +2574,6 @@ export interface RecordedPath {
     readonly values: readonly (number | null)[];
 }
 /**
- * A saved check on the exact schedule and scale used to evaluate it.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "PredictiveHistory".
- */
-export interface PredictiveHistory {
-    readonly times: readonly number[];
-    readonly time_origin: string | null;
-    readonly standardized: boolean;
-    readonly overlay: PPCOverlay;
-}
-/**
  * One named check and its stable target in a construct's scientific context.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
@@ -2811,6 +2595,51 @@ export interface PrepareDataRequest {
     readonly input: FilePreparationSpec | SimulationReplicateRef;
 }
 /**
+ * A data-preparation step changed status.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "StepEvent".
+ */
+export interface StepEvent {
+    readonly attempt_id: string;
+    readonly cursor: string;
+    readonly event: "nof1-causal-lab.step";
+    readonly step: ProgressStep;
+    readonly status: StepStatus;
+    readonly error: StepError | null;
+}
+/**
+ * The error type and message of a failed step.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "StepError".
+ */
+export interface StepError {
+    readonly type: string;
+    readonly message: string;
+}
+/**
+ * One query's intervention target: defined, identified, or set inside the record.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "QueryTargetSubject".
+ */
+export interface QueryTargetSubject {
+    readonly check: "target" | "identification" | "range";
+    readonly query: string;
+    readonly target: ConstructRef;
+}
+/**
+ * Whether the record supports one query's window.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "QueryWindowSubject".
+ */
+export interface QueryWindowSubject {
+    readonly check: "window";
+    readonly query: string;
+}
+/**
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "Raised".
  */
@@ -2819,6 +2648,42 @@ export interface Raised {
     readonly error_type: string;
     readonly error_message: string;
     readonly details: readonly string[];
+}
+/**
+ * A stored column's physical type and authored interpretation.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "RawDataColumnDescription".
+ */
+export interface RawDataColumnDescription {
+    readonly name: string;
+    readonly dtype: string;
+    readonly description: string;
+}
+/**
+ * Profile and representative rows from one uploaded table revision.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "RawDataData".
+ */
+export interface RawDataData {
+    readonly n_records: number;
+    readonly n_columns: number;
+    readonly date_range: RawDataDateRange | null;
+    readonly sample: readonly {
+        readonly [k: string]: (string | null) | undefined;
+    }[];
+    readonly column_descriptions: readonly RawDataColumnDescription[];
+}
+/**
+ * Observed date bounds of the uploaded table, when it contains a date column.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "RawDataDateRange".
+ */
+export interface RawDataDateRange {
+    readonly start: string;
+    readonly end: string;
 }
 /**
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
@@ -2843,17 +2708,6 @@ export interface Rejected {
     readonly detail: string;
 }
 /**
- * A revision catalog lists immutable model, source and observation inputs for selection.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "RevisionCatalog".
- */
-export interface RevisionCatalog {
-    readonly models: readonly ArtifactRecord[];
-    readonly raw_data: readonly ArtifactRecord[];
-    readonly panels: readonly ArtifactRecord[];
-}
-/**
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "RunningAction".
  */
@@ -2864,20 +2718,30 @@ export interface RunningAction {
     readonly messages: readonly ActionMessage[];
 }
 /**
- * Generate through end with optional start and interventions; compare saved data with data_diff.
+ * Set the study question; it is the first action of every study.
+ *
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "SetQuestionRequest".
+ */
+export interface SetQuestionRequest {
+    readonly action: "set_question";
+    readonly question: QuestionSpec;
+}
+/**
+ * Generate a dated window with optional interventions; compare saved data with data_diff.
  *
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "SimulateRequest".
  */
 export interface SimulateRequest {
     /**
-     * Absolute end time in model days.
+     * Calendar day the window starts, at 00:00 UTC.
      */
-    readonly end: number;
+    readonly start: string;
     /**
-     * Absolute start time in model days; omitted uses the model's latest state time, or zero for its initial-state law.
+     * How long the window lasts, such as 9w or 61d.
      */
-    readonly start: number | null;
+    readonly horizon: string;
     readonly interventions: readonly InterventionSpec[];
     readonly action: "simulate";
     readonly model_revision: GitOid;
@@ -2897,6 +2761,11 @@ export interface SimulationPaths {
     readonly states: Readonly<Partial<Record<ConstructId, PathSeries>>>;
     readonly indicators: Readonly<Partial<Record<IndicatorId, PathSeries>>>;
     readonly effect: PathSeries | null;
+    readonly effect_summary: EffectSummary | null;
+    readonly reference_mean: number | null;
+    readonly manifest_effects: Readonly<Partial<Record<IndicatorId, number>>>;
+    readonly action_category_probabilities: Readonly<Partial<Record<IndicatorId, CategoryProbabilitySummary>>>;
+    readonly reference_category_probabilities: Readonly<Partial<Record<IndicatorId, CategoryProbabilitySummary>>>;
 }
 /**
  * Git publication wraps its already-owned record, without copying its fields.
@@ -2908,20 +2777,6 @@ export interface StudyRevision {
     readonly commit_id: GitOid;
     readonly parent_ids: readonly GitOid[];
     readonly record: AttemptRecord;
-}
-/**
- * Study state projects the artifact trees selected by one Git commit.
- *
- * ``current`` maps artifact id → the revision info that is *current* for the
- * study. Absent key = the artifact does not exist (either never produced,
- * or produced-when-nonempty semantics withheld it).
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "StudyState".
- */
-export interface StudyState {
-    readonly current: Readonly<Partial<Record<ArtifactId, ArtifactRecord>>>;
-    readonly checks: ModelCheckReport | null;
 }
 /**
  * Study status reports committed artifacts, their freshness, actions, and any running one.
@@ -2954,35 +2809,6 @@ export interface TimelineResponse {
     readonly dependencies: readonly RecordDependency[];
 }
 /**
- * An upload response identifies the stored location of an accepted data upload.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "UploadResponse".
- */
-export interface UploadResponse {
-    readonly path: string;
-}
-/**
- * A workspace entry identifies an available model workspace and its research question.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "WorkspaceEntry".
- */
-export interface WorkspaceEntry {
-    readonly href: string;
-    readonly question: string | null;
-    readonly workspaceId: string;
-}
-/**
- * A workspace list provides the available model workspaces for client navigation.
- *
- * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
- * via the `definition` "WorkspaceList".
- */
-export interface WorkspaceList {
-    readonly workspaces: readonly WorkspaceEntry[];
-}
-/**
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "Added".
  */
@@ -2997,6 +2823,7 @@ export interface Added<PayloadT> {
 export interface Applied<ResultT> {
     readonly status: "applied";
     readonly result: ResultT;
+    readonly effects: ActionEffects;
 }
 /**
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
