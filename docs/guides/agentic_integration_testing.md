@@ -293,7 +293,7 @@ uv run --project apps/data-pipeline nof1-publish SYNTHETIC_WORKSPACE --exclude i
 
 ## Step-by-Step Flow
 
-### 1. Create the workspace and start the run
+### 1. Create the workspace and start the study
 
 ```bash
 WORKSPACE_ID="T3ST42"
@@ -303,12 +303,12 @@ curl -s -X POST http://localhost:3000/api/upload \
   -F "workspaceId=$WORKSPACE_ID" \
   -F "file=@data/DEMO/input/dsar_bundle.zip"
 
-curl -s -X POST http://localhost:3000/api/runs \
+curl -s -X POST http://localhost:3000/api/studies/$WORKSPACE_ID/actions \
   -H 'Content-Type: application/json' \
-  -d "{\"workspaceId\":\"$WORKSPACE_ID\",\"query\":\"$QUESTION\"}"
+  -d "{\"action\":\"set_question\",\"question\":{\"text\":\"$QUESTION\"}}"
 ```
 
-`GET /api/actions-enabled` returns false on a read-only facade. Creating the run submits `edit_model` with the question and returns HTTP `202` with the workspace and `attempt_id`. Poll that attempt until `kind` is `completed`. Submit further actions as the [`nof1-study-api` skill](../../.agents/skills/nof1-study-api/SKILL.md) describes; the [action charts](../../README.md#documentation) show what each one does.
+`GET /api/actions-enabled` returns false on a read-only facade. Setting the question starts the study and returns HTTP `202` with its `attempt_id`. Poll that attempt until `kind` is `completed`. Submit further actions as the [`nof1-study-api` skill](../../.agents/skills/nof1-study-api/SKILL.md) describes; the [action charts](../../README.md#documentation) show what each one does.
 
 ### 2. Observe the study
 
