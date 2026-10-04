@@ -20,6 +20,7 @@
     "test:fixture-promotion": "bun test ./scripts/promote-data-to-fixture.test.ts",
     "knip": "knip --production",
     "complexity": "bun run --cwd apps/data-pipeline complexity",
+    "similarity": "bun run --cwd apps/data-pipeline similarity",
 
     "codegen": "bun run --cwd packages/api-types codegen",
     "codegen:check": "bun run --cwd packages/api-types codegen:check",

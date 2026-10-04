@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 import logging
 import os
@@ -14,8 +13,6 @@ from pathlib import Path
 from time import perf_counter
 from typing import TYPE_CHECKING
 
-from pydantic import ValidationError
-
 from nof1_causal_lab.actions.errors import execution_failure_handler
 from nof1_causal_lab.utils.agent_session import AgentResult, TurnResult
 from nof1_causal_lab.utils.harness.pi_tool_bridge import serve_pi_tools_http
@@ -24,9 +21,8 @@ from nof1_causal_lab.utils.harness.stream_json import (
     apply_pi_event,
     finalize_trace,
     format_pi_event_for_log,
-    parse_stream_event,
 )
-from nof1_causal_lab.utils.harness.streaming import drain_newline_delimited_stream
+from nof1_causal_lab.utils.harness.streaming import finish_harness_process, handle_stream_event
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -216,55 +212,29 @@ class PiHarnessSession:
             env=dict(os.environ),
             cwd="/tmp",
         )
-        stderr_bytes = bytearray()
-
-        async def _drain_stderr() -> None:
-            if proc.stderr is None:
-                return
-            while chunk := await proc.stderr.read(65536):
-                stderr_bytes.extend(chunk)
-                for line in chunk.split(b"\n"):
-                    text = line.decode(errors="replace").strip()
-                    if text:
-                        logger.info("[%s] pi stderr: %s", self._log_label, text)
-
-        try:
-            await asyncio.wait_for(
-                asyncio.gather(self._drain_stdout(proc), _drain_stderr()),
-                timeout=self._timeout_seconds,
-            )
-            await asyncio.wait_for(proc.wait(), timeout=self._timeout_seconds)
-        except TimeoutError:
-            proc.kill()
-            with contextlib.suppress(ProcessLookupError):
-                await proc.wait()
-            raise
-        if proc.returncode != 0:
-            stderr = stderr_bytes.decode(errors="replace")
-            raise RuntimeError(f"pi exited with status {proc.returncode}: {stderr}")
+        await finish_harness_process(
+            proc,
+            timeout_seconds=self._timeout_seconds,
+            backend="pi",
+            handle_stdout=self._handle_line,
+            handle_stderr=lambda text: logger.info("[%s] pi stderr: %s", self._log_label, text),
+        )
         apply_pi_event(
             self._state,
             {"type": "nof1.turn_timing", "duration_seconds": perf_counter() - started},
         )
         return self._build_turn_result(self._state.raw_events[pre_event_count:])
 
-    async def _drain_stdout(self, proc: asyncio.subprocess.Process) -> None:
-        await drain_newline_delimited_stream(proc.stdout, self._handle_line)
-
     def _handle_line(self, raw: bytes) -> None:
-        line = raw.decode(errors="replace").strip()
-        if not line:
-            return
-        try:
-            event = parse_stream_event(line)
-        except ValidationError as exc:
-            raise RuntimeError(f"Pi emitted non-JSON on stdout: {line[:200]!r}") from exc
-        if not isinstance(event, dict):
-            raise RuntimeError(f"Pi emitted non-object JSON on stdout: {line[:200]!r}")
-        log_line = format_pi_event_for_log(event)
-        if log_line is not None:
-            logger.info("[%s] %s", self._log_label, log_line)
-        apply_pi_event(self._state, event)
+        handle_stream_event(
+            raw,
+            self._state,
+            error_label="Pi",
+            log_label=self._log_label,
+            logger=logger,
+            format_event=format_pi_event_for_log,
+            apply_event=apply_pi_event,
+        )
 
     def _build_turn_result(self, events: list[JsonObject]) -> TurnResult:
         tool_calls_fired: list[str] = []

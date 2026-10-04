@@ -1519,6 +1519,8 @@ export interface components {
          *     checks.
          */
         readonly IndicatorAudit: Domain.IndicatorAudit;
+        /** @enum {string} */
+        readonly IndicatorCheck: Domain.IndicatorCheck;
         /**
          * IndicatorCheckSubject
          * @description The indicator and criterion remain present when evaluation is unavailable.

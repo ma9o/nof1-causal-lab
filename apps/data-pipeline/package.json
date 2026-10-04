@@ -23,6 +23,7 @@
     "test": "uv run pytest tests/",
     "test:all": "bun run test -m=",
     "complexity": "uv run complexipy . --failed --sort desc --plain --ignore-complexity",
+    "similarity": "uv run python -m scripts.checks.find_ast_similarities",
     "docs:distribution": "uv run python scripts/codegen/export_distribution_docs.py",
     "docs:distribution:check": "bun run docs:distribution --check",
     "lint:annotations": "uv run python -m scripts.checks.architecture_roles",

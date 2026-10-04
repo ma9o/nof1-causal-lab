@@ -1,10 +1,32 @@
 """Numerical primitives for conditional trajectory kernels."""
 
+from collections.abc import Callable
+
 import jax
 import jax.numpy as jnp
+from jax.typing import DTypeLike
 from jaxtyping import Array, Float, Int
 
 FloatScalar = Float[Array, ""]
+
+
+def _value_and_grad_by_param[Context](
+    contexts: Context,
+    particle: jax.Array,
+    log_prob_fn: Callable[[Context, jax.Array], jax.Array],
+    *,
+    value_dtype: DTypeLike,
+    grad_dtype: DTypeLike,
+) -> tuple[jax.Array, jax.Array]:
+    """Differentiate the explicit particle argument and batch over parameter contexts."""
+    evaluate: Callable[[Context, jax.Array], tuple[jax.Array, jax.Array]] = jax.value_and_grad(
+        log_prob_fn, argnums=1
+    )
+    evaluate_by_param: Callable[[Context, jax.Array], tuple[jax.Array, jax.Array]] = jax.vmap(
+        evaluate, in_axes=(0, None)
+    )
+    value, grad = evaluate_by_param(contexts, particle)
+    return value.astype(value_dtype), grad.astype(grad_dtype)
 
 
 def _masked_normal_log_prob(values, mean, variance, free_mask):

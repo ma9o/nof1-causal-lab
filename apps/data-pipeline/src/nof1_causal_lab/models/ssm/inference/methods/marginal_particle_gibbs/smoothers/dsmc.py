@@ -40,7 +40,6 @@ from __future__ import annotations
 
 import math
 from types import MappingProxyType
-from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
@@ -54,12 +53,8 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._math 
     _masked_normal_log_prob,
     _normalize_log_probs,
     _observation_log_probs_by_param,
+    _value_and_grad_by_param,
 )
-
-if TYPE_CHECKING:
-    from collections.abc import Callable
-
-    from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleContext
 
 
 def step(ctx: SmootherContext, key: jax.Array, x_ref: jax.Array) -> MPGibbsLatentSmootherResult:
@@ -113,19 +108,15 @@ def step(ctx: SmootherContext, key: jax.Array, x_ref: jax.Array) -> MPGibbsLaten
     def _obs_value_grad_by_param(
         particle_t: jnp.ndarray, time_idx: jnp.ndarray
     ) -> tuple[jnp.ndarray, jnp.ndarray]:
-        def _one_context(context: ParticleContext) -> tuple[jnp.ndarray, jnp.ndarray]:
-            evaluate: Callable[[jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]] = jax.value_and_grad(
-                lambda particle: obs_increment_fn(
-                    context,
-                    particle,
-                    time_idx,
-                    runtime_observations,
-                )
-            )
-            return evaluate(particle_t)
-
-        value, grad = jax.vmap(_one_context)(contexts)
-        return value.astype(traj_dtype), grad.astype(latent_dtype)
+        return _value_and_grad_by_param(
+            contexts,
+            particle_t,
+            lambda context, particle: obs_increment_fn(
+                context, particle, time_idx, runtime_observations
+            ),
+            value_dtype=traj_dtype,
+            grad_dtype=latent_dtype,
+        )
 
     _initial_prior_value_grad_by_param = ctx.initial_value_grad_by_param
     _transition_current_value_grad_by_param = ctx.transition_current_value_grad_by_param

@@ -29,6 +29,23 @@ type Solve = Callable[[jax.Array, jax.Array, jax.Array, jax.Array, jax.Array], j
 type System = Callable[[jax.Array], tuple[jax.Array, jax.Array, jax.Array]]
 
 
+def solve_fixed_point_mode(
+    update: Callable[[jax.Array, None], jax.Array],
+    initial: jax.Array,
+    *,
+    max_steps: int,
+) -> tuple[jax.Array, jax.Array]:
+    """Iterate a local initialization mode with the common IEKS stopping policy."""
+    solution = optx.fixed_point(
+        update,
+        optx.FixedPointIteration(rtol=1e-3, atol=1e-3),
+        initial,
+        max_steps=max(max_steps, 1),
+        throw=False,
+    )
+    return jnp.asarray(solution.value), jnp.asarray(solution.stats["num_steps"])
+
+
 def _apply_inverse(chol, lower, row_upper, row_lower, solve: Solve, vector) -> jax.Array:
     return solve(chol, lower, vector, row_upper, row_lower)
 

@@ -1865,23 +1865,30 @@ def _function_candidate(
     first_calls = first.calls - _UNINFORMATIVE_CALLS
     second_calls = second.calls - _UNINFORMATIVE_CALLS
     shared_calls = first_calls & second_calls
-    call_score = _jaccard(first_calls, second_calls)
-    name_score = _jaccard(_name_words(first.name), _name_words(second.name))
-    shape_score = _cosine(first.node_counts, second.node_counts)
-    control_score = _cosine(first.control_counts, second.control_counts)
-    signature_score = float(first.signature == second.signature)
 
     if exact_structure:
         score = 0.98
+        reason = "alpha-normalized AST match"
     else:
-        if len(shared_calls) < 2 and not (shared_calls and name_score >= 0.5):
+        if not shared_calls:
             return None
+        name_score = _jaccard(_name_words(first.name), _name_words(second.name))
+        if len(shared_calls) < 2 and name_score < 0.5:
+            return None
+        call_score = _jaccard(first_calls, second_calls)
+        shape_score = _cosine(first.node_counts, second.node_counts)
+        control_score = _cosine(first.control_counts, second.control_counts)
+        signature_score = float(first.signature == second.signature)
         score = (
             0.40 * call_score
             + 0.25 * shape_score
             + 0.15 * control_score
             + 0.10 * name_score
             + 0.10 * signature_score
+        )
+        reason = (
+            f"AST shape {shape_score:.2f}; control flow {control_score:.2f}; "
+            f"call overlap {call_score:.2f}"
         )
 
     sibling_methods = (
@@ -1905,13 +1912,6 @@ def _function_candidate(
             second.path, second.start, second.end
         ),
     }
-    if exact_structure:
-        reason = "alpha-normalized AST match"
-    else:
-        reason = (
-            f"AST shape {shape_score:.2f}; control flow {control_score:.2f}; "
-            f"call overlap {call_score:.2f}"
-        )
     if shared_calls:
         reason += f"; shared calls: {', '.join(sorted(shared_calls)[:6])}"
     return Candidate(
@@ -1946,12 +1946,15 @@ def ast_candidates(
     classes = sorted(by_kind["class"], key=lambda cls: cls.identity)
     symbols = _symbol_index(definitions)
     ancestors = _class_ancestors(classes, symbols)
-    type_candidates, represented = _field_candidates(
-        classes, definitions, symbols=symbols, ancestors=ancestors, selection=selection
-    )
-    type_candidates.extend(
-        _presence_candidates(classes, symbols=symbols, ancestors=ancestors, selection=selection)
-    )
+    type_candidates: list[Candidate] = []
+    represented: set[frozenset[tuple[str, int, str]]] = set()
+    if classes:
+        type_candidates, represented = _field_candidates(
+            classes, definitions, symbols=symbols, ancestors=ancestors, selection=selection
+        )
+        type_candidates.extend(
+            _presence_candidates(classes, symbols=symbols, ancestors=ancestors, selection=selection)
+        )
     type_candidates.extend(_vocabulary_candidates(definitions, selection=selection))
     exact_function_anchors: dict[str, tuple[str, int, str]] = {}
     for definition in by_kind["function"]:

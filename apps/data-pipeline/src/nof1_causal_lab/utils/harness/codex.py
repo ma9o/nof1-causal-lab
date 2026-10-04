@@ -40,7 +40,6 @@ by hand and skipping the CODEX_HOME override.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 import logging
 import os
@@ -48,8 +47,6 @@ import tempfile
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
-
-from pydantic import ValidationError
 
 from nof1_causal_lab.actions.errors import execution_failure_handler
 from nof1_causal_lab.utils.agent_session import AgentResult, TurnResult
@@ -60,9 +57,8 @@ from nof1_causal_lab.utils.harness.stream_json import (
     event_object,
     finalize_codex_trace,
     format_codex_event_for_log,
-    parse_stream_event,
 )
-from nof1_causal_lab.utils.harness.streaming import drain_newline_delimited_stream
+from nof1_causal_lab.utils.harness.streaming import finish_harness_process, handle_stream_event
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -346,61 +342,27 @@ class CodexHarnessSession:
             cwd=str(self._codex_home),
         )
 
-        stderr_bytes = bytearray()
-
-        async def _drain_stderr() -> None:
-            if proc.stderr is None:
-                return
-            while True:
-                chunk = await proc.stderr.read(65536)
-                if not chunk:
-                    break
-                stderr_bytes.extend(chunk)
-                for line in chunk.split(b"\n"):
-                    text = line.decode("utf-8", errors="replace").strip()
-                    if text:
-                        logger.info("[%s] codex stderr: %s", self._log_label, text)
-
-        try:
-            await asyncio.wait_for(
-                asyncio.gather(self._drain_stdout(proc), _drain_stderr()),
-                timeout=self._timeout_seconds,
-            )
-            await asyncio.wait_for(proc.wait(), timeout=self._timeout_seconds)
-        except TimeoutError:
-            proc.kill()
-            with contextlib.suppress(ProcessLookupError):
-                await proc.wait()
-            raise
-
-        if proc.returncode != 0:
-            stderr_text = stderr_bytes.decode("utf-8", errors="replace")
-            raise RuntimeError(f"codex exited with status {proc.returncode}: {stderr_text}")
+        await finish_harness_process(
+            proc,
+            timeout_seconds=self._timeout_seconds,
+            backend="codex",
+            handle_stdout=self._handle_codex_line,
+            handle_stderr=lambda text: logger.info("[%s] codex stderr: %s", self._log_label, text),
+        )
 
         turn_events = self._state.raw_events[pre_event_count:]
         return self._build_turn_result(turn_events)
 
-    async def _drain_stdout(self, proc: asyncio.subprocess.Process) -> None:
-        await drain_newline_delimited_stream(proc.stdout, self._handle_codex_line)
-
     def _handle_codex_line(self, raw: bytes) -> None:
-        line = raw.decode("utf-8", errors="replace").strip()
-        if not line:
-            return
-        try:
-            event = parse_stream_event(line)
-        except ValidationError as exc:
-            raise RuntimeError(
-                f"[{self._log_label}] codex emitted non-JSON on stdout: {line[:200]!r}"
-            ) from exc
-        if not isinstance(event, dict):
-            raise RuntimeError(
-                f"[{self._log_label}] codex emitted non-object JSON on stdout: {line[:200]!r}"
-            )
-        log_line = format_codex_event_for_log(event)
-        if log_line is not None:
-            logger.info("[%s] %s", self._log_label, log_line)
-        apply_codex_event(self._state, event)
+        handle_stream_event(
+            raw,
+            self._state,
+            error_label=f"[{self._log_label}] codex",
+            log_label=self._log_label,
+            logger=logger,
+            format_event=format_codex_event_for_log,
+            apply_event=apply_codex_event,
+        )
 
     def _build_turn_result(self, turn_events: list[JsonObject]) -> TurnResult:
         tool_calls_fired: list[str] = []

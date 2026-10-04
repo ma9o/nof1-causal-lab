@@ -20,7 +20,6 @@ and the cumulative ``AgentResult`` are derived from that.
 from __future__ import annotations
 
 import asyncio
-import contextlib
 import json
 import logging
 import tempfile
@@ -28,8 +27,6 @@ import uuid
 from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import TYPE_CHECKING
-
-from pydantic import ValidationError
 
 from nof1_causal_lab.actions.errors import execution_failure_handler
 from nof1_causal_lab.utils.agent_session import AgentResult, TurnResult
@@ -40,9 +37,8 @@ from nof1_causal_lab.utils.harness.stream_json import (
     event_object,
     finalize_trace,
     format_claude_event_for_log,
-    parse_stream_event,
 )
-from nof1_causal_lab.utils.harness.streaming import drain_newline_delimited_stream
+from nof1_causal_lab.utils.harness.streaming import finish_harness_process, handle_stream_event
 
 if TYPE_CHECKING:
     from collections.abc import AsyncIterator
@@ -225,49 +221,27 @@ class ClaudeHarnessSession:
             stderr=asyncio.subprocess.PIPE,
         )
 
-        try:
-            await asyncio.wait_for(
-                self._drain_stdout(proc),
-                timeout=self._timeout_seconds,
-            )
-            await asyncio.wait_for(proc.wait(), timeout=self._timeout_seconds)
-        except TimeoutError:
-            proc.kill()
-            with contextlib.suppress(ProcessLookupError):
-                await proc.wait()
-            raise
-
-        if proc.returncode != 0:
-            stderr_text = ""
-            if proc.stderr is not None:
-                stderr_bytes = await proc.stderr.read()
-                stderr_text = stderr_bytes.decode("utf-8", errors="replace")
-            raise RuntimeError(f"claude exited with status {proc.returncode}: {stderr_text}")
+        await finish_harness_process(
+            proc,
+            timeout_seconds=self._timeout_seconds,
+            backend="claude",
+            handle_stdout=self._handle_claude_line,
+            handle_stderr=lambda _text: None,
+        )
 
         turn_events = self._state.raw_events[pre_event_count:]
         return self._build_turn_result(turn_events)
 
-    async def _drain_stdout(self, proc: asyncio.subprocess.Process) -> None:
-        await drain_newline_delimited_stream(proc.stdout, self._handle_claude_line)
-
     def _handle_claude_line(self, raw: bytes) -> None:
-        line = raw.decode("utf-8", errors="replace").strip()
-        if not line:
-            return
-        try:
-            event = parse_stream_event(line)
-        except ValidationError as exc:
-            raise RuntimeError(
-                f"[{self._log_label}] claude emitted non-JSON on stdout: {line[:200]!r}"
-            ) from exc
-        if not isinstance(event, dict):
-            raise RuntimeError(
-                f"[{self._log_label}] claude emitted non-object JSON on stdout: {line[:200]!r}"
-            )
-        log_line = format_claude_event_for_log(event)
-        if log_line is not None:
-            logger.info("[%s] %s", self._log_label, log_line)
-        apply_claude_event(self._state, event)
+        handle_stream_event(
+            raw,
+            self._state,
+            error_label=f"[{self._log_label}] claude",
+            log_label=self._log_label,
+            logger=logger,
+            format_event=format_claude_event_for_log,
+            apply_event=apply_claude_event,
+        )
 
     def _build_turn_result(self, turn_events: list[JsonObject]) -> TurnResult:
         tool_calls_fired: list[str] = []

@@ -22,7 +22,6 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from types import MappingProxyType
 from typing import TYPE_CHECKING, Literal
 
 import networkx as nx
@@ -77,14 +76,6 @@ class IdentificationResult:
     graph_info: IdentificationGraphInfo
 
     def __post_init__(self) -> None:
-        object.__setattr__(
-            self, "identifiable_treatments", MappingProxyType(dict(self.identifiable_treatments))
-        )
-        object.__setattr__(
-            self,
-            "non_identifiable_treatments",
-            MappingProxyType(dict(self.non_identifiable_treatments)),
-        )
         freeze_fields(self)
 
 

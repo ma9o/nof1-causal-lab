@@ -10,8 +10,9 @@ filenames independently.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from types import MappingProxyType
 from typing import TYPE_CHECKING
+
+from nof1_causal_lab.utils.immutability import freeze_fields
 
 if TYPE_CHECKING:
     from collections.abc import Mapping
@@ -30,8 +31,7 @@ class ArtifactFileSpec:
         return frozenset([*self.json.values(), *self.parquet.values()])
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "json", MappingProxyType(dict(self.json)))
-        object.__setattr__(self, "parquet", MappingProxyType(dict(self.parquet)))
+        freeze_fields(self)
 
 
 ARTIFACT_FILE_SPECS: dict[ArtifactId, ArtifactFileSpec] = {

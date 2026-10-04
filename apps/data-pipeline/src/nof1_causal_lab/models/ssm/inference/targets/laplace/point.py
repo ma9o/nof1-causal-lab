@@ -35,9 +35,11 @@ from .shared import (
     precision_logdet,
     trajectory_prior_log_prob_from_terms,
 )
-from .solvers import solve_latent_mode
+from .solvers import solve_fixed_point_mode, solve_latent_mode
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from dynestyx import StochasticContinuousTimeStateEvolution
 
     from nof1_causal_lab.models.ssm.execution.observation_model import (
@@ -364,14 +366,8 @@ def _point_dynamic_transition_ieks_laplace(
         )
         return mode
 
-    solution = optx.fixed_point(
-        update,
-        optx.FixedPointIteration(rtol=1e-3, atol=1e-3),
-        initial,
-        max_steps=max(n_ieks_iters, 1),
-        throw=False,
-    )
-    mode = jax.lax.stop_gradient(jnp.asarray(solution.value))
+    fixed_point, n_steps = solve_fixed_point_mode(update, initial, max_steps=n_ieks_iters)
+    mode = jax.lax.stop_gradient(fixed_point)
     A, Q, c = transitions_at(mode)
     log_lik, mode_log_joint, logdet, min_chol = _point_laplace_terms_from_mode(
         mode,
@@ -392,7 +388,7 @@ def _point_dynamic_transition_ieks_laplace(
     aux = build_likelihood_eval_aux(
         observations.dtype,
         solver_kind=solver_kind,
-        n_iterations=solution.stats["num_steps"],
+        n_iterations=n_steps,
         init_log_joint=_row_joint_log_prob(
             initial,
             observations=observations,
@@ -466,6 +462,20 @@ def _dense_latent_mode(log_joint, initial, max_steps):
     return initial + scale @ solution.value, solution.stats["num_steps"] - 1
 
 
+def _dense_laplace_terms_from_mode(
+    log_joint: Callable[[jnp.ndarray], jnp.ndarray],
+    mode_flat: jnp.ndarray,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Evaluate dense curvature and Laplace terms at a fixed latent mode."""
+    mode_log_joint = log_joint(mode_flat)
+    hess = symmetrize(jax.hessian(lambda position: -log_joint(position))(mode_flat))
+    eigvals = jnp.linalg.eigvalsh(hess)
+    logdet = jnp.sum(jnp.log(jnp.maximum(eigvals, 1e-6)))
+    min_chol = jnp.sqrt(jnp.maximum(jnp.min(eigvals), 0.0))
+    log_lik = mode_log_joint + 0.5 * mode_flat.size * jnp.log(2.0 * jnp.pi) - 0.5 * logdet
+    return log_lik, mode_log_joint, logdet, min_chol
+
+
 def _dense_support_laplace_log_lik(
     observations: jnp.ndarray,
     obs_mask: jnp.ndarray,
@@ -484,7 +494,6 @@ def _dense_support_laplace_log_lik(
 ) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
     """Dense Laplace approximation for interval-summary observation semantics."""
     T, D = observations.shape[0], init_mean.shape[0]
-    flat_dim = T * D
 
     with jax.named_scope("map/dense_support_init"):
         z_init = _predictive_latent_init(Ad, cd, init_mean)
@@ -512,22 +521,15 @@ def _dense_support_laplace_log_lik(
         )
         return prior_ll + obs_ll
 
-    def _neg_log_prob(z_flat: jnp.ndarray) -> jnp.ndarray:
-        return -_joint_log_prob(z_flat)
-
     z_flat = z_init.reshape(-1)
     init_log_joint = _joint_log_prob(z_flat)
     with jax.named_scope("map/dense_support_mode"):
         z_flat, n_steps = _dense_latent_mode(_joint_log_prob, z_flat, n_newton_iters)
 
     with jax.named_scope("map/dense_support_curvature"):
-        mode_log_joint = _joint_log_prob(z_flat)
-        hess = jax.hessian(_neg_log_prob)(z_flat)
-        hess = symmetrize(hess)
-        eigvals = jnp.linalg.eigvalsh(hess)
-        min_eig = jnp.min(eigvals)
-        logdet = jnp.sum(jnp.log(jnp.maximum(eigvals, 1e-6)))
-    log_lik = mode_log_joint + 0.5 * flat_dim * jnp.log(2.0 * jnp.pi) - 0.5 * logdet
+        log_lik, mode_log_joint, logdet, min_chol = _dense_laplace_terms_from_mode(
+            _joint_log_prob, z_flat
+        )
     inner_eval_aux = build_likelihood_eval_aux(
         observations.dtype,
         solver_kind=LIKELIHOOD_SOLVER_KIND_DENSE_SUPPORT,
@@ -539,10 +541,9 @@ def _dense_support_laplace_log_lik(
             / (1.0 + jnp.linalg.norm(z_init.reshape(-1)))
         ),
         laplace_logdet=logdet,
-        min_chol_diag=jnp.sqrt(jnp.maximum(min_eig, 0.0)),
+        min_chol_diag=min_chol,
     )
-    inner_eval_aux["latent_mode"] = z_flat.reshape(T, D)
-    return log_lik, inner_eval_aux
+    return log_lik, {**inner_eval_aux, "latent_mode": z_flat.reshape(T, D)}
 
 
 def _dense_dynamic_support_laplace_log_lik(
@@ -564,7 +565,6 @@ def _dense_dynamic_support_laplace_log_lik(
 ) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
     """Dense interval-support Laplace path with local dynamics linearization."""
     T, D = observations.shape[0], init_mean.shape[0]
-    flat_dim = T * D
 
     def _joint_log_prob_fixed(
         z_flat_eval: jnp.ndarray,
@@ -614,37 +614,23 @@ def _dense_dynamic_support_laplace_log_lik(
         return mode.reshape(T, D)
 
     with jax.named_scope("map/dense_dynamic_support_mode"):
-        solution = optx.fixed_point(
-            update,
-            optx.FixedPointIteration(rtol=1e-3, atol=1e-3),
-            initial_path,
-            max_steps=max(n_newton_iters, 1),
-            throw=False,
-        )
-        z_flat = jnp.asarray(solution.value).reshape(-1)
+        mode, n_steps = solve_fixed_point_mode(update, initial_path, max_steps=n_newton_iters)
+        z_flat = mode.reshape(-1)
 
     with jax.named_scope("map/dense_dynamic_support_curvature"):
         Ad_final, Qd_final, cd_final = _transitions_at(z_flat.reshape(T, D))
 
-        def _final_neg_log_prob_fixed(z_flat_eval: jnp.ndarray) -> jnp.ndarray:
-            return -_joint_log_prob_fixed(z_flat_eval, Ad_final, Qd_final, cd_final)
+        log_lik, mode_log_joint, logdet, min_chol = _dense_laplace_terms_from_mode(
+            lambda flat: _joint_log_prob_fixed(flat, Ad_final, Qd_final, cd_final), z_flat
+        )
 
-        mode_log_joint = _joint_log_prob_fixed(z_flat, Ad_final, Qd_final, cd_final)
-        hess = jax.hessian(_final_neg_log_prob_fixed)(z_flat)
-        hess = symmetrize(hess)
-        eigvals = jnp.linalg.eigvalsh(hess)
-        min_eig = jnp.min(eigvals)
-        logdet = jnp.sum(jnp.log(jnp.maximum(eigvals, 1e-6)))
-
-    log_lik = mode_log_joint + 0.5 * flat_dim * jnp.log(2.0 * jnp.pi) - 0.5 * logdet
     inner_eval_aux = build_likelihood_eval_aux(
         observations.dtype,
         solver_kind=LIKELIHOOD_SOLVER_KIND_DENSE_SUPPORT,
-        n_iterations=solution.stats["num_steps"],
+        n_iterations=n_steps,
         init_log_joint=init_log_joint,
         final_log_joint=mode_log_joint,
         laplace_logdet=logdet,
-        min_chol_diag=jnp.sqrt(jnp.maximum(min_eig, 0.0)),
+        min_chol_diag=min_chol,
     )
-    inner_eval_aux["latent_mode"] = z_flat.reshape(T, D)
-    return log_lik, inner_eval_aux
+    return log_lik, {**inner_eval_aux, "latent_mode": z_flat.reshape(T, D)}

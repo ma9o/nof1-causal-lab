@@ -7040,19 +7040,21 @@
         "title": "IndicatorAudit",
         "description": "An indicator audit combines its empirical data profile with the results of validation\nchecks."
       },
+      "IndicatorCheck": {
+        "type": "string",
+        "enum": [
+          "calibration",
+          "autocorrelation",
+          "variance"
+        ]
+      },
       "IndicatorCheckSubject": {
         "properties": {
           "target": {
             "$ref": "#/components/schemas/IndicatorRef"
           },
           "check": {
-            "type": "string",
-            "enum": [
-              "calibration",
-              "autocorrelation",
-              "variance"
-            ],
-            "title": "Check"
+            "$ref": "#/components/schemas/IndicatorCheck"
           }
         },
         "additionalProperties": false,

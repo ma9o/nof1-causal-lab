@@ -6,7 +6,6 @@ from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
-import optimistix as optx
 
 from nof1_causal_lab.models.ssm.execution.contracts import (
     LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS,
@@ -35,7 +34,7 @@ from .shared import (
     precision_logdet,
     trajectory_prior_log_prob_from_terms,
 )
-from .solvers import solve_latent_mode
+from .solvers import solve_fixed_point_mode, solve_latent_mode
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -590,14 +589,8 @@ def _support_dynamic_transition_ieks_laplace(
         )
         return mode
 
-    solution = optx.fixed_point(
-        update,
-        optx.FixedPointIteration(rtol=1e-3, atol=1e-3),
-        initial,
-        max_steps=max(n_ieks_iters, 1),
-        throw=False,
-    )
-    mode = jax.lax.stop_gradient(jnp.asarray(solution.value))
+    fixed_point, n_steps = solve_fixed_point_mode(update, initial, max_steps=n_ieks_iters)
+    mode = jax.lax.stop_gradient(fixed_point)
     A, Q, c = transitions_at(mode)
     log_lik, mode_log_joint, logdet, min_chol = _support_aware_laplace_terms_from_mode(
         mode,
@@ -627,7 +620,7 @@ def _support_dynamic_transition_ieks_laplace(
     aux = build_likelihood_eval_aux(
         observations.dtype,
         solver_kind=LIKELIHOOD_SOLVER_KIND_SUPPORT_IEKS,
-        n_iterations=solution.stats["num_steps"],
+        n_iterations=n_steps,
         init_log_joint=_support_aware_joint_log_prob(
             initial,
             observations=observations,

@@ -97,11 +97,14 @@ class PredictiveSubject(Value):
     target: EntityRef | Literal["whole_model", "observations"]
 
 
+type IndicatorCheck = Literal["calibration", "autocorrelation", "variance"]
+
+
 class IndicatorCheckSubject(Value):
     """The indicator and criterion remain present when evaluation is unavailable."""
 
     target: IndicatorRef
-    check: Literal["calibration", "autocorrelation", "variance"]
+    check: IndicatorCheck
 
 
 class ConvergenceSubject(Value):

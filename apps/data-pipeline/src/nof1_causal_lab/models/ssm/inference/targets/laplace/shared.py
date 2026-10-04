@@ -222,15 +222,15 @@ def trajectory_prior_log_prob_from_terms(
     return init_ll + jnp.sum(transition_ll)
 
 
-def _build_prior_tridiagonal_system(
+def _build_prior_precision_blocks(
     Ad: jnp.ndarray,
     Qd: jnp.ndarray,
     cd: jnp.ndarray,
     init_mean: jnp.ndarray,
     init_cov: jnp.ndarray,
     jitter: float = 1e-6,
-) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
-    """Assemble the latent-prior contribution for the IEKS tridiagonal system."""
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Compute prior diagonal, adjacent lower blocks and RHS before layout jitter."""
     dtype = jnp.result_type(Ad, Qd, cd, init_mean, init_cov)
     Ad = jnp.asarray(Ad, dtype=dtype)
     Qd = jnp.asarray(Qd, dtype=dtype)
@@ -242,8 +242,6 @@ def _build_prior_tridiagonal_system(
 
     diag_blocks = jnp.zeros((T, D, D), dtype=dtype)
     rhs = jnp.zeros((T, D), dtype=dtype)
-    lower = jnp.zeros((T, D, D), dtype=dtype)
-    upper = jnp.zeros((T, D, D), dtype=dtype)
 
     prior_mean = Ad[0] @ init_mean + cd[0]
     prior_cov = _symmetrize_psd(Ad[0] @ init_cov @ Ad[0].T + Qd[0], jitter=jitter)
@@ -253,7 +251,7 @@ def _build_prior_tridiagonal_system(
     rhs = rhs.at[0].add(prior_inv @ prior_mean)
 
     if T == 1:
-        return lower, _symmetrize_psd(diag_blocks, jitter=jitter), upper, rhs
+        return diag_blocks, jnp.zeros((0, D, D), dtype=dtype), rhs
 
     q_reg = _symmetrize_psd(Qd[1:], jitter=jitter)
     eye_batch = jnp.broadcast_to(eye, q_reg.shape)
@@ -261,14 +259,29 @@ def _build_prior_tridiagonal_system(
     q_inv_a = _batched_spd_solve(q_reg, Ad[1:])
     q_inv_c = _batched_spd_solve(q_reg, cd[1:])
 
-    lower = lower.at[1:].set(-q_inv_a)
-    upper = upper.at[:-1].set(-jnp.swapaxes(q_inv_a, -1, -2))
     diag_blocks = diag_blocks.at[1:].add(q_inv)
     diag_blocks = diag_blocks.at[:-1].add(jnp.swapaxes(Ad[1:], -1, -2) @ q_inv_a)
     rhs = rhs.at[1:].add(q_inv_c)
     rhs = rhs.at[:-1].add(-jnp.einsum("tij,tj->ti", jnp.swapaxes(Ad[1:], -1, -2), q_inv_c))
 
-    return lower, _symmetrize_psd(diag_blocks, jitter=jitter), upper, rhs
+    return diag_blocks, -q_inv_a, rhs
+
+
+def _build_prior_tridiagonal_system(
+    Ad: jnp.ndarray,
+    Qd: jnp.ndarray,
+    cd: jnp.ndarray,
+    init_mean: jnp.ndarray,
+    init_cov: jnp.ndarray,
+    jitter: float = 1e-6,
+) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray, jnp.ndarray]:
+    """Lay out the prior blocks for IEKS, including its final diagonal jitter."""
+    diag, adjacent_lower, rhs = _build_prior_precision_blocks(
+        Ad, Qd, cd, init_mean, init_cov, jitter=jitter
+    )
+    lower = jnp.zeros_like(diag).at[1:].set(adjacent_lower)
+    upper = jnp.zeros_like(diag).at[:-1].set(jnp.swapaxes(adjacent_lower, -1, -2))
+    return lower, _symmetrize_psd(diag, jitter=jitter), upper, rhs
 
 
 def _build_ieks_system_from_prior(
@@ -296,42 +309,13 @@ def _build_prior_banded_system(
     jitter: float = 1e-6,
 ) -> tuple[jnp.ndarray, jnp.ndarray, jnp.ndarray]:
     """Assemble the Gaussian latent-prior contribution in block-banded form."""
-    dtype = jnp.result_type(Ad, Qd, cd, init_mean, init_cov)
-    Ad = jnp.asarray(Ad, dtype=dtype)
-    Qd = jnp.asarray(Qd, dtype=dtype)
-    cd = jnp.asarray(cd, dtype=dtype)
-    init_mean = jnp.asarray(init_mean, dtype=dtype)
-    init_cov = jnp.asarray(init_cov, dtype=dtype)
-    T, D = Ad.shape[:2]
-    eye = jnp.eye(D, dtype=dtype)
-
-    diag = jnp.zeros((T, D, D), dtype=dtype)
-    upper = jnp.zeros((bandwidth, T, D, D), dtype=dtype)
-    rhs = jnp.zeros((T, D), dtype=dtype)
-
-    prior_mean = Ad[0] @ init_mean + cd[0]
-    prior_cov = _symmetrize_psd(Ad[0] @ init_cov @ Ad[0].T + Qd[0], jitter=jitter)
-    prior_inv = jla.solve(prior_cov, eye, assume_a="pos")
-
-    diag = diag.at[0].add(prior_inv)
-    rhs = rhs.at[0].add(prior_inv @ prior_mean)
-
-    if T == 1:
-        return diag, upper, rhs
-
-    q_reg = _symmetrize_psd(Qd[1:], jitter=jitter)
-    eye_batch = jnp.broadcast_to(eye, q_reg.shape)
-    q_inv = _batched_spd_solve(q_reg, eye_batch)
-    q_inv_a = _batched_spd_solve(q_reg, Ad[1:])
-    q_inv_c = _batched_spd_solve(q_reg, cd[1:])
-
-    diag = diag.at[1:].add(q_inv)
-    diag = diag.at[:-1].add(jnp.swapaxes(Ad[1:], -1, -2) @ q_inv_a)
-    rhs = rhs.at[1:].add(q_inv_c)
-    rhs = rhs.at[:-1].add(-jnp.einsum("tij,tj->ti", jnp.swapaxes(Ad[1:], -1, -2), q_inv_c))
-
+    diag, adjacent_lower, rhs = _build_prior_precision_blocks(
+        Ad, Qd, cd, init_mean, init_cov, jitter=jitter
+    )
+    T, D = diag.shape[:2]
+    upper = jnp.zeros((bandwidth, T, D, D), dtype=diag.dtype)
     if bandwidth >= 1:
-        upper = upper.at[0, :-1].set(-jnp.swapaxes(q_inv_a, -1, -2))
+        upper = upper.at[0, :-1].set(jnp.swapaxes(adjacent_lower, -1, -2))
 
     return diag, upper, rhs
 
@@ -748,6 +732,37 @@ def _block_profile_inverse_subset_from_cholesky(
         l_ii = chol_diag[i]
         upper_bw_i = row_upper_bandwidths[i]
 
+        def _column_sum(column: int | jnp.ndarray, inverse_upper: jnp.ndarray) -> jnp.ndarray:
+            """Contract this Cholesky column against the current inverse blocks."""
+
+            def _sum_step(offset_k_zero: int | jnp.ndarray, acc: jnp.ndarray) -> jnp.ndarray:
+                offset_k = offset_k_zero + 1
+
+                def _accumulate(a: jnp.ndarray) -> jnp.ndarray:
+                    row_k = i + offset_k
+                    l_ki = lower[offset_k - 1, row_k]
+                    s_kj = _selected_inverse_block(
+                        inv_diag_state,
+                        inverse_upper,
+                        row_upper_bandwidths,
+                        row_k,
+                        column,
+                    )
+                    return a + l_ki.T @ s_kj
+
+                result: jnp.ndarray = jax.lax.cond(
+                    offset_k <= upper_bw_i, _accumulate, lambda a: a, acc
+                )
+                return result
+
+            result: jnp.ndarray = jax.lax.fori_loop(
+                0,
+                max_bandwidth,
+                _sum_step,
+                jnp.zeros((block_dim, block_dim), dtype=chol_diag.dtype),
+            )
+            return result
+
         def _offdiag_step(
             offset_j_zero: int | jnp.ndarray, inv_upper_curr: jnp.ndarray
         ) -> jnp.ndarray:
@@ -755,32 +770,7 @@ def _block_profile_inverse_subset_from_cholesky(
 
             def _compute(curr: jnp.ndarray) -> jnp.ndarray:
                 row_j = i + offset_j
-                zero = jnp.zeros((block_dim, block_dim), dtype=chol_diag.dtype)
-
-                def _sum_step(offset_k_zero: int | jnp.ndarray, acc: jnp.ndarray) -> jnp.ndarray:
-                    offset_k = offset_k_zero + 1
-
-                    def _accumulate(a: jnp.ndarray) -> jnp.ndarray:
-                        row_k = i + offset_k
-                        l_ki = lower[offset_k - 1, row_k]
-                        s_kj = _selected_inverse_block(
-                            inv_diag_state,
-                            curr,
-                            row_upper_bandwidths,
-                            row_k,
-                            row_j,
-                        )
-                        return a + l_ki.T @ s_kj
-
-                    result: jnp.ndarray = jax.lax.cond(
-                        offset_k <= upper_bw_i,
-                        _accumulate,
-                        lambda a: a,
-                        acc,
-                    )
-                    return result
-
-                schur_term = jax.lax.fori_loop(0, max_bandwidth, _sum_step, zero)
+                schur_term = _column_sum(row_j, curr)
                 s_ij = -jla.solve_triangular(l_ii.T, schur_term, lower=False)
                 return curr.at[offset_j - 1, i].set(s_ij)
 
@@ -798,32 +788,7 @@ def _block_profile_inverse_subset_from_cholesky(
         inv_l_ii = jla.solve_triangular(l_ii, eye, lower=True)
         diag_base = inv_l_ii.T @ inv_l_ii
 
-        def _diag_sum_step(offset_k_zero: int | jnp.ndarray, acc: jnp.ndarray) -> jnp.ndarray:
-            offset_k = offset_k_zero + 1
-
-            def _accumulate(a: jnp.ndarray) -> jnp.ndarray:
-                row_k = i + offset_k
-                l_ki = lower[offset_k - 1, row_k]
-                s_ki = _selected_inverse_block(
-                    inv_diag_state,
-                    inv_upper_state,
-                    row_upper_bandwidths,
-                    row_k,
-                    i,
-                )
-                return a + l_ki.T @ s_ki
-
-            result: jnp.ndarray = jax.lax.cond(
-                offset_k <= upper_bw_i, _accumulate, lambda a: a, acc
-            )
-            return result
-
-        diag_schur = jax.lax.fori_loop(
-            0,
-            max_bandwidth,
-            _diag_sum_step,
-            jnp.zeros((block_dim, block_dim), dtype=chol_diag.dtype),
-        )
+        diag_schur = _column_sum(i, inv_upper_state)
         diag_i = diag_base - jla.solve_triangular(l_ii.T, diag_schur, lower=False)
         diag_i = 0.5 * (diag_i + diag_i.T)
         inv_diag_state = inv_diag_state.at[i].set(diag_i)

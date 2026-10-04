@@ -269,30 +269,33 @@ def _rule_dtype_range(entry: IndicatorRuleInput) -> ValidationFindings:
     )
 
 
-def _rule_time_coverage(entry: IndicatorRuleInput) -> ValidationFindings:
+def _clock_metric_findings(
+    entry: IndicatorRuleInput,
+    *,
+    check: Callable[[pl.Series, float, IndicatorId], tuple[list[ValidationIssue], float | None]],
+    metric_key: Literal["time_coverage_ratio", "max_gap_ratio"],
+) -> ValidationFindings:
+    """Own clock-check eligibility and attach issues to the measured metric."""
     ctx = entry.ctx
     if ctx is None:
         return ValidationFindings()
     if ctx.is_time_invariant or ctx.model_clock_hours is None:
-        return ValidationFindings(metrics={"time_coverage_ratio": None})
-    raw_issues, ratio = check_time_coverage(ctx.parsed_ts, ctx.model_clock_hours, ctx.name)
+        return ValidationFindings(metrics=cast("HealthMetrics", {metric_key: None}))
+    raw_issues, ratio = check(ctx.parsed_ts, ctx.model_clock_hours, ctx.name)
     return ValidationFindings(
-        issues=issues_from_raw(raw_issues, cell_key="time_coverage_ratio"),
-        metrics={"time_coverage_ratio": ratio},
+        issues=issues_from_raw(raw_issues, cell_key=metric_key),
+        metrics=cast("HealthMetrics", {metric_key: ratio}),
+    )
+
+
+def _rule_time_coverage(entry: IndicatorRuleInput) -> ValidationFindings:
+    return _clock_metric_findings(
+        entry, check=check_time_coverage, metric_key="time_coverage_ratio"
     )
 
 
 def _rule_timestamp_gaps(entry: IndicatorRuleInput) -> ValidationFindings:
-    ctx = entry.ctx
-    if ctx is None:
-        return ValidationFindings()
-    if ctx.is_time_invariant or ctx.model_clock_hours is None:
-        return ValidationFindings(metrics={"max_gap_ratio": None})
-    raw_issues, ratio = check_timestamp_gaps(ctx.parsed_ts, ctx.model_clock_hours, ctx.name)
-    return ValidationFindings(
-        issues=issues_from_raw(raw_issues, cell_key="max_gap_ratio"),
-        metrics={"max_gap_ratio": ratio},
-    )
+    return _clock_metric_findings(entry, check=check_timestamp_gaps, metric_key="max_gap_ratio")
 
 
 def _rule_hallucination_signals(entry: IndicatorRuleInput) -> ValidationFindings:

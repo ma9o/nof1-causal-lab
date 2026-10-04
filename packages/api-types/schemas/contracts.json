@@ -4353,6 +4353,17 @@
       "x-layer": "findings",
       "x-concern": "scientific_model"
     },
+    "IndicatorCheck": {
+      "enum": [
+        "calibration",
+        "autocorrelation",
+        "variance"
+      ],
+      "type": "string",
+      "x-python-module": "nof1_causal_lab.artifacts.checks",
+      "x-layer": "findings",
+      "x-concern": "scientific_model"
+    },
     "IndicatorCheckSubject": {
       "additionalProperties": false,
       "description": "The indicator and criterion remain present when evaluation is unavailable.",
@@ -4361,13 +4372,7 @@
           "$ref": "#/$defs/IndicatorRef"
         },
         "check": {
-          "enum": [
-            "calibration",
-            "autocorrelation",
-            "variance"
-          ],
-          "title": "Check",
-          "type": "string"
+          "$ref": "#/$defs/IndicatorCheck"
         }
       },
       "required": [
@@ -12752,6 +12757,14 @@
       "title": "HistogramBin",
       "type": "object"
     },
+    "IndicatorCheck": {
+      "enum": [
+        "calibration",
+        "autocorrelation",
+        "variance"
+      ],
+      "type": "string"
+    },
     "IndicatorCheckSubject": {
       "additionalProperties": false,
       "description": "The indicator and criterion remain present when evaluation is unavailable.",
@@ -12760,13 +12773,7 @@
           "$ref": "#/$defs/IndicatorRef"
         },
         "check": {
-          "enum": [
-            "calibration",
-            "autocorrelation",
-            "variance"
-          ],
-          "title": "Check",
-          "type": "string"
+          "$ref": "#/$defs/IndicatorCheck"
         }
       },
       "required": [

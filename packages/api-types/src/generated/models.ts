@@ -300,6 +300,11 @@ export type EntityRef = ConstructRef | EdgeRef | IndicatorRef | MechanismRef;
 export type FitReliability = "not_fitted" | "converged" | "unconverged" | "unknown";
 /**
  * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
+ * via the `definition` "IndicatorCheck".
+ */
+export type IndicatorCheck = "calibration" | "autocorrelation" | "variance";
+/**
+ * This interface was referenced by `CausalSSMContracts`'s JSON-Schema
  * via the `definition` "MeasurementDtype".
  */
 export type MeasurementDtype = "continuous" | "binary" | "count" | "ordinal" | "categorical";
@@ -2063,7 +2068,7 @@ export interface PosteriorMarginal {
  */
 export interface IndicatorCheckSubject {
     readonly target: IndicatorRef;
-    readonly check: "calibration" | "autocorrelation" | "variance";
+    readonly check: IndicatorCheck;
 }
 /**
  * The compact core composed with retained detail, without filtering or re-parsing.

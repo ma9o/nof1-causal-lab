@@ -45,6 +45,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable, Sequence
     from datetime import datetime
 
+    from nof1_causal_lab.artifacts.checks import IndicatorCheck
     from nof1_causal_lab.artifacts.observations import ResolvedObservationSpec
 
 
@@ -59,13 +60,53 @@ import jax.numpy as jnp
 # ---------------------------------------------------------------------------
 
 
+def _indicator_columns(
+    observations: jnp.ndarray,
+    indicator_ids: Sequence[IndicatorId],
+    *,
+    check: IndicatorCheck,
+) -> tuple[tuple[int, IndicatorCheckSubject, jnp.ndarray, jnp.ndarray], ...]:
+    """Bind indicator identities and observed-position masks in column order."""
+
+    def _column(
+        j: int, name: IndicatorId
+    ) -> tuple[int, IndicatorCheckSubject, jnp.ndarray, jnp.ndarray]:
+        observed = observations[:, j]
+        subject = IndicatorCheckSubject(check=check, target=IndicatorRef(id=name))
+        return j, subject, observed, ~jnp.isnan(observed)
+
+    return tuple(
+        _column(j, name)
+        for j, name in zip(range(observations.shape[1]), indicator_ids, strict=True)
+    )
+
+
+def _evaluated_indicator(
+    subject: IndicatorCheckSubject,
+    *,
+    outcome: Literal["passed", "warning"],
+    value: float,
+    lower: float,
+    upper: float,
+    note: str,
+) -> Evaluated[IndicatorCheckSubject, NumericCriterionEvidence]:
+    """Construct the criterion evidence from its existing indicator subject."""
+    return Evaluated(
+        subject=subject,
+        outcome=outcome,
+        evidence=NumericCriterionEvidence(
+            criterion=subject.check, value=value, lower=lower, upper=upper, note=note
+        ),
+    )
+
+
 def _check_calibration(
     y_sim: jnp.ndarray,
     observations: jnp.ndarray,
     indicator_ids: Sequence[IndicatorId],
     low_threshold: float = 0.70,
     high_threshold: float = 0.98,
-) -> list[Assessment[IndicatorCheckSubject, NumericCriterionEvidence]]:
+) -> tuple[Assessment[IndicatorCheckSubject, NumericCriterionEvidence], ...]:
     """Check calibration: % of timepoints where obs falls in [2.5th, 97.5th].
 
     Args:
@@ -74,21 +115,18 @@ def _check_calibration(
         indicator_ids: scientific indicator IDs in observation-column order
     """
     warnings: list[Assessment[IndicatorCheckSubject, NumericCriterionEvidence]] = []
-    n_manifest = observations.shape[1]
 
     q025 = jnp.percentile(y_sim, 2.5, axis=0)  # (T, m)
     q975 = jnp.percentile(y_sim, 97.5, axis=0)  # (T, m)
 
-    for j, name in zip(range(n_manifest), indicator_ids, strict=True):
-        obs_j = observations[:, j]
-        valid = ~jnp.isnan(obs_j)
+    for j, subject, obs_j, valid in _indicator_columns(
+        observations, indicator_ids, check="calibration"
+    ):
         n_valid = jnp.sum(valid)
         if n_valid < 2:
             warnings.append(
                 NotEvaluated(
-                    subject=IndicatorCheckSubject(
-                        check="calibration", target=IndicatorRef(id=name)
-                    ),
+                    subject=subject,
                     reason="INSUFFICIENT_OBSERVATIONS",
                     detail="Calibration requires at least two observations.",
                 )
@@ -99,55 +137,26 @@ def _check_calibration(
         coverage = float(jnp.sum(in_interval) / n_valid)
 
         if coverage < low_threshold:
-            warnings.append(
-                Evaluated(
-                    subject=IndicatorCheckSubject(
-                        check="calibration", target=IndicatorRef(id=name)
-                    ),
-                    outcome="warning",
-                    evidence=NumericCriterionEvidence(
-                        criterion="calibration",
-                        value=coverage,
-                        lower=low_threshold,
-                        upper=high_threshold,
-                        note=f"Undercoverage: {coverage:.0%} of observations fall in 95% PPC interval (expected ~95%)",
-                    ),
-                )
-            )
+            outcome = "warning"
+            note = f"Undercoverage: {coverage:.0%} of observations fall in 95% PPC interval (expected ~95%)"
         elif coverage > high_threshold:
-            warnings.append(
-                Evaluated(
-                    subject=IndicatorCheckSubject(
-                        check="calibration", target=IndicatorRef(id=name)
-                    ),
-                    outcome="warning",
-                    evidence=NumericCriterionEvidence(
-                        criterion="calibration",
-                        value=coverage,
-                        lower=low_threshold,
-                        upper=high_threshold,
-                        note=f"Overcoverage: {coverage:.0%} of observations fall in 95% PPC interval (model may be too diffuse)",
-                    ),
-                )
-            )
+            outcome = "warning"
+            note = f"Overcoverage: {coverage:.0%} of observations fall in 95% PPC interval (model may be too diffuse)"
         else:
-            warnings.append(
-                Evaluated(
-                    subject=IndicatorCheckSubject(
-                        check="calibration", target=IndicatorRef(id=name)
-                    ),
-                    outcome="passed",
-                    evidence=NumericCriterionEvidence(
-                        criterion="calibration",
-                        value=coverage,
-                        lower=low_threshold,
-                        upper=high_threshold,
-                        note=f"95% CI coverage: {coverage:.1%} (expected ~95%)",
-                    ),
-                )
+            outcome = "passed"
+            note = f"95% CI coverage: {coverage:.1%} (expected ~95%)"
+        warnings.append(
+            _evaluated_indicator(
+                subject,
+                outcome=outcome,
+                value=coverage,
+                lower=low_threshold,
+                upper=high_threshold,
+                note=note,
             )
+        )
 
-    return warnings
+    return tuple(warnings)
 
 
 def _check_residual_autocorrelation(
@@ -155,7 +164,7 @@ def _check_residual_autocorrelation(
     observations: jnp.ndarray,
     indicator_ids: Sequence[IndicatorId],
     threshold: float = 0.3,
-) -> list[Assessment[IndicatorCheckSubject, NumericCriterionEvidence]]:
+) -> tuple[Assessment[IndicatorCheckSubject, NumericCriterionEvidence], ...]:
     """Check lag-1 autocorrelation of residuals (obs - posterior predictive mean).
 
     Args:
@@ -164,23 +173,19 @@ def _check_residual_autocorrelation(
         indicator_ids: scientific indicator IDs in observation-column order
     """
     warnings: list[Assessment[IndicatorCheckSubject, NumericCriterionEvidence]] = []
-    n_manifest = observations.shape[1]
 
     pp_mean = jnp.mean(y_sim, axis=0)  # (T, m)
 
-    for j, name in zip(range(n_manifest), indicator_ids, strict=True):
-        obs_j = observations[:, j]
-        valid = ~jnp.isnan(obs_j)
-
+    for j, subject, obs_j, valid in _indicator_columns(
+        observations, indicator_ids, check="autocorrelation"
+    ):
         # Build valid residuals
         residuals = jnp.where(valid, obs_j - pp_mean[:, j], 0.0)
         n_valid = int(jnp.sum(valid))
         if n_valid < 5:
             warnings.append(
                 NotEvaluated(
-                    subject=IndicatorCheckSubject(
-                        check="autocorrelation", target=IndicatorRef(id=name)
-                    ),
+                    subject=subject,
                     reason="INSUFFICIENT_OBSERVATIONS",
                     detail="Autocorrelation requires at least five observations.",
                 )
@@ -199,9 +204,7 @@ def _check_residual_autocorrelation(
         if var_r < 1e-12:
             warnings.append(
                 NotEvaluated(
-                    subject=IndicatorCheckSubject(
-                        check="autocorrelation", target=IndicatorRef(id=name)
-                    ),
+                    subject=subject,
                     reason="ZERO_RESIDUAL_VARIANCE",
                     detail="Residual autocorrelation is undefined with zero residual variance.",
                 )
@@ -213,23 +216,18 @@ def _check_residual_autocorrelation(
 
         passed = abs(rho) <= threshold
         warnings.append(
-            Evaluated(
-                subject=IndicatorCheckSubject(
-                    check="autocorrelation", target=IndicatorRef(id=name)
-                ),
+            _evaluated_indicator(
+                subject,
                 outcome="passed" if passed else "warning",
-                evidence=NumericCriterionEvidence(
-                    criterion="autocorrelation",
-                    value=rho,
-                    lower=-threshold,
-                    upper=threshold,
-                    note=f"Residual autocorrelation at lag 1: {rho:.2f}"
-                    + ("" if passed else f" (|rho| > {threshold})"),
-                ),
+                value=rho,
+                lower=-threshold,
+                upper=threshold,
+                note=f"Residual autocorrelation at lag 1: {rho:.2f}"
+                + ("" if passed else f" (|rho| > {threshold})"),
             )
         )
 
-    return warnings
+    return tuple(warnings)
 
 
 def _check_variance_ratio(
@@ -238,7 +236,7 @@ def _check_variance_ratio(
     indicator_ids: Sequence[IndicatorId],
     high_ratio: float = 3.0,
     low_ratio: float = 1.0 / 3.0,
-) -> list[Assessment[IndicatorCheckSubject, NumericCriterionEvidence]]:
+) -> tuple[Assessment[IndicatorCheckSubject, NumericCriterionEvidence], ...]:
     """Check posterior predictive std / observed std ratio.
 
     Args:
@@ -247,16 +245,15 @@ def _check_variance_ratio(
         indicator_ids: scientific indicator IDs in observation-column order
     """
     warnings: list[Assessment[IndicatorCheckSubject, NumericCriterionEvidence]] = []
-    n_manifest = observations.shape[1]
 
-    for j, name in zip(range(n_manifest), indicator_ids, strict=True):
-        obs_j = observations[:, j]
-        valid = ~jnp.isnan(obs_j)
+    for j, subject, obs_j, valid in _indicator_columns(
+        observations, indicator_ids, check="variance"
+    ):
         n_valid = int(jnp.sum(valid))
         if n_valid < 3:
             warnings.append(
                 NotEvaluated(
-                    subject=IndicatorCheckSubject(check="variance", target=IndicatorRef(id=name)),
+                    subject=subject,
                     reason="INSUFFICIENT_OBSERVATIONS",
                     detail="Variance comparison requires at least three observations.",
                 )
@@ -268,7 +265,7 @@ def _check_variance_ratio(
         if obs_std < 1e-12:
             warnings.append(
                 NotEvaluated(
-                    subject=IndicatorCheckSubject(check="variance", target=IndicatorRef(id=name)),
+                    subject=subject,
                     reason="ZERO_OBSERVED_VARIANCE",
                     detail="Variance ratio is undefined with zero observed variance.",
                 )
@@ -282,49 +279,21 @@ def _check_variance_ratio(
         ratio = predicted_std / obs_std
 
         if ratio > high_ratio:
-            warnings.append(
-                Evaluated(
-                    subject=IndicatorCheckSubject(check="variance", target=IndicatorRef(id=name)),
-                    outcome="warning",
-                    evidence=NumericCriterionEvidence(
-                        criterion="variance",
-                        value=ratio,
-                        lower=low_ratio,
-                        upper=high_ratio,
-                        note=f"PPC variance too high: simulated std / observed std = {ratio:.1f}",
-                    ),
-                )
-            )
+            outcome = "warning"
+            note = f"PPC variance too high: simulated std / observed std = {ratio:.1f}"
         elif ratio < low_ratio:
-            warnings.append(
-                Evaluated(
-                    subject=IndicatorCheckSubject(check="variance", target=IndicatorRef(id=name)),
-                    outcome="warning",
-                    evidence=NumericCriterionEvidence(
-                        criterion="variance",
-                        value=ratio,
-                        lower=low_ratio,
-                        upper=high_ratio,
-                        note=f"PPC variance too low: simulated std / observed std = {ratio:.1f}",
-                    ),
-                )
-            )
+            outcome = "warning"
+            note = f"PPC variance too low: simulated std / observed std = {ratio:.1f}"
         else:
-            warnings.append(
-                Evaluated(
-                    subject=IndicatorCheckSubject(check="variance", target=IndicatorRef(id=name)),
-                    outcome="passed",
-                    evidence=NumericCriterionEvidence(
-                        criterion="variance",
-                        value=ratio,
-                        lower=low_ratio,
-                        upper=high_ratio,
-                        note=f"Predicted variance {predicted_std:.3f} vs observed {obs_std:.3f} (ratio {ratio:.2f})",
-                    ),
-                )
+            outcome = "passed"
+            note = f"Predicted variance {predicted_std:.3f} vs observed {obs_std:.3f} (ratio {ratio:.2f})"
+        warnings.append(
+            _evaluated_indicator(
+                subject, outcome=outcome, value=ratio, lower=low_ratio, upper=high_ratio, note=note
             )
+        )
 
-    return warnings
+    return tuple(warnings)
 
 
 # ---------------------------------------------------------------------------
@@ -466,10 +435,11 @@ def measure_predictive_checks(
     comparable = jnp.where(jnp.isfinite(observations)[None, :, :], y_sim, 0.0)
     if not bool(jnp.isfinite(comparable).all()):
         raise ValueError("Predictive comparisons require finite draws at observed positions")
-    warnings: list[Assessment[IndicatorCheckSubject, NumericCriterionEvidence]] = []
-    warnings.extend(_check_calibration(y_sim, observations, indicator_ids))
-    warnings.extend(_check_residual_autocorrelation(y_sim, observations, indicator_ids))
-    warnings.extend(_check_variance_ratio(y_sim, observations, indicator_ids))
+    warnings = (
+        *_check_calibration(y_sim, observations, indicator_ids),
+        *_check_residual_autocorrelation(y_sim, observations, indicator_ids),
+        *_check_variance_ratio(y_sim, observations, indicator_ids),
+    )
 
     overlays = _compute_overlays(
         y_sim,
@@ -482,7 +452,7 @@ def measure_predictive_checks(
     test_stats = _compute_test_stats(y_sim, observations, indicator_ids)
 
     return PosteriorPredictiveChecks(
-        per_variable_warnings=tuple(warnings),
+        per_variable_warnings=warnings,
         checked=True,
         n_subsample=int(y_sim.shape[0]),
         overlays=tuple(overlays),

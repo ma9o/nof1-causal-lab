@@ -20,11 +20,10 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._contr
 )
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._math import (
     _normalize_log_probs,
+    _value_and_grad_by_param,
 )
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from nof1_causal_lab.models.ssm.inference.mcmc_state import TrajectoryMCMCState
     from nof1_causal_lab.models.ssm.inference.targets.particle import ParticleContext
 
@@ -64,52 +63,43 @@ def build_smoother_context(
         initial_label_log_probs = _normalize_log_probs(parameter_log_probs)
 
     def _initial_value_grad_by_param(particle0: jnp.ndarray) -> tuple[jnp.ndarray, jnp.ndarray]:
-        def _one_context(context: ParticleContext) -> tuple[jnp.ndarray, jnp.ndarray]:
-            evaluate: Callable[[jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]] = jax.value_and_grad(
-                lambda particle: transition_initial_log_prob_fn(context, particle)
-            )
-            return evaluate(particle0)
-
-        log_prob, grad = jax.vmap(_one_context)(contexts)
-        return log_prob.astype(traj_dtype), grad.astype(latent_dtype)
+        return _value_and_grad_by_param(
+            contexts,
+            particle0,
+            transition_initial_log_prob_fn,
+            value_dtype=traj_dtype,
+            grad_dtype=latent_dtype,
+        )
 
     def _transition_current_value_grad_by_param(
         prev_particle: jnp.ndarray,
         particle_t: jnp.ndarray,
         time_idx: jnp.ndarray,
     ) -> tuple[jnp.ndarray, jnp.ndarray]:
-        def _one_context(context: ParticleContext) -> tuple[jnp.ndarray, jnp.ndarray]:
-            evaluate: Callable[[jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]] = jax.value_and_grad(
-                lambda particle: transition_log_prob_fn(
-                    context,
-                    prev_particle,
-                    particle,
-                    time_idx,
-                )
-            )
-            return evaluate(particle_t)
-
-        log_prob, grad_current = jax.vmap(_one_context)(contexts)
-        return log_prob.astype(traj_dtype), grad_current.astype(latent_dtype)
+        return _value_and_grad_by_param(
+            contexts,
+            particle_t,
+            lambda context, particle: transition_log_prob_fn(
+                context, prev_particle, particle, time_idx
+            ),
+            value_dtype=traj_dtype,
+            grad_dtype=latent_dtype,
+        )
 
     def _transition_next_value_grad_by_param(
         particle_t: jnp.ndarray,
         next_particle: jnp.ndarray,
         next_time_idx: jnp.ndarray,
     ) -> tuple[jnp.ndarray, jnp.ndarray]:
-        def _one_context(context: ParticleContext) -> tuple[jnp.ndarray, jnp.ndarray]:
-            evaluate: Callable[[jnp.ndarray], tuple[jnp.ndarray, jnp.ndarray]] = jax.value_and_grad(
-                lambda particle: transition_log_prob_fn(
-                    context,
-                    particle,
-                    next_particle,
-                    next_time_idx,
-                )
-            )
-            return evaluate(particle_t)
-
-        log_prob, grad_prev = jax.vmap(_one_context)(contexts)
-        return log_prob.astype(traj_dtype), grad_prev.astype(latent_dtype)
+        return _value_and_grad_by_param(
+            contexts,
+            particle_t,
+            lambda context, particle: transition_log_prob_fn(
+                context, particle, next_particle, next_time_idx
+            ),
+            value_dtype=traj_dtype,
+            grad_dtype=latent_dtype,
+        )
 
     def _selected_transition_log_probs(
         prev_particles: jnp.ndarray,

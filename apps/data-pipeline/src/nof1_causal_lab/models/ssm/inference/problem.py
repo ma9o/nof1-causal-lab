@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 import dynestyx as dsx
@@ -47,8 +46,6 @@ class ParticleProblem:
     exact_constraints: ExactStateConstraints | None = None
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "site_info", MappingProxyType(dict(self.site_info)))
-        object.__setattr__(self, "public_sites", frozenset(self.public_sites))
         freeze_fields(self)
 
 

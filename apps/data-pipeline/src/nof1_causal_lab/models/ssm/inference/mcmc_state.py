@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from types import MappingProxyType
 from typing import TYPE_CHECKING, NamedTuple
 
 import jax
@@ -81,10 +80,6 @@ class TrajectoryMCMCResult:
         }
 
     def __post_init__(self) -> None:
-        object.__setattr__(self, "chain_samples", MappingProxyType(dict(self.chain_samples)))
-        object.__setattr__(
-            self, "chain_extra_fields", MappingProxyType(dict(self.chain_extra_fields))
-        )
         freeze_fields(self)
 
 
