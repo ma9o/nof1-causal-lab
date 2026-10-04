@@ -3,8 +3,9 @@
 from __future__ import annotations
 
 from functools import cache
-from pydantic import TypeAdapter
 from typing import TYPE_CHECKING
+
+from pydantic import TypeAdapter
 
 from nof1_causal_lab.models.posterior_predictive import data_diff
 from nof1_causal_lab.study.errors import StudyLookupError
@@ -91,5 +92,10 @@ def read_data_diff(workspace_id: str, request: DataDiffRequest) -> DataDiffRepor
     """Current-code comparison of the exact selections retained by its action leaf."""
     from nof1_causal_lab.study.store import cached_value
 
-    value, _ = cached_value(workspace_id, ("data-diff", request.model_dump_json(round_trip=True)), TypeAdapter(DataDiffReport), lambda: _compute_data_diff(workspace_id, request))
+    value, _ = cached_value(
+        workspace_id,
+        ("data-diff", request.model_dump_json(round_trip=True)),
+        TypeAdapter(DataDiffReport),
+        lambda: _compute_data_diff(workspace_id, request),
+    )
     return value

@@ -3,7 +3,7 @@
   "info": {
     "title": "nof1-causal-lab study API",
     "version": "0.1.0",
-    "description": "The public scientific interface has seven calls: `set_question`, `edit_model`,\n`prepare_data`, `fit`, `simulate`, `data_diff`, and `model_diff`.\nCall each at `POST /api/studies/{workspace_id}/{action}` with its typed JSON arguments.\n\nA call is identified by its action and parsed arguments. Name model and panel inputs\nby immutable revision OIDs. `prepare_data` names uploaded files and captures their\ncall-time SHA-256 hashes in `input.source.hashes`; repeat those retained hashes to\nread a saved call without the upload files. `edit_model` names its base\n`expected_revision` and optional check `panel_revision`. `simulate` names an optional\n`panel_revision` for authored-law calendar binding. There are no branches or public\nhead-conflict controls. Every study starts with its immutable `set_question` call.\n\nThe six recorded calls run through the existing serialized Temporal study workflow.\nThe response is `kind: running` with the call's arguments, attempt_id, messages and\nstep/extraction events, or `kind: completed` with the correlated attempt and outcome.\nFor running calls, repeat the response's `request`; it includes the canonical\narguments and captured file hashes even when the first request omitted them.\nRepeat exactly the same arguments to read progress or the completed result. An\nidentical running call starts no second attempt. Applied calls reuse saved results\nwithout execution or another timeline entry. Rejected and raised calls remain in\nthe journal with their messages and error; repeating them retries execution.\n\nCompleted applied responses include `snapshot`, `inference_report`,\n`observation_histories`, `predictive_overlays`, `simulation_paths`, `parameter_draws`,\n`artifacts`, `arrays`, and `traces`, alongside the typed `attempt.outcome`.\nAll retained simulation paths and large arrays are returned without paging. Tables\nare JSON rows, and `arrays` maps immutable array identities to their complete values.\nMissing numerical values are null. No extra result or artifact read is needed.\n\n`model_diff {before, after}` is a cached comparison read. It returns the comparison\nand each present model definition, creates no attempt, leaf or timeline entry, and works on\nthe read-only facade. Edit details and hover/pin previews use this same call.\nPre-model checkpoints have an empty comparison side; failed attempts compare their\nunchanged execution parent.\n\nRead `GET /api/studies/{workspace_id}/timeline` for replayable arguments, status,\nmessages, errors, trace ids, input dependency links, and the running call. Scientific\nresults and branches are excluded. The viewer repeats applied calls only; failed or\nunknown calls are displayed from the journal without executing them. Input panes\nresolve the earlier calls named by the selected call's dependency links.\n\n`GET /api/workspaces` lists available studies and questions. Its X-Actions-Enabled\nheader supplies the landing page capability. `POST /api/upload` stages a named input\nfile (`multipart/form-data` with `workspaceId` and `file`).\n\nWith READ_ONLY_FACADE=1, saved calls are answered and unsaved recorded calls return\n403. Model comparisons remain available. Scientific checks,\nproduction fitting and simulations continue using the exact nonlinear engines.\n"
+    "description": "The public scientific interface has seven calls: `set_question`, `edit_model`,\n`prepare_data`, `fit`, `simulate`, `data_diff`, and `model_diff`.\nCall each at `POST /api/studies/{workspace_id}/{action}` with its typed JSON arguments.\n\nA call is identified by its action and parsed arguments. Name model and panel inputs\nby immutable revision OIDs. `prepare_data` names uploaded files and captures their\ncall-time SHA-256 hashes in `input.source.hashes`; repeat those retained hashes to\nread a saved call without the upload files. `edit_model` names its base\n`expected_revision` and optional check `panel_revision`. `simulate` names an optional\n`panel_revision` for authored-law calendar binding. There are no branches or public\nhead-conflict controls. Every study starts with its immutable `set_question` call.\n\nThe six recorded calls run through the existing serialized Temporal study workflow.\nThe response is `kind: running` with the call's arguments, attempt_id, messages and\nstep/extraction events, or `kind: completed` with the correlated attempt and outcome.\nFor running calls, repeat the response's `request`; it includes the canonical\narguments and captured file hashes even when the first request omitted them.\nRepeat exactly the same arguments to read progress or the completed result. An\nidentical running call starts no second attempt. Applied calls reuse saved results\nwithout action execution or another timeline entry. Rejected and raised calls remain in\nthe journal with their messages and error; repeating them retries execution.\n\nCompleted applied responses include `snapshot`, `checks`, `inference_report`,\n`observation_histories`, `predictive_overlays`, `simulation_paths`, `parameter_draws`,\n`data_comparison`, `artifacts`, `arrays`, and `traces`, alongside the typed `attempt.outcome`.\nAll retained simulation paths and large arrays are returned without paging. Tables\nare JSON rows, and `arrays` maps immutable array identities to their complete values.\nMissing numerical values are null. No extra result or artifact read is needed.\nReports, checks and comparisons are current-code reads of retained facts, cached by\nthe package code digest and immutable inputs in the shared read cache.\n\n`model_diff {before, after}` is a cached comparison read. It returns the comparison\nand each present model definition, creates no attempt, leaf or timeline entry, and works on\nthe read-only facade. Edit details and hover/pin previews use this same call.\nPre-model checkpoints have an empty comparison side; failed attempts compare their\nunchanged execution parent.\n\nRead `GET /api/studies/{workspace_id}/timeline` for replayable arguments, status,\nmessages, errors, trace ids, input dependency links, and the running call. Scientific\nresults and branches are excluded. The viewer repeats applied calls only; failed or\nunknown calls are displayed from the journal without executing them. Input panes\nresolve the earlier calls named by the selected call's dependency links.\n\n`GET /api/workspaces` lists available studies and questions. Its X-Actions-Enabled\nheader supplies the landing page capability. `POST /api/upload` stages a named input\nfile (`multipart/form-data` with `workspaceId` and `file`).\n\nWith READ_ONLY_FACADE=1, saved calls are answered and unsaved recorded calls return\n403. Model comparisons remain available. Scientific checks,\nproduction fitting and simulations continue using the exact nonlinear engines.\n"
   },
   "paths": {
     "/api/studies/{workspace_id}/set_question": {
@@ -6433,6 +6433,9 @@
         "additionalProperties": false,
         "description": "Native execution telemetry; posterior atoms and coordinates belong to the model.",
         "properties": {
+          "distribution": {
+            "$ref": "#/components/schemas/DistributionId-Output"
+          },
           "time_origin": {
             "anyOf": [
               {
@@ -6449,6 +6452,16 @@
             "minimum": 0,
             "title": "Duration Seconds",
             "type": "number"
+          },
+          "engine": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ParticleMCMCEvidence"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "num_chains": {
             "anyOf": [
@@ -6577,8 +6590,10 @@
           }
         },
         "required": [
+          "distribution",
           "time_origin",
           "duration_seconds",
+          "engine",
           "num_chains",
           "chain_extra_fields",
           "observation_log_probs",
@@ -7054,13 +7069,24 @@
             },
             "title": "Labels",
             "type": "object"
+          },
+          "construct_labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/ConstructId-Input"
+            },
+            "title": "Construct Labels",
+            "type": "object"
           }
         },
         "required": [
           "parameters",
           "constructs",
           "time_points",
-          "labels"
+          "labels",
+          "construct_labels"
         ],
         "title": "JointLawLayout",
         "type": "object",
@@ -7115,13 +7141,24 @@
             },
             "title": "Labels",
             "type": "object"
+          },
+          "construct_labels": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/ConstructId-Output"
+            },
+            "title": "Construct Labels",
+            "type": "object"
           }
         },
         "required": [
           "parameters",
           "constructs",
           "time_points",
-          "labels"
+          "labels",
+          "construct_labels"
         ],
         "title": "JointLawLayout",
         "type": "object",

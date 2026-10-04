@@ -176,11 +176,15 @@ def fit_on_modal(
     # propagate to the action's normal error path; there is no local retry.
     arrays = {identity: decode_array(identity, data) for identity, data in result.arrays.items()}
     evidence = InferenceEvidence.model_validate_json(result.evidence_json)
-    available = {identity: decode_array(identity, data) for identity, data in inputs.items()} | arrays
+    available = {
+        identity: decode_array(identity, data) for identity, data in inputs.items()
+    } | arrays
     conditioned = ModelSpec.model_validate_json(
         result.model_json, context={"distribution_array_loader": available.__getitem__}
     )
-    if (_array_references(conditioned.model_dump(mode="json")) | evidence.array_references) - available.keys():
+    if (
+        _array_references(conditioned.model_dump(mode="json")) | evidence.array_references
+    ) - available.keys():
         raise ValueError("Modal fit returned an unresolved numerical array reference")
     for identity, values in arrays.items():
         if array_writer(values) != identity:

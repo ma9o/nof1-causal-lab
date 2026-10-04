@@ -22,11 +22,7 @@ from nof1_causal_lab.artifacts.identity import GitOid, GitRef
 from nof1_causal_lab.artifacts.posterior import InferenceEvidence
 from nof1_causal_lab.artifacts.simulation import SimulationEvidence
 from nof1_causal_lab.study.state import StudyState
-from nof1_causal_lab.study.view_models import (
-    DataDiffRequest,
-    PanelRef,
-    SimulationRef,
-)
+from nof1_causal_lab.study.view_models import DataDiffRequest, PanelRef, SimulationRef
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence

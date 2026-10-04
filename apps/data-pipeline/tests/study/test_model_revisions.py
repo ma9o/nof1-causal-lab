@@ -41,7 +41,9 @@ def test_full_model_write_keeps_the_named_base_without_a_head_gate(workspace):
     assert set(state.current) == {"question", "model"}
     from nof1_causal_lab.study.store import ArtifactStore
 
-    assert artifact_revisions(ArtifactStore(workspace), "model") == [state.current["model"].revision]
+    assert artifact_revisions(ArtifactStore(workspace), "model") == [
+        state.current["model"].revision
+    ]
     second = edit_and_check(
         workspace,
         EditModelRequest.model_validate(
@@ -53,7 +55,10 @@ def test_full_model_write_keeps_the_named_base_without_a_head_gate(workspace):
         state,
     )
     from nof1_causal_lab.actions.model_checks import read_model_checks
-    checks, _, _ = read_model_checks(workspace, state.with_artifacts(second.effects.produced), action="edit_model")
+
+    checks, _, _ = read_model_checks(
+        workspace, state.with_artifacts(second.effects.produced), action="edit_model"
+    )
     assert "identification" in checks.reused
     assert second.effects.produced[0].revision != effects.effects.produced[0].revision
     assert second.effects.produced[0].derived_from == {"model": state.current["model"].revision}

@@ -287,7 +287,10 @@ def test_execute_llm_tool_calls_activity_dispatches_by_tool_name(tmp_path):
     assert result.result_ref == result_ref
     assert result.tool_calls_fired == ["submit_extractions"]
     assert (
-        WorkerOutput.model_validate_json(json.dumps(read_subroutine_json(result_ref))).extractions[0].value == 1000
+        WorkerOutput.model_validate_json(json.dumps(read_subroutine_json(result_ref)))
+        .extractions[0]
+        .value
+        == 1000
     )
 
 
@@ -530,7 +533,9 @@ def test_execute_llm_tool_calls_activity_executes_raw_python_locally(tmp_path):
     )
 
     assert result.terminal_success is False
-    assert "Success!" in json.dumps(read_subroutine_json(result_ref))
+    assert "Success!" in json.dumps(
+        read_subroutine_json(result.conversation_ref, StoredConversation)["messages"][-1]
+    )
     with storage.open_file(dataframe_ref, "rb") as file:
         dataframe = pl.read_ipc(file)
     assert dataframe["steps"].to_list() == [1000]
@@ -601,7 +606,9 @@ def test_execute_llm_tool_calls_activity_returns_recoverable_tool_exception(tmp_
 
     assert result.terminal_success is False
     assert result.result_ref is None
-    assert "Tool execution failed:" in json.dumps(read_subroutine_json(result_ref))
+    assert "Tool execution failed:" in json.dumps(
+        read_subroutine_json(result.conversation_ref, StoredConversation)["messages"][-1]
+    )
 
 
 @pytest.mark.contract
@@ -961,16 +968,13 @@ def test_llm_subroutine_workflow_delegates_harness_tool_to_temporal_activity(
                 }
             )
             return TurnResult(
-                completion="",
                 terminal_tool_name="validate_extractions",
-                terminal_tool_output=self._tool_output,
                 tool_calls_fired=["validate_extractions"],
             )
 
         @property
         def result(self):
             return AgentResult(
-                completion="",
                 trace=LLMTrace(
                     messages=[
                         TraceMessage(
@@ -979,7 +983,6 @@ def test_llm_subroutine_workflow_delegates_harness_tool_to_temporal_activity(
                             tool_calls=[
                                 {
                                     "id": "fake-tool-call",
-                                    "type": "function",
                                     "name": "validate_extractions",
                                     "arguments": "{}",
                                 }
@@ -997,7 +1000,6 @@ def test_llm_subroutine_workflow_delegates_harness_tool_to_temporal_activity(
                     usage=TraceUsage(input_tokens=1, output_tokens=1),
                 ),
                 terminal_tool_name="validate_extractions",
-                terminal_tool_output=self._tool_output,
             )
 
         async def aclose(self):

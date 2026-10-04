@@ -14,15 +14,10 @@ import jax
 import jax.numpy as jnp
 from typing_extensions import TypedDict
 
-
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior
 from nof1_causal_lab.models.ssm.preflight import ObservationPreflightFailure
-from nof1_causal_lab.models.ssm.runtime import (
-    BoundPanel,
-    PreparedFit,
-    prepare_fit,
-)
+from nof1_causal_lab.models.ssm.runtime import BoundPanel, PreparedFit, prepare_fit
 from nof1_causal_lab.sampler_config import SamplerSpec
 
 if TYPE_CHECKING:
@@ -216,7 +211,10 @@ def fit_model(
         len(numeric.observation_names(panel.model)),
     )
 
-    logger.info("Retaining native posterior and sampler telemetry: n_samples=%d", result.draws.describe().n_draws)
+    logger.info(
+        "Retaining native posterior and sampler telemetry: n_samples=%d",
+        result.draws.describe().n_draws,
+    )
     return {
         "fitted": True,
         "duration_seconds": _fit_elapsed_seconds(t0),

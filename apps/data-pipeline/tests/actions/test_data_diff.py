@@ -1,12 +1,5 @@
 """Stored histories compare symmetrically without generation or scientific state changes."""
 
-from nof1_causal_lab.artifacts.data_preparation import FilePreparedDataMetadata
-from tests.git_fixtures import artifact_revisions
-
-
-from nof1_causal_lab.artifacts.simulation import SimulationEvidence
-
-from nof1_causal_lab.artifacts.predictive_provenance import AuthoredLawProvenance
 from datetime import UTC, date, datetime, timedelta
 
 import numpy as np
@@ -17,9 +10,12 @@ from pydantic import ValidationError
 from nof1_causal_lab.actions.data_diff import read_data_diff
 from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.artifacts.availability import NotApplicable
+from nof1_causal_lab.artifacts.data_preparation import FilePreparedDataMetadata
 from nof1_causal_lab.artifacts.identity import GitRef
 from nof1_causal_lab.artifacts.observations import ResolvedObservationSpec
+from nof1_causal_lab.artifacts.predictive_provenance import AuthoredLawProvenance
 from nof1_causal_lab.artifacts.simulation import (
+    SimulationEvidence,
     SimulationObservationLayout,
     SimulationReport,
     SimulationSpec,
@@ -31,7 +27,7 @@ from nof1_causal_lab.study.records import Applied, ModelSimulationResult
 from nof1_causal_lab.study.store import ArtifactStore, read_dataset
 from nof1_causal_lab.study.view_models import DataDiffRequest, PanelRef, SimulationRef
 from tests.action_fixtures import applied_record
-from tests.git_fixtures import git_oid
+from tests.git_fixtures import artifact_revisions, git_oid
 
 
 def _dataset(values, *, number=1, times=None, variable=None):
@@ -247,15 +243,34 @@ def test_reads_saved_draws_without_generation_or_writing_models(tmp_path, monkey
     )
     observed = _dataset([1, 2, 3])
     values = np.asarray([[[0], [1], [2]], [[1], [2], [3]], [[2], [3], [4]]], dtype=float)
-    report = SimulationReport(causal=NotApplicable(reason="No intervention was requested."), fit_reliability="not_fitted", law=AuthoredLawProvenance(), evidence=SimulationEvidence(model=GitRef(workspace_id="DIFF", revision=model.revision, path="model.json"), design=SimulationSpec(start=date(2026, 1, 1), horizon="2d"), time_origin=datetime(2026, 1, 1, tzinfo=UTC), times=(0, 1, 2), draws=3, seed=0, state_ids=(), parameter_draws={}, latent_paths="unreadable-latent-array", observations=store.write_array(values), observation_layout=SimulationObservationLayout(
-            variables=tuple(series.variable for series in observed.series.values()),
-            support_start_times=store.write_array(np.arange(3.0)[:, None]),
-            support_end_times=store.write_array(np.arange(3.0)[:, None]),
-            mask=store.write_array(np.ones_like(values, dtype=bool)),
-        )))
+    report = SimulationReport(
+        causal=NotApplicable(reason="No intervention was requested."),
+        fit_reliability="not_fitted",
+        law=AuthoredLawProvenance(),
+        evidence=SimulationEvidence(
+            model=GitRef(workspace_id="DIFF", revision=model.revision, path="model.json"),
+            design=SimulationSpec(start=date(2026, 1, 1), horizon="2d"),
+            time_origin=datetime(2026, 1, 1, tzinfo=UTC),
+            times=(0, 1, 2),
+            draws=3,
+            seed=0,
+            state_ids=(),
+            parameter_draws={},
+            latent_paths="unreadable-latent-array",
+            observations=store.write_array(values),
+            observation_layout=SimulationObservationLayout(
+                variables=tuple(series.variable for series in observed.series.values()),
+                support_start_times=store.write_array(np.arange(3.0)[:, None]),
+                support_end_times=store.write_array(np.arange(3.0)[:, None]),
+                mask=store.write_array(np.ones_like(values, dtype=bool)),
+            ),
+        ),
+    )
     commit = history.append(
         applied_record(
-            Applied(result=ModelSimulationResult(evidence=(report).evidence), effects=ActionEffects()),
+            Applied(
+                result=ModelSimulationResult(evidence=(report).evidence), effects=ActionEffects()
+            ),
             seq=1,
             ts="2026-09-28T00:00:00Z",
             trace_ids=[],
@@ -280,7 +295,9 @@ def test_reads_saved_draws_without_generation_or_writing_models(tmp_path, monkey
         produced_by="prepare_data",
         derived_from={},
         json_files={
-            "metadata.json": FilePreparedDataMetadata(source=SimulationReplicateRef(revision=commit, replicate=1), time_origin=origin).model_dump(mode="json")
+            "metadata.json": FilePreparedDataMetadata(
+                source=SimulationReplicateRef(revision=commit, replicate=1), time_origin=origin
+            ).model_dump(mode="json")
         },
         parquet_files={"panel.parquet": shifted},
     )
@@ -325,7 +342,10 @@ def test_reads_saved_draws_without_generation_or_writing_models(tmp_path, monkey
         commits.append(
             history.append(
                 applied_record(
-                    Applied(result=ModelSimulationResult(evidence=(saved).evidence), effects=ActionEffects()),
+                    Applied(
+                        result=ModelSimulationResult(evidence=(saved).evidence),
+                        effects=ActionEffects(),
+                    ),
                     seq=2 + start - 5,
                     ts="2026-09-28T00:00:00Z",
                     trace_ids=[],

@@ -214,12 +214,11 @@ export function ActionRecord({
                   <DataDetails context={context} applied={call.outcome} />
                 )}
                 {tick.record.attempt.action === "fit" && <FitOutcome context={context} />}
-                {call?.action === "data_diff" && call.outcome.status === "applied" && context.dataDiff && (
-                  <DataComparisonOutcome
-                    context={context}
-                    report={context.dataDiff}
-                  />
-                )}
+                {call?.action === "data_diff" &&
+                  call.outcome.status === "applied" &&
+                  context.dataDiff && (
+                    <DataComparisonOutcome context={context} report={context.dataDiff} />
+                  )}
                 {applied && <ActionFindings context={context} applied={applied} />}
               </>
             ) : null}

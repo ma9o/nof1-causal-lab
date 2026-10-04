@@ -124,8 +124,18 @@ def migrate(
                     sources[revision] = selected_source
             if action == "edit_model":
                 from scripts.migrations.migrate_format_18 import current_model_definition
-                arguments["model"] = current_model_definition(arguments["model"], lambda key: read_array(str(source / "store/arrays"), key))
-            parsed = _REQUEST.validate_python(arguments, context={"distribution_array_loader": lambda key: read_array(str(source / "store/arrays"), key)})
+
+                arguments["model"] = current_model_definition(
+                    arguments["model"], lambda key: read_array(str(source / "store/arrays"), key)
+                )
+            parsed = _REQUEST.validate_python(
+                arguments,
+                context={
+                    "distribution_array_loader": lambda key: read_array(
+                        str(source / "store/arrays"), key
+                    )
+                },
+            )
             if parsed.action != action:
                 raise ValueError(f"Original request for {oid} names another action")
             arguments = parsed.model_dump(mode="json", round_trip=True)

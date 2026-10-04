@@ -116,7 +116,8 @@ export function useWorkbench({
   const simulation = model.simulation;
   // Node histories need a simulation of the viewed model revision, certified or not.
   const simulationResult =
-    simulation?.source.validity === "fresh" && simulation.value.evidence.model.revision === modelRevision
+    simulation?.source.validity === "fresh" &&
+    simulation.value.evidence.model.revision === modelRevision
       ? simulation.value
       : null;
   const context: ScopeContext = {

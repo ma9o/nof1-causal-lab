@@ -1,9 +1,5 @@
 """History and accessors read one canonical scientific definition with exact sources."""
 
-
-from nof1_causal_lab.artifacts.simulation import SimulationEvidence
-
-from nof1_causal_lab.artifacts.predictive_provenance import AuthoredLawProvenance
 import time
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -24,21 +20,13 @@ from nof1_causal_lab.artifacts.likelihood import ObservationLawSpec
 from nof1_causal_lab.artifacts.mechanism import DriftMechanismSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.question import QuestionSpec
-from nof1_causal_lab.artifacts.simulation import SimulationReport, SimulationSpec
 from nof1_causal_lab.models.model_structure import StructuralSelection, selected_state_ids
-from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
-from nof1_causal_lab.models.ssm.compile.bindings import joint_law_layout
+from nof1_causal_lab.models.ssm.compile.bindings import joint_law_layout, parameter_bindings
 from nof1_causal_lab.numpyro_json import empirical_atoms, empirical_distribution
 from nof1_causal_lab.study.artifact_files import json_filename
 from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.history import StudyRepository
-from nof1_causal_lab.study.records import (
-    Applied,
-    AttemptRecord,
-    EditAttempt,
-    ModelSimulationResult,
-    Raised,
-)
+from nof1_causal_lab.study.records import Applied, AttemptRecord, EditAttempt, Raised
 from nof1_causal_lab.study.snapshot_models import ModelSnapshot
 from nof1_causal_lab.study.snapshots import ModelReader
 from nof1_causal_lab.study.store import ArtifactStore
@@ -231,7 +219,8 @@ def test_fitted_snapshot_keeps_joint_arrays_lazy_and_workspace_bound(workspace, 
         bindings,
         parameters=[p.id for p in model.parameters],
         constructs=selected_state_ids(StructuralSelection(model, None)),
-        time_points=(0, 1), construct_labels={item.id:item.name for item in model.constructs},
+        time_points=(0, 1),
+        construct_labels={item.id: item.name for item in model.constructs},
     )
     store = ArtifactStore(workspace)
     atoms = np.ones((2, layout.width))
@@ -268,8 +257,6 @@ def test_fitted_snapshot_keeps_joint_arrays_lazy_and_workspace_bound(workspace, 
     restored = _present(reader.model).distributions[layout.distribution_id]
     np.testing.assert_array_equal(empirical_atoms(restored), atoms)
     assert len(reads) == 2  # the draws and their weights, each read once
-
-
 
 
 def test_snapshot_exists_before_any_compilation(workspace):
@@ -560,7 +547,9 @@ def test_identification_is_independent_and_keeps_original_pin_after_rename(works
     after = ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot()
     assert _present(after.identification).value == _present(before.identification).value
     assert _present(after.identification).source.validity == "fresh"
-    assert _present(after.identification).source.ref.revision == after.state.current["model"].revision
+    assert (
+        _present(after.identification).source.ref.revision == after.state.current["model"].revision
+    )
     assert "construct:x" in _present(after.identification).value.estimable_treatments
 
 
@@ -638,7 +627,9 @@ def test_accessors_do_not_materialize_other_views(workspace, monkeypatch, access
         raise AssertionError("An accessor must not load unrelated views")
 
     monkeypatch.setattr(ModelReader, "snapshot", reject_batch)
-    actual = reader.inference_report if accessor == "inference_report" else getattr(reader, accessor)()
+    actual = (
+        reader.inference_report if accessor == "inference_report" else getattr(reader, accessor)()
+    )
     assert actual == expected
 
 

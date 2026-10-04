@@ -3,7 +3,13 @@
 import pytest
 from pydantic import ValidationError
 
-from nof1_causal_lab.study.state import ArtifactRecord, RetractedArtifact, StudyState, apply_effects, is_stale
+from nof1_causal_lab.study.state import (
+    ArtifactRecord,
+    RetractedArtifact,
+    StudyState,
+    apply_effects,
+    is_stale,
+)
 from tests.git_fixtures import git_oid
 
 pytestmark = pytest.mark.contract
@@ -16,15 +22,24 @@ def test_install_supersede_and_retract_facts_without_mutating_the_prior_state():
     current = apply_effects(original, (second,))
     assert original.current["raw_data"] == first
     assert current.current["raw_data"] == second
-    removed = apply_effects(current, (), (RetractedArtifact(artifact_id="raw_data", reason_ref="input.removed"),))
+    removed = apply_effects(
+        current, (), (RetractedArtifact(artifact_id="raw_data", reason_ref="input.removed"),)
+    )
     assert not removed.has("raw_data")
     assert current.has("raw_data")
 
 
 def test_fact_freshness_follows_exact_execution_inputs_and_their_ancestors():
     raw = ArtifactRecord(artifact_id="raw_data", revision=git_oid(1))
-    panel = ArtifactRecord(artifact_id="panel", revision=git_oid(2), derived_from={"raw_data": raw.revision})
-    model = ArtifactRecord(artifact_id="model", revision=git_oid(3), produced_by="fit", derived_from={"panel": panel.revision})
+    panel = ArtifactRecord(
+        artifact_id="panel", revision=git_oid(2), derived_from={"raw_data": raw.revision}
+    )
+    model = ArtifactRecord(
+        artifact_id="model",
+        revision=git_oid(3),
+        produced_by="fit",
+        derived_from={"panel": panel.revision},
+    )
     state = StudyState().with_artifacts((raw, panel, model))
     assert not is_stale(state, "panel")
     assert not is_stale(state, "model")
@@ -37,8 +52,10 @@ def test_fact_freshness_follows_exact_execution_inputs_and_their_ancestors():
 
 
 def test_history_shapes_accept_facts_and_reject_stored_findings_and_fingerprints():
-    for payload in ({"artifact_id": "validation_report", "revision": str(git_oid(1))},
-                    {"artifact_id": "model", "revision": str(git_oid(1)), "model_inputs": {}}):
+    for payload in (
+        {"artifact_id": "validation_report", "revision": str(git_oid(1))},
+        {"artifact_id": "model", "revision": str(git_oid(1)), "model_inputs": {}},
+    ):
         with pytest.raises(ValidationError):
             ArtifactRecord.model_validate(payload)
     with pytest.raises(ValidationError):

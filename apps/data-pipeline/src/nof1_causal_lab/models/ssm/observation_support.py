@@ -505,7 +505,6 @@ def validate_observation_support(
     return None
 
 
-
 def recorded_observation_support(
     times: np.ndarray,
     variables: tuple[ResolvedObservationSpec, ...],
@@ -520,13 +519,18 @@ def recorded_observation_support(
         return coefficients
     previous, current, weights, slots = coefficients
     return ObservationSupportRuntime.assembled(
-        anchor_times=times, manifest_names=names, support_kinds=kinds,
+        anchor_times=times,
+        manifest_names=names,
+        support_kinds=kinds,
         summary_operators=tuple(variable.summary_operator.value for variable in variables),
         anchor_policies=tuple(variable.anchor_policy.value for variable in variables),
         observation_windows=tuple(str(variable.observation_window) for variable in variables),
-        support_start_times=starts, support_end_times=ends,
-        interval_prev_coeffs=previous, interval_curr_coeffs=current,
-        interval_weights=weights, emission_slot_indices=slots,
+        support_start_times=starts,
+        support_end_times=ends,
+        interval_prev_coeffs=previous,
+        interval_curr_coeffs=current,
+        interval_weights=weights,
+        emission_slot_indices=slots,
     )
 
 

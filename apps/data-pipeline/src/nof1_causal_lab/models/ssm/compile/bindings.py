@@ -10,11 +10,8 @@ from pydantic import Field
 
 from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.artifacts.identity import ParameterElementId, ParameterId
+from nof1_causal_lab.artifacts.parameter import ParameterCoordinate, PriorAuthoringTransform
 from nof1_causal_lab.models.ssm.joint_layout import JointLawLayout
-from nof1_causal_lab.artifacts.parameter import (
-    ParameterCoordinate,
-    PriorAuthoringTransform,
-)
 from nof1_causal_lab.models.ssm.structure.sites import (
     CompiledBindingTarget,
     CompiledEdgeTarget,
@@ -112,9 +109,15 @@ def joint_law_layout(
     by_id = {binding.parameter_id: binding for binding in bindings}
     members = tuple(sorted(parameters))
     return JointLawLayout(
-        parameters=tuple((identity, tuple(sorted(by_id[identity].coordinates))) for identity in members),
+        parameters=tuple(
+            (identity, tuple(sorted(by_id[identity].coordinates))) for identity in members
+        ),
         constructs=tuple(sorted(constructs)),
         construct_labels=construct_labels,
         time_points=tuple(float(value) for value in time_points),
-        labels={element: label for identity in members for element, label in by_id[identity].elements.items()},
+        labels={
+            element: label
+            for identity in members
+            for element, label in by_id[identity].elements.items()
+        },
     )

@@ -22,7 +22,8 @@ export function SimulationEvidence({ context }: { context: ScopeContext }) {
   const report = simulation.value;
   const names = new Map(entities.constructs.map((item) => [item.id, humanize(item.name)]));
 
-  const timeLabel = (day: number) => `${formatModelDate(day, report.evidence.time_origin)} (day ${day})`;
+  const timeLabel = (day: number) =>
+    `${formatModelDate(day, report.evidence.time_origin)} (day ${day})`;
   return (
     <>
       <Section title="Causal effect" source={simulation.source} wide>
@@ -78,8 +79,8 @@ export function SimulationEvidence({ context }: { context: ScopeContext }) {
           report.evidence.design.interventions.map((event, index) => (
             <p key={`${event.target}-${event.after ?? "start"}`} className="m-0 border-t pt-2">
               {event.after ? `${event.after} after the start` : "At the start"} (
-              {timeLabel(report.evidence.assignments[index]?.time ?? report.evidence.times[0])}): set{" "}
-              {names.get(event.target) ?? event.target} to {event.value}.
+              {timeLabel(report.evidence.assignments[index]?.time ?? report.evidence.times[0])}):
+              set {names.get(event.target) ?? event.target} to {event.value}.
             </p>
           ))
         )}

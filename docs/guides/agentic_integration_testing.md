@@ -129,7 +129,7 @@ New studies initialize their local bare repository on first use. On a fresh chec
 
 ```bash
 git clone --mirror data/DEMO/study/history.bundle data/DEMO/study/history.git
-git --git-dir=data/DEMO/study/history.git config nof1.format 17
+git --git-dir=data/DEMO/study/history.git config nof1.format 18
 ```
 
 #### Migrating a local study
@@ -147,6 +147,8 @@ The current runtime requires format 18. Restore only a bundle exported after the
    ```bash
    uv run --directory apps/data-pipeline python -m scripts.migrations.migrate_format_17 \
      ../../data/STUDY /tmp/format17/STUDY --file-hashes /path/to/verified-file-hashes.json
+   uv run --directory apps/data-pipeline python -m scripts.migrations.migrate_format_18 \
+     /tmp/format17/STUDY /tmp/format18/STUDY
    ```
 
    The converter rebuilds retained call arguments, names each panel originally read,

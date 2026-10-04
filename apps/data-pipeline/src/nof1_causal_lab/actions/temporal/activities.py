@@ -24,13 +24,19 @@ from nof1_causal_lab.actions.temporal.messages import (
     ReadInputsInput,
     SetQuestionInput,
 )
+from nof1_causal_lab.artifacts.identification import IdentificationReport
+from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
+from nof1_causal_lab.artifacts.validation_report import (
+    DataProfileArtifact,
+    ValidationReportArtifact,
+)
 from nof1_causal_lab.compilation_errors import AggregatedCompileError, IncompleteModelError
 from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.records import (
     ActionAttempt,
-    Applied,
     ActionBase,
+    Applied,
     DataPreparationResult,
     EditAttempt,
     ModelFitResult,
@@ -41,12 +47,9 @@ from nof1_causal_lab.study.records import (
     applied_attempt,
     failed_attempt,
 )
+from nof1_causal_lab.study.state import StudyState
 from nof1_causal_lab.study.store import ArtifactStore, collect_run_traces
 from nof1_causal_lab.study.sweep import collect_completed_runs
-from nof1_causal_lab.study.state import StudyState
-from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
-from nof1_causal_lab.artifacts.identification import IdentificationReport
-from nof1_causal_lab.artifacts.validation_report import DataProfileArtifact, ValidationReportArtifact
 
 
 @activity.defn
@@ -143,13 +146,28 @@ async def journal_activity(activity_input: AttemptPublication) -> StudyRevision:
         result = record.attempt.outcome.result
         if record.attempt.action == "fit" and isinstance(result, ModelFitResult):
             from nof1_causal_lab.actions.fit import read_inference_report
-            produced = next(info for info in record.attempt.outcome.effects.produced if info.artifact_id == "model")
+
+            produced = next(
+                info
+                for info in record.attempt.outcome.effects.produced
+                if info.artifact_id == "model"
+            )
             inference = read_inference_report(store, produced.revision, result.evidence)
         if record.attempt.action == "simulate" and isinstance(result, ModelSimulationResult):
             from nof1_causal_lab.actions.simulate import read_simulation_report
+
             simulation = read_simulation_report(store, result.evidence, journal.question().revision)
         if inference is not None or simulation is not None:
-            messages = messages[:-1] + completion_messages(record.attempt.outcome, messages[-1].timestamp, inference=inference, simulation=simulation) + messages[-1:]
+            messages = (
+                messages[:-1]
+                + completion_messages(
+                    record.attempt.outcome,
+                    messages[-1].timestamp,
+                    inference=inference,
+                    simulation=simulation,
+                )
+                + messages[-1:]
+            )
     logs = collect_run_traces(activity_input.workspace_id, record.seq)
     record = record.with_logs(
         messages=messages,

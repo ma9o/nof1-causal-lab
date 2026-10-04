@@ -36,10 +36,15 @@ def workbench_visuals(reader: ModelReader, template):
     action = reference + differences
     variables = report.evidence.observation_layout.variables
     observations = np.stack(
-        [action[:, :, index % len(report.evidence.state_ids)] for index in range(len(variables))], axis=-1
+        [action[:, :, index % len(report.evidence.state_ids)] for index in range(len(variables))],
+        axis=-1,
     )
     reference_observations = np.stack(
-        [reference[:, :, index % len(report.evidence.state_ids)] for index in range(len(variables))], axis=-1
+        [
+            reference[:, :, index % len(report.evidence.state_ids)]
+            for index in range(len(variables))
+        ],
+        axis=-1,
     )
     mask = np.ones_like(observations, dtype=bool)
     mask[:, 2, :] = False

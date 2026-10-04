@@ -96,7 +96,6 @@ def test_runner_rejects_invalid_initial_chains_before_any_step(monkeypatch, inva
         spec=MarginalParticleGibbsKernel,
         target_accept=0.35,
         exact_constraints=None,
-        adapt_amala_delta=False,
         initial_param_step_size=0.01,
         min_scale=1e-6,
         max_scale=1.0,

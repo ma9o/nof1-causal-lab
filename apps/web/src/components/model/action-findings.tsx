@@ -27,10 +27,7 @@ export function ActionFindings({
     status: "passed" | "failed" | "warning" | "error" | "not_evaluated";
     owner?: EntitySelection;
   }> = [];
-  for (const finding of [
-    ...(checks?.specification ?? []),
-    ...(validation?.preflight ?? []),
-  ]) {
+  for (const finding of [...(checks?.specification ?? []), ...(validation?.preflight ?? [])]) {
     if (finding.kind !== "evaluated" || finding.outcome !== "passed")
       findings.push({
         label: humanize(finding.subject),
@@ -154,7 +151,8 @@ export function ActionFindings({
       status: "not_evaluated",
     });
   if (
-    result != null && "workers" in result &&
+    result != null &&
+    "workers" in result &&
     result.workers.some((worker) => worker.status === "failed")
   )
     findings.push({

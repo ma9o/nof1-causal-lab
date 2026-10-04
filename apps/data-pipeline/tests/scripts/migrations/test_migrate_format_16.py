@@ -27,14 +27,34 @@ def test_migration_rewrites_a_new_copy_and_keeps_recorded_histories(tmp_path):
     source, destination = tmp_path / "source/STUDY", tmp_path / "converted/STUDY"
     repo = open_repository("STUDY", source / "study/history.git")
     repo.config["nof1.format"] = 15
-    report = SimulationReport(fit_reliability="not_fitted", causal=NotApplicable(reason="No intervention was requested."), law=AuthoredLawProvenance(), evidence=SimulationEvidence(model=GitRef(workspace_id="STUDY", revision="a" * 40, path="model.json"), design=SimulationSpec(start=date(2026, 1, 1), horizon="1d"), time_origin=datetime(2026, 1, 1, tzinfo=UTC), times=(0, 1), draws=2, seed=0, state_ids=(), parameter_draws={}, latent_paths="action.npy", observations="observations.npy", observation_layout=SimulationObservationLayout(
-            variables=(),
-            support_start_times="starts.npy",
-            support_end_times="ends.npy",
-            mask="mask.npy",
-        )))
+    report = SimulationReport(
+        fit_reliability="not_fitted",
+        causal=NotApplicable(reason="No intervention was requested."),
+        law=AuthoredLawProvenance(),
+        evidence=SimulationEvidence(
+            model=GitRef(workspace_id="STUDY", revision="a" * 40, path="model.json"),
+            design=SimulationSpec(start=date(2026, 1, 1), horizon="1d"),
+            time_origin=datetime(2026, 1, 1, tzinfo=UTC),
+            times=(0, 1),
+            draws=2,
+            seed=0,
+            state_ids=(),
+            parameter_draws={},
+            latent_paths="action.npy",
+            observations="observations.npy",
+            observation_layout=SimulationObservationLayout(
+                variables=(),
+                support_start_times="starts.npy",
+                support_end_times="ends.npy",
+                mask="mask.npy",
+            ),
+        ),
+    )
     serialized = report.model_dump(mode="json")
-    historical = {**serialized["evidence"], **{key: value for key, value in serialized.items() if key != "evidence"}}
+    historical = {
+        **serialized["evidence"],
+        **{key: value for key, value in serialized.items() if key != "evidence"},
+    }
     historical.pop("causal")
     historical.update(causal_result=None, causal_unavailable_reason=None)
     root = repo.head.target
@@ -55,7 +75,10 @@ def test_migration_rewrites_a_new_copy_and_keeps_recorded_histories(tmp_path):
     converted = pygit2.Repository(str(destination / "study/history.git"))
     moved = mapping[str(commit)]
     restored = json.loads(read_file(converted, moved, "logs/simulation.json"))
-    assert restored == {**serialized["evidence"], **{key: value for key, value in serialized.items() if key != "evidence"}}
+    assert restored == {
+        **serialized["evidence"],
+        **{key: value for key, value in serialized.items() if key != "evidence"},
+    }
     assert converted.config.get_int("nof1.format") == 16
     assert str(converted.references["refs/heads/review"].target) == moved
     assert converted[pygit2.Oid(hex=moved)].peel(pygit2.Commit).parent_ids == [

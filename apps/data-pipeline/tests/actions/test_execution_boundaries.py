@@ -159,11 +159,26 @@ def test_refit_after_an_edit_uses_selected_model_and_preserves_the_edit(workspac
     def fit(**kwargs):
         model = kwargs["selection"].model
         assert model == edited
-        conditioned, identity = condition_model(model, compile_model_fixture(model),
-            particle_posterior(JointPosteriorDraws(parameter_draws(model, 4), jnp.zeros((4, 2, 2)))),
-            times=jnp.array([0.0, 1.0]), array_writer=store.write_array, array_loader=store.read_array)
-        return {"_model": conditioned, "evidence": InferenceEvidence(distribution=identity,
-            time_origin=None, duration_seconds=0, num_chains=1)}
+        conditioned, identity = condition_model(
+            model,
+            compile_model_fixture(model),
+            particle_posterior(
+                JointPosteriorDraws(parameter_draws(model, 4), jnp.zeros((4, 2, 2)))
+            ),
+            times=jnp.array([0.0, 1.0]),
+            array_writer=store.write_array,
+            array_loader=store.read_array,
+        )
+        return {
+            "_model": conditioned,
+            "evidence": InferenceEvidence(
+                distribution=identity,
+                engine=None,
+                time_origin=None,
+                duration_seconds=0,
+                num_chains=1,
+            ),
+        }
 
     monkeypatch.setattr(flow, "fit", fit)
     pins: dict[ArtifactId, GitOid] = {

@@ -307,11 +307,16 @@ def _make_pipeline_config(**profile_llm_overrides) -> PipelineConfig:
         "extraction_workers": EmbeddedLLMSpec(harness="none", model="openrouter/x"),
     }
     defaults.update(profile_llm_overrides)
-    return PipelineConfig(ingestion=IngestionConfig(llm=defaults["ingestion"]), extraction_workers=ExtractionWorkersConfig(llm=defaults["extraction_workers"]), inference=InferenceConfig(), llm=LLMDefaults(
+    return PipelineConfig(
+        ingestion=IngestionConfig(llm=defaults["ingestion"]),
+        extraction_workers=ExtractionWorkersConfig(llm=defaults["extraction_workers"]),
+        inference=InferenceConfig(),
+        llm=LLMDefaults(
             embedded=EmbeddedLLMDefaults(),
             claude_code=ClaudeCodeDefaults(),
             codex=CodexDefaults(),
-        ))
+        ),
+    )
 
 
 class TestValidateConfig:

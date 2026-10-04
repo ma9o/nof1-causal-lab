@@ -219,14 +219,34 @@ def test_timeline_links_named_arguments_and_check_reads():
             )
         elif action == "simulate":
             ref = GitRef(workspace_id="STUDY", revision=inputs["model_revision"], path="model.json")
-            report = SimulationReport(causal=NotApplicable(reason="No intervention was requested."), fit_reliability="not_fitted", law=AuthoredLawProvenance(), evidence=SimulationEvidence(model=ref, design=SimulationSpec(start=date(2026, 1, 1), horizon="10d"), time_origin=datetime(2026, 1, 1, tzinfo=UTC), times=(0, 10), draws=1, seed=0, state_ids=(), parameter_draws={}, latent_paths="paths", observations="observations", observation_layout={
-                    "variables": [],
-                    "support_start_times": "starts",
-                    "support_end_times": "ends",
-                    "mask": "mask",
-                }))
+            report = SimulationReport(
+                causal=NotApplicable(reason="No intervention was requested."),
+                fit_reliability="not_fitted",
+                law=AuthoredLawProvenance(),
+                evidence=SimulationEvidence(
+                    model=ref,
+                    design=SimulationSpec(start=date(2026, 1, 1), horizon="10d"),
+                    time_origin=datetime(2026, 1, 1, tzinfo=UTC),
+                    times=(0, 10),
+                    draws=1,
+                    seed=0,
+                    state_ids=(),
+                    parameter_draws={},
+                    latent_paths="paths",
+                    observations="observations",
+                    observation_layout={
+                        "variables": [],
+                        "support_start_times": "starts",
+                        "support_end_times": "ends",
+                        "mask": "mask",
+                    },
+                ),
+            )
             record = applied_record(
-                Applied(result=ModelSimulationResult(evidence=(report).evidence), effects=ActionEffects()),
+                Applied(
+                    result=ModelSimulationResult(evidence=(report).evidence),
+                    effects=ActionEffects(),
+                ),
                 seq=seq,
                 request=SimulateRequest(
                     model_revision=ref.revision, start=date(2026, 1, 1), horizon="10d"
@@ -246,6 +266,7 @@ def test_timeline_links_named_arguments_and_check_reads():
                 )
             else:
                 from tests.model_fixtures import load_model_fixture
+
                 model = load_model_fixture("causal_proofs/conditioned_treatment_outcome.json")
                 result = inference_log(
                     model, prior_revision=inputs["model_revision"], seq=seq

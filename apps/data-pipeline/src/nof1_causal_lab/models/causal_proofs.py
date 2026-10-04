@@ -45,7 +45,9 @@ class CertifiedCausalAnalysis:
     def __post_init__(self) -> None:
         if not self.estimands:
             raise CausalCertificationError("at least one identified estimand is required")
-        certify_conditioned_model(self.model, self.model_revision, self.inference, self.fitted_model, self.report)
+        certify_conditioned_model(
+            self.model, self.model_revision, self.inference, self.fitted_model, self.report
+        )
         outcomes = {estimand.outcome for estimand in self.estimands}
         if len(outcomes) != 1:
             raise CausalCertificationError("all identified estimands must target the same outcome")
@@ -117,7 +119,13 @@ def certify_identified_estimand(
     )
 
 
-def certify_conditioned_model(model: ModelSpec, revision: GitRef, record: StudyRevision, fitted_model: ModelSpec, report: InferenceReportCore) -> None:
+def certify_conditioned_model(
+    model: ModelSpec,
+    revision: GitRef,
+    record: StudyRevision,
+    fitted_model: ModelSpec,
+    report: InferenceReportCore,
+) -> None:
     """Join the current scientific value to committed, converged exact-engine evidence."""
     from nof1_causal_lab.models.model_inputs import input_fingerprints
     from nof1_causal_lab.models.ssm.inference.convergence import convergence_failures
@@ -144,4 +152,3 @@ def certify_conditioned_model(model: ModelSpec, revision: GitRef, record: StudyR
             + "; ".join(failures)
             + ". Revise the model before reporting causal effects."
         )
-

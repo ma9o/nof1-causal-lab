@@ -142,15 +142,32 @@ class StudyRepository:
 
         store = ArtifactStore(self.workspace_id, repository_path=self.path)
         records = self.attempts()
-        question = next((item for revision in records
-                         if revision.record.attempt.action == "set_question"
-                         and isinstance(revision.record.attempt.outcome, Applied)
-                         for item in revision.record.attempt.outcome.effects.produced
-                         if item.artifact_id == "question"), None)
-        current: dict[ArtifactId, ArtifactRecord] = {"question": question} if question is not None else {}
-        model = (request.expected_revision if isinstance(request, EditModelRequest)
-                 else request.model_revision if isinstance(request, (FitRequest, SimulateRequest)) else None)
-        panel = request.panel_revision if isinstance(request, (EditModelRequest, FitRequest, SimulateRequest)) else None
+        question = next(
+            (
+                item
+                for revision in records
+                if revision.record.attempt.action == "set_question"
+                and isinstance(revision.record.attempt.outcome, Applied)
+                for item in revision.record.attempt.outcome.effects.produced
+                if item.artifact_id == "question"
+            ),
+            None,
+        )
+        current: dict[ArtifactId, ArtifactRecord] = (
+            {"question": question} if question is not None else {}
+        )
+        model = (
+            request.expected_revision
+            if isinstance(request, EditModelRequest)
+            else request.model_revision
+            if isinstance(request, (FitRequest, SimulateRequest))
+            else None
+        )
+        panel = (
+            request.panel_revision
+            if isinstance(request, (EditModelRequest, FitRequest, SimulateRequest))
+            else None
+        )
         if model is not None:
             current["model"] = store.read_meta("model", model)
         if panel is not None:
@@ -160,8 +177,13 @@ class StudyRepository:
                             and any(item.artifact_id == "panel" and item.revision == panel
                                     for item in outcome.effects.produced)), None)
             if effects is not None:
-                current.update({item.artifact_id: item for item in effects.produced
-                                if item.artifact_id == "raw_data"})
+                current.update(
+                    {
+                        item.artifact_id: item
+                        for item in effects.produced
+                        if item.artifact_id == "raw_data"
+                    }
+                )
         return StudyState(current=current)
 
     def append(

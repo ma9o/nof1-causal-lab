@@ -2,12 +2,6 @@
 
 from __future__ import annotations
 
-from nof1_causal_lab.study.lineage import read_data_metadata
-
-from nof1_causal_lab.artifacts.simulation import SimulationEvidence
-
-from nof1_causal_lab.artifacts.predictive_provenance import AuthoredLawProvenance
-
 from datetime import UTC, date, datetime, timedelta
 from typing import TYPE_CHECKING
 
@@ -22,9 +16,11 @@ from nof1_causal_lab.actions.prepare_data import prepare_simulation_panel
 from nof1_causal_lab.actions.runners import run_action
 from nof1_causal_lab.artifacts.availability import NotApplicable
 from nof1_causal_lab.artifacts.construct import replace_constructs
-from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata, SimulationReplicateRef
+from nof1_causal_lab.artifacts.data_preparation import SimulationReplicateRef
 from nof1_causal_lab.artifacts.identity import GitRef
+from nof1_causal_lab.artifacts.predictive_provenance import AuthoredLawProvenance
 from nof1_causal_lab.artifacts.simulation import (
+    SimulationEvidence,
     SimulationObservationLayout,
     SimulationReport,
     SimulationSpec,
@@ -34,6 +30,7 @@ from nof1_causal_lab.models.ssm.preflight import ObservationPreflightFailure
 from nof1_causal_lab.models.ssm.runtime import project_observation_data
 from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.history import StudyRepository
+from nof1_causal_lab.study.lineage import read_data_metadata
 from nof1_causal_lab.study.records import Applied, ModelSimulationResult
 from nof1_causal_lab.study.state import StudyState
 from nof1_causal_lab.study.store import ArtifactStore
@@ -122,9 +119,29 @@ def test_recorded_replicate_becomes_a_compatible_panel(tmp_path, monkeypatch):
     times = (0.0, 0.5, 2.0)
     draws = np.array([[[91, 92], [93, 94], [95, 96]], [[2, 4], [3, 8], [6, 12]]], dtype=float)
     design = SimulationSpec(start=date(2026, 1, 6), horizon="2d")
-    report = SimulationReport(causal=NotApplicable(reason="No intervention was requested."), fit_reliability="not_fitted", law=AuthoredLawProvenance(), evidence=SimulationEvidence(model=GitRef(workspace_id="TEST", revision=model_info.revision, path="model.json"), design=design, time_origin=datetime(2026, 1, 1, tzinfo=UTC), times=tuple(time + 5 for time in times), draws=2, seed=0, state_ids=tuple(numeric.state_ids(compile_model_fixture(model))), parameter_draws={"known_truth": "not-an-observation-array"}, latent_paths="not-an-observation-array", observations=store.write_array(draws), observation_layout=simulation_layout(
-            model, tuple(t + 5 for t in times), np.ones_like(draws, dtype=bool), store.write_array
-        )))
+    report = SimulationReport(
+        causal=NotApplicable(reason="No intervention was requested."),
+        fit_reliability="not_fitted",
+        law=AuthoredLawProvenance(),
+        evidence=SimulationEvidence(
+            model=GitRef(workspace_id="TEST", revision=model_info.revision, path="model.json"),
+            design=design,
+            time_origin=datetime(2026, 1, 1, tzinfo=UTC),
+            times=tuple(time + 5 for time in times),
+            draws=2,
+            seed=0,
+            state_ids=tuple(numeric.state_ids(compile_model_fixture(model))),
+            parameter_draws={"known_truth": "not-an-observation-array"},
+            latent_paths="not-an-observation-array",
+            observations=store.write_array(draws),
+            observation_layout=simulation_layout(
+                model,
+                tuple(t + 5 for t in times),
+                np.ones_like(draws, dtype=bool),
+                store.write_array,
+            ),
+        ),
+    )
     simulation_record = applied_record(
         Applied(result=ModelSimulationResult(evidence=(report).evidence), effects=ActionEffects()),
         seq=2,
@@ -136,7 +153,15 @@ def test_recorded_replicate_becomes_a_compatible_panel(tmp_path, monkeypatch):
     history.append(
         applied_record(
             Applied(
-                result=ModelSimulationResult(evidence=(report.revised(evidence=report.evidence.revised(observations=store.write_array(np.zeros_like(draws))))).evidence),
+                result=ModelSimulationResult(
+                    evidence=(
+                        report.revised(
+                            evidence=report.evidence.revised(
+                                observations=store.write_array(np.zeros_like(draws))
+                            )
+                        )
+                    ).evidence
+                ),
                 effects=ActionEffects(),
             ),
             seq=3,
@@ -207,20 +232,37 @@ def test_materialization_preserves_measurement_support_and_numeric_codes(interva
         arrays[key] = value
         return key
 
-    report = SimulationReport(causal=NotApplicable(reason="No intervention was requested."), fit_reliability="not_fitted", law=AuthoredLawProvenance(), evidence=SimulationEvidence(model=GitRef(workspace_id="TEST", revision=git_oid(1), path="model.json"), design=SimulationSpec(start=date(2026, 1, 1), horizon="60h"), time_origin=datetime(2026, 1, 1, tzinfo=UTC), times=(0, 1, 2.5), draws=1, seed=0, state_ids=tuple(item.id for item in model.constructs), parameter_draws={}, latent_paths="truth", observations="observations", observation_layout=SimulationObservationLayout(
-            variables=metadata_for_model(model).variables,
-            support_start_times=write_array(
-                np.array([[np.nan, np.nan], [0, 0], [1.5, 1.5]])
-                if interval
-                else np.array([[0, 0], [1, 1], [2.5, 2.5]])
+    report = SimulationReport(
+        causal=NotApplicable(reason="No intervention was requested."),
+        fit_reliability="not_fitted",
+        law=AuthoredLawProvenance(),
+        evidence=SimulationEvidence(
+            model=GitRef(workspace_id="TEST", revision=git_oid(1), path="model.json"),
+            design=SimulationSpec(start=date(2026, 1, 1), horizon="60h"),
+            time_origin=datetime(2026, 1, 1, tzinfo=UTC),
+            times=(0, 1, 2.5),
+            draws=1,
+            seed=0,
+            state_ids=tuple(item.id for item in model.constructs),
+            parameter_draws={},
+            latent_paths="truth",
+            observations="observations",
+            observation_layout=SimulationObservationLayout(
+                variables=metadata_for_model(model).variables,
+                support_start_times=write_array(
+                    np.array([[np.nan, np.nan], [0, 0], [1.5, 1.5]])
+                    if interval
+                    else np.array([[0, 0], [1, 1], [2.5, 2.5]])
+                ),
+                support_end_times=write_array(
+                    np.array([[np.nan, np.nan], [1, 1], [2.5, 2.5]])
+                    if interval
+                    else np.array([[0, 0], [1, 1], [2.5, 2.5]])
+                ),
+                mask=write_array(np.isfinite(values)),
             ),
-            support_end_times=write_array(
-                np.array([[np.nan, np.nan], [1, 1], [2.5, 2.5]])
-                if interval
-                else np.array([[0, 0], [1, 1], [2.5, 2.5]])
-            ),
-            mask=write_array(np.isfinite(values)),
-        )))
+        ),
+    )
     panel = prepare_simulation_panel(
         report, 0, read_array=lambda key: values if key == "observations" else arrays[key]
     )

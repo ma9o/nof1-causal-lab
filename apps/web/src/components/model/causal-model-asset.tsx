@@ -135,7 +135,9 @@ function ModelRevision({
   const tick = ticks.find((item) => item.record.seq === focusSeq);
   const dataDiff =
     tick?.record.attempt.action === "data_diff" && tick.record.attempt.outcome.status === "applied"
-      ? result?.attempt.action === "data_diff" && result.attempt.outcome.status === "applied" ? result.data_comparison : null
+      ? result?.attempt.action === "data_diff" && result.attempt.outcome.status === "applied"
+        ? result.data_comparison
+        : null
       : null;
   const context = { ...versionContext, dataDiff };
   // Nodes chart what the viewed version's action produced.

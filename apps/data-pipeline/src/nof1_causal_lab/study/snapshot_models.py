@@ -219,7 +219,10 @@ class ModelSnapshot(Value):
         if ref.workspace_id != self.workspace_id:
             raise ValueError("Fact source belongs to another study")
         if ref.path == "logs/attempt.json":
-            if artifact_id not in {"inference", "simulation"} or source.pointer != "/attempt/outcome/result/evidence":
+            if (
+                artifact_id not in {"inference", "simulation"}
+                or source.pointer != "/attempt/outcome/result/evidence"
+            ):
                 raise ValueError("Evidence findings must identify their producing action facts")
             return
         if artifact_id in {"inference", "simulation"}:

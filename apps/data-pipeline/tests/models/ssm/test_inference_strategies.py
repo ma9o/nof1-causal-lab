@@ -62,7 +62,7 @@ from nof1_causal_lab.models.ssm.inference.targets.laplace.shared import (
     _solve_block_profile_from_cholesky,
     precision_logdet,
 )
-from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
+from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws, ParticleMCMCPosterior
 from nof1_causal_lab.models.ssm.inference.utils import _discover_sites
 from nof1_causal_lab.models.ssm.inference.warmup.map import _build_map_laplace_bundle
 from nof1_causal_lab.models.ssm.preflight import ObservationPreflightFailure

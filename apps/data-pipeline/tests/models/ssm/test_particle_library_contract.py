@@ -151,7 +151,9 @@ def test_loo_uses_joint_emissions_and_omits_only_completely_missing_rows(monkeyp
 
     # Test the scientific factor boundary without computing PSIS or fitting.
     monkeypatch.setattr(import_module("arviz_stats.loo"), "loo", estimate)
-    measured = posterior.get_loo_diagnostics(observed_rows=jnp.any(jnp.isfinite(observations), axis=1))
+    measured = posterior.get_loo_diagnostics(
+        observed_rows=jnp.any(jnp.isfinite(observations), axis=1)
+    )
     assert measured is not None
     result, points = measured
     assert [(point.rank, point.timestep, point.k, point.status) for point in points] == [

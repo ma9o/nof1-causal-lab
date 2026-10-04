@@ -84,7 +84,11 @@ def test_parameter_decisions_and_law_changes_leave_topology_unchanged():
 def test_fitted_state_laws_and_time_points_leave_topology_unchanged():
     model = x_y_model()
     layout = joint_law_layout(
-        (), parameters=(), constructs=selected_state_ids(_whole(model)), time_points=(0.0, 1.0), construct_labels={item.id:item.name for item in model.constructs}
+        (),
+        parameters=(),
+        constructs=selected_state_ids(_whole(model)),
+        time_points=(0.0, 1.0),
+        construct_labels={item.id: item.name for item in model.constructs},
     )
     identity = layout.distribution_id
     fitted = model.revised(

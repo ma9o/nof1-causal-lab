@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import (
-    Mapping,
-)
+from collections.abc import Mapping
 from functools import cached_property
 from types import MappingProxyType
 from typing import TYPE_CHECKING, cast, override
@@ -22,9 +20,8 @@ from pydantic import (
 
 from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.compilation_errors import IncompleteModelError
-from nof1_causal_lab.numpyro_json import NumPyroDistribution
 from nof1_causal_lab.models.ssm.joint_layout import JointLawLayout
-
+from nof1_causal_lab.numpyro_json import NumPyroDistribution
 from .construct import (
     CausalEdgeSpec,
     ConstructSpec,
@@ -37,14 +34,7 @@ from .construct import (
 )
 from .duration import Duration
 from .expressions import expression_states
-from .identity import (
-    ConstructId,
-    DistributionId,
-    EdgeId,
-    IndicatorId,
-    MechanismId,
-    ParameterId,
-)
+from .identity import ConstructId, DistributionId, EdgeId, IndicatorId, MechanismId, ParameterId
 from .parameter_spec import ParameterSpec
 
 if TYPE_CHECKING:
@@ -79,7 +69,10 @@ class ModelSpec(Value):
     @property
     def time_points(self) -> tuple[FiniteFloat, ...]:
         """Joint trajectory coordinates own the model's retained time grid."""
-        return next((layout.time_points for layout in self.law_layouts.values() if layout.constructs), ())
+        return next(
+            (layout.time_points for layout in self.law_layouts.values() if layout.constructs), ()
+        )
+
     measurement_clock: Duration | None = None
 
     @field_validator("edges", mode="wrap")

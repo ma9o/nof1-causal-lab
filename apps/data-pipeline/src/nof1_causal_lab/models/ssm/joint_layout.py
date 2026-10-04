@@ -7,12 +7,15 @@ from types import MappingProxyType
 from typing import TYPE_CHECKING
 
 import numpy as np
-
 from pydantic import FiniteFloat, model_validator
 
 from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.artifacts.identity import (
-    ConstructId, DistributionId, ParameterElementId, ParameterId, scientific_id,
+    ConstructId,
+    DistributionId,
+    ParameterElementId,
+    ParameterId,
+    scientific_id,
 )
 
 if TYPE_CHECKING:
@@ -38,18 +41,22 @@ class JointLawLayout(Value):
         parameters = tuple(identity for identity, _ in self.parameters)
         elements = tuple(element for _, members in self.parameters for element in members)
         if parameters != tuple(sorted(set(parameters))) or any(
-            not members or members != tuple(sorted(set(members)))
-            for _, members in self.parameters
+            not members or members != tuple(sorted(set(members))) for _, members in self.parameters
         ):
-            raise ValueError("Joint parameters and their elements must be uniquely identity-ordered")
+            raise ValueError(
+                "Joint parameters and their elements must be uniquely identity-ordered"
+            )
         if len(elements) != len(set(elements)) or set(self.labels) != set(elements):
-            raise ValueError("Joint labels must name every scientific parameter element exactly once")
+            raise ValueError(
+                "Joint labels must name every scientific parameter element exactly once"
+            )
         if set(self.construct_labels) != set(self.constructs):
             raise ValueError("Joint trajectories must retain each construct label exactly once")
         if self.constructs != tuple(sorted(set(self.constructs))):
             raise ValueError("Joint constructs must be uniquely identity-ordered")
         if bool(self.constructs) != bool(self.time_points) or any(
-            right <= left for left, right in zip(self.time_points, self.time_points[1:], strict=False)
+            right <= left
+            for left, right in zip(self.time_points, self.time_points[1:], strict=False)
         ):
             raise ValueError("Trajectory coordinates require their strictly increasing time grid")
         return self

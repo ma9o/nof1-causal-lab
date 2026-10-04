@@ -9,7 +9,12 @@ import numpy as np
 from pydantic import TypeAdapter
 
 from nof1_causal_lab.artifacts.availability import NotApplicable, Unavailable
-from nof1_causal_lab.artifacts.simulation import FitReliability, SimulationEvidence, SimulationObservationLayout, SimulationReport
+from nof1_causal_lab.artifacts.simulation import (
+    FitReliability,
+    SimulationEvidence,
+    SimulationObservationLayout,
+    SimulationReport,
+)
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.predictive.simulation import (
     generate_simulation_batch,
@@ -117,7 +122,10 @@ def read_simulation_report(
 ) -> SimulationReport:
     """Measure saved histories with current code; never sample parameters, paths or emissions."""
     from nof1_causal_lab.actions.scenarios import summarize_causal_simulation
-    from nof1_causal_lab.artifacts.predictive_provenance import FittedLawProvenance, MixedLawProvenance
+    from nof1_causal_lab.artifacts.predictive_provenance import (
+        FittedLawProvenance,
+        MixedLawProvenance,
+    )
     from nof1_causal_lab.compilation_errors import AggregatedCompileError, IncompleteModelError
     from nof1_causal_lab.models.model_structure import StructuralSelection
     from nof1_causal_lab.models.ssm.compile.inputs import compile_executable_model
@@ -142,22 +150,48 @@ def read_simulation_report(
         reliability: FitReliability = "unknown" if law.kind == "unknown" else "not_fitted"
         if isinstance(law, (FittedLawProvenance, MixedLawProvenance)):
             report = fitted_law_report(store, records, law.fitted_model_revision)
-            reliability = "unknown" if report.inference_diagnostics is None else "unconverged" if convergence_failures(report.convergence) else "converged"
-        causal = Unavailable(reason="Causal effect certification is pending.") if evidence.design.interventions else NotApplicable(reason="No intervention was requested.")
+            reliability = (
+                "unknown"
+                if report.inference_diagnostics is None
+                else "unconverged"
+                if convergence_failures(report.convergence)
+                else "converged"
+            )
+        causal = (
+            Unavailable(reason="Causal effect certification is pending.")
+            if evidence.design.interventions
+            else NotApplicable(reason="No intervention was requested.")
+        )
         selection = StructuralSelection.for_question(model, read_question(store, question_revision))
         try:
             compiled = compile_executable_model(selection)
         except (AggregatedCompileError, IncompleteModelError) as exc:
-            return SimulationReport(evidence=evidence, law=law, fit_reliability=reliability, causal=Unavailable(reason=str(exc)) if evidence.design.interventions else causal)
+            return SimulationReport(
+                evidence=evidence,
+                law=law,
+                fit_reliability=reliability,
+                causal=Unavailable(reason=str(exc)) if evidence.design.interventions else causal,
+            )
         times = jnp.asarray(evidence.times)
-        parameters = {name: jnp.asarray(store.read_array(ref)) for name, ref in evidence.parameter_draws.items()}
+        parameters = {
+            name: jnp.asarray(store.read_array(ref))
+            for name, ref in evidence.parameter_draws.items()
+        }
         latents = jnp.asarray(store.read_array(evidence.latent_paths))
         observations = jnp.asarray(store.read_array(evidence.observations))
         mask = jnp.asarray(store.read_array(evidence.observation_layout.mask))
-        support = recorded_observation_support(np.asarray(times), evidence.observation_layout.variables, store.read_array(evidence.observation_layout.support_start_times), store.read_array(evidence.observation_layout.support_end_times))
+        support = recorded_observation_support(
+            np.asarray(times),
+            evidence.observation_layout.variables,
+            store.read_array(evidence.observation_layout.support_start_times),
+            store.read_array(evidence.observation_layout.support_end_times),
+        )
         if isinstance(support, ObservationPreflightFailure):
             raise ValueError(f"Recorded simulation support is corrupt: {support.message}")
-        from nof1_causal_lab.models.ssm.execution.observation_operator import compile_observation_operator
+        from nof1_causal_lab.models.ssm.execution.observation_operator import (
+            compile_observation_operator,
+        )
+
         operator = compile_observation_operator(support)
         native = _predictive_models(compiled, parameters, times)
 
@@ -170,17 +204,47 @@ def read_simulation_report(
             return predictors, response
 
         predictors, means = eqx.filter_vmap(responses)(native, latents)
-        trajectory = PredictiveTrajectory(latents, predictors, observations, mask, jnp.where(mask, means, jnp.nan))
+        trajectory = PredictiveTrajectory(
+            latents, predictors, observations, mask, jnp.where(mask, means, jnp.nan)
+        )
         prediction = PredictiveDraws(parameters, trajectory)
         variables = evidence.observation_layout.indicator_ids
-        batch = SimulationBatch(evidence.times, prediction, None, DesignInfo(
-            t_grid=times, manifest_ids=variables,
-            obs_index_by_indicator={identity: np.flatnonzero(np.asarray(mask[:, :, index]).any(axis=0)) for index, identity in enumerate(variables)},
-            values_by_indicator={identity: np.asarray([]) for identity in variables},
-            n_draws=evidence.draws, seed=evidence.seed, observation_support=support,
-        ), time_origin=evidence.time_origin)
+        batch = SimulationBatch(
+            evidence.times,
+            prediction,
+            None,
+            DesignInfo(
+                t_grid=times,
+                manifest_ids=variables,
+                obs_index_by_indicator={
+                    identity: np.flatnonzero(np.asarray(mask[:, :, index]).any(axis=0))
+                    for index, identity in enumerate(variables)
+                },
+                values_by_indicator={identity: np.asarray([]) for identity in variables},
+                n_draws=evidence.draws,
+                seed=evidence.seed,
+                observation_support=support,
+            ),
+            time_origin=evidence.time_origin,
+        )
         findings, _ = measure_simulation_batch(compiled, batch, clock=time.monotonic)
-        return summarize_causal_simulation(selection, SimulationReport(evidence=evidence, law=law, findings=findings, fit_reliability=reliability, causal=causal), store=store, inference=inference_record(records, evidence.model.revision))
+        return summarize_causal_simulation(
+            selection,
+            SimulationReport(
+                evidence=evidence,
+                law=law,
+                findings=findings,
+                fit_reliability=reliability,
+                causal=causal,
+            ),
+            store=store,
+            inference=inference_record(records, evidence.model.revision),
+        )
 
-    value, _ = cached_value(store.workspace_id, ("simulation-report", question_revision, evidence.model_dump_json(round_trip=True)), TypeAdapter(SimulationReport), render)
+    value, _ = cached_value(
+        store.workspace_id,
+        ("simulation-report", question_revision, evidence.model_dump_json(round_trip=True)),
+        TypeAdapter(SimulationReport),
+        render,
+    )
     return value

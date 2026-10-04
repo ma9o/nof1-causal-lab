@@ -22,6 +22,9 @@ class ExtractionRow(TypedDict):
     timestamp: str
 
 
+EXTRACTION_ROW_SCHEMA = {"indicator_id": pl.Utf8, "value": pl.Utf8, "timestamp": pl.Utf8}
+
+
 class WindowExtraction(Value):
     """A single extracted observation for an indicator within a support window."""
 
@@ -50,13 +53,8 @@ class WorkerOutput(Value):
             The timestamp column contains the support-window start time.
             Value column is stored as string for downstream encoding.
         """
-        schema = {
-            "indicator_id": pl.Utf8,
-            "value": pl.Utf8,
-            "timestamp": pl.Utf8,
-        }
         if not self.extractions:
-            return pl.DataFrame(schema=schema)
+            return pl.DataFrame(schema=EXTRACTION_ROW_SCHEMA)
 
         rows = []
         for e in self.extractions:
@@ -68,7 +66,7 @@ class WorkerOutput(Value):
                 }
             )
 
-        return pl.DataFrame(rows, schema=schema)
+        return pl.DataFrame(rows, schema=EXTRACTION_ROW_SCHEMA)
 
 
 def _check_dtype_match(value: object, expected_dtype: MeasurementDtype) -> bool:

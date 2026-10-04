@@ -2175,10 +2175,12 @@ export interface components {
          * @description Native execution telemetry; posterior atoms and coordinates belong to the model.
          */
         readonly InferenceEvidence: {
+            readonly distribution: components["schemas"]["DistributionId-Output"];
             /** Time Origin */
             readonly time_origin: string | null;
             /** Duration Seconds */
             readonly duration_seconds: number;
+            readonly engine: components["schemas"]["ParticleMCMCEvidence"] | null;
             /**
              * Num Chains
              * @default null
@@ -2409,6 +2411,8 @@ export interface components {
             readonly time_points: readonly number[];
             /** Labels */
             readonly labels: Readonly<Partial<Record<components["schemas"]["ParameterElementId-Input"], string>>>;
+            /** Construct Labels */
+            readonly construct_labels: Readonly<Partial<Record<components["schemas"]["ConstructId-Input"], string>>>;
         };
         /**
          * JointLawLayout
@@ -2430,6 +2434,8 @@ export interface components {
             readonly time_points: readonly number[];
             /** Labels */
             readonly labels: Readonly<Partial<Record<components["schemas"]["ParameterElementId-Output"], string>>>;
+            /** Construct Labels */
+            readonly construct_labels: Readonly<Partial<Record<components["schemas"]["ConstructId-Output"], string>>>;
         };
         /** @description A JSON array transports an ordered collection of recursively typed values. */
         readonly "JsonArray-Input": readonly Domain.JsonValue[];

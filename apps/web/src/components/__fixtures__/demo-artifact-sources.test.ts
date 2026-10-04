@@ -1,4 +1,3 @@
-import { fixtureValue } from "@/components/__fixtures__/fixture-value";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -48,24 +47,11 @@ describe("promoted DEMO fixture", () => {
     expect(indicators.every((i) => !("construct_id" in i))).toBe(true);
   });
 
-  it("keeps retained numerical findings on scientific IDs without compiler coordinates", () => {
+  it("shows absent posterior evidence when the archive retained no atoms", () => {
     expect(demoModelSnapshot).not.toHaveProperty("execution");
-    const posterior = fixtureValue(demoModelSnapshot.fit).value.report;
-    const parameters = new Set(demoModel.parameters.map((p) => p.id));
-    expect(
-      fixtureValue(posterior.posterior_marginals).every((m) =>
-        parameters.has(m.subject.parameter_id),
-      ),
-    ).toBe(true);
-    expect(posterior.posterior_marginals).toHaveLength(92);
-    expect(posterior.engine.kind).toBe("not_evaluated");
-    expect(posterior.inference_diagnostics).toEqual(demoPosterior.inference_diagnostics);
-    const indicators = new Set(
-      modelConstructs(demoModel).flatMap((construct) =>
-        construct.indicators.map((i) => i.observation.id),
-      ),
-    );
-    expect(predictiveChecks.overlays.every((o) => indicators.has(o.indicator_id))).toBe(true);
+    expect(demoModelSnapshot.fit).toBeNull();
+    expect(demoPosterior).toBeNull();
+    expect(predictiveChecks).toBeNull();
   });
 
   it("materializes comprehensive DAG layers only where their process semantics exist", () => {
@@ -84,15 +70,15 @@ describe("promoted DEMO fixture", () => {
           warning.includes("Artificial Storybook simulation"),
         ),
       ).toBe(true);
-      expect(result.model.revision).toBe("a".repeat(40));
+      expect(result.evidence.model.revision).toBe("a".repeat(40));
       expect(result.causal.value.labels[result.causal.value.outcome]).toBe(
         "internalizing_symptom_burden",
       );
-      expect(result.design.interventions).toHaveLength(1);
-      expect([...result.state_ids].sort()).toEqual(stateIds);
-      expect(result.times).toHaveLength(61);
-      expect(result.latent_paths).toBeTruthy();
-      expect(result.reference_latent_paths).toBeTruthy();
+      expect(result.evidence.design.interventions).toHaveLength(1);
+      expect([...result.evidence.state_ids].sort()).toEqual(stateIds);
+      expect(result.evidence.times).toHaveLength(61);
+      expect(result.evidence.latent_paths).toBeTruthy();
+      expect(result.evidence.reference_latent_paths).toBeTruthy();
       expect(result).not.toHaveProperty("predictive");
       expect(result.causal.value).not.toHaveProperty("effect_trajectory");
     }

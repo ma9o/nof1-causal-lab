@@ -5,9 +5,8 @@ from collections.abc import Mapping
 from pydantic import AwareDatetime, Field
 
 from nof1_causal_lab.artifacts.base import Value
-
 from .checks import Assessment
-from .identity import ConstructId, DistributionId, ParameterRef
+from .identity import ConstructId, DistributionId
 from .posterior_diagnostics import (
     ChainDiagnostics,
     LOODiagnostics,
@@ -52,6 +51,7 @@ class InferenceEvidence(Value):
     distribution: DistributionId
     time_origin: AwareDatetime | None
     duration_seconds: float = Field(ge=0)
+    engine: ParticleMCMCEvidence | None
     num_chains: int | None = Field(default=None, ge=1)
     chain_extra_fields: Mapping[str, str] = Field(default_factory=dict)
     observation_log_probs: str | None = None
@@ -64,16 +64,28 @@ class InferenceEvidence(Value):
     initial_latent_delta: str | None = None
     final_latent_delta: str | None = None
 
-
     @property
     def array_references(self) -> frozenset[str]:
         """Native buffers that must accompany the retained evidence."""
-        return frozenset((*self.chain_extra_fields.values(),
-            *(ref for fields in self.phase_extra_fields.values() for ref in fields.values()),
-            *(ref for ref in (self.observation_log_probs, self.observed_rows,
-                self.exact_observation_rows, self.warmup_complete_log_posterior_history,
-                self.all_complete_log_posterior_history, self.initial_latent_delta,
-                self.final_latent_delta) if ref is not None)))
+        return frozenset(
+            (
+                *self.chain_extra_fields.values(),
+                *(ref for fields in self.phase_extra_fields.values() for ref in fields.values()),
+                *(
+                    ref
+                    for ref in (
+                        self.observation_log_probs,
+                        self.observed_rows,
+                        self.exact_observation_rows,
+                        self.warmup_complete_log_posterior_history,
+                        self.all_complete_log_posterior_history,
+                        self.initial_latent_delta,
+                        self.final_latent_delta,
+                    )
+                    if ref is not None
+                ),
+            )
+        )
 
 
 class InferenceReportCore(Value):

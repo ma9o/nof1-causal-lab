@@ -44,6 +44,7 @@ def inference_log(
 ):
     pins: dict[ArtifactId, GitOid] = {"model": prior_revision, "panel": git_oid(1)}
     from nof1_causal_lab.artifacts.posterior import InferenceEvidence
+    from nof1_causal_lab.artifacts.posterior_diagnostics import ParticleMCMCEvidence
     from nof1_causal_lab.artifacts.identity import GitRef
     from nof1_causal_lab.study.records import ModelFitResult, StudyRevision
     from tests.action_fixtures import applied_record
@@ -52,15 +53,23 @@ def inference_log(
         Applied(
             result=ModelFitResult(
                 model=GitRef(workspace_id=workspace_id, revision=prior_revision, path="model.json"),
-                panel=GitRef(workspace_id=workspace_id, revision=pins["panel"], path="panel.parquet"),
+                panel=GitRef(
+                    workspace_id=workspace_id, revision=pins["panel"], path="panel.parquet"
+                ),
                 evidence=InferenceEvidence(
                     distribution=next(iter(model.law_layouts)),
-                    time_origin="2024-01-01T00:00:00Z", duration_seconds=0,
+                    engine=ParticleMCMCEvidence(),
+                    time_origin="2024-01-01T00:00:00Z",
+                    duration_seconds=0,
                 ),
-            ) if model.law_layouts else None,
+            )
+            if model.law_layouts
+            else None,
             effects=ActionEffects(
                 produced=(
-                    ArtifactRecord(artifact_id="model", revision=revision, produced_by="fit", derived_from=pins),
+                    ArtifactRecord(
+                        artifact_id="model", revision=revision, produced_by="fit", derived_from=pins
+                    ),
                 )
             ),
         ),
@@ -136,7 +145,9 @@ def particle_posterior(draws):
                 num_chains=1,
                 num_samples=n_samples,
             ),
-            observation_log_probs=jnp.zeros((1, n_samples, 0)),
+            observation_log_probs=jnp.zeros(
+                (1, n_samples, draws.latent_paths.shape[1] if draws.latent_paths is not None else 0)
+            ),
         ),
     )
 

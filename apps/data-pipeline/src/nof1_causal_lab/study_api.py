@@ -9,15 +9,20 @@ import os
 import pathlib
 import re
 from collections.abc import Callable, Mapping
-from typing import Annotated, TYPE_CHECKING, cast
+from typing import TYPE_CHECKING, Annotated, cast
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile
 from pydantic import TypeAdapter
 
 from nof1_causal_lab.actions.contracts import (
-    EditModelRequest, FitRequest, PrepareDataRequest, ScientificActionRequest,
-    SetQuestionRequest, SimulateRequest, call_identity,
+    EditModelRequest,
+    FitRequest,
+    PrepareDataRequest,
+    ScientificActionRequest,
+    SetQuestionRequest,
+    SimulateRequest,
+    call_identity,
 )
 from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.actions.progress import read_events
@@ -29,11 +34,20 @@ from nof1_causal_lab.json_types import JsonObject, JsonValue
 from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.records import (
-    ActionMessage, Applied, Attempt, RecordDependency, StudyRevision,
+    ActionMessage,
+    Applied,
+    Attempt,
+    RecordDependency,
+    StudyRevision,
     record_dependencies,
 )
 from nof1_causal_lab.study.snapshots import ModelReader
-from nof1_causal_lab.study.store import ArtifactStore, cached_read, read_attempt_trace, read_question
+from nof1_causal_lab.study.store import (
+    ArtifactStore,
+    cached_read,
+    read_attempt_trace,
+    read_question,
+)
 from nof1_causal_lab.study.view_models import DataDiffRequest, ModelDiffReport, ModelDiffRequest
 from nof1_causal_lab.utils import data as data_module, storage
 from nof1_causal_lab.utils.llm import LLMTrace
@@ -226,7 +240,11 @@ def _completed_call(workspace_id: str, revision: StudyRevision) -> CompletedPoll
     predictive_overlays = {indicator.observation.id: overlay for indicator in reader.indicators()
                           if (overlay := reader.predictive_history(indicator.observation.id)) is not None}
     simulation = reader.simulation()
-    paths = reader.simulation_paths(start=0, count=simulation.value.evidence.draws) if simulation is not None else None
+    paths = (
+        reader.simulation_paths(start=0, count=simulation.value.evidence.draws)
+        if simulation is not None
+        else None
+    )
     artifacts: dict[str, JsonObject] = {}
     for info in reader.state.current.values():
         payload: dict[str, JsonValue] = {}
@@ -244,24 +262,38 @@ def _completed_call(workspace_id: str, revision: StudyRevision) -> CompletedPoll
             (report.reference_observations,) if report.reference_observations is not None else (),
         )
     for record in reader.records:
-        if record.record.attempt.action != "fit" or not isinstance(record.record.attempt.outcome, Applied) or record.record.attempt.outcome.result is None:
+        if (
+            record.record.attempt.action != "fit"
+            or not isinstance(record.record.attempt.outcome, Applied)
+            or record.record.attempt.outcome.result is None
+        ):
             continue
         evidence = record.record.attempt.outcome.result.evidence
         references = references.union(evidence.array_references)
     comparison = None
     if attempt.action == "data_diff" and attempt.request is not None:
         from nof1_causal_lab.actions.data_diff import read_data_diff
+
         comparison = read_data_diff(workspace_id, attempt.request)
     arrays: dict[str, JsonValue] = {}
     for identity in sorted(references):
         values = reader.store.read_array(identity)
         arrays[identity] = np.where(np.isfinite(values), values, None).tolist()
     return CompletedPoll(
-        commit_id=revision.commit_id, attempt=attempt, messages=revision.record.messages,
-        snapshot=snapshot, inference_report=reader.inference_report, data_comparison=comparison, checks=reader.checks[0] if reader.checks is not None else None,
-        observation_histories=observation_histories, predictive_overlays=predictive_overlays,
-        simulation_paths=paths, parameter_draws=reader.parameter_draws(),
-        traces=traces, artifacts=artifacts, arrays=arrays,
+        commit_id=revision.commit_id,
+        attempt=attempt,
+        messages=revision.record.messages,
+        snapshot=snapshot,
+        inference_report=reader.inference_report,
+        data_comparison=comparison,
+        checks=reader.checks[0] if reader.checks is not None else None,
+        observation_histories=observation_histories,
+        predictive_overlays=predictive_overlays,
+        simulation_paths=paths,
+        parameter_draws=reader.parameter_draws(),
+        traces=traces,
+        artifacts=artifacts,
+        arrays=arrays,
     )
 
 

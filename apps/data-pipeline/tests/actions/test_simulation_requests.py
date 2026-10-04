@@ -7,9 +7,13 @@ from pydantic import TypeAdapter, ValidationError
 
 from nof1_causal_lab.actions.contracts import SimulateRequest
 from nof1_causal_lab.actions.effects import ActionEffects
-from nof1_causal_lab.artifacts.scenarios import InterventionSpec
-from nof1_causal_lab.artifacts.simulation import SimulationEvidence, SimulationReport, SimulationSpec
 from nof1_causal_lab.artifacts.predictive_provenance import AuthoredLawProvenance
+from nof1_causal_lab.artifacts.scenarios import InterventionSpec
+from nof1_causal_lab.artifacts.simulation import (
+    SimulationEvidence,
+    SimulationReport,
+    SimulationSpec,
+)
 from nof1_causal_lab.study.records import Applied
 from tests.inference_fixtures import compile_model_fixture, particle_posterior
 from tests.model_fixtures import stress_sleep_model
@@ -118,8 +122,12 @@ def _response(origin: datetime = datetime(2026, 1, 1, tzinfo=UTC)):
         "reference_latent_paths": "reference-paths",
         "reference_observations": "reference-observations",
     }
-    return {"evidence": evidence, "law": AuthoredLawProvenance().model_dump(mode="json"),
-        "fit_reliability": "converged", "causal": {"kind": "available", "value": result}}
+    return {
+        "evidence": evidence,
+        "law": AuthoredLawProvenance().model_dump(mode="json"),
+        "fit_reliability": "converged",
+        "causal": {"kind": "available", "value": result},
+    }
 
 
 def test_one_request_can_produce_independently_pinned_responses():
@@ -266,7 +274,9 @@ def test_runner_derives_origin_and_reliability_from_current_panel_or_fit(
                         inference_diagnostics=poor, convergence=parameter_convergence(poor)
                     )
                 )
-            monkeypatch.setattr("nof1_causal_lab.study.lineage.fitted_law_report", lambda *_args: fit.core)
+            monkeypatch.setattr(
+                "nof1_causal_lab.study.lineage.fitted_law_report", lambda *_args: fit.core
+            )
             StudyRepository("ORIGIN").append(
                 applied_record(
                     Applied(
@@ -279,7 +289,11 @@ def test_runner_derives_origin_and_reliability_from_current_panel_or_fit(
                                 revision=fit_panel.revision,
                                 path="panel.parquet",
                             ),
-                            evidence=inference_log(model).record.attempt.outcome.result.evidence.revised(time_origin=fit_origin),
+                            evidence=inference_log(
+                                model
+                            ).record.attempt.outcome.result.evidence.revised(
+                                time_origin=fit_origin
+                            ),
                         ),
                         effects=ActionEffects(produced=(prior, fit_panel, record)),
                     ),
@@ -320,9 +334,16 @@ def test_runner_derives_origin_and_reliability_from_current_panel_or_fit(
 
     action = import_module("nof1_causal_lab.actions.simulate")
     monkeypatch.setattr(action, "simulate", generate)
-    monkeypatch.setattr(action, "read_simulation_report", lambda _store, evidence, _question: SimulationReport(
-        evidence=evidence, law=AuthoredLawProvenance(), fit_reliability=reliable,
-        causal=SimulationReport.model_validate(_response(evidence.time_origin)).causal))
+    monkeypatch.setattr(
+        action,
+        "read_simulation_report",
+        lambda _store, evidence, _question: SimulationReport(
+            evidence=evidence,
+            law=AuthoredLawProvenance(),
+            fit_reliability=reliable,
+            causal=SimulationReport.model_validate(_response(evidence.time_origin)).causal,
+        ),
+    )
     applied = run_async(
         run_action(
             "ORIGIN",

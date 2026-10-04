@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-from tests.git_fixtures import artifact_revisions
-
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -13,6 +11,7 @@ from nof1_causal_lab.actions.contracts import FitRequest
 from nof1_causal_lab.actions.runners import run_action_locally
 from nof1_causal_lab.study.state import apply_effects
 from nof1_causal_lab.study.store import read_model
+from tests.git_fixtures import artifact_revisions
 from tests.helpers import run_async, write_question
 from tests.inference_fixtures import (
     bind_panel_fixture,
@@ -92,12 +91,16 @@ def test_inference_advances_model_and_uses_the_selected_input(
             "question": question.revision,
         } == info.derived_from
         from nof1_causal_lab.actions.fit import read_inference_report
+
         report = read_inference_report(artifact_store, info.revision, applied.result.evidence)
         assert report.core.inference_diagnostics.num_chains == 1
         assert report.core.inference_diagnostics.num_samples == 4
         assert report.core.inference_metadata.n_samples == 4
         assert "report" not in applied.result.model_dump()
-        assert applied.result.evidence.distribution in read_model(artifact_store, info.revision).law_layouts
+        assert (
+            applied.result.evidence.distribution
+            in read_model(artifact_store, info.revision).law_layouts
+        )
         conditioned = read_model(artifact_store, info.revision)
         assert type(conditioned) is type(authored)
         assert conditioned.distributions

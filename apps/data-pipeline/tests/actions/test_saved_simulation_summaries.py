@@ -1,9 +1,5 @@
 """Saved scientific summaries retain masks, paired uncertainty and absolute time."""
 
-
-from nof1_causal_lab.artifacts.simulation import SimulationEvidence
-
-from nof1_causal_lab.artifacts.predictive_provenance import AuthoredLawProvenance
 from datetime import UTC, date, datetime
 
 import numpy as np
@@ -14,7 +10,9 @@ from nof1_causal_lab.artifacts.availability import Unavailable
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.identity import GitRef
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.predictive_provenance import AuthoredLawProvenance
 from nof1_causal_lab.artifacts.simulation import (
+    SimulationEvidence,
     SimulationObservationLayout,
     SimulationReport,
     SimulationSpec,
@@ -22,8 +20,8 @@ from nof1_causal_lab.artifacts.simulation import (
 from nof1_causal_lab.models.model_structure import StructuralSelection, selected_state_ids
 from nof1_causal_lab.models.ssm.predictive.simulation import generate_simulation_batch
 from nof1_causal_lab.study.history import StudyRepository
-from nof1_causal_lab.study.snapshots import ModelReader
 from nof1_causal_lab.study.records import Applied, ModelSimulationResult
+from nof1_causal_lab.study.snapshots import ModelReader
 from nof1_causal_lab.study.store import ArtifactStore
 from tests.action_fixtures import applied_record
 from tests.data_fixtures import metadata_for_model
@@ -108,16 +106,37 @@ def test_full_categories_and_paired_paths_are_derived_on_read_and_cached(tmp_pat
         support_end_times=store.write_array(support_times),
         mask=store.write_array(mask),
     )
-    report = SimulationReport(causal=Unavailable(reason="No causal effect was recorded."), fit_reliability="not_fitted", law=AuthoredLawProvenance(), evidence=SimulationEvidence(model=GitRef(workspace_id="SUMMARY", revision=definition.revision, path="model.json"), design=SimulationSpec(
-            start=date(2026, 1, 6),
-            horizon="2d",
-            interventions=(
-                {"target": selected_state_ids(StructuralSelection(model, None))[0], "value": 1},
+    report = SimulationReport(
+        causal=Unavailable(reason="No causal effect was recorded."),
+        fit_reliability="not_fitted",
+        law=AuthoredLawProvenance(),
+        evidence=SimulationEvidence(
+            model=GitRef(workspace_id="SUMMARY", revision=definition.revision, path="model.json"),
+            design=SimulationSpec(
+                start=date(2026, 1, 6),
+                horizon="2d",
+                interventions=(
+                    {"target": selected_state_ids(StructuralSelection(model, None))[0], "value": 1},
+                ),
             ),
-        ), times=(5, 7), draws=3, seed=0, time_origin=datetime(2026, 1, 1, tzinfo=UTC), state_ids=tuple(selected_state_ids(StructuralSelection(model, None))), parameter_draws={}, latent_paths=store.write_array(states), observations=store.write_array(observations), reference_latent_paths=store.write_array(states - 1), reference_observations=store.write_array(observations), observation_layout=layout))
+            times=(5, 7),
+            draws=3,
+            seed=0,
+            time_origin=datetime(2026, 1, 1, tzinfo=UTC),
+            state_ids=tuple(selected_state_ids(StructuralSelection(model, None))),
+            parameter_draws={},
+            latent_paths=store.write_array(states),
+            observations=store.write_array(observations),
+            reference_latent_paths=store.write_array(states - 1),
+            reference_observations=store.write_array(observations),
+            observation_layout=layout,
+        ),
+    )
     history.append(
         applied_record(
-            Applied(result=ModelSimulationResult(evidence=(report).evidence), effects=ActionEffects()),
+            Applied(
+                result=ModelSimulationResult(evidence=(report).evidence), effects=ActionEffects()
+            ),
             seq=2,
             ts="2026-01-01T01:00:00Z",
             trace_ids=[],
@@ -135,6 +154,7 @@ def test_full_categories_and_paired_paths_are_derived_on_read_and_cached(tmp_pat
     assert path_data["states"][identity]["action"][0]["draw"] == 1
     assert path_data["states"][identity]["action"][0]["values"] == states[1, :, 0].tolist()
     from nof1_causal_lab.study.errors import StudyLookupError
+
     with pytest.raises(StudyLookupError, match="past"):
         reader.simulation_paths(start=3, count=128)
     for variable in layout.variables:
@@ -158,7 +178,11 @@ def test_full_categories_and_paired_paths_are_derived_on_read_and_cached(tmp_pat
     def no_generation(*_args, **_kwargs):
         pytest.fail("A saved simulation read must not generate histories")
 
-    monkeypatch.setattr("nof1_causal_lab.models.ssm.predictive.simulation.generate_simulation_batch", no_generation)
+    monkeypatch.setattr(
+        "nof1_causal_lab.models.ssm.predictive.simulation.generate_simulation_batch", no_generation
+    )
+    assert ModelReader("SUMMARY", at=history.head()).simulation() == first
+    monkeypatch.setattr("nof1_causal_lab.study.store._CODE_DIGEST", "current-reducer-code")
     assert ModelReader("SUMMARY", at=history.head()).simulation() == first
 
 

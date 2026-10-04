@@ -1,7 +1,5 @@
 """Read findings follow their scientific revision and observational inputs."""
 
-from nof1_causal_lab.artifacts.data_preparation import FilePreparedDataMetadata
-
 import json
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -12,15 +10,11 @@ from pydantic import TypeAdapter
 
 from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.artifacts.data_preparation import FilePreparedDataMetadata
 from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec, ObservationLawSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.study.artifact_files import artifact_file_spec
 from nof1_causal_lab.study.history import StudyRepository
-from nof1_causal_lab.study.records import (
-    Applied,
-    DataPreparationResult,
-    ModelFitResult,
-)
+from nof1_causal_lab.study.records import Applied, DataPreparationResult, ModelFitResult
 from nof1_causal_lab.study.snapshots import ModelReader
 from nof1_causal_lab.study.store import ArtifactStore
 from tests.action_fixtures import applied_record
@@ -56,18 +50,28 @@ def test_runtime_diagnostic_subjects_match_posterior_marginals():
 
 
 @pytest.mark.contract
-
 def test_fit_without_retained_atoms_has_no_report(monkeypatch, tmp_path):
     from nof1_causal_lab.study.records import FitAttempt
     from nof1_causal_lab.utils import data
 
     monkeypatch.setattr(data, "_DATA_URI", str(tmp_path))
     store, journal = ArtifactStore("ABSENT"), StudyRepository("ABSENT")
-    info = store.write_artifact("model", derived_from={}, produced_by="edit_model",
-        json_files={"model.json": x_y_model().model_dump(mode="json", round_trip=True)})
-    journal.append(applied_record(Applied(result=None, effects=ActionEffects(produced=(write_question(store), info))), seq=1))
+    info = store.write_artifact(
+        "model",
+        derived_from={},
+        produced_by="edit_model",
+        json_files={"model.json": x_y_model().model_dump(mode="json", round_trip=True)},
+    )
+    journal.append(
+        applied_record(
+            Applied(result=None, effects=ActionEffects(produced=(write_question(store), info))),
+            seq=1,
+        )
+    )
     record = applied_record(Applied(result=None, effects=ActionEffects()), seq=2)
-    record = record.revised(attempt=FitAttempt(action="fit", request=None, outcome=record.attempt.outcome))
+    record = record.revised(
+        attempt=FitAttempt(action="fit", request=None, outcome=record.attempt.outcome)
+    )
     journal.append(record)
     reader = ModelReader("ABSENT", at=journal.head())
     assert reader.inference_report is None
@@ -88,25 +92,57 @@ def test_joint_reports_and_raw_draws_use_production_labels_without_compiling(mon
     identity, layout = next(iter(model.law_layouts.items()))
     labels = {element: f"Production label {index}" for index, element in enumerate(layout.labels)}
     model = model.revised(law_layouts={identity: layout.revised(labels=labels)})
-    info = store.write_artifact("model", derived_from={}, produced_by="fit",
-        json_files={"model.json": model.model_dump(mode="json", round_trip=True)})
+    prior = store.write_artifact(
+        "model",
+        derived_from={},
+        produced_by="edit_model",
+        json_files={
+            "model.json": load_model_fixture("causal_proofs/treatment_outcome.json").model_dump(
+                mode="json", round_trip=True
+            )
+        },
+    )
     panel = store.write_artifact("panel", derived_from={}, produced_by="prepare_data")
-    result = ModelFitResult(model=GitRef(workspace_id="LABELS", revision=info.revision, path="model.json"),
+    info = store.write_artifact(
+        "model",
+        derived_from={"model": prior.revision, "panel": panel.revision},
+        produced_by="fit",
+        json_files={"model.json": model.model_dump(mode="json", round_trip=True)},
+    )
+    result = ModelFitResult(
+        model=GitRef(workspace_id="LABELS", revision=prior.revision, path="model.json"),
         panel=GitRef(workspace_id="LABELS", revision=panel.revision, path="panel.parquet"),
-        evidence=InferenceEvidence(distribution=identity, time_origin=None, duration_seconds=0))
-    journal.append(applied_record(Applied(result=result, effects=ActionEffects(produced=(write_question(store), panel, info))), seq=1))
-    monkeypatch.setattr("nof1_causal_lab.models.ssm.compile.inputs.compile_model",
-        lambda *_args: pytest.fail("Reports and raw atoms do not need the compiler"))
+        evidence=InferenceEvidence(
+            distribution=identity, engine=None, time_origin=None, duration_seconds=0
+        ),
+    )
+    journal.append(
+        applied_record(
+            Applied(
+                result=result, effects=ActionEffects(produced=(write_question(store), panel, info))
+            ),
+            seq=1,
+        )
+    )
+    monkeypatch.setattr(
+        "nof1_causal_lab.models.ssm.compile.inputs.compile_model",
+        lambda *_args: pytest.fail("Reports and raw atoms do not need the compiler"),
+    )
     reader = ModelReader("LABELS", at=journal.head())
     report = reader.inference_report
     assert report is not None
     assert {row.parameter for row in report.value.core.posterior_marginals} == set(labels.values())
     assert report.value.core.inference_diagnostics is None
+    assert report.value.core.engine.kind == "not_evaluated"
+    assert report.value.core.engine.reason == "ARCHIVED_ENGINE_NOT_RETAINED"
     assert report.source.pointer == "/attempt/outcome/result/evidence"
     columns = reader.parameter_draws()
     assert columns.kind == "available"
     assert {column.label for column in columns.value} == set(labels.values())
-    assert all(len(column.values) == report.value.core.inference_metadata.n_samples for column in columns.value)
+    assert all(
+        len(column.values) == report.value.core.inference_metadata.n_samples
+        for column in columns.value
+    )
     assert set(reader.state.current) == {"question", "model", "panel"}
 
 
@@ -137,7 +173,6 @@ def test_likelihood_plot_requires_its_pinned_panel(
         DataPreparationSpec,
         DataVariableSpec,
         FileSourceRef,
-        PreparedDataMetadata,
         SemanticExtractionSpec,
     )
     from nof1_causal_lab.utils import data as data_module
@@ -178,7 +213,9 @@ def test_likelihood_plot_requires_its_pinned_panel(
             ),
         ),
     )
-    metadata = FilePreparedDataMetadata(source=FileSourceRef(files=("observations.csv",)), preparation=preparation, time_origin=None)
+    metadata = FilePreparedDataMetadata(
+        source=FileSourceRef(files=("observations.csv",)), preparation=preparation, time_origin=None
+    )
     panel = store.write_artifact(
         "panel",
         derived_from={},

@@ -3,11 +3,10 @@
 from __future__ import annotations
 
 import time
-
-from pydantic import TypeAdapter
 from typing import TYPE_CHECKING
 
 import numpy as np
+from pydantic import TypeAdapter
 
 from nof1_causal_lab.artifacts.checks import (
     Evaluated,
@@ -155,7 +154,8 @@ def check_model_predictive(
             and times[0] < model.time_points[0]
         ):
             return not_evaluated(
-                "NO_COMPATIBLE_PANEL", "The current panel begins before the fit's first retained state"
+                "NO_COMPATIBLE_PANEL",
+                "The current panel begins before the fit's first retained state",
             )
         times = np.asarray(times)
         if len(times) < 2 or not np.isfinite(times).all() or not np.all(np.diff(times) > 0):
@@ -212,9 +212,14 @@ def check_model_predictive(
                 ),
             )
         findings, checks = measure_simulation_batch(
-            compiled, batch, groups=("dynamics", "measurement", "data_comparison"), clock=time.monotonic
+            compiled,
+            batch,
+            groups=("dynamics", "measurement", "data_comparison"),
+            clock=time.monotonic,
         )
         return evaluated(findings, checks)
 
-    value, reused = cached_value(store.workspace_id, ("predictive", key), TypeAdapter(ModelPredictiveReport), render)
+    value, reused = cached_value(
+        store.workspace_id, ("predictive", key), TypeAdapter(ModelPredictiveReport), render
+    )
     return value.revised(model_revision=record.revision), reused

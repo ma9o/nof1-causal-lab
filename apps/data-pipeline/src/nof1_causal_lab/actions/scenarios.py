@@ -52,7 +52,9 @@ def summarize_causal_simulation(
                     treatment=model.get_construct(target).name,
                     outcome=model.get_construct(outcome).name,
                 )
-                for target in sorted({event.target for event in report.evidence.design.interventions})
+                for target in sorted(
+                    {event.target for event in report.evidence.design.interventions}
+                )
             ),
             inference=inference,
             fitted_model=read_model(store, report.evidence.model.revision),

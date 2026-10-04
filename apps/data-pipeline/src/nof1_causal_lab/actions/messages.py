@@ -13,11 +13,7 @@ from nof1_causal_lab.artifacts.validation_report import (
     ValidationReportArtifact,
 )
 from nof1_causal_lab.models.ssm.inference.convergence import convergence_failures
-from nof1_causal_lab.study.records import (
-    ActionMessage,
-    Applied,
-    DataPreparationResult,
-)
+from nof1_causal_lab.study.records import ActionMessage, Applied, DataPreparationResult
 
 if TYPE_CHECKING:
     from datetime import datetime

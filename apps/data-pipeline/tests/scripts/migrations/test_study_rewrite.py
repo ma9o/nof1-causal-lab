@@ -135,6 +135,7 @@ def test_representation_rewrite_preserves_fresh_and_stale_consumers_refs_and_byt
     # Make the old owner's inference fingerprint differ from the new representation.
     old_meta = json.loads(read_file(store.repo, owner.revision, "meta.json"))
     from nof1_causal_lab.models.model_inputs import input_fingerprints
+
     old_meta["model_inputs"] = dict(input_fingerprints(model))
     old_meta["model_inputs"]["belief"] = "old-representation"
     from scripts.migrations.migrate_format_12 import CHECK_POLICY_VERSION

@@ -11,7 +11,6 @@ from nof1_causal_lab.actions.contracts import EditModelRequest
 from nof1_causal_lab.actions.data_checks import evaluate_data_checks
 from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.actions.messages import completion_messages
-from nof1_causal_lab.artifacts.validation_report import ValidationReportArtifact
 from nof1_causal_lab.models.model_structure import StructuralSelection
 from nof1_causal_lab.models.ssm.inference import fit
 from nof1_causal_lab.models.ssm.preflight import ObservationPreflightFailure
@@ -114,7 +113,10 @@ def test_edit_with_missing_panel_variable_saves_compatibility_findings(tmp_path,
     )
     assert "model" in {item.artifact_id for item in edited.effects.produced}
     from nof1_causal_lab.actions.model_checks import read_model_checks
-    checks, identification, report = read_model_checks("TEST", state.with_artifacts(edited.effects.produced), action="edit_model")
+
+    checks, identification, report = read_model_checks(
+        "TEST", state.with_artifacts(edited.effects.produced), action="edit_model"
+    )
     assert report is not None
     finding = report.preflight[0]
     assert finding.subject == "fit_preflight"

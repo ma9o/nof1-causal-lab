@@ -16,10 +16,7 @@ from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
-from nof1_causal_lab.artifacts.expressions import (
-    coefficient,
-)
-from nof1_causal_lab.artifacts.expressions import state as expr_state
+from nof1_causal_lab.artifacts.expressions import coefficient, state as expr_state
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.question import QuestionSpec
 from nof1_causal_lab.models.model_inputs import input_fingerprints
@@ -30,7 +27,6 @@ from nof1_causal_lab.models.model_structure import (
     model_graph_entities,
 )
 from nof1_causal_lab.study.history import StudyRepository
-from nof1_causal_lab.study.records import Applied
 from nof1_causal_lab.study.snapshots import ModelReader
 from nof1_causal_lab.study.state import is_stale
 from nof1_causal_lab.study.store import ArtifactStore, trace_log_path
@@ -79,14 +75,28 @@ def read_fixture_files(repository: StudyRepository, state: StudyState) -> dict[s
     reader = ModelReader(repository.workspace_id, at=repository.head())
     identification = reader.identification()
     if identification is not None:
-        files["artifacts/identification_report.json"] = (identification.value.model_dump_json(indent=2) + "\n").encode()
+        files["artifacts/identification_report.json"] = (
+            identification.value.model_dump_json(indent=2) + "\n"
+        ).encode()
     if reader.validation_report is not None:
-        files["artifacts/validation_report.json"] = (reader.validation_report.value.model_dump_json(indent=2) + "\n").encode()
+        files["artifacts/validation_report.json"] = (
+            reader.validation_report.value.model_dump_json(indent=2) + "\n"
+        ).encode()
     report = reader.inference_report
-    files["inference.json"] = (report.value.model_dump_json(indent=2) + "\n").encode() if report is not None else b"null\n"
+    files["inference.json"] = (
+        (report.value.model_dump_json(indent=2) + "\n").encode()
+        if report is not None
+        else b"null\n"
+    )
     predictive = reader.checks[0].predictive if reader.checks is not None else None
-    checks = predictive.evaluation.predictive_checks if predictive is not None and predictive.evaluation.kind == "evaluated" else None
-    files["predictive_checks.json"] = (checks.model_dump_json(indent=2) + "\n").encode() if checks is not None else b"null\n"
+    checks = (
+        predictive.evaluation.predictive_checks
+        if predictive is not None and predictive.evaluation.kind == "evaluated"
+        else None
+    )
+    files["predictive_checks.json"] = (
+        (checks.model_dump_json(indent=2) + "\n").encode() if checks is not None else b"null\n"
+    )
     # Check external payload closure as well as the native Git objects.
     for aid, info in state.current.items():
         for filename in store.filenames(aid, info.revision):

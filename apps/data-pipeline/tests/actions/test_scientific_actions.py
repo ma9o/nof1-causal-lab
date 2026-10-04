@@ -10,7 +10,6 @@ import pytest
 
 from nof1_causal_lab.actions.contracts import PrepareDataRequest, SimulateRequest
 from nof1_causal_lab.actions.effects import ActionEffects
-from nof1_causal_lab.artifacts.checks import NumericCriterionEvidence
 from nof1_causal_lab.artifacts.simulation import SimulationSpec
 from nof1_causal_lab.models.model_structure import StructuralSelection
 from nof1_causal_lab.models.ssm.inference.persistence import condition_model
@@ -105,8 +104,8 @@ def test_durable_replication_preserves_current_laws_without_comparison(
         derived_from={},
         json_files={"model.json": model.model_dump(mode="json")},
     )
-    produced = [definition]
     question = write_question(store)
+    produced = [definition, question]
     pins: dict[ArtifactId, GitOid] = {
         "model": artifact_revision("TEST", "model", 1),
         "question": question.revision,
@@ -152,7 +151,7 @@ def test_durable_replication_preserves_current_laws_without_comparison(
                         workspace_id="TEST", revision=definition.revision, path="model.json"
                     ),
                     panel=GitRef(
-                        workspace_id="TEST", revision=produced[1].revision, path="panel.parquet"
+                        workspace_id="TEST", revision=produced[2].revision, path="panel.parquet"
                     ),
                     evidence=inference_log(model).record.attempt.outcome.result.evidence,
                 ),
@@ -177,6 +176,7 @@ def test_durable_replication_preserves_current_laws_without_comparison(
         )
     )
     from nof1_causal_lab.actions.simulate import read_simulation_report
+
     report = read_simulation_report(store, applied.result.evidence, pins["question"])
     evidence = report.evidence
     assert store.read_array(evidence.latent_paths).shape == (evidence.draws, 5, 2)
@@ -189,7 +189,7 @@ def test_durable_replication_preserves_current_laws_without_comparison(
     assert report.law.kind == ("fitted" if fitted_laws else "authored")
     if fitted_laws:
         assert report.law.interpretation == "posterior_predictive"
-        assert report.law.fitted_panel_revision == produced[1].revision
+        assert report.law.fitted_panel_revision == produced[2].revision
     assert not applied.effects.produced
     assert any(finding.subject.check.startswith("C5c") for finding in report.findings)
     assert not any(finding.subject.check.startswith("C5d") for finding in report.findings)
@@ -269,7 +269,7 @@ def test_retained_forecast_and_timed_intervention_preserve_joint_starts(
     from nof1_causal_lab.utils import data as data_module
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path))
-    model = complete_test_model_payload()
+    model = x_model()
     from nof1_causal_lab.models.ssm import numerics as numeric
 
     states = numeric.state_ids(compile_model_fixture(model))
@@ -351,10 +351,18 @@ def test_causal_action_uses_common_generator_and_requires_matching_engine_eviden
     from nof1_causal_lab.artifacts.predictive_provenance import AuthoredLawProvenance
     from nof1_causal_lab.artifacts.simulation import SimulationReport
     from tests.inference_fixtures import _report
-    generated = SimulationReport(evidence=evidence, law=AuthoredLawProvenance(), findings=(),
-        fit_reliability="converged", causal=Unavailable(reason="Pending certification"))
+
+    generated = SimulationReport(
+        evidence=evidence,
+        law=AuthoredLawProvenance(),
+        findings=(),
+        fit_reliability="converged",
+        causal=Unavailable(reason="Pending certification"),
+    )
     monkeypatch.setattr("nof1_causal_lab.study.store.read_model", lambda *_args: model)
-    monkeypatch.setattr("nof1_causal_lab.study.lineage.fitted_law_report", lambda *_args: _report(model).core)
+    monkeypatch.setattr(
+        "nof1_causal_lab.study.lineage.fitted_law_report", lambda *_args: _report(model).core
+    )
     result = summarize_causal_simulation(
         StructuralSelection(model, states[1]), generated, store=store, inference=record
     )
@@ -379,9 +387,16 @@ def test_causal_action_uses_common_generator_and_requires_matching_engine_eviden
     from nof1_causal_lab.artifacts.checks import NotEvaluated
 
     report = _report(model)
-    unavailable_report = report.core.revised(engine=NotEvaluated(
-        subject="production_engine", reason="ARCHIVED_ENGINE_NOT_RETAINED", detail="Engine evidence not retained"))
-    monkeypatch.setattr("nof1_causal_lab.study.lineage.fitted_law_report", lambda *_args: unavailable_report)
+    unavailable_report = report.core.revised(
+        engine=NotEvaluated(
+            subject="production_engine",
+            reason="ARCHIVED_ENGINE_NOT_RETAINED",
+            detail="Engine evidence not retained",
+        )
+    )
+    monkeypatch.setattr(
+        "nof1_causal_lab.study.lineage.fitted_law_report", lambda *_args: unavailable_report
+    )
     bad = record
     rejected = summarize_causal_simulation(
         StructuralSelection(model, states[1]), generated, store=store, inference=bad
@@ -431,48 +446,21 @@ def test_data_profile_survives_model_edits(tmp_path, monkeypatch):
     require_data_binding(store, revised_model, panel.revision)
     current = state.with_artifacts([revised])
     from nof1_causal_lab.actions.data_checks import read_data_profile
+
     assert read_data_profile(store, current.current["panel"].revision) == profile
 
 
 @pytest.mark.inference(concern="predictive")
-@pytest.mark.parametrize(
-    ("groups", "complete_test_model_payload"),
-    [
-        pytest.param(
-            (),
-            x_model,
-            id="groups0",
-        ),
-        pytest.param(
-            ("dynamics",),
-            x_model,
-            id="groups1",
-        ),
-        pytest.param(
-            ("measurement",),
-            x_model,
-            id="groups2",
-        ),
-        pytest.param(
-            ("dynamics", "measurement"),
-            x_model,
-            id="groups3",
-        ),
-    ],
-)
-def test_simulation_selects_checks_before_execution_and_persists_only_parameters(
-    monkeypatch, groups, complete_test_model_payload
-):
+def test_simulation_retains_exact_histories_without_running_measurement_reducers(monkeypatch):
     from importlib import import_module
 
     from nof1_causal_lab.artifacts.identity import GitRef
     from nof1_causal_lab.models.ssm import simulation_checks
     from nof1_causal_lab.models.ssm.predictive.types import PredictiveDraws, PredictiveTrajectory
-    from nof1_causal_lab.models.ssm.reachability import CheckResult
 
     action = import_module("nof1_causal_lab.actions.simulate")
     simulation = import_module("nof1_causal_lab.models.ssm.predictive.simulation")
-    model = complete_test_model_payload()
+    model = x_model()
     paths = jnp.zeros((2, 3, 1))
     prediction = PredictiveDraws(
         parameters={"future_parameter_site": jnp.array([1.0, 2.0])},
@@ -488,27 +476,12 @@ def test_simulation_selects_checks_before_execution_and_persists_only_parameters
     monkeypatch.setattr(simulation, "simulate_predictive_draws", lambda *_a, **_k: prediction)
     called = []
 
-    def measure(group):
-        def execute(*_args, **_kwargs):
-            assert group in groups, f"Unselected {group} checks executed"
-            called.append(group)
-            # Selection cannot depend on C-labels or other presentation text.
-            return [
-                CheckResult.measured(
-                    f"{group} renamed check",
-                    "X",
-                    "ok",
-                    "ok",
-                    "ok",
-                    outcome="passed",
-                    measurements=(NumericCriterionEvidence(criterion="fixture", value=1.0),),
-                )
-            ], []
+    def no_measurements(*_args, **_kwargs):
+        called.append("measurement")
+        pytest.fail("Generation must retain evidence before derived reads")
 
-        return execute
-
-    monkeypatch.setattr(simulation_checks, "measure_construct_dynamics", measure("dynamics"))
-    monkeypatch.setattr(simulation_checks, "measure_construct_measurement", measure("measurement"))
+    monkeypatch.setattr(simulation_checks, "measure_construct_dynamics", no_measurements)
+    monkeypatch.setattr(simulation_checks, "measure_construct_measurement", no_measurements)
     arrays = {}
 
     def write(values):
@@ -526,4 +499,6 @@ def test_simulation_selects_checks_before_execution_and_persists_only_parameters
     assert not isinstance(evidence, ObservationPreflightFailure)
     assert called == []
     assert evidence.parameter_draws.keys() == prediction.parameters.keys()
-    np.testing.assert_array_equal(arrays[evidence.parameter_draws["future_parameter_site"]], [1.0, 2.0])
+    np.testing.assert_array_equal(
+        arrays[evidence.parameter_draws["future_parameter_site"]], [1.0, 2.0]
+    )

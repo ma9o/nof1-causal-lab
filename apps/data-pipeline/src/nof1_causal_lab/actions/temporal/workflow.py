@@ -233,7 +233,10 @@ class StudyWorkflow:
                         start_to_close_timeout=_CHECK_TIMEOUT,
                         retry_policy=_ACTIVITY_RETRY,
                     )
-                    self._messages = (*self._messages, *completion_messages(result, workflow.now(), (profile,)))
+                    self._messages = (
+                        *self._messages,
+                        *completion_messages(result, workflow.now(), (profile,)),
+                    )
                 else:
                     assert result.result is None or isinstance(result.result, ModelFitResult)
                     checks, identification, validation = await workflow.execute_activity(
@@ -248,8 +251,15 @@ class StudyWorkflow:
                         start_to_close_timeout=_CHECK_TIMEOUT,
                         retry_policy=_ACTIVITY_RETRY,
                     )
-                    reports = (identification, validation) if validation is not None else (identification,)
-                    self._messages = (*self._messages, *completion_messages(result, workflow.now(), reports, checks=checks))
+                    reports = (
+                        (identification, validation)
+                        if validation is not None
+                        else (identification,)
+                    )
+                    self._messages = (
+                        *self._messages,
+                        *completion_messages(result, workflow.now(), reports, checks=checks),
+                    )
         except (ActivityError, ChildWorkflowError) as exc:
             attempt = failed_attempt(action, temporal_failure(exc))
         await self._journal(seq, request, base, attempt)

@@ -89,7 +89,9 @@ async def _run_fit(
         "model",
         derived_from=pins,
         produced_by="fit",
-        json_files={json_filename("model", "model"): conditioned.model_dump(mode="json", round_trip=True)},
+        json_files={
+            json_filename("model", "model"): conditioned.model_dump(mode="json", round_trip=True)
+        },
     )
     read_inference_report(store, info.revision, evidence)
     return Applied(

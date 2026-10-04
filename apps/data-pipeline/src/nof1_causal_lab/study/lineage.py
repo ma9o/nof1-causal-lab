@@ -15,12 +15,7 @@ from nof1_causal_lab.artifacts.predictive_provenance import (
     UnknownLawProvenance,
 )
 from nof1_causal_lab.study.artifact_files import json_filename
-from nof1_causal_lab.study.records import (
-    Applied,
-    ModelFitResult,
-    StudyRevision,
-    inference_record,
-)
+from nof1_causal_lab.study.records import ModelFitResult, StudyRevision, inference_record
 from nof1_causal_lab.study.state import is_stale
 from nof1_causal_lab.study.store import read_model
 
@@ -54,7 +49,9 @@ def read_data_metadata(store: ArtifactStore, revision: GitOid) -> PreparedDataMe
     )
 
 
-def fitted_law_report(store: ArtifactStore, records: Iterable[StudyRevision], revision: GitOid) -> InferenceReportCore:
+def fitted_law_report(
+    store: ArtifactStore, records: Iterable[StudyRevision], revision: GitOid
+) -> InferenceReportCore:
     """Read the committed fit that owns inherited laws and their model coordinates."""
     fitted = inference_record(records, revision)
     if fitted is None:
@@ -77,7 +74,11 @@ def law_provenance(
     while True:
         if current.produced_by == "fit":
             fitted = read_model(store, current.revision).model_dump(mode="json")["distributions"]
-            inherited = {key for key, value in laws.items() if key in model.law_layouts and fitted.get(key) == value}
+            inherited = {
+                key
+                for key, value in laws.items()
+                if key in model.law_layouts and fitted.get(key) == value
+            }
             if inherited:
                 fitted_panel = current.derived_from["panel"]
                 if inherited != set(laws):

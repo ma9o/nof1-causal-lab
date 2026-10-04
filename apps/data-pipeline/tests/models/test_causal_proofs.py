@@ -158,6 +158,7 @@ def test_causal_reporting_requires_retained_uncertainty_and_converged_exact_engi
     model = _conditioned_treatment_outcome()
     revision = GitRef(workspace_id="workspace", revision=git_oid(2), path="model.json")
     from tests.inference_fixtures import _report
+
     record = inference_log(model)
     report = _report(model)
     certify_conditioned_model(model, revision, record, model, report.core)
@@ -165,13 +166,17 @@ def test_causal_reporting_requires_retained_uncertainty_and_converged_exact_engi
         certify_conditioned_model(
             model,
             revision.revised(revision=git_oid(3)),
-            record, model, report.core,
+            record,
+            model,
+            report.core,
         )
     with pytest.raises(CausalCertificationError, match="differs from"):
         certify_conditioned_model(
             _treatment_outcome(),
             revision,
-            record, model, report.core,
+            record,
+            model,
+            report.core,
         )
     from nof1_causal_lab.artifacts.checks import NotEvaluated
 
@@ -212,7 +217,7 @@ def test_causal_reporting_requires_retained_uncertainty_and_converged_exact_engi
 
 
 def test_causal_analysis_joins_matching_proofs():
-    from tests.inference_fixtures import inference_log
+    from tests.inference_fixtures import _report, inference_log
 
     design = _conditioned_treatment_outcome()
     design_ref = GitRef(workspace_id="workspace", revision=git_oid(2), path="model.json")
@@ -231,7 +236,7 @@ def test_causal_analysis_joins_matching_proofs():
         ),
         inference=inference_log(design),
         fitted_model=design,
-        report=__import__("tests.inference_fixtures", fromlist=["_report"])._report(design).core,
+        report=_report(design).core,
     )
     assert analysis.treatments == ["treatment"]
     assert analysis.outcome == "outcome"

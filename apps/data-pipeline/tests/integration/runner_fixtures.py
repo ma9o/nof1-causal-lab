@@ -65,7 +65,6 @@ def panel_metadata():
         DataPreparationSpec,
         DataVariableSpec,
         FileSourceRef,
-        PreparedDataMetadata,
     )
 
     preparation = DataPreparationSpec(
@@ -84,4 +83,8 @@ def panel_metadata():
             for name in ("stress_score", "sleep_score")
         ),
     )
-    return FilePreparedDataMetadata(time_origin=datetime(2024, 1, 1, tzinfo=UTC), source=FileSourceRef(files=("observations.csv",)), preparation=preparation)
+    return FilePreparedDataMetadata(
+        time_origin=datetime(2024, 1, 1, tzinfo=UTC),
+        source=FileSourceRef(files=("observations.csv",)),
+        preparation=preparation,
+    )

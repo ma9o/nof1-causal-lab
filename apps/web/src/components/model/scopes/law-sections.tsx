@@ -151,7 +151,9 @@ export function SimulatedHistory({
     simulation &&
     (kind === "states"
       ? simulation.value.evidence.state_ids.some((state) => state === id)
-      : simulation.value.evidence.observation_layout.variables.some((variable) => variable.id === id));
+      : simulation.value.evidence.observation_layout.variables.some(
+          (variable) => variable.id === id,
+        ));
   if (!simulation || !included) return null;
   return (
     <Section title="Simulated history" source={simulation.source} wide>

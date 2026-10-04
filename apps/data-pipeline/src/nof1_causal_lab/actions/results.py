@@ -6,12 +6,11 @@ from uuid import UUID
 
 from pydantic import Field
 
-from nof1_causal_lab.artifacts.base import Value
-from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
-from nof1_causal_lab.artifacts.identity import ActionId, GitOid
 from nof1_causal_lab.actions.contracts import ScientificActionRequest
 from nof1_causal_lab.actions.progress import ProgressEvent
-from nof1_causal_lab.artifacts.identity import IndicatorId
+from nof1_causal_lab.artifacts.base import Value
+from nof1_causal_lab.artifacts.identity import ActionId, GitOid, IndicatorId
+from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
 from nof1_causal_lab.artifacts.posterior import InferenceReport
 from nof1_causal_lab.artifacts.posterior_diagnostics import PPCOverlay
 from nof1_causal_lab.json_types import JsonObject, JsonValue

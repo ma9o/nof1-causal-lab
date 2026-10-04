@@ -58,7 +58,9 @@ def condition_model(
         parameters=conditioned_parameters,
         constructs=modeled_ids,
         time_points=grid.tolist(),
-        construct_labels={identity: model_spec.get_construct(identity).name for identity in modeled_ids},
+        construct_labels={
+            identity: model_spec.get_construct(identity).name for identity in modeled_ids
+        },
     )
     joint = layout.pack(
         {

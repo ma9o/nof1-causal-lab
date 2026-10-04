@@ -44,6 +44,7 @@ def applied_record(result, *, seq, request=None, ts="2026-01-01T00:00:00Z", **me
 
     if request is not None:
         from nof1_causal_lab.study.records import applied_attempt
+
         return AttemptRecord(seq=seq, ts=ts, attempt=applied_attempt(request, result), **metadata)
     match result.result:
         case None:

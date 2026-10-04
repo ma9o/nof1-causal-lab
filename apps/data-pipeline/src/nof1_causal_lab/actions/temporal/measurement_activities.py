@@ -43,7 +43,7 @@ from nof1_causal_lab.study.records import Applied, DataPreparationResult
 from nof1_causal_lab.study.store import ArtifactStore
 from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
-from nof1_causal_lab.workers.schemas import ExtractionRow
+from nof1_causal_lab.workers.schemas import EXTRACTION_ROW_SCHEMA, ExtractionRow
 
 if TYPE_CHECKING:
     from openai import AsyncOpenAI
@@ -359,7 +359,7 @@ async def finalize_measurements_activity(
         variables = preparation.definition.observation_schema()
         all_dicts = computed_dicts + semantic_dicts
         observation_rows = TypeAdapter(list[ObservationRecord]).validate_python(
-            annotate_observation_rows(pl.DataFrame(all_dicts), variables).to_dicts()
+            annotate_observation_rows(pl.DataFrame(all_dicts, schema=EXTRACTION_ROW_SCHEMA), variables).to_dicts()
             if all_dicts
             else [],
         )

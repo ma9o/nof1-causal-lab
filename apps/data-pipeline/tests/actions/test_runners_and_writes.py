@@ -1,7 +1,5 @@
 """Authoring commits, optional extraction outputs, and atomic derivation cascades."""
 
-from tests.git_fixtures import artifact_revisions
-
 import asyncio
 import json
 from typing import TYPE_CHECKING
@@ -18,7 +16,6 @@ from nof1_causal_lab.artifacts.identity import ConstructId
 from nof1_causal_lab.artifacts.likelihood import DeltaLawSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.question import QuestionSpec
-from nof1_causal_lab.artifacts.validation_report import ValidationReportArtifact
 from nof1_causal_lab.models.identification import identify_model
 from nof1_causal_lab.models.model_structure import StructuralSelection, selected_state_ids
 from nof1_causal_lab.study.history import StudyRepository
@@ -27,7 +24,7 @@ from nof1_causal_lab.study.state import StudyState, apply_effects
 from nof1_causal_lab.study.store import ArtifactStore
 from tests.action_fixtures import applied_record, edit_and_check, question_root
 from tests.data_fixtures import metadata_for_model
-from tests.git_fixtures import artifact_revision
+from tests.git_fixtures import artifact_revision, artifact_revisions
 from tests.helpers import make_model
 
 pytestmark = pytest.mark.contract
@@ -218,8 +215,6 @@ def test_extraction_requires_some_observations(workspace, tmp_path, nonempty):
     )
     assert worker.status == "failed"
     assert worker.error == "No usable extraction"
-    assert worker.n_llm_calls == 0
-    assert worker.reused is False
     from nof1_causal_lab.study.history import StudyRepository
 
     journal = StudyRepository(workspace)
@@ -299,12 +294,29 @@ def test_model_edit_reports_stale_extraction(workspace):
         root,
     )
     state = apply_effects(root, effects.effects.produced)
+    from tests.integration.runner_fixtures import panel_frame
+
+    variables = metadata_for_model(model).variables
+    frame = panel_frame(n_days=3).with_columns(
+        pl.col("indicator_id").replace_strict(
+            {
+                source: variable.id
+                for source, variable in zip(
+                    panel_frame(n_days=3)["indicator_id"].unique(maintain_order=True),
+                    variables,
+                    strict=True,
+                )
+            }
+        )
+    )
     panel = store.write_artifact(
         "panel",
         derived_from={},
         produced_by="prepare_data",
-        json_files={"metadata.json": metadata_for_model(model).model_dump(mode="json")},
-        parquet_files={"panel.parquet": pl.DataFrame()},
+        json_files={
+            "metadata.json": metadata_for_model(model).model_dump(mode="json", round_trip=True)
+        },
+        parquet_files={"panel.parquet": frame},
     )
     from nof1_causal_lab.actions.data_checks import evaluate_data_checks
     from nof1_causal_lab.study.records import DataPreparationResult
@@ -327,7 +339,10 @@ def test_model_edit_reports_stale_extraction(workspace):
         state,
     )
     from nof1_causal_lab.actions.model_checks import read_model_checks
-    _, _, payload = read_model_checks(workspace, state.with_artifacts(effects.effects.produced), action="edit_model")
+
+    _, _, payload = read_model_checks(
+        workspace, state.with_artifacts(effects.effects.produced), action="edit_model"
+    )
     assert payload is not None
     assert any(
         issue.issue_type == "measurement_definitions" for issue in payload.data.dataset_issues

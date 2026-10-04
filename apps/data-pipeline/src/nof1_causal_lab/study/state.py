@@ -17,12 +17,7 @@ from enum import StrEnum
 from pydantic import Field
 
 from nof1_causal_lab.artifacts.base import Value
-from nof1_causal_lab.artifacts.identity import (
-    ARTIFACT_IDS,
-    ArtifactId,
-    GitOid,
-    ScientificActionId,
-)
+from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS, ArtifactId, GitOid, ScientificActionId
 
 
 class ArtifactRecord(Value):

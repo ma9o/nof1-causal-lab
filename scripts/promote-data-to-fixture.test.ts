@@ -25,7 +25,7 @@ async function writeJson(path: string, value: unknown): Promise<void> {
 async function seedCompleteWorkspace(
   dataRoot: string,
   workspaceId: string,
-  options: { omit?: string; staleValidation?: boolean } = {},
+  options: { omit?: string; stalePanel?: boolean } = {},
 ): Promise<void> {
   const process = Bun.spawn(
     [
@@ -69,7 +69,7 @@ describe("promoteDataWorkspace", () => {
       dataRoot,
     });
 
-    expect(summary.artifacts).toHaveLength(3);
+    expect(summary.artifacts).toEqual(["model"]);
     expect(await pathExists(join(dataRoot, "DEMO", "study", "history.git"))).toBe(true);
     const restoredHistory = join(root, "restored.git");
     const restore = Bun.spawnSync([
@@ -93,13 +93,7 @@ describe("promoteDataWorkspace", () => {
     expect(summary.traces).toHaveLength(5);
     expect(
       JSON.parse(await readFile(join(dataRoot, "DEMO", "fixture", "inference.json"), "utf8")),
-    ).toMatchObject({
-      action: "fit",
-      report: {
-        inference_metadata: { method: "test", n_samples: 0 },
-        engine: { kind: "not_evaluated", reason: "ARCHIVED_ENGINE_NOT_RETAINED" },
-      },
-    });
+    ).toBeNull();
     expect(
       JSON.parse(
         await readFile(
@@ -129,13 +123,13 @@ describe("promoteDataWorkspace", () => {
     const root = await mkdtemp(join(tmpdir(), "nof1-fixture-promotion-"));
     temporaryRoots.push(root);
     const dataRoot = join(root, "data");
-    await seedCompleteWorkspace(dataRoot, "CANDIDATE", { omit: "validation_report" });
+    await seedCompleteWorkspace(dataRoot, "CANDIDATE", { omit: "panel" });
     await mkdir(join(dataRoot, "DEMO"), { recursive: true });
     await writeFile(join(dataRoot, "DEMO", "sentinel.txt"), "keep me");
 
     await expect(
       promoteDataWorkspace({ sourceWorkspaceId: "CANDIDATE", dataRoot }),
-    ).rejects.toThrow("missing current artifacts: validation_report");
+    ).rejects.toThrow("missing current artifacts: panel");
 
     expect(await readFile(join(dataRoot, "DEMO", "sentinel.txt"), "utf8")).toBe("keep me");
     expect((await readdir(dataRoot)).some((entry) => entry.startsWith(".DEMO-promotion-"))).toBe(
@@ -147,13 +141,13 @@ describe("promoteDataWorkspace", () => {
     const root = await mkdtemp(join(tmpdir(), "nof1-fixture-promotion-"));
     temporaryRoots.push(root);
     const dataRoot = join(root, "data");
-    await seedCompleteWorkspace(dataRoot, "CANDIDATE", { staleValidation: true });
+    await seedCompleteWorkspace(dataRoot, "CANDIDATE", { stalePanel: true });
     await mkdir(join(dataRoot, "DEMO"), { recursive: true });
     await writeFile(join(dataRoot, "DEMO", "sentinel.txt"), "keep me");
 
     await expect(
       promoteDataWorkspace({ sourceWorkspaceId: "CANDIDATE", dataRoot }),
-    ).rejects.toThrow("stale current artifacts: validation_report");
+    ).rejects.toThrow("stale current artifacts: panel");
     expect(await readFile(join(dataRoot, "DEMO", "sentinel.txt"), "utf8")).toBe("keep me");
   });
 });

@@ -4,8 +4,9 @@ Prepared panels include data-owned metadata beside their Parquet observations.
 The machine file catalog declares all JSON, Parquet, and binary members.
 """
 
-from pydantic import BaseModel
 from typing import TypeAliasType
+
+from pydantic import BaseModel
 
 from .data_preparation import PreparedDataMetadata
 from .identity import ArtifactId

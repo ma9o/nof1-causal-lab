@@ -181,12 +181,31 @@ def test_conditioning_revises_the_same_type_and_retains_joint_uncertainty(
             None,
         )
     with pytest.raises(ValueError, match="identity and event width must match"):
-        StructuralSelection(loaded.revised(law_layouts={identity: loaded.law_layouts[identity].revised(time_points=(0.0, 1.0, 2.0, 5.0))}), None)
+        StructuralSelection(
+            loaded.revised(
+                law_layouts={
+                    identity: loaded.law_layouts[identity].revised(time_points=(0.0, 1.0, 2.0, 5.0))
+                }
+            ),
+            None,
+        )
     if categorical:
         construct = loaded.constructs[1]
         indicator = construct.indicators[0]
-        renamed = loaded.revised(edges=replace_constructs(loaded.edges, (
-            construct.revised(indicators=(indicator.revised(observation=indicator.observation.revised(
-                categorical_levels=("medium", "low", "high"))),)),
-        )))
+        renamed = loaded.revised(
+            edges=replace_constructs(
+                loaded.edges,
+                (
+                    construct.revised(
+                        indicators=(
+                            indicator.revised(
+                                observation=indicator.observation.revised(
+                                    categorical_levels=("medium", "low", "high")
+                                )
+                            ),
+                        )
+                    ),
+                ),
+            )
+        )
         assert renamed.law_layouts == loaded.law_layouts

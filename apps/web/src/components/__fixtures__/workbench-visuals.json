@@ -237195,6 +237195,6 @@
   },
   "parameters": {
     "kind": "unavailable",
-    "reason": "This revision has no complete retained joint posterior. Recorded summary plots cannot recover missing draws."
+    "reason": "This revision has no complete retained joint posterior."
   }
 }

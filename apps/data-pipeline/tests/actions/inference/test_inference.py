@@ -36,7 +36,10 @@ pytestmark = pytest.mark.contract
 
 def _fake_result():
     from tests.inference_fixtures import particle_posterior
-    return particle_posterior(JointPosteriorDraws(parameters={"theta": jnp.zeros((4, 1), dtype=jnp.float32)}))
+
+    return particle_posterior(
+        JointPosteriorDraws(parameters={"theta": jnp.zeros((4, 1), dtype=jnp.float32)})
+    )
 
 
 def _make_observation_support_runtime() -> ObservationSupportRuntime:

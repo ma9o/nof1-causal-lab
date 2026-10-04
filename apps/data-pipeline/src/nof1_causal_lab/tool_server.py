@@ -42,15 +42,17 @@ For running calls, repeat the response's `request`; it includes the canonical
 arguments and captured file hashes even when the first request omitted them.
 Repeat exactly the same arguments to read progress or the completed result. An
 identical running call starts no second attempt. Applied calls reuse saved results
-without execution or another timeline entry. Rejected and raised calls remain in
+without action execution or another timeline entry. Rejected and raised calls remain in
 the journal with their messages and error; repeating them retries execution.
 
-Completed applied responses include `snapshot`, `inference_report`,
+Completed applied responses include `snapshot`, `checks`, `inference_report`,
 `observation_histories`, `predictive_overlays`, `simulation_paths`, `parameter_draws`,
-`artifacts`, `arrays`, and `traces`, alongside the typed `attempt.outcome`.
+`data_comparison`, `artifacts`, `arrays`, and `traces`, alongside the typed `attempt.outcome`.
 All retained simulation paths and large arrays are returned without paging. Tables
 are JSON rows, and `arrays` maps immutable array identities to their complete values.
 Missing numerical values are null. No extra result or artifact read is needed.
+Reports, checks and comparisons are current-code reads of retained facts, cached by
+the package code digest and immutable inputs in the shared read cache.
 
 `model_diff {before, after}` is a cached comparison read. It returns the comparison
 and each present model definition, creates no attempt, leaf or timeline entry, and works on

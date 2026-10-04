@@ -1,7 +1,5 @@
 """Explicit data schemas accompanying test-owned observations."""
 
-from nof1_causal_lab.artifacts.data_preparation import FilePreparedDataMetadata
-
 from datetime import UTC, datetime
 
 import numpy as np
@@ -9,8 +7,8 @@ import numpy as np
 from nof1_causal_lab.artifacts.data_preparation import (
     DataPreparationSpec,
     DataVariableSpec,
+    FilePreparedDataMetadata,
     FileSourceRef,
-    PreparedDataMetadata,
     SemanticExtractionSpec,
 )
 from nof1_causal_lab.artifacts.simulation import SimulationObservationLayout
@@ -30,7 +28,11 @@ def metadata_for_model(model):
             for indicator in model.indicators
         ),
     )
-    return FilePreparedDataMetadata(time_origin=datetime(2024, 1, 1, tzinfo=UTC), source=FileSourceRef(files=("observations.csv",)), preparation=preparation)
+    return FilePreparedDataMetadata(
+        time_origin=datetime(2024, 1, 1, tzinfo=UTC),
+        source=FileSourceRef(files=("observations.csv",)),
+        preparation=preparation,
+    )
 
 
 def simulation_layout(model, times, mask, write_array):

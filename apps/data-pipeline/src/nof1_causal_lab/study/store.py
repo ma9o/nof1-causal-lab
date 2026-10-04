@@ -265,7 +265,7 @@ def read_attempt_trace(workspace_id: str, commit_id: str, subroutine_id: str) ->
 def read_payload(store: ArtifactStore, artifact_id: ArtifactId, revision: str) -> BaseModel:
     from functools import cache
 
-    from pydantic import TypeAdapter
+    from pydantic import BaseModel, TypeAdapter
 
     from nof1_causal_lab.artifacts.catalog import ARTIFACT_CONTRACTS
     from nof1_causal_lab.study.artifact_files import artifact_file_spec

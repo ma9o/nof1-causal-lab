@@ -3,6 +3,7 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { demoModelSnapshot } from "@/components/__fixtures__/demo-artifacts";
+import { workbenchResult } from "@/components/__fixtures__/workbench";
 import { indexModel } from "@/lib/model-asset/entities";
 import type { Applied, TimelineRevision } from "@nof1-causal-lab/api-types";
 import type { ScopeContext } from "@/lib/model-asset/scope";
@@ -25,15 +26,12 @@ const applied: Applied<null> = {
   status: "applied",
   result: null,
   effects: {
-    checks: null,
     retracted: [],
     produced: [
       {
         artifact_id: "model",
         revision: "edited-model",
         derived_from: { model: "archived-authorship-base" },
-        model_inputs: {},
-        consumed_model_inputs: {},
         produced_by: "edit_model",
         created_at: "2026-09-30T00:00:00Z",
       },
@@ -105,34 +103,30 @@ describe("edit change summaries after history compaction", () => {
 
   it("shows served check reasons unchanged and omits passing checks", () => {
     const indicator = fixtureValue(context.entities.indicators[0]);
-    const checkedResult: Applied<null> = {
-      ...applied,
-      effects: {
-        ...applied.effects,
-        checks: {
-          input_keys: {},
-          question: null,
-          predictive: null,
-          reused: [],
-          specification: [
-            {
-              kind: "evaluated",
-              subject: "model_execution",
-              outcome: "failed",
-              evidence: `${indicator.observation.id} requires a likelihood.`,
-            },
-            {
-              kind: "evaluated",
-              subject: "passed_check",
-              outcome: "passed",
-              evidence: "Do not list passing checks.",
-            },
-          ],
-        },
+    const served = {
+      ...fixtureValue(workbenchResult(2)),
+      checks: {
+        question: null,
+        predictive: null,
+        reused: ["specification"] as const,
+        specification: [
+          {
+            kind: "evaluated" as const,
+            subject: "model_execution",
+            outcome: "failed" as const,
+            evidence: `${indicator.observation.id} requires a likelihood.`,
+          },
+          {
+            kind: "evaluated" as const,
+            subject: "passed_check",
+            outcome: "passed" as const,
+            evidence: "Do not list passing checks.",
+          },
+        ],
       },
     };
     const html = renderToStaticMarkup(
-      createElement(ActionFindings, { context, applied: checkedResult }),
+      createElement(ActionFindings, { context: { ...context, result: served }, applied }),
     );
     expect(html).toContain(indicator.observation.id);
     expect(html).toContain("requires a likelihood.");

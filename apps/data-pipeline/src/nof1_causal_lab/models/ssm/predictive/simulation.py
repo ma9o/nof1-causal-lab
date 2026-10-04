@@ -69,6 +69,23 @@ def _time_grid(
     return np.asarray(sorted(times))
 
 
+def _window_input_events(
+    input_events: tuple[ResolvedIntervention, ...], start: float
+) -> tuple[ResolvedIntervention, ...]:
+    """Each input's level held at the window start, then its readings inside the window."""
+    held: dict[int, ResolvedIntervention] = {}
+    for event in sorted(input_events, key=lambda event: event.spec.time):
+        if event.spec.time <= start:
+            held[event.index] = event
+    return (
+        *(
+            ResolvedIntervention(index=event.index, spec=event.spec.revised(time=start))
+            for event in held.values()
+        ),
+        *(event for event in input_events if event.spec.time > start),
+    )
+
+
 def generate_simulation_batch(
     source: CompiledModel | BoundPanel,
     *,
@@ -188,7 +205,7 @@ def generate_simulation_batch(
         seed=seed,
         initial_states=initial,
         interventions=tuple(interventions),
-        input_events=input_events,
+        input_events=_window_input_events(input_events, start),
         observation_support=support,
         observation_mask=None if observations is None else ~jnp.isnan(observations),
     )

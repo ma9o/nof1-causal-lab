@@ -108,7 +108,9 @@ def test_paging_original_paths_preserves_opposite_modes_and_paired_effects(monke
             get_construct=lambda _identity: SimpleNamespace(name="State")
         ),
     )
-    report.evidence = SimpleNamespace(**{key: value for key, value in vars(report).items() if key != "causal"})
+    report.evidence = SimpleNamespace(
+        **{key: value for key, value in vars(report).items() if key != "causal"}
+    )
     view = ModelReader.simulation_paths(reader, start=0, count=2)
     assert view is not None
     assert view.effect is not None
@@ -139,7 +141,8 @@ def test_every_parameter_coordinate_and_joint_draw_survives_the_read(monkeypatch
         bindings,
         parameters=[b.parameter_id for b in bindings],
         constructs=selected_state_ids(StructuralSelection(model, None)),
-        time_points=(0, 10), construct_labels={item.id:item.name for item in model.constructs},
+        time_points=(0, 10),
+        construct_labels={item.id: item.name for item in model.constructs},
     )
     atoms = np.arange(503 * layout.width, dtype=float).reshape(503, layout.width)
     model = model.revised(
@@ -165,8 +168,10 @@ def test_every_parameter_coordinate_and_joint_draw_survives_the_read(monkeypatch
         store=None,
         state=SimpleNamespace(current={"model": None}),
     )
-    monkeypatch.setattr("nof1_causal_lab.models.ssm.compile.inputs.compile_executable_model",
-        lambda *_args: pytest.fail("Raw draws must remain readable without the compiler"))
+    monkeypatch.setattr(
+        "nof1_causal_lab.models.ssm.compile.inputs.compile_executable_model",
+        lambda *_args: pytest.fail("Raw draws must remain readable without the compiler"),
+    )
     view = ModelReader.parameter_draws(reader)
     assert view.kind == "available"
     assert len(view.value) > 6

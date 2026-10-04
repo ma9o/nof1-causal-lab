@@ -17,14 +17,9 @@ from nof1_causal_lab.models.ssm.execution.dynamical_model import HeterogeneousOb
 from nof1_causal_lab.models.ssm.inference import fit
 from nof1_causal_lab.models.ssm.inference.problem import build_particle_problem
 from nof1_causal_lab.models.ssm.preflight import ObservationPreflightFailure
-from nof1_causal_lab.sampler_config import (
-    MarginalParticleGibbsSpec,
-    SamplerSpec,
-)
+from nof1_causal_lab.sampler_config import MarginalParticleGibbsSpec, SamplerSpec
 from tests.inference_fixtures import bind_panel_fixture, compile_fit_fixture
-from tests.model_fixtures import (
-    load_model_fixture,
-)
+from tests.model_fixtures import load_model_fixture
 
 
 def _nonlinear_mixed_missing_irregular_particle_fit_and_exact_diagnostics_nonlinear_model() -> (

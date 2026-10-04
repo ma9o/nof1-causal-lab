@@ -25,12 +25,7 @@ from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.prior_views import prior_density
 from nof1_causal_lab.study.records import Applied, StudyRevision
-from nof1_causal_lab.study.snapshot_models import (
-    FactSource,
-    FitSummary,
-    ModelSnapshot,
-    Sourced,
-)
+from nof1_causal_lab.study.snapshot_models import FactSource, FitSummary, ModelSnapshot, Sourced
 from nof1_causal_lab.study.state import SourceValidity, StudyState, is_stale
 from nof1_causal_lab.study.store import ArtifactStore, observation_sample, read_payload
 from nof1_causal_lab.study.views import (
@@ -111,7 +106,9 @@ class ModelReader:
         context = checkpoint.with_artifacts(tuple(inputs.current.values()))
         if not isinstance(attempt.outcome, Applied):
             raise RuntimeError("A result reader requires an applied call")
-        return apply_effects(context, attempt.outcome.effects.produced, attempt.outcome.effects.retracted)
+        return apply_effects(
+            context, attempt.outcome.effects.produced, attempt.outcome.effects.retracted
+        )
 
     @cached_property
     def records(self) -> list[StudyRevision]:
@@ -260,12 +257,18 @@ class ModelReader:
         )
 
     @cached_property
-    def checks(self) -> tuple[ModelCheckReport, IdentificationReport, ValidationReportArtifact | None] | None:
+    def checks(
+        self,
+    ) -> tuple[ModelCheckReport, IdentificationReport, ValidationReportArtifact | None] | None:
         from nof1_causal_lab.actions.model_checks import read_model_checks
 
         if not self.state.has("model"):
             return None
-        action = "fit" if self.records and self.records[-1].record.attempt.action == "fit" else "edit_model"
+        action = (
+            "fit"
+            if self.records and self.records[-1].record.attempt.action == "fit"
+            else "edit_model"
+        )
         return read_model_checks(self.workspace_id, self.state, action=action)
 
     @cached_property
@@ -274,7 +277,9 @@ class ModelReader:
             return None
         from nof1_causal_lab.actions.data_checks import read_data_profile
 
-        return self.fact(read_data_profile(self.store, self.state.current["panel"].revision), "panel", "")
+        return self.fact(
+            read_data_profile(self.store, self.state.current["panel"].revision), "panel", ""
+        )
 
     @cached_property
     def validation_report(self) -> Sourced[ValidationReportArtifact] | None:
@@ -303,7 +308,9 @@ class ModelReader:
         assert result is not None
         from nof1_causal_lab.actions.fit import read_inference_report
 
-        report = read_inference_report(self.store, self.state.current["model"].revision, result.evidence)
+        report = read_inference_report(
+            self.store, self.state.current["model"].revision, result.evidence
+        )
         current = inference_report_is_current(result, self.state)
         return Sourced(
             value=report,
@@ -389,7 +396,9 @@ class ModelReader:
         assert isinstance(record.record.attempt.outcome, Applied)
         result = record.record.attempt.outcome.result
         assert result is not None
-        curves = quantity_prior_densities(self.scoped(read_model(self.store, result.model.revision)))
+        curves = quantity_prior_densities(
+            self.scoped(read_model(self.store, result.model.revision))
+        )
         return {
             identity: curve
             for identity in fitted
@@ -407,7 +416,11 @@ class ModelReader:
             from nof1_causal_lab.actions.simulate import read_simulation_report
 
             evidence = record.record.attempt.outcome.result.evidence
-            report = read_simulation_report(self.store, evidence, self.repository.state(record.commit_id).current["question"].revision)
+            report = read_simulation_report(
+                self.store,
+                evidence,
+                self.repository.state(record.commit_id).current["question"].revision,
+            )
             pins: dict[ArtifactId, GitOid] = {"model": report.evidence.model.revision}
             current = all(
                 self.state.has(aid) and self.state.current[aid].revision == revision
@@ -639,12 +652,14 @@ class ModelReader:
             for parameter, elements in layout.parameters:
                 for element in elements:
                     values = atoms[:, layout.parameter_columns[element]]
-                    columns.append(ParameterDrawColumn(
-                        label=layout.labels[element],
-                        subject=ParameterRef(parameter_id=parameter, element_id=element),
-                        values=tuple(float(value) for value in values),
-                        empirical=empirical_points(values),
-                    ))
+                    columns.append(
+                        ParameterDrawColumn(
+                            label=layout.labels[element],
+                            subject=ParameterRef(parameter_id=parameter, element_id=element),
+                            values=tuple(float(value) for value in values),
+                            empirical=empirical_points(values),
+                        )
+                    )
         return Available[tuple[ParameterDrawColumn, ...]](value=tuple(columns))
 
 

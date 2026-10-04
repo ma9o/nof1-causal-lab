@@ -7,7 +7,6 @@ from typing import Annotated, Literal
 from pydantic import Field, computed_field
 
 from nof1_causal_lab.artifacts.base import Value
-
 from .checks import (
     Assessment,
     Evaluated,

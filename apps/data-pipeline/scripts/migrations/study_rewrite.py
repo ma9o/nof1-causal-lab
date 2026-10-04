@@ -83,7 +83,10 @@ def rewrite_study(
         if model_definition is not None:
             definition = model_definition(definition)
         from scripts.migrations.migrate_format_18 import current_model_definition
-        definition = current_model_definition(definition, lambda ref: read_array(str(destination / "store/arrays"), ref))
+
+        definition = current_model_definition(
+            definition, lambda ref: read_array(str(destination / "store/arrays"), ref)
+        )
         model = ModelSpec.model_validate(
             definition,
             context={
@@ -198,7 +201,11 @@ def rewrite_study(
         active.remove(oid)
         return str(result)
 
-    replacements = {name: migrate(oid) for name, oid in refs.items() if drop_references is None or not drop_references(name)}
+    replacements = {
+        name: migrate(oid)
+        for name, oid in refs.items()
+        if drop_references is None or not drop_references(name)
+    }
     targets = {
         name.rsplit("/", 1)[0] + "/" + oid if name.startswith("refs/artifacts/") else name: oid
         for name, oid in replacements.items()

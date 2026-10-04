@@ -348,7 +348,9 @@ def _compile_laws(
             parameters=tuple(parameter.id for parameter in members),
             constructs=trajectories,
             time_points=model.time_points if trajectories else (),
-            construct_labels={identity: model.get_construct(identity).name for identity in trajectories},
+            construct_labels={
+                identity: model.get_construct(identity).name for identity in trajectories
+            },
         )
         batch_shape, event_shape = distribution_shape(law)
         if not batch_shape and not event_shape:
@@ -362,8 +364,13 @@ def _compile_laws(
             )
         if event_shape:
             retained_layout = model.law_layouts[identity]
-            if layout.parameters != retained_layout.parameters or layout.constructs != retained_layout.constructs:
-                raise AggregatedCompileError(["Current execution coordinates do not support the retained joint law"])
+            if (
+                layout.parameters != retained_layout.parameters
+                or layout.constructs != retained_layout.constructs
+            ):
+                raise AggregatedCompileError(
+                    ["Current execution coordinates do not support the retained joint law"]
+                )
             layout = retained_layout
         result.append(CompiledLaw(index, law, layout))
     if retained and retained != set(endogenous):

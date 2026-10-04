@@ -91,7 +91,9 @@ def plan_squash(source: Path, *, at: str) -> HistorySquashPlan:
 
     store = ArtifactStore(source.name, repository_path=path)
     # The catalog survives intact, including panels from actions we might drop.
-    for revision in (ref.rsplit("/", 1)[1] for ref in repo.references if ref.startswith("refs/artifacts/panel/")):
+    for revision in (
+        ref.rsplit("/", 1)[1] for ref in repo.references if ref.startswith("refs/artifacts/panel/")
+    ):
         metadata = store.read_json_file("panel", revision, "metadata.json")
         if isinstance(
             TypeAdapter(DataSourceRef).validate_python(metadata["source"]), SimulationReplicateRef
@@ -157,7 +159,11 @@ def plan_squash(source: Path, *, at: str) -> HistorySquashPlan:
                 raise ValueError("Recorded comparisons cannot be squashed")
         for artifact in effects.produced:
             if artifact.artifact_id == "model" and record.record.attempt.action == "edit_model":
-                pins.update((key, revision) for key, revision in artifact.derived_from.items() if key != "model")
+                pins.update(
+                    (key, revision)
+                    for key, revision in artifact.derived_from.items()
+                    if key != "model"
+                )
             elif artifact.artifact_id in _PRIMARY - {"model"}:
                 pins.update(artifact.derived_from.items())
         result = {producer(key, revision, record).commit_id for key, revision in pins}

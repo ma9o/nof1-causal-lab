@@ -15,14 +15,15 @@ from typing import TYPE_CHECKING
 import pygit2
 from pydantic import TypeAdapter
 
-# Archived check identities belong to this one-time historical conversion.
-CHECK_POLICY_VERSION = "model-checks-v5"
-PREDICTIVE_POLICY_VERSION = "exact-model-checks-v6"
 from nof1_causal_lab.artifacts.identity import scientific_id
 from scripts.migrations.study_rewrite import rewrite_study
 
 if TYPE_CHECKING:
     from nof1_causal_lab.json_types import JsonValue
+
+# Archived check identities belong to this one-time historical conversion.
+CHECK_POLICY_VERSION = "model-checks-v5"
+PREDICTIVE_POLICY_VERSION = "exact-model-checks-v6"
 
 _OLD_LAWS = {
     "Delta",

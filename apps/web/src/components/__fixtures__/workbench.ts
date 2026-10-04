@@ -68,11 +68,7 @@ function record(seq: number, attempt: ActionAttempt, trace_ids: string[] = []): 
     },
   };
 }
-function metadata(
-  revision: string,
-  parent: string,
-  produced_by: string,
-): ArtifactRecord {
+function metadata(revision: string, parent: string, produced_by: string): ArtifactRecord {
   return {
     artifact_id: "model",
     revision,
@@ -331,7 +327,7 @@ const workbenchRecords: StudyRevision[] = [
           effects: {
             produced: [fixtureValue(fixtureValue(snapshots.get(seq)).state.current.model)],
             retracted: [],
-              },
+          },
         },
       },
       seq === 2 ? [] : [seq === 3 ? "latent_structure" : "measurement_structure"],
@@ -385,7 +381,7 @@ const workbenchRecords: StudyRevision[] = [
         effects: {
           produced: [fixtureValue(fixtureValue(snapshots.get(7)).state.current.model)],
           retracted: [],
-          },
+        },
       },
     },
     ["statistical_model_spec"],
@@ -401,7 +397,12 @@ const workbenchRecords: StudyRevision[] = [
   }),
   record(9, {
     action: "simulate",
-    request: { action: "simulate", model_revision: modelId(5), panel_revision: panelId, ...fixtureValue(simulations.get(5)).evidence.design },
+    request: {
+      action: "simulate",
+      model_revision: modelId(5),
+      panel_revision: panelId,
+      ...fixtureValue(simulations.get(5)).evidence.design,
+    },
     outcome: {
       status: "applied",
       result: {
@@ -430,7 +431,12 @@ const workbenchRecords: StudyRevision[] = [
   }),
   record(12, {
     action: "simulate",
-    request: { action: "simulate", model_revision: modelId(7), panel_revision: panelId, ...fixtureValue(simulations.get(7)).evidence.design },
+    request: {
+      action: "simulate",
+      model_revision: modelId(7),
+      panel_revision: panelId,
+      ...fixtureValue(simulations.get(7)).evidence.design,
+    },
     outcome: {
       status: "applied",
       result: {
@@ -548,12 +554,22 @@ export const workbenchTraces = new Map([
 export const workbenchQuestion = demoModelSnapshot.question?.value.text;
 export const workbenchJournal: TimelineRevision[] = journal.map((entry) => {
   const outcome = entry.record.attempt.outcome;
-  return { ...entry, record: {
-    seq: entry.record.seq, ts: entry.record.ts,
-    messages: entry.record.messages, trace_ids: entry.record.trace_ids,
-    attempt: { ...entry.record.attempt,
-    outcome: outcome.status === "applied" ? { ...outcome, result: null, effects: { ...outcome.effects } } : outcome,
-  } } };
+  return {
+    ...entry,
+    record: {
+      seq: entry.record.seq,
+      ts: entry.record.ts,
+      messages: entry.record.messages,
+      trace_ids: entry.record.trace_ids,
+      attempt: {
+        ...entry.record.attempt,
+        outcome:
+          outcome.status === "applied"
+            ? { ...outcome, result: null, effects: { ...outcome.effects } }
+            : outcome,
+      },
+    },
+  };
 });
 
 /** Complete retained results backing the seven public call routes. */
@@ -569,10 +585,24 @@ export function workbenchResult(seq: number): CompletedPoll {
     snapshot,
     inference_report: null,
     data_comparison: entry.record.attempt.action === "data_diff" ? dataComparison : null,
-    checks: null,
-    observation_histories: snapshot?.metadata ? visualFixture.observations : {}, predictive_overlays: {},
-    simulation_paths: paths, parameter_draws: visualFixture.parameters,
-    traces: Object.fromEntries(entry.record.trace_ids.map((id) => [id, fixtureValue(workbenchTraces.get(seq))])), artifacts: {}, arrays: {},
+    checks:
+      entry.record.attempt.action === "edit_model" || entry.record.attempt.action === "fit"
+        ? {
+            specification: snapshot.specification?.value ?? [],
+            question: snapshot.question_checks?.value ?? null,
+            predictive: snapshot.predictive?.value ?? null,
+            reused: [],
+          }
+        : null,
+    observation_histories: snapshot?.metadata ? visualFixture.observations : {},
+    predictive_overlays: {},
+    simulation_paths: paths,
+    parameter_draws: visualFixture.parameters,
+    traces: Object.fromEntries(
+      entry.record.trace_ids.map((id) => [id, fixtureValue(workbenchTraces.get(seq))]),
+    ),
+    artifacts: {},
+    arrays: {},
   };
 }
 

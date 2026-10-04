@@ -1,7 +1,5 @@
 """One model-free preparation action retains extraction semantics and data findings."""
 
-from nof1_causal_lab.study.lineage import read_data_metadata
-
 import json
 from datetime import UTC, datetime
 from uuid import uuid4
@@ -27,11 +25,10 @@ from nof1_causal_lab.artifacts.data_preparation import (
     DataVariableSpec,
     FilePreparationSpec,
     FileSourceRef,
-    PreparedDataMetadata,
     SemanticExtractionSpec,
 )
 from nof1_causal_lab.artifacts.observations import AuthoredObservationSpec
-from nof1_causal_lab.artifacts.validation_report import DataProfileArtifact
+from nof1_causal_lab.study.lineage import read_data_metadata
 from nof1_causal_lab.study.state import StudyState
 from nof1_causal_lab.study.store import ArtifactStore
 from nof1_causal_lab.utils import storage
@@ -179,9 +176,7 @@ def test_preparation_without_model_combines_computed_and_semantic_workers(monkey
     )
     assert metadata.variables[1].ordinal_levels == ("low", "medium", "high")
     assert set(profile.indicators) == {"indicator:steps", "indicator:stress"}
-    labels = completion_messages(
-        effects, datetime.now(UTC), (profile,)
-    )
+    labels = completion_messages(effects, datetime.now(UTC), (profile,))
     assert "DATA_QUALITY_FINDINGS" in {label.label for label in labels}
     assert all(set(label.model_dump()) == {"timestamp", "level", "label"} for label in labels)
 
