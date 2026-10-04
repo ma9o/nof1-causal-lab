@@ -6,14 +6,14 @@ required.
 
 State is ephemeral by default — each start begins with a clean history. Pass
 ``--db-filename`` to persist the event history to a SQLite file instead: then
-the dev server behaves like a real cluster and in-flight episode workflows
+the dev server behaves like a real cluster and in-flight study workflows
 resume exactly where they left off across a restart (the durable-execution
 guarantee), rather than being orphaned. The agentic integration stack sets
 this so restarting Temporal to pick up code or serve the UI never resets a
-running episode.
+running study.
 
 The Temporal Web UI is served on ``port + 1000`` (8233 for the default
-7233) so episode workflows, activities, retries, and event histories are
+7233) so study workflows, activities, retries, and event histories are
 observable while the stack runs.
 
 Usage:

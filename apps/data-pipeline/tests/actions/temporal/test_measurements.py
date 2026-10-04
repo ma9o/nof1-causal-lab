@@ -822,7 +822,7 @@ def test_extraction_chunk_workflow_runs_shared_llm_subroutine(monkeypatch, tmp_p
         try:
             async with (
                 create_openrouter_client() as transport,
-                build_worker(env.client, task_queue="test-episodes"),
+                build_worker(env.client, task_queue="test-studies"),
                 build_openrouter_worker(env.client, transport),
             ):
                 result = await env.client.execute_workflow(
@@ -845,7 +845,7 @@ def test_extraction_chunk_workflow_runs_shared_llm_subroutine(monkeypatch, tmp_p
                         max_tool_turns=3,
                     ),
                     id=f"extract-chunk-{workspace_id}",
-                    task_queue="test-episodes",
+                    task_queue="test-studies",
                 )
         finally:
             await env.shutdown()
@@ -1070,7 +1070,7 @@ def test_llm_subroutine_workflow_delegates_harness_tool_to_temporal_activity(
         monkeypatch.setenv("TEMPORAL_NAMESPACE", env.client.namespace)
         try:
             async with (
-                build_worker(env.client, task_queue="test-episodes"),
+                build_worker(env.client, task_queue="test-studies"),
                 build_harness_worker(
                     env.client,
                     harness_task_queue,
@@ -1093,7 +1093,7 @@ def test_llm_subroutine_workflow_delegates_harness_tool_to_temporal_activity(
                         max_tool_turns=1,
                     ),
                     id=f"harness-measurement-{workspace_id}",
-                    task_queue="test-episodes",
+                    task_queue="test-studies",
                 )
                 result = await handle.result()
                 history = await handle.fetch_history()

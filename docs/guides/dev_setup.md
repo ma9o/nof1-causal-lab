@@ -40,7 +40,7 @@ Optional keys:
 - `EXA_API_KEY` — literature search
 - `TOOL_SERVER_URL` — override the study facade / tool server URL (default `http://localhost:8100`)
 - `TEMPORAL_ADDRESS` — override the Temporal dev server address (default `localhost:7233`)
-- `EPISODE_FACADE_READ_ONLY=1` — serve reads only (what the hosted viewer's facade sets)
+- `READ_ONLY_FACADE=1` — serve reads only (what the hosted viewer's facade sets)
 
 ### 4. Generate API Artifacts and Docs
 
@@ -59,7 +59,7 @@ Or individually:
 |-----|---------|------|
 | Web viewer | `cd apps/web && bun run dev` | 3000 |
 | Temporal dev server | `cd apps/data-pipeline && uv run python scripts/dev/temporal_dev_server.py` | 7233 |
-| Episode worker | `cd apps/data-pipeline && uv run python -m nof1_causal_lab.actions.temporal.worker` | — |
+| Study worker | `cd apps/data-pipeline && uv run python -m nof1_causal_lab.actions.temporal.worker` | — |
 | Tool server / study facade | `cd apps/data-pipeline && bun run dev` | 8100 |
 
 The web viewer works standalone with mock data. Live studies also need the Temporal dev server, the study worker, and the tool server — `bun run integration:start` brings up the whole stack (see the [integration testing guide](agentic_integration_testing.md)).

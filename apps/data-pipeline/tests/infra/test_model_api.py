@@ -150,7 +150,7 @@ def model_api(monkeypatch, tmp_path):
 
     class Client:
         def get_workflow_handle(self, workflow_id):
-            return Handle(workflow_id.removeprefix("episode-"))
+            return Handle(workflow_id.removeprefix("study-"))
 
     async def get_client(self):
         return Client()
@@ -217,7 +217,7 @@ def test_action_submission_surfaces_known_rejection_without_waiting(
     client, _, _ = model_api
     repository = StudyRepository("API")
     head = repository.head()
-    update = WorkflowUpdateHandle(Mock(), str(uuid4()), "episode-API", known_outcome=outcome)
+    update = WorkflowUpdateHandle(Mock(), str(uuid4()), "study-API", known_outcome=outcome)
     update.result = AsyncMock(side_effect=AssertionError("Submission must not wait for completion"))
     handle = Mock(start_update=AsyncMock(return_value=update))
     monkeypatch.setattr(study_api, "_study_handle", AsyncMock(return_value=handle))
