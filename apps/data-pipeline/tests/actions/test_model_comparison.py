@@ -1,6 +1,8 @@
 """Graph comparisons isolate topology from other scientific definition changes."""
 
-from pathlib import Path
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 import numpyro.distributions as dist
@@ -8,7 +10,6 @@ import pytest
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.expressions import coefficient, state
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.model_structure import (
     StructuralSelection,
     compare_model_graph,
@@ -16,9 +17,19 @@ from nof1_causal_lab.models.model_structure import (
     model_graph_entities,
     selected_state_ids,
 )
-from nof1_causal_lab.models.ssm.joint_layout import JointLawLayout
+from nof1_causal_lab.models.ssm.compile.bindings import joint_law_layout
 from nof1_causal_lab.study.view_models import Added, Removed
 from tests.helpers import make_model
+from tests.model_fixtures import load_model_fixture, x_y_model
+
+
+def _y_z_model() -> ModelSpec:
+    return load_model_fixture("model_comparison/y_z_model.json")
+
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+
 
 pytestmark = pytest.mark.contract
 
@@ -28,13 +39,7 @@ def _whole(model: ModelSpec) -> StructuralSelection:
 
 
 def test_parameter_decisions_and_law_changes_leave_topology_unchanged():
-    model = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[1]
-            / "fixtures/models"
-            / "model_comparison/y_z_model.json"
-        ).read_text()
-    )
+    model = _y_z_model()
     edge = model.edges[0]
     parameter = model.parameters_for(edge.id)[0]
     pinned = model.revised(
@@ -77,13 +82,9 @@ def test_parameter_decisions_and_law_changes_leave_topology_unchanged():
 
 
 def test_fitted_state_laws_and_time_points_leave_topology_unchanged():
-    model = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[1] / "fixtures/models" / "common/x_y_model.json"
-        ).read_text()
-    )
-    layout = JointLawLayout.from_bindings(
-        (), parameters=(), constructs=selected_state_ids(_whole(model)), time_points=(0.0, 1.0)
+    model = x_y_model()
+    layout = joint_law_layout(
+        (), parameters=(), constructs=selected_state_ids(_whole(model)), time_points=(0.0, 1.0), construct_labels={item.id:item.name for item in model.constructs}
     )
     identity = layout.distribution_id
     fitted = model.revised(
@@ -95,7 +96,7 @@ def test_fitted_state_laws_and_time_points_leave_topology_unchanged():
             **model.distributions,
             identity: dist.Delta(jnp.zeros(layout.width), event_dim=1),
         },
-        time_points=layout.time_points,
+        law_layouts={identity: layout},
     )
     for before, after in ((model, fitted), (fitted, model)):
         graph = compare_model_graph(_whole(before), _whole(after))
@@ -121,6 +122,14 @@ def test_graph_additions_and_removals_ignore_entity_attribute_changes():
             for edge in replace_constructs(after.edges, (renamed,))
         ),
     )
+    creation = compare_model_graph(None, _whole(after))
+    removal = compare_model_graph(_whole(after), None)
+    assert all(item.kind == "added" for item in (*creation[0], *creation[1]))
+    assert all(item.kind == "removed" for item in (*removal[0], *removal[1]))
+    assert all(item.kind == "added" for item in compare_parameters(None, after))
+    assert all(item.kind == "removed" for item in compare_parameters(after, None))
+    assert compare_model_graph(None, None) == ((), ())
+    assert compare_parameters(None, None) == ()
     scoped = StructuralSelection(after, after.constructs[1].id)
     graph = compare_model_graph(_whole(before), scoped)
     assert {

@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
 from typing import Annotated, Literal
 
 from pydantic import Field, computed_field
@@ -83,7 +82,6 @@ type ModelPredictiveEvaluation = Annotated[
 class ModelPredictiveReport(Value):
     """One automatic, reproducible battery over the full model's current laws."""
 
-    input_key: str
     model_revision: GitOid
     panel_revision: GitOid | None
     draws: int = Field(ge=1)
@@ -110,9 +108,8 @@ class ModelPredictiveReport(Value):
 
 
 class ModelCheckReport(Value):
-    """Checks selected by their consumed inputs, retained with the study snapshot."""
+    """Current-code findings selected by their consumed scientific inputs."""
 
-    input_keys: Mapping[CheckGroup, str]
     specification: tuple[SpecificationAssessment, ...]
     question: QuestionCheckReport | None = None
     predictive: ModelPredictiveReport | None = None

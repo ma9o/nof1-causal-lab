@@ -1,4 +1,4 @@
-"""Durable four-action dispatch, atomic outcomes, and recovery from Git.
+"""Content-named calls, atomic outcomes, and recovery from Git.
 
 Only ingestion's LLM is stubbed. Model edits supply their definition directly;
 fit and simulation readiness failures exercise the real execution boundary.
@@ -13,7 +13,8 @@ from typing import Any
 from unittest.mock import AsyncMock
 
 import pytest
-from fastapi import HTTPException
+from fastapi import Response
+from pydantic import TypeAdapter
 
 from nof1_causal_lab.actions.contracts import (
     EditModelRequest,
@@ -22,7 +23,7 @@ from nof1_causal_lab.actions.contracts import (
     SetQuestionRequest,
     SimulateRequest,
 )
-from nof1_causal_lab.actions.results import CompletedPoll
+from nof1_causal_lab.actions.results import ActionPoll, CompletedPoll, RunningPoll
 from nof1_causal_lab.actions.temporal.workflow import StudyWorkflow
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.question import QuestionSpec
@@ -232,17 +233,15 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                 handle = await study_api._study_handle(workspace_id, clients)
 
                 async def execute(request):
-                    receipt = await study_api.execute_scientific_action(
-                        workspace_id, request, clients
-                    )
-                    assert set(receipt.model_dump()) == {"attempt_id"}
-                    await handle.get_update_handle(str(receipt.attempt_id)).result()
-                    polled = await study_api.read_action_poll(
-                        workspace_id, receipt.attempt_id, clients
-                    )
-                    assert isinstance(polled, CompletedPoll)
-                    record = StudyRepository(workspace_id).dispatched_attempt(receipt.attempt_id)
-                    assert record is not None
+                    response = await study_api._dispatch_action(workspace_id, request, clients)
+                    if isinstance(response, RunningPoll):
+                        polled = await handle.get_update_handle(str(response.attempt_id), result_type=ActionPoll).result()
+                    elif isinstance(response, Response):
+                        polled = TypeAdapter(ActionPoll).validate_json(bytes(response.body))
+                    else:
+                        polled = response
+                    assert isinstance(polled, CompletedPoll) and polled.commit_id is not None
+                    record = StudyRepository(workspace_id).record(polled.commit_id)
                     assert polled.attempt == record.record.attempt
                     assert polled.messages[0].label == f"{request.action.upper()}_STARTED"
                     assert polled.messages[-1].level == (
@@ -268,16 +267,16 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                 assert root.record.attempt.outcome.status == "applied"
                 assert state(root).has("question")
                 again = await execute(SetQuestionRequest(question=question))
-                assert isinstance(again.record.attempt.outcome, Rejected)
-                assert again.record.attempt.outcome.reason == "revision_conflict"
+                assert again == root
 
                 # Every edit defines the question's nodes; without them it is an invalid request.
-                with pytest.raises(HTTPException, match="construct:sleep"):
-                    await execute(EditModelRequest(expected_revision=None, model=ModelSpec()))
+                invalid = await execute(EditModelRequest(expected_revision=None, model=ModelSpec()))
+                assert invalid.record.attempt.outcome.status == "rejected"
+                assert invalid.record.attempt.outcome.reason == "scientific_inputs"
                 prepared = await execute(PrepareDataRequest(input=_PREPARATION))
                 assert prepared.record.attempt.outcome.status == "applied", prepared
                 assert state(prepared).has("panel")
-                assert state(prepared).has("data_profile")
+                assert set(state(prepared).current) == {"question", "raw_data", "panel"}
                 edited = await execute(
                     EditModelRequest(
                         expected_revision=None,
@@ -302,28 +301,15 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                     assert raised.record.attempt.outcome.reason == "scientific_inputs"
                     assert state().current == before
 
-                status = await study_api.get_study(workspace_id, clients)
-                assert set(status.actions) == {
-                    "set_question",
-                    "edit_model",
-                    "prepare_data",
-                    "fit",
-                    "simulate",
-                }
-                assert not any(
-                    artifact.kind == "present" and artifact.validity == "stale"
-                    for artifact in status.artifacts
-                )
-
-                # The facade must recover both committed science and the latest
-                # attempt sequence, including failed attempts after the branch head.
+                status = await study_api.get_timeline(workspace_id, clients)
+                previous_state = state()
                 previous_run_id = handle.first_execution_run_id
                 await handle.terminate()
                 handle = await study_api._study_handle(workspace_id, clients)
                 assert handle.first_execution_run_id != previous_run_id
-                recovered = await study_api.get_study(workspace_id, clients)
-                assert recovered.state == status.state
-                assert recovered.seq == status.seq
+                recovered = await study_api.get_timeline(workspace_id, clients)
+                assert state() == previous_state
+                assert recovered.attempts == status.attempts
 
                 store = ArtifactStore(workspace_id)
                 measured = read_model(store, model_revision)
@@ -334,17 +320,7 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                     EditModelRequest(expected_revision=model_revision, model=revised)
                 )
                 assert rewritten.record.attempt.outcome.status == "applied", rewritten
-                assert rewritten.record.seq == recovered.seq + 1
-                status = await study_api.get_study(workspace_id, clients)
-                stale = {
-                    a.record.artifact_id
-                    for a in status.artifacts
-                    if a.kind == "present" and a.validity == "stale"
-                }
-                assert "panel" not in stale
-                assert "model" not in stale
-                assert "raw_data" not in stale
-
+                assert rewritten.record.seq == max(item.record.seq for item in recovered.attempts) + 1
                 records = StudyRepository(workspace_id).attempts()
                 assert [record.record.attempt.outcome.status for record in records] == [
                     "rejected",
@@ -359,7 +335,7 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                 assert [record.record.attempt.action for record in records] == [
                     "edit_model",
                     "set_question",
-                    "set_question",
+                    "edit_model",
                     "prepare_data",
                     "edit_model",
                     "fit",
@@ -385,7 +361,7 @@ def test_study_workflow_journey(machine_env, monkeypatch):
     asyncio.run(scenario())
 
 
-def test_status_reports_only_attempts_a_live_workflow_executes(machine_env, monkeypatch):
+def test_timeline_reports_only_attempts_a_live_workflow_executes(machine_env, monkeypatch):
     import nof1_causal_lab.utils.openrouter_client as openrouter_client
 
     workspace_id = machine_env
@@ -427,21 +403,23 @@ def test_status_reports_only_attempts_a_live_workflow_executes(machine_env, monk
                 clients = study_api.TemporalClientProvider()
                 monkeypatch.setattr(clients, "get", AsyncMock(return_value=env.client))
                 handle = await study_api._study_handle(workspace_id, clients)
-                created = await study_api.execute_scientific_action(
+                created = await study_api._dispatch_action(
                     workspace_id,
                     SetQuestionRequest(question=QuestionSpec(text=_QUESTION)),
                     clients,
                 )
-                await handle.get_update_handle(str(created.attempt_id)).result()
-                assert (await study_api.get_study(workspace_id, clients)).running is None
+                if isinstance(created, RunningPoll):
+                    await handle.get_update_handle(str(created.attempt_id)).result()
+                assert (await study_api.get_timeline(workspace_id, clients)).running is None
 
-                preparing = await study_api.execute_scientific_action(
+                preparing = await study_api._dispatch_action(
                     workspace_id, PrepareDataRequest(input=_PREPARATION), clients
                 )
                 while (running := await study_api._running_action(workspace_id, clients)) is None:
                     await asyncio.sleep(0.05)
+                assert isinstance(preparing, RunningPoll)
                 assert running.attempt_id == preparing.attempt_id
-                assert (running.action, running.branch) == ("prepare_data", "main")
+                assert running.action == "prepare_data"
                 assert [message.label for message in running.messages] == ["PREPARE_DATA_STARTED"]
 
                 # A terminated workflow can never finish the attempt its memo still names.
@@ -450,7 +428,7 @@ def test_status_reports_only_attempts_a_live_workflow_executes(machine_env, monk
                     RUNNING_ACTION_MEMO, type_hint=RunningAction
                 )
                 assert memo == running
-                assert (await study_api.get_study(workspace_id, clients)).running is None
+                assert (await study_api.get_timeline(workspace_id, clients)).running is None
         finally:
             release.set()
             await env.shutdown()

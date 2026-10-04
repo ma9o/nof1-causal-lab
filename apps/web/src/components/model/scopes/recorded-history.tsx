@@ -92,7 +92,7 @@ export function dataComparisonHistory(variable: DataVariableDiff) {
   };
 }
 
-export function DrawPager({
+function DrawPager({
   start,
   count,
   total,

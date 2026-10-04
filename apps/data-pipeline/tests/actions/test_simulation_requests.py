@@ -1,19 +1,18 @@
 """One forward-generation contract with dated interventions and durable histories."""
 
 from datetime import UTC, date, datetime
-from pathlib import Path
 
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from nof1_causal_lab.actions.contracts import SimulateRequest
 from nof1_causal_lab.actions.effects import ActionEffects
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.scenarios import InterventionSpec
-from nof1_causal_lab.artifacts.simulation import SimulationReport, SimulationSpec
+from nof1_causal_lab.artifacts.simulation import SimulationEvidence, SimulationReport, SimulationSpec
+from nof1_causal_lab.artifacts.predictive_provenance import AuthoredLawProvenance
 from nof1_causal_lab.study.records import Applied
-from tests.inference_fixtures import particle_posterior
-from tests.model_fixtures import compile_model_fixture
+from tests.inference_fixtures import compile_model_fixture, particle_posterior
+from tests.model_fixtures import stress_sleep_model
 
 pytestmark = pytest.mark.contract
 
@@ -24,6 +23,7 @@ def test_simulation_request_is_a_dated_window_with_optional_interventions():
     assert set(request.model_dump()) == {
         "action",
         "model_revision",
+        "panel_revision",
         "start",
         "horizon",
         "interventions",
@@ -85,7 +85,7 @@ def _response(origin: datetime = datetime(2026, 1, 1, tzinfo=UTC)):
         "warnings": [],
     }
 
-    return {
+    evidence = {
         "design": {
             "start": "2026-01-01",
             "horizon": "2d",
@@ -96,7 +96,6 @@ def _response(origin: datetime = datetime(2026, 1, 1, tzinfo=UTC)):
         "times": days,
         "draws": 100,
         "seed": 0,
-        "fit_reliability": "converged",
         "model": {"workspace_id": "QUERY", "revision": "a" * 40, "path": "model.json"},
         "state_ids": ["construct:x", "construct:y"],
         "observation_layout": {
@@ -118,25 +117,26 @@ def _response(origin: datetime = datetime(2026, 1, 1, tzinfo=UTC)):
         "observations": "observations",
         "reference_latent_paths": "reference-paths",
         "reference_observations": "reference-observations",
-        "causal": {"kind": "available", "value": result},
     }
+    return {"evidence": evidence, "law": AuthoredLawProvenance().model_dump(mode="json"),
+        "fit_reliability": "converged", "causal": {"kind": "available", "value": result}}
 
 
 def test_one_request_can_produce_independently_pinned_responses():
     value = _response()
     first = SimulationReport.model_validate(value)
-    value["model"]["revision"] = "b" * 40
+    value["evidence"]["model"]["revision"] = "b" * 40
     second = SimulationReport.model_validate(value)
-    assert first.design == second.design
-    assert first.model.revision == "a" * 40
-    assert second.model.revision == "b" * 40
+    assert first.evidence.design == second.evidence.design
+    assert first.evidence.model.revision == "a" * 40
+    assert second.evidence.model.revision == "b" * 40
     assert SimulationReport.model_validate_json(first.model_dump_json()) == first
 
 
 @pytest.mark.parametrize("missing", ["construct:x", "construct:y"])
 def test_causal_layout_includes_the_outcome_and_interventions(missing):
     value = _response()
-    value["state_ids"].remove(missing)
+    value["evidence"]["state_ids"].remove(missing)
     with pytest.raises(ValidationError, match="include the outcome and interventions"):
         SimulationReport.model_validate(value)
 
@@ -144,7 +144,7 @@ def test_causal_layout_includes_the_outcome_and_interventions(missing):
 @pytest.mark.parametrize("missing", ["reference_latent_paths", "reference_observations"])
 def test_causal_reports_require_their_effects_and_paired_draws(missing):
     payload = _response()
-    del payload[missing]
+    del payload["evidence"][missing]
     with pytest.raises(ValidationError, match="paired reference"):
         TypeAdapter(SimulationReport).validate_python(payload)
 
@@ -156,35 +156,35 @@ def test_causal_reports_require_their_effects_and_paired_draws(missing):
             "authored",
             True,
             "not_fitted",
-            "common/stress_sleep_model.json",
+            stress_sleep_model,
             id="authored-True-not_fitted",
         ),
         pytest.param(
             "authored",
             False,
             "not_fitted",
-            "common/stress_sleep_model.json",
+            stress_sleep_model,
             id="authored-False-not_fitted",
         ),
         pytest.param(
             "fitted",
             True,
             "converged",
-            "common/stress_sleep_model.json",
+            stress_sleep_model,
             id="fitted-True-converged",
         ),
         pytest.param(
             "fitted",
             True,
             "unconverged",
-            "common/stress_sleep_model.json",
+            stress_sleep_model,
             id="fitted-True-unconverged",
         ),
         pytest.param(
             "unknown",
             True,
             "unknown",
-            "common/stress_sleep_model.json",
+            stress_sleep_model,
             id="unknown-True-unknown",
         ),
     ],
@@ -196,7 +196,6 @@ def test_runner_derives_origin_and_reliability_from_current_panel_or_fit(
 
     import jax.numpy as jnp
 
-    from nof1_causal_lab.actions import scenarios
     from nof1_causal_lab.actions.runners import run_action
     from nof1_causal_lab.models.ssm.inference.persistence import condition_model
     from nof1_causal_lab.models.ssm.inference.types import (
@@ -207,17 +206,12 @@ def test_runner_derives_origin_and_reliability_from_current_panel_or_fit(
     from nof1_causal_lab.study.store import ArtifactStore
     from nof1_causal_lab.utils import data
     from tests.helpers import run_async, write_question
-    from tests.inference_fixtures import inference_log
+    from tests.inference_fixtures import _report, inference_log, parameter_draws
     from tests.integration.runner_fixtures import panel_metadata
-    from tests.model_fixtures import parameter_draws
 
     monkeypatch.setattr(data, "_DATA_URI", str(tmp_path))
     store = ArtifactStore("ORIGIN")
-    model = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[1] / "fixtures/models" / scientific_model_payload
-        ).read_text()
-    )
+    model = scientific_model_payload()
     prior = store.write_artifact(
         "model",
         derived_from={},
@@ -233,7 +227,7 @@ def test_runner_derives_origin_and_reliability_from_current_panel_or_fit(
     record = prior
     fit_origin = datetime(2024, 1, 2, tzinfo=UTC)
     if kind in {"fitted", "unknown"}:
-        model = condition_model(
+        model, _ = condition_model(
             model,
             compile_model_fixture(model),
             particle_posterior(
@@ -255,7 +249,7 @@ def test_runner_derives_origin_and_reliability_from_current_panel_or_fit(
             from nof1_causal_lab.study.records import ModelFitResult
             from tests.action_fixtures import applied_record
 
-            fit = inference_log(model).record.attempt.outcome.result.report
+            fit = _report(model)
             fit = fit.revised(core=fit.core.revised(time_origin=fit_origin))
             if reliable == "unconverged":
                 diagnostics = fit.core.inference_diagnostics
@@ -272,6 +266,7 @@ def test_runner_derives_origin_and_reliability_from_current_panel_or_fit(
                         inference_diagnostics=poor, convergence=parameter_convergence(poor)
                     )
                 )
+            monkeypatch.setattr("nof1_causal_lab.study.lineage.fitted_law_report", lambda *_args: fit.core)
             StudyRepository("ORIGIN").append(
                 applied_record(
                     Applied(
@@ -284,7 +279,7 @@ def test_runner_derives_origin_and_reliability_from_current_panel_or_fit(
                                 revision=fit_panel.revision,
                                 path="panel.parquet",
                             ),
-                            report=fit,
+                            evidence=inference_log(model).record.attempt.outcome.result.evidence.revised(time_origin=fit_origin),
                         ),
                         effects=ActionEffects(produced=(prior, fit_panel, record)),
                     ),
@@ -311,43 +306,37 @@ def test_runner_derives_origin_and_reliability_from_current_panel_or_fit(
         if kind == "fitted"
         else current_origin
         if current_panel
-        else response.design.start_instant
+        else response.evidence.design.start_instant
     )
     expected_panel = (
         fit_panel.revision if kind == "fitted" else panel.revision if current_panel else None
     )
 
-    def generate(_model, _design, *, revision, time_origin, fit_reliability, **_kwargs):
+    def generate(_model, _design, *, revision, time_origin, origin_panel_revision, **_kwargs):
         assert time_origin == expected_origin
-        assert fit_reliability == reliable
-        generated = SimulationReport.model_validate(_response(time_origin))
-        return generated.revised(
-            model=revision,
-            fit_reliability=fit_reliability,
-        )
+        assert origin_panel_revision == expected_panel
+        generated = SimulationEvidence.model_validate(_response(time_origin)["evidence"])
+        return generated.revised(model=revision, origin_panel_revision=origin_panel_revision)
 
-    monkeypatch.setattr(import_module("nof1_causal_lab.actions.simulate"), "simulate", generate)
-    monkeypatch.setattr(
-        scenarios, "summarize_causal_simulation", lambda _model, report, **_kwargs: report
-    )
+    action = import_module("nof1_causal_lab.actions.simulate")
+    monkeypatch.setattr(action, "simulate", generate)
+    monkeypatch.setattr(action, "read_simulation_report", lambda _store, evidence, _question: SimulationReport(
+        evidence=evidence, law=AuthoredLawProvenance(), fit_reliability=reliable,
+        causal=SimulationReport.model_validate(_response(evidence.time_origin)).causal))
     applied = run_async(
         run_action(
             "ORIGIN",
             SimulateRequest(
                 model_revision=record.revision,
-                start=response.design.start,
-                horizon=response.design.horizon,
-                interventions=response.design.interventions,
+                panel_revision=panel.revision if current_panel else None,
+                start=response.evidence.design.start,
+                horizon=response.evidence.design.horizon,
+                interventions=response.evidence.design.interventions,
             ),
             state,
         )
     )
-    saved = applied.result.report
+    saved = applied.result.evidence
     assert saved.time_origin == expected_origin
     assert saved.origin_panel_revision == expected_panel
-    assert saved.fit_reliability == reliable
-    assert saved.law is not None
-    assert saved.law.kind == kind
-    assert (applied.result.panel.revision if applied.result.panel is not None else None) == (
-        panel.revision if current_panel else None
-    )
+    assert "report" not in applied.result.model_dump()

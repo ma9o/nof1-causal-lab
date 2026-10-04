@@ -36,8 +36,7 @@ def test_traces_preserve_all_draws_chains_and_scientific_subjects():
     traces = build_trace_data({"scalar": jnp.asarray(scalar), "matrix": jnp.asarray(matrix)}, refs)
     assert len(traces) == len(expected)
     for trace, (name, indices, values) in zip(traces, expected, strict=True):
-        label, subject = refs[ParameterCoordinate(site_name=name, indices=indices)]
-        assert trace.parameter == label
+        _, subject = refs[ParameterCoordinate(site_name=name, indices=indices)]
         assert trace.subject == subject
         assert trace.chains == tuple(tuple(row) for row in values.tolist())
 
@@ -119,8 +118,8 @@ def test_mcmc_report_preserves_coordinate_metrics_chains_and_sampler_statistics(
         report.per_parameter, traces, ranks, coordinates, strict=True
     ):
         coordinate = ParameterCoordinate(site_name=name, indices=indices)
+        assert metric.parameter == coordinate.label
         for entry in (metric, trace, hist):
-            assert entry.parameter == coordinate.label
             assert entry.subject == refs[coordinate][1]
         for key in ("r_hat", "ess_bulk", "ess_tail", "mcse_mean"):
             assert np.isfinite(getattr(metric, key))
@@ -129,15 +128,16 @@ def test_mcmc_report_preserves_coordinate_metrics_chains_and_sampler_statistics(
             particle_posterior.get_samples()[name][(slice(None), *indices)]
         ).reshape(2, 64)
         assert trace.chains == tuple(tuple(row) for row in expected.tolist())
-        assert hist.expected_per_bin == 64 / hist.n_bins
+        n_bins = len(hist.chains[0])
+        assert hist.expected_per_bin == 64 / n_bins
         assert len(hist.chains) == 2
         assert all(
-            len(row) == hist.n_bins and min(row) >= 0 and sum(row) == 64 for row in hist.chains
+            len(row) == n_bins and min(row) >= 0 and sum(row) == 64 for row in hist.chains
         )
 
 
 @pytest.mark.inference(concern="sampling")
-def test_posterior_plots_preserve_all_joint_draws_and_divergences(particle_posterior):
+def test_posterior_marginals_and_traces_preserve_joint_draws_and_divergences(particle_posterior):
     coords = [("alpha", ()), ("beta", (0,)), ("beta", (1,)), ("sigma", ())]
     refs = references(coords)
     marginals = particle_posterior.get_posterior_marginals(refs, n_bins=8)
@@ -154,8 +154,6 @@ def test_posterior_plots_preserve_all_joint_draws_and_divergences(particle_poste
         assert marginal.interval_mass == 0.94
         assert len(marginal.density_curve.x) == len(marginal.density_curve.density) == 8
         assert min(marginal.density_curve.density) >= 0
-    pairs = particle_posterior.get_posterior_pairs(refs, max_params=3)
-    assert len(pairs) == 3
     expected_divergences = [False] * 128
     expected_divergences[4] = True
     traces, _ = particle_posterior.get_chain_detail(refs)
@@ -164,11 +162,8 @@ def test_posterior_plots_preserve_all_joint_draws_and_divergences(particle_poste
         bool(value)
         for value in particle_posterior.diagnostics.mcmc.get_extra_fields()["diverging"].reshape(-1)
     ) == tuple(expected_divergences)
-    for pair in pairs:
-        assert len(pair) == 2
-        for axis in pair:
-            coordinate = by_subject[axis.element_id]
-            values = particle_posterior.get_samples()[coordinate.site_name][
-                (slice(None), *coordinate.indices)
-            ]
-            np.testing.assert_array_equal(columns[axis], values)
+    for coordinate, (_, subject) in refs.items():
+        values = particle_posterior.get_samples()[coordinate.site_name][
+            (slice(None), *coordinate.indices)
+        ]
+        np.testing.assert_array_equal(columns[subject], values)

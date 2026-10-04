@@ -4,8 +4,10 @@ import asyncio
 
 import pytest
 
-from nof1_causal_lab.actions.temporal.activities import journal_activity, read_branch_activity
-from nof1_causal_lab.actions.temporal.messages import AttemptPublication, ReadBranchInput
+from nof1_causal_lab.actions.contracts import EditModelRequest
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.actions.temporal.activities import journal_activity, read_inputs_activity
+from nof1_causal_lab.actions.temporal.messages import AttemptPublication, ReadInputsInput
 from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.records import AttemptRecord, EditAttempt, Raised
 from nof1_causal_lab.study.store import collect_run_traces, read_attempt_trace, trace_log_path
@@ -55,11 +57,11 @@ def test_collects_finalized_traces_and_validates_commit_paths(data_root):
 
 def test_raised_attempt_discovers_trace_and_retry_no_longer_needs_scratch(data_root):
     del data_root
-    base = asyncio.run(read_branch_activity(ReadBranchInput(workspace_id="ws-trace")))
+    base = asyncio.run(read_inputs_activity(ReadInputsInput(workspace_id="ws-trace", request=EditModelRequest(expected_revision=None, model=ModelSpec()))))
     _scratch_trace("ws-trace", 1, "latent-structure")
     publication_input = AttemptPublication(
         workspace_id="ws-trace",
-        expected_head=base.commit_id,
+        parent_id=base.commit_id,
         record=AttemptRecord(
             seq=1,
             ts="2026-10-01T00:00:00Z",

@@ -69,7 +69,7 @@ class ContractJsonSchema(GenerateJsonSchema):
     """Preserve concrete validation schemas and their Python generic relationships."""
 
     def __init__(self) -> None:
-        super().__init__()
+        super().__init__(ref_template="#/components/schemas/{model}")
         self.generic_types: dict[str, type[BaseModel] | TypeAliasType] = {}
         self.type_references: dict[str, str] = {}
         self.seen: set[Any] = set()
@@ -105,7 +105,11 @@ class ContractJsonSchema(GenerateJsonSchema):
             generic = metadata["origin"]
             if generic is None:
                 for base in value.__bases__:
-                    if issubclass(base, BaseModel) and base.__pydantic_generic_metadata__["origin"]:
+                    if (
+                        base is not BaseModel
+                        and issubclass(base, BaseModel)
+                        and base.__pydantic_generic_metadata__["origin"]
+                    ):
                         self.register(base)
                         self.type_references[self.reference(value)] = _typescript_type(base)
             else:
@@ -139,28 +143,17 @@ class ContractJsonSchema(GenerateJsonSchema):
             target["x-typescript-type"] = reference
         return result
 
-    def export(self, value: Any) -> JsonSchemaValue:
-        self.register(value)
-        return self.generate(TypeAdapter(value).core_schema, mode="serialization")
 
-
-def generic_definitions(generics: dict[str, type[BaseModel] | TypeAliasType]) -> JsonSchemaValue:
-    """Export generic declaration bodies from the same owned Python fields."""
-    definitions = {}
+def generic_types(generics: dict[str, type[BaseModel] | TypeAliasType]) -> dict[str, Any]:
+    """Instantiate declaration bodies; typed placeholder nodes carry their TS operands."""
+    templates = {}
     for name, generic in sorted(generics.items()):
-        parameters = generic.__type_params__
         arguments: tuple[Any, ...] = tuple(
-            Annotated[Any, WithJsonSchema({"tsType": p.__name__})] for p in parameters
+            Annotated[Any, WithJsonSchema({"type": "string", "tsType": p.__name__})]
+            for p in generic.__type_params__
         )
-        generator = ContractJsonSchema()
-        schema = generator.export(generic[arguments])
-        schema.pop("x-typescript-type", None)
-        schema["title"] = name
-        schema["x-python-module"] = generic.__module__
-        schema["x-typescript-parameters"] = [p.__name__ for p in parameters]
-        definitions.update(schema.pop("$defs", {}))
-        definitions[name] = schema
-    return definitions
+        templates[name] = generic[arguments]
+    return templates
 
 
 # Group exported types by their owning subject.
@@ -186,6 +179,7 @@ CONCERNS = {
             "artifacts.parameter",
             "distributions",
             "numpyro_json",
+            "models.ssm.joint_layout",
             "artifacts.raw_data",
             "artifacts.measurements",
             "artifacts.validation_report",
@@ -209,7 +203,6 @@ CONCERNS = {
             "study.artifact_files",
             "study.state",
             "actions.effects",
-            "actions.status",
             "study.store",
             "study.records",
             "actions.progress",
@@ -227,7 +220,7 @@ CONCERNS = {
             "actions.results",
             "actions.revisions",
             "actions.data_diff",
-            "tool_contracts",
+            "tool_server",
             "json_types",
             "utils.llm",
         ),
@@ -242,7 +235,7 @@ ROLE_SENTENCES = {
     "Evaluation": "An evaluation produces an available result, an unavailable reason, or an explicit non-applicable state.",
     "ParameterDraws": "Every retained parameter coordinate is available without thinning or pair selection, or has an explicit unavailable reason.",
     "PredictiveComparisonResult": "A predictive comparison selects one reference history or records why no reference comparison applies.",
-    "ActionPoll": "A poll is either running labels or a completed typed attempt with its optional publication identity.",
+    "ActionPoll": "A call returns running arguments, messages and progress, or its complete saved outcome and scientific views.",
     "ActionAttempt": "A closed action attempt pairs its request with only that action's successful result or failure outcome.",
     "ActionBody": "An action result carries its owned scientific payload before Git publication.",
     "FailedOutcome": "A failed outcome is an expected rejection or an opaque execution failure.",
@@ -256,7 +249,6 @@ ROLE_SENTENCES = {
     "Expression": "A scalar expression composes supported arithmetic with scientific state and coefficient references.",
     "NumPyroDistribution": "A native NumPyro probability distribution serialized by its constructor tree.",
     "DynamicsMechanismSpec": "A dynamics mechanism declares one contribution to continuous-time drift.",
-    "ArtifactFreshness": "An artifact's presence and freshness are derived from the selected journal revision.",
     "ArtifactId": "An artifact identity selects one node in the study's artifact graph.",
     "ConstructId": "A persistent construct identity survives changes to its display name.",
     "EdgeId": "A persistent edge identity identifies one authored causal relationship.",
@@ -278,8 +270,6 @@ ROLE_SENTENCES = {
     "QuestionAssessment": "A question assessment records one check of the question against the model or the record.",
     "SimulationReport": "A simulation report records forward histories, resolved execution settings, and certified effects when supported.",
     "Sourced": "A sourced value pairs one model finding with its supporting artifact revision.",
-    "ToolError": "A tool error reports why a requested operation could not produce a result.",
-    "ToolQuerySpec": "A tool query specification declares a context's callable query.",
 }
 
 ALIAS_MODULES = {
@@ -318,13 +308,17 @@ def _module_for(name: str) -> str:
 
 
 def _layer_for(name: str, module: str) -> str:
+    if name == "JointLawLayout":
+        return "authored"
+    if name in {"InferenceEvidence", "SimulationEvidence"}:
+        return "artifacts"
     if module.endswith("artifacts.identity") or name == "ParameterCoordinate":
         return "identity"
     if module.endswith(("study.snapshot_models", "study.view_models")):
         return "read_models"
     if module.startswith("nof1_causal_lab.study.") or module.endswith("actions.progress"):
         return "study"
-    if module.endswith(("study_api", "json_types", "utils.llm", "numpyro_json")):
+    if module.endswith(("study_api", "tool_server", "json_types", "utils.llm", "numpyro_json")):
         return "transport"
     if module.endswith("artifacts.scenarios"):
         return (
@@ -384,16 +378,17 @@ def _concern_for(name: str, module: str) -> str:
 def annotate_definitions(definitions: dict[str, dict[str, JsonValue]]) -> None:
     """Require an owning Python module, role, and concern for every exported type."""
     for name, definition in definitions.items():
+        canonical = name.removesuffix("-Input").removesuffix("-Output")
         module = (
             str(definition["x-python-module"])
             if "x-python-module" in definition
-            else _module_for(name)
+            else _module_for(canonical)
         )
         definition["x-python-module"] = module
-        definition["x-layer"] = _layer_for(name, module)
-        definition["x-concern"] = _concern_for(name, module)
-        if name in ROLE_SENTENCES:
-            definition["description"] = ROLE_SENTENCES[name]
+        definition["x-layer"] = _layer_for(canonical, module)
+        definition["x-concern"] = _concern_for(canonical, module)
+        if canonical in ROLE_SENTENCES:
+            definition["description"] = ROLE_SENTENCES[canonical]
         # Pydantic's specialized Sourced[T] definitions do not carry its docstring.
         if module.endswith("study.snapshot_models") and name.startswith("Sourced_"):
             definition["description"] = ROLE_SENTENCES["Sourced"]

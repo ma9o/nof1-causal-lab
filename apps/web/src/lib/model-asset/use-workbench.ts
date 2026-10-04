@@ -1,6 +1,6 @@
 "use client";
 
-import type { ModelSnapshot, StudyRevision } from "@nof1-causal-lab/api-types";
+import type { CompletedPoll, ModelSnapshot, TimelineRevision } from "@nof1-causal-lab/api-types";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useModelDiff } from "@/lib/hooks/use-model-diff";
@@ -11,41 +11,42 @@ import type { EntitySelection } from "./selection";
 
 export type SnapshotReader = (
   commitId: string | undefined,
-  branch: string,
 ) => {
   data: ModelSnapshot | undefined;
   error: Error | null;
   isPlaceholderData?: boolean;
+  result?: CompletedPoll;
 };
 
 export function useWorkbenchSnapshots(
-  attempts: readonly StudyRevision[],
-  branches: Readonly<Partial<Record<string, string>>>,
+  attempts: readonly TimelineRevision[],
   useSnapshot: SnapshotReader,
 ) {
   const [playheadOverride, viewAt] = useState<number | null>(null);
   const latest = latestSeq(attempts);
-  const branch = attempts.find((record) => record.record.seq === latest)?.record.branch ?? "main";
   const playhead = playheadOverride ?? latest;
   const record = attempts.find((item) => item.record.seq === playhead);
-  // Read-only leaves and failed attempts inspect their unchanged parent state.
+  // Applied leaves own their results; failed attempts inspect their unchanged parent state.
   const commitId = record
-    ? record.record.attempt.outcome.status === "applied" &&
-      record.record.attempt.action !== "data_diff"
+    ? record.record.attempt.outcome.status === "applied" && record.record.attempt.request !== null
       ? record.commit_id
       : record.parent_ids[0]
-    : branches[branch];
-  const selected = useSnapshot(commitId, record?.record.branch ?? branch);
-  const current = useSnapshot(branches[branch], branch);
-  return { selected, current, viewAt, focusSeq: playhead };
+    : attempts.find((entry) => entry.record.seq === latest)?.commit_id;
+  const selected = useSnapshot(commitId);
+  const hasSelectedState = attempts.some((entry) => entry.commit_id === commitId &&
+    entry.record.attempt.outcome.status === "applied" && entry.record.attempt.request !== null);
+  const hasCurrentState = attempts.some((entry) => entry.record.seq === latest &&
+    entry.record.attempt.outcome.status === "applied" && entry.record.attempt.request !== null && entry.record.attempt.action !== "data_diff");
+  return { selected, viewAt, focusSeq: playhead, hasSelectedState, hasCurrentState };
 }
 
 interface WorkbenchOptions {
   workspaceId: string;
   question: string | undefined;
-  attempts: readonly StudyRevision[];
+  attempts: readonly TimelineRevision[];
   model: ModelSnapshot;
-  currentModel: ModelSnapshot;
+  focusSeq: number;
+  result: CompletedPoll | undefined;
   viewAt: (seq: number | null) => void;
 }
 
@@ -55,7 +56,8 @@ export function useWorkbench({
   question: initialQuestion,
   attempts,
   model,
-  currentModel,
+  focusSeq,
+  result,
   viewAt,
 }: WorkbenchOptions) {
   const [selection, select] = useState<EntitySelection | null>(null);
@@ -73,15 +75,17 @@ export function useWorkbench({
   );
   const entities = useMemo(() => indexModel(model.model?.value), [model]);
   const ticks = attempts;
-  const latest = currentModel.selected_seq;
-  const playhead = model.selected_seq;
+  const latest = latestSeq(attempts);
+  const playhead = focusSeq;
   const modelRevision = model.model?.source.ref.revision;
   const activeComparison = comparison?.before === playhead ? comparison : null;
-  const compared = useModelDiff(
-    workspaceId,
-    model.commit_id,
-    attempts.find((record) => record.record.seq === activeComparison?.after)?.commit_id ?? null,
-  );
+  const comparedCall = attempts.find((record) => record.record.seq === activeComparison?.after);
+  const comparedCommit = comparedCall?.record.attempt.outcome.status === "applied" && comparedCall.record.attempt.request !== null
+    ? comparedCall.commit_id : comparedCall?.parent_ids[0];
+  const selectedCall = attempts.find((record) => record.record.seq === playhead);
+  const selectedCommit = selectedCall?.record.attempt.outcome.status === "applied" && selectedCall.record.attempt.request !== null
+    ? selectedCall.commit_id : selectedCall?.parent_ids[0];
+  const compared = useModelDiff(workspaceId, selectedCommit ?? null, comparedCommit ?? null);
   const retainPreview = () => {
     if (previewTimer.current) clearTimeout(previewTimer.current);
   };
@@ -112,7 +116,7 @@ export function useWorkbench({
   const simulation = model.simulation;
   // Node histories need a simulation of the viewed model revision, certified or not.
   const simulationResult =
-    simulation?.source.validity === "fresh" && simulation.value.model.revision === modelRevision
+    simulation?.source.validity === "fresh" && simulation.value.evidence.model.revision === modelRevision
       ? simulation.value
       : null;
   const context: ScopeContext = {
@@ -121,6 +125,7 @@ export function useWorkbench({
     select,
     ticks,
     dataDiff: null,
+    result,
   };
 
   const toggleComparison = () => {

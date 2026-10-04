@@ -37,7 +37,7 @@ from nof1_causal_lab.models.ssm.preflight import (
 if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.autoreparam import Strategy
     from nof1_causal_lab.models.ssm.predictive.types import PredictiveDraws
-    from nof1_causal_lab.sampler_config import SamplerInitialization, SamplerSpec
+    from nof1_causal_lab.sampler_config import SamplerSpec
 
 __all__ = [
     "ParticleMCMCPosterior",
@@ -53,7 +53,6 @@ def fit(
     panel: BoundPanel,
     *,
     sampler: SamplerSpec,
-    initialization: SamplerInitialization | None = None,
     reparam: Strategy | Literal["auto"] | None = "auto",
     clock: Callable[[], float],
 ) -> ParticleMCMCPosterior | ObservationPreflightFailure:
@@ -70,7 +69,6 @@ def fit(
         priors,
         panel,
         sampler=sampler,
-        initialization=initialization,
         reparam=resolved_reparam,
         clock=clock,
     )

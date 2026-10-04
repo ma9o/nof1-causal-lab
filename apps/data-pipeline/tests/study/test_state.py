@@ -1,124 +1,45 @@
-"""Result installation, input versions and artifact freshness."""
+"""Immutable scientific facts are installed atomically and keep their input lineage."""
 
 import pytest
+from pydantic import ValidationError
 
-from nof1_causal_lab.study.lineage import inference_is_current
-from nof1_causal_lab.study.model_dependencies import MODEL_INPUTS
-from nof1_causal_lab.study.state import (
-    ArtifactRecord,
-    RetractedArtifact,
-    StudyState,
-    apply_effects,
-    freshness_report,
-    is_stale,
-)
+from nof1_causal_lab.study.state import ArtifactRecord, RetractedArtifact, StudyState, apply_effects, is_stale
 from tests.git_fixtures import git_oid
 
 pytestmark = pytest.mark.contract
 
-_FIRST_REVISION = git_oid(1)
+
+def test_install_supersede_and_retract_facts_without_mutating_the_prior_state():
+    first = ArtifactRecord(artifact_id="raw_data", revision=git_oid(1))
+    original = apply_effects(StudyState(), (first,))
+    second = first.revised(revision=git_oid(2))
+    current = apply_effects(original, (second,))
+    assert original.current["raw_data"] == first
+    assert current.current["raw_data"] == second
+    removed = apply_effects(current, (), (RetractedArtifact(artifact_id="raw_data", reason_ref="input.removed"),))
+    assert not removed.has("raw_data")
+    assert current.has("raw_data")
 
 
-def _version(
-    artifact_id,
-    revision=_FIRST_REVISION,
-    derived_from=None,
-    produced_by=None,
-):
-    return ArtifactRecord(
-        artifact_id=artifact_id,
-        revision=revision,
-        derived_from=derived_from or {},
-        produced_by=produced_by,
-        created_at="2026-07-03T00:00:00Z",
-    )
+def test_fact_freshness_follows_exact_execution_inputs_and_their_ancestors():
+    raw = ArtifactRecord(artifact_id="raw_data", revision=git_oid(1))
+    panel = ArtifactRecord(artifact_id="panel", revision=git_oid(2), derived_from={"raw_data": raw.revision})
+    model = ArtifactRecord(artifact_id="model", revision=git_oid(3), produced_by="fit", derived_from={"panel": panel.revision})
+    state = StudyState().with_artifacts((raw, panel, model))
+    assert not is_stale(state, "panel")
+    assert not is_stale(state, "model")
+    assert state.matches_inputs("panel", "raw_data")
+    revised = state.with_artifacts((raw.revised(revision=git_oid(4)),))
+    assert is_stale(revised, "panel")
+    assert not is_stale(revised, "model")
+    assert is_stale(state.without(["raw_data"]), "panel")
+    assert not is_stale(StudyState(), "panel")
 
 
-def _state(*infos):
-    return StudyState().with_artifacts(list(infos))
-
-
-class TestApplyTransition:
-    def test_produced_versions_become_current(self):
-        state = apply_effects(StudyState(), [_version("raw_data")])
-        assert state.has("raw_data")
-        raw_data = state.get("raw_data")
-        assert raw_data is not None
-        assert raw_data.revision == git_oid(1)
-
-    def test_rerun_supersedes_version(self):
-        state = _state(_version("raw_data", revision=git_oid(1)))
-        state = apply_effects(state, [_version("raw_data", revision=git_oid(2))])
-        raw_data = state.get("raw_data")
-        assert raw_data is not None
-        assert raw_data.revision == git_oid(2)
-
-    def test_retracted_artifact_leaves_the_state(self):
-        state = _state(_version("validation_report", revision=git_oid(1)))
-        retracted = [RetractedArtifact(artifact_id="validation_report", reason_ref="panel.changed")]
-        assert not apply_effects(state, [], retracted).has("validation_report")
-
-
-class TestStaleness:
-    def _fitted_chain(self):
-        inputs = dict.fromkeys(MODEL_INPUTS.values(), "same-scientific-input")
-        model = _version(
-            "model",
-            revision=git_oid(2),
-            derived_from={"model": git_oid(1), "panel": git_oid(1)},
-            produced_by="fit",
-        )
-        model = model.revised(model_inputs=inputs)
-        dependents = [
-            _version("identification_report", derived_from={"model": git_oid(1)}),
-        ]
-        return _state(
-            model,
-            _version("panel"),
-            *[
-                item.revised(
-                    consumed_model_inputs={
-                        MODEL_INPUTS[item.artifact_id]: inputs[MODEL_INPUTS[item.artifact_id]]
-                    }
-                )
-                for item in dependents
-            ],
-        )
-
-    def test_fresh_chain_is_not_stale(self):
-        state = self._fitted_chain()
-        assert inference_is_current(state)
-        assert not is_stale(state, "identification_report")
-
-    def test_editing_model_stales_produced_descendants(self):
-        state = apply_effects(self._fitted_chain(), [_version("model", revision=git_oid(3))])
-        assert not inference_is_current(state)
-        assert not is_stale(state, "panel")
-        assert not is_stale(state, "model")
-
-    def test_retracted_input_invalidates_fit(self):
-        state = self._fitted_chain().without(["panel"])
-        assert not inference_is_current(state)
-
-    def test_republishing_identification_preserves_conditioned_science(self):
-        state = self._fitted_chain()
-        current = state.with_artifacts(
-            [state.current["identification_report"].revised(revision=git_oid(2))]
-        )
-        assert inference_is_current(current)
-
-    def test_absent_artifact_is_not_stale(self):
-        assert not is_stale(StudyState(), "identification_report")
-
-
-def test_freshness_report_shape():
-    state = _state(_version("model"))
-    report = freshness_report(state)
-    by_id = {
-        status.artifact_id if status.kind == "missing" else status.record.artifact_id: status
-        for status in report
-    }
-    assert by_id["model"].kind == "present"
-    assert by_id["model"].validity == "fresh"
-    assert "provenance" not in by_id["model"].model_dump()
-    assert by_id["panel"].kind == "missing"
+def test_history_shapes_accept_facts_and_reject_stored_findings_and_fingerprints():
+    for payload in ({"artifact_id": "validation_report", "revision": str(git_oid(1))},
+                    {"artifact_id": "model", "revision": str(git_oid(1)), "model_inputs": {}}):
+        with pytest.raises(ValidationError):
+            ArtifactRecord.model_validate(payload)
+    with pytest.raises(ValidationError):
+        StudyState.model_validate({"checks": {}})

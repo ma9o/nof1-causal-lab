@@ -45,10 +45,7 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._conte
 )
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._contract import (
     _DSMC_LEAF_PROPOSAL_PAID_MIX,
-    _LATENT_SMOOTHER_DSMC,
-    MPGibbsLatentSmoother,
     MPGibbsStatic,
-    _resolve_latent_smoother,
 )
 from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs._math import (
     _masked_mean,
@@ -73,12 +70,6 @@ if TYPE_CHECKING:
 _DEFAULT_OPTIONS = MarginalParticleGibbsSpec()
 
 
-def _uses_amala_delta(latent_smoother: MPGibbsLatentSmoother) -> bool:
-    # Every dsmc leaf is z-anchored on the reference with scale delta/2, so the
-    # per-time delta adaptation always applies.
-    return latent_smoother.name == _LATENT_SMOOTHER_DSMC
-
-
 class MarginalParticleGibbsKernel(NamedTuple):
     """Callable joint kernel and static metadata."""
 
@@ -92,7 +83,6 @@ class MarginalParticleGibbsKernel(NamedTuple):
     min_scale: float
     max_scale: float
     preconditioned: bool
-    latent_smoother: MPGibbsLatentSmoother
     latent_delta: float
     amala_delta_init: float
     amala_delta_min: float
@@ -103,7 +93,6 @@ class MarginalParticleGibbsKernel(NamedTuple):
     amala_adaptation_rho: float
     amala_adaptation_rho_min: float
     amala_adaptation_gamma: float
-    adapt_amala_delta: bool
     amala_kappa: float
     amala_grad_clip: float
     dsmc_leaf_proposal: DSMCLeafProposal
@@ -125,7 +114,6 @@ def build_marginal_particle_gibbs_kernel(
     parameter_proposal: Literal[
         "random_walk", "pseudo_langevin"
     ] = _DEFAULT_OPTIONS.parameter_proposal,
-    latent_smoother: Literal["dsmc"] = _DEFAULT_OPTIONS.latent_smoother,
     latent_delta: float = _DEFAULT_OPTIONS.latent_delta,
     amala_delta_init: float = _DEFAULT_OPTIONS.amala_delta_init,
     amala_delta_min: float = _DEFAULT_OPTIONS.amala_delta_min,
@@ -151,7 +139,6 @@ def build_marginal_particle_gibbs_kernel(
     diagnostic_metrics: tuple[str, ...] | list[str] | None = _DEFAULT_OPTIONS.diagnostic_metrics,
 ) -> MarginalParticleGibbsKernel:
     """Build a marginalized Particle Gibbs joint state update."""
-    latent_smoother_spec = _resolve_latent_smoother(latent_smoother)
     resolved_diagnostic_metrics = resolve_mpgibbs_diagnostic_metrics(
         diagnostic_metrics_all=diagnostic_metrics_all,
         diagnostic_metrics=diagnostic_metrics,
@@ -382,7 +369,7 @@ def build_marginal_particle_gibbs_kernel(
         with jax.named_scope("build_context"):
             ctx = build_smoother_context(static, state, parameter_particles, label_correction)
         contexts = ctx.contexts
-        with jax.named_scope(latent_smoother_spec.name + "_smoother_full"):
+        with jax.named_scope("dsmc_smoother_full"):
             smoother_result = dsmc_step(ctx, block_key, x_ref)
 
         with jax.named_scope("postprocess"):
@@ -486,7 +473,6 @@ def build_marginal_particle_gibbs_kernel(
         min_scale=min_scale,
         max_scale=max_scale,
         preconditioned=parameter_preconditioner_chol is not None,
-        latent_smoother=latent_smoother_spec,
         latent_delta=latent_delta,
         amala_delta_init=amala_delta_init,
         amala_delta_min=amala_delta_min,
@@ -497,7 +483,6 @@ def build_marginal_particle_gibbs_kernel(
         amala_adaptation_rho=amala_adaptation_rho,
         amala_adaptation_rho_min=amala_adaptation_rho_min,
         amala_adaptation_gamma=amala_adaptation_gamma,
-        adapt_amala_delta=_uses_amala_delta(latent_smoother_spec),
         amala_kappa=amala_kappa,
         amala_grad_clip=amala_grad_clip,
         dsmc_leaf_proposal=dsmc_leaf_proposal,

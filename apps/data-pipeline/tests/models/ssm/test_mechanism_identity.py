@@ -10,18 +10,17 @@ from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.model_structure import StructuralSelection
 from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
 from nof1_causal_lab.models.ssm.compile.prior_compilation import compile_priors
-from tests.model_fixtures import compile_model_fixture
+from tests.inference_fixtures import compile_model_fixture
+from tests.model_fixtures import load_model_fixture
+
+
+def _two_hills_model() -> ModelSpec:
+    return load_model_fixture("mechanism_identity/two_hills_model.json")
 
 
 @pytest.fixture(scope="module")
 def two_hills():
-    return ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2]
-            / "fixtures/models"
-            / "mechanism_identity/two_hills_model.json"
-        ).read_text()
-    )
+    return _two_hills_model()
 
 
 @pytest.mark.inference(concern="sampling")

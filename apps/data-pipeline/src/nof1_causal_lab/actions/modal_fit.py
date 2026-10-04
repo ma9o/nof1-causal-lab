@@ -10,8 +10,7 @@ from typing import TYPE_CHECKING
 from pydantic import TypeAdapter
 
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.artifacts.posterior import InferenceReport
-from nof1_causal_lab.artifacts.posterior_diagnostics import ParticleMCMCEvidence
+from nof1_causal_lab.artifacts.posterior import InferenceEvidence
 from nof1_causal_lab.utils.arrays import decode_array, encode_array
 
 if TYPE_CHECKING:
@@ -23,7 +22,7 @@ if TYPE_CHECKING:
 
     from nof1_causal_lab.actions.fit import FitResult
     from nof1_causal_lab.artifacts.identity import ConstructId
-    from nof1_causal_lab.json_types import JsonObject, JsonValue
+    from nof1_causal_lab.json_types import JsonValue
     from nof1_causal_lab.models.model_structure import StructuralSelection
     from nof1_causal_lab.numpyro_json import ArrayLoader
     from nof1_causal_lab.sampler_config import SamplerSpec
@@ -47,8 +46,7 @@ class FitComputeResult:
     """Complete fitted output to validate and persist through the caller's store."""
 
     model_json: str
-    report_json: str
-    engine_evidence: JsonObject
+    evidence_json: str
     arrays: dict[str, bytes]
 
 
@@ -92,12 +90,10 @@ def execute_fit_compute(payload: FitComputeInput) -> FitComputeResult:
         compute_loo_diagnostics=payload.compute_loo_diagnostics,
     )
     conditioned = result["_model"]
-    evidence = result["engine_evidence"]
-    report = result["report"]
+    evidence = result["evidence"]
     return FitComputeResult(
-        model_json=conditioned.model_dump_json(),
-        report_json=report.model_dump_json(),
-        engine_evidence=evidence.model_dump(mode="json"),
+        model_json=conditioned.model_dump_json(round_trip=True),
+        evidence_json=evidence.model_dump_json(round_trip=True),
         arrays=written,
     )
 
@@ -167,7 +163,7 @@ def fit_on_modal(
     data_for_model.write_parquet(panel)
     result = _dispatch_fit(
         FitComputeInput(
-            model_json=selection.model.model_dump_json(),
+            model_json=selection.model.model_dump_json(round_trip=True),
             outcome=selection.outcome,
             panel_parquet=panel.getvalue(),
             time_origin=time_origin,
@@ -179,9 +175,12 @@ def fit_on_modal(
     # Validate the complete response before the first local write. Exceptions
     # propagate to the action's normal error path; there is no local retry.
     arrays = {identity: decode_array(identity, data) for identity, data in result.arrays.items()}
-    report = InferenceReport.model_validate_json(result.report_json)
-    conditioned = ModelSpec.model_validate_json(result.model_json)
-    if _array_references(conditioned.model_dump(mode="json")) - (arrays.keys() | inputs.keys()):
+    evidence = InferenceEvidence.model_validate_json(result.evidence_json)
+    available = {identity: decode_array(identity, data) for identity, data in inputs.items()} | arrays
+    conditioned = ModelSpec.model_validate_json(
+        result.model_json, context={"distribution_array_loader": available.__getitem__}
+    )
+    if (_array_references(conditioned.model_dump(mode="json")) | evidence.array_references) - available.keys():
         raise ValueError("Modal fit returned an unresolved numerical array reference")
     for identity, values in arrays.items():
         if array_writer(values) != identity:
@@ -190,7 +189,6 @@ def fit_on_modal(
         result.model_json, context={"distribution_array_loader": array_loader}
     )
     return {
-        "report": report,
+        "evidence": evidence,
         "_model": conditioned,
-        "engine_evidence": ParticleMCMCEvidence.model_validate(result.engine_evidence),
     }

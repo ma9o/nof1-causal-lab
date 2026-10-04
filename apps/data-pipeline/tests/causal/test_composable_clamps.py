@@ -2,14 +2,17 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
 import pytest
 
+from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.artifacts.expressions import restoring_potential, state
 from nof1_causal_lab.artifacts.likelihood import DeltaLawSpec
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.mechanism import PotentialMechanismSpec
+from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.artifacts.scenarios import StateAssignment
 from nof1_causal_lab.models.ssm.counterfactual import (
     ResolvedIntervention,
@@ -19,7 +22,40 @@ from nof1_causal_lab.models.ssm.counterfactual import (
 from nof1_causal_lab.models.ssm.dynamics import DynamicsDraws, ProcessNoise, VectorField
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
 from nof1_causal_lab.models.ssm.preflight import ObservationPreflightFailure
-from tests.model_fixtures import compile_model_fixture
+from tests.inference_fixtures import compile_model_fixture
+from tests.model_fixtures import (
+    _exact_model_model,
+    construct_named,
+    one_state_gaussian_model,
+    parameter_for,
+    without_parameters,
+)
+
+
+def _fully_fixed_dynamics_keep_the_explicit_draw_axis_model_fixture() -> ModelSpec:
+    model = one_state_gaussian_model()
+    latent_0 = construct_named(model, "latent_0")
+    (latent_0_drift,) = latent_0.dynamics
+    latent_0_dynamics_decay = parameter_for(model, SiteKind.DYNAMICS_DECAY, "latent_0")
+    latent_0_revised = latent_0.revised(
+        dynamics=(
+            PotentialMechanismSpec(
+                id=latent_0_drift.id,
+                expression=restoring_potential(latent_0.id, center=1.0, stiffness=0.4, quartic=0.2),
+            ),
+        )
+    )
+    parameters, distributions = without_parameters(model, latent_0_dynamics_decay)
+    return model.revised(
+        edges=replace_constructs(model.edges, (latent_0_revised,)),
+        parameters=parameters,
+        distributions=distributions,
+    )
+
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+
 
 # var1 is driven by var0; both stable. Baseline steady state is η* = -A⁻¹c = [1, 1].
 _PARAMS = ({"drift": jnp.array([[-1.0, 0.0], [0.5, -1.0]]), "cint": jnp.array([1.0, 0.5])},)
@@ -57,25 +93,17 @@ def test_segment_bounds_split_at_exact_event_times():
 @pytest.mark.contract
 def test_given_inputs_replay_windows_hold_and_override_later_records(monkeypatch):
     from datetime import UTC, datetime, timedelta, timezone
-    from pathlib import Path
 
     import numpy as np
     import polars as pl
 
     from nof1_causal_lab.artifacts.construct import replace_constructs
-    from nof1_causal_lab.artifacts.expressions import state
     from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.models.ssm.counterfactual import orchestration
     from nof1_causal_lab.models.ssm.inference.conditioning import compile_exact_state_constraints
     from nof1_causal_lab.models.ssm.runtime import replay_input_events, replay_input_values
 
-    model = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[1]
-            / "fixtures/models/delta_observations/exact_model_model.json"
-        ).read_text()
-    )
+    model = _exact_model_model()
     dose = model.constructs[0]
     indicator = dose.indicators[0].revised(
         observation=dose.indicators[0].observation.revised(aggregation="sum"),
@@ -102,7 +130,7 @@ def test_given_inputs_replay_windows_hold_and_override_later_records(monkeypatch
             if identity in {parameter.distribution for parameter in parameters}
         },
     )
-    from tests.model_fixtures import compile_model_fixture
+    from tests.inference_fixtures import compile_model_fixture
 
     model = compile_model_fixture(model)
     origin = datetime(2026, 1, 1, tzinfo=UTC)
@@ -197,13 +225,7 @@ def test_explicit_start_evolves_from_given_state():
 def test_fully_fixed_dynamics_keep_the_explicit_draw_axis():
     from nof1_causal_lab.models.ssm.dynamics import dynamics_from_samples
 
-    spec = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[1]
-            / "fixtures/models"
-            / "composable_clamps/fully_fixed_dynamics_keep_the_explicit_draw_axis_model_fixture.json"
-        ).read_text()
-    )
+    spec = _fully_fixed_dynamics_keep_the_explicit_draw_axis_model_fixture()
     draws = dynamics_from_samples(compile_model_fixture(spec), {}, n_draws=3)
     times = jnp.array([0.0, 0.2, 0.4])
     initial = jnp.array([[-1.0], [0.0], [1.0]])

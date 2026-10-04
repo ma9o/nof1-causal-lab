@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import re
+from collections.abc import Mapping
 from datetime import date
 from typing import TYPE_CHECKING, Annotated, Literal, Self
 
@@ -11,6 +12,7 @@ from pydantic import (
     AwareDatetime,
     Field,
     FiniteFloat,
+    computed_field,
     field_validator,
     model_validator,
 )
@@ -172,6 +174,10 @@ class FileSourceRef(Value):
     """Explicit uploaded filenames, relative to this study's input directory."""
 
     files: tuple[str, ...] = Field(min_length=1)
+    hashes: Mapping[str, Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]] = Field(
+        default_factory=dict,
+        description="Call-time SHA-256 of every named file. The edge fills these for new calls; saved calls can be repeated from these hashes without uploaded bytes."
+    )
     start: date | None = Field(default=None, description="Inclusive UTC source-coverage date.")
     end: date | None = Field(default=None, description="Exclusive UTC source-coverage date.")
 
@@ -184,6 +190,8 @@ class FileSourceRef(Value):
 
     @model_validator(mode="after")
     def ordered_bounds(self) -> Self:
+        if self.hashes and self.hashes.keys() != set(self.files):
+            raise ValueError("File hashes must name every source file exactly once")
         if self.start is not None and self.end is not None and self.start >= self.end:
             raise ValueError("Source coverage start must precede end")
         return self
@@ -194,12 +202,6 @@ class SimulationReplicateRef(Value):
 
     revision: GitOid
     replicate: int = Field(ge=0)
-
-
-type DataSourceRef = Annotated[
-    FileSourceRef | SimulationReplicateRef,
-    Field(description="Uploaded sources or one recorded simulation replicate."),
-]
 
 
 class DataPreparationSpec(Value):
@@ -240,12 +242,28 @@ class FilePreparationSpec(Value):
         )
 
 
-class PreparedDataMetadata(Value):
-    """Self-contained semantics and provenance of one prepared observation table."""
+class FilePreparedDataMetadata(Value):
+    """An uploaded panel's recipe owns its resolved observation schema."""
 
-    source: DataSourceRef
+    kind: Literal["file"] = "file"
+    source: FileSourceRef
+    preparation: DataPreparationSpec
+    time_origin: AwareDatetime | None = Field(
+        description="Calendar instant of model day zero; null denotes a calendar-free history."
+    )
+
+    @computed_field
+    @property
+    def variables(self) -> tuple[ResolvedObservationSpec, ...]:
+        return self.preparation.observation_schema()
+
+
+class SimulationPreparedDataMetadata(Value):
+    """A simulation panel retains the schema of its recorded observation history."""
+
+    kind: Literal["simulation"] = "simulation"
+    source: SimulationReplicateRef
     variables: tuple[ResolvedObservationSpec, ...] = Field(min_length=1)
-    preparation: DataPreparationSpec | None = None
     time_origin: AwareDatetime | None = Field(
         description="Calendar instant of model day zero; null denotes a calendar-free history."
     )
@@ -254,11 +272,9 @@ class PreparedDataMetadata(Value):
     def resolved_variables(self) -> Self:
         if len({item.id for item in self.variables}) != len(self.variables):
             raise ValueError("Prepared variables must have unique IDs")
-        if isinstance(self.source, FileSourceRef) != (self.preparation is not None):
-            raise ValueError(
-                "File sources require preparation instructions; simulation "
-                "sources retain their declared schema without extraction"
-            )
-        if self.preparation is not None and self.variables != self.preparation.observation_schema():
-            raise ValueError("Prepared schema must match its preparation instructions")
         return self
+
+
+type PreparedDataMetadata = Annotated[
+    FilePreparedDataMetadata | SimulationPreparedDataMetadata, Field(discriminator="kind")
+]

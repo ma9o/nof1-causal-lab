@@ -1,15 +1,16 @@
 """Vulture reference generation and concurrent ownership passes."""
 
 import ast
+import json
 import shutil
 import subprocess
 import sys
 from pathlib import Path
 
 import pytest
-from scripts.checks.run_vulture import _scan_string_type_node, _write_phantom
-
+import vulture.core as vulture_core
 from scripts.checks import run_vulture
+from scripts.checks.run_vulture import _scan_string_type_node, _write_phantom
 
 pytestmark = pytest.mark.contract
 
@@ -21,6 +22,82 @@ def test_keyword_field_alias_does_not_break_string_type_references(tmp_path):
     _write_phantom(tmp_path, "refs.py", refs)
     tree = ast.parse((tmp_path / "refs.py").read_text())
     assert {node.id for node in ast.walk(tree) if isinstance(node, ast.Name)} == {"_", "ArtifactId"}
+
+
+def test_exported_inherited_fields_are_suppressed_by_location_only(tmp_path, monkeypatch, capsys):
+    pipeline = tmp_path / "apps/data-pipeline"
+    source = pipeline / "src/domain.py"
+    source.parent.mkdir(parents=True)
+    source.write_text(
+        "from pydantic import BaseModel, Field\n"
+        "class Parent(BaseModel):\n"
+        "    shared: int = Field(alias='wire_shared')\n"
+        "class Exported(Parent):\n"
+        "    pass\n"
+        "class Internal(BaseModel):\n"
+        "    shared: int\n"
+        "def shared():\n"
+        "    return 1\n"
+    )
+    api = tmp_path / "packages/api-types/schemas/openapi.json"
+    api.parent.mkdir(parents=True)
+    api.write_text(
+        json.dumps(
+            {
+                "components": {
+                    "schemas": {
+                        "Exported-Output": {
+                            "title": "Exported-Output",
+                            "x-python-module": "domain",
+                            "properties": {"wire_shared": {}},
+                        },
+                    }
+                }
+            }
+        )
+    )
+    monkeypatch.setattr(run_vulture, "REPO_ROOT", pipeline)
+    exported = run_vulture._collect_exported_field_locations([Path("src")])
+    assert exported == frozenset({(source.resolve(), 3)})
+    analyzer = vulture_core.Vulture()
+    analyzer.scan(source.read_text(), filename=str(source))
+    run_vulture._report_vulture(
+        analyzer,
+        min_confidence=60,
+        sort_by_size=False,
+        make_whitelist=False,
+        report_roots=["src"],
+        exported_fields=exported,
+    )
+    findings = capsys.readouterr().out
+    assert f"{source}:3: unused variable 'shared'" not in findings
+    assert ":7: unused variable 'shared'" in findings
+    assert "unused function 'shared'" in findings
+
+
+def test_key_reads_and_typed_iteration_do_not_make_unread_fields_live(tmp_path, monkeypatch):
+    (tmp_path / "src").mkdir()
+    (tmp_path / "src/records.py").write_text(
+        "from typing import Literal, TypedDict\n"
+        "class Metrics(TypedDict):\n"
+        "    mean: float\n"
+        "    spread: float\n"
+        "class Unread(TypedDict):\n"
+        "    never: int\n"
+        "    tag: Literal['literal_only']\n"
+        "def total(metrics: Metrics):\n"
+        "    return sum(metrics.values())\n"
+        "data['write_only'] = 3\n"
+        "read = data['read_key']\n"
+        "optional = data.get('optional_key')\n"
+    )
+    monkeypatch.setattr(run_vulture, "REPO_ROOT", tmp_path)
+    assert run_vulture._collect_subscript_reads(["src"]) == {
+        "mean",
+        "spread",
+        "read_key",
+        "optional_key",
+    }
 
 
 @pytest.mark.parametrize("used_locally", [False, True])

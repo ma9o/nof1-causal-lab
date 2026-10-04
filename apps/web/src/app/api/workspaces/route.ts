@@ -4,5 +4,7 @@ import { listWorkspaces } from "@/lib/server/workspaces";
 export const dynamic = "force-dynamic";
 
 export async function GET() {
-  return NextResponse.json(await listWorkspaces());
+  const headers = new Headers();
+  const data = await listWorkspaces(headers);
+  return NextResponse.json(data, { headers });
 }

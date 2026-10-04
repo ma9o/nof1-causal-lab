@@ -393,9 +393,7 @@ class CodexHarnessSession:
             self._terminal_tool = terminal
 
         return TurnResult(
-            completion=self._state.final_text,
             terminal_tool_name=terminal[0] if terminal else None,
-            terminal_tool_output=terminal[1] if terminal else None,
             tool_calls_fired=tool_calls_fired,
         )
 
@@ -410,12 +408,10 @@ class CodexHarnessSession:
 
     @property
     def result(self) -> AgentResult:
-        trace = finalize_codex_trace(self._state)
+        trace = finalize_codex_trace(self._state, self._model)
         return AgentResult(
-            completion=self._state.final_text,
             trace=trace,
             terminal_tool_name=self._terminal_tool[0] if self._terminal_tool else None,
-            terminal_tool_output=self._terminal_tool[1] if self._terminal_tool else None,
         )
 
     async def aclose(self) -> None:

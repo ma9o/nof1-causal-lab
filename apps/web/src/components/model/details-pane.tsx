@@ -7,7 +7,7 @@ import { ConstructScope, IdentificationFinding } from "./scopes/construct-scope"
 import { EdgeScope } from "./scopes/edge-scope";
 import { IndicatorScope } from "./scopes/indicator-scope";
 import type { ScopeContext } from "@/lib/model-asset/scope";
-import type { StudyRevision } from "@nof1-causal-lab/api-types";
+import type { TimelineRevision } from "@nof1-causal-lab/api-types";
 import { humanize } from "@/lib/model-asset/selection";
 import { Katex } from "@/components/analysis-widgets/statistical-model-spec/ssm-equation-display";
 import { DataComparisonEvidence, PreparedObservations } from "./scopes/data-details";
@@ -16,8 +16,8 @@ import { QuestionChecks, QuestionDetails } from "./scopes/question-details";
 import { SimulationEvidence } from "./simulation-evidence";
 import { PPCWarningsTable } from "@/components/analysis-widgets/posterior/ppc-warnings-table";
 
-function ModelScope({ context, tick }: { context: ScopeContext; tick: StudyRevision | undefined }) {
-  if (!tick || tick.record.attempt.outcome.status !== "applied")
+function ModelScope({ context, tick }: { context: ScopeContext; tick: TimelineRevision | undefined }) {
+  if (!tick || tick.record.attempt.outcome.status !== "applied" || tick.record.attempt.request === null)
     return <Hint>No new model-wide state was produced.</Hint>;
   if (tick.record.attempt.action === "set_question")
     return context.model.question ? (
@@ -30,18 +30,15 @@ function ModelScope({ context, tick }: { context: ScopeContext; tick: StudyRevis
   if (tick.record.attempt.action === "prepare_data")
     return <PreparedObservations context={context} />;
   if (tick.record.attempt.action === "data_diff")
-    return (
+    return context.dataDiff ? (
       <DataComparisonEvidence
         context={context}
-        report={tick.record.attempt.outcome.result.report}
+        report={context.dataDiff}
         selection={null}
       />
-    );
-  const predictive =
-    tick.record.attempt.outcome.effects.checks &&
-    !tick.record.attempt.outcome.effects.checks.reused.includes("predictive")
-      ? tick.record.attempt.outcome.effects.checks.predictive
-      : null;
+    ) : <Hint>Reading the saved comparison…</Hint>;
+  const checks = context.result?.checks;
+  const predictive = checks?.predictive;
   const predictivePlots =
     predictive?.evaluation.kind === "evaluated" ? predictive.evaluation.predictive_checks : null;
   const identification = context.model.identification;
@@ -164,7 +161,7 @@ export function DetailsPane({
   selection: EntitySelection | null;
   context: ScopeContext;
   loading: boolean;
-  tick: StudyRevision | undefined;
+  tick: TimelineRevision | undefined;
 }) {
   const entity = selection ? resolveEntity(context.entities, selection) : null;
   return (

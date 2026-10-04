@@ -73,7 +73,6 @@ def _trace_message(message: JsonObject) -> TraceMessage:
             else tuple(
                 {
                     "id": call["id"],
-                    "type": call["type"],
                     "name": call["function"]["name"],
                     "arguments": call["function"]["arguments"],
                 }
@@ -103,7 +102,7 @@ _RECOVERABLE_TOOL_EXECUTION_ERRORS = (
 class SubroutineToolMessage(TypedDict):
     role: str
     content: str
-    tool_call_id: str
+    tool_call_id: str  # noqa: V107 -- OpenAI reads this required wire key when the tool message is sent.
     name: str
     error: str | None
 
@@ -132,17 +131,7 @@ def _terminal_tool_succeeded(tool: LLMToolSpec, output: str, error: str | None) 
     if tool.kind != "terminal" or error is not None:
         return False
     result_text = output.strip()
-    if tool.success_output is None:
-        recoverable_prefixes = (
-            "JSON parse error:",
-            "VALIDATION ERRORS:",
-            "Tool execution failed:",
-            "Unknown tool:",
-            "Unsupported tool executor:",
-            "Error:",
-        )
-        return not result_text.startswith(recoverable_prefixes)
-    return result_text == tool.success_output
+    return result_text == "VALID"
 
 
 def _tool_execution_failed(exc: BaseException) -> str:
@@ -303,17 +292,10 @@ async def execute_llm_tool_calls_activity(
     next_messages = [*messages, *tool_messages]
     write_subroutine_json(next_conversation_ref, {"messages": next_messages})
 
-    feedback_text = "\n".join(str(message.get("content", "")) for message in tool_messages)
-    if (
-        activity_input.max_tool_output is not None
-        and len(feedback_text) > activity_input.max_tool_output
-    ):
-        feedback_text = feedback_text[: activity_input.max_tool_output] + "\n...[truncated]"
     result = LLMToolExecutionResult(
         conversation_ref=next_conversation_ref,
         terminal_success=terminal_success,
         result_ref=captured_result_ref,
-        feedback_preview=feedback_text[:240],
         tool_calls_fired=tool_calls_fired,
     )
     write_subroutine_json(activity_input.execution_ref, {"result": result.model_dump(mode="json")})
@@ -373,7 +355,7 @@ def _build_harness_bridge_tools(activity_input: HarnessTurnInput) -> list[Tool]:
             parameters=dict(tool.parameters),
             execute=_execute,
             stop_on_success=tool.kind == "terminal",
-            success_output=tool.success_output,
+            success_output="VALID" if tool.kind == "terminal" else None,
         )
 
     return [_build_one(tool) for tool in activity_input.tools]
@@ -548,7 +530,6 @@ async def run_harness_turn_activity(activity_input: HarnessTurnInput) -> Harness
     return HarnessTurnResult(
         harness_state_ref=activity_input.harness_state_ref,
         trace_ref=trace_ref,
-        completion_preview=turn.completion[:240],
         result_ref=activity_input.result_ref if storage.exists(activity_input.result_ref) else None,
         terminal_tool_name=turn.terminal_tool_name,
         tool_calls_fired=turn.tool_calls_fired,

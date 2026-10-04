@@ -16,16 +16,12 @@ from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
 from nof1_causal_lab.models.ssm.dynamics.vector_field import VectorField
 from nof1_causal_lab.models.ssm.execution.contracts import MeasurementParams
-from nof1_causal_lab.models.ssm.execution.dynamical_model import (
-    continuous_state_evolution,
-)
+from nof1_causal_lab.models.ssm.execution.dynamical_model import continuous_state_evolution
 from nof1_causal_lab.models.ssm.inference.targets.laplace import (
     LaplaceLikelihood,
     _dense_support_laplace_log_lik,
 )
-from tests.model_fixtures import (
-    make_observation_support_runtime,
-)
+from tests.inference_fixtures import make_observation_support_runtime
 from tests.observation_fixtures import mean_density, observation_kernel, observation_laws
 
 pytestmark = pytest.mark.inference(concern="warmup")

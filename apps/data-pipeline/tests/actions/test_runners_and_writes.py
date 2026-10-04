@@ -1,5 +1,7 @@
 """Authoring commits, optional extraction outputs, and atomic derivation cascades."""
 
+from tests.git_fixtures import artifact_revisions
+
 import asyncio
 import json
 from typing import TYPE_CHECKING
@@ -87,7 +89,7 @@ def _write(store, artifact_id, payload, pins=None):
         artifact_id,
         derived_from=pins or {},
         produced_by=None,
-        json_files={next(iter(artifact_file_spec(artifact_id).json.values())): payload},
+        json_files={next(iter(artifact_file_spec(artifact_id).json_files.values())): payload},
     )
 
 
@@ -218,7 +220,6 @@ def test_extraction_requires_some_observations(workspace, tmp_path, nonempty):
     assert worker.error == "No usable extraction"
     assert worker.n_llm_calls == 0
     assert worker.reused is False
-    assert effects.result.n_observations == int(nonempty)
     from nof1_causal_lab.study.history import StudyRepository
 
     journal = StudyRepository(workspace)
@@ -230,7 +231,6 @@ def test_extraction_requires_some_observations(workspace, tmp_path, nonempty):
     current = apply_effects(state, effects.effects.produced, effects.effects.retracted)
     if not nonempty:
         assert not current.has("panel")
-        assert not current.has("validation_report")
     if nonempty:
         panel = next(info for info in effects.effects.produced if info.artifact_id == "panel")
         assert panel.derived_from == {
@@ -249,7 +249,6 @@ def test_model_write_cascades_without_parallel_scientific_catalogs(workspace):
     )
     assert {info.artifact_id for info in effects.effects.produced} == {
         "model",
-        "identification_report",
     }
     assert not effects.effects.retracted
     assert all(
@@ -307,24 +306,15 @@ def test_model_edit_reports_stale_extraction(workspace):
         json_files={"metadata.json": metadata_for_model(model).model_dump(mode="json")},
         parquet_files={"panel.parquet": pl.DataFrame()},
     )
-    validation = _write(
-        store,
-        "validation_report",
-        {"is_valid": True, "indicators": {}, "dataset_issues": []},
-        {
-            "panel": artifact_revision(workspace, "panel", 1),
-            "model": artifact_revision(workspace, "model", 1),
-        },
-    )
     from nof1_causal_lab.actions.data_checks import evaluate_data_checks
     from nof1_causal_lab.study.records import DataPreparationResult
 
-    checked_data = evaluate_data_checks(
+    evaluate_data_checks(
         workspace,
         state,
         Applied(result=DataPreparationResult(), effects=ActionEffects(produced=[panel])),
     )
-    state = state.with_artifacts([*checked_data.effects.produced, validation])
+    state = state.with_artifacts([panel])
     changed = model.revised(measurement_clock="2d")
     effects = edit_and_check(
         workspace,
@@ -336,12 +326,9 @@ def test_model_edit_reports_stale_extraction(workspace):
         ),
         state,
     )
-    report = next(
-        item for item in effects.effects.produced if item.artifact_id == "validation_report"
-    )
-    payload = store.read_value(
-        "validation_report", report.revision, "validation_report.json", ValidationReportArtifact
-    )
+    from nof1_causal_lab.actions.model_checks import read_model_checks
+    _, _, payload = read_model_checks(workspace, state.with_artifacts(effects.effects.produced), action="edit_model")
+    assert payload is not None
     assert any(
         issue.issue_type == "measurement_definitions" for issue in payload.data.dataset_issues
     )
@@ -376,7 +363,7 @@ def test_invalid_model_rejected_before_any_write(workspace):
             ),
             StudyState(),
         )
-    assert ArtifactStore(workspace).list_revisions("model") == []
+    assert artifact_revisions(ArtifactStore(workspace), "model") == []
 
 
 def test_failed_tree_write_publishes_no_artifact(workspace, monkeypatch):
@@ -388,7 +375,7 @@ def test_failed_tree_write_publishes_no_artifact(workspace, monkeypatch):
     monkeypatch.setattr(store_module, "write_tree", fail_tree)
     with pytest.raises(OSError, match="metadata"):
         _write(ArtifactStore(workspace), "model", _model().model_dump(mode="json"))
-    assert ArtifactStore(workspace).list_revisions("model") == []
+    assert artifact_revisions(ArtifactStore(workspace), "model") == []
 
 
 def test_question_write_requires_text():

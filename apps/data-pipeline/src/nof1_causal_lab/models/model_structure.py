@@ -47,7 +47,7 @@ class StructuralCompilationError(AggregatedCompileError):
 
 
 class StructuralSelectionError(ValueError):
-    """The model breaks a check its outcome scope decides: anchors or fitted joint laws."""
+    """The model breaks a check its outcome scope decides: parameter anchors."""
 
 
 @dataclass(frozen=True, eq=False)
@@ -57,7 +57,7 @@ class StructuralSelection:
     The outcome keeps its connected component as states; without one, every
     measured construct is a state. The rest of the DAG stays for identification.
     Construction checks what the scope decides: the retained constructs' anchors
-    and each fitted joint law's coordinates.
+    only.
     """
 
     model: ModelSpec
@@ -65,12 +65,10 @@ class StructuralSelection:
 
     def __post_init__(self) -> None:
         from nof1_causal_lab.models.model_checks import validate_parameter_anchors
-        from nof1_causal_lab.models.model_distributions import validate_joint_laws
 
         if self.outcome is not None and self.outcome not in self.model._constructs:
             raise ValueError("A selection's outcome must be a construct of its model")
         validate_parameter_anchors(self)
-        validate_joint_laws(self)
 
     @classmethod
     def for_question(cls, model: ModelSpec, question: QuestionSpec) -> StructuralSelection:
@@ -398,11 +396,12 @@ def model_graph_entities(
     )
 
 
-def compare_parameters(left: ModelSpec, right: ModelSpec) -> list[Change[ParameterSpec]]:
+def compare_parameters(left: ModelSpec | None, right: ModelSpec | None) -> tuple[Change[ParameterSpec], ...]:
     """Compare native parameter decisions and law contents by persistent identity."""
-    old, new = {p.id: p for p in left.parameters}, {p.id: p for p in right.parameters}
-    old_laws = left.model_dump(mode="json")["distributions"]
-    new_laws = right.model_dump(mode="json")["distributions"]
+    old = {p.id: p for p in left.parameters} if left is not None else {}
+    new = {p.id: p for p in right.parameters} if right is not None else {}
+    old_laws = left.model_dump(mode="json")["distributions"] if left is not None else {}
+    new_laws = right.model_dump(mode="json")["distributions"] if right is not None else {}
     changes: list[Change[ParameterSpec]] = []
     for identity in sorted(old.keys() | new.keys()):
         a, b = old.get(identity), new.get(identity)
@@ -421,17 +420,20 @@ def compare_parameters(left: ModelSpec, right: ModelSpec) -> list[Change[Paramet
             else Revised(before=old[identity], after=new[identity])
         )
         changes.append(change)
-    return changes
+    return tuple(changes)
 
 
 def compare_model_graph(
-    left: StructuralSelection, right: StructuralSelection
+    left: StructuralSelection | None, right: StructuralSelection | None
 ) -> tuple[
     tuple[Change[ConstructRef] | Unchanged[ConstructRef], ...],
     tuple[Change[EdgeRef] | Unchanged[EdgeRef], ...],
 ]:
     """Compare entity presence and time-slice topology against the pinned models."""
-    graphs = tuple(model_graph_entities(selection) for selection in (left, right))
+    graphs = tuple(
+        model_graph_entities(selection) if selection is not None else ((), ())
+        for selection in (left, right)
+    )
 
     def topology(
         entity: ConstructSpec | CausalEdgeSpec,

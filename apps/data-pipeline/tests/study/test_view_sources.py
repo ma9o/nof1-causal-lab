@@ -1,5 +1,7 @@
 """Read findings follow their scientific revision and observational inputs."""
 
+from nof1_causal_lab.artifacts.data_preparation import FilePreparedDataMetadata
+
 import json
 from pathlib import Path
 from typing import TYPE_CHECKING
@@ -24,7 +26,8 @@ from nof1_causal_lab.study.store import ArtifactStore
 from tests.action_fixtures import applied_record
 from tests.git_fixtures import artifact_revision, commit_id
 from tests.helpers import make_model, write_question
-from tests.model_fixtures import compile_fit_fixture, compile_model_fixture
+from tests.inference_fixtures import compile_fit_fixture, compile_model_fixture
+from tests.model_fixtures import x_y_model
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid
@@ -38,9 +41,7 @@ def test_runtime_diagnostic_subjects_match_posterior_marginals():
     from nof1_causal_lab.artifacts.identity import ParameterRef
     from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
 
-    model = ModelSpec.model_validate_json(
-        (Path(__file__).resolve().parents[1] / "fixtures/models/common/x_y_model.json").read_text()
-    )
+    model = x_y_model()
     bindings, auxiliary = parameter_bindings(compile_model_fixture(model))
     references = parameter_references(compile_fit_fixture(model))
     assert set(references) == {c for b in bindings for c in b.coordinates.values()} | set(auxiliary)
@@ -55,151 +56,58 @@ def test_runtime_diagnostic_subjects_match_posterior_marginals():
 
 
 @pytest.mark.contract
-@pytest.mark.parametrize("failed", [False, True])
-def test_inference_log_keeps_findings_across_authoring_log_updates_and_tracks_changed_data(
-    monkeypatch, tmp_path, failed
-):
-    from nof1_causal_lab.utils import data as data_module
 
-    monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path))
-    store, journal = ArtifactStore("BINDINGS"), StudyRepository("BINDINGS")
-    log = json.loads((FIXTURE.parent / "inference.json").read_text())
-    rows = log["report"]["core"]["inference_diagnostics"]["per_parameter"]
-    if failed:
-        rows[0].update(r_hat=1.1, ess_bulk=None, ess_tail=1)
-    from nof1_causal_lab.artifacts.posterior_diagnostics import ChainDiagnostics
-    from nof1_causal_lab.models.ssm.inference.convergence import parameter_convergence
+def test_fit_without_retained_atoms_has_no_report(monkeypatch, tmp_path):
+    from nof1_causal_lab.study.records import FitAttempt
+    from nof1_causal_lab.utils import data
 
-    log["report"]["core"]["convergence"] = parameter_convergence(
-        ChainDiagnostics.model_validate(log["report"]["core"]["inference_diagnostics"])
-    ).model_dump(mode="json")
-    artifacts: tuple[tuple[int, ArtifactId, dict[ArtifactId, GitOid]], ...] = (
-        (1, "model", {}),
-        (4, "panel", {}),
-    )
-    for seq, aid, pins in artifacts:
-        files = (
-            {}
-            if aid == "panel"
-            else {
-                next(iter(artifact_file_spec(aid).json.values())): json.loads(
-                    (FIXTURE / f"{aid}.json").read_text()
-                )
-            }
-        )
-        info = store.write_artifact(
-            aid,
-            derived_from=pins,
-            produced_by=f"run:{aid}",
-            json_files=files,
-        )
-        # The question roots the lineage with its first record.
-        produced = [write_question(store), info] if seq == 1 else [info]
-        journal.append(
-            applied_record(
-                Applied(result=None, effects=ActionEffects(produced=produced)),
-                seq=seq,
-                ts="2026-07-08T12:00:00Z",
-                trace_ids=[],
-            )
-        )
-    from nof1_causal_lab.artifacts.identity import GitRef
-    from nof1_causal_lab.artifacts.posterior import InferenceReport
-
-    record = applied_record(
-        Applied(
-            result=ModelFitResult(
-                model=GitRef(
-                    workspace_id="BINDINGS",
-                    revision=artifact_revision("BINDINGS", "model", 1),
-                    path="model.json",
-                ),
-                panel=GitRef(
-                    workspace_id="BINDINGS",
-                    revision=artifact_revision("BINDINGS", "panel", 1),
-                    path="panel.parquet",
-                ),
-                report=InferenceReport.model_validate(log["report"]),
-                retention="report_only",
-            ),
-            effects=ActionEffects(),
-        ),
-        seq=5,
-        ts="2026-07-08T12:00:00Z",
-    )
+    monkeypatch.setattr(data, "_DATA_URI", str(tmp_path))
+    store, journal = ArtifactStore("ABSENT"), StudyRepository("ABSENT")
+    info = store.write_artifact("model", derived_from={}, produced_by="edit_model",
+        json_files={"model.json": x_y_model().model_dump(mode="json", round_trip=True)})
+    journal.append(applied_record(Applied(result=None, effects=ActionEffects(produced=(write_question(store), info))), seq=1))
+    record = applied_record(Applied(result=None, effects=ActionEffects()), seq=2)
+    record = record.revised(attempt=FitAttempt(action="fit", request=None, outcome=record.attempt.outcome))
     journal.append(record)
-    # This log intentionally retains only display findings, never invented joint samples.
-    historical = ModelReader("BINDINGS", at=commit_id("BINDINGS", 5)).fit()
-    assert historical is not None
-    assert historical.value.report.posterior_marginals
-    convergence = historical.value.report.convergence
-    assert convergence.checked == len(rows)
-    from nof1_causal_lab.artifacts.checks import Evaluated, NotEvaluated
+    reader = ModelReader("ABSENT", at=journal.head())
+    assert reader.inference_report is None
+    assert reader.fit() is None
+    assert reader.parameter_draws().kind == "unavailable"
 
-    assert convergence.status == ("failed" if failed else "passed")
-    problems = [
-        a for a in convergence.assessments if isinstance(a, NotEvaluated) or a.outcome == "failed"
-    ]
-    assert len(problems) == (3 if failed else 0)
-    if failed:
-        subjects = []
-        for item in problems:
-            assert not isinstance(item.subject, str)
-            subjects.append(item.subject)
-        assert {subject.parameter.element_id for subject in subjects} == {
-            rows[0]["subject"]["element_id"]
-        }
-        assert [subject.criterion for subject in subjects] == ["r_hat", "ess_bulk", "ess_tail"]
-        assert isinstance(problems[1], NotEvaluated)
-        assert isinstance(problems[0], Evaluated)
-    from nof1_causal_lab.models.ssm.inference.convergence import convergence_failures
 
-    assert convergence_failures(convergence) == convergence.messages
-    assert historical.source.ref.model_dump() == {
-        "workspace_id": "BINDINGS",
-        "revision": commit_id("BINDINGS", 5),
-        "path": "logs/attempt.json",
-    }
-    assert historical.source.validity == "fresh"
-    journal.append(
-        applied_record(
-            Applied(result=None, effects=ActionEffects()),
-            seq=6,
-            ts="2026-07-08T12:00:00Z",
-        ),
-        logs={"research.json": b'{"search_queries":{"parameter:test":"Research query"}}'},
-    )
-    republished = ModelReader("BINDINGS").fit()
-    assert republished is not None
-    assert republished.value.report == historical.value.report
-    assert republished.value.report.convergence == convergence
-    panel = store.write_artifact(
-        "panel",
-        derived_from={},
-        produced_by="prepare_data",
-    )
-    journal.append(
-        applied_record(
-            Applied(result=DataPreparationResult(), effects=ActionEffects(produced=(panel,))),
-            seq=7,
-            ts="2026-07-08T12:00:00Z",
-        )
-    )
-    current_reader = ModelReader("BINDINGS")
-    current = current_reader.fit()
-    assert current is not None
-    assert current.source.validity == "stale"
-    assert current_reader.inference_report is not None
-    assert current_reader.inference_report.value.core == current.value.report
-    # Findings remain tied to their fit's pinned panel; freshness marks the
-    # changed panel without erasing the historical parameter/edge evidence.
-    assert current.value.report.posterior_marginals == historical.value.report.posterior_marginals
-    assert current.value.edge_estimates == historical.value.edge_estimates
-    assert (
-        current.value.report.inference_diagnostics == historical.value.report.inference_diagnostics
-    )
-    assert current.value.report.loo_diagnostics == historical.value.report.loo_diagnostics
-    assert ModelReader("BINDINGS", at=commit_id("BINDINGS", 5)).fit() == historical
+@pytest.mark.contract
+def test_joint_reports_and_raw_draws_use_production_labels_without_compiling(monkeypatch, tmp_path):
+    from nof1_causal_lab.artifacts.identity import GitRef
+    from nof1_causal_lab.artifacts.posterior import InferenceEvidence
+    from nof1_causal_lab.utils import data
+    from tests.model_fixtures import load_model_fixture
+
+    monkeypatch.setattr(data, "_DATA_URI", str(tmp_path))
+    store, journal = ArtifactStore("LABELS"), StudyRepository("LABELS")
+    model = load_model_fixture("causal_proofs/conditioned_treatment_outcome.json")
+    identity, layout = next(iter(model.law_layouts.items()))
+    labels = {element: f"Production label {index}" for index, element in enumerate(layout.labels)}
+    model = model.revised(law_layouts={identity: layout.revised(labels=labels)})
+    info = store.write_artifact("model", derived_from={}, produced_by="fit",
+        json_files={"model.json": model.model_dump(mode="json", round_trip=True)})
+    panel = store.write_artifact("panel", derived_from={}, produced_by="prepare_data")
+    result = ModelFitResult(model=GitRef(workspace_id="LABELS", revision=info.revision, path="model.json"),
+        panel=GitRef(workspace_id="LABELS", revision=panel.revision, path="panel.parquet"),
+        evidence=InferenceEvidence(distribution=identity, time_origin=None, duration_seconds=0))
+    journal.append(applied_record(Applied(result=result, effects=ActionEffects(produced=(write_question(store), panel, info))), seq=1))
+    monkeypatch.setattr("nof1_causal_lab.models.ssm.compile.inputs.compile_model",
+        lambda *_args: pytest.fail("Reports and raw atoms do not need the compiler"))
+    reader = ModelReader("LABELS", at=journal.head())
+    report = reader.inference_report
+    assert report is not None
+    assert {row.parameter for row in report.value.core.posterior_marginals} == set(labels.values())
+    assert report.value.core.inference_diagnostics is None
+    assert report.source.pointer == "/attempt/outcome/result/evidence"
+    columns = reader.parameter_draws()
+    assert columns.kind == "available"
+    assert {column.label for column in columns.value} == set(labels.values())
+    assert all(len(column.values) == report.value.core.inference_metadata.n_samples for column in columns.value)
+    assert set(reader.state.current) == {"question", "model", "panel"}
 
 
 @pytest.mark.inference(concern="predictive")
@@ -270,12 +178,7 @@ def test_likelihood_plot_requires_its_pinned_panel(
             ),
         ),
     )
-    metadata = PreparedDataMetadata(
-        source=FileSourceRef(files=("observations.csv",)),
-        variables=preparation.observation_schema(),
-        preparation=preparation,
-        time_origin=None,
-    )
+    metadata = FilePreparedDataMetadata(source=FileSourceRef(files=("observations.csv",)), preparation=preparation, time_origin=None)
     panel = store.write_artifact(
         "panel",
         derived_from={},
@@ -303,20 +206,6 @@ def test_likelihood_plot_requires_its_pinned_panel(
         produced_by=None,
         json_files={"model.json": candidate.model_dump(mode="json")},
     )
-    validation = store.write_artifact(
-        "validation_report",
-        derived_from={
-            "model": artifact_revision("PLOTS", "model", 1),
-            "panel": artifact_revision("PLOTS", "panel", 1),
-        },
-        produced_by="derive:validation_report",
-        json_files={
-            "validation_report.json": {
-                "is_valid": True,
-                "data": {"indicators": {}, "dataset_issues": []},
-            }
-        },
-    )
     StudyRepository("PLOTS").append(
         applied_record(
             Applied(
@@ -328,7 +217,6 @@ def test_likelihood_plot_requires_its_pinned_panel(
                             derived_from={"panel": artifact_revision("PLOTS", "panel", 1)}
                         ),
                         panel,
-                        validation,
                     ]
                 ),
             ),
@@ -337,7 +225,7 @@ def test_likelihood_plot_requires_its_pinned_panel(
             trace_ids=[],
         )
     )
-    reader = ModelReader("PLOTS")
+    reader = ModelReader("PLOTS", at=StudyRepository("PLOTS").head())
     view = reader.snapshot()
     assert view is not None
     diagnostic = view.likelihood_diagnostics[indicator.observation.id]
@@ -373,9 +261,10 @@ def test_likelihood_plot_requires_its_pinned_panel(
             trace_ids=[],
         )
     )
-    revised = ModelReader("PLOTS").snapshot()
+    revised = ModelReader("PLOTS", at=StudyRepository("PLOTS").head()).snapshot()
     assert revised is not None
-    assert revised.likelihood_diagnostics == {}
+    assert revised.likelihood_diagnostics != view.likelihood_diagnostics
+    assert sum(item.count for item in revised.likelihood_diagnostics[indicator.observation.id]) == 1
 
 
 @pytest.mark.inference(concern="sampling")
@@ -404,7 +293,7 @@ def test_model_view_reads_canonical_science_without_a_compiled_plan(monkeypatch,
             trace_ids=[],
         )
     )
-    views = ModelReader("DEFINITION")
+    views = ModelReader("DEFINITION", at=StudyRepository("DEFINITION").head())
     assert views.model == model
     assert any(views.snapshot().authoring_prior_densities.values())
     assert all(
@@ -425,5 +314,5 @@ def test_model_view_reads_canonical_science_without_a_compiled_plan(monkeypatch,
             trace_ids=[],
         )
     )
-    assert ModelReader("DEFINITION").model == changed
+    assert ModelReader("DEFINITION", at=StudyRepository("DEFINITION").head()).model == changed
     assert views.model == model

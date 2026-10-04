@@ -33,7 +33,7 @@ from nof1_causal_lab.actions.temporal.messages import (
     ProgressEventInput,
     ToolCallSummary,
 )
-from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata
+from nof1_causal_lab.artifacts.data_preparation import FilePreparedDataMetadata
 from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid, GitRef
 from nof1_causal_lab.artifacts.measurements import ObservationRecord
 from nof1_causal_lab.json_types import JsonObject
@@ -228,7 +228,7 @@ class OpenRouterActivities:
                 parameters=dict(tool.parameters),
                 execute=_unused_tool,
                 stop_on_success=tool.kind == "terminal",
-                success_output=tool.success_output,
+                success_output="VALID" if tool.kind == "terminal" else None,
             )
             for tool in activity_input.tools
         ] or None
@@ -267,7 +267,6 @@ class OpenRouterActivities:
             stop_reason=output.get("stop_reason"),
             time=float(output.get("time") or 0.0),
             usage=output.get("usage"),
-            completion_preview=str(output.get("completion") or "")[:240],
             tool_calls=tool_calls,
         )
         _write_json(activity_input.call_ref, {"result": result.model_dump(mode="json")})
@@ -368,9 +367,8 @@ async def finalize_measurements_activity(
         if len(panel) == 0:
             raise ValueError("Extraction produced no observations")
         panel = validate_observation_rows(panel, variables)
-        metadata = PreparedDataMetadata(
+        metadata = FilePreparedDataMetadata(
             source=preparation.source,
-            variables=variables,
             preparation=preparation.definition,
             time_origin=prepared_time_origin(panel, preparation.source.start),
         )
@@ -378,12 +376,6 @@ async def finalize_measurements_activity(
         return Applied(
             result=DataPreparationResult(
                 workers=tuple(results_by_worker[spec.worker_id] for spec in chunk_specs),
-                raw_data=GitRef(
-                    workspace_id=activity_input.workspace_id,
-                    revision=activity_input.pins["raw_data"],
-                    path="raw.parquet",
-                ),
-                n_observations=len(panel),
                 extraction_reused=sum(
                     result.reused is True for result in activity_input.chunk_results
                 ),

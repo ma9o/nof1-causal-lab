@@ -22,7 +22,7 @@ export function SimulationEvidence({ context }: { context: ScopeContext }) {
   const report = simulation.value;
   const names = new Map(entities.constructs.map((item) => [item.id, humanize(item.name)]));
 
-  const timeLabel = (day: number) => `${formatModelDate(day, report.time_origin)} (day ${day})`;
+  const timeLabel = (day: number) => `${formatModelDate(day, report.evidence.time_origin)} (day ${day})`;
   return (
     <>
       <Section title="Causal effect" source={simulation.source} wide>
@@ -64,32 +64,32 @@ export function SimulationEvidence({ context }: { context: ScopeContext }) {
       <Section title="Simulation design" source={simulation.source}>
         <KeyValue
           rows={[
-            ["Start", timeLabel(report.times[0])],
-            ["Horizon", report.design.horizon],
-            ["End", timeLabel(report.times.at(-1) ?? report.times[1])],
-            ["Draws", report.draws.toLocaleString()],
+            ["Start", timeLabel(report.evidence.times[0])],
+            ["Horizon", report.evidence.design.horizon],
+            ["End", timeLabel(report.evidence.times.at(-1) ?? report.evidence.times[1])],
+            ["Draws", report.evidence.draws.toLocaleString()],
             ["Fit reliability", humanize(report.fit_reliability)],
             ["Laws", humanize(report.law?.interpretation ?? "unknown")],
           ]}
         />
-        {report.design.interventions.length === 0 ? (
+        {report.evidence.design.interventions.length === 0 ? (
           <Hint>No intervention requested.</Hint>
         ) : (
-          report.design.interventions.map((event, index) => (
+          report.evidence.design.interventions.map((event, index) => (
             <p key={`${event.target}-${event.after ?? "start"}`} className="m-0 border-t pt-2">
               {event.after ? `${event.after} after the start` : "At the start"} (
-              {timeLabel(report.assignments[index]?.time ?? report.times[0])}): set{" "}
+              {timeLabel(report.evidence.assignments[index]?.time ?? report.evidence.times[0])}): set{" "}
               {names.get(event.target) ?? event.target} to {event.value}.
             </p>
           ))
         )}
       </Section>
-      {report.state_ids.map((id) => (
+      {report.evidence.state_ids.map((id) => (
         <Section key={id} title={names.get(id) ?? id} source={simulation.source} wide>
           <SimulationHistory model={model} id={id} kind="states" />
         </Section>
       ))}
-      {report.observation_layout.variables.map((variable) => (
+      {report.evidence.observation_layout.variables.map((variable) => (
         <Section key={variable.id} title={humanize(variable.name)} source={simulation.source} wide>
           <SimulationHistory model={model} id={variable.id} kind="indicators" />
         </Section>

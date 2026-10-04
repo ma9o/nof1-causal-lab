@@ -192,7 +192,6 @@ class TestSessionTurn:
         result = _run(session.turn("submit"))
 
         assert result.terminal_tool_name == "submit_model"
-        assert result.terminal_tool_output == "VALID"
         assert result.tool_calls_fired == ["submit_model"]
 
     def test_non_zero_exit_raises(self, monkeypatch, tmp_path):

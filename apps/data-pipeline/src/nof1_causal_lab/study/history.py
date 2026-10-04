@@ -1,11 +1,6 @@
-"""Git trees select artifacts; commits own action logs, ancestry and branch heads."""
+"""Git trees select artifacts; commits own action logs and the study journal."""
 
 from __future__ import annotations
-
-from typing import TYPE_CHECKING
-
-if TYPE_CHECKING:
-    from nof1_causal_lab.study.records import AttemptRecord
 
 import json
 from datetime import datetime
@@ -13,20 +8,18 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from uuid import UUID
+    from nof1_causal_lab.artifacts.identity import ArtifactId
+    from nof1_causal_lab.study.records import AttemptRecord
 
 import pygit2
 
 from nof1_causal_lab.artifacts.identity import GitOid
-from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
 from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.git_objects import open_repository, read_file, write_tree
 from nof1_causal_lab.study.records import Applied, StudyRevision
+from nof1_causal_lab.actions.contracts import EditModelRequest, FitRequest, ScientificActionRequest, SimulateRequest, call_identity
 from nof1_causal_lab.study.state import ArtifactRecord, StudyState
-
-
-class BranchConflict(Exception):
-    """The branch moved after the action selected its execution base."""
+from nof1_causal_lab.study.view_models import DataDiffRequest
 
 
 class StudyRepository:
@@ -37,18 +30,8 @@ class StudyRepository:
         self.repo = open_repository(workspace_id, repository_path)
         self.path = Path(self.repo.path)
 
-    @staticmethod
-    def _branch_ref(branch: str) -> str:
-        ref = f"refs/heads/{branch}"
-        if not branch or not pygit2.reference_is_valid_name(ref):
-            raise StudyLookupError(f"Invalid branch name: {branch!r}")
-        return ref
-
-    def head(self, branch: str = "main") -> GitOid:
-        ref = self._branch_ref(branch)
-        if ref not in self.repo.references:
-            raise StudyLookupError(f"Unknown study branch: {branch}")
-        return GitOid(str(self.repo.references[ref].target))
+    def head(self) -> GitOid:
+        return GitOid(str(self.repo.references["refs/heads/main"].target))
 
     def _commit(self, revision: str) -> pygit2.Commit:
         oid = pygit2.Oid(hex=revision)
@@ -76,15 +59,10 @@ class StudyRepository:
             if info.artifact_id != artifact.name:
                 raise StudyLookupError("Artifact tree does not match its scientific identity")
             current[info.artifact_id] = info
-        checks = (
-            ModelCheckReport.model_validate_json(read_file(self.repo, revision, "checks.json"))
-            if "checks.json" in tree
-            else None
-        )
-        return StudyState(current=current, checks=checks)
+        return StudyState(current=current)
 
-    def resolve(self, *, branch: str = "main", at: GitOid | None = None) -> GitOid:
-        revision = at if at is not None else self.head(branch)
+    def resolve(self, *, at: GitOid) -> GitOid:
+        revision = at
         commit = self._commit(revision)
         if "logs" in commit.tree and not isinstance(
             self.record(revision).record.attempt.outcome, Applied
@@ -141,40 +119,63 @@ class StudyRepository:
             default=0,
         )
 
-    def dispatched_attempt(self, attempt_id: UUID) -> StudyRevision | None:
-        """Resolve a dispatch receipt independently of the current branch head."""
-        ref = f"refs/actions/{attempt_id}"
-        return (
-            self.record(str(self.repo.references[ref].target))
-            if ref in self.repo.references
-            else None
-        )
 
-    def branches(self) -> dict[str, GitOid]:
-        return {name: self.head(name) for name in sorted(self.repo.branches.local)}
+    def saved_call(self, request: ScientificActionRequest | DataDiffRequest) -> StudyRevision | None:
+        """Only applied calls are reusable; failures are retained attempts, never cached calls."""
+        identity = call_identity(request)
+        return next((revision for revision in self.attempts()
+                     if isinstance(revision.record.attempt.outcome, Applied)
+                     and revision.record.attempt.request is not None
+                     and call_identity(revision.record.attempt.request) == identity), None)
 
-    def create_branch(self, name: str, *, at: GitOid) -> GitOid:
-        revision = self.resolve(at=at)
-        if (
-            "logs" in self._commit(revision).tree
-            and self.record(revision).record.attempt.action == "data_diff"
-        ):
-            raise StudyLookupError("A data comparison is a read-only leaf; branch from its parent")
-        self.repo.create_reference(self._branch_ref(name), pygit2.Oid(hex=revision))
-        return revision
+    def question(self) -> ArtifactRecord:
+        """The study's immutable question, independent of its current scientific state."""
+        for revision in self.attempts():
+            attempt = revision.record.attempt
+            if attempt.action == "set_question" and isinstance(attempt.outcome, Applied):
+                return next(item for item in attempt.outcome.effects.produced if item.artifact_id == "question")
+        raise StudyLookupError("Set the study question first")
+
+    def input_state(self, request: ScientificActionRequest | DataDiffRequest) -> StudyState:
+        """Select only the question and the revisions actually named by this call."""
+        from nof1_causal_lab.study.store import ArtifactStore
+
+        store = ArtifactStore(self.workspace_id, repository_path=self.path)
+        records = self.attempts()
+        question = next((item for revision in records
+                         if revision.record.attempt.action == "set_question"
+                         and isinstance(revision.record.attempt.outcome, Applied)
+                         for item in revision.record.attempt.outcome.effects.produced
+                         if item.artifact_id == "question"), None)
+        current: dict[ArtifactId, ArtifactRecord] = {"question": question} if question is not None else {}
+        model = (request.expected_revision if isinstance(request, EditModelRequest)
+                 else request.model_revision if isinstance(request, (FitRequest, SimulateRequest)) else None)
+        panel = request.panel_revision if isinstance(request, (EditModelRequest, FitRequest, SimulateRequest)) else None
+        if model is not None:
+            current["model"] = store.read_meta("model", model)
+        if panel is not None:
+            current["panel"] = store.read_meta("panel", panel)
+            effects = next((outcome.effects for revision in records
+                            if isinstance(outcome := revision.record.attempt.outcome, Applied)
+                            and any(item.artifact_id == "panel" and item.revision == panel
+                                    for item in outcome.effects.produced)), None)
+            if effects is not None:
+                current.update({item.artifact_id: item for item in effects.produced
+                                if item.artifact_id == "raw_data"})
+        return StudyState(current=current)
 
     def append(
         self,
         record: AttemptRecord,
         *,
-        expected_head: str | None = None,
+        parent_id: str | None = None,
         logs: dict[str, bytes] | None = None,
     ) -> StudyRevision:
-        """Atomically publish the action's tree and advance only a successful branch."""
+        """Atomically publish the action's tree and advance successful scientific state."""
         outcome = record.attempt.outcome
         advances = isinstance(outcome, Applied) and record.attempt.action != "data_diff"
         attempt_ref = f"refs/attempts/{record.seq}"
-        branch_ref = self._branch_ref(record.branch)
+        head_ref = "refs/heads/main"
         log = record.model_dump(mode="json", round_trip=True)
         with self.repo.transaction() as transaction:
             transaction.lock_ref(attempt_ref)
@@ -195,14 +196,14 @@ class StudyRepository:
             if existing is not None:
                 if existing.record.model_dump(mode="json", round_trip=True) != log:
                     raise FileExistsError(f"Attempt {record.seq} already has different content")
-                if expected_head is not None and existing.parent_ids != (expected_head,):
-                    raise BranchConflict(f"Attempt {record.seq} has a different execution base")
+                if parent_id is not None and existing.parent_ids != (parent_id,):
+                    raise FileExistsError(f"Attempt {record.seq} has a different journal parent")
                 return existing
-            transaction.lock_ref(branch_ref)
-            head = self.head(record.branch)
-            parent = expected_head if expected_head is not None else head
+            transaction.lock_ref(head_ref)
+            head = self.head()
+            parent = parent_id if parent_id is not None else head
             if advances and parent != head:
-                raise BranchConflict(f"Branch {record.branch} moved from {parent} to {head}")
+                raise RuntimeError("The serialized study writer lost its journal parent")
             previous = self._commit(parent).tree
             artifacts = (
                 self.repo.TreeBuilder(previous["artifacts"].id)
@@ -219,16 +220,6 @@ class StudyRepository:
                     )
             tree = self.repo.TreeBuilder()
             tree.insert("artifacts", artifacts.write(), pygit2.GIT_FILEMODE_TREE)
-            if advances and isinstance(outcome, Applied) and outcome.effects.checks is not None:
-                tree.insert(
-                    "checks.json",
-                    self.repo.create_blob(
-                        outcome.effects.checks.model_dump_json(round_trip=True).encode()
-                    ),
-                    pygit2.GIT_FILEMODE_BLOB,
-                )
-            elif "checks.json" in previous:
-                tree.insert("checks.json", previous["checks.json"].id, pygit2.GIT_FILEMODE_BLOB)
             log_files = {
                 "attempt.json": json.dumps(log, sort_keys=True).encode(),
                 **(logs or {}),
@@ -249,7 +240,7 @@ class StudyRepository:
             if action_ref is not None:
                 transaction.set_target(action_ref, oid)
             if advances:
-                transaction.set_target(branch_ref, oid, message=f"{action} ({outcome.status})")
+                transaction.set_target(head_ref, oid, message=f"{action} ({outcome.status})")
         return StudyRevision(
             commit_id=GitOid(str(oid)), parent_ids=(GitOid(str(parent)),), record=record
         )

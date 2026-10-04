@@ -12,15 +12,15 @@ import type {
   ConstructSpec,
   DistributionId,
   EditModelRequest,
+  Evaluation,
   FactSource,
   IndicatorId,
   IndicatorSpec,
-  InferenceReport,
   InferenceReportCore,
   ModelSnapshot,
   ModelSpec,
   NumPyroDistribution,
-  ParameterRef,
+  ObservationSpec,
   ParameterSpec,
   Rejected,
   ScientificActionId,
@@ -42,6 +42,12 @@ export type GenericAssessmentRetainsSubject = Expect<
 export type GenericChangeRetainsPayload = Expect<
   Equal<Extract<Change<ModelSpec>, { kind: "added" }>["after"], ModelSpec>
 >;
+export type GenericAvailabilityRetainsPayload = Expect<
+  Equal<Extract<Evaluation<ModelSpec>, { kind: "available" }>["value"], ModelSpec>
+>;
+export type GenericObservationRetainsWindow = Expect<
+  Equal<ObservationSpec<"1d">["observation_window"], "1d">
+>;
 // @ts-expect-error Rejection reasons are the closed domain reason type.
 export type RejectionHasNoUnrelatedReason = Rejected<number>;
 
@@ -50,9 +56,6 @@ export type CanonicalDefinition = Expect<
 >;
 export type CanonicalInferenceCore = Expect<
   Equal<NonNullable<ModelSnapshot["fit"]>["value"]["report"], InferenceReportCore>
->;
-export type CanonicalPairAxes = Expect<
-  Equal<InferenceReport["detail"]["posterior_pairs"][number], readonly [ParameterRef, ParameterRef]>
 >;
 export type CanonicalParameter = Expect<Equal<ModelSpec["parameters"][number], ParameterSpec>>;
 export type CanonicalConstruct = Expect<
@@ -63,32 +66,12 @@ export type OwnedIndicator = Expect<Equal<ConstructSpec["indicators"][number], I
 export type NoIndependentIndicatorOwner = IndicatorSpec["construct_id"];
 export type SourceValidityIsScalar = Expect<Extends<FactSource["validity"], "fresh" | "stale">>;
 
-type ModelRead = paths["/api/studies/{workspace_id}/model"]["get"];
-type DefinitionRead = paths["/api/studies/{workspace_id}/model/definition"]["get"];
-type ConstructsRead = paths["/api/studies/{workspace_id}/model/constructs"]["get"];
-export type GeneratedReadReusesBatch = Expect<
-  Equal<ModelRead["responses"][200]["content"]["application/json"], ModelSnapshot>
+type FitCall = paths["/api/studies/{workspace_id}/fit"]["post"];
+type FetchedCall = MethodResponse<ReturnType<typeof createModelClient>, "post", "/api/studies/{workspace_id}/fit">;
+export type GeneratedCallRetainsCanonicalSnapshot = Expect<
+  Equal<Extract<FetchedCall, {kind: "completed"}>["snapshot"], ModelSnapshot | null>
 >;
-export type GeneratedReadReusesDefinition = Expect<
-  Equal<
-    DefinitionRead["responses"][200]["content"]["application/json"],
-    Exclude<ModelSnapshot["model"], undefined>
-  >
->;
-export type GeneratedReadReusesConstructs = Expect<
-  Equal<ConstructsRead["responses"][200]["content"]["application/json"], readonly ConstructSpec[]>
->;
-export type InvalidRevisionQuery = Expect<
-  // @ts-expect-error Revision queries require numeric journal positions.
-  Extends<string, NonNullable<ModelRead["parameters"]["query"]>["at_seq"]>
->;
-
-type FetchedModel = MethodResponse<
-  ReturnType<typeof createModelClient>,
-  "get",
-  "/api/studies/{workspace_id}/model"
->;
-export type FetchedModelRetainsCanonicalTuples = Expect<Equal<FetchedModel, ModelSnapshot>>;
+export type GeneratedCallRetainsCanonicalOutcome = Expect<Equal<FetchedCall, ActionPoll>>;
 
 export type SparseLawLookup = Expect<
   Equal<ModelSpec["distributions"][DistributionId], NumPyroDistribution | undefined>
@@ -97,9 +80,6 @@ export type DistinctScientificIds = Expect<Equal<Extends<IndicatorId, ConstructI
 export type RequiredNullableResponse = Expect<
   Equal<Record<string, never> extends Pick<ModelSnapshot, "model"> ? true : false, false>
 >;
-type MechanismInput =
-  paths["/api/studies/{workspace_id}/model/visuals/mechanism"]["post"]["requestBody"]["content"]["application/json"];
-export type RequestDefaultsMayBeOmitted = Expect<Extends<{ owner_id: string }, MechanismInput>>;
 
 // Coverage follows the exported schema; adding an endpoint cannot silently leave it out of the client.
 export type EveryExportedPath = Expect<Equal<keyof paths, keyof typeof openapi.paths>>;
@@ -115,21 +95,9 @@ type GeneratedOperations = {
   }[Extract<keyof paths[Path], HttpMethod>];
 }[keyof paths];
 export type EveryExportedOperation = Expect<Equal<GeneratedOperations, ExportedOperations>>;
-type Dispatch = paths["/api/studies/{workspace_id}/actions"]["post"];
-type DispatchInput = Dispatch["requestBody"]["content"]["application/json"];
-export type CanonicalDispatchAlternatives = Expect<
-  Equal<NonNullable<DispatchInput["action"]>, ScientificActionId>
->;
-export type CanonicalPoll = Expect<
-  Equal<
-    MethodResponse<
-      ReturnType<typeof createModelClient>,
-      "get",
-      "/api/studies/{workspace_id}/actions/{attempt_id}"
-    >,
-    ActionPoll
-  >
->;
+type CallRoute = `/api/studies/{workspace_id}/${ScientificActionId | "data_diff"}`;
+type CallInput = paths[CallRoute]["post"]["requestBody"]["content"]["application/json"];
+export type CanonicalCallAlternatives = Expect<Equal<NonNullable<CallInput["action"]>, ScientificActionId | "data_diff">>;
 export type CanonicalTimeline = Expect<
   Equal<
     MethodResponse<
@@ -140,12 +108,6 @@ export type CanonicalTimeline = Expect<
     TimelineResponse
   >
 >;
-export type CanonicalCapabilities = Expect<
-  Equal<
-    MethodResponse<ReturnType<typeof createModelClient>, "get", "/api/actions-enabled">,
-    boolean
-  >
->;
 export type CanonicalWorkspaces = Expect<
   Equal<
     MethodResponse<ReturnType<typeof createModelClient>, "get", "/api/workspaces">,
@@ -154,8 +116,12 @@ export type CanonicalWorkspaces = Expect<
 >;
 type Upload = paths["/api/upload"]["post"]["requestBody"]["content"]["multipart/form-data"];
 export type NativeUploadFile = Expect<Equal<Upload["file"], Blob>>;
+type FitInput = FitCall["requestBody"]["content"]["application/json"];
+export type RequestDefaultsMayBeOmitted = Expect<
+  Extends<{ model_revision: string; panel_revision: string }, FitInput>
+>;
 export type DefaultsAreAbsent = Expect<
-  Equal<Extends<{ owner_id: string; points: undefined }, MechanismInput>, false>
+  Equal<Extends<{ model_revision: string; panel_revision: string; settings: undefined }, FitInput>, false>
 >;
 
 declare const definition: ModelSpec;

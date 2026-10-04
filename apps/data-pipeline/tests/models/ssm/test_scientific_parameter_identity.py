@@ -1,40 +1,408 @@
 """Stable scientific subjects through authoring, compilation, and retained results."""
 
+from __future__ import annotations
+
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
+import numpyro.distributions as dist
 import pytest
 from pydantic import TypeAdapter
 
 from nof1_causal_lab.actions.inference.subjects import parameter_references
 from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.artifacts.expressions import (
+    Expression,
+    coefficient,
+    state,
+)
+from nof1_causal_lab.artifacts.identity import DistributionId, ParameterId
 from nof1_causal_lab.artifacts.likelihood import (
     LikelihoodSpec,
     ObservationLawSpec,
+    StudentTLawSpec,
 )
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind
+from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
+from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.model_structure import StructuralSelection, selected_state_ids
 from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
-from tests.model_fixtures import compile_fit_fixture, compile_model_fixture
+from tests.inference_fixtures import compile_fit_fixture, compile_model_fixture
+from tests.model_fixtures import (
+    additive_a_b_model,
+    construct_named,
+    indicator_named,
+    likelihood_named,
+    load_model_fixture,
+    parameter_named,
+    replace_parameters,
+)
+
+
+def _shared_likelihood_parameter_owns_only_active_channels_complete_model() -> ModelSpec:
+    _OBS_DF_PARAMETER_ID = ParameterId(
+        "parameter:e9c414236abf8cbc520db01a7912d59c8e29aa890ad71833dceb4f3255f67e2e"
+    )
+    _OBS_DF_DISTRIBUTION_ID = DistributionId(
+        "distribution:97e1aff2ec6681a794c808b35e7b30e9609ba25913dbfc5351baa0398a40b016"
+    )
+    model = additive_a_b_model()
+    a = construct_named(model, "A")
+    a_obs = indicator_named(model, "A_obs")
+    a_obs_likelihood = likelihood_named(model, "A_obs")
+    a_obs_revised = a_obs.revised(
+        likelihood=a_obs_likelihood.revised(
+            law=StudentTLawSpec[Expression](
+                df=coefficient(_OBS_DF_PARAMETER_ID, "degrees_of_freedom"),
+                loc=(
+                    coefficient(0.0, "observation_intercept")
+                    + (coefficient(1.0, "loading") * state(a.id))
+                ),
+                scale=coefficient(0.0, "observation_scale"),
+            ),
+            reasoning="Test tails",
+        )
+    )
+    a_revised = a.revised(indicators=(a_obs_revised,))
+    return model.revised(
+        edges=replace_constructs(model.edges, (a_revised,)),
+        parameters=(
+            *model.parameters,
+            ParameterSpec(
+                id=_OBS_DF_PARAMETER_ID,
+                name="obs_df",
+                description="degrees of freedom for obs_df",
+                distribution=_OBS_DF_DISTRIBUTION_ID,
+            ),
+        ),
+        distributions={
+            **model.distributions,
+            _OBS_DF_DISTRIBUTION_ID: dist.Gamma(concentration=5.0, rate=1.0, validate_args=False),
+        },
+    )
+
+
+def _shared_likelihood_parameter_owns_only_active_channels_complete_model_2() -> ModelSpec:
+    model = _shared_likelihood_parameter_owns_only_active_channels_complete_model()
+    b = construct_named(model, "B")
+    b_obs = indicator_named(model, "B_obs")
+    b_obs_likelihood = likelihood_named(model, "B_obs")
+    obs_df = parameter_named(model, "obs_df")
+    b_obs_revised = b_obs.revised(
+        likelihood=b_obs_likelihood.revised(
+            law=StudentTLawSpec[Expression](
+                df=coefficient(obs_df.id, "degrees_of_freedom"),
+                loc=(
+                    coefficient(0.0, "observation_intercept")
+                    + (coefficient(1.0, "loading") * state(b.id))
+                ),
+                scale=coefficient(0.0, "observation_scale"),
+            ),
+            reasoning="Test tails",
+        )
+    )
+    b_revised = b.revised(indicators=(b_obs_revised,))
+    return model.revised(edges=replace_constructs(model.edges, (b_revised,)))
+
+
+def _student_innovation_model() -> ModelSpec:
+    _PROC_DF_PARAMETER_ID = ParameterId(
+        "parameter:cda322d07f43753b6303431fe88a8d86238b54e2a7f366cecd07b25c754971b6"
+    )
+    _PROC_DF_DISTRIBUTION_ID = DistributionId(
+        "distribution:8b5923f7a2b2d83dbc2d3961d34d000cfa280f81457d2e3b222014b086954b66"
+    )
+    model = additive_a_b_model()
+    a = construct_named(model, "A")
+    sigma_a = parameter_named(model, "sigma_A")
+    b = construct_named(model, "B")
+    sigma_b = parameter_named(model, "sigma_B")
+    a_revised = a.revised(
+        coefficients=(
+            coefficient(sigma_a.id, "diffusion_scale"),
+            coefficient(0.0, "initial_mean"),
+            coefficient(1.0, "initial_scale"),
+            coefficient(_PROC_DF_PARAMETER_ID, "process_degrees_of_freedom"),
+        ),
+        innovation_family=DistributionFamily.STUDENT_T,
+    )
+    b_revised = b.revised(
+        coefficients=(
+            coefficient(sigma_b.id, "diffusion_scale"),
+            coefficient(0.0, "initial_mean"),
+            coefficient(1.0, "initial_scale"),
+            coefficient(_PROC_DF_PARAMETER_ID, "process_degrees_of_freedom"),
+        ),
+        innovation_family=DistributionFamily.STUDENT_T,
+    )
+    return model.revised(
+        edges=replace_constructs(
+            model.edges,
+            (
+                a_revised,
+                b_revised,
+            ),
+        ),
+        parameters=(
+            *model.parameters,
+            ParameterSpec(
+                id=_PROC_DF_PARAMETER_ID,
+                name="proc_df",
+                description="degrees of freedom for proc_df",
+                distribution=_PROC_DF_DISTRIBUTION_ID,
+            ),
+        ),
+        distributions={
+            **model.distributions,
+            _PROC_DF_DISTRIBUTION_ID: dist.Gamma(concentration=5.0, rate=1.0, validate_args=False),
+        },
+    )
+
+
+def _rename_preserves_parameter_and_element_identity__compile_2() -> ModelSpec:
+    model = additive_a_b_model()
+    a = construct_named(model, "A")
+    a_obs = indicator_named(model, "A_obs")
+    b = construct_named(model, "B")
+    b_obs = indicator_named(model, "B_obs")
+    rho_a = parameter_named(model, "rho_A")
+    rho_b = parameter_named(model, "rho_B")
+    beta_a_b = parameter_named(model, "beta_A_B")
+    sigma_a = parameter_named(model, "sigma_A")
+    sigma_b = parameter_named(model, "sigma_B")
+    a_obs_revised = a_obs.revised(
+        observation=a_obs.observation.revised(name="renamed measurement 0")
+    )
+    a_revised = a.revised(name="renamed construct 0", indicators=(a_obs_revised,))
+    b_obs_revised = b_obs.revised(
+        observation=b_obs.observation.revised(name="renamed measurement 1")
+    )
+    b_revised = b.revised(name="renamed construct 1", indicators=(b_obs_revised,))
+    return model.revised(
+        edges=replace_constructs(
+            model.edges,
+            (
+                a_revised,
+                b_revised,
+            ),
+        ),
+        parameters=replace_parameters(
+            model.parameters,
+            rho_a.revised(
+                name="rho_renamed construct 0", description="stiffness of rho_renamed construct 0"
+            ),
+            rho_b.revised(
+                name="rho_renamed construct 1", description="stiffness of rho_renamed construct 1"
+            ),
+            beta_a_b.revised(
+                name="beta_renamed construct 0_renamed construct 1",
+                description="weight of beta_renamed construct 0_renamed construct 1",
+            ),
+            sigma_a.revised(
+                name="sigma_renamed construct 0",
+                description="innovation.scale for sigma_renamed construct 0",
+            ),
+            sigma_b.revised(
+                name="sigma_renamed construct 1",
+                description="innovation.scale for sigma_renamed construct 1",
+            ),
+        ),
+    )
+
+
+def _additive_hill_and_linear_terms_survive_parameter_renaming_with_parameter_distributions() -> (
+    ModelSpec
+):
+    return load_model_fixture(
+        "scientific_parameter_identity/additive_hill_and_linear_terms_survive_parameter_renaming_with_parameter_distributions.json"
+    )
+
+
+def _initial_state_defaults_are_authored_before_compilation_complete_model_initial_mean() -> (
+    ModelSpec
+):
+    _T0_SD_A_PARAMETER_ID = ParameterId(
+        "parameter:78a820c678a86f96a375ac708343df8e24b0d62b74d344a2ab12637121eadd5e"
+    )
+    _T0_SD_B_PARAMETER_ID = ParameterId(
+        "parameter:2314214a83c2bf4026ec9a51ea9d67f25eca66e6e8f9a21aca204f1009a31302"
+    )
+    _T0_SD_A_DISTRIBUTION_ID = DistributionId(
+        "distribution:ce98d58c7dc08717d8b053705c0a6ab7c00b7b2f0d4fa6142ac250c346e7778c"
+    )
+    _T0_SD_B_DISTRIBUTION_ID = DistributionId(
+        "distribution:4405cbecb2b23c024b8f1ca97701f3be9df5104733d4425b50e1955801b005d1"
+    )
+    model = additive_a_b_model()
+    a = construct_named(model, "A")
+    sigma_a = parameter_named(model, "sigma_A")
+    b = construct_named(model, "B")
+    sigma_b = parameter_named(model, "sigma_B")
+    a_revised = a.revised(
+        coefficients=(
+            coefficient(sigma_a.id, "diffusion_scale"),
+            coefficient(0.0, "initial_mean"),
+            coefficient(_T0_SD_A_PARAMETER_ID, "initial_scale"),
+        )
+    )
+    b_revised = b.revised(
+        coefficients=(
+            coefficient(sigma_b.id, "diffusion_scale"),
+            coefficient(0.0, "initial_mean"),
+            coefficient(_T0_SD_B_PARAMETER_ID, "initial_scale"),
+        )
+    )
+    return model.revised(
+        edges=replace_constructs(
+            model.edges,
+            (
+                a_revised,
+                b_revised,
+            ),
+        ),
+        parameters=(
+            *model.parameters,
+            ParameterSpec(
+                id=_T0_SD_A_PARAMETER_ID,
+                name="t0_sd_A",
+                description="initial state.scale for t0_sd_A",
+                distribution=_T0_SD_A_DISTRIBUTION_ID,
+            ),
+            ParameterSpec(
+                id=_T0_SD_B_PARAMETER_ID,
+                name="t0_sd_B",
+                description="initial state.scale for t0_sd_B",
+                distribution=_T0_SD_B_DISTRIBUTION_ID,
+            ),
+        ),
+        distributions={
+            **model.distributions,
+            _T0_SD_A_DISTRIBUTION_ID: dist.HalfNormal(scale=2.0, validate_args=False),
+            _T0_SD_B_DISTRIBUTION_ID: dist.HalfNormal(scale=2.0, validate_args=False),
+        },
+    )
+
+
+def _initial_state_defaults_are_authored_before_compilation_complete_model_initial_scale() -> (
+    ModelSpec
+):
+    _T0_MEAN_A_PARAMETER_ID = ParameterId(
+        "parameter:1776151c61f063b055fe8347ef429b23283aba9338c3b772714bc055b2f26cf4"
+    )
+    _T0_MEAN_B_PARAMETER_ID = ParameterId(
+        "parameter:40b11a0aae69fc9e9dad5839abc5f20dea0e5b49ebcc2c6e2da03a5dd18cb5c3"
+    )
+    _T0_MEAN_A_DISTRIBUTION_ID = DistributionId(
+        "distribution:646704dcb25d1ed8816be8aef4ee24c8f54efad46bfedf9391c03de528a9c394"
+    )
+    _T0_MEAN_B_DISTRIBUTION_ID = DistributionId(
+        "distribution:b600d6c6f149d7851b1186b692be93f2838f38762e670f3e4d130a37f5a128b0"
+    )
+    model = additive_a_b_model()
+    a = construct_named(model, "A")
+    sigma_a = parameter_named(model, "sigma_A")
+    b = construct_named(model, "B")
+    sigma_b = parameter_named(model, "sigma_B")
+    a_revised = a.revised(
+        coefficients=(
+            coefficient(sigma_a.id, "diffusion_scale"),
+            coefficient(1.0, "initial_scale"),
+            coefficient(_T0_MEAN_A_PARAMETER_ID, "initial_mean"),
+        )
+    )
+    b_revised = b.revised(
+        coefficients=(
+            coefficient(sigma_b.id, "diffusion_scale"),
+            coefficient(1.0, "initial_scale"),
+            coefficient(_T0_MEAN_B_PARAMETER_ID, "initial_mean"),
+        )
+    )
+    return model.revised(
+        edges=replace_constructs(
+            model.edges,
+            (
+                a_revised,
+                b_revised,
+            ),
+        ),
+        parameters=(
+            *model.parameters,
+            ParameterSpec(
+                id=_T0_MEAN_A_PARAMETER_ID,
+                name="t0_mean_A",
+                description="initial state.mean for t0_mean_A",
+                distribution=_T0_MEAN_A_DISTRIBUTION_ID,
+            ),
+            ParameterSpec(
+                id=_T0_MEAN_B_PARAMETER_ID,
+                name="t0_mean_B",
+                description="initial state.mean for t0_mean_B",
+                distribution=_T0_MEAN_B_DISTRIBUTION_ID,
+            ),
+        ),
+        distributions={
+            **model.distributions,
+            _T0_MEAN_A_DISTRIBUTION_ID: dist.Normal(loc=0.0, scale=2.0, validate_args=False),
+            _T0_MEAN_B_DISTRIBUTION_ID: dist.Normal(loc=0.0, scale=2.0, validate_args=False),
+        },
+    )
+
+
+def _initial_state_defaults_are_authored_before_compilation_complete_model_none() -> ModelSpec:
+    return load_model_fixture(
+        "scientific_parameter_identity/initial_state_defaults_are_authored_before_compilation_complete_model_none.json"
+    )
+
+
+def _ordinal_components_have_label_identity_and_padding_is_explicit__compile() -> ModelSpec:
+    return load_model_fixture(
+        "scientific_parameter_identity/ordinal_components_have_label_identity_and_padding_is_explicit__compile.json"
+    )
+
+
+def _scalar_identity_survives_reordered_execution_axes__compile_2() -> ModelSpec:
+    return load_model_fixture(
+        "scientific_parameter_identity/scalar_identity_survives_reordered_execution_axes__compile_2.json"
+    )
+
+
+def _scalar_identity_survives_reordered_execution_axes__compile() -> ModelSpec:
+    model = _scalar_identity_survives_reordered_execution_axes__compile_2()
+    a = construct_named(model, "A")
+    b = construct_named(model, "B")
+    a_to_b = next(edge for edge in model.edges if edge.cause.id == a.id and edge.effect.id == b.id)
+    b_to_a = next(edge for edge in model.edges if edge.cause.id == b.id and edge.effect.id == a.id)
+    rho_a = parameter_named(model, "rho_A")
+    rho_b = parameter_named(model, "rho_B")
+    beta_a_b = parameter_named(model, "beta_A_B")
+    beta_b_a = parameter_named(model, "beta_B_A")
+    sigma_a = parameter_named(model, "sigma_A")
+    sigma_b = parameter_named(model, "sigma_B")
+    return model.revised(
+        edges=(
+            a_to_b,
+            b_to_a,
+        ),
+        parameters=(
+            rho_a,
+            rho_b,
+            beta_a_b,
+            beta_b_a,
+            sigma_a,
+            sigma_b,
+        ),
+    )
+
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 
 @pytest.mark.contract
 def test_rename_preserves_parameter_and_element_identity():
-    old_model = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2]
-            / "fixtures/models"
-            / "common/additive_a_b_model.json"
-        ).read_text()
-    )
-    new_model = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2]
-            / "fixtures/models"
-            / "scientific_parameter_identity/rename_preserves_parameter_and_element_identity__compile_2.json"
-        ).read_text()
-    )
+    old_model = additive_a_b_model()
+    new_model = _rename_preserves_parameter_and_element_identity__compile_2()
     assert {
         b.parameter_id: set(b.elements)
         for b in parameter_bindings(compile_model_fixture(old_model))[0]
@@ -47,20 +415,8 @@ def test_rename_preserves_parameter_and_element_identity():
 
 @pytest.mark.contract
 def test_scalar_identity_survives_reordered_execution_axes():
-    model = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2]
-            / "fixtures/models"
-            / "scientific_parameter_identity/scalar_identity_survives_reordered_execution_axes__compile.json"
-        ).read_text()
-    )
-    reordered = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2]
-            / "fixtures/models"
-            / "scientific_parameter_identity/scalar_identity_survives_reordered_execution_axes__compile_2.json"
-        ).read_text()
-    )
+    model = _scalar_identity_survives_reordered_execution_axes__compile()
+    reordered = _scalar_identity_survives_reordered_execution_axes__compile_2()
     assert selected_state_ids(StructuralSelection(model, None)) == tuple(
         reversed(selected_state_ids(StructuralSelection(reordered, None)))
     )
@@ -83,13 +439,7 @@ def test_scalar_identity_survives_reordered_execution_axes():
 
 @pytest.mark.contract
 def test_model_rejects_forged_owner_before_compilation():
-    model = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2]
-            / "fixtures/models"
-            / "common/additive_a_b_model.json"
-        ).read_text()
-    )
+    model = additive_a_b_model()
     payload = model.model_dump(mode="json")
     payload["parameters"][0]["owners"] = [{"kind": "construct", "id": "construct:forged"}]
     with pytest.raises(ValueError, match=r"Extra inputs|owner"):
@@ -98,13 +448,7 @@ def test_model_rejects_forged_owner_before_compilation():
 
 @pytest.mark.contract
 def test_posterior_writer_uses_declared_subject_and_rejects_unknown_coordinate():
-    model = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2]
-            / "fixtures/models"
-            / "common/additive_a_b_model.json"
-        ).read_text()
-    )
+    model = additive_a_b_model()
     binding = parameter_bindings(compile_model_fixture(model))[0][0]
     element, coordinate = next(iter(binding.coordinates.items()))
     from nof1_causal_lab.artifacts.identity import ParameterRef
@@ -128,13 +472,7 @@ def test_posterior_writer_uses_declared_subject_and_rejects_unknown_coordinate()
 
 @pytest.mark.contract
 def test_ordinal_components_have_label_identity_and_padding_is_explicit():
-    model = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2]
-            / "fixtures/models"
-            / "scientific_parameter_identity/ordinal_components_have_label_identity_and_padding_is_explicit__compile.json"
-        ).read_text()
-    )
+    model = _ordinal_components_have_label_identity_and_padding_is_explicit__compile()
     gaps = {
         p.id
         for p in model.parameters
@@ -150,13 +488,7 @@ def test_ordinal_components_have_label_identity_and_padding_is_explicit():
 
 @pytest.mark.contract
 def test_shared_likelihood_parameter_owns_only_active_channels():
-    model = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2]
-            / "fixtures/models"
-            / "common/additive_a_b_model.json"
-        ).read_text()
-    )
+    model = additive_a_b_model()
     first, second = model.constructs
     student = LikelihoodSpec(
         law=TypeAdapter(ObservationLawSpec).validate_json(
@@ -170,13 +502,7 @@ def test_shared_likelihood_parameter_owns_only_active_channels():
         standardized=True,
     )
     first = first.revised(indicators=(first.indicators[0].revised(likelihood=student),))
-    model = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2]
-            / "fixtures/models"
-            / "scientific_parameter_identity/shared_likelihood_parameter_owns_only_active_channels_complete_model.json"
-        ).read_text()
-    )
+    model = _shared_likelihood_parameter_owns_only_active_channels_complete_model()
     shared = next(
         p for p in model.parameters if model.parameter_context(p.id).quantity == SiteKind.OBS_DF
     )
@@ -201,13 +527,7 @@ def test_shared_likelihood_parameter_owns_only_active_channels():
             ),
         )
     )
-    expanded = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2]
-            / "fixtures/models"
-            / "scientific_parameter_identity/shared_likelihood_parameter_owns_only_active_channels_complete_model_2.json"
-        ).read_text()
-    )
+    expanded = _shared_likelihood_parameter_owns_only_active_channels_complete_model_2()
     newer = next(
         p
         for p in expanded.parameters
@@ -227,13 +547,7 @@ def test_shared_likelihood_parameter_owns_only_active_channels():
 @pytest.mark.contract
 def test_student_innovation_tail_is_explicit_and_shared_through_completion():
 
-    model = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2]
-            / "fixtures/models"
-            / "scientific_parameter_identity/student_innovation_model.json"
-        ).read_text()
-    )
+    model = _student_innovation_model()
     parameter = next(p for p in model.parameters if p.name == "proc_df")
     for construct in model.constructs:
         assert parameter in model.parameters_for(construct.id)
@@ -256,13 +570,7 @@ def test_student_innovation_tail_is_explicit_and_shared_through_completion():
     )
     with pytest.raises(ValueError, match="degrees_of_freedom requires a prior parameter"):
         compile_model_fixture(candidate)
-    completed = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2]
-            / "fixtures/models"
-            / "scientific_parameter_identity/student_innovation_model.json"
-        ).read_text()
-    )
+    completed = _student_innovation_model()
     assert completed.parameter(parameter.id) == parameter
     assert completed.get_construct(first.id).coefficients == first.coefficients
 
@@ -273,20 +581,20 @@ def test_student_innovation_tail_is_explicit_and_shared_through_completion():
     [
         pytest.param(
             None,
-            "common/additive_a_b_model.json",
-            "scientific_parameter_identity/initial_state_defaults_are_authored_before_compilation_complete_model_none.json",
+            additive_a_b_model,
+            _initial_state_defaults_are_authored_before_compilation_complete_model_none,
             id="None",
         ),
         pytest.param(
             "initial_mean",
-            "common/additive_a_b_model.json",
-            "scientific_parameter_identity/initial_state_defaults_are_authored_before_compilation_complete_model_initial_mean.json",
+            additive_a_b_model,
+            _initial_state_defaults_are_authored_before_compilation_complete_model_initial_mean,
             id="initial_mean",
         ),
         pytest.param(
             "initial_scale",
-            "common/additive_a_b_model.json",
-            "scientific_parameter_identity/initial_state_defaults_are_authored_before_compilation_complete_model_initial_scale.json",
+            additive_a_b_model,
+            _initial_state_defaults_are_authored_before_compilation_complete_model_initial_scale,
             id="initial_scale",
         ),
     ],
@@ -294,9 +602,7 @@ def test_student_innovation_tail_is_explicit_and_shared_through_completion():
 def test_initial_state_defaults_are_authored_before_compilation(
     retained_role, _compile_payload, complete_model_payload
 ):
-    model = ModelSpec.model_validate_json(
-        (Path(__file__).resolve().parents[2] / "fixtures/models" / _compile_payload).read_text()
-    )
+    model = _compile_payload()
 
     free = model.revised(
         edges=replace_constructs(
@@ -315,11 +621,7 @@ def test_initial_state_defaults_are_authored_before_compilation(
     )
     with pytest.raises(ValueError, match="initial-state coefficients"):
         compile_model_fixture(free)
-    completed = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2] / "fixtures/models" / complete_model_payload
-        ).read_text()
-    )
+    completed = complete_model_payload()
     before = completed.model_dump(mode="json")
     compile_model_fixture(completed)
     initial = [
@@ -341,13 +643,7 @@ def test_initial_state_defaults_are_authored_before_compilation(
 
 @pytest.mark.inference(concern="sampling")
 def test_parameter_labels_do_not_change_mechanisms_bindings_or_prior_laws():
-    model = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2]
-            / "fixtures/models"
-            / "common/additive_a_b_model.json"
-        ).read_text()
-    )
+    model = additive_a_b_model()
     renamed = model.revised(
         parameters=tuple(p.revised(name=f"display {n}") for n, p in enumerate(model.parameters))
     )
@@ -362,20 +658,10 @@ def test_parameter_labels_do_not_change_mechanisms_bindings_or_prior_laws():
 
 @pytest.mark.inference(concern="sampling")
 def test_additive_hill_and_linear_terms_survive_parameter_renaming():
-    model = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2]
-            / "fixtures/models"
-            / "common/additive_a_b_model.json"
-        ).read_text()
-    )
+    model = additive_a_b_model()
 
-    additive = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2]
-            / "fixtures/models"
-            / "scientific_parameter_identity/additive_hill_and_linear_terms_survive_parameter_renaming_with_parameter_distributions.json"
-        ).read_text()
+    additive = (
+        _additive_hill_and_linear_terms_survive_parameter_renaming_with_parameter_distributions()
     )
     compile_model_fixture(additive)
     renamed = additive.revised(

@@ -6,7 +6,8 @@ from nof1_causal_lab.actions.model_checks import evaluate_model_checks
 
 def edit_and_check(workspace_id, request, state):
     staged = edit_model(workspace_id, request, state)
-    return evaluate_model_checks(workspace_id, state, staged, action="edit_model")
+    evaluate_model_checks(workspace_id, state, staged, action="edit_model")
+    return staged
 
 
 def question_root(workspace_id, question=None):
@@ -31,8 +32,6 @@ def applied_record(result, *, seq, request=None, ts="2026-01-01T00:00:00Z", **me
     """A successful test publication composes the actual owned action payload."""
     from nof1_causal_lab.study.records import (
         AttemptRecord,
-        DataComparisonResult,
-        DataDiffAttempt,
         DataPreparationResult,
         EditAttempt,
         FitAttempt,
@@ -43,6 +42,9 @@ def applied_record(result, *, seq, request=None, ts="2026-01-01T00:00:00Z", **me
         SimulateAttempt,
     )
 
+    if request is not None:
+        from nof1_causal_lab.study.records import applied_attempt
+        return AttemptRecord(seq=seq, ts=ts, attempt=applied_attempt(request, result), **metadata)
     match result.result:
         case None:
             attempt = (
@@ -56,8 +58,6 @@ def applied_record(result, *, seq, request=None, ts="2026-01-01T00:00:00Z", **me
             attempt = FitAttempt(action="fit", request=request, outcome=result)
         case ModelSimulationResult():
             attempt = SimulateAttempt(action="simulate", request=request, outcome=result)
-        case DataComparisonResult():
-            attempt = DataDiffAttempt(action="data_diff", request=request, outcome=result)
         case _:
             raise TypeError("A publication fixture needs an owned action result")
     return AttemptRecord(seq=seq, ts=ts, attempt=attempt, **metadata)

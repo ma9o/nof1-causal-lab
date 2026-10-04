@@ -7,7 +7,7 @@ from datetime import UTC, date, datetime, time
 from itertools import pairwise
 from typing import Literal, Self
 
-from pydantic import AwareDatetime, Field, FiniteFloat, model_validator
+from pydantic import AwareDatetime, Field, FiniteFloat, computed_field, model_validator
 
 from nof1_causal_lab.artifacts.base import Value
 
@@ -95,7 +95,6 @@ class SimulationObservationLayout(Value):
 class CategoryProbabilitySummary(Value):
     """Predictive probabilities for each declared level; unobserved anchors are null."""
 
-    kind: Literal["categorical"] = "categorical"
     probabilities: Mapping[str, tuple[FiniteFloat | None, ...]]
     n_draws: tuple[int, ...]
 
@@ -103,38 +102,56 @@ class CategoryProbabilitySummary(Value):
 type FitReliability = Literal["not_fitted", "converged", "unconverged", "unknown"]
 
 
-class SimulationReport(Value):
-    """Generated histories and derived findings with their resolved execution coordinates."""
+class SimulationEvidence(Value):
+    """Exact generated histories with their production coordinates and input provenance."""
 
     model: GitRef
     design: SimulationSpec
     time_origin: AwareDatetime = Field(description="Calendar instant of model day zero.")
-    assignments: tuple[StateAssignment, ...] = Field(
-        description="The design's interventions in model days."
-    )
     times: tuple[FiniteFloat, ...] = Field(min_length=2)
     draws: int = Field(ge=1)
     seed: int = Field(ge=0)
     origin_panel_revision: GitOid | None = Field(
         default=None,
-        description="Panel that supplied the time origin: the fit's panel for fitted laws, otherwise the current panel when present.",
+        description="Panel that supplied the time origin: the fit's panel for fitted laws, otherwise the explicitly named panel when present.",
     )
     state_ids: tuple[ConstructId, ...]
     parameter_draws: Mapping[str, str]
     latent_paths: str
     observations: str
     observation_layout: SimulationObservationLayout
-    law: PredictiveLawProvenance | None = None
     reference_latent_paths: str | None = None
     reference_observations: str | None = None
+
+    @computed_field
+    @property
+    def assignments(self) -> tuple[StateAssignment, ...]:
+        return self.design.assignments(self.time_origin)
+
+    @model_validator(mode="after")
+    def validate_histories(self) -> Self:
+        if (
+            any(right <= left for left, right in pairwise(self.times))
+            or self.times[0] != self.design.start_day(self.time_origin)
+            or self.times[-1] != self.design.end_day(self.time_origin)
+        ):
+            raise ValueError("Simulation times must increase from the requested start to its end")
+        paired = self.reference_latent_paths is not None and self.reference_observations is not None
+        if bool(self.design.interventions) != paired or (
+            (self.reference_latent_paths is None) != (self.reference_observations is None)
+        ):
+            raise ValueError("Interventions require paired reference histories")
+        return self
+
+
+class SimulationReport(Value):
+    """Current-code measurements of immutable simulation evidence."""
+
+    evidence: SimulationEvidence
+    law: PredictiveLawProvenance
     findings: tuple[PredictiveAssessment, ...] = ()
     fit_reliability: FitReliability
     causal: Evaluation[CausalEffectResult]
-
-    def with_provenance(
-        self, *, law: PredictiveLawProvenance, origin_panel_revision: GitOid | None
-    ) -> Self:
-        return self.revised(law=law, origin_panel_revision=origin_panel_revision)
 
     def with_causal_result(self, result: CausalEffectResult) -> Self:
         return self.revised(causal=Available(value=result))
@@ -143,29 +160,12 @@ class SimulationReport(Value):
         return self.revised(causal=Unavailable(reason=reason))
 
     @model_validator(mode="after")
-    def validate_histories(self) -> Self:
-        if (
-            any(b <= a for a, b in pairwise(self.times))
-            or self.times[0] != self.design.start_day(self.time_origin)
-            or self.times[-1] != self.design.end_day(self.time_origin)
-        ):
-            raise ValueError("Simulation times must increase from the requested start to its end")
-        if self.assignments != self.design.assignments(self.time_origin):
-            raise ValueError("Assignments must place the design's interventions in model days")
-        paired = self.reference_latent_paths is not None and self.reference_observations is not None
-        if bool(self.design.interventions) != paired or (
-            (self.reference_latent_paths is None) != (self.reference_observations is None)
-        ):
-            raise ValueError("Interventions require paired reference histories")
-        if isinstance(self.causal, NotApplicable) != (not self.design.interventions):
+    def own_causal_scope(self) -> Self:
+        if isinstance(self.causal, NotApplicable) != (not self.evidence.design.interventions):
             raise ValueError("Causal evaluation applies exactly when interventions are requested")
-        if isinstance(self.causal, Available):
-            if not paired:
-                raise ValueError("Certified effects require paired histories")
-            targets = {
-                self.causal.value.outcome,
-                *(event.target for event in self.design.interventions),
-            }
-            if not targets <= set(self.state_ids):
-                raise ValueError("Causal trajectories must include the outcome and interventions")
+        if isinstance(self.causal, Available) and not {
+            self.causal.value.outcome,
+            *(event.target for event in self.evidence.design.interventions),
+        } <= set(self.evidence.state_ids):
+            raise ValueError("Causal trajectories must include the outcome and interventions")
         return self

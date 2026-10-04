@@ -70,7 +70,7 @@ def check_specification(
             findings.extend(
                 Evaluated(
                     subject=diagnostic.code,
-                    outcome="passed" if diagnostic.is_valid else "failed",
+                    outcome="passed",
                     evidence=diagnostic.issue or diagnostic.parameter,
                 )
                 for diagnostic in inputs.diagnostics

@@ -35,7 +35,6 @@ def identify_model(selection: StructuralSelection) -> IdentificationReport:
         treatments={
             **{
                 by_name[name]: IdentifiedTreatmentStatus(
-                    method="do_calculus",
                     estimand=finding.estimand,
                     marginalized_confounders=tuple(
                         by_name[item] for item in finding.marginalized_confounders

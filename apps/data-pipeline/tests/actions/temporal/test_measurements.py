@@ -287,7 +287,7 @@ def test_execute_llm_tool_calls_activity_dispatches_by_tool_name(tmp_path):
     assert result.result_ref == result_ref
     assert result.tool_calls_fired == ["submit_extractions"]
     assert (
-        WorkerOutput.model_validate_json(storage.read_text(result_ref)).extractions[0].value == 1000
+        WorkerOutput.model_validate_json(json.dumps(read_subroutine_json(result_ref))).extractions[0].value == 1000
     )
 
 
@@ -530,7 +530,7 @@ def test_execute_llm_tool_calls_activity_executes_raw_python_locally(tmp_path):
     )
 
     assert result.terminal_success is False
-    assert "Success!" in result.feedback_preview
+    assert "Success!" in json.dumps(read_subroutine_json(result_ref))
     with storage.open_file(dataframe_ref, "rb") as file:
         dataframe = pl.read_ipc(file)
     assert dataframe["steps"].to_list() == [1000]
@@ -601,7 +601,7 @@ def test_execute_llm_tool_calls_activity_returns_recoverable_tool_exception(tmp_
 
     assert result.terminal_success is False
     assert result.result_ref is None
-    assert result.feedback_preview.startswith("Tool execution failed:")
+    assert "Tool execution failed:" in json.dumps(read_subroutine_json(result_ref))
 
 
 @pytest.mark.contract

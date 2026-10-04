@@ -15,11 +15,11 @@ if TYPE_CHECKING:
     from collections.abc import Callable
 
     from nof1_causal_lab.artifacts.measurements import ObservationRecord
-    from nof1_causal_lab.artifacts.simulation import SimulationReport
+    from nof1_causal_lab.artifacts.simulation import SimulationEvidence
 
 
 def read_simulation_observations(
-    report: SimulationReport,
+    report: SimulationEvidence,
     replicate: int,
     *,
     read_array: Callable[[str], np.ndarray],
@@ -92,7 +92,7 @@ def read_simulation_observations(
 
 
 def prepare_simulation_panel(
-    report: SimulationReport,
+    report: SimulationEvidence,
     replicate: int,
     *,
     read_array: Callable[[str], np.ndarray],

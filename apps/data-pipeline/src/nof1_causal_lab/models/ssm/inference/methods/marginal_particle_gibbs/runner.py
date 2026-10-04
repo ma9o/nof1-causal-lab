@@ -128,7 +128,6 @@ def _initialize_chain_state(
         complete_log_posterior=complete_lp,
         latent_delta=latent_delta_value,
         param_step_size=param_step_value,
-        latent_da=da_init(jnp.mean(latent_delta_value)),
         param_da=da_init(param_step_value),
     )
 
@@ -155,7 +154,6 @@ def run_marginal_particle_gibbs(
     seed: int,
     adaptation_rate: float,
     init_scale: float,
-    latent_delta: float,
     retain_latent_paths: bool,
     init_positions: jnp.ndarray | None = None,
     initial_latent_trajectories: jnp.ndarray | None = None,
@@ -213,9 +211,7 @@ def run_marginal_particle_gibbs(
     else:
         chain_initial_latents = None
 
-    initial_latent_delta_value = (
-        kernel.amala_delta_init if kernel.adapt_amala_delta else latent_delta
-    )
+    initial_latent_delta_value = kernel.amala_delta_init
     initial_latent_delta = jnp.full(
         (num_steps,),
         jnp.asarray(initial_latent_delta_value, dtype=observations.dtype),
@@ -359,63 +355,62 @@ def run_marginal_particle_gibbs(
                 latent_paths_history.append(public_latent)
 
         if step_idx < num_warmup:
-            if kernel.adapt_amala_delta:
-                window_slot = step_idx % int(kernel.amala_adaptation_window)
-                latent_acceptance_window = latent_acceptance_window.at[:, window_slot, :].set(
-                    step_info["latent_accepted"].astype(latent_acceptance_window.dtype)
-                )
-                latent_acceptance_window_count = min(
-                    latent_acceptance_window_count + 1,
-                    int(kernel.amala_adaptation_window),
-                )
-                latent_acceptance_rate = jnp.sum(latent_acceptance_window, axis=1) / jnp.asarray(
-                    latent_acceptance_window_count,
-                    dtype=latent_acceptance_window.dtype,
-                )
-                target_accept = jnp.asarray(
-                    kernel.amala_target_accept,
+            window_slot = step_idx % int(kernel.amala_adaptation_window)
+            latent_acceptance_window = latent_acceptance_window.at[:, window_slot, :].set(
+                step_info["latent_accepted"].astype(latent_acceptance_window.dtype)
+            )
+            latent_acceptance_window_count = min(
+                latent_acceptance_window_count + 1,
+                int(kernel.amala_adaptation_window),
+            )
+            latent_acceptance_rate = jnp.sum(latent_acceptance_window, axis=1) / jnp.asarray(
+                latent_acceptance_window_count,
+                dtype=latent_acceptance_window.dtype,
+            )
+            target_accept = jnp.asarray(
+                kernel.amala_target_accept,
+                dtype=states.latent_delta.dtype,
+            )
+            learning_rate = jnp.maximum(
+                jnp.asarray(step_idx + 1, dtype=states.latent_delta.dtype)
+                ** jnp.asarray(
+                    kernel.amala_adaptation_gamma,
                     dtype=states.latent_delta.dtype,
                 )
-                learning_rate = jnp.maximum(
-                    jnp.asarray(step_idx + 1, dtype=states.latent_delta.dtype)
-                    ** jnp.asarray(
-                        kernel.amala_adaptation_gamma,
-                        dtype=states.latent_delta.dtype,
-                    )
-                    * jnp.asarray(kernel.amala_adaptation_rho, dtype=states.latent_delta.dtype),
-                    jnp.asarray(
-                        kernel.amala_adaptation_rho_min,
-                        dtype=states.latent_delta.dtype,
-                    ),
-                )
-                delta_update = (
-                    learning_rate
-                    * states.latent_delta
-                    * (latent_acceptance_rate - target_accept)
-                    / target_accept
-                )
-                should_adapt_latent_delta = jnp.abs(
-                    latent_acceptance_rate - target_accept
-                ) >= jnp.asarray(
-                    kernel.amala_adaptation_tolerance,
+                * jnp.asarray(kernel.amala_adaptation_rho, dtype=states.latent_delta.dtype),
+                jnp.asarray(
+                    kernel.amala_adaptation_rho_min,
                     dtype=states.latent_delta.dtype,
+                ),
+            )
+            delta_update = (
+                learning_rate
+                * states.latent_delta
+                * (latent_acceptance_rate - target_accept)
+                / target_accept
+            )
+            should_adapt_latent_delta = jnp.abs(
+                latent_acceptance_rate - target_accept
+            ) >= jnp.asarray(
+                kernel.amala_adaptation_tolerance,
+                dtype=states.latent_delta.dtype,
+            )
+            should_adapt_latent_delta = should_adapt_latent_delta & (
+                (step_idx + 1) > int(kernel.amala_adaptation_window)
+            )
+            should_adapt_latent_delta = should_adapt_latent_delta & latent_active
+            next_latent_delta = jnp.where(
+                should_adapt_latent_delta,
+                states.latent_delta + delta_update,
+                states.latent_delta,
+            )
+            states = states._replace(
+                latent_delta=_clip_scale(
+                    next_latent_delta,
+                    min_scale=kernel.amala_delta_min,
+                    max_scale=kernel.amala_delta_max,
                 )
-                should_adapt_latent_delta = should_adapt_latent_delta & (
-                    (step_idx + 1) > int(kernel.amala_adaptation_window)
-                )
-                should_adapt_latent_delta = should_adapt_latent_delta & latent_active
-                next_latent_delta = jnp.where(
-                    should_adapt_latent_delta,
-                    states.latent_delta + delta_update,
-                    states.latent_delta,
-                )
-                states = states._replace(
-                    latent_delta=_clip_scale(
-                        next_latent_delta,
-                        min_scale=kernel.amala_delta_min,
-                        max_scale=kernel.amala_delta_max,
-                    )
-                )
+            )
             if da_param_update is not None:
                 # Dual averaging converges (unlike the constant-rate scheme), and we
                 # freeze to the Polyak-averaged step at the final warmup step rather

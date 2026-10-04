@@ -3,10 +3,7 @@
     "question",
     "raw_data",
     "model",
-    "identification_report",
-    "panel",
-    "data_profile",
-    "validation_report"
+    "panel"
   ],
   "observationHyperparametersByDistribution": {
     "student_t": [

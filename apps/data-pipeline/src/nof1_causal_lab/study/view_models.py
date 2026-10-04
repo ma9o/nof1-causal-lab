@@ -23,6 +23,7 @@ from nof1_causal_lab.artifacts.identity import (
 from nof1_causal_lab.artifacts.measurements import ObservationRecord
 from nof1_causal_lab.artifacts.observations import ResolvedObservationSpec
 from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.posterior import InferenceReportCore
 from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorPredictiveChecks
 from nof1_causal_lab.artifacts.simulation import SimulationReport
@@ -99,8 +100,10 @@ type Change[PayloadT] = Annotated[
 class ModelDiffReport(Value):
     """A model diff joins typed entity comparisons and evidence at two model revisions or checkpoints."""
 
-    before: GitRef
-    after: GitRef
+    before: GitRef | None
+    after: GitRef | None
+    before_model: ModelSpec | None
+    after_model: ModelSpec | None
     parameters: tuple[Change[ParameterSpec], ...]
     constructs: tuple[Change[ConstructRef] | Unchanged[ConstructRef], ...]
     edges: tuple[Change[EdgeRef] | Unchanged[EdgeRef], ...]
@@ -115,6 +118,13 @@ class ModelDiffReport(Value):
     after_fit: InferenceReportCore | None
     before_simulation: SimulationReport | None
     after_simulation: SimulationReport | None
+
+
+class ModelDiffRequest(Value):
+    """An immutable comparison read; it creates no attempt or journal record."""
+
+    before: GitOid
+    after: GitOid
 
 
 class PanelRef(Value):

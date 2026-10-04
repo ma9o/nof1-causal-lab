@@ -1,7 +1,9 @@
 """Numerical acceptance of Dynestyx model interpretation with local inference."""
 
+from __future__ import annotations
+
 import time
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import dynestyx as dsx
 import jax
@@ -10,7 +12,6 @@ import numpy as np
 import numpyro.distributions as dist
 import pytest
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.ssm.dynamics.vector_field import StructuralDrift
 from nof1_causal_lab.models.ssm.execution.dynamical_model import HeterogeneousObservation
 from nof1_causal_lab.models.ssm.inference import fit
@@ -18,10 +19,25 @@ from nof1_causal_lab.models.ssm.inference.problem import build_particle_problem
 from nof1_causal_lab.models.ssm.preflight import ObservationPreflightFailure
 from nof1_causal_lab.sampler_config import (
     MarginalParticleGibbsSpec,
-    SamplerInitialization,
     SamplerSpec,
 )
-from tests.model_fixtures import bind_panel_fixture, compile_fit_fixture
+from tests.inference_fixtures import bind_panel_fixture, compile_fit_fixture
+from tests.model_fixtures import (
+    load_model_fixture,
+)
+
+
+def _nonlinear_mixed_missing_irregular_particle_fit_and_exact_diagnostics_nonlinear_model() -> (
+    ModelSpec
+):
+    return load_model_fixture(
+        "ecosystem_consumer/nonlinear_mixed_missing_irregular_particle_fit_and_exact_diagnostics_nonlinear_model.json"
+    )
+
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+
 
 pytestmark = pytest.mark.inference(concern="sampling")
 
@@ -34,13 +50,7 @@ def test_nonlinear_mixed_missing_irregular_particle_fit_and_exact_diagnostics(mo
 
     monkeypatch.setattr(latent_init, "compute_ieks_latent_paths", _unexpected_ieks)
     model = compile_fit_fixture(
-        ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "ecosystem_consumer/nonlinear_mixed_missing_irregular_particle_fit_and_exact_diagnostics_nonlinear_model.json"
-            ).read_text()
-        )
+        _nonlinear_mixed_missing_irregular_particle_fit_and_exact_diagnostics_nonlinear_model()
     )
     times = jnp.array([0.0, 0.05, 0.17, 0.4, 0.9])
     observations = jnp.array(
@@ -116,7 +126,6 @@ def test_nonlinear_mixed_missing_irregular_particle_fit_and_exact_diagnostics(mo
                 init_scale=0.0,
             ),
         ),
-        initialization=SamplerInitialization(latent_trajectories=path[None, ...]),
         clock=time.monotonic,
     )
     assert not isinstance(result, ObservationPreflightFailure)
@@ -126,7 +135,6 @@ def test_nonlinear_mixed_missing_irregular_particle_fit_and_exact_diagnostics(mo
     assert diagnostics.parameter_kernel == "m_pgibbs_pseudo_langevin"
     assert diagnostics.dsmc_leaf_proposal == "paid_mix"
     assert diagnostics.settings.marginal_particle_gibbs.adaptation_scheme == "dual_averaging"
-    assert diagnostics.latent_transition_kind == "euler_maruyama"
     latent_paths = result.draws.latent_paths
     assert latent_paths is not None
     assert latent_paths.shape == (4, 5, 1)

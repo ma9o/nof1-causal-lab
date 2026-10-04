@@ -1,37 +1,24 @@
 "use client";
 
-import { createModelClient } from "@nof1-causal-lab/api-types";
-import { useQuery } from "@tanstack/react-query";
+import { skipToken, useQuery } from "@tanstack/react-query";
+import { readActionResult } from "@/lib/api/endpoints";
+import { useStudyJournal } from "./use-study-journal";
 
-const modelClient = createModelClient();
-
-export function useModelSnapshot(
-  workspaceId: string,
-  commitId?: string,
-  branch = "main",
-  enabled = true,
-) {
+/** A selected call or explicitly named input revision resolves to its applied producer. */
+export function useActionResult(workspaceId: string, identity: string | undefined, enabled = true) {
+  const journal = useStudyJournal(workspaceId).data;
+  const call = journal?.attempts.find((entry) => entry.record.attempt.outcome.status === "applied" && entry.record.attempt.request !== null && (
+    entry.commit_id === identity || entry.record.attempt.outcome.effects.produced.some((artifact) => artifact.revision === identity)
+  ));
   return useQuery({
-    queryKey: ["model-snapshot", workspaceId, commitId ?? "latest", branch],
-    enabled,
-    queryFn: async ({ signal }) => {
-      const { data, error, response } = await modelClient.GET("/api/studies/{workspace_id}/model", {
-        params: {
-          path: { workspace_id: workspaceId },
-          query: { ...(commitId === undefined ? {} : { at: commitId }), branch },
-        },
-        signal,
-      });
-      if (error) {
-        throw new Error(
-          `Cannot read model revision (${response.status}): ${JSON.stringify(error)}`,
-        );
-      }
-      return data;
-    },
-    // Keep the workbench mounted while another version loads.
-    placeholderData: (previous, query) =>
-      query?.queryKey[1] === workspaceId ? previous : undefined,
-    staleTime: commitId === undefined ? 0 : Infinity,
+    queryKey: ["action-result", workspaceId, call?.commit_id ?? identity],
+    queryFn: call ? ({ signal }) => readActionResult(workspaceId, call, signal) : skipToken,
+    enabled: enabled && call !== undefined,
+    staleTime: Infinity, retry: false,
   });
+}
+
+export function useModelSnapshot(workspaceId: string, identity?: string, enabled = true) {
+  const query = useActionResult(workspaceId, identity, enabled);
+  return { ...query, data: query.data?.snapshot ?? undefined, result: query.data };
 }

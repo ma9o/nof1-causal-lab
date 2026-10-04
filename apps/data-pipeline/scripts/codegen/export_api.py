@@ -1,4 +1,4 @@
-"""Export API contracts, tool schemas, metadata, OpenAPI, and the curl skill.
+"""Export one OpenAPI contract graph, metadata, and the curl skill.
 
 Run ``bun run codegen`` or ``bun run codegen:check`` from the repository root.
 All Python exports are generated together before their TypeScript consumers.
@@ -14,8 +14,12 @@ import sys
 from pathlib import Path
 from typing import TYPE_CHECKING, Any, TypeAliasType
 
-from nof1_causal_lab.actions.results import ActionPoll, ActionReceipt
-from nof1_causal_lab.actions.status import StudyStatus
+from fastapi import routing
+from fastapi.openapi.utils import get_fields_from_routes, get_openapi_path
+from pydantic import TypeAdapter
+
+from nof1_causal_lab.actions.progress import ProgressEvent
+from nof1_causal_lab.actions.results import ActionPoll
 from nof1_causal_lab.artifacts.catalog import ARTIFACT_CONTRACTS
 from nof1_causal_lab.artifacts.effects import EffectSummary
 from nof1_causal_lab.artifacts.expressions import COEFFICIENT_MEANINGS
@@ -25,103 +29,147 @@ from nof1_causal_lab.artifacts.scenarios import (
     CausalEffectResult,
 )
 from nof1_causal_lab.study.snapshot_models import ModelSnapshot
+from nof1_causal_lab.study.records import StudyRevision
 
 # Import all artifact contracts — this pulls in every nested domain model
 from nof1_causal_lab.study.view_models import (
     DataDiffReport,
     DataDiffRequest,
     ModelDiffReport,
+    ModelDiffRequest,
 )
 from nof1_causal_lab.study.visual_models import (
-    MechanismCurves,
-    MechanismViewRequest,
     ObservationHistory,
     ParameterDraws,
     SimulationPaths,
 )
-from nof1_causal_lab.actions.progress import ProgressEvent
 from nof1_causal_lab.study_api import (
-    ArtifactEnvelope,
-    AttemptTraceIndex,
+    TimelineRevision,
     TimelineResponse,
 )
 from nof1_causal_lab.utils.llm import LLMTrace
 from scripts.codegen.type_system_catalog import (
     ContractJsonSchema,
     annotate_definitions,
-    generic_definitions,
+    generic_types,
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Hashable
+
     from pydantic import BaseModel
-    from pydantic.json_schema import JsonSchemaValue
+    from pydantic.json_schema import JsonSchemaMode, JsonSchemaValue
+    from pydantic_core import CoreSchema
 
 REPO_ROOT = Path(__file__).resolve().parents[4]
 OUTPUT_DIR = REPO_ROOT / "packages" / "api-types" / "schemas"
 SKILL_PATH = REPO_ROOT / ".agents" / "skills" / "nof1-study-api" / "SKILL.md"
 
 EXPORTED_API_MODELS: tuple[type[BaseModel] | TypeAliasType, ...] = (
-    ArtifactEnvelope,
     TimelineResponse,
-    AttemptTraceIndex,
+    TimelineRevision,
+    StudyRevision,
     ModelDiffReport,
+    ModelDiffRequest,
     DataDiffReport,
     DataDiffRequest,
     LLMTrace,
     ModelSnapshot,
-    MechanismCurves,
-    MechanismViewRequest,
     ObservationHistory,
     ParameterDraws,
     SimulationPaths,
-    StudyStatus,
-    ActionReceipt,
     ActionPoll,
     ProgressEvent,
 )
 
-EXPORTED_TOOL_MODELS: tuple[type[BaseModel], ...] = (
+EXPORTED_RESULT_MODELS: tuple[type[BaseModel], ...] = (
     EffectSummary,
     CausalEffectResult,
 )
 
 
-def _collect_model_schema(
-    model_cls: type[BaseModel] | TypeAliasType,
-    all_defs: JsonSchemaValue,
-    generics: dict[str, type[BaseModel] | TypeAliasType],
-) -> dict[str, str]:
+def export_openapi() -> JsonSchemaValue:
+    """Generate HTTP fields, stored roots and generic bodies together, once."""
+    from nof1_causal_lab.tool_server import app
+
+    fields = get_fields_from_routes(app.routes)
+    roots = (*ARTIFACT_CONTRACTS.values(), *EXPORTED_API_MODELS, *EXPORTED_RESULT_MODELS)
     generator = ContractJsonSchema()
-    schema = generator.export(model_cls)
-    generics.update(generator.generic_types)
-    defs = schema.pop("$defs", {})
-    all_defs.update(defs)
-    model_name = model_cls.__name__
-    all_defs[model_name] = {k: v for k, v in schema.items() if k not in ("$defs",)}
-    return {"$ref": f"#/$defs/{model_name}"}
-
-
-def export_schemas() -> JsonSchemaValue:
-    """Build a combined JSON Schema with exported Python models in $defs."""
-    all_defs: JsonSchemaValue = {}
-    generics: dict[str, type[BaseModel] | TypeAliasType] = {}
-    artifact_refs: dict[str, dict[str, str]] = {}
-
-    for artifact_id, model_cls in ARTIFACT_CONTRACTS.items():
-        artifact_refs[artifact_id] = _collect_model_schema(model_cls, all_defs, generics)
-
-    for model_cls in (*EXPORTED_API_MODELS, *EXPORTED_TOOL_MODELS):
-        _collect_model_schema(model_cls, all_defs, generics)
-
-    annotate_definitions(all_defs)
+    for field in fields:
+        generator.register(field.field_info.annotation)
+    for root in roots:
+        generator.register(root)
+    templates = generic_types(generator.generic_types)
+    for template in templates.values():
+        generator.register(template)
+    inputs: list[tuple[Hashable, JsonSchemaMode, CoreSchema]] = (
+        [(field, field.mode, field._type_adapter.core_schema) for field in fields]
+        + [(root, "serialization", TypeAdapter(root).core_schema) for root in roots]
+        + [
+            (name, "serialization", TypeAdapter(template).core_schema)
+            for name, template in templates.items()
+        ]
+    )
+    field_mapping, generated = generator.generate_definitions(inputs=inputs)
+    definitions = {str(name): definition for name, definition in generated.items()}
+    root_refs: JsonSchemaValue = {}
+    for root in roots:
+        schema = field_mapping[root, "serialization"]
+        if "$ref" not in schema:
+            definitions[root.__name__] = schema
+            schema = {"$ref": f"#/components/schemas/{root.__name__}"}
+        root_refs[root.__name__] = schema
+    generic_refs: JsonSchemaValue = {}
+    for name, template in templates.items():
+        schema = field_mapping[name, "serialization"]
+        if "$ref" in schema:
+            component = schema["$ref"].rsplit("/", 1)[-1]
+        else:
+            component = name
+            definitions[component] = schema
+        definition = definitions[component]
+        definition.pop("x-typescript-type", None)
+        definition["x-python-module"] = template.__module__
+        definition["x-typescript-parameters"] = [
+            p.__name__ for p in generator.generic_types[name].__type_params__
+        ]
+        generic_refs[name] = {"$ref": f"#/components/schemas/{component}"}
+    annotate_definitions(
+        {
+            name: definition
+            for name, definition in definitions.items()
+            if not name.startswith("Body_")
+        }
+    )
+    paths: dict[str, dict[str, Any]] = {}
+    security_schemes: JsonSchemaValue = {}
+    operation_ids: set[str] = set()
+    http_fields = {(field, field.mode): field_mapping[field, field.mode] for field in fields}
+    for route in routing.iter_route_contexts(app.routes):
+        if not isinstance(route.original_route, routing.APIRoute):
+            continue
+        path, security, extra_definitions = get_openapi_path(
+            route=route,  # ty: ignore[invalid-argument-type] -- FastAPI uses RouteContext here; its private protocol wrongly requires writable forwarded properties.
+            operation_ids=operation_ids,
+            model_name_map={},
+            field_mapping=http_fields,
+        )
+        if path:
+            route_path = route.path_format
+            assert route_path is not None, "An API route context must have a path"
+            paths.setdefault(route_path, {}).update(path)
+        security_schemes.update(security)
+        definitions.update(extra_definitions)
+    components: JsonSchemaValue = {"schemas": dict(sorted(definitions.items()))}
+    if security_schemes:
+        components["securitySchemes"] = security_schemes
     return {
-        "$schema": "https://json-schema.org/draft/2020-12/schema",
-        "title": "CausalSSMContracts",
-        "description": "Combined JSON Schema for exported artifact contracts and facade API models. Generated from Python Pydantic models.",
-        "type": "object",
-        "properties": artifact_refs,
-        "$defs": dict(sorted(all_defs.items())),
-        "x-typescript-generics": generic_definitions(generics),
+        "openapi": app.openapi_version,
+        "info": {"title": app.title, "version": app.version, "description": app.description},
+        "paths": paths,
+        "components": components,
+        "x-contract-roots": root_refs,
+        "x-typescript-generics": generic_refs,
     }
 
 
@@ -228,6 +276,17 @@ def _curl_block(
     if method != "get":
         lines[0] += " \\"
         lines.append(f"  -X {method.upper()} \\")
+        contents = operation.get("requestBody", {}).get("content", {})
+        if "multipart/form-data" in contents:
+            schema = contents["multipart/form-data"]["schema"]
+            if "$ref" in schema:
+                schema = components[schema["$ref"].rsplit("/", 1)[-1]]
+            fields = schema.get("properties", {})
+            for index, (name, field) in enumerate(fields.items()):
+                value = "@/path/to/file" if field.get("contentMediaType") == "application/octet-stream" else name.upper()
+                suffix = " \\" if index < len(fields) - 1 else ""
+                lines.append(f'  -F "{name}={value}"{suffix}')
+            return "```bash\n" + "\n".join(lines) + "\n```"
         lines.append("  -H 'Content-Type: application/json' \\")
         body_schema = (
             operation.get("requestBody", {})
@@ -264,9 +323,8 @@ def _skill_frontmatter() -> str:
     """
     description = (
         "Drive or inspect a nof1-causal-lab study over HTTP with "
-        "curl: edit models, prepare data, fit and simulate; inspect revisions, "
-        "read study state/timeline/artifacts, and invoke "
-        "scientific tools with dispatch and polling against the tool server. Use when working on a study "
+        "curl: call the seven public actions, read saved complete results, "
+        "compare models and data, and inspect the slim timeline. Use when working on a study "
         "as an external agent instead of the web viewer."
     )
     return f'---\nname: nof1-study-api\ndescription: "{description}"\n---'
@@ -312,16 +370,8 @@ def render_skill(openapi: JsonSchemaValue) -> str:
 
 
 def main(*, check: bool = False) -> bool:
-    from nof1_causal_lab.tool_server import app
-
-    openapi = app.openapi()
-    contracts = export_schemas()
-    for name, schema in openapi["components"]["schemas"].items():
-        definition = contracts["$defs"].get(re.sub(r"-(?:Input|Output)$", "", name), {})
-        if "x-typescript-type" in definition:
-            schema["x-typescript-type"] = definition["x-typescript-type"]
+    openapi = export_openapi()
     outputs = {
-        OUTPUT_DIR / "contracts.json": json.dumps(contracts, indent=2) + "\n",
         OUTPUT_DIR / "metadata.json": json.dumps(export_metadata(), indent=2) + "\n",
         OUTPUT_DIR / "openapi.json": json.dumps(openapi, indent=2) + "\n",
         SKILL_PATH: render_skill(openapi),

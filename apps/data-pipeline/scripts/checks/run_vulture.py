@@ -10,18 +10,20 @@ reference caches; their output retains ownership order. Therefore no non-source
 reference can make a source definition live, and references cannot leak between
 non-source seams.
 
-Three kinds of phantom usage are emitted into the cache so vulture stops
+Two kinds of phantom usage are emitted into the cache so vulture stops
 flagging legitimate-but-statically-invisible references:
 
 * Identifiers wrapped in backticks inside notebook markdown cells (e.g.
   ``foo_bar``) — covers documented swap-in hooks.
-* Class-body annotated field names on Pydantic models, TypedDicts,
-  NamedTuples, Protocols, and ``@dataclass``-decorated classes — covers
-  fields read via attribute access that vulture's flow analysis misses.
 * Identifiers inside string-quoted type expressions — ``cast("X")``,
   ``Annotated["X", ...]``, forward annotations like ``def foo() -> "X"``.
   Vulture treats strings as opaque, so these references are otherwise
   invisible.
+
+Exported field declarations are handed to FIELD003 by their source location;
+their names never become phantom references. Internal dataclass, TypedDict,
+NamedTuple and Protocol fields retain Vulture's normal detection. String-key
+subscript reads count as actual references, including TypedDict readers.
 
 Additionally, vulture's built-in treatment of ``__all__`` entries as "uses" is
 disabled (see ``_run_vulture``) so that symbols which are only ever re-exported
@@ -36,6 +38,7 @@ Usage:
 from __future__ import annotations
 
 import ast
+import json
 import keyword
 import os
 import re
@@ -50,7 +53,6 @@ from io import StringIO
 from multiprocessing import get_context
 from pathlib import Path
 
-import nbformat
 import vulture.core as vulture_core
 
 REPO_ROOT = Path(__file__).resolve().parents[2]
@@ -62,22 +64,6 @@ PYPROJECT = REPO_ROOT / "pyproject.toml"
 BACKTICK_SPAN = re.compile(r"`([^`\n]+)`")
 IDENT = re.compile(r"\b([a-zA-Z_][a-zA-Z0-9_]*)\b")
 
-PYDANTIC_LIKE_BASES = {
-    "BaseModel",
-    "RootModel",
-    "GenericModel",
-    "TypedDict",
-    "NamedTuple",
-    "Protocol",
-}
-DATACLASS_DECORATORS = {"dataclass", "pydantic_dataclass"}
-VALIDATOR_DECORATORS = {
-    "field_validator",
-    "model_validator",
-    "validator",
-    "root_validator",
-    "computed_field",
-}
 TYPING_CAST_FUNCS = {"cast", "assert_type", "reveal_type"}
 
 
@@ -95,30 +81,11 @@ def _extract_backtick_idents(text: str) -> set[str]:
     return refs
 
 
-def _convert_notebooks(cache_dir: Path) -> set[str]:
-    """Convert .ipynb code cells to .py shadows; return markdown identifier refs."""
-    cache_dir.mkdir(parents=True, exist_ok=True)
-    markdown_refs: set[str] = set()
-    for nb_path in NOTEBOOKS_DIR.rglob("*.ipynb"):
-        out_path = cache_dir / nb_path.relative_to(NOTEBOOKS_DIR).with_suffix(".py")
-        out_path.parent.mkdir(parents=True, exist_ok=True)
-        nb = nbformat.read(nb_path, as_version=4)
-        sources: list[str] = []
-        for cell in nb.cells:
-            if cell.cell_type == "code":
-                sources.append(cell.source)
-            elif cell.cell_type == "markdown":
-                markdown_refs.update(_extract_backtick_idents(cell.source))
-        out_path.write_text("\n\n".join(sources))
-    return markdown_refs
-
-
 def _marimo_markdown_refs() -> set[str]:
     """Backtick identifiers inside marimo notebook string literals.
 
     marimo notebooks are plain ``.py`` files whose prose lives in ``mo.md(...)``
-    string literals rather than ``.ipynb`` markdown cells. Mirror the ``.ipynb``
-    backtick handling (see ``_convert_notebooks``) so documented swap-in hooks —
+    string literals. Track backtick identifiers so documented swap-in hooks —
     e.g. an alternative sampler named only in markdown — are not reported dead.
     The backtick regex only matches `` `delimited` `` spans, so ordinary display
     strings (plot titles, footers) contribute nothing.
@@ -141,15 +108,6 @@ def _marimo_markdown_refs() -> set[str]:
     return refs
 
 
-def _decorator_name(dec: ast.expr) -> str | None:
-    target = dec.func if isinstance(dec, ast.Call) else dec
-    if isinstance(target, ast.Name):
-        return target.id
-    if isinstance(target, ast.Attribute):
-        return target.attr
-    return None
-
-
 def _base_name(base: ast.expr) -> str | None:
     if isinstance(base, ast.Name):
         return base.id
@@ -160,34 +118,10 @@ def _base_name(base: ast.expr) -> str | None:
     return None
 
 
-def _has_validator_or_model_config(node: ast.ClassDef) -> bool:
-    """Heuristic: Pydantic v2 models have model_config or @field_validator-style methods."""
-    for stmt in node.body:
-        if isinstance(stmt, ast.Assign):
-            for target in stmt.targets:
-                if isinstance(target, ast.Name) and target.id == "model_config":
-                    return True
-        elif isinstance(stmt, ast.FunctionDef | ast.AsyncFunctionDef):
-            for dec in stmt.decorator_list:
-                if _decorator_name(dec) in VALIDATOR_DECORATORS:
-                    return True
-    return False
-
-
-def _is_data_class_like(node: ast.ClassDef, known: set[str]) -> bool:
-    for dec in node.decorator_list:
-        if _decorator_name(dec) in DATACLASS_DECORATORS:
-            return True
-    for base in node.bases:
-        name = _base_name(base)
-        if name and (name in PYDANTIC_LIKE_BASES or name in known):
-            return True
-    return _has_validator_or_model_config(node)
-
-
-def _collect_data_class_fields(paths: list[Path]) -> set[str]:
-    """Walk .py files; return annotated field names on Pydantic/dataclass/TypedDict classes."""
+def _collect_exported_field_locations(paths: list[Path]) -> frozenset[tuple[Path, int]]:
+    """Suppress exported declarations by location, without keeping their names live."""
     classes_by_file: dict[Path, list[ast.ClassDef]] = {}
+    trees: dict[Path, ast.Module] = {}
     for root in paths:
         root_path = REPO_ROOT / root
         if not root_path.exists():
@@ -198,29 +132,196 @@ def _collect_data_class_fields(paths: list[Path]) -> set[str]:
             except (SyntaxError, UnicodeDecodeError):
                 continue
             classes_by_file[py_path] = [n for n in ast.walk(tree) if isinstance(n, ast.ClassDef)]
+            trees[py_path] = tree
 
-    known: set[str] = set()
-    while True:
-        added = False
-        for classes in classes_by_file.values():
-            for cls in classes:
-                if cls.name in known:
-                    continue
-                if _is_data_class_like(cls, known):
-                    known.add(cls.name)
-                    added = True
-        if not added:
-            break
+    declarations: dict[str, dict[str, tuple[Path, ast.AnnAssign]]] = {}
+    bases: dict[str, tuple[str, ...]] = {}
+    imported: dict[str, str] = {}
+    for path, classes in classes_by_file.items():
+        if not path.is_relative_to(REPO_ROOT / "src"):
+            continue
+        module = ".".join(path.relative_to(REPO_ROOT / "src").with_suffix("").parts)
+        module = module.removesuffix(".__init__")
+        package = module if path.name == "__init__.py" else module.rpartition(".")[0]
+        bindings: dict[str, str] = {}
+        for node in ast.walk(trees[path]):
+            if isinstance(node, ast.ImportFrom):
+                prefix = node.module or ""
+                if node.level:
+                    parts = package.split(".")
+                    prefix = ".".join(parts[: len(parts) - node.level + 1])
+                    if node.module:
+                        prefix += "." + node.module
+                for alias in node.names:
+                    bindings[alias.asname or alias.name] = f"{prefix}.{alias.name}"
+            elif isinstance(node, ast.Import):
+                for alias in node.names:
+                    bindings[alias.asname or alias.name.split(".")[0]] = (
+                        alias.name if alias.asname else alias.name.split(".")[0]
+                    )
 
-    fields: set[str] = set()
-    for classes in classes_by_file.values():
+        def resolve(node: ast.AST) -> str:
+            if isinstance(node, ast.Subscript):
+                return resolve(node.value)
+            if isinstance(node, ast.Name):
+                return bindings.get(node.id, f"{module}.{node.id}")
+            if isinstance(node, ast.Attribute):
+                return f"{resolve(node.value)}.{node.attr}"
+            return ""
+
+        imported.update((f"{module}.{name}", target) for name, target in bindings.items())
+        for node in trees[path].body:
+            if (
+                isinstance(node, ast.Assign)
+                and len(node.targets) == 1
+                and isinstance(node.targets[0], ast.Name)
+                and isinstance(node.value, ast.Name | ast.Attribute | ast.Subscript)
+            ):
+                imported[f"{module}.{node.targets[0].id}"] = resolve(node.value)
         for cls in classes:
-            if cls.name not in known:
-                continue
+            identity = f"{module}.{cls.name}"
+            owned = declarations.setdefault(identity, {})
+            bases[identity] = tuple(resolve(base) for base in cls.bases)
             for stmt in cls.body:
                 if isinstance(stmt, ast.AnnAssign) and isinstance(stmt.target, ast.Name):
-                    fields.add(stmt.target.id)
-    return fields
+                    owned[stmt.target.id] = path, stmt
+    if not declarations:
+        return frozenset()
+    api = json.loads((REPO_ROOT.parents[1] / "packages/api-types/schemas/openapi.json").read_text())
+    generics = {
+        ref["$ref"].rsplit("/", 1)[-1]: name
+        for name, ref in api.get("x-typescript-generics", {}).items()
+    }
+    changed = True
+    while changed:
+        changed = False
+        for identity, parents in bases.items():
+            for parent in parents:
+                seen: set[str] = set()
+                while parent in imported and parent not in seen:
+                    seen.add(parent)
+                    parent = imported[parent]
+                for name, declaration in tuple(declarations.get(parent, {}).items()):
+                    if name not in declarations[identity]:
+                        declarations[identity][name] = declaration
+                        changed = True
+    exported: dict[str, set[str]] = {}
+    for component, schema in api["components"]["schemas"].items():
+        module = schema.get("x-python-module")
+        if module is None:
+            continue
+        name = generics.get(
+            component,
+            schema.get("x-typescript-type", schema.get("title", ""))
+            .split("<", 1)[0]
+            .split("[", 1)[0]
+            .removesuffix("-Input")
+            .removesuffix("-Output"),
+        )
+        exported.setdefault(f"{module}.{name}", set()).update(schema.get("properties", {}))
+    locations: set[tuple[Path, int]] = set()
+    for identity, fields in declarations.items():
+        names = exported.get(identity, set())
+        for name, (path, stmt) in fields.items():
+            aliases = {name}
+            metadata = [stmt.value]
+            if (
+                isinstance(stmt.annotation, ast.Subscript)
+                and _base_name(stmt.annotation.value) == "Annotated"
+                and isinstance(stmt.annotation.slice, ast.Tuple)
+            ):
+                metadata.extend(stmt.annotation.slice.elts[1:])
+            for node in metadata:
+                if isinstance(node, ast.Call):
+                    aliases.update(
+                        keyword.value.value
+                        for keyword in node.keywords
+                        if keyword.arg in {"alias", "serialization_alias", "validation_alias"}
+                        and isinstance(keyword.value, ast.Constant)
+                        and isinstance(keyword.value.value, str)
+                    )
+            if aliases & names:
+                locations.add((path.resolve(), stmt.lineno))
+    return frozenset(locations)
+
+
+def _collect_subscript_reads(paths: list[str]) -> set[str]:
+    """Count real string-key and declared TypedDict iteration reads.
+
+    An annotated record alone contributes nothing. Its fields become used only
+    when code actually iterates that record's items/values, or reads a string key.
+    """
+    refs: set[str] = set()
+    trees = [
+        ast.parse(path.read_text()) for root in paths for path in (REPO_ROOT / root).rglob("*.py")
+    ]
+    dictionaries = {
+        node.name: {
+            field.target.id
+            for field in node.body
+            if isinstance(field, ast.AnnAssign) and isinstance(field.target, ast.Name)
+        }
+        for tree in trees
+        for node in ast.walk(tree)
+        if isinstance(node, ast.ClassDef)
+        and any(_base_name(base) == "TypedDict" for base in node.bases)
+    }
+    for tree in trees:
+        parents = {child: node for node in ast.walk(tree) for child in ast.iter_child_nodes(node)}
+
+        def scope(node: ast.AST) -> ast.AST:
+            while node in parents:
+                node = parents[node]
+                if isinstance(node, ast.FunctionDef | ast.AsyncFunctionDef | ast.ClassDef):
+                    return node
+            return tree
+
+        def in_annotation(node: ast.AST) -> bool:
+            while node in parents:
+                parent = parents[node]
+                if (
+                    isinstance(parent, ast.AnnAssign | ast.arg)
+                    and parent.annotation is node
+                    or isinstance(parent, ast.FunctionDef | ast.AsyncFunctionDef)
+                    and parent.returns is node
+                    or isinstance(parent, ast.TypeAlias)
+                ):
+                    return True
+                node = parent
+            return False
+
+        annotations = {
+            (scope(node), node.target.id): _base_name(node.annotation)
+            for node in ast.walk(tree)
+            if isinstance(node, ast.AnnAssign) and isinstance(node.target, ast.Name)
+        }
+        annotations.update(
+            ((scope(node), node.arg), _base_name(node.annotation))
+            for node in ast.walk(tree)
+            if isinstance(node, ast.arg) and node.annotation is not None
+        )
+        for node in ast.walk(tree):
+            if (
+                isinstance(node, ast.Subscript)
+                and isinstance(node.ctx, ast.Load)
+                and isinstance(node.slice, ast.Constant)
+                and isinstance(node.slice.value, str)
+                and not in_annotation(node)
+            ):
+                refs.add(node.slice.value)
+            if not isinstance(node, ast.Call) or not isinstance(node.func, ast.Attribute):
+                continue
+            if (
+                node.func.attr == "get"
+                and node.args
+                and isinstance(node.args[0], ast.Constant)
+                and isinstance(node.args[0].value, str)
+            ):
+                refs.add(node.args[0].value)
+            if node.func.attr in {"items", "values"} and isinstance(node.func.value, ast.Name):
+                dictionary = annotations.get((scope(node), node.func.value.id))
+                refs.update(dictionaries.get(dictionary, ()))
+    return refs
 
 
 def _scan_string_type_node(node: ast.AST | None, refs: set[str]) -> None:
@@ -352,6 +453,7 @@ def _report_vulture(
     sort_by_size: bool,
     make_whitelist: bool,
     report_roots: list[str],
+    exported_fields: frozenset[tuple[Path, int]],
 ) -> int:
     """Report only definitions owned by ``report_roots`` from a wider analysis."""
     exit_code = int(vulture.exit_code)
@@ -360,6 +462,8 @@ def _report_vulture(
         sort_by_size=sort_by_size,
     ):
         if not _is_under_roots(item.filename, report_roots):
+            continue
+        if (Path(item.filename).resolve(), item.first_lineno) in exported_fields:
             continue
         print(
             item.get_whitelist_string()
@@ -409,12 +513,16 @@ def _run_vulture(
             ignore_decorators=config["ignore_decorators"],
         )
         vulture.scavenge(config["paths"], exclude=config["exclude"])
+        vulture.used_names.update(_collect_subscript_reads(config["paths"]))
         exit_code = _report_vulture(
             vulture,
             min_confidence=config["min_confidence"],
             sort_by_size=config["sort_by_size"],
             make_whitelist=config["make_whitelist"],
             report_roots=report_roots,
+            exported_fields=_collect_exported_field_locations(
+                [Path(path) for path in config["paths"]]
+            ),
         )
         if not config["make_whitelist"] and collision_roots:
             _warn_name_collisions(vulture, _collect_top_level_defs(collision_roots))
@@ -431,11 +539,6 @@ def _cache_path(cache_dir: Path) -> str:
 def _build_phantom_refs(cache_dir: Path, paths: list[str]) -> None:
     cache_dir.mkdir(parents=True, exist_ok=True)
     source_paths = [Path(path) for path in paths]
-    _write_phantom(
-        cache_dir,
-        "_data_class_field_refs.py",
-        _collect_data_class_fields(source_paths),
-    )
     _write_phantom(
         cache_dir,
         "_string_type_refs.py",
@@ -469,7 +572,7 @@ def _run_pass(
         _build_phantom_refs(pass_cache_dir, analysis_paths)
         report_roots = [seam_path] if seam_path is not None else source_paths
         if seam_path == "notebooks":
-            markdown_refs = _convert_notebooks(pass_cache_dir) | _marimo_markdown_refs()
+            markdown_refs = _marimo_markdown_refs()
             _write_phantom(pass_cache_dir, "_notebook_markdown_refs.py", markdown_refs)
             report_roots.append(_cache_path(pass_cache_dir))
         exit_code = _run_vulture(

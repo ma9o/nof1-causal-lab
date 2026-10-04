@@ -5,7 +5,7 @@ import { resolveEntity } from "@/lib/model-asset/entities";
 import { humanize, type EntitySelection } from "@/lib/model-asset/selection";
 import { Hint, OwnerLink, Section, StatusIcon } from "./scope-primitives";
 
-/** Only this action's new checks and produced findings belong in its record. */
+/** Current findings for the saved call remain visible when read from cache. */
 export function ActionFindings({
   context,
   applied,
@@ -15,18 +15,12 @@ export function ActionFindings({
 }) {
   const { model, entities, select } = context;
   const { result, effects } = applied;
+  const checks = context.result?.checks;
   const produced = new Set(effects.produced.map((artifact) => artifact.artifact_id));
-  const reused = effects.checks?.reused ?? [];
-  const identification =
-    produced.has("identification_report") && !reused.includes("identification")
-      ? model.identification?.value
-      : null;
-  const validation =
-    produced.has("validation_report") && !reused.includes("compatibility")
-      ? model.validation_report?.value
-      : null;
-  const data = validation?.data ?? (produced.has("data_profile") ? model.profile?.value : null);
-  const predictive = !reused.includes("predictive") ? effects.checks?.predictive : null;
+  const identification = checks ? model.identification?.value : null;
+  const validation = checks ? model.validation_report?.value : null;
+  const data = validation?.data ?? (produced.has("panel") ? model.profile?.value : null);
+  const predictive = checks?.predictive;
   const findings: Array<{
     label: string;
     reason: string | null;
@@ -34,7 +28,7 @@ export function ActionFindings({
     owner?: EntitySelection;
   }> = [];
   for (const finding of [
-    ...(!reused.includes("specification") ? (effects.checks?.specification ?? []) : []),
+    ...(checks?.specification ?? []),
     ...(validation?.preflight ?? []),
   ]) {
     if (finding.kind !== "evaluated" || finding.outcome !== "passed")
@@ -83,9 +77,7 @@ export function ActionFindings({
         owner: { kind: "construct", id: construct.id },
       });
   }
-  for (const finding of !reused.includes("question")
-    ? (effects.checks?.question?.findings ?? [])
-    : []) {
+  for (const finding of checks?.question?.findings ?? []) {
     if (finding.kind === "evaluated" && finding.outcome === "passed") continue;
     const subject = finding.subject;
     const construct =
@@ -162,7 +154,7 @@ export function ActionFindings({
       status: "not_evaluated",
     });
   if (
-    result?.action === "prepare_data" &&
+    result != null && "workers" in result &&
     result.workers.some((worker) => worker.status === "failed")
   )
     findings.push({

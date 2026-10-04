@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from pydantic import TypeAdapter
+
 from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata
 from nof1_causal_lab.artifacts.predictive_provenance import (
     AuthoredLawProvenance,
@@ -32,38 +34,10 @@ if TYPE_CHECKING:
     from nof1_causal_lab.study.store import ArtifactStore
 
 
-def inference_is_current(state: StudyState) -> bool:
-    """Check the fitted revision's inputs; the model itself has no fitted-status flag."""
-    info = state.get("model")
-    return (
-        info is not None
-        and info.produced_by == "fit"
-        and state.matches_inputs("model", "panel")
-        and not is_stale(state, "panel")
-    )
-
-
 def inference_report_record[T: StudyRevision](records: Iterable[T], state: StudyState) -> T | None:
-    """Reports can survive in history even when a numerical value was not retained."""
+    """Find retained numerical evidence for the selected model, ignoring report-only history."""
     model = state.get("model")
-    if model is None:
-        return None
-    return next(
-        (
-            record
-            for record in reversed(list(records))
-            if record.record.attempt.action == "fit"
-            and isinstance(record.record.attempt.outcome, Applied)
-            and (
-                inference_record([record], model.revision) is not None
-                or (
-                    record.record.attempt.outcome.result.retention == "report_only"
-                    and record.record.attempt.outcome.result.model.revision == model.revision
-                )
-            )
-        ),
-        None,
-    )
+    return inference_record(records, model.revision) if model is not None else None
 
 
 def inference_report_is_current(result: ModelFitResult, state: StudyState) -> bool:
@@ -75,19 +49,23 @@ def inference_report_is_current(result: ModelFitResult, state: StudyState) -> bo
 
 
 def read_data_metadata(store: ArtifactStore, revision: GitOid) -> PreparedDataMetadata:
-    return PreparedDataMetadata.model_validate(
+    return TypeAdapter(PreparedDataMetadata).validate_python(
         store.read_json_file("panel", revision, json_filename("panel", "metadata"))
     )
 
 
-def fitted_law_report(records: Iterable[StudyRevision], revision: GitOid) -> InferenceReportCore:
+def fitted_law_report(store: ArtifactStore, records: Iterable[StudyRevision], revision: GitOid) -> InferenceReportCore:
     """Read the committed fit that owns inherited laws and their model coordinates."""
     fitted = inference_record(records, revision)
     if fitted is None:
         raise ValueError("Fitted model laws require their committed inference report")
     assert fitted.record.attempt.action == "fit"
     assert fitted.record.attempt.outcome.status == "applied"
-    return fitted.record.attempt.outcome.result.report.core
+    result = fitted.record.attempt.outcome.result
+    assert result is not None
+    from nof1_causal_lab.actions.fit import read_inference_report
+
+    return read_inference_report(store, revision, result.evidence).core
 
 
 def law_provenance(
@@ -99,7 +77,7 @@ def law_provenance(
     while True:
         if current.produced_by == "fit":
             fitted = read_model(store, current.revision).model_dump(mode="json")["distributions"]
-            inherited = {key for key, value in laws.items() if fitted.get(key) == value}
+            inherited = {key for key, value in laws.items() if key in model.law_layouts and fitted.get(key) == value}
             if inherited:
                 fitted_panel = current.derived_from["panel"]
                 if inherited != set(laws):

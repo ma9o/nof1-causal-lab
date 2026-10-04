@@ -22,7 +22,6 @@ from nof1_causal_lab.artifacts.parameter_spec import (
 )
 from nof1_causal_lab.artifacts.prior import (
     PriorFailureStage,
-    PriorPathologyCertificate,
     PriorValidationResult,
 )
 from nof1_causal_lab.compilation_errors import AggregatedCompileError
@@ -130,22 +129,17 @@ def _compile_warning(
     compiled_site_name: str | None = None,
     compiled_flat_index: int | None = None,
     failure_stage: PriorFailureStage | None = None,
-    pathology_certificate: PriorPathologyCertificate | None = None,
 ) -> CompileDiagnostic:
     """Build a typed non-fatal compile diagnostic."""
     return CompileDiagnostic(
         parameter=parameter,
-        is_valid=True,
         code=code,
-        origin="compile",
-        severity="warning",
         issue=issue,
         suggested_adjustment=suggested_adjustment,
         related_parameters=(parameter,),
         compiled_site_name=compiled_site_name,
         compiled_flat_index=compiled_flat_index,
         failure_stage=failure_stage,
-        pathology_certificate=pathology_certificate,
     )
 
 
@@ -244,10 +238,6 @@ def collect_first_order_approximation_warnings(
                     compiled_site_name=binding.site.name,
                     compiled_flat_index=binding.flat_index,
                     failure_stage="compiled_parameters",
-                    pathology_certificate=PriorPathologyCertificate(
-                        kind="dt_ct_approximation",
-                        primary_score=1.0,
-                    ),
                 )
             )
             continue
@@ -279,11 +269,6 @@ def collect_first_order_approximation_warnings(
                 compiled_site_name=binding.site.name,
                 compiled_flat_index=binding.flat_index,
                 failure_stage="compiled_parameters",
-                pathology_certificate=PriorPathologyCertificate(
-                    kind="dt_ct_approximation",
-                    primary_score=deviation,
-                    secondary_score=ratio,
-                ),
             )
         )
     return warnings

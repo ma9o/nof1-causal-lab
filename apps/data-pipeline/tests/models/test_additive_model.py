@@ -6,20 +6,36 @@ import numpyro.distributions as dist
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from nof1_causal_lab.artifacts.construct import (
-    replace_constructs,
+from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.artifacts.expressions import (
+    coefficient,
+    hill,
+    state,
 )
-from nof1_causal_lab.artifacts.expressions import coefficient, hill, state
-from nof1_causal_lab.artifacts.identity import ConstructId, IndicatorId, scientific_id
-from nof1_causal_lab.artifacts.likelihood import (
-    ObservationLawSpec,
+from nof1_causal_lab.artifacts.identity import (
+    ConstructId,
+    IndicatorId,
+    scientific_id,
 )
+from nof1_causal_lab.artifacts.likelihood import ObservationLawSpec
 from nof1_causal_lab.artifacts.mechanism import DriftMechanismSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.model_parameters import require_priors
 from nof1_causal_lab.models.model_structure import StructuralSelection
 from tests.helpers import graph_constructs
-from tests.model_fixtures import compile_model_fixture
+from tests.inference_fixtures import compile_model_fixture
+from tests.model_fixtures import (
+    load_model_fixture,
+)
+
+
+def _entities_gain_detail_with_one_owner_and_native_prior_with_parameter_distributions() -> (
+    ModelSpec
+):
+    return load_model_fixture(
+        "additive_model/entities_gain_detail_with_one_owner_and_native_prior_with_parameter_distributions.json"
+    )
+
 
 pytestmark = pytest.mark.contract
 
@@ -102,13 +118,7 @@ def test_entities_gain_detail_with_one_owner_and_native_prior():
         "reasoning": "Continuous measurement",
     }
 
-    after = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[1]
-            / "fixtures/models"
-            / "additive_model/entities_gain_detail_with_one_owner_and_native_prior_with_parameter_distributions.json"
-        ).read_text()
-    )
+    after = _entities_gain_detail_with_one_owner_and_native_prior_with_parameter_distributions()
     assert after.indicator_owner(IndicatorId("indicator:y")) is after.get_construct(
         ConstructId("construct:y")
     )

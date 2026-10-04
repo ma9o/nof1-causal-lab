@@ -3,14 +3,13 @@
 from __future__ import annotations
 
 import time
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
 from nof1_causal_lab.artifacts.likelihood import DistributionFamily
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.execution.observation_distributions import (
     evaluate_law,
@@ -23,11 +22,21 @@ from nof1_causal_lab.models.ssm.simulation_checks import (
     DesignInfo,
     measure_construct_simulation,
 )
-from tests.helpers import (
-    fixture_entity_id,
-)
-from tests.model_fixtures import compile_model_fixture
+from tests.helpers import fixture_entity_id
+from tests.inference_fixtures import compile_model_fixture
+from tests.model_fixtures import fixed_hill_model, load_model_fixture
 from tests.observation_fixtures import observation_laws
+
+
+def _time_invariant_construct_omits_temporal_transmission_check_model_fixture() -> ModelSpec:
+    return load_model_fixture(
+        "simulation_checks/time_invariant_construct_omits_temporal_transmission_check_model_fixture.json"
+    )
+
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+
 
 pytestmark = pytest.mark.inference(concern="predictive")
 
@@ -82,13 +91,7 @@ def test_time_invariant_construct_omits_temporal_transmission_check():
             observations_mask=jnp.ones(expected.shape, dtype=bool),
         ),
     )
-    spec = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2]
-            / "fixtures/models"
-            / "simulation_checks/time_invariant_construct_omits_temporal_transmission_check_model_fixture.json"
-        ).read_text()
-    )
+    spec = _time_invariant_construct_omits_temporal_transmission_check_model_fixture()
     obs_idx = np.arange(times)
     design = DesignInfo(
         manifest_ids=(fixture_entity_id("indicator", "static_indicator"),),
@@ -120,25 +123,25 @@ def test_time_invariant_construct_omits_temporal_transmission_check():
         pytest.param(
             True,
             True,
-            "simulation_checks/fixed_hill_model.json",
+            fixed_hill_model,
             id="True-True",
         ),
         pytest.param(
             True,
             False,
-            "simulation_checks/fixed_hill_model.json",
+            fixed_hill_model,
             id="True-False",
         ),
         pytest.param(
             False,
             True,
-            "simulation_checks/fixed_hill_model.json",
+            fixed_hill_model,
             id="False-True",
         ),
         pytest.param(
             False,
             False,
-            "simulation_checks/fixed_hill_model.json",
+            fixed_hill_model,
             id="False-False",
         ),
     ],
@@ -151,11 +154,7 @@ def test_fixed_hill_coefficients_participate_in_checks_and_edge_off(
     from nof1_causal_lab.models.ssm.predictive import registry_runtime
 
     draws, ticks = 4, 21
-    spec = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2] / "fixtures/models" / model_fixture_payload
-        ).read_text()
-    )
+    spec = model_fixture_payload()
     latents = np.broadcast_to(np.linspace(0.2, 2, ticks)[None, :, None], (draws, ticks, 2)).copy()
     predictive = PredictiveDraws(
         parameters={"manifest_cov": jnp.broadcast_to(jnp.eye(2) * 0.25, (draws, 2, 2))},

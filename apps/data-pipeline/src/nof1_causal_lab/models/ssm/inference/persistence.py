@@ -8,7 +8,7 @@ import numpy as np
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.models.ssm import numerics as numeric
-from nof1_causal_lab.models.ssm.joint_layout import JointLawLayout
+from nof1_causal_lab.models.ssm.compile.bindings import joint_law_layout
 from nof1_causal_lab.numpyro_json import empirical_distribution
 
 if TYPE_CHECKING:
@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from jax.typing import ArrayLike
 
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.identity import DistributionId
     from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
     from nof1_causal_lab.models.ssm.inference.types import ParticleMCMCPosterior
     from nof1_causal_lab.numpyro_json import ArrayLoader
@@ -30,11 +31,11 @@ def condition_model(
     times: ArrayLike,
     array_writer: Callable[[np.ndarray], str] | None = None,
     array_loader: ArrayLoader | None = None,
-) -> ModelSpec:
+) -> tuple[ModelSpec, DistributionId]:
     """Replace the current uncertainty with the engine's full joint empirical law.
 
     The original distributions survive in the input revision. No run metadata,
-    posterior containers, execution coordinates, or independent fitted marginals
+    posterior containers, compiler bindings, or independent fitted marginals
     are attached to the scientific model.
     """
     bindings = compiled.bindings
@@ -52,11 +53,12 @@ def condition_model(
     if result.draws.state_ids and tuple(result.draws.state_ids) != tuple(state_ids):
         raise ValueError("Engine latent trajectories do not match the model's state identities")
     conditioned_parameters = {binding.parameter_id for binding in bindings}
-    layout = JointLawLayout.from_bindings(
+    layout = joint_law_layout(
         bindings,
         parameters=conditioned_parameters,
         constructs=modeled_ids,
         time_points=grid.tolist(),
+        construct_labels={identity: model_spec.get_construct(identity).name for identity in modeled_ids},
     )
     joint = layout.pack(
         {
@@ -90,7 +92,7 @@ def condition_model(
         )
         if member.distribution is not None
     }
-    return model_spec.revised(
+    conditioned = model_spec.revised(
         edges=edges,
         parameters=parameters,
         distributions={
@@ -101,5 +103,9 @@ def condition_model(
             },
             identity: law,
         },
-        time_points=tuple(float(value) for value in grid),
+        law_layouts={
+            **{key: value for key, value in model_spec.law_layouts.items() if key in retained_laws},
+            identity: layout,
+        },
     )
+    return conditioned, identity

@@ -1,58 +1,8 @@
 {
   "note": "Illustrative saved-draw projections for the comprehensive workbench story; not an estimate from DEMO.",
   "report": {
-    "model": {
-      "workspace_id": "STORYBOOK",
-      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "path": "model.json"
-    },
-    "design": {
-      "start": "2026-09-01",
-      "horizon": "1w",
-      "interventions": [
-        {
-          "target": "construct:27f64faaddd59b2ad491",
-          "after": null,
-          "value": 10.0
-        }
-      ]
-    },
-    "times": [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0],
-    "draws": 100,
-    "seed": 0,
-    "state_ids": ["construct:27f64faaddd59b2ad491", "construct:6ca86c47aaf18b2472ce"],
-    "parameter_draws": {},
-    "latent_paths": "action",
-    "observations": "observations",
-    "observation_layout": {
-      "variables": [
-        {
-          "id": "indicator:93c7007ff8e5a6565b25",
-          "name": "phq9_screening_score",
-          "measurement_dtype": "continuous",
-          "aggregation": "mean",
-          "observation_window": "1d",
-          "ordinal_levels": null,
-          "categorical_levels": null
-        }
-      ],
-      "support_start_times": "illustrative-starts",
-      "support_end_times": "illustrative-ends",
-      "mask": "mask"
-    },
     "law": null,
-    "reference_latent_paths": "reference",
-    "reference_observations": "reference_observations",
     "findings": [],
-    "time_origin": "2026-09-01T00:00:00Z",
-    "origin_panel_revision": null,
-    "assignments": [
-      {
-        "target": "construct:27f64faaddd59b2ad491",
-        "time": 0.0,
-        "value": 10.0
-      }
-    ],
     "fit_reliability": "converged",
     "causal": {
       "kind": "available",
@@ -64,6 +14,70 @@
         },
         "warnings": []
       }
+    },
+    "evidence": {
+      "model": {
+        "workspace_id": "STORYBOOK",
+        "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "path": "model.json"
+      },
+      "design": {
+        "start": "2026-09-01",
+        "horizon": "1w",
+        "interventions": [
+          {
+            "target": "construct:27f64faaddd59b2ad491",
+            "after": null,
+            "value": 10.0
+          }
+        ]
+      },
+      "time_origin": "2026-09-01T00:00:00Z",
+      "times": [
+        0.0,
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0,
+        7.0
+      ],
+      "draws": 100,
+      "seed": 0,
+      "origin_panel_revision": null,
+      "state_ids": [
+        "construct:27f64faaddd59b2ad491",
+        "construct:6ca86c47aaf18b2472ce"
+      ],
+      "parameter_draws": {},
+      "latent_paths": "action",
+      "observations": "observations",
+      "observation_layout": {
+        "variables": [
+          {
+            "id": "indicator:93c7007ff8e5a6565b25",
+            "name": "phq9_screening_score",
+            "measurement_dtype": "continuous",
+            "aggregation": "mean",
+            "observation_window": "1d",
+            "ordinal_levels": null,
+            "categorical_levels": null
+          }
+        ],
+        "support_start_times": "illustrative-starts",
+        "support_end_times": "illustrative-ends",
+        "mask": "mask"
+      },
+      "reference_latent_paths": "reference",
+      "reference_observations": "reference_observations",
+      "assignments": [
+        {
+          "target": "construct:27f64faaddd59b2ad491",
+          "time": 0.0,
+          "value": 10.0
+        }
+      ]
     }
   }
 }

@@ -1,6 +1,5 @@
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { withContainer } from "@/components/story-decorators";
-import { posterior } from "@/components/__fixtures__/inference-data";
 import { LOOPITChart } from "./loo-pit-chart";
 
 const meta = {
@@ -13,5 +12,5 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
-  args: { points: posterior.detail.loo_pit },
+  args: { points: [] },
 };

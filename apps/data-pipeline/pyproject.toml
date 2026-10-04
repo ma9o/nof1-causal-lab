@@ -68,7 +68,6 @@ dev = [
     "marimo>=0.25.0",
     "matplotlib>=3.11.2",
     "nbconvert>=7.17.1",
-    "nbformat>=5.11.1",
     "plotly>=7.1.0",
     # Marimo's OpenAI integration needs only this provider extra.
     "pydantic-ai-slim[openai]>=2.52.0",
@@ -98,7 +97,7 @@ fix = true
 [tool.ruff.lint]
 preview = true
 explicit-preview-rules = true
-external = ["V", "ERR", "ANN"]
+external = ["V", "ERR", "ANN", "FIELD"]
 select = [
     "E",      # pycodestyle errors
     "W",      # pycodestyle warnings

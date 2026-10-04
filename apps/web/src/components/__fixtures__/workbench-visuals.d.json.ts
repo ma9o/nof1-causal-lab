@@ -6,6 +6,5 @@ declare const value: Readonly<{
   simulation: Domain.SimulationPaths;
   observations: Readonly<Partial<Record<Domain.IndicatorId, Domain.ObservationHistory>>>;
   parameters: Domain.ParameterDraws;
-  mechanisms: Readonly<Partial<Record<string, Domain.MechanismCurves>>>;
 }>;
 export default value;

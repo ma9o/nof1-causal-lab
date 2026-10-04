@@ -1,6 +1,8 @@
 """Predictive runtime and diagnostic-report integration on a small mixed model."""
 
-from pathlib import Path
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
@@ -8,13 +10,26 @@ import numpy as np
 import pytest
 
 from nof1_causal_lab.artifacts.identity import IndicatorId
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorPredictiveChecks
 from nof1_causal_lab.models.posterior_predictive import measure_predictive_checks
 from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
     sample_prior_predictive_from_runtime,
 )
-from tests.model_fixtures import compile_fit_fixture, compile_model_fixture
+from tests.inference_fixtures import compile_fit_fixture, compile_model_fixture
+from tests.model_fixtures import (
+    load_model_fixture,
+)
+
+
+def _predictive_draws_feed_mixed_family_diagnostics_model_fixture() -> ModelSpec:
+    return load_model_fixture(
+        "posterior_predictive_integration/predictive_draws_feed_mixed_family_diagnostics_model_fixture.json"
+    )
+
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+
 
 pytestmark = pytest.mark.inference(concern="predictive")
 
@@ -22,13 +37,7 @@ pytestmark = pytest.mark.inference(concern="predictive")
 def test_predictive_draws_feed_mixed_family_diagnostics():
     # Exhaustive family/link domains are checked by the observation-sampling
     # test. This case checks the complete prior/runtime/report connection.
-    spec = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2]
-            / "fixtures/models"
-            / "posterior_predictive_integration/predictive_draws_feed_mixed_family_diagnostics_model_fixture.json"
-        ).read_text()
-    )
+    spec = _predictive_draws_feed_mixed_family_diagnostics_model_fixture()
     runtime = compile_fit_fixture(spec).prior_runtime_bundle
     times = jnp.array([0.0, 0.1, 0.25, 0.4, 0.7, 1.0], dtype=jnp.float32)
     samples = sample_prior_predictive_from_runtime(

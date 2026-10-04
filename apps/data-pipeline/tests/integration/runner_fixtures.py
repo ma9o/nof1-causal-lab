@@ -1,15 +1,16 @@
 """Small canonical artifacts for fixture-backed runner contract tests."""
 
+from nof1_causal_lab.artifacts.data_preparation import FilePreparedDataMetadata
+
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 
 import polars as pl
 
 from nof1_causal_lab.artifacts.data_preparation import SemanticExtractionSpec
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.observations import AuthoredObservationSpec
 from nof1_causal_lab.study.state import StudyState
 from tests.helpers import fixture_entity_id
+from tests.model_fixtures import stress_sleep_model
 
 
 def panel_frame(n_days=20):
@@ -45,15 +46,7 @@ def seed_model(store):
         "model",
         derived_from={},
         produced_by="edit_model",
-        json_files={
-            "model.json": ModelSpec.model_validate_json(
-                (
-                    Path(__file__).resolve().parents[1]
-                    / "fixtures/models"
-                    / "common/stress_sleep_model.json"
-                ).read_text()
-            ).model_dump(mode="json")
-        },
+        json_files={"model.json": stress_sleep_model().model_dump(mode="json")},
     )
 
 
@@ -91,9 +84,4 @@ def panel_metadata():
             for name in ("stress_score", "sleep_score")
         ),
     )
-    return PreparedDataMetadata(
-        time_origin=datetime(2024, 1, 1, tzinfo=UTC),
-        source=FileSourceRef(files=("observations.csv",)),
-        variables=preparation.observation_schema(),
-        preparation=preparation,
-    )
+    return FilePreparedDataMetadata(time_origin=datetime(2024, 1, 1, tzinfo=UTC), source=FileSourceRef(files=("observations.csv",)), preparation=preparation)

@@ -19,11 +19,10 @@ from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.artifacts.data_preparation import SimulationReplicateRef
 from nof1_causal_lab.artifacts.identity import GitOid, GitRef
-from nof1_causal_lab.artifacts.posterior import InferenceReport
-from nof1_causal_lab.artifacts.simulation import SimulationReport
+from nof1_causal_lab.artifacts.posterior import InferenceEvidence
+from nof1_causal_lab.artifacts.simulation import SimulationEvidence
 from nof1_causal_lab.study.state import StudyState
 from nof1_causal_lab.study.view_models import (
-    DataDiffReport,
     DataDiffRequest,
     PanelRef,
     SimulationRef,
@@ -47,8 +46,6 @@ class _ExtractionWorkerMeasurements(Value):
     worker_id: int
     n_extractions: int
     n_windows: int
-    n_llm_calls: int | None = None
-    reused: bool | None = None
 
 
 class CompletedExtractionWorker(_ExtractionWorkerMeasurements):
@@ -74,39 +71,23 @@ type ExtractionWorkerResult = Annotated[
 class DataPreparationResult(Value):
     """Preparation artifacts and the measurements actually retained by extraction."""
 
-    action: Literal["prepare_data"] = "prepare_data"
-    raw_data: GitRef | None = None
-    model: GitRef | None = None
-    simulation_source: SimulationReplicateRef | None = None
-    n_observations: int | None = None
     workers: tuple[ExtractionWorkerResult, ...] = ()
     ingestion_reused: bool | None = None
     extraction_reused: int | None = None
 
 
 class ModelFitResult(Value):
-    """One retained fit report, with the exact inputs and truthful retention state."""
+    """Fit inputs and native telemetry; current reports are derived from its atoms."""
 
-    action: Literal["fit"] = "fit"
     model: GitRef
     panel: GitRef
-    report: InferenceReport
-    retention: Literal["joint", "report_only"] = "joint"
+    evidence: InferenceEvidence
 
 
 class ModelSimulationResult(Value):
-    """The report owns its model reference; the selected panel is separately pinned."""
+    """The exact generated histories retained by one simulation."""
 
-    action: Literal["simulate"] = "simulate"
-    panel: GitRef | None = None
-    report: SimulationReport
-
-
-class DataComparisonResult(Value):
-    """A retained data comparison; it never installs scientific artifacts."""
-
-    action: Literal["data_diff"] = "data_diff"
-    report: DataDiffReport
+    evidence: SimulationEvidence
 
 
 class Applied[ResultT](Value):
@@ -141,16 +122,16 @@ class Attempt[ActionT: str, RequestT: Value, ResultT](Value):
     """One action's request and successful result share the same attempt owner."""
 
     action: ActionT
-    request: RequestT | None
+    request: RequestT | None = Field(description="Parsed arguments, or null for a historical attempt whose arguments were not retained")
     outcome: Annotated[Applied[ResultT] | Rejected | Raised, Field(discriminator="status")]
 
 
 SetQuestionAttempt = Attempt[Literal["set_question"], SetQuestionRequest, None]
 EditAttempt = Attempt[Literal["edit_model"], EditModelRequest, None]
 PrepareAttempt = Attempt[Literal["prepare_data"], PrepareDataRequest, DataPreparationResult]
-FitAttempt = Attempt[Literal["fit"], FitRequest, ModelFitResult]
+FitAttempt = Attempt[Literal["fit"], FitRequest, ModelFitResult | None]
 SimulateAttempt = Attempt[Literal["simulate"], SimulateRequest, ModelSimulationResult]
-DataDiffAttempt = Attempt[Literal["data_diff"], DataDiffRequest, DataComparisonResult]
+DataDiffAttempt = Attempt[Literal["data_diff"], DataDiffRequest, None]
 
 
 type ActionAttempt = Annotated[
@@ -167,7 +148,6 @@ type ActionAttempt = Annotated[
 class AttemptMetadata(Value):
     seq: int
     attempt_id: UUID | None = None
-    branch: str = "main"
     ts: str
     messages: tuple[ActionMessage, ...] = ()
     trace_ids: tuple[str, ...] = ()
@@ -243,7 +223,7 @@ def applied_attempt[ResultT](
                 request=request,
                 outcome=Applied(result=result, effects=applied.effects),
             )
-        case FitRequest(), ModelFitResult():
+        case FitRequest(), ModelFitResult() | None:
             return FitAttempt(
                 action="fit",
                 request=request,
@@ -255,7 +235,7 @@ def applied_attempt[ResultT](
                 request=request,
                 outcome=Applied(result=result, effects=applied.effects),
             )
-        case DataDiffRequest(), DataComparisonResult():
+        case DataDiffRequest(), None:
             return DataDiffAttempt(
                 action="data_diff",
                 request=request,
@@ -267,14 +247,18 @@ def applied_attempt[ResultT](
 
 def argument_revisions(attempt: ActionAttempt) -> tuple[tuple[str, GitOid], ...]:
     """Explicit request fields and retained input refs replace suffix scanning."""
-    request, outcome = attempt.request, attempt.outcome
+    request = attempt.request
     match request:
-        case EditModelRequest(expected_revision=revision):
-            return (("model", revision),) if revision is not None else ()
+        case EditModelRequest(expected_revision=revision, panel_revision=panel):
+            return tuple(
+                (name, oid)
+                for name, oid in (("model", revision), ("panel", panel))
+                if oid is not None
+            )
         case FitRequest(model_revision=model, panel_revision=panel):
             return (("model", model), ("panel", panel))
-        case SimulateRequest(model_revision=model):
-            return (("model", model),)
+        case SimulateRequest(model_revision=model, panel_revision=panel):
+            return (("model", model),) + ((("panel", panel),) if panel is not None else ())
         case PrepareDataRequest(input=SimulationReplicateRef(revision=revision)):
             return (("simulation", revision),)
         case DataDiffRequest():
@@ -286,35 +270,7 @@ def argument_revisions(attempt: ActionAttempt) -> tuple[tuple[str, GitOid], ...]
                 )
             )
         case SetQuestionRequest() | PrepareDataRequest() | None:
-            pass
-    if isinstance(outcome, Applied):
-        match outcome.result:
-            case None:
-                return tuple(
-                    ("model", revision)
-                    for artifact in outcome.effects.produced
-                    if artifact.artifact_id == "model"
-                    and (revision := artifact.derived_from.get("model")) is not None
-                )
-            case ModelFitResult(model=model, panel=panel):
-                return (("model", model.revision), ("panel", panel.revision))
-            case DataPreparationResult(simulation_source=SimulationReplicateRef(revision=revision)):
-                return (("simulation", revision),)
-            case DataPreparationResult(raw_data=raw, model=model):
-                return tuple(
-                    (name, ref.revision)
-                    for name, ref in (("raw_data", raw), ("model", model))
-                    if ref is not None
-                )
-            case ModelSimulationResult(report=report):
-                return (("model", report.model.revision),)
-            case DataComparisonResult(report=report):
-                return tuple(
-                    (name, ref.revision)
-                    for name, refs in (("left", report.left), ("right", report.right))
-                    for ref in refs
-                )
-    return ()
+            return ()
 
 
 def record_dependencies(revisions: Sequence[StudyRevision]) -> list[RecordDependency]:
@@ -367,11 +323,12 @@ def record_dependencies(revisions: Sequence[StudyRevision]) -> list[RecordDepend
     return dependencies
 
 
-class BranchBase(Value):
+class ActionBase(Value):
     """Immutable execution base, captured before an action starts."""
 
     commit_id: GitOid
     state: StudyState
+    saved: StudyRevision | None = None
 
 
 def inference_record[T: StudyRevision](records: Iterable[T], model_revision: GitOid) -> T | None:
@@ -382,6 +339,7 @@ def inference_record[T: StudyRevision](records: Iterable[T], model_revision: Git
             for record in reversed(list(records))
             if record.record.attempt.action == "fit"
             and isinstance(record.record.attempt.outcome, Applied)
+            and isinstance(record.record.attempt.outcome.result, ModelFitResult)
             and any(
                 info.artifact_id == "model" and info.revision == model_revision
                 for info in record.record.attempt.outcome.effects.produced

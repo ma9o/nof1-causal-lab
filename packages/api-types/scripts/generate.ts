@@ -1,186 +1,24 @@
-/**
- * Generate TypeScript types from JSON Schema exported by Python.
- *
- * Usage:
- *   cd packages/api-types
- *   bun run scripts/generate.ts
- */
-
+/** Generate operations, named contracts and generic declarations from one OpenAPI AST. */
 import { mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, relative, resolve } from "node:path";
-import { compile } from "json-schema-to-typescript";
+import openapiTS, { astToString } from "openapi-typescript";
 import ts from "typescript";
 
-// biome-ignore lint/suspicious/noExplicitAny: JSON Schema nodes are inherently untyped
+// biome-ignore lint/suspicious/noExplicitAny: JSON Schema extensions contain heterogeneous nodes.
 type JsonSchema = any;
-
-const ROOT = dirname(dirname(resolve(import.meta.filename)));
-const SCHEMA_PATH = resolve(ROOT, "schemas", "contracts.json");
-const METADATA_PATH = resolve(ROOT, "schemas", "metadata.json");
-const OUTPUT_PATH = resolve(ROOT, "src", "generated", "models.ts");
-const METADATA_OUTPUT_PATH = resolve(ROOT, "src", "generated", "metadata.ts");
+const ROOT = resolve(import.meta.dirname, "..");
+const METADATA_PATH = resolve(ROOT, "schemas/metadata.json");
+const METADATA_OUTPUT_PATH = resolve(ROOT, "src/generated/metadata.ts");
 const checkOnly = process.argv.includes("--check");
 const changedPaths: string[] = [];
 
-function readExisting(path: string): string | null {
-  try {
-    return readFileSync(path, "utf-8");
-  } catch (error) {
-    if (error && typeof error === "object" && "code" in error && error.code === "ENOENT") {
-      return null;
-    }
-    throw error;
-  }
-}
-
-function writeOrCheck(outputPath: string, content: string): void {
+function writeOrCheck(path: string, content: string): void {
   if (checkOnly) {
-    if (readExisting(outputPath) !== content) {
-      changedPaths.push(relative(ROOT, outputPath));
-    }
-    return;
+    if (readFileSync(path, "utf8") !== content) changedPaths.push(relative(ROOT, path));
+  } else {
+    mkdirSync(dirname(path), { recursive: true });
+    writeFileSync(path, content);
   }
-
-  mkdirSync(dirname(outputPath), { recursive: true });
-  writeFileSync(outputPath, content);
-}
-
-/**
- * Reduce a schema node to just its `$ref` if it has one.
- *
- * Pydantic emits `{"$ref": "#/$defs/Foo", "description": "..."}` for
- * fields with doc-strings. The sibling `description` (or `title`, `default`,
- * etc.) next to `$ref` causes json-schema-to-typescript to treat it as a
- * distinct anonymous type — generating duplicates like `LatentStructure1`.
- * Per JSON Schema 2020-12, `$ref` siblings are valid but the TS codegen
- * library doesn't handle them well, so we strip them.
- */
-function collapseRefs(schema: JsonSchema): JsonSchema {
-  if (typeof schema !== "object" || schema === null) return schema;
-  if (Array.isArray(schema)) return schema.map(collapseRefs);
-
-  // If this object has a $ref, keep only the $ref
-  if ("$ref" in schema) {
-    return { $ref: schema.$ref };
-  }
-
-  const result: JsonSchema = {};
-  for (const [key, value] of Object.entries(schema)) {
-    result[key] = collapseRefs(value);
-  }
-  return result;
-}
-
-/** json-schema-to-typescript ignores sibling properties beside oneOf/anyOf.
- * Express their JSON Schema conjunction as an explicit TypeScript intersection.
- */
-function intersectUnionProperties(schema: JsonSchema): JsonSchema {
-  if (typeof schema !== "object" || schema === null) return schema;
-  if (Array.isArray(schema)) return schema.map(intersectUnionProperties);
-
-  const result = Object.fromEntries(
-    Object.entries(schema).map(([key, value]) => [key, intersectUnionProperties(value)]),
-  );
-  const keyword = "oneOf" in result ? "oneOf" : "anyOf";
-  if (!("properties" in result) || !(keyword in result)) return result;
-
-  const { properties, required, additionalProperties, oneOf, anyOf, allOf = [], ...rest } = result;
-  return {
-    ...rest,
-    allOf: [
-      ...allOf,
-      { type: "object", properties, required, additionalProperties },
-      ...(oneOf ? [{ oneOf }] : []),
-      ...(anyOf ? [{ anyOf }] : []),
-    ],
-  };
-}
-
-/**
- * Strip field-level "title" from JSON Schema properties.
- *
- * Pydantic adds "title": "Field Name" to every field, which causes
- * json-schema-to-typescript to generate named type aliases for each
- * field (e.g., `type RHat = number | number[]`). This makes the
- * generated types hard to use with generic TS libraries like tanstack-table.
- *
- * We keep titles on top-level $defs (the actual model names) but strip
- * them from individual properties.
- */
-function stripFieldTitles(schema: JsonSchema, isTopLevel = true): JsonSchema {
-  if (typeof schema !== "object" || schema === null) return schema;
-
-  if (Array.isArray(schema)) {
-    return schema.map((item) => stripFieldTitles(item, false));
-  }
-
-  const result: JsonSchema = {};
-  for (const [key, value] of Object.entries(schema)) {
-    if (key === "properties" && typeof value === "object" && value !== null) {
-      // Strip titles from property definitions
-      const cleanProps: JsonSchema = {};
-      for (const [propName, propSchema] of Object.entries(value as Record<string, JsonSchema>)) {
-        const cleaned = { ...propSchema };
-        delete cleaned.title;
-        cleanProps[propName] = stripFieldTitles(cleaned, false);
-      }
-      result[key] = cleanProps;
-    } else if (key === "$defs" && typeof value === "object" && value !== null) {
-      // Keep titles on $defs (model-level names) but recurse into their contents
-      const cleanDefs: JsonSchema = {};
-      for (const [defName, defSchema] of Object.entries(value as Record<string, JsonSchema>)) {
-        cleanDefs[defName] = stripFieldTitles(defSchema, true);
-      }
-      result[key] = cleanDefs;
-    } else if (key === "prefixItems") {
-      // Adapt 2020-12 positional tuples to the declaration compiler's draft-7 form.
-      result.items = (value as JsonSchema[]).map((item) => stripFieldTitles(item, false));
-      result.additionalItems = schema.items ?? false;
-    } else if (key === "items" && schema.prefixItems !== undefined) {
-    } else if (key === "items") {
-      // Recurse into array items but strip their title
-      const cleaned = typeof value === "object" ? { ...value } : value;
-      if (typeof cleaned === "object" && cleaned !== null && !isTopLevel) {
-        delete cleaned.title;
-      }
-      result[key] = stripFieldTitles(cleaned, false);
-    } else if (key === "anyOf" || key === "oneOf") {
-      // Strip titles from union members
-      result[key] = (value as JsonSchema[]).map((item: JsonSchema) => {
-        const cleaned = typeof item === "object" ? { ...item } : item;
-        if (typeof cleaned === "object" && cleaned !== null) {
-          delete cleaned.title;
-        }
-        return stripFieldTitles(cleaned, false);
-      });
-    } else {
-      result[key] = value;
-    }
-  }
-
-  return result;
-}
-
-/** Concrete JSON schemas keep validation; Python operands own TS applications. */
-function genericSchema(schema: JsonSchema): JsonSchema {
-  const definitions = { ...schema.$defs, ...schema["x-typescript-generics"] };
-  function visit(value: JsonSchema): JsonSchema {
-    if (Array.isArray(value)) return value.map(visit);
-    if (typeof value !== "object" || value === null) return value;
-    const application =
-      value.$ref && definitions[value.$ref.split("/").at(-1)]?.["x-typescript-type"];
-    if (application) return { tsType: application };
-    return Object.fromEntries(Object.entries(value).map(([key, child]) => [key, visit(child)]));
-  }
-  return visit({
-    ...schema,
-    $defs: Object.fromEntries(
-      Object.entries(definitions).filter(
-        ([, definition]) => !(definition as JsonSchema)["x-typescript-type"],
-      ),
-    ),
-    "x-typescript-generics": undefined,
-  });
 }
 
 function generateMetadata(): void {
@@ -217,161 +55,300 @@ function generateMetadata(): void {
   }
 }
 
-/** Preserve the Python value interface in generated outputs, including map keys. */
-function readonlyOutputs(source: string, schema: JsonSchema): string {
-  const file = ts.createSourceFile("models.ts", source, ts.ScriptTarget.Latest, true);
-  const transformed = ts.transform(file, [
+const schema = JSON.parse(readFileSync(resolve(ROOT, "schemas/openapi.json"), "utf8"));
+const definitions: Record<string, JsonSchema> = schema.components.schemas;
+const refTail = (ref: string) => ref.slice(ref.lastIndexOf("/") + 1);
+const templates = new Map<string, string>(
+  Object.entries(schema["x-typescript-generics"]).map(([name, ref]) => [
+    refTail((ref as { $ref: string }).$ref),
+    name,
+  ]),
+);
+const live = new Set<string>();
+function collectReferences(value: JsonSchema): void {
+  if (!value || typeof value !== "object") return;
+  if (typeof value.$ref === "string" && value.$ref.startsWith("#/components/schemas/")) {
+    const name = refTail(value.$ref);
+    if (!live.has(name)) {
+      live.add(name);
+      collectReferences(definitions[name]);
+    }
+  }
+  for (const child of Object.values(value)) collectReferences(child);
+}
+collectReferences(schema.paths);
+collectReferences(schema["x-contract-roots"]);
+const outputs = new Map<string, string>();
+for (const name of Object.keys(definitions)) {
+  if (!live.has(name) || templates.has(name) || name.endsWith("-Input")) continue;
+  const canonical = name.replace(/-Output$/, "");
+  if (definitions[name]["x-python-module"] && !definitions[name]["x-typescript-type"]) {
+    outputs.set(name, canonical);
+  }
+}
+const component = (name: string) =>
+  ts.factory.createIndexedAccessTypeNode(
+    ts.factory.createIndexedAccessTypeNode(
+      ts.factory.createTypeReferenceNode("components"),
+      ts.factory.createLiteralTypeNode(ts.factory.createStringLiteral("schemas")),
+    ),
+    ts.factory.createLiteralTypeNode(ts.factory.createStringLiteral(name)),
+  );
+
+/** Parse only the explicit Python-owned operand/template extension. */
+function operand(source: string, qualified = false): ts.TypeNode {
+  const file = ts.createSourceFile(
+    "operand.ts",
+    `type Operand = ${source};`,
+    ts.ScriptTarget.Latest,
+    true,
+  );
+  const declaration = file.statements[0];
+  if (!declaration || !ts.isTypeAliasDeclaration(declaration))
+    throw new Error(`Invalid operand: ${source}`);
+  return rewrite(declaration.type, (node) =>
+    ts.isStringLiteral(node)
+      ? ts.factory.createStringLiteral(node.text)
+      : ts.isNumericLiteral(node)
+        ? ts.factory.createNumericLiteral(node.text)
+        : ts.isTemplateLiteralTypeNode(node)
+          ? ts.factory.createTemplateLiteralType(
+              ts.factory.createTemplateHead(node.head.text, node.head.rawText),
+              node.templateSpans.map((span) =>
+                ts.factory.createTemplateLiteralTypeSpan(
+                  span.type,
+                  ts.isTemplateTail(span.literal)
+                    ? ts.factory.createTemplateTail(span.literal.text, span.literal.rawText)
+                    : ts.factory.createTemplateMiddle(span.literal.text, span.literal.rawText),
+                ),
+              ),
+            )
+          : qualified && ts.isTypeReferenceNode(node) && ts.isIdentifier(node.typeName)
+            ? ts.factory.updateTypeReferenceNode(
+                node,
+                ts.factory.createQualifiedName(
+                  ts.factory.createIdentifier("Domain"),
+                  node.typeName,
+                ),
+                node.typeArguments,
+              )
+            : node,
+  );
+}
+
+function rewrite<T extends ts.Node>(node: T, replace: (node: ts.Node) => ts.Node): T {
+  const result = ts.transform(node, [
     (context) => {
-      const visit: ts.Visitor = (node) => {
-        const child = ts.visitEachChild(node, visit, context);
-        if (ts.isInterfaceDeclaration(child) || ts.isTypeAliasDeclaration(child)) {
-          const parameters = schema.$defs?.[child.name.text]?.["x-typescript-parameters"]?.map(
-            (name: string) => ts.factory.createTypeParameterDeclaration(undefined, name),
-          );
-          if (parameters) {
-            return ts.isInterfaceDeclaration(child)
-              ? ts.factory.updateInterfaceDeclaration(
-                  child,
-                  child.modifiers,
-                  child.name,
-                  parameters,
-                  child.heritageClauses,
-                  child.members,
-                )
-              : ts.factory.updateTypeAliasDeclaration(
-                  child,
-                  child.modifiers,
-                  child.name,
-                  parameters,
-                  child.type,
-                );
-          }
-        }
-        if (
-          (ts.isArrayTypeNode(child) || ts.isTupleTypeNode(child)) &&
-          !(
-            node.parent &&
-            ts.isTypeOperatorNode(node.parent) &&
-            node.parent.operator === ts.SyntaxKind.ReadonlyKeyword
-          )
-        ) {
-          return ts.factory.createTypeOperatorNode(ts.SyntaxKind.ReadonlyKeyword, child);
-        }
-        if (ts.isPropertySignature(child)) {
-          let type = child.type;
-          const owner = node.parent;
-          if (
-            owner &&
-            ts.isInterfaceDeclaration(owner) &&
-            child.name &&
-            ts.isIdentifier(child.name)
-          ) {
-            const field = schema.$defs?.[owner.name.text]?.properties?.[child.name.text];
-            const keyRef = field?.propertyNames?.$ref;
-            const index =
-              type && ts.isTypeLiteralNode(type)
-                ? type.members.find(ts.isIndexSignatureDeclaration)
-                : undefined;
-            if (keyRef && index?.type) {
-              const valueType = ts.isUnionTypeNode(index.type)
-                ? ts.factory.createUnionTypeNode(
-                    index.type.types.filter(
-                      (member) => member.kind !== ts.SyntaxKind.UndefinedKeyword,
-                    ),
-                  )
-                : index.type;
-              type = ts.factory.createTypeReferenceNode("Readonly", [
-                ts.factory.createTypeReferenceNode("Partial", [
-                  ts.factory.createTypeReferenceNode("Record", [
-                    ts.factory.createTypeReferenceNode(keyRef.split("/").at(-1)),
-                    valueType,
-                  ]),
-                ]),
-              ]);
-            }
-          }
-          return ts.factory.updatePropertySignature(
-            child,
-            [ts.factory.createModifier(ts.SyntaxKind.ReadonlyKeyword)],
-            child.name,
-            child.questionToken,
-            type,
-          );
-        }
-        if (ts.isIndexSignatureDeclaration(child)) {
-          return ts.factory.updateIndexSignature(
-            child,
-            [ts.factory.createModifier(ts.SyntaxKind.ReadonlyKeyword)],
-            child.parameters,
-            ts.factory.createUnionTypeNode([
-              child.type,
-              ts.factory.createKeywordTypeNode(ts.SyntaxKind.UndefinedKeyword),
-            ]),
-          );
-        }
-        return child;
-      };
-      return (node) => ts.visitNode(node, visit) as ts.SourceFile;
+      const visit: ts.Visitor = (child) => replace(ts.visitEachChild(child, visit, context));
+      return (root) => ts.visitNode(root, visit) as T;
     },
   ]);
-  const result = ts.createPrinter().printFile(transformed.transformed[0]);
-  transformed.dispose();
-  return result;
+  const [rewritten] = result.transformed;
+  if (!rewritten) throw new Error("Compiler produced no transformed declaration");
+  result.dispose();
+  return rewritten;
 }
 
-async function main() {
-  const rawSchema = JSON.parse(readFileSync(SCHEMA_PATH, "utf-8"));
-  const declarationSchema = genericSchema(rawSchema);
-  const schema = intersectUnionProperties(stripFieldTitles(collapseRefs(declarationSchema)));
-
-  const ts = await compile(schema, "CausalSSMContracts", {
-    bannerComment:
-      "/* eslint-disable */\n" +
-      "/**\n" +
-      " * AUTO-GENERATED — DO NOT EDIT\n" +
-      " *\n" +
-      " * Generated from Python Pydantic models via:\n" +
-      " *   cd apps/data-pipeline && uv run python -m scripts.codegen.export_api\n" +
-      " *   cd packages/api-types && bun run scripts/generate.ts\n" +
-      " *\n" +
-      " * Source of truth: apps/data-pipeline/src/nof1_causal_lab/artifacts/catalog.py\n" +
-      " * plus facade API models exported from apps/data-pipeline/src/nof1_causal_lab/study_api.py\n" +
-      " */",
-    additionalProperties: false,
-    strictIndexSignatures: false,
-    enableConstEnums: false,
-    unreachableDefinitions: true,
-    unknownAny: false,
-    style: {
-      semi: true,
-      singleQuote: false,
-    },
-  });
-
-  writeOrCheck(OUTPUT_PATH, readonlyOutputs(ts, declarationSchema));
-
-  // Count interfaces generated
-  const count = (ts.match(/export (interface|type)/g) || []).length;
-  if (!checkOnly) {
-    console.log(`Generated ${count} types/interfaces → ${OUTPUT_PATH}`);
+function referenceName(node: ts.Node): string | undefined {
+  if (
+    !ts.isIndexedAccessTypeNode(node) ||
+    !ts.isLiteralTypeNode(node.indexType) ||
+    !ts.isStringLiteral(node.indexType.literal) ||
+    !ts.isIndexedAccessTypeNode(node.objectType)
+  )
+    return;
+  const owner = node.objectType;
+  if (
+    ts.isTypeReferenceNode(owner.objectType) &&
+    ts.isIdentifier(owner.objectType.typeName) &&
+    owner.objectType.typeName.text === "components" &&
+    ts.isLiteralTypeNode(owner.indexType) &&
+    ts.isStringLiteral(owner.indexType.literal) &&
+    owner.indexType.literal.text === "schemas"
+  ) {
+    return node.indexType.literal.text;
   }
+}
 
-  generateMetadata();
-
-  if (checkOnly && changedPaths.length > 0) {
-    console.error("TypeScript API type generation is out of date. Run `bun run codegen`.");
-    for (const path of changedPaths) {
-      console.error(`  ${path}`);
+const ast = await openapiTS(schema, {
+  immutable: true,
+  defaultNonNullable: false,
+  inject: 'import type * as Domain from "./models";',
+  transform(value) {
+    if (typeof value.tsType === "string") return operand(value.tsType);
+    if (
+      value.type === "string" &&
+      (value.format === "binary" || value.contentMediaType === "application/octet-stream")
+    ) {
+      return ts.factory.createTypeReferenceNode("Blob");
     }
-    process.exit(1);
-  }
-
-  if (checkOnly) {
-    console.log("TypeScript API type generation checked.");
-  }
+  },
+  transformProperty(property, value) {
+    // Preserve an authored minimum on open-ended arrays using the compiled item
+    // type. Native prefix-item tuples keep their original readonly shape.
+    if (
+      value.type === "array" &&
+      value.minItems > 0 &&
+      value.maxItems === undefined &&
+      property.type &&
+      ts.isTypeOperatorNode(property.type) &&
+      ts.isArrayTypeNode(property.type.type)
+    ) {
+      const item = property.type.type.elementType;
+      return ts.factory.updatePropertySignature(
+        property,
+        property.modifiers,
+        property.name,
+        property.questionToken,
+        ts.factory.createTypeOperatorNode(
+          ts.SyntaxKind.ReadonlyKeyword,
+          ts.factory.createTupleTypeNode([
+            ...Array.from({ length: value.minItems }, () => item),
+            ts.factory.createRestTypeNode(ts.factory.createArrayTypeNode(item)),
+          ]),
+        ),
+      );
+    }
+    const keyRef = (value.propertyNames as { $ref?: string } | undefined)?.$ref;
+    if (keyRef && property.type && ts.isTypeLiteralNode(property.type)) {
+      const index = property.type.members.find(ts.isIndexSignatureDeclaration);
+      if (index) {
+        const map = ts.factory.createTypeReferenceNode("Readonly", [
+          ts.factory.createTypeReferenceNode("Partial", [
+            ts.factory.createTypeReferenceNode("Record", [component(refTail(keyRef)), index.type]),
+          ]),
+        ]);
+        return ts.factory.updatePropertySignature(
+          property,
+          property.modifiers,
+          property.name,
+          property.questionToken,
+          map,
+        );
+      }
+    }
+  },
+});
+const declarations = ast.find(
+  (node) => ts.isInterfaceDeclaration(node) && node.name.text === "components",
+);
+if (!declarations || !ts.isInterfaceDeclaration(declarations))
+  throw new Error("Missing component declarations");
+// Compiler nodes are synthetic: inspect their names, not source positions.
+const schemaMember = declarations.members.find(
+  (member) =>
+    ts.isPropertySignature(member) &&
+    (ts.isIdentifier(member.name) || ts.isStringLiteral(member.name)) &&
+    member.name.text === "schemas",
+);
+if (
+  !schemaMember ||
+  !ts.isPropertySignature(schemaMember) ||
+  !schemaMember.type ||
+  !ts.isTypeLiteralNode(schemaMember.type)
+) {
+  throw new Error("Missing component schema members");
+}
+const bodies = new Map(
+  schemaMember.type.members.filter(ts.isPropertySignature).map((member) => {
+    if (!member.type) throw new Error("Compiler produced an untyped schema member");
+    return [(member.name as ts.Identifier | ts.StringLiteral).text, member.type] as const;
+  }),
+);
+function schemaBody(name: string): ts.TypeNode {
+  const body = bodies.get(name);
+  if (!body) throw new Error(`Compiler omitted schema ${name}`);
+  return body;
+}
+// JSON transport aliases are recursive in both modes. Direct named bodies break
+// the indexed component/property recursion that TypeScript rejects (TS2502).
+const jsonAliases = new Map(
+  Object.entries(definitions)
+    .filter(([, value]) => value["x-python-module"] === "nof1_causal_lab.json_types")
+    .map(([name]) => [name, name.replace(/-(Input|Output)$/, "")]),
+);
+const named = [...outputs].map(([name, canonical]) =>
+  ts.factory.createTypeAliasDeclaration(
+    [ts.factory.createModifier(ts.SyntaxKind.ExportKeyword)],
+    canonical,
+    undefined,
+    jsonAliases.has(name)
+      ? rewrite(schemaBody(name), (node) => {
+          const ref = referenceName(node);
+          const alias = ref && jsonAliases.get(ref);
+          return alias ? ts.factory.createTypeReferenceNode(alias) : node;
+        })
+      : component(name),
+  ),
+);
+for (const [name, canonical] of templates) {
+  const body = rewrite(schemaBody(name), (node) => {
+    const ref = referenceName(node);
+    if (!ref) return node;
+    const application = definitions[ref]["x-typescript-type"];
+    if (application) return operand(application);
+    const publicName = templates.get(ref) ?? outputs.get(ref);
+    return publicName
+      ? ts.factory.createTypeReferenceNode(
+          publicName,
+          templates.has(ref)
+            ? definitions[ref]["x-typescript-parameters"].map((parameter: string) =>
+                ts.factory.createTypeReferenceNode(parameter),
+              )
+            : undefined,
+        )
+      : node;
+  });
+  named.push(
+    ts.factory.createTypeAliasDeclaration(
+      [ts.factory.createModifier(ts.SyntaxKind.ExportKeyword)],
+      canonical,
+      definitions[name]["x-typescript-parameters"].map((parameter: string) =>
+        ts.factory.createTypeParameterDeclaration(undefined, parameter),
+      ),
+      body,
+    ),
+  );
 }
 
-main().catch((err) => {
-  console.error(err);
-  process.exit(1);
-});
+const operations = ast.map((node) =>
+  rewrite(node, (child) => {
+    if (
+      ts.isPropertySignature(child) &&
+      (ts.isIdentifier(child.name) || ts.isStringLiteral(child.name)) &&
+      child.name.text === "schemas" &&
+      child.type &&
+      ts.isTypeLiteralNode(child.type)
+    ) {
+      return ts.factory.updatePropertySignature(
+        child,
+        child.modifiers,
+        child.name,
+        child.questionToken,
+        ts.factory.updateTypeLiteralNode(
+          child.type,
+          child.type.members.filter(
+            (member) =>
+              ts.isPropertySignature(member) &&
+              (ts.isIdentifier(member.name) || ts.isStringLiteral(member.name)) &&
+              live.has(member.name.text),
+          ),
+        ),
+      );
+    }
+    const name = referenceName(child);
+    if (name && jsonAliases.has(name)) return operand(`Domain.${jsonAliases.get(name)}`);
+    const application = name && !name.endsWith("-Input") && definitions[name]["x-typescript-type"];
+    return application ? operand(application, true) : child;
+  }),
+);
+const banner = "/** AUTO-GENERATED from Python's OpenAPI graph. Run bun run codegen. */\n";
+writeOrCheck(resolve(ROOT, "src/generated/model-api.ts"), banner + astToString(operations));
+writeOrCheck(
+  resolve(ROOT, "src/generated/models.ts"),
+  `${banner}import type { components } from "./model-api";\n${astToString(named)}`,
+);
+generateMetadata();
+if (changedPaths.length)
+  throw new Error(`Generated API types are stale: ${changedPaths.join(", ")}`);
+console.log(checkOnly ? "API types checked." : "API types generated from one OpenAPI AST.");

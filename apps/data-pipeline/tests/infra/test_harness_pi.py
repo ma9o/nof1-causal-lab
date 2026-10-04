@@ -101,7 +101,6 @@ def test_turn_parses_tool_and_terminal_result(monkeypatch, tmp_path):
     assert result.completion == "Accepted"
     assert result.tool_calls_fired == ["submit_model"]
     assert result.terminal_tool_name == "submit_model"
-    assert result.terminal_tool_output == "VALID"
     argv = captured["invocations"][0]
     assert argv[argv.index("--session-id") + 1] == session.session_id
 

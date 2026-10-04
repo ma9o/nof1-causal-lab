@@ -21,7 +21,6 @@ from nof1_causal_lab.artifacts.expressions import (
 )
 from nof1_causal_lab.artifacts.expressions import state as expr_state
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorPredictiveChecks
 from nof1_causal_lab.artifacts.question import QuestionSpec
 from nof1_causal_lab.models.model_inputs import input_fingerprints
 from nof1_causal_lab.models.model_structure import (
@@ -30,9 +29,7 @@ from nof1_causal_lab.models.model_structure import (
     compare_parameters,
     model_graph_entities,
 )
-from nof1_causal_lab.study.git_objects import object_tree
 from nof1_causal_lab.study.history import StudyRepository
-from nof1_causal_lab.study.lineage import inference_is_current
 from nof1_causal_lab.study.records import Applied
 from nof1_causal_lab.study.snapshots import ModelReader
 from nof1_causal_lab.study.state import is_stale
@@ -51,8 +48,6 @@ SIMULATION_REPORTS = ROOT / "apps/web/src/components/dag/__fixtures__/simulation
 
 ARTIFACTS: dict[ArtifactId, str] = {
     "model": "model.json",
-    "identification_report": "identification_report.json",
-    "validation_report": "validation_report.json",
 }
 TRACES = {
     "raw_data": "raw-data",
@@ -81,24 +76,17 @@ def read_fixture_files(repository: StudyRepository, state: StudyState) -> dict[s
         files[f"traces/{name}.json"] = (
             LLMTrace.model_validate_json(raw_trace).model_dump_json(indent=2) + "\n"
         ).encode()
-    record = next(
-        record
-        for record in reversed(records)
-        if record.record.attempt.action == "fit"
-        and isinstance(record.record.attempt.outcome, Applied)
-    )
-    assert record.record.attempt.action == "fit"
-    assert record.record.attempt.outcome.status == "applied"
-    files["inference.json"] = (
-        json.dumps(record.record.attempt.outcome.result.model_dump(mode="json"), indent=2) + "\n"
-    ).encode()
-    # Archived summaries may survive after their original arrays are lost.
-    if "logs/predictive_checks.json" in object_tree(repository.repo, record.commit_id):
-        raw_checks = repository.read_file(record.commit_id, "logs/predictive_checks.json")
-        files["predictive_checks.json"] = (
-            PosteriorPredictiveChecks.model_validate_json(raw_checks).model_dump_json(indent=2)
-            + "\n"
-        ).encode()
+    reader = ModelReader(repository.workspace_id, at=repository.head())
+    identification = reader.identification()
+    if identification is not None:
+        files["artifacts/identification_report.json"] = (identification.value.model_dump_json(indent=2) + "\n").encode()
+    if reader.validation_report is not None:
+        files["artifacts/validation_report.json"] = (reader.validation_report.value.model_dump_json(indent=2) + "\n").encode()
+    report = reader.inference_report
+    files["inference.json"] = (report.value.model_dump_json(indent=2) + "\n").encode() if report is not None else b"null\n"
+    predictive = reader.checks[0].predictive if reader.checks is not None else None
+    checks = predictive.evaluation.predictive_checks if predictive is not None and predictive.evaluation.kind == "evaluated" else None
+    files["predictive_checks.json"] = (checks.model_dump_json(indent=2) + "\n").encode() if checks is not None else b"null\n"
     # Check external payload closure as well as the native Git objects.
     for aid, info in state.current.items():
         for filename in store.filenames(aid, info.revision):
@@ -113,9 +101,7 @@ def project(source: Path, destination: Path | None = None):
     required: tuple[ArtifactId, ...] = (
         "raw_data",
         "model",
-        "identification_report",
         "panel",
-        "validation_report",
     )
     missing = [aid for aid in required if not state.has(aid)]
     if missing:
@@ -125,8 +111,6 @@ def project(source: Path, destination: Path | None = None):
     stale = [aid for aid in required if is_stale(state, aid)]
     if stale:
         raise ValueError(f"Source workspace has stale current artifacts: {', '.join(stale)}.")
-    if not inference_is_current(state):
-        raise ValueError("Source workspace has no completed inference for its current model.")
     files = read_fixture_files(repository, state)
     if destination is not None:
         for name, content in files.items():
@@ -176,12 +160,13 @@ def workbench_comparisons(snapshot, history):
             key: law for key, law in free.distributions.items() if key != parameter.distribution
         },
     )
-    models = {
+    models: dict[str, ModelSpec | None] = {
         history[str(seq)]["state"]["current"]["model"]["revision"]: ModelSpec.model_validate(
             history[str(seq)]["model"]["value"]
         )
         for seq in (2, 3, 4, 7)
     }
+    models["no-model"] = None
     models.update(
         {format(n, "x").rjust(40, "a"): model for n, model in [(5, free), (6, free), (7, pinned)]}
     )
@@ -191,13 +176,14 @@ def workbench_comparisons(snapshot, history):
     for before_version, left in models.items():
         for after_version, right in models.items():
             parameters = compare_parameters(left, right)
-            before = input_fingerprints(left)
+            before = input_fingerprints(left) if left is not None else {}
+            after = input_fingerprints(right) if right is not None else {}
             scoped = (
-                StructuralSelection.for_question(left, question),
-                StructuralSelection.for_question(right, question),
+                StructuralSelection.for_question(left, question) if left is not None else None,
+                StructuralSelection.for_question(right, question) if right is not None else None,
             )
             constructs, edges = compare_model_graph(*scoped)
-            graphs = tuple(model_graph_entities(selection) for selection in scoped)
+            graphs = tuple(model_graph_entities(selection) if selection is not None else ((), ()) for selection in scoped)
             comparisons[f"{before_version}:{after_version}"] = {
                 "parameters": [item.model_dump(mode="json") for item in parameters],
                 "constructs": [item.model_dump(mode="json") for item in constructs],
@@ -205,12 +191,12 @@ def workbench_comparisons(snapshot, history):
                 "before_dispositions": [
                     item.model_dump(mode="json") for item in scoped[0].structural_dispositions
                 ]
-                if left.measurement_clock is not None and left.indicators
+                if scoped[0] is not None and scoped[0].model.measurement_clock is not None and scoped[0].model.indicators
                 else [],
                 "after_dispositions": [
                     item.model_dump(mode="json") for item in scoped[1].structural_dispositions
                 ]
-                if right.measurement_clock is not None and right.indicators
+                if scoped[1] is not None and scoped[1].model.measurement_clock is not None and scoped[1].model.indicators
                 else [],
                 "before_dynamic_construct_ids": [
                     item.id for item in graphs[0][0] if item.is_dynamic
@@ -218,10 +204,10 @@ def workbench_comparisons(snapshot, history):
                 "after_dynamic_construct_ids": [
                     item.id for item in graphs[1][0] if item.is_dynamic
                 ],
-                "beforeModel": left.model_dump(mode="json"),
-                "afterModel": right.model_dump(mode="json"),
+                "beforeModel": left.model_dump(mode="json") if left is not None else None,
+                "afterModel": right.model_dump(mode="json") if right is not None else None,
                 "changed_inputs": [
-                    key for key, value in input_fingerprints(right).items() if before[key] != value
+                    key for key in sorted(before.keys() | after.keys()) if before.get(key) != after.get(key)
                 ],
             }
     return {
@@ -247,13 +233,13 @@ def build_outputs():
             capture_output=True,
         )
         subprocess.run(
-            ["git", "--git-dir", str(history), "config", "nof1.format", "16"],
+            ["git", "--git-dir", str(history), "config", "nof1.format", "18"],
             check=True,
             capture_output=True,
         )
         shutil.copytree(DEMO_ROOT / "store", workspace / "store")
-        reader = ModelReader("DEMO")
         repository = StudyRepository("DEMO")
+        reader = ModelReader("DEMO", at=repository.head())
         commits = {0: reader.records[0].parent_ids[0]}
         commits.update({record.record.seq: record.commit_id for record in reader.records})
         outputs = {
@@ -299,13 +285,13 @@ def rendered_fixtures(outputs):
         DEMO_ROOT / "fixture/model_snapshot.json": "Domain.ModelSnapshot",
         DEMO_ROOT
         / "fixture/model_history.json": "Readonly<Partial<Record<number, Domain.ModelSnapshot>>>",
-        DEMO_ROOT / "fixture/inference.json": "Domain.ModelFitResult",
-        DEMO_ROOT / "fixture/predictive_checks.json": "Domain.PosteriorPredictiveChecks",
+        DEMO_ROOT / "fixture/inference.json": "Domain.InferenceReport | null",
+        DEMO_ROOT / "fixture/predictive_checks.json": "Domain.PosteriorPredictiveChecks | null",
         SIMULATION_REPORTS: "readonly Domain.SimulationReport[]",
         WORKBENCH_OUTPUT: """Readonly<{
   pinned_model: Domain.ModelSpec;
-  pinned_inputs: Domain.ArtifactRecord["model_inputs"];
-  comparisons: Readonly<Partial<Record<string, Pick<Domain.ModelDiffReport, "constructs" | "edges" | "before_dispositions" | "after_dispositions" | "before_dynamic_construct_ids" | "after_dynamic_construct_ids" | "parameters" | "changed_inputs"> & {beforeModel: Domain.ModelSpec; afterModel: Domain.ModelSpec}>>>;
+  pinned_inputs: Record<string, string>;
+  comparisons: Readonly<Partial<Record<string, Pick<Domain.ModelDiffReport, "constructs" | "edges" | "before_dispositions" | "after_dispositions" | "before_dynamic_construct_ids" | "after_dynamic_construct_ids" | "parameters" | "changed_inputs"> & {beforeModel: Domain.ModelSpec | null; afterModel: Domain.ModelSpec | null}>>>;
 }>""",
         WORKBENCH_OUTPUT.with_name("workbench-visuals.json"): """Readonly<{
   note: string;
@@ -313,7 +299,6 @@ def rendered_fixtures(outputs):
   simulation: Domain.SimulationPaths;
   observations: Readonly<Partial<Record<Domain.IndicatorId, Domain.ObservationHistory>>>;
   parameters: Domain.ParameterDraws;
-  mechanisms: Readonly<Partial<Record<string, Domain.MechanismCurves>>>;
 }>""",
     }
     contracts.update(

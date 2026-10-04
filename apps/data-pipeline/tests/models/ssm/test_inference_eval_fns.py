@@ -1,8 +1,9 @@
 """Focused behavioral matrix for shared inference evaluators."""
 
+from __future__ import annotations
+
 import functools
-from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from unittest.mock import Mock
 
 import equinox as eqx
@@ -14,7 +15,10 @@ import pytest
 from numpyro import handlers
 
 import nof1_causal_lab.models.ssm.inference.warmup.map as warmup_map
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.artifacts.expressions import CallExpression, Expression, coefficient, state
+from nof1_causal_lab.artifacts.likelihood import PoissonLawSpec
+from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.models.ssm.autoreparam import AutoReparam
 from nof1_causal_lab.models.ssm.constants import MIN_DT
 from nof1_causal_lab.models.ssm.execution.contracts import (
@@ -27,10 +31,52 @@ from nof1_causal_lab.models.ssm.inference.targets.laplace import LaplaceLikeliho
 from nof1_causal_lab.models.ssm.inference.utils import prepare_model_parameters
 from nof1_causal_lab.models.ssm.inference.warmup.map import _build_eval_fns
 from nof1_causal_lab.models.ssm.model import numpyro_model
+from tests.inference_fixtures import bind_panel_fixture, compile_fit_fixture
 from tests.model_fixtures import (
-    bind_panel_fixture,
-    compile_fit_fixture,
+    construct_named,
+    indicator_named,
+    likelihood_named,
+    one_state_gaussian_model,
+    parameter_for,
+    without_parameters,
 )
+
+
+def _poisson_parameter_evaluator() -> ModelSpec:
+    model = one_state_gaussian_model()
+    latent_0 = construct_named(model, "latent_0")
+    manifest_0 = indicator_named(model, "manifest_0")
+    manifest_0_likelihood = likelihood_named(model, "manifest_0")
+    latent_0_manifest_0_manifest_var_diag = parameter_for(
+        model, SiteKind.MANIFEST_VAR_DIAG, "latent_0", "manifest_0"
+    )
+    manifest_0_revised = manifest_0.revised(
+        observation=manifest_0.observation.revised(measurement_dtype="count"),
+        likelihood=manifest_0_likelihood.revised(
+            law=PoissonLawSpec[Expression](
+                rate=CallExpression(
+                    function="exp",
+                    arguments=(
+                        (
+                            coefficient(1.3862943649291992, "observation_intercept")
+                            + (coefficient(1.0, "loading") * state(latent_0.id))
+                        ),
+                    ),
+                )
+            )
+        ),
+    )
+    latent_0_revised = latent_0.revised(indicators=(manifest_0_revised,))
+    parameters, distributions = without_parameters(model, latent_0_manifest_0_manifest_var_diag)
+    return model.revised(
+        edges=replace_constructs(model.edges, (latent_0_revised,)),
+        parameters=parameters,
+        distributions=distributions,
+    )
+
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 
 class _RecordingBackend:
@@ -61,12 +107,7 @@ def _build_test_evaluators(monkeypatch, *, backend: _RecordingBackend):
     assembled_samples: list[dict[str, jnp.ndarray]] = []
     bound_observations = jnp.asarray([[1.0], [2.0], [3.0]])
     bound_times = jnp.asarray([0.0, 0.5, 1.5])
-    spec = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2]
-            / "fixtures/models/inference_eval_fns/poisson_parameter_evaluator.json"
-        ).read_text()
-    )
+    spec = _poisson_parameter_evaluator()
     inputs = compile_fit_fixture(spec)
     panel = bind_panel_fixture(inputs.compiled, bound_observations, bound_times)
 
@@ -221,12 +262,7 @@ class TestPureJaxLikelihoodEvaluator:
 
     @staticmethod
     def _build_poisson_case():
-        spec = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models/inference_eval_fns/poisson_parameter_evaluator.json"
-            ).read_text()
-        )
+        spec = _poisson_parameter_evaluator()
         model = compile_fit_fixture(spec)
         observations = jnp.array([[4.0], [3.0], [5.0], [6.0]], dtype=jnp.float32)
         times = jnp.arange(observations.shape[0], dtype=jnp.float32) * 0.5

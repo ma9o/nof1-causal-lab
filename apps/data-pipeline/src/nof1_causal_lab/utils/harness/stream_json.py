@@ -60,15 +60,14 @@ def event_object(value: JsonValue) -> JsonObject:
 
 class _TraceAccumulator(Protocol):
     messages: list[TraceMessage]
-    model: str
     total_time_seconds: float
     usage: TraceUsage
 
 
-def _materialize_trace(state: _TraceAccumulator) -> LLMTrace:
+def _materialize_trace(state: _TraceAccumulator, model: str) -> LLMTrace:
     return LLMTrace(
         messages=tuple(state.messages),
-        model=state.model,
+        model=model,
         total_time_seconds=state.total_time_seconds,
         usage=state.usage,
     )
@@ -118,7 +117,6 @@ def _claude_assistant_message(message: JsonObject) -> TraceMessage:
                 tool_calls.append(
                     {
                         "id": str(block.get("id", "")),
-                        "type": "function",
                         "name": str(block.get("name", "")),
                         "arguments": json.dumps(block.get("input") or {}),
                     }
@@ -480,7 +478,7 @@ def format_claude_event_for_log(event: JsonObject) -> str | None:
 
 def finalize_trace(state: SessionStreamRuntime) -> LLMTrace:
     """Materialize an :class:`LLMTrace` from an accumulator."""
-    return _materialize_trace(state)
+    return _materialize_trace(state, state.model)
 
 
 # ---------------------------------------------------------------------------
@@ -493,7 +491,6 @@ class CodexStreamState:
     """Accumulator for :func:`parse_codex_stream`."""
 
     thread_id: str | None = None
-    model: str = ""
     messages: list[TraceMessage] = field(default_factory=list)
     usage: TraceUsage = field(default_factory=TraceUsage)
     total_time_seconds: float = 0.0
@@ -568,7 +565,6 @@ def apply_codex_event(state: CodexStreamState, event: JsonObject) -> None:
                 tool_calls=(
                     {
                         "id": call_id,
-                        "type": "function",
                         "name": tool_name,
                         "arguments": arguments_json,
                     },
@@ -616,9 +612,9 @@ def apply_codex_event(state: CodexStreamState, event: JsonObject) -> None:
         return
 
 
-def finalize_codex_trace(state: CodexStreamState) -> LLMTrace:
+def finalize_codex_trace(state: CodexStreamState, model: str) -> LLMTrace:
     """Materialize an :class:`LLMTrace` from a Codex accumulator."""
-    return _materialize_trace(state)
+    return _materialize_trace(state, model)
 
 
 # ---------------------------------------------------------------------------
@@ -649,7 +645,6 @@ def _pi_tool_calls(content: JsonValue) -> list[TraceToolCall]:
         calls.append(
             {
                 "id": str(block.get("id") or block.get("toolCallId") or ""),
-                "type": "function",
                 "name": str(block.get("name") or block.get("toolName") or ""),
                 "arguments": arguments if isinstance(arguments, str) else json.dumps(arguments),
             }

@@ -1,8 +1,9 @@
 """Partial models stay inspectable; numerical operations validate their own inputs."""
 
-from pathlib import Path
+from tests.git_fixtures import artifact_revisions
+
 from typing import TYPE_CHECKING
-from unittest.mock import AsyncMock, Mock
+from unittest.mock import Mock
 
 import polars as pl
 import pytest
@@ -10,7 +11,6 @@ import pytest
 from nof1_causal_lab.actions.contracts import EditModelRequest, FitRequest
 from nof1_causal_lab.actions.runners import run_action
 from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.posterior import FitSettingsSpec
 from nof1_causal_lab.compilation_errors import IncompleteModelError
 from nof1_causal_lab.study.history import StudyRepository
@@ -21,6 +21,7 @@ from tests.action_fixtures import applied_record, edit_and_check, question_root
 from tests.data_fixtures import metadata_for_model
 from tests.git_fixtures import artifact_revision
 from tests.helpers import make_model, run_async, write_question
+from tests.model_fixtures import x_y_model
 
 pytestmark = pytest.mark.contract
 
@@ -41,11 +42,7 @@ def workspace(monkeypatch, tmp_path):
 
 def test_partial_model_revisions_remain_readable_with_capability_findings(workspace):
     partial = make_model(["X", "Y"], [("X", "Y")])
-    complete = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[1] / "fixtures/models" / "common/x_y_model.json"
-        ).read_text()
-    )
+    complete = x_y_model()
     missing_law = complete.revised(
         distributions={},
         parameters=tuple(p.revised(distribution=None) for p in complete.parameters),
@@ -71,11 +68,10 @@ def test_partial_model_revisions_remain_readable_with_capability_findings(worksp
             state,
         )
         state = state.with_artifacts(effects.effects.produced)
-        state = state.revised(checks=effects.effects.checks)
         journal.append(
             applied_record(effects, seq=revision + 1, ts="2026-09-14T12:00:00Z", trace_ids=[])
         )
-        snapshot = ModelReader(workspace).snapshot()
+        snapshot = ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot()
         assert snapshot.model is not None
         assert snapshot.model.value == model
         assert snapshot.specification is not None
@@ -93,17 +89,11 @@ def test_partial_model_revisions_remain_readable_with_capability_findings(worksp
         assert ModelReader(workspace, at=snapshot.commit_id).snapshot() == snapshot
 
 
-@pytest.mark.parametrize("deployment", ["development", "production"])
-def test_incomplete_model_is_rejected_before_local_or_remote_inference(
-    workspace, monkeypatch, deployment
-):
+def test_incomplete_model_is_rejected_before_inference(workspace, monkeypatch):
     from nof1_causal_lab.actions import fit as flow
-    from nof1_causal_lab.actions import modal_runners
 
-    monkeypatch.setenv("DEPLOYMENT_ENV", deployment)
-    local, remote = Mock(), AsyncMock()
+    local = Mock()
     monkeypatch.setattr(flow, "fit", local)
-    monkeypatch.setattr(modal_runners, "run_fit_on_modal", remote)
     store = ArtifactStore(workspace)
     model = store.write_artifact(
         "model",
@@ -127,8 +117,7 @@ def test_incomplete_model_is_rejected_before_local_or_remote_inference(
             )
         )
     local.assert_not_called()
-    remote.assert_not_called()
-    assert store.list_revisions("model") == [model.revision]
+    assert artifact_revisions(store, "model") == [model.revision]
 
 
 def test_refit_after_an_edit_uses_selected_model_and_preserves_the_edit(workspace, monkeypatch):
@@ -136,12 +125,8 @@ def test_refit_after_an_edit_uses_selected_model_and_preserves_the_edit(workspac
     from nof1_causal_lab.actions.runners import _run_fit
     from nof1_causal_lab.study.store import read_model
 
-    prior = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[1] / "fixtures/models" / "common/x_y_model.json"
-        ).read_text()
-    )
-    fitted = prior.revised(time_points=(0.0, 1.0))
+    prior = x_y_model()
+    fitted = prior
     edited = fitted.revised(
         edges=(fitted.edges[0].revised(description="X changes Y within a day"),)
     )
@@ -165,17 +150,20 @@ def test_refit_after_an_edit_uses_selected_model_and_preserves_the_edit(workspac
         parquet_files={"panel.parquet": pl.DataFrame({"value": [1.0]})},
     )
 
-    from nof1_causal_lab.artifacts.posterior_diagnostics import ParticleMCMCEvidence
-    from tests.inference_fixtures import _report
+    from nof1_causal_lab.artifacts.posterior import InferenceEvidence
+    from nof1_causal_lab.models.ssm.inference.persistence import condition_model
+    from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
+    from tests.inference_fixtures import compile_model_fixture, parameter_draws, particle_posterior
+    import jax.numpy as jnp
 
     def fit(**kwargs):
         model = kwargs["selection"].model
         assert model == edited
-        return {
-            "_model": model.revised(time_points=(0.0, 1.0)),
-            "engine_evidence": ParticleMCMCEvidence(),
-            "report": _report(model),
-        }
+        conditioned, identity = condition_model(model, compile_model_fixture(model),
+            particle_posterior(JointPosteriorDraws(parameter_draws(model, 4), jnp.zeros((4, 2, 2)))),
+            times=jnp.array([0.0, 1.0]), array_writer=store.write_array, array_loader=store.read_array)
+        return {"_model": conditioned, "evidence": InferenceEvidence(distribution=identity,
+            time_origin=None, duration_seconds=0, num_chains=1)}
 
     monkeypatch.setattr(flow, "fit", fit)
     pins: dict[ArtifactId, GitOid] = {

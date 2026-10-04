@@ -4,7 +4,9 @@ from types import MappingProxyType
 
 import numpy as np
 import pytest
+from pydantic import ValidationError
 
+from nof1_causal_lab.study.artifact_files import ArtifactFileSpec
 from nof1_causal_lab.utils.immutability import freeze
 
 pytestmark = pytest.mark.contract
@@ -32,6 +34,7 @@ def test_nested_collections_and_strided_buffers_are_detached(dtype) -> None:
         array[0, 0] = 1
     with pytest.raises(ValueError, match="WRITEABLE"):
         array.setflags(write=True)
+    assert isinstance(array.base, np.ndarray)
     with pytest.raises(ValueError, match="WRITEABLE"):
         array.base.setflags(write=True)
 
@@ -39,3 +42,18 @@ def test_nested_collections_and_strided_buffers_are_detached(dtype) -> None:
 def test_object_arrays_cannot_claim_immutable_storage() -> None:
     with pytest.raises(TypeError, match="non-object dtype"):
         freeze(np.array([{"mutable": []}], dtype=object))
+
+
+def test_artifact_file_layout_owns_inputs_and_default_collections() -> None:
+    json_files = {"metadata": "metadata.json"}
+    parquet_files = {"panel": "panel.parquet"}
+    layout = ArtifactFileSpec(json_files=json_files, parquet_files=parquet_files)
+    json_files.clear()
+    parquet_files.clear()
+
+    assert layout.all_filenames() == frozenset({"metadata.json", "panel.parquet"})
+    for mapping in (layout.json_files, layout.parquet_files, ArtifactFileSpec().json_files):
+        assert isinstance(mapping, MappingProxyType)
+    for field_name in ("json_files", "parquet_files"):
+        with pytest.raises(ValidationError, match="frozen"):
+            setattr(layout, field_name, {})

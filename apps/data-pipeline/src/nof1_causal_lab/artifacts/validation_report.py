@@ -31,31 +31,9 @@ class ValidationIssue(Value):
 
 
 class IndicatorEmpiricalProfile(Value):
-    """An empirical profile summarizes an indicator's observed values, coverage, and data-
-    quality signals.
-    """
+    """Retained count of usable observations for one indicator."""
 
-    measurement_dtype: str | None = None
     n_obs: int
-    mean: float | None = None
-    std: float | None = None
-    min: float | None = None
-    max: float | None = None
-    q25: float | None = None
-    q50: float | None = None
-    q75: float | None = None
-    variance: float | None
-    time_coverage_ratio: float | None
-    max_gap_ratio: float | None
-    dtype_violations: int | None = None
-    duplicate_pct: float | None = None
-    arithmetic_sequence_detected: bool
-    n_unparseable_timestamps: int | None = None
-    zero_fraction: float | None = None
-    is_nonnegative: bool | None = None
-    is_unit_interval: bool | None = None
-    looks_integer_valued: bool | None = None
-    variance_to_mean_ratio: float | None = None
 
 
 class IndicatorAudit(Value):

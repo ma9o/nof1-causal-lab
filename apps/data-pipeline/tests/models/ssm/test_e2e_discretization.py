@@ -5,10 +5,11 @@ and parameter identity.
 """
 
 import math
-from pathlib import Path
 from typing import Any
 
+import jax.numpy as jnp
 import numpy as np
+import numpyro.distributions as dist
 import polars as pl
 import pytest
 
@@ -19,12 +20,164 @@ from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.models.model_structure import StructuralSelection
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
-from nof1_causal_lab.models.ssm.compile.inputs import (
-    compile_priors as compile_ssm_priors,
-)
+from nof1_causal_lab.models.ssm.compile.inputs import compile_priors as compile_ssm_priors
 from nof1_causal_lab.prior_distributions import prior_reference_value
 from tests.helpers import graph_constructs
-from tests.model_fixtures import compile_fit_fixture, compile_model_fixture
+from tests.inference_fixtures import compile_fit_fixture, compile_model_fixture
+from tests.model_fixtures import (
+    load_model_fixture,
+    parameter_laws,
+    parameter_named,
+    replace_parameters,
+)
+
+
+def _teste2espectodiscretization_test_time_invariant_states_drop_static_target_dynamics_and_diffusion_su() -> (
+    ModelSpec
+):
+    return load_model_fixture(
+        "e2e_discretization/teste2espectodiscretization_test_time_invariant_states_drop_static_target_dynamics_and_diffusion_support_complete_test_model.json"
+    )
+
+
+def _weekly_effect_rate() -> ModelSpec:
+    return load_model_fixture("e2e_discretization/weekly_effect_rate.json")
+
+
+def _daily_effect_rate() -> ModelSpec:
+    model = _weekly_effect_rate()
+    beta_stress_mood = parameter_named(model, "beta_stress_mood")
+    return model.revised(
+        parameters=replace_parameters(
+            model.parameters,
+            beta_stress_mood.revised(
+                transform=beta_stress_mood.transform.revised(interval_days=1.0)
+            ),
+        )
+    )
+
+
+def _equal_intervals_elementwise_priors() -> ModelSpec:
+    model = _weekly_effect_rate()
+    rho_stress = parameter_named(model, "rho_stress")
+    rho_mood = parameter_named(model, "rho_mood")
+    return model.revised(
+        parameters=replace_parameters(
+            model.parameters,
+            rho_stress.revised(transform=rho_stress.transform.revised(interval_days=7.0)),
+            rho_mood.revised(transform=rho_mood.transform.revised(interval_days=7.0)),
+        ),
+        distributions=parameter_laws(
+            model,
+            {
+                rho_mood.id: dist.Beta(
+                    concentration1=jnp.array(3.0, dtype=jnp.float32),
+                    concentration0=jnp.array(2.0, dtype=jnp.float32),
+                    validate_args=True,
+                )
+            },
+        ),
+    )
+
+
+def _stress_mood_model() -> ModelSpec:
+    model = _daily_effect_rate()
+    beta_stress_mood = parameter_named(model, "beta_stress_mood")
+    rho_stress = parameter_named(model, "rho_stress")
+    rho_mood = parameter_named(model, "rho_mood")
+    return model.revised(
+        parameters=replace_parameters(
+            model.parameters,
+            beta_stress_mood.revised(
+                transform=beta_stress_mood.transform.revised(interval_days="model_clock")
+            ),
+        ),
+        distributions=parameter_laws(
+            model,
+            {
+                rho_stress.id: dist.Beta(
+                    concentration1=2.0, concentration0=2.0, validate_args=False
+                ),
+                rho_mood.id: dist.Beta(concentration1=2.0, concentration0=2.0, validate_args=False),
+                beta_stress_mood.id: dist.Normal(loc=0.0, scale=0.5, validate_args=False),
+            },
+        ),
+    )
+
+
+def _construct_specific_residual_scales() -> ModelSpec:
+    model = _daily_effect_rate()
+    beta_stress_mood = parameter_named(model, "beta_stress_mood")
+    rho_mood = parameter_named(model, "rho_mood")
+    sigma_stress = parameter_named(model, "sigma_stress")
+    lambda_stress_cortisol_stress = parameter_named(model, "lambda_stress_cortisol_stress")
+    sigma_mood = parameter_named(model, "sigma_mood")
+    return model.revised(
+        parameters=replace_parameters(
+            model.parameters,
+            beta_stress_mood.revised(
+                transform=beta_stress_mood.transform.revised(interval_days="model_clock")
+            ),
+        ),
+        distributions=parameter_laws(
+            model,
+            {
+                rho_mood.id: dist.Beta(
+                    concentration1=jnp.array(3.0, dtype=jnp.float32),
+                    concentration0=jnp.array(2.0, dtype=jnp.float32),
+                    validate_args=True,
+                ),
+                sigma_stress.id: dist.HalfNormal(
+                    scale=jnp.array(0.8999999761581421, dtype=jnp.float32), validate_args=True
+                ),
+                lambda_stress_cortisol_stress.id: dist.Normal(
+                    loc=jnp.array(0.800000011920929, dtype=jnp.float32),
+                    scale=jnp.array(0.20000000298023224, dtype=jnp.float32),
+                    validate_args=True,
+                ),
+                sigma_mood.id: dist.HalfNormal(
+                    scale=jnp.array(0.10000000149011612, dtype=jnp.float32), validate_args=True
+                ),
+            },
+        ),
+    )
+
+
+def _weekly_reference_intervals() -> ModelSpec:
+    model = _equal_intervals_elementwise_priors()
+    rho_stress = parameter_named(model, "rho_stress")
+    sigma_stress = parameter_named(model, "sigma_stress")
+    obs_sd_stress_self_report = parameter_named(model, "obs_sd_stress_self_report")
+    lambda_stress_cortisol_stress = parameter_named(model, "lambda_stress_cortisol_stress")
+    obs_sd_stress_cortisol = parameter_named(model, "obs_sd_stress_cortisol")
+    sigma_mood = parameter_named(model, "sigma_mood")
+    return model.revised(
+        parameters=replace_parameters(
+            model.parameters,
+            rho_stress.revised(transform=rho_stress.transform.revised(interval_days="model_clock")),
+        ),
+        distributions=parameter_laws(
+            model,
+            {
+                sigma_stress.id: dist.HalfNormal(
+                    scale=jnp.array(1.0, dtype=jnp.float32), validate_args=True
+                ),
+                obs_sd_stress_self_report.id: dist.HalfNormal(
+                    scale=jnp.array(0.5, dtype=jnp.float32), validate_args=True
+                ),
+                lambda_stress_cortisol_stress.id: dist.HalfNormal(
+                    scale=jnp.array(0.800000011920929, dtype=jnp.float32), validate_args=True
+                ),
+                obs_sd_stress_cortisol.id: dist.HalfNormal(
+                    scale=jnp.array(0.5, dtype=jnp.float32), validate_args=True
+                ),
+                sigma_mood.id: dist.HalfNormal(
+                    scale=jnp.array(1.0, dtype=jnp.float32), validate_args=True
+                ),
+            },
+        ),
+    )
+
 
 pytestmark = pytest.mark.contract
 
@@ -172,13 +325,7 @@ def two_construct_structure() -> ModelSpec:
 
 @pytest.fixture
 def two_construct_model(two_construct_structure) -> ModelSpec:
-    return ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2]
-            / "fixtures/models"
-            / "e2e_discretization/stress_mood_model.json"
-        ).read_text()
-    )
+    return _stress_mood_model()
 
 
 # ═══════════════════════════════════════════════════════════════════════
@@ -240,13 +387,7 @@ class TestE2ESpecToDiscretization:
 
     def test_time_invariant_states_drop_static_target_dynamics_and_diffusion_support(self):
 
-        model = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "e2e_discretization/teste2espectodiscretization_test_time_invariant_states_drop_static_target_dynamics_and_diffusion_support_complete_test_model.json"
-            ).read_text()
-        )
+        model = _teste2espectodiscretization_test_time_invariant_states_drop_static_target_dynamics_and_diffusion_su()
         spec = model
         assert not model.constructs[0].dynamics
         static_index = numeric.state_names(compile_model_fixture(spec)).index("baseline")
@@ -281,27 +422,12 @@ class TestE2ESpecToDiscretization:
         """Compiled artifacts preserve the grounded latent and measurement layout."""
 
         typed_scientific_model = ModelSpec.model_validate(two_construct_model)
-        compile_model_fixture(
-            ModelSpec.model_validate_json(
-                (
-                    Path(__file__).resolve().parents[2]
-                    / "fixtures/models"
-                    / "e2e_discretization/weekly_reference_intervals.json"
-                ).read_text()
-            )
-        )
+        compile_model_fixture(_weekly_reference_intervals())
 
-        assert numeric.state_names(
-            compile_model_fixture(
-                ModelSpec.model_validate_json(
-                    (
-                        Path(__file__).resolve().parents[2]
-                        / "fixtures/models"
-                        / "e2e_discretization/weekly_reference_intervals.json"
-                    ).read_text()
-                )
-            )
-        ) == ("stress", "mood")
+        assert numeric.state_names(compile_model_fixture(_weekly_reference_intervals())) == (
+            "stress",
+            "mood",
+        )
         assert numeric.observation_names(compile_model_fixture(typed_scientific_model)) == (
             "stress_self_report",
             "stress_cortisol",
@@ -317,17 +443,9 @@ class TestE2ESpecToDiscretization:
                 "site_name": binding.site.name,
                 "flat_index": binding.flat_index,
             }
-            for binding in parameter_bindings(
-                compile_model_fixture(
-                    ModelSpec.model_validate_json(
-                        (
-                            Path(__file__).resolve().parents[2]
-                            / "fixtures/models"
-                            / "e2e_discretization/weekly_reference_intervals.json"
-                        ).read_text()
-                    )
-                )
-            )[0]
+            for binding in parameter_bindings(compile_model_fixture(_weekly_reference_intervals()))[
+                0
+            ]
         ]
         bindings = {item["parameter"]: item for item in binding_rows}
         assert bindings["beta_stress_mood"]["site_name"] == "vf_2_p0"
@@ -365,13 +483,7 @@ class TestE2ESpecToDiscretization:
         data_for_model = data_for_model.with_columns(
             pl.col("indicator").replace_strict(indicator_ids).alias("indicator_id")
         ).drop("indicator")
-        source = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "e2e_discretization/weekly_reference_intervals.json"
-            ).read_text()
-        )
+        source = _weekly_reference_intervals()
         model = compile_fit_fixture(source)
         spec = model.compiled
         assert numeric.state_names(spec) == ("stress", "mood")
@@ -390,15 +502,7 @@ class TestE2ESpecToDiscretization:
     ):
         """Construct-specific sigma priors compile to per-latent diffusion scales."""
 
-        ssm_priors, _idx = _compile_priors_for_test(
-            ModelSpec.model_validate_json(
-                (
-                    Path(__file__).resolve().parents[2]
-                    / "fixtures/models"
-                    / "e2e_discretization/construct_specific_residual_scales.json"
-                ).read_text()
-            )
-        )
+        ssm_priors, _idx = _compile_priors_for_test(_construct_specific_residual_scales())
 
         np.testing.assert_allclose(ssm_priors["diffusion_diag_free"].scale, [0.9, 0.1])
 
@@ -413,15 +517,7 @@ class TestE2ESpecToDiscretization:
         rho_stress has interval_days="model_clock" → daily dt=1
         beta_stress_mood has interval_days=7 → dt=7
         """
-        ssm_priors, _idx = _compile_priors_for_test(
-            ModelSpec.model_validate_json(
-                (
-                    Path(__file__).resolve().parents[2]
-                    / "fixtures/models"
-                    / "e2e_discretization/weekly_reference_intervals.json"
-                ).read_text()
-            )
-        )
+        ssm_priors, _idx = _compile_priors_for_test(_weekly_reference_intervals())
 
         # --- rho_mood: Beta(3,2) → E=0.6, interval_days=7 ---
         # dynamics decay for mood = -ln(0.6) / 7 ≈ 0.073
@@ -468,25 +564,9 @@ class TestE2ESpecToDiscretization:
 
         source_model = scientific_model
 
-        ssm_priors_w, _idx = _compile_priors_for_test(
-            ModelSpec.model_validate_json(
-                (
-                    Path(__file__).resolve().parents[2]
-                    / "fixtures/models"
-                    / "e2e_discretization/weekly_effect_rate.json"
-                ).read_text()
-            )
-        )
+        ssm_priors_w, _idx = _compile_priors_for_test(_weekly_effect_rate())
 
-        ssm_priors_d, _idx = _compile_priors_for_test(
-            ModelSpec.model_validate_json(
-                (
-                    Path(__file__).resolve().parents[2]
-                    / "fixtures/models"
-                    / "e2e_discretization/daily_effect_rate.json"
-                ).read_text()
-            )
-        )
+        ssm_priors_d, _idx = _compile_priors_for_test(_daily_effect_rate())
 
         # Weekly: mixed intervals (beta=7d, rho=1d) → first-order: 0.3 / 7 ≈ 0.043
         mu_w_val = _linear_edge_weight(source_model, ssm_priors_w, source=0, target=1)
@@ -513,27 +593,13 @@ class TestPriorCompilationMetadata:
 
     def test_compile_keeps_elementwise_priors_when_intervals_match(self, two_construct_structure):
         """Compilation keeps factorized DT→CT priors even when dt values match."""
-        scientific_model = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "e2e_discretization/stress_mood_model.json"
-            ).read_text()
-        )
+        scientific_model = _stress_mood_model()
 
         # All parameters at dt=7 (weekly)
 
         source_model = scientific_model
 
-        ssm_priors, _idx = _compile_priors_for_test(
-            ModelSpec.model_validate_json(
-                (
-                    Path(__file__).resolve().parents[2]
-                    / "fixtures/models"
-                    / "e2e_discretization/equal_intervals_elementwise_priors.json"
-                ).read_text()
-            )
-        )
+        ssm_priors, _idx = _compile_priors_for_test(_equal_intervals_elementwise_priors())
 
         dynamics_decay = _decay_reference_values(source_model, ssm_priors)
         linear_edge_weight = _linear_edge_weight(source_model, ssm_priors, source=0, target=1)

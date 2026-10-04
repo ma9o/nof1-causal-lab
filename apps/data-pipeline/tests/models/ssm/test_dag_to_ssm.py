@@ -4,36 +4,291 @@ Parameter traces use the prior-only backend; likelihood numerics are exercised
 by the inference tests.
 """
 
-from pathlib import Path
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 import jax.random as random
 import numpy as np
+import numpyro.distributions as dist
 import numpyro.handlers as handlers
 import polars as pl
 import pytest
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
-from nof1_causal_lab.artifacts.expressions import coefficient
-from nof1_causal_lab.artifacts.identity import ConstructId
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.expressions import (
+    coefficient,
+    restoring_potential,
+    state,
+)
+from nof1_causal_lab.artifacts.identity import (
+    ConstructId,
+    DistributionId,
+    MechanismId,
+    ParameterId,
+)
+from nof1_causal_lab.artifacts.mechanism import DriftMechanismSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
+from nof1_causal_lab.artifacts.parameter_spec import (
+    InitialCorrelationTransformSpec,
+    IntervalEffectTransformSpec,
+    ParameterSpec,
+)
 from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.models.model_structure import StructuralSelection, validate_execution_structure
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.inference.utils import _DummyLikelihoodBackend
 from nof1_causal_lab.models.ssm.model import numpyro_model
-from nof1_causal_lab.models.ssm.parameterization import (
-    build_site_registry,
-)
+from nof1_causal_lab.models.ssm.parameterization import build_site_registry
 from nof1_causal_lab.models.ssm.priors import resolve_site_priors
 from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
 from nof1_causal_lab.prior_distributions import distribution_from_params
+from tests.inference_fixtures import bind_panel_fixture, compile_fit_fixture, compile_model_fixture
 from tests.model_fixtures import (
-    bind_panel_fixture,
-    compile_fit_fixture,
-    compile_model_fixture,
+    construct_named,
+    load_model_fixture,
+    one_state_gaussian_model,
+    parameter_named,
+    three_state_gaussian_model,
+    without_parameters,
 )
+
+
+def _static_baseline_stress_sleep() -> ModelSpec:
+    return load_model_fixture("dag_to_ssm/static_baseline_stress_sleep.json")
+
+
+def _freed_quartic_and_hill_sites_sample_finite_complete_test_model() -> ModelSpec:
+    return load_model_fixture(
+        "dag_to_ssm/testgradualbuildcomponents_test_freed_quartic_and_hill_sites_sample_finite_complete_test_model.json"
+    )
+
+
+def _site_registry_with_dynamics_support_model_fixture() -> ModelSpec:
+    return load_model_fixture(
+        "dag_to_ssm/testsiteregistrymasks_test_site_registry_with_dynamics_support_model_fixture.json"
+    )
+
+
+def _hill_edge_emitted_for_saturating_edge_complete_test_model() -> ModelSpec:
+    model = _freed_quartic_and_hill_sites_sample_finite_complete_test_model()
+    y = construct_named(model, "Y")
+    (y_potential,) = y.dynamics
+    rho_y = parameter_named(model, "rho_Y")
+    self_limit_y = parameter_named(model, "self_limit_Y")
+    y_revised = y.revised(
+        dynamics=(
+            y_potential.revised(
+                expression=restoring_potential(y.id, center=0.0, stiffness=rho_y.id, quartic=0.0)
+            ),
+        )
+    )
+    parameters, distributions = without_parameters(model, self_limit_y)
+    return model.revised(
+        edges=replace_constructs(model.edges, (y_revised,)),
+        parameters=parameters,
+        distributions=distributions,
+    )
+
+
+def _x_z_measurements() -> ModelSpec:
+    _X_TO_Y_DRIFT_MECHANISM_ID = MechanismId(
+        "mechanism:2ed9052dbe3b4b4ab136228e0619ab1d3ae146cdec8d269f39bf5f6854f0579d"
+    )
+    _BETA_X_Y_PARAMETER_ID = ParameterId(
+        "parameter:5ea4a485fc5b2e52a5c20036687f0abf45b3c8ed88ec29a0f2565d81b168e8e6"
+    )
+    _BETA_X_Y_DISTRIBUTION_ID = DistributionId(
+        "distribution:5af2717690bf131509e0e3929a3b66d08d6661bc9462a1b0e63ccad62bbfcdfe"
+    )
+    model = _hill_edge_emitted_for_saturating_edge_complete_test_model()
+    x = construct_named(model, "X")
+    y = construct_named(model, "Y")
+    x_to_y = next(edge for edge in model.edges if edge.cause.id == x.id and edge.effect.id == y.id)
+    z = construct_named(model, "Z")
+    y_to_z = next(edge for edge in model.edges if edge.cause.id == y.id and edge.effect.id == z.id)
+    hill_emax_x_y = parameter_named(model, "hill_emax_X_Y")
+    hill_ec50_x_y = parameter_named(model, "hill_ec50_X_Y")
+    hill_n_x_y = parameter_named(model, "hill_n_X_Y")
+    rho_x = parameter_named(model, "rho_X")
+    rho_y = parameter_named(model, "rho_Y")
+    rho_z = parameter_named(model, "rho_Z")
+    beta_y_z = parameter_named(model, "beta_Y_Z")
+    sigma_x = parameter_named(model, "sigma_X")
+    obs_sd_x1 = parameter_named(model, "obs_sd_x1")
+    lambda_x2_x = parameter_named(model, "lambda_x2_X")
+    obs_sd_x2 = parameter_named(model, "obs_sd_x2")
+    sigma_y = parameter_named(model, "sigma_Y")
+    sigma_z = parameter_named(model, "sigma_Z")
+    _parameters, distributions = without_parameters(model, hill_emax_x_y, hill_ec50_x_y, hill_n_x_y)
+    return model.revised(
+        edges=(
+            x_to_y.revised(
+                mechanisms=(
+                    DriftMechanismSpec(
+                        id=_X_TO_Y_DRIFT_MECHANISM_ID,
+                        expression=(coefficient(_BETA_X_Y_PARAMETER_ID, "weight") * state(x.id)),
+                    ),
+                )
+            ),
+            y_to_z,
+        ),
+        parameters=(
+            rho_x,
+            rho_y,
+            rho_z,
+            ParameterSpec(
+                id=_BETA_X_Y_PARAMETER_ID,
+                name="beta_X_Y",
+                description="weight of beta_X_Y",
+                transform=IntervalEffectTransformSpec(interval_days="model_clock"),
+                distribution=_BETA_X_Y_DISTRIBUTION_ID,
+            ),
+            beta_y_z,
+            sigma_x,
+            obs_sd_x1,
+            lambda_x2_x,
+            obs_sd_x2,
+            sigma_y,
+            sigma_z,
+        ),
+        distributions={
+            **distributions,
+            _BETA_X_Y_DISTRIBUTION_ID: dist.Normal(loc=0.0, scale=0.5, validate_args=False),
+        },
+    )
+
+
+def _translate_spec_rejects_initial_state_correlation_parameters_with_scientific_model_attach_test_coeff() -> (
+    ModelSpec
+):
+    _COR0_PARAMETER_ID = ParameterId(
+        "parameter:418d0717cfc9857102f86ab03eaa94a90f0757b6ac7826fc239d3167f7adaf50"
+    )
+    _COR0_DISTRIBUTION_ID = DistributionId(
+        "distribution:37add4c0f63e0477b02d5f8319fc8527c467007b2ece06c089b72e3de2c48b09"
+    )
+    model = _x_z_measurements()
+    z = construct_named(model, "Z")
+    sigma_z = parameter_named(model, "sigma_Z")
+    x = construct_named(model, "X")
+    z_revised = z.revised(
+        coefficients=(
+            coefficient(sigma_z.id, "diffusion_scale"),
+            coefficient(0.0, "initial_mean"),
+            coefficient(1.0, "initial_scale"),
+            coefficient(_COR0_PARAMETER_ID, "initial_correlation", construct_ids=(x.id,)),
+        )
+    )
+    return model.revised(
+        edges=replace_constructs(model.edges, (z_revised,)),
+        parameters=(
+            *model.parameters,
+            ParameterSpec(
+                id=_COR0_PARAMETER_ID,
+                name="cor0",
+                description="Unsupported pairwise initial correlation",
+                transform=InitialCorrelationTransformSpec(),
+                distribution=_COR0_DISTRIBUTION_ID,
+            ),
+        ),
+        distributions={
+            **model.distributions,
+            _COR0_DISTRIBUTION_ID: dist.Normal(loc=0.2, scale=0.8, validate_args=False),
+        },
+    )
+
+
+def _quartic_freed_only_for_self_limiting_construct_complete_test_model() -> ModelSpec:
+    _SELF_LIMIT_Y_PARAMETER_ID = ParameterId(
+        "parameter:ab64427aa9da4f5f72753f200c603d31725edc0deb5ccbb6958c1186f5fd041b"
+    )
+    _SELF_LIMIT_Y_DISTRIBUTION_ID = DistributionId(
+        "distribution:c23e111a0f275ce7c22f2d507b6e4d06ed3faba49cd67be9841ff42a322a0d16"
+    )
+    model = _x_z_measurements()
+    y = construct_named(model, "Y")
+    (y_potential,) = y.dynamics
+    rho_y = parameter_named(model, "rho_Y")
+    rho_x = parameter_named(model, "rho_X")
+    rho_z = parameter_named(model, "rho_Z")
+    beta_x_y = parameter_named(model, "beta_X_Y")
+    beta_y_z = parameter_named(model, "beta_Y_Z")
+    sigma_x = parameter_named(model, "sigma_X")
+    obs_sd_x1 = parameter_named(model, "obs_sd_x1")
+    lambda_x2_x = parameter_named(model, "lambda_x2_X")
+    obs_sd_x2 = parameter_named(model, "obs_sd_x2")
+    sigma_y = parameter_named(model, "sigma_Y")
+    sigma_z = parameter_named(model, "sigma_Z")
+    y_revised = y.revised(
+        dynamics=(
+            y_potential.revised(
+                expression=restoring_potential(
+                    y.id, center=0.0, stiffness=rho_y.id, quartic=_SELF_LIMIT_Y_PARAMETER_ID
+                )
+            ),
+        )
+    )
+    return model.revised(
+        edges=replace_constructs(model.edges, (y_revised,)),
+        parameters=(
+            rho_x,
+            rho_y,
+            ParameterSpec(
+                id=_SELF_LIMIT_Y_PARAMETER_ID,
+                name="self_limit_Y",
+                description="quartic of self_limit_Y",
+                distribution=_SELF_LIMIT_Y_DISTRIBUTION_ID,
+            ),
+            rho_z,
+            beta_x_y,
+            beta_y_z,
+            sigma_x,
+            obs_sd_x1,
+            lambda_x2_x,
+            obs_sd_x2,
+            sigma_y,
+            sigma_z,
+        ),
+        distributions={
+            **model.distributions,
+            _SELF_LIMIT_Y_DISTRIBUTION_ID: dist.HalfNormal(scale=1.0, validate_args=False),
+        },
+    )
+
+
+def _site_registry_with_lambda_support_model_fixture() -> ModelSpec:
+    return load_model_fixture(
+        "dag_to_ssm/testsiteregistrymasks_test_site_registry_with_lambda_support_model_fixture.json"
+    )
+
+
+def _per_element_prior_in_model_with_parameter_distributions() -> ModelSpec:
+    return load_model_fixture(
+        "dag_to_ssm/testperelementpriors_test_per_element_prior_in_model_with_parameter_distributions.json"
+    )
+
+
+def _three_latent_unmasked() -> ModelSpec:
+    return load_model_fixture("dag_to_ssm/three_latent_unmasked.json")
+
+
+def _lambda_no_mask_returns_fixed__make_3latent_spec() -> ModelSpec:
+    return load_model_fixture(
+        "dag_to_ssm/testlambdamask_test_lambda_no_mask_returns_fixed__make_3latent_spec.json"
+    )
+
+
+def _lambda_template_plus_mask__make_3latent_spec() -> ModelSpec:
+    return load_model_fixture(
+        "dag_to_ssm/testlambdamask_test_lambda_template_plus_mask__make_3latent_spec.json"
+    )
+
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+
 
 # ═══════════════════════════════════════════════════════════════════════
 # Fixtures
@@ -55,13 +310,7 @@ class TestDynamicsMask:
         offdiag_support[1, 0] = True  # X→Y
         offdiag_support[2, 1] = True  # Y→Z
 
-        spec = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "dag_to_ssm/testdynamicsmask_test_dynamics_support_zeros_non_edges__make_3latent_spec.json"
-            ).read_text()
-        )
+        spec = three_state_gaussian_model()
         model = compile_fit_fixture(spec)
 
         rng = random.PRNGKey(42)
@@ -85,13 +334,7 @@ class TestDynamicsMask:
 
     def test_no_mask_fully_free(self):
         """Default dynamics mask expands to a fully free dynamics structure."""
-        spec = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "dag_to_ssm/three_latent_unmasked.json"
-            ).read_text()
-        )
+        spec = _three_latent_unmasked()
         model = compile_fit_fixture(spec)
 
         rng = random.PRNGKey(0)
@@ -111,13 +354,7 @@ class TestDynamicsMask:
 
     def test_dynamics_support_single_latent(self):
         """Single latent: no off-diagonal, mask should be identity."""
-        spec = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "common/one_state_gaussian_model.json"
-            ).read_text()
-        )
+        spec = one_state_gaussian_model()
         model = compile_fit_fixture(spec)
 
         rng = random.PRNGKey(0)
@@ -152,13 +389,7 @@ class TestLambdaMask:
         lambda_support = np.zeros((4, 3), dtype=bool)
         lambda_support[1, 0] = True  # x2→X (free)
 
-        spec = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "dag_to_ssm/testlambdamask_test_lambda_template_plus_mask__make_3latent_spec.json"
-            ).read_text()
-        )
+        spec = _lambda_template_plus_mask__make_3latent_spec()
         model = compile_fit_fixture(spec)
 
         rng = random.PRNGKey(0)
@@ -184,13 +415,7 @@ class TestLambdaMask:
         lambda_mat = jnp.array(
             [[1.0, 0.0, 0.0], [0.75, 0.0, 0.0], [0.0, 1.0, 0.0], [0.0, 0.0, 1.0]]
         )
-        spec = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "dag_to_ssm/testlambdamask_test_lambda_no_mask_returns_fixed__make_3latent_spec.json"
-            ).read_text()
-        )
+        spec = _lambda_no_mask_returns_fixed__make_3latent_spec()
         model = compile_fit_fixture(spec)
 
         rng = random.PRNGKey(0)
@@ -301,13 +526,7 @@ class TestPerElementPriors:
 
         # Per-element prior: single off-diagonal has mu=2.0
 
-        spec = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "dag_to_ssm/testperelementpriors_test_per_element_prior_in_model_with_parameter_distributions.json"
-            ).read_text()
-        )
+        spec = _per_element_prior_in_model_with_parameter_distributions()
         model = compile_fit_fixture(spec)
 
         rng = random.PRNGKey(0)
@@ -333,12 +552,7 @@ class TestRuntimeStructuralSupport:
     """Test that compilation constructs correct block support from ModelSpec."""
 
     def test_compiled_mechanisms_and_loadings_preserve_structural_coordinates(self):
-        model = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models/dag_to_ssm/three_latent_unmasked.json"
-            ).read_text()
-        )
+        model = _three_latent_unmasked()
         compiled = compile_model_fixture(model)
         components = compiled.dynamics.spec.components
         assert {
@@ -365,15 +579,7 @@ class TestRuntimeStructuralSupport:
             }
         )
 
-        model = compile_fit_fixture(
-            ModelSpec.model_validate_json(
-                (
-                    Path(__file__).resolve().parents[2]
-                    / "fixtures/models"
-                    / "dag_to_ssm/three_latent_unmasked.json"
-                ).read_text()
-            )
-        )
+        model = compile_fit_fixture(_three_latent_unmasked())
         assert numeric.n_states(model.compiled) == 3
 
     @pytest.mark.parametrize(
@@ -381,12 +587,12 @@ class TestRuntimeStructuralSupport:
         [
             pytest.param(
                 1,
-                "dag_to_ssm/static_baseline_stress_sleep.json",
+                _static_baseline_stress_sleep,
                 id="1",
             ),
             pytest.param(
                 2,
-                "dag_to_ssm/static_baseline_stress_sleep.json",
+                _static_baseline_stress_sleep,
                 id="2",
             ),
         ],
@@ -395,13 +601,7 @@ class TestRuntimeStructuralSupport:
         self, source_count, complete_test_model_payload
     ):
 
-        model = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / complete_test_model_payload
-            ).read_text()
-        )
+        model = complete_test_model_payload()
         if source_count == 2:
             source = model.get_construct(ConstructId("construct:766f6091724c163a3404"))
             second = source.revised(id="construct:second-common-cause", name="second_common_cause")
@@ -446,13 +646,7 @@ class TestRuntimeStructuralSupport:
 
     def test_translate_spec_marks_standardizable_gaussian_mean_indicators(self):
 
-        model = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "dag_to_ssm/x_z_measurements.json"
-            ).read_text()
-        )
+        model = _x_z_measurements()
         spec = model
         assert numeric.observation_standardized(compile_model_fixture(spec)) == (
             True,
@@ -463,13 +657,7 @@ class TestRuntimeStructuralSupport:
 
     def test_translate_spec_fixes_manifest_noise_for_single_indicator_constructs(self):
 
-        model = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "dag_to_ssm/x_z_measurements.json"
-            ).read_text()
-        )
+        model = _x_z_measurements()
         spec = model
         assert isinstance(compile_model_fixture(spec).observation_noise_block.template, jnp.ndarray)
         np.testing.assert_array_equal(
@@ -484,13 +672,7 @@ class TestRuntimeStructuralSupport:
         self,
     ):
 
-        model = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "dag_to_ssm/testruntimestructuralsupport_test_translate_spec_rejects_initial_state_correlation_parameters_with_scientific_model_attach_test_coefficients.json"
-            ).read_text()
-        )
+        model = _translate_spec_rejects_initial_state_correlation_parameters_with_scientific_model_attach_test_coeff()
         with pytest.raises(
             ValueError, match=r"explicit latent confounder|two distinct state owners"
         ):
@@ -502,13 +684,7 @@ class TestRuntimeStructuralSupport:
             ParameterSpec,
         )
 
-        model = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "dag_to_ssm/x_z_measurements.json"
-            ).read_text()
-        )
+        model = _x_z_measurements()
         parameter = ParameterSpec(
             id="parameter:77f3ac548e5c828bd95649d677ae53ce71c8dd33c2b1526961592ea56d79f013",
             name="cor0",
@@ -530,13 +706,7 @@ class TestRuntimeStructuralSupport:
 
     def test_model_build_end_to_end(self):
 
-        science = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "dag_to_ssm/x_z_measurements.json"
-            ).read_text()
-        )
+        science = _x_z_measurements()
         pl.DataFrame(
             {
                 "time": list(range(10)),
@@ -578,13 +748,7 @@ class TestSiteRegistryMasks:
         offdiag_support[1, 0] = True
         offdiag_support[2, 1] = True
 
-        spec = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "dag_to_ssm/testsiteregistrymasks_test_site_registry_with_dynamics_support_model_fixture.json"
-            ).read_text()
-        )
+        spec = _site_registry_with_dynamics_support_model_fixture()
 
         registry = {site.name: site for site in build_site_registry(compile_model_fixture(spec))}
 
@@ -612,13 +776,7 @@ class TestSiteRegistryMasks:
         """Site registry should size masked loading entries correctly."""
         from nof1_causal_lab.models.ssm.parameterization import build_site_registry
 
-        spec = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "dag_to_ssm/testsiteregistrymasks_test_site_registry_with_lambda_support_model_fixture.json"
-            ).read_text()
-        )
+        spec = _site_registry_with_lambda_support_model_fixture()
 
         registry = {site.name: site for site in build_site_registry(compile_model_fixture(spec))}
         assert registry["lambda_free"].shape == (1,)
@@ -642,13 +800,7 @@ class TestGradualBuildComponents:
 
         from nof1_causal_lab.artifacts.expressions import expression_coefficients
 
-        model = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "dag_to_ssm/testgradualbuildcomponents_test_quartic_freed_only_for_self_limiting_construct_complete_test_model.json"
-            ).read_text()
-        )
+        model = _quartic_freed_only_for_self_limiting_construct_complete_test_model()
         quartics = {
             component.target: next(
                 operand.value
@@ -666,13 +818,7 @@ class TestGradualBuildComponents:
     def test_hill_edge_emitted_for_saturating_edge(self):
         from nof1_causal_lab.artifacts.expressions import hill_applications
 
-        model = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "dag_to_ssm/testgradualbuildcomponents_test_hill_edge_emitted_for_saturating_edge_complete_test_model.json"
-            ).read_text()
-        )
+        model = _hill_edge_emitted_for_saturating_edge_complete_test_model()
         edge_components = [
             item
             for item in compile_model_fixture(model).dynamics.spec.components
@@ -687,13 +833,7 @@ class TestGradualBuildComponents:
     @pytest.mark.inference(concern="sampling")
     def test_freed_quartic_and_hill_sites_sample_finite(self):
 
-        science = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "dag_to_ssm/testgradualbuildcomponents_test_freed_quartic_and_hill_sites_sample_finite_complete_test_model.json"
-            ).read_text()
-        )
+        science = _freed_quartic_and_hill_sites_sample_finite_complete_test_model()
         spec = science
         model = compile_fit_fixture(spec)
         trace = handlers.trace(handlers.seed(numpyro_model, random.PRNGKey(0))).get_trace(

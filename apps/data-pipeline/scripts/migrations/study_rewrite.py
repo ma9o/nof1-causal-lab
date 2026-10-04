@@ -32,6 +32,7 @@ def rewrite_study(
     model_definition: Callable[[Any], Any] | None = None,
     update_file: Callable[[str, str, Any], Any] | None = None,
     rename_entry: Callable[[str], str | None] | None = None,
+    drop_references: Callable[[str], bool] | None = None,
     additional_files: Callable[[str], JsonObject] | None = None,
     check_preimages: Mapping[str, JsonValue] | None = None,
     layout: tuple[str, str] = ("study", "study"),
@@ -76,11 +77,13 @@ def rewrite_study(
     # The converter explicitly declares whether only the representation changes.
     model_inputs: dict[str, dict[str, str]] = {}
     original_inputs: dict[str, dict[str, str]] = {}
-    for oid in models:
+    for oid in models if preserve_model_meaning else ():
         tree = repo[pygit2.Oid(hex=oid)].peel(pygit2.Tree)
         definition = update(json.loads(tree["model.json"].peel(pygit2.Blob).data))
         if model_definition is not None:
             definition = model_definition(definition)
+        from scripts.migrations.migrate_format_18 import current_model_definition
+        definition = current_model_definition(definition, lambda ref: read_array(str(destination / "store/arrays"), ref))
         model = ModelSpec.model_validate(
             definition,
             context={
@@ -195,7 +198,7 @@ def rewrite_study(
         active.remove(oid)
         return str(result)
 
-    replacements = {name: migrate(oid) for name, oid in refs.items()}
+    replacements = {name: migrate(oid) for name, oid in refs.items() if drop_references is None or not drop_references(name)}
     targets = {
         name.rsplit("/", 1)[0] + "/" + oid if name.startswith("refs/artifacts/") else name: oid
         for name, oid in replacements.items()

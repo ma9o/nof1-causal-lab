@@ -16,7 +16,7 @@ export function FitOutcome({ context }: { context: ScopeContext }) {
   return (
     <Section title="Parameter convergence" source={fit.source}>
       <Hint>
-        {humanize(report.inference_metadata.method)} · {mcmc?.num_chains ?? "Unavailable"} chains ×{" "}
+        Marginal particle Gibbs · {mcmc?.num_chains ?? "Unavailable"} chains ×{" "}
         {mcmc?.num_samples ?? "Unavailable"} draws ·{" "}
         {report.inference_metadata.duration_seconds.toLocaleString()} s
       </Hint>

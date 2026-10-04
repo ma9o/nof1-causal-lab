@@ -1,18 +1,192 @@
 """Predictive batch boundaries and exact discrete diagnostic statistics."""
 
+from __future__ import annotations
+
 from dataclasses import replace
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+import numpyro.distributions as dist
 import pytest
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.artifacts.expressions import (
+    Expression,
+    coefficient,
+    restoring_force,
+    state,
+)
+from nof1_causal_lab.artifacts.identity import DistributionId, MechanismId, ParameterId
+from nof1_causal_lab.artifacts.likelihood import StudentTLawSpec
+from nof1_causal_lab.artifacts.mechanism import DriftMechanismSpec
+from nof1_causal_lab.artifacts.parameter import SiteKind
+from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.predictive.statistics import observation_signal_and_variance
 from nof1_causal_lab.models.ssm.predictive.types import PredictiveDraws, PredictiveTrajectory
-from tests.model_fixtures import compile_model_fixture
+from tests.inference_fixtures import compile_model_fixture
+from tests.model_fixtures import (
+    construct_named,
+    indicator_named,
+    likelihood_named,
+    load_model_fixture,
+    one_state_gaussian_model,
+    parameter_for,
+    replace_parameters,
+    without_parameters,
+)
+
+
+def _diagnostic_noise_matches_point_and_interval_execution_model_fixture_families0_false_1_0001e_08() -> (
+    ModelSpec
+):
+    _LATENT_0_DRIFT_MECHANISM_ID = MechanismId("mechanism:5ced39cf0fae44636f2b")
+    _LATENT_0_DIFFUSION_DIAG_DISTRIBUTION_ID = DistributionId(
+        "distribution:6bbcc6530d30b7047a9232a9f85ac4c291df198857e92cbaa2b6a87f718be3a4"
+    )
+    _LATENT_0_T0_MEANS_DISTRIBUTION_ID = DistributionId(
+        "distribution:a7ffde8dd9d9963518bc2ebe62ba9e41e53ee39bca8f4fa9d4d105004c82f5d1"
+    )
+    _LATENT_0_T0_VAR_DIAG_DISTRIBUTION_ID = DistributionId(
+        "distribution:e9b0f86010c60b0e69c22ed8d0c1d7f416881c51406b24202ec0007c519d2aeb"
+    )
+    _LATENT_0_MANIFEST_0_MANIFEST_VAR_DIAG_DISTRIBUTION_ID = DistributionId(
+        "distribution:e00bc5d0d99932524d21f2db2e76aa813087b7b29e2a3195d42f8b28199798d8"
+    )
+    model = one_state_gaussian_model()
+    latent_0 = construct_named(model, "latent_0")
+    latent_0_dynamics_decay = parameter_for(model, SiteKind.DYNAMICS_DECAY, "latent_0")
+    latent_0_diffusion_diag = parameter_for(model, SiteKind.DIFFUSION_DIAG, "latent_0")
+    latent_0_t0_means = parameter_for(model, SiteKind.T0_MEANS, "latent_0")
+    latent_0_t0_var_diag = parameter_for(model, SiteKind.T0_VAR_DIAG, "latent_0")
+    latent_0_manifest_0_manifest_var_diag = parameter_for(
+        model, SiteKind.MANIFEST_VAR_DIAG, "latent_0", "manifest_0"
+    )
+    latent_0_revised = latent_0.revised(
+        dynamics=(
+            DriftMechanismSpec(
+                id=_LATENT_0_DRIFT_MECHANISM_ID,
+                expression=restoring_force(latent_0.id, center=0.0, stiffness=1.0, quartic=0.0),
+            ),
+        )
+    )
+    parameters, distributions = without_parameters(model, latent_0_dynamics_decay)
+    distributions = {
+        identity: law
+        for identity, law in distributions.items()
+        if identity
+        not in (
+            latent_0_t0_means.distribution,
+            latent_0_t0_var_diag.distribution,
+            latent_0_diffusion_diag.distribution,
+            latent_0_manifest_0_manifest_var_diag.distribution,
+        )
+    }
+    return model.revised(
+        edges=replace_constructs(model.edges, (latent_0_revised,)),
+        parameters=replace_parameters(
+            parameters,
+            latent_0_diffusion_diag.revised(distribution=_LATENT_0_DIFFUSION_DIAG_DISTRIBUTION_ID),
+            latent_0_t0_means.revised(distribution=_LATENT_0_T0_MEANS_DISTRIBUTION_ID),
+            latent_0_t0_var_diag.revised(distribution=_LATENT_0_T0_VAR_DIAG_DISTRIBUTION_ID),
+            latent_0_manifest_0_manifest_var_diag.revised(
+                distribution=_LATENT_0_MANIFEST_0_MANIFEST_VAR_DIAG_DISTRIBUTION_ID
+            ),
+        ),
+        distributions={
+            **distributions,
+            _LATENT_0_DIFFUSION_DIAG_DISTRIBUTION_ID: dist.HalfNormal(
+                scale=1.0, validate_args=False
+            ),
+            _LATENT_0_T0_MEANS_DISTRIBUTION_ID: dist.Normal(
+                loc=0.0, scale=1.0, validate_args=False
+            ),
+            _LATENT_0_T0_VAR_DIAG_DISTRIBUTION_ID: dist.HalfNormal(scale=1.0, validate_args=False),
+            _LATENT_0_MANIFEST_0_MANIFEST_VAR_DIAG_DISTRIBUTION_ID: dist.HalfNormal(
+                scale=1.0, validate_args=False
+            ),
+        },
+    )
+
+
+def _student_t_model() -> ModelSpec:
+    _INDICATOR_A6C99A629D09C47F8B69_DEGREES_OF_FREEDOM_PARAMETER_ID = ParameterId(
+        "parameter:5d755d2d8d1fafa18d1718ae376e47cb39c4fa4db501e16c8a098eff75cb51b3"
+    )
+    _INDICATOR_A6C99A629D09C47F8B69_DEGREES_OF_FREEDOM_DISTRIBUTION_ID = DistributionId(
+        "distribution:f183bae941d1033fb3c0fcbfa1f5898921d81e1789273b58f0f526eff9629fe8"
+    )
+    model = _diagnostic_noise_matches_point_and_interval_execution_model_fixture_families0_false_1_0001e_08()
+    latent_0 = construct_named(model, "latent_0")
+    manifest_0 = indicator_named(model, "manifest_0")
+    manifest_0_likelihood = likelihood_named(model, "manifest_0")
+    latent_0_manifest_0_manifest_var_diag = parameter_for(
+        model, SiteKind.MANIFEST_VAR_DIAG, "latent_0", "manifest_0"
+    )
+    manifest_0_revised = manifest_0.revised(
+        likelihood=manifest_0_likelihood.revised(
+            law=StudentTLawSpec[Expression](
+                df=coefficient(
+                    _INDICATOR_A6C99A629D09C47F8B69_DEGREES_OF_FREEDOM_PARAMETER_ID,
+                    "degrees_of_freedom",
+                ),
+                loc=(
+                    coefficient(0.0, "observation_intercept")
+                    + (coefficient(1.0, "loading") * state(latent_0.id))
+                ),
+                scale=coefficient(latent_0_manifest_0_manifest_var_diag.id, "observation_scale"),
+            )
+        )
+    )
+    latent_0_revised = latent_0.revised(indicators=(manifest_0_revised,))
+    return model.revised(
+        edges=replace_constructs(model.edges, (latent_0_revised,)),
+        parameters=(
+            *model.parameters,
+            ParameterSpec(
+                id=_INDICATOR_A6C99A629D09C47F8B69_DEGREES_OF_FREEDOM_PARAMETER_ID,
+                name="indicator:a6c99a629d09c47f8b69/degrees_of_freedom",
+                description="Explicit coefficient for the diagnostic fixture.",
+                distribution=_INDICATOR_A6C99A629D09C47F8B69_DEGREES_OF_FREEDOM_DISTRIBUTION_ID,
+            ),
+        ),
+        distributions={
+            **model.distributions,
+            _INDICATOR_A6C99A629D09C47F8B69_DEGREES_OF_FREEDOM_DISTRIBUTION_ID: dist.HalfNormal(
+                scale=1.0, validate_args=False
+            ),
+        },
+    )
+
+
+def _scalar_diagnostics_use_projected_means_at_supported_times_model_fixture() -> ModelSpec:
+    return load_model_fixture(
+        "predictive_batches/scalar_diagnostics_use_projected_means_at_supported_times_model_fixture.json"
+    )
+
+
+def _gaussian_poisson_model() -> ModelSpec:
+    return load_model_fixture("predictive_batches/gaussian_poisson_model.json")
+
+
+def _undefined_student_moments_produce_an_explicit_diagnostic_model_fixture() -> ModelSpec:
+    return load_model_fixture(
+        "predictive_batches/undefined_student_moments_produce_an_explicit_diagnostic_model_fixture.json"
+    )
+
+
+def _discrete_diagnostics_share_cutpoints_anchors_and_padded_probabilities_model_fixture() -> (
+    ModelSpec
+):
+    return load_model_fixture(
+        "predictive_batches/discrete_diagnostics_share_cutpoints_anchors_and_padded_probabilities_model_fixture.json"
+    )
+
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 
 def _trajectory():
@@ -60,13 +234,7 @@ def test_predictive_batch_preserves_pairing_and_rejects_misaligned_parameters():
 
 @pytest.mark.inference(concern="predictive")
 def test_discrete_diagnostics_share_cutpoints_anchors_and_declared_probabilities():
-    spec = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2]
-            / "fixtures/models"
-            / "predictive_batches/discrete_diagnostics_share_cutpoints_anchors_and_padded_probabilities_model_fixture.json"
-        ).read_text()
-    )
+    spec = _discrete_diagnostics_share_cutpoints_anchors_and_padded_probabilities_model_fixture()
     raw = {
         "obs_ordered_base": jnp.array([[0.0, 0.0], [1.0, 0.0]]),
         "obs_ordered_gaps": jnp.ones((2, 2, 2)),
@@ -114,13 +282,7 @@ def test_scalar_diagnostics_use_projected_means_at_supported_times():
     )
     signal, variance = observation_signal_and_variance(
         compile_model_fixture(
-            ModelSpec.model_validate_json(
-                (
-                    Path(__file__).resolve().parents[2]
-                    / "fixtures/models"
-                    / "predictive_batches/scalar_diagnostics_use_projected_means_at_supported_times_model_fixture.json"
-                ).read_text()
-            )
+            _scalar_diagnostics_use_projected_means_at_supported_times_model_fixture()
         ),
         batch,
         0,
@@ -144,13 +306,7 @@ def test_undefined_student_moments_produce_an_explicit_diagnostic():
     )
     signal, variance = observation_signal_and_variance(
         compile_model_fixture(
-            ModelSpec.model_validate_json(
-                (
-                    Path(__file__).resolve().parents[2]
-                    / "fixtures/models"
-                    / "predictive_batches/undefined_student_moments_produce_an_explicit_diagnostic_model_fixture.json"
-                ).read_text()
-            )
+            _undefined_student_moments_produce_an_explicit_diagnostic_model_fixture()
         ),
         batch,
         0,
@@ -173,35 +329,35 @@ def test_undefined_student_moments_produce_an_explicit_diagnostic():
             ["gaussian"],
             False,
             1.0001e-08,
-            "predictive_batches/diagnostic_noise_matches_point_and_interval_execution_model_fixture_families0-false-1_0001e-08.json",
+            _diagnostic_noise_matches_point_and_interval_execution_model_fixture_families0_false_1_0001e_08,
             id="families0-False-1.0001e-08",
         ),
         pytest.param(
             ["gaussian", "poisson"],
             False,
             1e-10,
-            "predictive_batches/gaussian_poisson_model.json",
+            _gaussian_poisson_model,
             id="families1-False-1e-10",
         ),
         pytest.param(
             ["gaussian", "poisson"],
             True,
             1.0001e-08,
-            "predictive_batches/gaussian_poisson_model.json",
+            _gaussian_poisson_model,
             id="families2-True-1.0001e-08",
         ),
         pytest.param(
             ["student_t"],
             False,
             1.6666666666666669e-10,
-            "predictive_batches/student_t_model.json",
+            _student_t_model,
             id="families3-False-1.6666666666666669e-10",
         ),
         pytest.param(
             ["student_t"],
             True,
             1.6666666666666666e-12,
-            "predictive_batches/student_t_model.json",
+            _student_t_model,
             id="families4-True-1.6666666666666666e-12",
         ),
     ],
@@ -212,11 +368,7 @@ def test_diagnostic_noise_matches_point_and_interval_execution(
     from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 
     channels = len(families)
-    spec = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2] / "fixtures/models" / model_fixture_payload
-        ).read_text()
-    )
+    spec = model_fixture_payload()
     values = jnp.zeros((2, 3, channels))
     prediction = PredictiveDraws(
         parameters={

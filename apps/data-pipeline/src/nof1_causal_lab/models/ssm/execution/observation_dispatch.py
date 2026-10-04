@@ -39,7 +39,6 @@ type ObservationSampleFn = Callable[[jax.Array, jax.Array], jax.Array]
 @dataclass(frozen=True)
 class PointObservationSampler:
     sample_point: ObservationSampleFn
-    sample_point_trajectory: ObservationSampleFn
 
 
 @dataclass(frozen=True)
@@ -95,7 +94,7 @@ def build_point_observation_sampler(
         def sample_gaussian(key: jax.Array, predictors: jax.Array) -> jax.Array:
             return predictors + jnp.matmul(factor, jax.random.normal(key, predictors.shape))
 
-        return PointObservationSampler(sample_gaussian, _trajectory_sampler(sample_gaussian))
+        return PointObservationSampler(sample_gaussian)
     compiled_groups = compile_law_groups(laws) if groups is None else groups
     scales = point_observation_scales(manifest_cov)
 
@@ -116,7 +115,7 @@ def build_point_observation_sampler(
             sampled = sampled.at[indices].set(draws.astype(sampled.dtype))
         return sampled
 
-    return PointObservationSampler(sample_vector, _trajectory_sampler(sample_vector))
+    return PointObservationSampler(sample_vector)
 
 
 def build_interval_summary_sampler(

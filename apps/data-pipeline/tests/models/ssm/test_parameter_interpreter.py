@@ -1,7 +1,6 @@
 """Small parameter-contract checks without fitting or forward simulation."""
 
 import hashlib
-from pathlib import Path
 
 import jax.numpy as jnp
 import jax.random as random
@@ -10,12 +9,12 @@ import numpyro.distributions as dist
 import pytest
 from numpyro import handlers
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind, SupportClass
 from nof1_causal_lab.models.ssm import parameterization
 from nof1_causal_lab.models.ssm.model import sample_parameters
 from nof1_causal_lab.models.ssm.structure.sites import SiteDescriptor
-from tests.model_fixtures import compile_fit_fixture
+from tests.inference_fixtures import compile_fit_fixture
+from tests.model_fixtures import two_state_gaussian_model
 
 
 @pytest.mark.inference(concern="predictive")
@@ -63,13 +62,7 @@ def test_prior_draws_keep_native_values_and_the_existing_random_streams():
 
 @pytest.mark.inference(concern="sampling")
 def test_parameter_trace_preserves_site_order_shapes_and_public_deterministics():
-    spec = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2]
-            / "fixtures/models"
-            / "common/two_state_gaussian_model.json"
-        ).read_text()
-    )
+    spec = two_state_gaussian_model()
     model = compile_fit_fixture(spec)
     values = {
         "diffusion_diag_free": jnp.array([0.4, 0.6]),

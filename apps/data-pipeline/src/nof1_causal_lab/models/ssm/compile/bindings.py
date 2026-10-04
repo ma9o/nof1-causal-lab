@@ -10,6 +10,7 @@ from pydantic import Field
 
 from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.artifacts.identity import ParameterElementId, ParameterId
+from nof1_causal_lab.models.ssm.joint_layout import JointLawLayout
 from nof1_causal_lab.artifacts.parameter import (
     ParameterCoordinate,
     PriorAuthoringTransform,
@@ -25,6 +26,9 @@ from nof1_causal_lab.models.ssm.structure.sites import (
 )
 
 if TYPE_CHECKING:
+    from collections.abc import Collection, Sequence
+
+    from nof1_causal_lab.artifacts.identity import ConstructId
     from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
     from nof1_causal_lab.models.ssm.structure.sites import SiteSelection
 
@@ -94,3 +98,23 @@ def parameter_bindings(
 ) -> tuple[tuple[CompiledParameterBinding, ...], tuple[ParameterCoordinate, ...]]:
     """Read scientific bindings already resolved by the compiler."""
     return model.bindings, model.auxiliary_coordinates
+
+
+def joint_law_layout(
+    bindings: Collection[CompiledParameterBinding],
+    *,
+    parameters: Collection[ParameterId],
+    constructs: Collection[ConstructId],
+    time_points: Sequence[float],
+    construct_labels: Mapping[ConstructId, str],
+) -> JointLawLayout:
+    """Establish scientific coordinates and display labels once at production."""
+    by_id = {binding.parameter_id: binding for binding in bindings}
+    members = tuple(sorted(parameters))
+    return JointLawLayout(
+        parameters=tuple((identity, tuple(sorted(by_id[identity].coordinates))) for identity in members),
+        constructs=tuple(sorted(constructs)),
+        construct_labels=construct_labels,
+        time_points=tuple(float(value) for value in time_points),
+        labels={element: label for identity in members for element, label in by_id[identity].elements.items()},
+    )

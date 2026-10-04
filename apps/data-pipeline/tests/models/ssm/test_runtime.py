@@ -6,15 +6,27 @@ Covers: semantic prior binding and fit-input preparation.
 from __future__ import annotations
 
 from datetime import UTC, datetime
-from pathlib import Path
 
 import jax.numpy as jnp
 import numpy as np
+import numpyro.distributions as dist
 import polars as pl
 import pytest
 
+from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.artifacts.expressions import Expression, coefficient, restoring_force, state
+from nof1_causal_lab.artifacts.identity import DistributionId, IndicatorId, ParameterId
+from nof1_causal_lab.artifacts.indicator import IndicatorPolarity, IndicatorSpec
+from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec, NormalLawSpec
+from nof1_causal_lab.artifacts.mechanism import DriftMechanismSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.observations import AuthoredObservationSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind
+from nof1_causal_lab.artifacts.parameter_spec import (
+    IdentityTransformSpec,
+    InitialCorrelationTransformSpec,
+    ParameterSpec,
+)
 from nof1_causal_lab.models.model_structure import StructuralSelection
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.compile.inputs import compile_priors
@@ -26,11 +38,285 @@ from nof1_causal_lab.models.ssm.runtime import (
     project_observation_data,
 )
 from nof1_causal_lab.sampler_config import SamplerSpec
+from nof1_causal_lab.utils.observation_semantics import SummaryOperator
+from tests.inference_fixtures import bind_panel_fixture, compile_fit_fixture, compile_model_fixture
 from tests.model_fixtures import (
-    bind_panel_fixture,
-    compile_fit_fixture,
-    compile_model_fixture,
+    _two_state_fixed_drift_model,
+    construct_named,
+    indicator_named,
+    likelihood_named,
+    load_model_fixture,
+    one_state_gaussian_model,
+    parameter_for,
+    parameter_laws,
+    replace_parameters,
+    without_parameters,
 )
+
+
+def _initial_state_correlation_prior_indices_are_dense_after_mask_filtering__make_spec() -> (
+    ModelSpec
+):
+    return load_model_fixture(
+        "runtime/testbuilderpriorconversion_test_initial_state_correlation_prior_indices_are_dense_after_mask_filtering__make_spec.json"
+    )
+
+
+def _gamma_emission_rejects_zero_observations__make_spec() -> ModelSpec:
+    return load_model_fixture(
+        "runtime/testobservationsupportvalidation_test_gamma_emission_rejects_zero_observations__make_spec.json"
+    )
+
+
+def _compile_distinguishes_incomplete_unsupported_and_bugs_with_parameter_distributions() -> (
+    ModelSpec
+):
+    model = one_state_gaussian_model()
+    latent_0_dynamics_decay = parameter_for(model, SiteKind.DYNAMICS_DECAY, "latent_0")
+    return model.revised(
+        distributions=parameter_laws(
+            model,
+            {
+                latent_0_dynamics_decay.id: dist.Delta(
+                    v=0.5, log_density=0.0, event_dim=0, validate_args=False
+                )
+            },
+        )
+    )
+
+
+def _initial_state_correlation_priors_are_bounded_to_correlation_scale_with_parameter_distributions() -> (
+    ModelSpec
+):
+    model = load_model_fixture(
+        "dynamics_config/scientific_model_roundtrip_preserves_derived_dynamics_model_fixture.json"
+    )
+    latent_0 = construct_named(model, "latent_0")
+    (latent_0_potential,) = latent_0.dynamics
+    latent_0_dynamics_decay = parameter_for(model, SiteKind.DYNAMICS_DECAY, "latent_0")
+    latent_0_latent_1_hill_emax = parameter_for(model, SiteKind.HILL_EMAX, "latent_0", "latent_1")
+    latent_0_latent_1_hill_n = parameter_for(model, SiteKind.HILL_N, "latent_0", "latent_1")
+    latent_0_latent_1_hill_ec50 = parameter_for(model, SiteKind.HILL_EC50, "latent_0", "latent_1")
+    latent_0_latent_1_t0_var_lower = parameter_for(
+        model, SiteKind.T0_VAR_LOWER, "latent_0", "latent_1"
+    )
+    latent_0_revised = latent_0.revised(
+        dynamics=(
+            DriftMechanismSpec(
+                id=latent_0_potential.id,
+                expression=restoring_force(
+                    latent_0.id, center=0.0, stiffness=latent_0_dynamics_decay.id, quartic=0.0
+                ),
+            ),
+        )
+    )
+    parameters, distributions = without_parameters(
+        model, latent_0_latent_1_hill_emax, latent_0_latent_1_hill_n, latent_0_latent_1_hill_ec50
+    )
+    return model.revised(
+        edges=replace_constructs(
+            tuple(
+                edge
+                for edge in model.edges
+                if (edge.cause.name, edge.effect.name) not in (("latent_0", "latent_1"),)
+            ),
+            (latent_0_revised,),
+        ),
+        parameters=replace_parameters(
+            parameters,
+            latent_0_latent_1_t0_var_lower.revised(transform=InitialCorrelationTransformSpec()),
+        ),
+        distributions={
+            key: law
+            for key, law in parameter_laws(
+                model,
+                {
+                    latent_0_latent_1_t0_var_lower.id: dist.Normal(
+                        loc=0.2, scale=0.8, validate_args=False
+                    )
+                },
+            ).items()
+            if key in distributions
+        },
+    )
+
+
+def _initial_state_mean_and_sd_priors_bind_to_t0_sites_with_parameter_distributions() -> ModelSpec:
+    model = _initial_state_correlation_priors_are_bounded_to_correlation_scale_with_parameter_distributions()
+    latent_0_latent_1_t0_var_lower = parameter_for(
+        model, SiteKind.T0_VAR_LOWER, "latent_0", "latent_1"
+    )
+    latent_0_t0_means = parameter_for(model, SiteKind.T0_MEANS, "latent_0")
+    latent_0_t0_var_diag = parameter_for(model, SiteKind.T0_VAR_DIAG, "latent_0")
+    latent_1_t0_means = parameter_for(model, SiteKind.T0_MEANS, "latent_1")
+    latent_1_t0_var_diag = parameter_for(model, SiteKind.T0_VAR_DIAG, "latent_1")
+    return model.revised(
+        parameters=replace_parameters(
+            model.parameters,
+            latent_0_latent_1_t0_var_lower.revised(transform=IdentityTransformSpec()),
+        ),
+        distributions=parameter_laws(
+            model,
+            {
+                latent_0_t0_means.id: dist.Normal(loc=0.2, scale=0.3, validate_args=False),
+                latent_0_t0_var_diag.id: dist.HalfNormal(scale=0.7, validate_args=False),
+                latent_1_t0_means.id: dist.Normal(loc=0.4, scale=0.5, validate_args=False),
+                latent_1_t0_var_diag.id: dist.HalfNormal(scale=0.9, validate_args=False),
+                latent_0_latent_1_t0_var_lower.id: dist.Uniform(
+                    low=-1.0, high=1.0, validate_args=False
+                ),
+            },
+        ),
+    )
+
+
+def _manifest_standardization_of_constant_column_centers_without_scaling__make_spec() -> ModelSpec:
+    _X_INDICATOR_ID = IndicatorId("indicator:1f4c67cecb9238ee1a80")
+    _LATENT_0_X_MANIFEST_VAR_DIAG_PARAMETER_ID = ParameterId(
+        "parameter:ec27e91f16b480062ddc51afd32ac245399b05df25eb8feb93e3fad16abc9ccd"
+    )
+    _LATENT_0_X_MANIFEST_VAR_DIAG_DISTRIBUTION_ID = DistributionId(
+        "distribution:62b85664eaabfedf901244cf2eb42462b317bb4c970ac7c04e89cdf83d1b79e5"
+    )
+    model = one_state_gaussian_model()
+    latent_0 = construct_named(model, "latent_0")
+    latent_0_manifest_0_manifest_var_diag = parameter_for(
+        model, SiteKind.MANIFEST_VAR_DIAG, "latent_0", "manifest_0"
+    )
+    latent_0_revised = latent_0.revised(
+        indicators=(
+            IndicatorSpec(
+                observation=AuthoredObservationSpec(
+                    id=_X_INDICATOR_ID,
+                    name="x",
+                    measurement_dtype="continuous",
+                    aggregation=SummaryOperator.LAST,
+                    observation_window=None,
+                ),
+                likelihood=LikelihoodSpec(
+                    law=NormalLawSpec[Expression](
+                        loc=(
+                            coefficient(0.0, "observation_intercept")
+                            + (coefficient(1.0, "loading") * state(latent_0.id))
+                        ),
+                        scale=coefficient(
+                            _LATENT_0_X_MANIFEST_VAR_DIAG_PARAMETER_ID, "observation_scale"
+                        ),
+                    ),
+                    standardized=True,
+                    reasoning="Test likelihood",
+                ),
+                construct_polarity=IndicatorPolarity.POSITIVE,
+            ),
+        )
+    )
+    parameters, distributions = without_parameters(model, latent_0_manifest_0_manifest_var_diag)
+    return model.revised(
+        edges=replace_constructs(model.edges, (latent_0_revised,)),
+        parameters=(
+            *parameters,
+            ParameterSpec(
+                id=_LATENT_0_X_MANIFEST_VAR_DIAG_PARAMETER_ID,
+                name=_LATENT_0_X_MANIFEST_VAR_DIAG_PARAMETER_ID,
+                description="Fixture quantity",
+                distribution=_LATENT_0_X_MANIFEST_VAR_DIAG_DISTRIBUTION_ID,
+            ),
+        ),
+        distributions={
+            **distributions,
+            _LATENT_0_X_MANIFEST_VAR_DIAG_DISTRIBUTION_ID: dist.HalfNormal(
+                scale=1.0, validate_args=False
+            ),
+        },
+    )
+
+
+def _stress_interval_model() -> ModelSpec:
+    _STRESS_SCORE_INDICATOR_ID = IndicatorId("indicator:3696aef3ff6f446744e5")
+    _LATENT_0_STRESS_SCORE_MANIFEST_VAR_DIAG_PARAMETER_ID = ParameterId(
+        "parameter:cfa73aad8f98fefa2c03e109a6c5619b67bc4f1ab79bcaf100e70f7cfe7abc80"
+    )
+    _LATENT_0_STRESS_SCORE_MANIFEST_VAR_DIAG_DISTRIBUTION_ID = DistributionId(
+        "distribution:6e81bd018a8f326fe633d69e5b75bb5a5b47a3f4480e625579f1b3aa986def0b"
+    )
+    model = one_state_gaussian_model()
+    latent_0 = construct_named(model, "latent_0")
+    latent_0_manifest_0_manifest_var_diag = parameter_for(
+        model, SiteKind.MANIFEST_VAR_DIAG, "latent_0", "manifest_0"
+    )
+    latent_0_revised = latent_0.revised(
+        indicators=(
+            IndicatorSpec(
+                observation=AuthoredObservationSpec(
+                    id=_STRESS_SCORE_INDICATOR_ID,
+                    name="stress_score",
+                    measurement_dtype="continuous",
+                    aggregation=SummaryOperator.LAST,
+                    observation_window=None,
+                ),
+                likelihood=LikelihoodSpec(
+                    law=NormalLawSpec[Expression](
+                        loc=(
+                            coefficient(0.0, "observation_intercept")
+                            + (coefficient(1.0, "loading") * state(latent_0.id))
+                        ),
+                        scale=coefficient(
+                            _LATENT_0_STRESS_SCORE_MANIFEST_VAR_DIAG_PARAMETER_ID,
+                            "observation_scale",
+                        ),
+                    ),
+                    reasoning="Test likelihood",
+                ),
+                construct_polarity=IndicatorPolarity.POSITIVE,
+            ),
+        )
+    )
+    parameters, distributions = without_parameters(model, latent_0_manifest_0_manifest_var_diag)
+    return model.revised(
+        edges=replace_constructs(model.edges, (latent_0_revised,)),
+        parameters=(
+            *parameters,
+            ParameterSpec(
+                id=_LATENT_0_STRESS_SCORE_MANIFEST_VAR_DIAG_PARAMETER_ID,
+                name=_LATENT_0_STRESS_SCORE_MANIFEST_VAR_DIAG_PARAMETER_ID,
+                description="Fixture quantity",
+                distribution=_LATENT_0_STRESS_SCORE_MANIFEST_VAR_DIAG_DISTRIBUTION_ID,
+            ),
+        ),
+        distributions={
+            **distributions,
+            _LATENT_0_STRESS_SCORE_MANIFEST_VAR_DIAG_DISTRIBUTION_ID: dist.HalfNormal(
+                scale=1.0, validate_args=False
+            ),
+        },
+    )
+
+
+def _ar_prior_rejects_negative_support_make_prior_model() -> ModelSpec:
+    return load_model_fixture(
+        "runtime/testbuilderpriorconversion_test_ar_prior_rejects_negative_support_make_prior_model.json"
+    )
+
+
+def _sparse_wide_nulls_become_nan_without_fill_forward__make_spec() -> ModelSpec:
+    return load_model_fixture(
+        "runtime/testpreparefitinputs_test_sparse_wide_nulls_become_nan_without_fill_forward__make_spec.json"
+    )
+
+
+def _manifest_standardization_applies_only_to_standardized_channels__make_spec() -> ModelSpec:
+    model = _sparse_wide_nulls_become_nan_without_fill_forward__make_spec()
+    latent_0 = construct_named(model, "latent_0")
+    x = indicator_named(model, "x")
+    x_likelihood = likelihood_named(model, "x")
+    x_revised = x.revised(likelihood=x_likelihood.revised(standardized=True))
+    latent_0_revised = latent_0.revised(indicators=(x_revised,))
+    return model.revised(edges=replace_constructs(model.edges, (latent_0_revised,)))
+
+
+def _stress_mood_model() -> ModelSpec:
+    return load_model_fixture("runtime/stress_mood_model.json")
+
 
 # =============================================================================
 # normalize_prior_params
@@ -42,35 +328,15 @@ class TestBuilderPriorConversion:
     def test_ar_prior_rejects_negative_support(self):
         with pytest.raises(ValueError, match=r"support within \[0, 1\]"):
             compile_priors(
-                compile_model_fixture(
-                    ModelSpec.model_validate_json(
-                        (
-                            Path(__file__).resolve().parents[2]
-                            / "fixtures/models"
-                            / "runtime/testbuilderpriorconversion_test_ar_prior_rejects_negative_support_make_prior_model.json"
-                        ).read_text()
-                    )
-                ),
+                compile_model_fixture(_ar_prior_rejects_negative_support_make_prior_model()),
                 StructuralSelection(
-                    ModelSpec.model_validate_json(
-                        (
-                            Path(__file__).resolve().parents[2]
-                            / "fixtures/models"
-                            / "runtime/testbuilderpriorconversion_test_ar_prior_rejects_negative_support_make_prior_model.json"
-                        ).read_text()
-                    ),
+                    _ar_prior_rejects_negative_support_make_prior_model(),
                     None,
                 ),
             )
 
     def test_initial_state_correlation_priors_are_bounded_to_correlation_scale(self):
-        model = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "runtime/testbuilderpriorconversion_test_initial_state_correlation_priors_are_bounded_to_correlation_scale_with_parameter_distributions.json"
-            ).read_text()
-        )
+        model = _initial_state_correlation_priors_are_bounded_to_correlation_scale_with_parameter_distributions()
         law = compile_priors(compile_model_fixture(model), StructuralSelection(model, None))[0][
             "t0_var_lower_free"
         ]
@@ -80,25 +346,13 @@ class TestBuilderPriorConversion:
         np.testing.assert_allclose(law.high, [1.0])
 
     def test_initial_state_mean_and_sd_priors_bind_to_t0_sites(self):
-        model = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "common/two_state_fixed_drift_model.json"
-            ).read_text()
-        )
+        model = _two_state_fixed_drift_model()
         means = [
             p
             for p in model.parameters
             if model.parameter_context(p.id).quantity == SiteKind.T0_MEANS
         ]
-        model = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "runtime/testbuilderpriorconversion_test_initial_state_mean_and_sd_priors_bind_to_t0_sites_with_parameter_distributions.json"
-            ).read_text()
-        )
+        model = _initial_state_mean_and_sd_priors_bind_to_t0_sites_with_parameter_distributions()
         priors, bindings, _ = compile_priors(
             compile_model_fixture(model), StructuralSelection(model, None)
         )
@@ -111,13 +365,7 @@ class TestBuilderPriorConversion:
     def test_initial_state_correlation_prior_indices_are_dense_after_mask_filtering(self):
         mask = np.zeros((3, 3), dtype=bool)
         mask[2, 1] = True
-        model = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "runtime/testbuilderpriorconversion_test_initial_state_correlation_prior_indices_are_dense_after_mask_filtering__make_spec.json"
-            ).read_text()
-        )
+        model = _initial_state_correlation_prior_indices_are_dense_after_mask_filtering__make_spec()
         _, bindings, _ = compile_priors(
             compile_model_fixture(model), StructuralSelection(model, None)
         )
@@ -139,13 +387,7 @@ class TestBuilderPriorConversion:
             CompiledNodeTarget,
         )
 
-        model = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "runtime/stress_mood_model.json"
-            ).read_text()
-        )
+        model = _stress_mood_model()
         compiled = compile_model_fixture(model)
         _, bindings, _ = compile_priors(compiled, StructuralSelection(model, None))
         by_parameter = {binding.parameter_id: binding for binding in bindings}
@@ -167,13 +409,7 @@ class TestBuilderPriorConversion:
                     assert target.source_index == component.source
 
     def test_cross_lag_prior_requires_the_declared_measurement_clock(self):
-        model = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "runtime/stress_mood_model.json"
-            ).read_text()
-        ).revised(measurement_clock=None)
+        model = _stress_mood_model().revised(measurement_clock=None)
         with pytest.raises(ValueError, match="measurement clock"):
             compile_priors(compile_model_fixture(model), StructuralSelection(model, None))
 
@@ -183,13 +419,7 @@ class TestObservationSupportValidation:
     def test_gamma_emission_rejects_zero_observations(self):
         """Gamma likelihoods must fail early when observed data include zeros."""
         X = pl.DataFrame({"time": [0, 1, 2], "screen_gap": [0.0, 1.0, 2.0]})
-        spec = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "runtime/testobservationsupportvalidation_test_gamma_emission_rejects_zero_observations__make_spec.json"
-            ).read_text()
-        )
+        spec = _gamma_emission_rejects_zero_observations__make_spec()
 
         from nof1_causal_lab.models.ssm.observation_support import validate_observation_support
 
@@ -202,13 +432,7 @@ class TestObservationSupportValidation:
 class TestPrepareFitInputs:
     def test_sparse_wide_nulls_become_nan_without_fill_forward(self):
         """Sparse wide cells should stay missing and never broadcast across ticks."""
-        spec = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "runtime/testpreparefitinputs_test_sparse_wide_nulls_become_nan_without_fill_forward__make_spec.json"
-            ).read_text()
-        )
+        spec = _sparse_wide_nulls_become_nan_without_fill_forward__make_spec()
         wide = pl.DataFrame(
             {
                 "time": [0.0, 1.0],
@@ -230,13 +454,7 @@ class TestPrepareFitInputs:
 
     def test_manifest_standardization_applies_only_to_standardized_channels(self):
         """prepare_fit_inputs should deterministically standardize only marked manifests."""
-        spec = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "runtime/testpreparefitinputs_test_manifest_standardization_applies_only_to_standardized_channels__make_spec.json"
-            ).read_text()
-        )
+        spec = _manifest_standardization_applies_only_to_standardized_channels__make_spec()
         wide = pl.DataFrame(
             {
                 "time": [0.0, 1.0, 2.0],
@@ -258,13 +476,7 @@ class TestPrepareFitInputs:
 
     def test_manifest_standardization_of_constant_column_centers_without_scaling(self):
         """A zero-variance standardized column becomes exactly zero (divisor 1)."""
-        spec = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "runtime/testpreparefitinputs_test_manifest_standardization_of_constant_column_centers_without_scaling__make_spec.json"
-            ).read_text()
-        )
+        spec = _manifest_standardization_of_constant_column_centers_without_scaling__make_spec()
         wide = pl.DataFrame({"time": [0.0, 1.0], "x": [4.2, 4.2]})
 
         observations, _times, _names, _wide = prepare_fit_inputs(compile_model_fixture(spec), wide)
@@ -280,12 +492,7 @@ class TestPrepareModelRuntime:
         )
         from nof1_causal_lab.utils.observation_rows import prepared_time_origin
 
-        early = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models/common/one_state_gaussian_model.json"
-            ).read_text()
-        )
+        early = one_state_gaussian_model()
         late = ModelSpec.model_validate_json(
             early.model_dump_json()
             .replace(str(early.indicators[0].observation.id), "indicator:late")
@@ -335,15 +542,7 @@ class TestPrepareModelRuntime:
             }
         )
 
-        inputs = compile_fit_fixture(
-            ModelSpec.model_validate_json(
-                (
-                    Path(__file__).resolve().parents[2]
-                    / "fixtures/models"
-                    / "runtime/stress_interval_model.json"
-                ).read_text()
-            )
-        )
+        inputs = compile_fit_fixture(_stress_interval_model())
 
         with caplog.at_level("INFO"):
             runtime = bind_panel(
@@ -399,15 +598,7 @@ class TestPrepareModelRuntime:
             }
         )
 
-        inputs = compile_fit_fixture(
-            ModelSpec.model_validate_json(
-                (
-                    Path(__file__).resolve().parents[2]
-                    / "fixtures/models"
-                    / "runtime/stress_interval_model.json"
-                ).read_text()
-            )
-        )
+        inputs = compile_fit_fixture(_stress_interval_model())
 
         runtime = bind_panel(
             data_for_model,
@@ -441,15 +632,7 @@ class TestPrepareModelRuntime:
                 "support_end": ["2024-02-01T00:00:00"],
             }
         )
-        model = compile_fit_fixture(
-            ModelSpec.model_validate_json(
-                (
-                    Path(__file__).resolve().parents[2]
-                    / "fixtures/models"
-                    / "runtime/stress_interval_model.json"
-                ).read_text()
-            )
-        )
+        model = compile_fit_fixture(_stress_interval_model())
         runtime = bind_panel(
             data_for_model,
             time_origin=datetime(2024, 1, 1, tzinfo=UTC),
@@ -475,15 +658,7 @@ class TestPrepareModelRuntime:
 def test_compiled_inputs_own_runtime_derivations(monkeypatch):
     from nof1_causal_lab.models.ssm.compile import prior_compilation
 
-    inputs = compile_fit_fixture(
-        ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "common/one_state_gaussian_model.json"
-            ).read_text()
-        )
-    )
+    inputs = compile_fit_fixture(one_state_gaussian_model())
 
     def unexpected_compile(*_args, **_kwargs):
         raise AssertionError("runtime recompiled its evidence")
@@ -508,19 +683,9 @@ def test_compile_distinguishes_incomplete_unsupported_and_bugs(monkeypatch):
 
     incomplete = compiler.compile_ssm_inputs_from_model(StructuralSelection(ModelSpec(), None))
     assert isinstance(incomplete, compiler.IncompleteModel)
-    spec = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2]
-            / "fixtures/models"
-            / "common/one_state_gaussian_model.json"
-        ).read_text()
-    )
-    unsupported = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2]
-            / "fixtures/models"
-            / "runtime/compile_distinguishes_incomplete_unsupported_and_bugs_with_parameter_distributions.json"
-        ).read_text()
+    spec = one_state_gaussian_model()
+    unsupported = (
+        _compile_distinguishes_incomplete_unsupported_and_bugs_with_parameter_distributions()
     )
     assert isinstance(
         compiler.compile_ssm_inputs_from_model(StructuralSelection(unsupported, None)),

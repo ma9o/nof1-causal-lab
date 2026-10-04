@@ -1,59 +1,151 @@
 [
   {
-    "model": {
-      "workspace_id": "DEMO",
-      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "path": "model.json"
+    "law": null,
+    "findings": [],
+    "fit_reliability": "converged",
+    "causal": {
+      "kind": "available",
+      "value": {
+        "outcome": "construct:6ca86c47aaf18b2472ce",
+        "labels": {
+          "construct:517d64db16ceb6e6a692": "natural_recovery_propensity",
+          "construct:4cfc4a70f9d59a668364": "past_escitalopram_response_tolerability",
+          "construct:47ab45d6fa00e93be7ee": "patient_taper_preference_beliefs",
+          "construct:7b3d7a5f98ae353c60b6": "taper_speed_dose_reduction",
+          "construct:b7418d1841c57d53abf8": "adherence_to_regimen",
+          "construct:27f64faaddd59b2ad491": "escitalopram_dose_taken",
+          "construct:4a7b8d4d0772b0b10e4e": "duration_current_escitalopram_use",
+          "construct:1ca8eec7961c69a0cbe1": "stable_withdrawal_susceptibility",
+          "construct:eb28b45b275c6732596f": "neuroadaptation_dependence_state",
+          "construct:2da513406663702e475d": "withdrawal_symptom_burden",
+          "construct:ac82920bb78125ab0aca": "external_stressful_events",
+          "construct:bb5a697c4e5f020f733d": "perceived_stress_burden",
+          "construct:07f8d9915eaa311c9e50": "physical_activity",
+          "construct:5bf588dc29d582cd7423": "sleep_circadian_disruption",
+          "construct:ecfbf689dbd8add308bb": "clinical_monitoring_rescue_care",
+          "construct:428de2b75c12e36ca19d": "other_psychotropic_or_somatic_treatments",
+          "construct:6ca86c47aaf18b2472ce": "internalizing_symptom_burden"
+        },
+        "warnings": [
+          "Artificial Storybook simulation sim-1; not a fitted patient result."
+        ]
+      }
     },
-    "design": {
-      "start": "2026-01-01",
-      "horizon": "60d",
-      "interventions": [
+    "evidence": {
+      "model": {
+        "workspace_id": "DEMO",
+        "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "path": "model.json"
+      },
+      "design": {
+        "start": "2026-01-01",
+        "horizon": "60d",
+        "interventions": [
+          {
+            "target": "construct:7b3d7a5f98ae353c60b6",
+            "after": null,
+            "value": 0.24
+          }
+        ]
+      },
+      "time_origin": "2026-01-01T00:00:00Z",
+      "times": [
+        0.0,
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0,
+        7.0,
+        8.0,
+        9.0,
+        10.0,
+        11.0,
+        12.0,
+        13.0,
+        14.0,
+        15.0,
+        16.0,
+        17.0,
+        18.0,
+        19.0,
+        20.0,
+        21.0,
+        22.0,
+        23.0,
+        24.0,
+        25.0,
+        26.0,
+        27.0,
+        28.0,
+        29.0,
+        30.0,
+        31.0,
+        32.0,
+        33.0,
+        34.0,
+        35.0,
+        36.0,
+        37.0,
+        38.0,
+        39.0,
+        40.0,
+        41.0,
+        42.0,
+        43.0,
+        44.0,
+        45.0,
+        46.0,
+        47.0,
+        48.0,
+        49.0,
+        50.0,
+        51.0,
+        52.0,
+        53.0,
+        54.0,
+        55.0,
+        56.0,
+        57.0,
+        58.0,
+        59.0,
+        60.0
+      ],
+      "draws": 100,
+      "seed": 0,
+      "origin_panel_revision": null,
+      "state_ids": [
+        "construct:7b3d7a5f98ae353c60b6",
+        "construct:b7418d1841c57d53abf8",
+        "construct:27f64faaddd59b2ad491",
+        "construct:bb5a697c4e5f020f733d",
+        "construct:07f8d9915eaa311c9e50",
+        "construct:5bf588dc29d582cd7423",
+        "construct:6ca86c47aaf18b2472ce"
+      ],
+      "parameter_draws": {},
+      "latent_paths": "storybook-only/action-latents",
+      "observations": "storybook-only/action-observations",
+      "observation_layout": {
+        "variables": [],
+        "support_start_times": "illustrative-starts",
+        "support_end_times": "illustrative-ends",
+        "mask": "illustrative-mask"
+      },
+      "reference_latent_paths": "storybook-only/reference-latents",
+      "reference_observations": "storybook-only/reference-observations",
+      "assignments": [
         {
           "target": "construct:7b3d7a5f98ae353c60b6",
-          "after": null,
+          "time": 0.0,
           "value": 0.24
         }
       ]
-    },
-    "time_origin": "2026-01-01T00:00:00Z",
-    "assignments": [
-      {
-        "target": "construct:7b3d7a5f98ae353c60b6",
-        "time": 0.0,
-        "value": 0.24
-      }
-    ],
-    "times": [
-      0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
-      17.0, 18.0, 19.0, 20.0, 21.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0, 29.0, 30.0, 31.0,
-      32.0, 33.0, 34.0, 35.0, 36.0, 37.0, 38.0, 39.0, 40.0, 41.0, 42.0, 43.0, 44.0, 45.0, 46.0,
-      47.0, 48.0, 49.0, 50.0, 51.0, 52.0, 53.0, 54.0, 55.0, 56.0, 57.0, 58.0, 59.0, 60.0
-    ],
-    "draws": 100,
-    "seed": 0,
-    "origin_panel_revision": null,
-    "state_ids": [
-      "construct:7b3d7a5f98ae353c60b6",
-      "construct:b7418d1841c57d53abf8",
-      "construct:27f64faaddd59b2ad491",
-      "construct:bb5a697c4e5f020f733d",
-      "construct:07f8d9915eaa311c9e50",
-      "construct:5bf588dc29d582cd7423",
-      "construct:6ca86c47aaf18b2472ce"
-    ],
-    "parameter_draws": {},
-    "latent_paths": "storybook-only/action-latents",
-    "observations": "storybook-only/action-observations",
-    "observation_layout": {
-      "variables": [],
-      "support_start_times": "illustrative-starts",
-      "support_end_times": "illustrative-ends",
-      "mask": "illustrative-mask"
-    },
+    }
+  },
+  {
     "law": null,
-    "reference_latent_paths": "storybook-only/reference-latents",
-    "reference_observations": "storybook-only/reference-observations",
     "findings": [],
     "fit_reliability": "converged",
     "causal": {
@@ -79,65 +171,126 @@
           "construct:428de2b75c12e36ca19d": "other_psychotropic_or_somatic_treatments",
           "construct:6ca86c47aaf18b2472ce": "internalizing_symptom_burden"
         },
-        "warnings": ["Artificial Storybook simulation sim-1; not a fitted patient result."]
+        "warnings": [
+          "Artificial Storybook simulation sim-2; not a fitted patient result."
+        ]
       }
-    }
-  },
-  {
-    "model": {
-      "workspace_id": "DEMO",
-      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "path": "model.json"
     },
-    "design": {
-      "start": "2026-01-01",
-      "horizon": "60d",
-      "interventions": [
+    "evidence": {
+      "model": {
+        "workspace_id": "DEMO",
+        "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "path": "model.json"
+      },
+      "design": {
+        "start": "2026-01-01",
+        "horizon": "60d",
+        "interventions": [
+          {
+            "target": "construct:b7418d1841c57d53abf8",
+            "after": null,
+            "value": 0.94
+          }
+        ]
+      },
+      "time_origin": "2026-01-01T00:00:00Z",
+      "times": [
+        0.0,
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0,
+        7.0,
+        8.0,
+        9.0,
+        10.0,
+        11.0,
+        12.0,
+        13.0,
+        14.0,
+        15.0,
+        16.0,
+        17.0,
+        18.0,
+        19.0,
+        20.0,
+        21.0,
+        22.0,
+        23.0,
+        24.0,
+        25.0,
+        26.0,
+        27.0,
+        28.0,
+        29.0,
+        30.0,
+        31.0,
+        32.0,
+        33.0,
+        34.0,
+        35.0,
+        36.0,
+        37.0,
+        38.0,
+        39.0,
+        40.0,
+        41.0,
+        42.0,
+        43.0,
+        44.0,
+        45.0,
+        46.0,
+        47.0,
+        48.0,
+        49.0,
+        50.0,
+        51.0,
+        52.0,
+        53.0,
+        54.0,
+        55.0,
+        56.0,
+        57.0,
+        58.0,
+        59.0,
+        60.0
+      ],
+      "draws": 100,
+      "seed": 0,
+      "origin_panel_revision": null,
+      "state_ids": [
+        "construct:7b3d7a5f98ae353c60b6",
+        "construct:b7418d1841c57d53abf8",
+        "construct:27f64faaddd59b2ad491",
+        "construct:bb5a697c4e5f020f733d",
+        "construct:07f8d9915eaa311c9e50",
+        "construct:5bf588dc29d582cd7423",
+        "construct:6ca86c47aaf18b2472ce"
+      ],
+      "parameter_draws": {},
+      "latent_paths": "storybook-only/action-latents",
+      "observations": "storybook-only/action-observations",
+      "observation_layout": {
+        "variables": [],
+        "support_start_times": "illustrative-starts",
+        "support_end_times": "illustrative-ends",
+        "mask": "illustrative-mask"
+      },
+      "reference_latent_paths": "storybook-only/reference-latents",
+      "reference_observations": "storybook-only/reference-observations",
+      "assignments": [
         {
           "target": "construct:b7418d1841c57d53abf8",
-          "after": null,
+          "time": 0.0,
           "value": 0.94
         }
       ]
-    },
-    "time_origin": "2026-01-01T00:00:00Z",
-    "assignments": [
-      {
-        "target": "construct:b7418d1841c57d53abf8",
-        "time": 0.0,
-        "value": 0.94
-      }
-    ],
-    "times": [
-      0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
-      17.0, 18.0, 19.0, 20.0, 21.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0, 29.0, 30.0, 31.0,
-      32.0, 33.0, 34.0, 35.0, 36.0, 37.0, 38.0, 39.0, 40.0, 41.0, 42.0, 43.0, 44.0, 45.0, 46.0,
-      47.0, 48.0, 49.0, 50.0, 51.0, 52.0, 53.0, 54.0, 55.0, 56.0, 57.0, 58.0, 59.0, 60.0
-    ],
-    "draws": 100,
-    "seed": 0,
-    "origin_panel_revision": null,
-    "state_ids": [
-      "construct:7b3d7a5f98ae353c60b6",
-      "construct:b7418d1841c57d53abf8",
-      "construct:27f64faaddd59b2ad491",
-      "construct:bb5a697c4e5f020f733d",
-      "construct:07f8d9915eaa311c9e50",
-      "construct:5bf588dc29d582cd7423",
-      "construct:6ca86c47aaf18b2472ce"
-    ],
-    "parameter_draws": {},
-    "latent_paths": "storybook-only/action-latents",
-    "observations": "storybook-only/action-observations",
-    "observation_layout": {
-      "variables": [],
-      "support_start_times": "illustrative-starts",
-      "support_end_times": "illustrative-ends",
-      "mask": "illustrative-mask"
-    },
+    }
+  },
+  {
     "law": null,
-    "reference_latent_paths": "storybook-only/reference-latents",
-    "reference_observations": "storybook-only/reference-observations",
     "findings": [],
     "fit_reliability": "converged",
     "causal": {
@@ -163,65 +316,126 @@
           "construct:428de2b75c12e36ca19d": "other_psychotropic_or_somatic_treatments",
           "construct:6ca86c47aaf18b2472ce": "internalizing_symptom_burden"
         },
-        "warnings": ["Artificial Storybook simulation sim-2; not a fitted patient result."]
+        "warnings": [
+          "Artificial Storybook simulation sim-3; not a fitted patient result."
+        ]
       }
-    }
-  },
-  {
-    "model": {
-      "workspace_id": "DEMO",
-      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "path": "model.json"
     },
-    "design": {
-      "start": "2026-01-01",
-      "horizon": "60d",
-      "interventions": [
+    "evidence": {
+      "model": {
+        "workspace_id": "DEMO",
+        "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "path": "model.json"
+      },
+      "design": {
+        "start": "2026-01-01",
+        "horizon": "60d",
+        "interventions": [
+          {
+            "target": "construct:5bf588dc29d582cd7423",
+            "after": null,
+            "value": 0.30086
+          }
+        ]
+      },
+      "time_origin": "2026-01-01T00:00:00Z",
+      "times": [
+        0.0,
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0,
+        7.0,
+        8.0,
+        9.0,
+        10.0,
+        11.0,
+        12.0,
+        13.0,
+        14.0,
+        15.0,
+        16.0,
+        17.0,
+        18.0,
+        19.0,
+        20.0,
+        21.0,
+        22.0,
+        23.0,
+        24.0,
+        25.0,
+        26.0,
+        27.0,
+        28.0,
+        29.0,
+        30.0,
+        31.0,
+        32.0,
+        33.0,
+        34.0,
+        35.0,
+        36.0,
+        37.0,
+        38.0,
+        39.0,
+        40.0,
+        41.0,
+        42.0,
+        43.0,
+        44.0,
+        45.0,
+        46.0,
+        47.0,
+        48.0,
+        49.0,
+        50.0,
+        51.0,
+        52.0,
+        53.0,
+        54.0,
+        55.0,
+        56.0,
+        57.0,
+        58.0,
+        59.0,
+        60.0
+      ],
+      "draws": 100,
+      "seed": 0,
+      "origin_panel_revision": null,
+      "state_ids": [
+        "construct:7b3d7a5f98ae353c60b6",
+        "construct:b7418d1841c57d53abf8",
+        "construct:27f64faaddd59b2ad491",
+        "construct:bb5a697c4e5f020f733d",
+        "construct:07f8d9915eaa311c9e50",
+        "construct:5bf588dc29d582cd7423",
+        "construct:6ca86c47aaf18b2472ce"
+      ],
+      "parameter_draws": {},
+      "latent_paths": "storybook-only/action-latents",
+      "observations": "storybook-only/action-observations",
+      "observation_layout": {
+        "variables": [],
+        "support_start_times": "illustrative-starts",
+        "support_end_times": "illustrative-ends",
+        "mask": "illustrative-mask"
+      },
+      "reference_latent_paths": "storybook-only/reference-latents",
+      "reference_observations": "storybook-only/reference-observations",
+      "assignments": [
         {
           "target": "construct:5bf588dc29d582cd7423",
-          "after": null,
+          "time": 0.0,
           "value": 0.30086
         }
       ]
-    },
-    "time_origin": "2026-01-01T00:00:00Z",
-    "assignments": [
-      {
-        "target": "construct:5bf588dc29d582cd7423",
-        "time": 0.0,
-        "value": 0.30086
-      }
-    ],
-    "times": [
-      0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
-      17.0, 18.0, 19.0, 20.0, 21.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0, 29.0, 30.0, 31.0,
-      32.0, 33.0, 34.0, 35.0, 36.0, 37.0, 38.0, 39.0, 40.0, 41.0, 42.0, 43.0, 44.0, 45.0, 46.0,
-      47.0, 48.0, 49.0, 50.0, 51.0, 52.0, 53.0, 54.0, 55.0, 56.0, 57.0, 58.0, 59.0, 60.0
-    ],
-    "draws": 100,
-    "seed": 0,
-    "origin_panel_revision": null,
-    "state_ids": [
-      "construct:7b3d7a5f98ae353c60b6",
-      "construct:b7418d1841c57d53abf8",
-      "construct:27f64faaddd59b2ad491",
-      "construct:bb5a697c4e5f020f733d",
-      "construct:07f8d9915eaa311c9e50",
-      "construct:5bf588dc29d582cd7423",
-      "construct:6ca86c47aaf18b2472ce"
-    ],
-    "parameter_draws": {},
-    "latent_paths": "storybook-only/action-latents",
-    "observations": "storybook-only/action-observations",
-    "observation_layout": {
-      "variables": [],
-      "support_start_times": "illustrative-starts",
-      "support_end_times": "illustrative-ends",
-      "mask": "illustrative-mask"
-    },
+    }
+  },
+  {
     "law": null,
-    "reference_latent_paths": "storybook-only/reference-latents",
-    "reference_observations": "storybook-only/reference-observations",
     "findings": [],
     "fit_reliability": "converged",
     "causal": {
@@ -247,150 +461,126 @@
           "construct:428de2b75c12e36ca19d": "other_psychotropic_or_somatic_treatments",
           "construct:6ca86c47aaf18b2472ce": "internalizing_symptom_burden"
         },
-        "warnings": ["Artificial Storybook simulation sim-3; not a fitted patient result."]
+        "warnings": [
+          "Artificial Storybook simulation sim-4; not a fitted patient result."
+        ]
       }
-    }
-  },
-  {
-    "model": {
-      "workspace_id": "DEMO",
-      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "path": "model.json"
     },
-    "design": {
-      "start": "2026-04-11",
-      "horizon": "60d",
-      "interventions": [
+    "evidence": {
+      "model": {
+        "workspace_id": "DEMO",
+        "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "path": "model.json"
+      },
+      "design": {
+        "start": "2026-04-11",
+        "horizon": "60d",
+        "interventions": [
+          {
+            "target": "construct:bb5a697c4e5f020f733d",
+            "after": "2w",
+            "value": 1.26496
+          }
+        ]
+      },
+      "time_origin": "2026-01-01T00:00:00Z",
+      "times": [
+        100.0,
+        101.0,
+        102.0,
+        103.0,
+        104.0,
+        105.0,
+        106.0,
+        107.0,
+        108.0,
+        109.0,
+        110.0,
+        111.0,
+        112.0,
+        113.0,
+        114.0,
+        115.0,
+        116.0,
+        117.0,
+        118.0,
+        119.0,
+        120.0,
+        121.0,
+        122.0,
+        123.0,
+        124.0,
+        125.0,
+        126.0,
+        127.0,
+        128.0,
+        129.0,
+        130.0,
+        131.0,
+        132.0,
+        133.0,
+        134.0,
+        135.0,
+        136.0,
+        137.0,
+        138.0,
+        139.0,
+        140.0,
+        141.0,
+        142.0,
+        143.0,
+        144.0,
+        145.0,
+        146.0,
+        147.0,
+        148.0,
+        149.0,
+        150.0,
+        151.0,
+        152.0,
+        153.0,
+        154.0,
+        155.0,
+        156.0,
+        157.0,
+        158.0,
+        159.0,
+        160.0
+      ],
+      "draws": 100,
+      "seed": 0,
+      "origin_panel_revision": null,
+      "state_ids": [
+        "construct:7b3d7a5f98ae353c60b6",
+        "construct:b7418d1841c57d53abf8",
+        "construct:27f64faaddd59b2ad491",
+        "construct:bb5a697c4e5f020f733d",
+        "construct:07f8d9915eaa311c9e50",
+        "construct:5bf588dc29d582cd7423",
+        "construct:6ca86c47aaf18b2472ce"
+      ],
+      "parameter_draws": {},
+      "latent_paths": "storybook-only/action-latents",
+      "observations": "storybook-only/action-observations",
+      "observation_layout": {
+        "variables": [],
+        "support_start_times": "illustrative-starts",
+        "support_end_times": "illustrative-ends",
+        "mask": "illustrative-mask"
+      },
+      "reference_latent_paths": "storybook-only/reference-latents",
+      "reference_observations": "storybook-only/reference-observations",
+      "assignments": [
         {
           "target": "construct:bb5a697c4e5f020f733d",
-          "after": "2w",
+          "time": 114.0,
           "value": 1.26496
         }
       ]
-    },
-    "time_origin": "2026-01-01T00:00:00Z",
-    "assignments": [
-      {
-        "target": "construct:bb5a697c4e5f020f733d",
-        "time": 114.0,
-        "value": 1.26496
-      }
-    ],
-    "times": [
-      100.0, 101.0, 102.0, 103.0, 104.0, 105.0, 106.0, 107.0, 108.0, 109.0, 110.0, 111.0, 112.0,
-      113.0, 114.0, 115.0, 116.0, 117.0, 118.0, 119.0, 120.0, 121.0, 122.0, 123.0, 124.0, 125.0,
-      126.0, 127.0, 128.0, 129.0, 130.0, 131.0, 132.0, 133.0, 134.0, 135.0, 136.0, 137.0, 138.0,
-      139.0, 140.0, 141.0, 142.0, 143.0, 144.0, 145.0, 146.0, 147.0, 148.0, 149.0, 150.0, 151.0,
-      152.0, 153.0, 154.0, 155.0, 156.0, 157.0, 158.0, 159.0, 160.0
-    ],
-    "draws": 100,
-    "seed": 0,
-    "origin_panel_revision": null,
-    "state_ids": [
-      "construct:7b3d7a5f98ae353c60b6",
-      "construct:b7418d1841c57d53abf8",
-      "construct:27f64faaddd59b2ad491",
-      "construct:bb5a697c4e5f020f733d",
-      "construct:07f8d9915eaa311c9e50",
-      "construct:5bf588dc29d582cd7423",
-      "construct:6ca86c47aaf18b2472ce"
-    ],
-    "parameter_draws": {},
-    "latent_paths": "storybook-only/action-latents",
-    "observations": "storybook-only/action-observations",
-    "observation_layout": {
-      "variables": [],
-      "support_start_times": "illustrative-starts",
-      "support_end_times": "illustrative-ends",
-      "mask": "illustrative-mask"
-    },
-    "law": null,
-    "reference_latent_paths": "storybook-only/reference-latents",
-    "reference_observations": "storybook-only/reference-observations",
-    "findings": [],
-    "fit_reliability": "converged",
-    "causal": {
-      "kind": "available",
-      "value": {
-        "outcome": "construct:6ca86c47aaf18b2472ce",
-        "labels": {
-          "construct:517d64db16ceb6e6a692": "natural_recovery_propensity",
-          "construct:4cfc4a70f9d59a668364": "past_escitalopram_response_tolerability",
-          "construct:47ab45d6fa00e93be7ee": "patient_taper_preference_beliefs",
-          "construct:7b3d7a5f98ae353c60b6": "taper_speed_dose_reduction",
-          "construct:b7418d1841c57d53abf8": "adherence_to_regimen",
-          "construct:27f64faaddd59b2ad491": "escitalopram_dose_taken",
-          "construct:4a7b8d4d0772b0b10e4e": "duration_current_escitalopram_use",
-          "construct:1ca8eec7961c69a0cbe1": "stable_withdrawal_susceptibility",
-          "construct:eb28b45b275c6732596f": "neuroadaptation_dependence_state",
-          "construct:2da513406663702e475d": "withdrawal_symptom_burden",
-          "construct:ac82920bb78125ab0aca": "external_stressful_events",
-          "construct:bb5a697c4e5f020f733d": "perceived_stress_burden",
-          "construct:07f8d9915eaa311c9e50": "physical_activity",
-          "construct:5bf588dc29d582cd7423": "sleep_circadian_disruption",
-          "construct:ecfbf689dbd8add308bb": "clinical_monitoring_rescue_care",
-          "construct:428de2b75c12e36ca19d": "other_psychotropic_or_somatic_treatments",
-          "construct:6ca86c47aaf18b2472ce": "internalizing_symptom_burden"
-        },
-        "warnings": ["Artificial Storybook simulation sim-4; not a fitted patient result."]
-      }
     }
   },
   {
-    "model": {
-      "workspace_id": "DEMO",
-      "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
-      "path": "model.json"
-    },
-    "design": {
-      "start": "2026-01-01",
-      "horizon": "60d",
-      "interventions": [
-        {
-          "target": "construct:7b3d7a5f98ae353c60b6",
-          "after": null,
-          "value": 0.9
-        }
-      ]
-    },
-    "time_origin": "2026-01-01T00:00:00Z",
-    "assignments": [
-      {
-        "target": "construct:7b3d7a5f98ae353c60b6",
-        "time": 0.0,
-        "value": 0.9
-      }
-    ],
-    "times": [
-      0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0, 8.0, 9.0, 10.0, 11.0, 12.0, 13.0, 14.0, 15.0, 16.0,
-      17.0, 18.0, 19.0, 20.0, 21.0, 22.0, 23.0, 24.0, 25.0, 26.0, 27.0, 28.0, 29.0, 30.0, 31.0,
-      32.0, 33.0, 34.0, 35.0, 36.0, 37.0, 38.0, 39.0, 40.0, 41.0, 42.0, 43.0, 44.0, 45.0, 46.0,
-      47.0, 48.0, 49.0, 50.0, 51.0, 52.0, 53.0, 54.0, 55.0, 56.0, 57.0, 58.0, 59.0, 60.0
-    ],
-    "draws": 100,
-    "seed": 0,
-    "origin_panel_revision": null,
-    "state_ids": [
-      "construct:7b3d7a5f98ae353c60b6",
-      "construct:b7418d1841c57d53abf8",
-      "construct:27f64faaddd59b2ad491",
-      "construct:bb5a697c4e5f020f733d",
-      "construct:07f8d9915eaa311c9e50",
-      "construct:5bf588dc29d582cd7423",
-      "construct:6ca86c47aaf18b2472ce"
-    ],
-    "parameter_draws": {},
-    "latent_paths": "storybook-only/action-latents",
-    "observations": "storybook-only/action-observations",
-    "observation_layout": {
-      "variables": [],
-      "support_start_times": "illustrative-starts",
-      "support_end_times": "illustrative-ends",
-      "mask": "illustrative-mask"
-    },
     "law": null,
-    "reference_latent_paths": "storybook-only/reference-latents",
-    "reference_observations": "storybook-only/reference-observations",
     "findings": [],
     "fit_reliability": "converged",
     "causal": {
@@ -416,8 +606,122 @@
           "construct:428de2b75c12e36ca19d": "other_psychotropic_or_somatic_treatments",
           "construct:6ca86c47aaf18b2472ce": "internalizing_symptom_burden"
         },
-        "warnings": ["Artificial Storybook simulation sim-5; not a fitted patient result."]
+        "warnings": [
+          "Artificial Storybook simulation sim-5; not a fitted patient result."
+        ]
       }
+    },
+    "evidence": {
+      "model": {
+        "workspace_id": "DEMO",
+        "revision": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "path": "model.json"
+      },
+      "design": {
+        "start": "2026-01-01",
+        "horizon": "60d",
+        "interventions": [
+          {
+            "target": "construct:7b3d7a5f98ae353c60b6",
+            "after": null,
+            "value": 0.9
+          }
+        ]
+      },
+      "time_origin": "2026-01-01T00:00:00Z",
+      "times": [
+        0.0,
+        1.0,
+        2.0,
+        3.0,
+        4.0,
+        5.0,
+        6.0,
+        7.0,
+        8.0,
+        9.0,
+        10.0,
+        11.0,
+        12.0,
+        13.0,
+        14.0,
+        15.0,
+        16.0,
+        17.0,
+        18.0,
+        19.0,
+        20.0,
+        21.0,
+        22.0,
+        23.0,
+        24.0,
+        25.0,
+        26.0,
+        27.0,
+        28.0,
+        29.0,
+        30.0,
+        31.0,
+        32.0,
+        33.0,
+        34.0,
+        35.0,
+        36.0,
+        37.0,
+        38.0,
+        39.0,
+        40.0,
+        41.0,
+        42.0,
+        43.0,
+        44.0,
+        45.0,
+        46.0,
+        47.0,
+        48.0,
+        49.0,
+        50.0,
+        51.0,
+        52.0,
+        53.0,
+        54.0,
+        55.0,
+        56.0,
+        57.0,
+        58.0,
+        59.0,
+        60.0
+      ],
+      "draws": 100,
+      "seed": 0,
+      "origin_panel_revision": null,
+      "state_ids": [
+        "construct:7b3d7a5f98ae353c60b6",
+        "construct:b7418d1841c57d53abf8",
+        "construct:27f64faaddd59b2ad491",
+        "construct:bb5a697c4e5f020f733d",
+        "construct:07f8d9915eaa311c9e50",
+        "construct:5bf588dc29d582cd7423",
+        "construct:6ca86c47aaf18b2472ce"
+      ],
+      "parameter_draws": {},
+      "latent_paths": "storybook-only/action-latents",
+      "observations": "storybook-only/action-observations",
+      "observation_layout": {
+        "variables": [],
+        "support_start_times": "illustrative-starts",
+        "support_end_times": "illustrative-ends",
+        "mask": "illustrative-mask"
+      },
+      "reference_latent_paths": "storybook-only/reference-latents",
+      "reference_observations": "storybook-only/reference-observations",
+      "assignments": [
+        {
+          "target": "construct:7b3d7a5f98ae353c60b6",
+          "time": 0.0,
+          "value": 0.9
+        }
+      ]
     }
   }
 ]

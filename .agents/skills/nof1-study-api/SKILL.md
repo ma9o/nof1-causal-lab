@@ -1,582 +1,171 @@
 ---
 name: nof1-study-api
-description: "Drive or inspect a nof1-causal-lab study over HTTP with curl: edit models, prepare data, fit and simulate; inspect revisions, read study state/timeline/artifacts, and invoke scientific tools with dispatch and polling against the tool server. Use when working on a study as an external agent instead of the web viewer."
+description: "Drive or inspect a nof1-causal-lab study over HTTP with curl: call the seven public actions, read saved complete results, compare models and data, and inspect the slim timeline. Use when working on a study as an external agent instead of the web viewer."
 ---
 
 # nof1-causal-lab study API — curl skill
 
 > Auto-generated from `packages/api-types/schemas/openapi.json` (the FastAPI OpenAPI spec) by `apps/data-pipeline/scripts/codegen/export_api.py`. Edit the route docstrings, not this file.
 
-The scientific interface has five actions: `set_question`, `edit_model`, `prepare_data`,
-`fit`, and `simulate`. Requests commit through the serialized study workflow; reads
-come from its versioned artifacts and append-only attempt log.
+The public scientific interface has seven calls: `set_question`, `edit_model`,
+`prepare_data`, `fit`, `simulate`, `data_diff`, and `model_diff`.
+Call each at `POST /api/studies/{workspace_id}/{action}` with its typed JSON arguments.
 
-## Scientific loop
+A call is identified by its action and parsed arguments. Name model and panel inputs
+by immutable revision OIDs. `prepare_data` names uploaded files and captures their
+call-time SHA-256 hashes in `input.source.hashes`; repeat those retained hashes to
+read a saved call without the upload files. `edit_model` names its base
+`expected_revision` and optional check `panel_revision`. `simulate` names an optional
+`panel_revision` for authored-law calendar binding. There are no branches or public
+head-conflict controls. Every study starts with its immutable `set_question` call.
 
-1. Read `GET /api/studies/{workspace_id}/model` for current question, model/data versions and findings.
-2. Submit to `POST /api/studies/{workspace_id}/actions`:
-   - `set_question` is every study's first action, and for now its only point:
-     `{"action":"set_question","question":{"text":"Does workload affect sleep?","outcome":"construct:sleep_quality","queries":{"lighter weeks":{"start":"2026-05-15","horizon":"4w","interventions":[{"target":"construct:workload","value":2}]}}}}`.
-     Each query is a contrast of its interventions with the recorded course. It has one
-     calendar day, `start`; the window is a `horizon` and interventions sit `after` an
-     offset from the start (omitted means at the start), both in `s|m|h|d|w` durations,
-     where `m` is minutes. Name constructs by the identities the model will define.
-     Other actions are rejected until the question exists.
-   - `edit_model`: `{"action":"edit_model","expected_revision":null,"model":{"edges":[...]}}`.
-     Model structure, measurements, mechanisms, constants, and laws can be edited together.
-     Define the question's constructs with their identities; question checks report
-     "not evaluated" until the model does. Coefficients that enter only as a sum or only
-     as a product in every use are rejected; merge them into one parameter. Give each
-     parameter's prior law its `reasoning` and `sources`.
-     Each observation law has a distribution tag and direct Expression fields, e.g.
-     `{"distribution":"Delta","v":{"kind":"state","construct_id":"construct:workload"}}`.
-     Bernoulli uses `BernoulliLogits` with `logits` or `BernoulliProbs` with `probs`.
-     Edges carry drift mechanisms; construct dynamics may also carry potentials.
-     Parameter transforms own their interval: `{"kind":"dt_effect_to_ct_rate","interval_days":7}`
-     or an explicit `"model_clock"` duration; native-scale laws use `{"kind":"identity"}`.
-     Valid incomplete models are saved with applicable specification findings.
-   - `prepare_data`: supply `input={"source":{"files":["diary.csv"]},"definition":{...}}`
-     with `default_window`, `variables`, and optional interpretation `context` in the definition.
-     Each variable has a stable ID, dtype, summary, scoring rubric, extraction mode,
-     source columns, window and codebook as appropriate. The action ingests and extracts
-     in one call, retaining the semantic worker fan-out and deterministic scoring paths.
-     Alternatively, `input={"revision":"<simulation commit OID>","replicate":0}`
-     selects one recorded simulation draw. Its observations, schema and support layout
-     are already defined, so extraction, re-encoding and filling are skipped.
-     Files may declare optional source coverage `start` and `end` dates; only complete
-     support windows inside that span are prepared. Computed variables may use Polars
-     `fill_null` strategies or a numeric constant, with `fill_null_limit` for forward/backward.
-     Ingestion and one-variable, one-window extraction requests reuse retained validated
-     results by content across studies; reuse is reported in action messages. The committed
-     panel and recipe remain the scientific record. Both sources run numerical data checks without loading a model.
-     Latent paths and parameter truths stay in simulation sources.
-     See the [prepare_data chart](../../../docs/assets/action-flows/prepare-data.svg) for branches
-     and [time semantics](../../../docs/assumptions.md#time) for the panel origin.
-   - `fit`: `{"action":"fit","model_revision":"<model tree OID>","panel_revision":"<panel tree OID>"}` conditions the selected
-     model on observations. Returns joint uncertainty and fit diagnostics; predictive
-     simulation is a separate request. Current fitting supports independent scalar laws.
-   - `simulate`: `{"action":"simulate","model_revision":"<model tree OID>","start":"2026-05-15","horizon":"30d","interventions":[]}`
-     generates a window from the model's current laws, in the same shape as a question query.
-     The record's model day zero places the start: the fit's origin for fitted laws,
-     otherwise the current panel's; without a panel the start is day zero. Interventions are
-     optional: `{"target":"<construct ID>","after":"5d","value":1}` assigns a state that long
-     after the start, then its natural dynamics resume. The framework derives the grid and always includes
-     process and observation uncertainty. The saved report includes all state and indicator
-     summaries, law provenance and fit reliability, with causal intervals only when certified.
-     See [time semantics](../../../docs/assumptions.md#time) for initial laws and calendar binding.
-     Compare the saved observations separately with `data_diff`; simulation does not
-     accept comparison data or change its generation rules for predictive checks.
-3. Dispatch returns HTTP 202 with only `{"attempt_id":"<UUID>"}` after durable acceptance.
-   Poll `GET /api/studies/{workspace_id}/actions/{attempt_id}` until `kind` is `completed`.
-   A `running` poll carries messages. A `completed` poll carries the correlated attempt,
-   its commit ID and messages. Its outcome is `applied` with a result, `rejected` with a
-   reason and detail, or `raised` with the execution error. Messages accumulate as
-   `{timestamp, level, label}` with UTC timestamps, `debug|info|warn|error` levels,
-   and stable `SCREAMING_SNAKE_CASE` labels. Warnings can accompany a saved result;
-   failed actions leave the scientific branch unchanged. Do not redispatch while polling.
-   While `prepare_data` runs, `GET /api/studies/{workspace_id}/events?attempt_id=...` pages
-   its live step and extraction progress; pass the last `cursor` as `after`.
-   `GET /api/studies/{workspace_id}/timeline` retains `applied`, `rejected`, or `raised`
-   attempts and their messages. Numerical arrays have immutable store references.
-   `GET /api/studies/{workspace_id}/model` includes separately sourced specification,
-   identification, data-compatibility, fitting, and simulation findings.
+The six recorded calls run through the existing serialized Temporal study workflow.
+The response is `kind: running` with the call's arguments, attempt_id, messages and
+step/extraction events, or `kind: completed` with the correlated attempt and outcome.
+For running calls, repeat the response's `request`; it includes the canonical
+arguments and captured file hashes even when the first request omitted them.
+Repeat exactly the same arguments to read progress or the completed result. An
+identical running call starts no second attempt. Applied calls reuse saved results
+without execution or another timeline entry. Rejected and raised calls remain in
+the journal with their messages and error; repeating them retries execution.
 
-The same requests are available as tools through `GET /api/tools/scientific` and
-`POST /api/tools/scientific/{action}`; these tools return the receipt in `result`.
-Use `poll_action` with `{attempt_id}` to read the same poll response in `result`.
-HTTP and tool calls share execution contracts. V2 is a read-only inspector.
+Completed applied responses include `snapshot`, `inference_report`,
+`observation_histories`, `predictive_overlays`, `simulation_paths`, `parameter_draws`,
+`artifacts`, `arrays`, and `traces`, alongside the typed `attempt.outcome`.
+All retained simulation paths and large arrays are returned without paging. Tables
+are JSON rows, and `arrays` maps immutable array identities to their complete values.
+Missing numerical values are null. No extra result or artifact read is needed.
 
-## Revisions and execution
+`model_diff {before, after}` is a cached comparison read. It returns the comparison
+and each present model definition, creates no attempt, leaf or timeline entry, and works on
+the read-only facade. Edit details and hover/pin previews use this same call.
+Pre-model checkpoints have an empty comparison side; failed attempts compare their
+unchanged execution parent.
 
-Requests name stored input revisions. Fits check the selected model/data pair; model edits reject base revision conflicts. Read `/revisions` to select history. `GET /model-diff?before=...&after=...` compares model trees or Git checkpoints; `POST /data-diff` compares saved data selections in `left` and `right`. Model diffs create no attempt. Data diffs return an attempt_id to poll and save a read-only timeline leaf off the call-time branch head, without moving it; GET /data-diff/{commit_id} reads the saved comparison.
-An edit does not require prior simulation or an authoring admission. Causal numerical
-claims still require matching identification and production inference evidence.
-Model edits automatically run affected checks, including one exact whole-model
-predictive batch when a compatible panel is available. Data preparation runs only
-data checks. Unchanged checks reuse
-their recorded results. Scientific failures save as findings; missing prerequisites carry
-not_evaluated reasons. Read predictive details and law provenance in the applied result.
-Simulation reports retain their own generating model revision; a later edit makes that
-report historical rather than evidence for the edited model.
+Read `GET /api/studies/{workspace_id}/timeline` for replayable arguments, status,
+messages, errors, trace ids, input dependency links, and the running call. Scientific
+results and branches are excluded. The viewer repeats applied calls only; failed or
+unknown calls are displayed from the journal without executing them. Input panes
+resolve the earlier calls named by the selected call's dependency links.
 
-Only the five scientific actions submit scientific work. Execution jobs and
-LLM subroutines are private implementation details; callers do not select them.
-Simulation always uses the same nonlinear generator. Paired intervention histories share
-joint parameter/state draws and random streams. Causal effects on the question's
-outcome are reported only when identification and committed production-fit evidence support
-that interpretation; otherwise the report keeps its histories with an explicit reason.
-The `analysis` context is read-only model introspection.
+`GET /api/workspaces` lists available studies and questions. Its X-Actions-Enabled
+header supplies the landing page capability. `POST /api/upload` stages a named input
+file (`multipart/form-data` with `workspaceId` and `file`).
 
-## Data in, results out
-
-Upload files at `POST /api/upload` (`multipart/form-data` with `workspaceId` and
-`file`) before `prepare_data` with its file preparation input. Read artifact payloads at
-`GET /api/studies/{workspace_id}/artifacts/{artifact_id}`; binary files are served
-from `.../files/{filename}`. Long jobs may outlive an HTTP client timeout; inspect
-the timeline before submitting another request.
-
-## Read-only deployments
-
-`GET /api/actions-enabled` returns a boolean. Read-only deployments reject scientific action submissions with 403.
+With READ_ONLY_FACADE=1, saved calls are answered and unsaved recorded calls return
+403. Model comparisons remain available. Scientific checks,
+production fitting and simulations continue using the exact nonlinear engines.
 
 ## Endpoints
 
-### GET `/api/actions-enabled`
+### POST `/api/studies/{workspace_id}/data_diff`
 
-Whether this deployment serves scientific actions.
-
-`actions_enabled` is `false` on the hosted read-only viewer backend, where
-every `POST` (scientific actions and study management) returns 403 and only the read
-endpoints are live.
-
-```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/actions-enabled"
-```
-
-### GET `/api/studies/{workspace_id}`
-
-Current study state: the single read to poll while navigating.
-
-Returns the five scientific action names and per-artifact existence,
-freshness and revision from the selected Git branch snapshot, and the
-attempt the study's Temporal workflow is executing on any branch, if any.
-
-**Parameters**
-
-- `workspace_id` (path, required)
-- `branch` (query, optional)
-
-```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID"
-```
-
-### POST `/api/studies/{workspace_id}/actions`
-
-Accept durable work and return its receipt; retrieve results by polling the attempt.
-
-**Parameters**
-
-- `workspace_id` (path, required)
-- `branch` (query, optional)
-- `expected_head` (query, optional)
-
-```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/actions" \
-  -X POST \
-  -H 'Content-Type: application/json' \
-  -d '{"action": "set_question", "question": {"text": "string"}}'
-```
-
-### GET `/api/studies/{workspace_id}/actions/{attempt_id}`
-
-Read progress or the completed attempt's typed outcome without dispatching work.
-
-**Parameters**
-
-- `workspace_id` (path, required)
-- `attempt_id` (path, required)
-
-```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/actions/ATTEMPT_ID"
-```
-
-### GET `/api/studies/{workspace_id}/artifacts/{artifact_id}`
-
-One artifact revision: meta + inline JSON payloads.
-
-Defaults to the selected branch's current revision. Binary payload files (parquet, pickle) are listed by name, never
-inlined.
-
-**Parameters**
-
-- `workspace_id` (path, required)
-- `artifact_id` (path, required)
-- `revision` (query, optional)
-- `branch` (query, optional)
-
-```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/artifacts/ARTIFACT_ID"
-```
-
-### GET `/api/studies/{workspace_id}/artifacts/{artifact_id}/files/{filename}`
-
-One declared payload file from an artifact revision.
-
-Defaults to the study's current revision. Unlike the JSON artifact
-endpoint, this serves binary files as bytes and refuses undeclared
-filenames so callers cannot browse arbitrary workspace paths.
-
-**Parameters**
-
-- `workspace_id` (path, required)
-- `artifact_id` (path, required)
-- `filename` (path, required)
-- `revision` (query, optional)
-- `branch` (query, optional)
-
-```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/artifacts/ARTIFACT_ID/files/FILENAME"
-```
-
-### GET `/api/studies/{workspace_id}/artifacts/{artifact_id}/traces`
-
-Traces of the applied attempt that produced an artifact revision.
-
-Defaults to the study's current revision. The join runs over the
-attempt journal, so it works against a published read-only store.
-
-**Parameters**
-
-- `workspace_id` (path, required)
-- `artifact_id` (path, required)
-- `revision` (query, optional)
-- `branch` (query, optional)
-
-```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/artifacts/ARTIFACT_ID/traces"
-```
-
-### GET `/api/studies/{workspace_id}/branches`
-
-Get Branches
+Compare immutable left/right data selections and retain a comparison leaf. Identical applied calls reuse the complete comparison without another attempt; identical running calls return that attempt's progress. Failures stay in the timeline and can be retried.
 
 **Parameters**
 
 - `workspace_id` (path, required)
 
 ```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/branches"
-```
-
-### POST `/api/studies/{workspace_id}/branches`
-
-Fork the complete study at a checkpoint; the new branch shares its ancestry.
-
-**Parameters**
-
-- `workspace_id` (path, required)
-
-```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/branches" \
-  -X POST \
-  -H 'Content-Type: application/json' \
-  -d '{"name": "string", "at": "string"}'
-```
-
-### POST `/api/studies/{workspace_id}/data-diff`
-
-Record a comparison as a read-only leaf off the branch head captured at dispatch.
-
-Each side accepts a data reference or a nonempty array of references. Panel
-references select artifact revisions; simulation references select applied
-simulation commits and optionally one replicate (otherwise every draw).
-Simulation calendar coordinates come from the saved report's origin.
-Exact anchors and measurement windows determine which predictive comparisons
-are available. Results preserve each history and report incompatible inputs.
-Poll the returned attempt_id for the report and its commit_id. The study's
-serialized writer saves the report beside the journal record; it never moves
-the branch or changes scientific state. Failed comparisons also leave a leaf.
-GET /data-diff/{commit_id} reads a saved report without running the comparison.
-
-**Parameters**
-
-- `workspace_id` (path, required)
-- `branch` (query, optional)
-
-```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/data-diff" \
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/data_diff" \
   -X POST \
   -H 'Content-Type: application/json' \
   -d '{"action": "data_diff", "left": {"kind": "panel", "revision": "string"}, "right": {"kind": "panel", "revision": "string"}}'
 ```
 
-### GET `/api/studies/{workspace_id}/data-diff/{commit_id}`
+### POST `/api/studies/{workspace_id}/edit_model`
 
-Read the comparison report retained by its applied outcome.
-
-**Parameters**
-
-- `workspace_id` (path, required)
-- `commit_id` (path, required)
-
-```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/data-diff/COMMIT_ID"
-```
-
-### GET `/api/studies/{workspace_id}/events`
-
-Live progress of one attempt: data-preparation step status and extraction fan-out.
-
-Pass the last-seen event cursor as `after` to page forward. Progress is disposable
-and never saved with the attempt; its record and traces are authoritative.
+Save a model naming its base expected_revision and optional panel_revision. No head conflict check. The complete result includes findings, draws, histories, artifacts and traces; use model_diff separately for changes.
 
 **Parameters**
 
 - `workspace_id` (path, required)
-- `attempt_id` (query, required)
-- `after` (query, optional)
 
 ```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/events"
-```
-
-### GET `/api/studies/{workspace_id}/logs/{commit_id}`
-
-Get Attempt Log
-
-**Parameters**
-
-- `workspace_id` (path, required)
-- `commit_id` (path, required)
-
-```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/logs/COMMIT_ID"
-```
-
-### GET `/api/studies/{workspace_id}/model`
-
-Batch canonical aggregates in one committed read transaction.
-
-Omit `at` for the selected branch head, or pass an exact Git commit ID.
-Use `commit_id` to pin subsequent reads. Failed attempts retain logs without advancing scientific state.
-
-**Parameters**
-
-- `workspace_id` (path, required)
-- `branch` (query, optional)
-- `at` (query, optional)
-
-```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/model"
-```
-
-### GET `/api/studies/{workspace_id}/model-diff`
-
-Compare two model artifact revisions or Git checkpoints containing a model.
-
-Returns identity-aligned definition changes, parameter decisions and graph
-topology differences. Graph highlights exclude laws and other entity attributes.
-Checkpoint selections also include their recorded fit/simulation
-evidence; selecting a model tree alone does not infer an associated run.
-
-**Parameters**
-
-- `workspace_id` (path, required)
-- `before` (query, required)
-- `after` (query, required)
-
-```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/model-diff"
-```
-
-### GET `/api/studies/{workspace_id}/model/constructs`
-
-Authored constructs, using their canonical domain type.
-
-**Parameters**
-
-- `workspace_id` (path, required)
-- `branch` (query, optional)
-- `at` (query, optional)
-
-```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/model/constructs"
-```
-
-### GET `/api/studies/{workspace_id}/model/definition`
-
-The canonical scientific value selected by this journal revision.
-
-**Parameters**
-
-- `workspace_id` (path, required)
-- `branch` (query, optional)
-- `at` (query, optional)
-
-```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/model/definition"
-```
-
-### GET `/api/studies/{workspace_id}/model/edges`
-
-Authored edges, using their canonical domain type.
-
-**Parameters**
-
-- `workspace_id` (path, required)
-- `branch` (query, optional)
-- `at` (query, optional)
-
-```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/model/edges"
-```
-
-### GET `/api/studies/{workspace_id}/model/indicators`
-
-Authored indicators whose owners survive at the selected revision.
-
-**Parameters**
-
-- `workspace_id` (path, required)
-- `branch` (query, optional)
-- `at` (query, optional)
-
-```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/model/indicators"
-```
-
-### GET `/api/studies/{workspace_id}/model/inference-report`
-
-Read the fit report associated with the selected model revision.
-
-**Parameters**
-
-- `workspace_id` (path, required)
-- `branch` (query, optional)
-- `at` (query, optional)
-
-```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/model/inference-report"
-```
-
-### GET `/api/studies/{workspace_id}/model/parameters`
-
-Scientific parameter definitions from the selected model, without inference execution.
-
-**Parameters**
-
-- `workspace_id` (path, required)
-- `branch` (query, optional)
-- `at` (query, optional)
-
-```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/model/parameters"
-```
-
-### POST `/api/studies/{workspace_id}/model/visuals/mechanism`
-
-Read conditional drift curves using the exact model equations; creates no scientific action.
-
-**Parameters**
-
-- `workspace_id` (path, required)
-- `branch` (query, optional)
-- `at` (query, optional)
-
-```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/model/visuals/mechanism" \
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/edit_model" \
   -X POST \
   -H 'Content-Type: application/json' \
-  -d '{"owner_id": "string"}'
+  -d '{"action": "edit_model", "expected_revision": "string", "model": {}}'
 ```
 
-### GET `/api/studies/{workspace_id}/model/visuals/observations/{indicator_id}`
+### POST `/api/studies/{workspace_id}/fit`
 
-All prepared observations on their recorded temporal support.
-
-**Parameters**
-
-- `indicator_id` (path, required)
-- `workspace_id` (path, required)
-- `branch` (query, optional)
-- `at` (query, optional)
-
-```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/model/visuals/observations/INDICATOR_ID"
-```
-
-### GET `/api/studies/{workspace_id}/model/visuals/parameters`
-
-All coordinates and all draws of the retained joint posterior.
-
-**Parameters**
-
-- `workspace_id` (path, required)
-- `branch` (query, optional)
-- `at` (query, optional)
-
-```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/model/visuals/parameters"
-```
-
-### GET `/api/studies/{workspace_id}/model/visuals/predictive/{indicator_id}`
-
-Saved predictive paths on the exact schedule of their pinned inputs.
-
-**Parameters**
-
-- `indicator_id` (path, required)
-- `workspace_id` (path, required)
-- `branch` (query, optional)
-- `at` (query, optional)
-
-```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/model/visuals/predictive/INDICATOR_ID"
-```
-
-### GET `/api/studies/{workspace_id}/model/visuals/simulation`
-
-A contiguous page of original simulation draws, without time thinning.
-
-**Parameters**
-
-- `workspace_id` (path, required)
-- `start` (query, optional)
-- `count` (query, optional)
-- `branch` (query, optional)
-- `at` (query, optional)
-
-```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/model/visuals/simulation"
-```
-
-### GET `/api/studies/{workspace_id}/revisions`
-
-List stored model, observation and source revisions for deliberate selection.
+Condition the named model_revision on panel_revision. Returns the saved complete inference result, including joint posterior arrays, diagnostics and every observation history. Repeat the same arguments to read progress or the saved completion.
 
 **Parameters**
 
 - `workspace_id` (path, required)
 
 ```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/revisions"
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/fit" \
+  -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{"action": "fit", "model_revision": "string", "panel_revision": "string"}'
 ```
 
-### GET `/api/studies/{workspace_id}/revisions/data-profile/{panel_revision}`
+### POST `/api/studies/{workspace_id}/model_diff`
 
-Read the empirical profile for an observation revision independently of the model.
+Compare named before/after model trees or checkpoints, including their definitions and evidence. Cached by parsed arguments. Never creates an attempt, leaf, or timeline entry, and works on the read-only facade.
 
 **Parameters**
 
 - `workspace_id` (path, required)
-- `panel_revision` (path, required)
 
 ```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/revisions/data-profile/PANEL_REVISION"
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/model_diff" \
+  -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{"before": "string", "after": "string"}'
 ```
 
-### GET `/api/studies/{workspace_id}/revisions/model/{revision}`
+### POST `/api/studies/{workspace_id}/prepare_data`
 
-Read a historical definition, including the input to an earlier fit.
+Prepare named uploaded files or a saved simulation replicate. Capture each named file's SHA-256 at call time. Repeat the retained source.hashes to read saved results without uploaded bytes. Running results include step/extraction events; completed results include all observations, profiles and traces.
 
 **Parameters**
 
 - `workspace_id` (path, required)
-- `revision` (path, required)
 
 ```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/revisions/model/REVISION"
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/prepare_data" \
+  -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{"action": "prepare_data", "input": {"source": {"files": ["string"]}, "definition": {"default_window": "string", "variables": [{"observation": {"id": "string", "name": "string", "measurement_dtype": "continuous", "aggregation": "first"}, "extraction": {"kind": "computed", "how_to_measure": "string", "source_columns": [{}]}}]}}}'
+```
+
+### POST `/api/studies/{workspace_id}/set_question`
+
+Set the immutable study question first. Repeat parsed arguments to read saved results or running progress; failed calls may be retried.
+
+**Parameters**
+
+- `workspace_id` (path, required)
+
+```bash
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/set_question" \
+  -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{"action": "set_question", "question": {"text": "string"}}'
+```
+
+### POST `/api/studies/{workspace_id}/simulate`
+
+Simulate the named model_revision and optional panel_revision. Fitted laws retain their fit origin. Returns all paths and arrays without paging, their summaries, causal evidence and traces. Repeat the same arguments to read progress or saved completion.
+
+**Parameters**
+
+- `workspace_id` (path, required)
+
+```bash
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/simulate" \
+  -X POST \
+  -H 'Content-Type: application/json' \
+  -d '{"start": "string", "horizon": "string", "action": "simulate", "model_revision": "string"}'
 ```
 
 ### GET `/api/studies/{workspace_id}/timeline`
 
-The attempt journal: every action attempt in order.
-
-Each record is `applied` (completed; data_diff leaves do not advance state),
-`rejected` (rejected action, state unchanged), or `raised` (the action ran but threw — the record carries the
-typed error). Re-running after a `raised`/`rejected` is just proposing the
-action again. `dependencies` links each record to the earlier records whose
-outputs its request named; `check` marks outputs only its checks read.
+Slim call log: replayable arguments, status, messages, errors, trace ids and dependencies. No inline results and no branches. Selecting an applied node repeats its action; never repeat failed or unknown nodes from the viewer.
 
 **Parameters**
 
@@ -586,72 +175,22 @@ outputs its request named; `check` marks outputs only its checks read.
 curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/timeline"
 ```
 
-### GET `/api/studies/{workspace_id}/traces/{commit_id}/{subroutine_id}`
-
-One trace from the owning attempt's Git commit.
-
-**Parameters**
-
-- `workspace_id` (path, required)
-- `commit_id` (path, required)
-- `subroutine_id` (path, required)
-
-```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/traces/COMMIT_ID/SUBROUTINE_ID"
-```
-
-### GET `/api/tools/{context_id}`
-
-List a context's validation/query tools — the same tools the in-service LLM loops use.
-
-Each entry is `{name, description, parameters, result}` where `parameters`
-and `result` are JSON Schemas. Fetch this first to learn a tool's argument
-shape, then call `POST /api/tools/{context_id}/{tool_name}`. Examples:
-analysis `simulate` / `get_model_info`, literature `search_literature`.
-
-**Parameters**
-
-- `context_id` (path, required)
-
-```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/tools/CONTEXT_ID"
-```
-
-### POST `/api/tools/{context_id}/{tool_name}`
-
-Execute a context tool against the workspace's current artifact-store versions.
-
-Body is `{"workspace_id": "...", "input": {...}}` where `input` matches the
-tool's `parameters` schema from `GET /api/tools/{context_id}`; 422 on a schema
-violation. Analysis tools reject stale supporting inputs with 409 before
-loading or reusing a fitted context.
-
-**Parameters**
-
-- `context_id` (path, required)
-- `tool_name` (path, required)
-
-```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/tools/CONTEXT_ID/TOOL_NAME" \
-  -X POST \
-  -H 'Content-Type: application/json' \
-  -d '{"workspace_id": "string", "input": {}}'
-```
-
 ### POST `/api/upload`
 
-Stage one raw input file for prepare_data.
+Stage one named raw input file for prepare_data; that call captures its SHA-256.
 
 ```bash
 curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/upload" \
   -X POST \
-  -H 'Content-Type: application/json' \
-  -d '{}'
+  -F "file=@/path/to/file" \
+  -F "workspaceId=WORKSPACEID"
 ```
 
 ### GET `/api/workspaces`
 
-Published/local workspaces visible through this facade.
+Available workspaces and their immutable study questions.
+
+X-Actions-Enabled preserves the landing page's deployment capability without a separate endpoint.
 
 ```bash
 curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/workspaces"

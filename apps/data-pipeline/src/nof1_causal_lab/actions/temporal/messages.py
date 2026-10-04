@@ -59,22 +59,20 @@ class StudyInit(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     workspace_id: str
-    # Attempt numbering resumes after the journal; each action captures its own branch head.
+    # Attempt numbering resumes after the journal; each call names its scientific inputs.
     initial_seq: int = 0
 
 
-class ReadBranchInput(BaseModel):
+class ReadInputsInput(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     workspace_id: str
-    branch: str = "main"
+    request: ScientificActionRequest | DataDiffRequest
 
 
 class ActionRequest(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    branch: str = "main"
-    expected_head: GitOid | None = None
     request: ScientificActionRequest | DataDiffRequest
     attempt_id: UUID = Field(default_factory=uuid4)
 
@@ -121,7 +119,6 @@ class LLMToolSpec(BaseModel):
         "raw_data_execute_python",
         "raw_data_submit_table",
     ] = "measurement_validation"
-    success_output: str | None = "VALID"
 
 
 class LLMSubroutineRef(BaseModel):
@@ -198,7 +195,6 @@ class LLMToolExecutionInput(BaseModel):
     execution_ref: str
     result_ref: str
     tools: list[LLMToolSpec] = Field(default_factory=list)
-    max_tool_output: int | None = None
 
 
 class LLMToolExecutionResult(BaseModel):
@@ -207,7 +203,6 @@ class LLMToolExecutionResult(BaseModel):
     conversation_ref: str
     terminal_success: bool
     result_ref: str | None = None
-    feedback_preview: str
     tool_calls_fired: list[str] = Field(default_factory=list)
 
 
@@ -254,7 +249,6 @@ class HarnessTurnResult(BaseModel):
 
     harness_state_ref: str
     trace_ref: str
-    completion_preview: str
     result_ref: str | None = None
     terminal_tool_name: str | None = None
     tool_calls_fired: list[str] = Field(default_factory=list)
@@ -342,7 +336,6 @@ class ExtractionChunkWorkflowInput(BaseModel):
     workspace_id: str
     run_id: str
     chunk: MeasurementChunkRef
-    attempt: int
     llm: EmbeddedLLMSpec
     max_tool_turns: int
 
@@ -376,7 +369,6 @@ class OpenRouterCallResult(BaseModel):
     stop_reason: str | None = None
     time: float
     usage: dict[str, int | None] | None = None
-    completion_preview: str
     tool_calls: list[ToolCallSummary] = Field(default_factory=list)
 
 
@@ -444,7 +436,7 @@ class AttemptPublication(Value):
     """The writer receives the same record; Git publication identity is computed outside it."""
 
     workspace_id: str
-    expected_head: GitOid | None
+    parent_id: GitOid | None
     record: AttemptRecord
 
 

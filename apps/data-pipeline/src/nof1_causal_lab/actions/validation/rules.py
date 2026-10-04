@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import logging
-import math
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, TypedDict, cast
 
@@ -432,17 +431,9 @@ def _build_indicator_context(
     )
 
 
-def _float_or_none(value: float | None) -> float | None:
-    if value is None:
-        return None
-    return None if math.isnan(value) else value
-
-
 def _compute_empirical_profile(
     indicator_id: IndicatorId,
     model_data: pl.DataFrame,
-    indicator_lookup: Mapping[IndicatorId, AuthoredObservationSpec | ResolvedObservationSpec],
-    health_metrics: HealthMetrics,
 ) -> IndicatorEmpiricalProfile | None:
     ind_model = model_data.filter(pl.col("indicator_id") == indicator_id)
     values_df = ind_model.select(pl.col("value").cast(pl.Float64, strict=False)).drop_nulls()
@@ -450,58 +441,12 @@ def _compute_empirical_profile(
     if n_obs == 0:
         return None
 
-    values = values_df["value"]
-    mean = _float_or_none(cast("float | None", values.mean()))
-    variance = _float_or_none(cast("float | None", values.var()))
-    min_value = _float_or_none(cast("float | None", values.min()))
-    max_value = _float_or_none(cast("float | None", values.max()))
-    numeric_values = [float(v) for v in values.to_list()]
-
-    return IndicatorEmpiricalProfile(
-        measurement_dtype=(
-            indicator_lookup[indicator_id].measurement_dtype
-            if indicator_id in indicator_lookup
-            else None
-        ),
-        n_obs=n_obs,
-        mean=mean,
-        std=_float_or_none(cast("float | None", values.std())),
-        min=min_value,
-        max=max_value,
-        q25=_float_or_none(values.quantile(0.25)),
-        q50=_float_or_none(values.quantile(0.50)),
-        q75=_float_or_none(values.quantile(0.75)),
-        variance=variance,
-        time_coverage_ratio=_float_or_none(health_metrics.get("time_coverage_ratio")),
-        max_gap_ratio=_float_or_none(health_metrics.get("max_gap_ratio")),
-        dtype_violations=health_metrics.get("dtype_violations"),
-        duplicate_pct=_float_or_none(health_metrics.get("duplicate_pct")),
-        arithmetic_sequence_detected=bool(
-            health_metrics.get("arithmetic_sequence_detected", False)
-        ),
-        n_unparseable_timestamps=health_metrics.get("n_unparseable_timestamps"),
-        zero_fraction=float(
-            sum(1 for value in numeric_values if math.isclose(value, 0.0, abs_tol=1e-12)) / n_obs
-        )
-        if n_obs > 0
-        else None,
-        is_nonnegative=min_value >= 0 if min_value is not None else None,
-        is_unit_interval=min_value >= 0 and max_value <= 1
-        if min_value is not None and max_value is not None
-        else None,
-        looks_integer_valued=all(
-            math.isclose(value, round(value), abs_tol=1e-8) for value in numeric_values
-        ),
-        variance_to_mean_ratio=variance / mean
-        if variance is not None and mean is not None and mean > 0
-        else None,
-    )
+    return IndicatorEmpiricalProfile(n_obs=n_obs)
 
 
 def build_indicator_audits(
     *,
     indicator_ids: set[IndicatorId],
-    indicator_lookup: Mapping[IndicatorId, AuthoredObservationSpec | ResolvedObservationSpec],
     model_data: pl.DataFrame,
     indicator_issues: list[ValidationIssue],
     indicator_health: dict[str, HealthMetrics],
@@ -519,8 +464,6 @@ def build_indicator_audits(
             profile=_compute_empirical_profile(
                 indicator_id,
                 model_data,
-                indicator_lookup,
-                health_metrics,
             ),
             issues=tuple(issues_by_indicator.get(indicator_id, [])),
             checks=dict(health_metrics.get("cell_statuses", {})),

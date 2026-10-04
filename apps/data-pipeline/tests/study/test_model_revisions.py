@@ -1,18 +1,17 @@
 """Whole scientific values commit atomically and findings retain exact source revisions."""
 
-from pathlib import Path
+from tests.git_fixtures import artifact_revisions
 
 import pytest
 
 from nof1_causal_lab.actions.contracts import EditModelRequest
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.model_inputs import input_fingerprints
-from nof1_causal_lab.study.errors import ArtifactWriteRejected
 from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.state import ArtifactRecord, StudyState, is_stale
 from tests.action_fixtures import edit_and_check, question_root
 from tests.git_fixtures import artifact_revision, git_oid
 from tests.helpers import make_model
+from tests.model_fixtures import x_y_model
 
 pytestmark = pytest.mark.contract
 
@@ -25,7 +24,7 @@ def workspace(monkeypatch, tmp_path):
     return "additive-revisions"
 
 
-def test_full_model_write_checks_base_before_writing(workspace):
+def test_full_model_write_keeps_the_named_base_without_a_head_gate(workspace):
     root = StudyRepository(workspace).state(question_root(workspace).commit_id)
     effects = edit_and_check(
         workspace,
@@ -37,23 +36,12 @@ def test_full_model_write_checks_base_before_writing(workspace):
         ),
         root,
     )
-    state = root.with_artifacts(effects.effects.produced).with_checks(effects.effects.checks)
+    state = root.with_artifacts(effects.effects.produced)
     assert state.current["model"].revision == effects.effects.produced[0].revision
-    assert state.has("identification_report")
-    with pytest.raises(ArtifactWriteRejected, match="conflict"):
-        edit_and_check(
-            workspace,
-            EditModelRequest.model_validate(
-                {
-                    "model": make_model(["X", "Y"], [("X", "Y")]).model_dump(mode="json"),
-                    "expected_revision": None,
-                }
-            ),
-            state,
-        )
+    assert set(state.current) == {"question", "model"}
     from nof1_causal_lab.study.store import ArtifactStore
 
-    assert ArtifactStore(workspace).list_revisions("model") == [state.current["model"].revision]
+    assert artifact_revisions(ArtifactStore(workspace), "model") == [state.current["model"].revision]
     second = edit_and_check(
         workspace,
         EditModelRequest.model_validate(
@@ -64,22 +52,19 @@ def test_full_model_write_checks_base_before_writing(workspace):
         ),
         state,
     )
-    assert second.effects.checks is not None
-    assert "identification" in second.effects.checks.reused
+    from nof1_causal_lab.actions.model_checks import read_model_checks
+    checks, _, _ = read_model_checks(workspace, state.with_artifacts(second.effects.produced), action="edit_model")
+    assert "identification" in checks.reused
     assert second.effects.produced[0].revision != effects.effects.produced[0].revision
-    assert state.current["identification_report"].derived_from == {
-        "question": state.current["question"].revision,
-        "model": artifact_revision(workspace, "model", 1),
-    }
+    assert second.effects.produced[0].derived_from == {"model": state.current["model"].revision}
 
 
 def test_model_input_identity_preserves_findings_and_original_pins():
-    values = input_fingerprints(make_model(["X", "Y"], [("X", "Y")]))
-    model = ArtifactRecord(artifact_id="model", revision=git_oid(2), model_inputs=values)
+    model = ArtifactRecord(artifact_id="model", revision=git_oid(2))
     panel = ArtifactRecord(artifact_id="panel", revision=git_oid(1))
     state = StudyState().with_artifacts([model, panel])
     assert not is_stale(state, "panel")
-    changed = model.revised(revision=git_oid(3), model_inputs={})
+    changed = model.revised(revision=git_oid(3))
     assert not is_stale(state.with_artifacts([changed]), "panel")
 
 
@@ -87,11 +72,7 @@ def test_statistical_enrichment_preserves_structural_and_measurement_inputs():
     from tests.helpers import make_model
 
     measured = make_model(["X", "Y"], [("X", "Y")])
-    specified = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[1] / "fixtures/models" / "common/x_y_model.json"
-        ).read_text()
-    )
+    specified = x_y_model()
     before, after = input_fingerprints(measured), input_fingerprints(specified)
     for purpose in ("observations", "identification"):
         assert before[purpose] == after[purpose]

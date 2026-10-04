@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from functools import cache
+from pydantic import TypeAdapter
 from typing import TYPE_CHECKING
 
 from nof1_causal_lab.models.posterior_predictive import data_diff
@@ -22,7 +23,7 @@ if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.identity import IndicatorId
 
 
-def read_data_diff(workspace_id: str, request: DataDiffRequest) -> DataDiffReport:
+def _compute_data_diff(workspace_id: str, request: DataDiffRequest) -> DataDiffReport:
     """Load existing data only; never read a model for generation, fit, or write artifacts."""
     from nof1_causal_lab.actions.prepare_data import read_simulation_observations
     from nof1_causal_lab.study.history import StudyRepository
@@ -54,7 +55,7 @@ def read_data_diff(workspace_id: str, request: DataDiffRequest) -> DataDiffRepor
             record.record.attempt.outcome, Applied
         ):
             raise StudyLookupError("Simulation data must select an applied simulation commit")
-        report = record.record.attempt.outcome.result.report
+        report = record.record.attempt.outcome.result.evidence
         if report.model.workspace_id != workspace_id:
             raise StudyLookupError("The simulation must belong to the selected study")
         model = read_model(store, report.model.revision)
@@ -84,3 +85,11 @@ def read_data_diff(workspace_id: str, request: DataDiffRequest) -> DataDiffRepor
 
     left, right = selection(request.left), selection(request.right)
     return data_diff(left, right, input_indicators=input_indicators)
+
+
+def read_data_diff(workspace_id: str, request: DataDiffRequest) -> DataDiffReport:
+    """Current-code comparison of the exact selections retained by its action leaf."""
+    from nof1_causal_lab.study.store import cached_value
+
+    value, _ = cached_value(workspace_id, ("data-diff", request.model_dump_json(round_trip=True)), TypeAdapter(DataDiffReport), lambda: _compute_data_diff(workspace_id, request))
+    return value

@@ -7,7 +7,7 @@ import { LoaderCircle, X } from "lucide-react";
 import { Fragment, useMemo } from "react";
 import { ChatMessages } from "@/components/ui/custom/chat-messages";
 import { useAttemptProgress } from "@/lib/hooks/use-attempt-progress";
-import type { StudyRevision } from "@nof1-causal-lab/api-types";
+import type { TimelineRevision } from "@nof1-causal-lab/api-types";
 import type { ScopeContext } from "@/lib/model-asset/scope";
 import { humanize } from "@/lib/model-asset/selection";
 import { timelineTickLabel } from "@/lib/model-asset/timeline-presentation";
@@ -53,16 +53,9 @@ function ActionLabels({ messages }: { messages: readonly ActionMessage[] }) {
  * What a running data preparation has reported: each step's latest status and the extraction
  * workers' counts. No other action reports progress, so their running entries show messages alone.
  */
-function AttemptProgress({ workspaceId, attemptId }: { workspaceId: string; attemptId: string }) {
-  const progress = useAttemptProgress(workspaceId, attemptId);
-  if (progress.error)
-    return (
-      <p role="alert" className="px-4 text-[10px] text-destructive">
-        {progress.error.message}
-      </p>
-    );
+function AttemptProgress({ workspaceId, running }: { workspaceId: string; running: RunningAction }) {
+  const progress = useAttemptProgress(workspaceId, running);
   const view = progress.data;
-  if (!view) return null;
   // Nothing retained for this attempt: progress is unknown, not zero.
   if (view.cursor === null)
     return <p className="px-4 text-[10px] text-muted-foreground">Progress unavailable.</p>;
@@ -112,7 +105,7 @@ function ActionTrace({
   tick,
   useActionTrace,
 }: {
-  tick: StudyRevision;
+  tick: TimelineRevision;
   useActionTrace: UseActionTrace;
 }) {
   const traceState = useActionTrace(tick.record.seq, tick.record.trace_ids.length > 0);
@@ -160,11 +153,14 @@ export function ActionRecord({
   useActionTrace,
 }: {
   workspaceId: string;
-  context: ScopeContext;
-  tick: StudyRevision | undefined;
+  context: ScopeContext | null;
+  tick: TimelineRevision | undefined;
   running: RunningAction | null;
   useActionTrace: UseActionTrace;
 }) {
+  const call = tick?.record.attempt.outcome.status === "applied" && tick.record.attempt.request !== null
+    ? context?.result?.attempt : undefined;
+  const applied = call?.outcome.status === "applied" ? call.outcome : null;
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="flex flex-none items-center gap-2 border-b px-3 py-2.5">
@@ -192,14 +188,20 @@ export function ActionRecord({
                 title={`${humanize(tick.record.attempt.action).replace(/^./, (letter) => letter.toUpperCase())} failed`}
               >
                 <Hint issue>{attemptError(tick.record.attempt.outcome)}</Hint>
+                <ActionLabels messages={tick.record.messages} />
+              </Section>
+            ) : tick.record.attempt.request === null ? (
+              <Section title="Unknown call">
+                <Hint>This attempt has no retained call arguments.</Hint>
+                <ActionLabels messages={tick.record.messages} />
               </Section>
             ) : tick.record.attempt.action === "simulate" ? (
               <section role="log" aria-label="Simulator log">
                 <ActionLabels messages={tick.record.messages} />
               </section>
-            ) : (
+            ) : context ? (
               <>
-                {tick.record.attempt.action === "set_question" && tick.record.attempt.request && (
+                {tick.record.attempt.request?.action === "set_question" && (
                   <QuestionDetails
                     context={context}
                     question={tick.record.attempt.request.question}
@@ -208,19 +210,19 @@ export function ActionRecord({
                 {tick.record.attempt.action === "edit_model" && (
                   <EditDetails context={context} tick={tick} />
                 )}
-                {tick.record.attempt.action === "prepare_data" && (
-                  <DataDetails context={context} applied={tick.record.attempt.outcome} />
+                {call?.action === "prepare_data" && call.outcome.status === "applied" && (
+                  <DataDetails context={context} applied={call.outcome} />
                 )}
                 {tick.record.attempt.action === "fit" && <FitOutcome context={context} />}
-                {tick.record.attempt.action === "data_diff" && (
+                {call?.action === "data_diff" && call.outcome.status === "applied" && context.dataDiff && (
                   <DataComparisonOutcome
                     context={context}
-                    report={tick.record.attempt.outcome.result.report}
+                    report={context.dataDiff}
                   />
                 )}
-                <ActionFindings context={context} applied={tick.record.attempt.outcome} />
+                {applied && <ActionFindings context={context} applied={applied} />}
               </>
-            )}
+            ) : null}
             {tick.record.attempt.action !== "simulate" && tick.record.trace_ids.length > 0 && (
               <details className="px-3 text-xs">
                 <summary className="cursor-pointer text-muted-foreground">
@@ -246,7 +248,7 @@ export function ActionRecord({
             </h3>
             <ActionLabels messages={running.messages} />
             {running.action === "prepare_data" && (
-              <AttemptProgress workspaceId={workspaceId} attemptId={running.attempt_id} />
+              <AttemptProgress workspaceId={workspaceId} running={running} />
             )}
           </section>
         )}

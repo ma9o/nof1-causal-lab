@@ -1,11 +1,13 @@
 """Saved scientific summaries retain masks, paired uncertainty and absolute time."""
 
+
+from nof1_causal_lab.artifacts.simulation import SimulationEvidence
+
+from nof1_causal_lab.artifacts.predictive_provenance import AuthoredLawProvenance
 from datetime import UTC, date, datetime
-from pathlib import Path
 
 import numpy as np
 import pytest
-from fastapi.testclient import TestClient
 
 from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.artifacts.availability import Unavailable
@@ -19,14 +21,15 @@ from nof1_causal_lab.artifacts.simulation import (
 )
 from nof1_causal_lab.models.model_structure import StructuralSelection, selected_state_ids
 from nof1_causal_lab.models.ssm.predictive.simulation import generate_simulation_batch
-from nof1_causal_lab.read_facade import create_read_facade_app
 from nof1_causal_lab.study.history import StudyRepository
+from nof1_causal_lab.study.snapshots import ModelReader
 from nof1_causal_lab.study.records import Applied, ModelSimulationResult
 from nof1_causal_lab.study.store import ArtifactStore
 from tests.action_fixtures import applied_record
 from tests.data_fixtures import metadata_for_model
 from tests.helpers import make_model, write_question
-from tests.model_fixtures import compile_model_fixture
+from tests.inference_fixtures import compile_model_fixture
+from tests.model_fixtures import x_y_model
 
 pytestmark = pytest.mark.inference(concern="simulation")
 
@@ -105,58 +108,35 @@ def test_full_categories_and_paired_paths_are_derived_on_read_and_cached(tmp_pat
         support_end_times=store.write_array(support_times),
         mask=store.write_array(mask),
     )
-    report = SimulationReport(
-        causal=Unavailable(reason="No causal effect was recorded."),
-        model=GitRef(workspace_id="SUMMARY", revision=definition.revision, path="model.json"),
-        design=SimulationSpec(
+    report = SimulationReport(causal=Unavailable(reason="No causal effect was recorded."), fit_reliability="not_fitted", law=AuthoredLawProvenance(), evidence=SimulationEvidence(model=GitRef(workspace_id="SUMMARY", revision=definition.revision, path="model.json"), design=SimulationSpec(
             start=date(2026, 1, 6),
             horizon="2d",
             interventions=(
                 {"target": selected_state_ids(StructuralSelection(model, None))[0], "value": 1},
             ),
-        ),
-        assignments=(
-            {
-                "target": selected_state_ids(StructuralSelection(model, None))[0],
-                "time": 5,
-                "value": 1,
-            },
-        ),
-        times=(5, 7),
-        draws=3,
-        seed=0,
-        time_origin=datetime(2026, 1, 1, tzinfo=UTC),
-        state_ids=tuple(selected_state_ids(StructuralSelection(model, None))),
-        parameter_draws={},
-        latent_paths=store.write_array(states),
-        observations=store.write_array(observations),
-        reference_latent_paths=store.write_array(states - 1),
-        reference_observations=store.write_array(observations),
-        observation_layout=layout,
-        fit_reliability="not_fitted",
-    )
+        ), times=(5, 7), draws=3, seed=0, time_origin=datetime(2026, 1, 1, tzinfo=UTC), state_ids=tuple(selected_state_ids(StructuralSelection(model, None))), parameter_draws={}, latent_paths=store.write_array(states), observations=store.write_array(observations), reference_latent_paths=store.write_array(states - 1), reference_observations=store.write_array(observations), observation_layout=layout))
     history.append(
         applied_record(
-            Applied(result=ModelSimulationResult(report=report), effects=ActionEffects()),
+            Applied(result=ModelSimulationResult(evidence=(report).evidence), effects=ActionEffects()),
             seq=2,
             ts="2026-01-01T01:00:00Z",
             trace_ids=[],
         )
     )
 
-    client = TestClient(create_read_facade_app())
-    paths = client.get("/api/studies/SUMMARY/model/visuals/simulation?start=1&count=128")
-    assert paths.status_code == 200, paths.text
-    path_data = paths.json()
+    reader = ModelReader("SUMMARY", at=history.head())
+    paths = reader.simulation_paths(start=1, count=128)
+    assert paths is not None
+    path_data = paths.model_dump(mode="json")
     assert path_data["total_draws"] == 3
     assert path_data["count"] == 2
     assert path_data["times"] == [5, 7]
     identity = selected_state_ids(StructuralSelection(model, None))[0]
     assert path_data["states"][identity]["action"][0]["draw"] == 1
     assert path_data["states"][identity]["action"][0]["values"] == states[1, :, 0].tolist()
-    assert client.get("/api/studies/SUMMARY/model/visuals/simulation?start=3").status_code == 422
-    assert client.get("/api/studies/SUMMARY/model/visuals/simulation?count=0").status_code == 422
-
+    from nof1_causal_lab.study.errors import StudyLookupError
+    with pytest.raises(StudyLookupError, match="past"):
+        reader.simulation_paths(start=3, count=128)
     for variable in layout.variables:
         if variable.measurement_dtype == "binary":
             assert path_data["action_category_probabilities"][variable.id]["probabilities"]["1"][
@@ -171,26 +151,19 @@ def test_full_categories_and_paired_paths_are_derived_on_read_and_cached(tmp_pat
                 1
             ] == pytest.approx(2 / 3)
 
-    def no_array_reads(*args, **kwargs):
-        pytest.fail("A cached draw read must not reload arrays")
+    first = reader.simulation()
+    assert first is not None
+    assert first.value.evidence == report.evidence
 
-    monkeypatch.setattr(ArtifactStore, "read_array", no_array_reads)
-    assert (
-        client.get("/api/studies/SUMMARY/model/visuals/simulation?start=1&count=128").json()
-        == path_data
-    )
-    response = client.get("/api/studies/SUMMARY/model")
-    assert response.status_code == 200, response.text
-    assert response.json()["simulation"]["value"] == report.model_dump(mode="json")
-    assert "predictive" not in response.json()["simulation"]["value"]
+    def no_generation(*_args, **_kwargs):
+        pytest.fail("A saved simulation read must not generate histories")
+
+    monkeypatch.setattr("nof1_causal_lab.models.ssm.predictive.simulation.generate_simulation_batch", no_generation)
+    assert ModelReader("SUMMARY", at=history.head()).simulation() == first
 
 
 def test_authored_law_advances_from_zero_before_a_later_requested_start():
-    model = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[1] / "fixtures/models" / "common/x_y_model.json"
-        ).read_text()
-    )
+    model = x_y_model()
 
     fixed = {
         p.id: 0.5 if p.name.startswith("rho") else 0.0 if p.name.startswith("beta") else 1e-8

@@ -21,6 +21,7 @@ from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.store import ArtifactStore
 from nof1_causal_lab.study.view_models import PanelRef
 from nof1_causal_lab.utils import data
+from tests.model_fixtures import x_y_model
 
 pytestmark = pytest.mark.contract
 
@@ -124,9 +125,7 @@ def test_representation_rewrite_preserves_fresh_and_stale_consumers_refs_and_byt
     monkeypatch.setattr(data, "_DATA_URI", str(tmp_path / "source"))
     store = ArtifactStore("study")
     history = StudyRepository("study")
-    model = ModelSpec.model_validate_json(
-        (Path(__file__).parents[2] / "fixtures/models/common/x_y_model.json").read_text()
-    )
+    model = x_y_model()
     owner = store.write_artifact(
         "model",
         derived_from={},
@@ -135,8 +134,10 @@ def test_representation_rewrite_preserves_fresh_and_stale_consumers_refs_and_byt
     )
     # Make the old owner's inference fingerprint differ from the new representation.
     old_meta = json.loads(read_file(store.repo, owner.revision, "meta.json"))
+    from nof1_causal_lab.models.model_inputs import input_fingerprints
+    old_meta["model_inputs"] = dict(input_fingerprints(model))
     old_meta["model_inputs"]["belief"] = "old-representation"
-    from nof1_causal_lab.actions.model_checks import CHECK_POLICY_VERSION
+    from scripts.migrations.migrate_format_12 import CHECK_POLICY_VERSION
 
     checks = {
         "input_keys": {
@@ -303,12 +304,9 @@ def _archived(action, *, inputs=None, diagnostics=None, **fields):
 def test_attempt_conversion_keeps_retained_reports_and_absence_without_inventing_requests():
     from scripts.migrations.migrate_format_15 import convert_payload as format_15
 
-    from nof1_causal_lab.study.records import Applied, AttemptRecord
     from tests.inference_fixtures import _report
 
-    model = ModelSpec.model_validate_json(
-        (Path(__file__).parents[2] / "fixtures/models/common/x_y_model.json").read_text()
-    )
+    model = x_y_model()
     composed = _report(model).model_dump(mode="json")
     report = {**composed["core"], "detail": composed["detail"]}
     report["detail"]["initial_latent_delta"] = [[1.0, 2.0], [3.0, 4.0]]
@@ -324,14 +322,14 @@ def test_attempt_conversion_keeps_retained_reports_and_absence_without_inventing
         },
     )
     converted, retained = convert_attempt(old, "study")
-    record = AttemptRecord.model_validate(format_15(converted))
-    assert record.attempt.action == "fit"
-    assert isinstance(record.attempt.outcome, Applied)
-    assert record.attempt.request is None
-    assert record.attempt_id is None
-    result = record.attempt.outcome.result
-    assert result.retention == "report_only"
-    assert result.report.model_dump(mode="json") == {
+    record = format_15(converted)
+    assert record["attempt"]["action"] == "fit"
+    assert record["attempt"]["outcome"]["status"] == "applied"
+    assert record["attempt"]["request"] is None
+    assert record["attempt_id"] is None
+    result = record["attempt"]["outcome"]["result"]
+    assert result["retention"] == "report_only"
+    assert result["report"] == {
         "core": {key: value for key, value in report.items() if key != "detail"},
         "detail": report["detail"],
     }
@@ -348,20 +346,20 @@ def test_attempt_conversion_keeps_retained_reports_and_absence_without_inventing
         "study",
     )
 
-    prepared = AttemptRecord.model_validate(format_15(prepared))
-    assert prepared.attempt.action == "prepare_data"
-    assert prepared.attempt.outcome.status == "applied"
-    worker = prepared.attempt.outcome.result.workers[0]
-    assert worker.n_llm_calls is None
-    assert worker.reused is None
-    assert prepared.attempt.outcome.result.n_observations is None
+    prepared = format_15(prepared)
+    assert prepared["attempt"]["action"] == "prepare_data"
+    assert prepared["attempt"]["outcome"]["status"] == "applied"
+    worker = prepared["attempt"]["outcome"]["result"]["workers"][0]
+    assert worker["n_llm_calls"] is None
+    assert worker["reused"] is None
+    assert prepared["attempt"]["outcome"]["result"]["n_observations"] is None
     assert extra == {}
     # A historical complete request outside today's grammar remains an archival fact.
     proposal = {"question": "Retained", "unknown_field": "original authoring value"}
     edit, retained = convert_attempt(
         _archived("edit_model", inputs={"expected_revision": None, "model": proposal}), "study"
     )
-    assert AttemptRecord.model_validate(format_15(edit)).attempt.request is None
+    assert format_15(edit)["attempt"]["request"] is None
     assert retained["request_fragment"] == {"expected_revision": None, "model": proposal}
     assert retained["request_unavailable_reason"] == "recorded_request_outside_current_schema"
     for status, fields in [
@@ -369,9 +367,9 @@ def test_attempt_conversion_keeps_retained_reports_and_absence_without_inventing
         ("raised", {"error_type": "ActualError", "error_message": "Actual failure"}),
     ]:
         value, _ = convert_attempt(_archived("edit_model", status=status, **fields), "study")
-        value = AttemptRecord.model_validate(format_15(value))
-        assert value.attempt.outcome.status == status
-        assert "result" not in value.attempt.outcome.model_dump()
+        value = format_15(value)
+        assert value["attempt"]["outcome"]["status"] == status
+        assert "result" not in value["attempt"]["outcome"]
 
 
 def test_comparison_conversion_has_one_report_owner_and_preserves_leaf_identity(

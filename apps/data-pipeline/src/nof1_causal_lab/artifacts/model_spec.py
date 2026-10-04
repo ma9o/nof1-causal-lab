@@ -14,6 +14,7 @@ from pydantic import (
     FiniteFloat,
     SerializerFunctionWrapHandler,
     ValidatorFunctionWrapHandler,
+    computed_field,
     field_serializer,
     field_validator,
     model_validator,
@@ -22,6 +23,7 @@ from pydantic import (
 from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.compilation_errors import IncompleteModelError
 from nof1_causal_lab.numpyro_json import NumPyroDistribution
+from nof1_causal_lab.models.ssm.joint_layout import JointLawLayout
 
 from .construct import (
     CausalEdgeSpec,
@@ -68,7 +70,16 @@ class ModelSpec(Value):
             "and time point. A scalar law belongs to one parameter and applies independently to its elements."
         ),
     )
-    time_points: tuple[FiniteFloat, ...] = ()
+    law_layouts: Mapping[DistributionId, JointLawLayout] = Field(
+        default_factory=dict,
+        description="Scientific coordinates and production labels of each joint law, beside its native atoms.",
+    )
+
+    @computed_field
+    @property
+    def time_points(self) -> tuple[FiniteFloat, ...]:
+        """Joint trajectory coordinates own the model's retained time grid."""
+        return next((layout.time_points for layout in self.law_layouts.values() if layout.constructs), ())
     measurement_clock: Duration | None = None
 
     @field_validator("edges", mode="wrap")
@@ -208,10 +219,6 @@ class ModelSpec(Value):
         }
         if references != set(self.distributions):
             raise ValueError("Distributions must be referenced and every reference must exist")
-        if any(b <= a for a, b in zip(self.time_points, self.time_points[1:], strict=False)):
-            raise ValueError("Trajectory time points must be strictly increasing")
-        if any(item.distribution is not None for item in self.constructs) and not self.time_points:
-            raise ValueError("Construct trajectory distributions require time points")
         observations = tuple(item.observation for item in self.indicators)
         for label, items in (
             ("edge", self.edges),
@@ -294,7 +301,7 @@ class ModelSpec(Value):
                 and quantity.value != "dynamics_decay"
             ):
                 raise ValueError("Persistence coordinates describe a dynamics decay quantity")
-        if self.distributions:
+        if self.distributions or self.law_layouts:
             from nof1_causal_lab.models.model_distributions import validate_distribution_memberships
 
             validate_distribution_memberships(self)

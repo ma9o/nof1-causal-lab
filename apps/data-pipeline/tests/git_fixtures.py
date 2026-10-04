@@ -9,8 +9,16 @@ def git_oid(label: int) -> GitOid:
     return GitOid(f"{label:040x}")
 
 
+def artifact_revisions(store: ArtifactStore, artifact: ArtifactId) -> list[GitOid]:
+    """Order explicitly created setup trees; application reads never use a catalog."""
+    prefix = f"refs/artifacts/{artifact}/"
+    records = [store.read_meta(artifact, name.removeprefix(prefix))
+        for name in store.repo.references if name.startswith(prefix)]
+    return [record.revision for record in sorted(records, key=lambda info: (info.created_at, info.revision))]
+
+
 def artifact_revision(workspace: str, artifact: ArtifactId, ordinal: int) -> GitOid:
-    return ArtifactStore(workspace).list_revisions(artifact)[ordinal - 1]
+    return artifact_revisions(ArtifactStore(workspace), artifact)[ordinal - 1]
 
 
 def commit_id(workspace: str, seq: int) -> GitOid:

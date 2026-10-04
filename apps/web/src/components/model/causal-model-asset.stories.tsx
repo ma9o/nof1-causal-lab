@@ -2,7 +2,6 @@ import { fixtureValue } from "@/components/__fixtures__/fixture-value";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { setupWorker } from "msw/browser";
-import { http, HttpResponse } from "msw";
 import { expect, userEvent, within } from "storybook/test";
 import { useState, type ReactNode } from "react";
 import {
@@ -60,7 +59,6 @@ function WorkbenchStory() {
           question={workbenchQuestion}
           useSnapshot={useStorySnapshot}
           attempts={journal.data.attempts}
-          branches={journal.data.branches}
           dependencies={journal.data.dependencies}
           useActionTrace={useStoryTrace}
           running={journal.data.running}
@@ -78,7 +76,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "A harness-driven model viewer: exact API action names and short commit hashes above the graph, model or selected-entity state below, and the selected action’s outcome and reasons on the right. Failed actions keep their cross marker and attempt commit hash. The story walks from a question through structure, measurement and laws, a table import, a convergence warning, individual paired outcome paths with optional summaries, an edited-model simulation whose causal effect is unavailable, and a fit still running after it. Links follow each action's arguments, including the alternative branch's fork; inspect any action. All data is illustrative; statistics and differences are read from backend-shaped fixtures, and the viewer offers no write controls.",
+          "A harness-driven model viewer: exact API action names and short commit hashes above the graph, model or selected-entity state below, and the selected action’s outcome and reasons on the right. Failed actions keep their cross marker and attempt commit hash. The story walks from a question through structure, measurement and laws, a table import, a convergence warning, individual paired outcome paths with optional summaries, an edited-model simulation whose causal effect is unavailable, and a fit still running after it. Links follow each action's arguments, including explicitly selected prior model revisions; inspect any action. All data is illustrative; statistics and differences are read from backend-shaped fixtures, and the viewer offers no write controls.",
       },
     },
   },
@@ -110,7 +108,7 @@ export const Complete: Story = {
     const canvas = within(canvasElement);
     // The data_diff links to the panel and the simulation it compared, not to the head.
     await canvas.findByRole("button", { name: "data_diff · c00000d" });
-    await expect(canvasElement.querySelectorAll("path[data-argument]")).toHaveLength(14);
+    await expect(canvasElement.querySelectorAll("path[data-argument]")).toHaveLength(16);
     for (const [label, section, state] of [
       ["edit_model · c000002", "Model changes", null],
       ["prepare_data · c000005", "Prepared data", "gad7 screening score"],
@@ -197,15 +195,8 @@ export const Complete: Story = {
     ).toBeVisible();
     const record = within(canvas.getByRole("complementary", { name: "Action record" }));
     const details = within(canvas.getByRole("region", { name: "Model details" }));
-    let comparisonReads = 0;
-    worker.use(
-      http.get(`/api/studies/${WORKBENCH_WORKSPACE}/data-diff/:commit`, () => {
-        comparisonReads += 1;
-        return HttpResponse.json({ detail: "Comparison report unavailable" }, { status: 503 });
-      }),
-    );
     await userEvent.click(canvas.getByRole("button", { name: "data_diff · c00000d" }));
-    // The attempt already owns the complete report; no second read can hide its evidence.
+    // Replaying the applied comparison serves its full evidence.
     await expect(await record.findByRole("region", { name: "Data comparison" })).toBeVisible();
     await expect(record.getByText(/Panel from prepare_data · c000005/)).toBeVisible();
     await expect(record.getByText(/Observed values fall outside/)).toBeVisible();
@@ -222,7 +213,6 @@ export const Complete: Story = {
       details.getByRole("table", { name: /statistic distributions/ }),
     ).toBeInTheDocument();
     await expect(canvas.queryByRole("log", { name: "fit · running" })).not.toBeInTheDocument();
-    await expect(comparisonReads).toBe(0);
     await userEvent.click(canvas.getByRole("button", { name: "simulate · c00000c · latest" }));
     await expect(await canvas.findByRole("log", { name: "fit · running" })).toBeVisible();
   },

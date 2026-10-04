@@ -60,7 +60,7 @@ class Sourced[T](Value):
 class FitSummary(Value):
     """A fit read contains the inference report summary and server-composed display findings.
 
-    Per-draw diagnostics load separately from the inference report endpoint.
+    The completed action also carries the full inference report and per-draw diagnostics.
     """
 
     report: InferenceReportCore
@@ -92,7 +92,6 @@ class ModelSnapshot(Value):
     question: Sourced[QuestionSpec] | None = None
     model: Sourced[ModelSpec] | None = None
     workspace_id: str = Field(min_length=1)
-    branch: str = "main"
     commit_id: GitOid
     selected_seq: int = Field(ge=0)
     can_simulate: bool = False
@@ -127,14 +126,14 @@ class ModelSnapshot(Value):
         sources: tuple[
             tuple[
                 FactSource | None,
-                ArtifactId | Literal["inference", "simulation", "specification", "predictive"],
+                ArtifactId | Literal["inference", "simulation"],
             ],
             ...,
         ] = (
             (self.model.source if self.model is not None else None, "model"),
             (
                 self.identification.source if self.identification is not None else None,
-                "identification_report",
+                "model",
             ),
             (
                 self.dispositions.source if self.dispositions is not None else None,
@@ -146,15 +145,15 @@ class ModelSnapshot(Value):
                 "panel",
             ),
             (self.metadata.source if self.metadata is not None else None, "panel"),
-            (self.profile.source if self.profile is not None else None, "data_profile"),
+            (self.profile.source if self.profile is not None else None, "panel"),
             (
                 self.validation_report.source if self.validation_report is not None else None,
-                "validation_report",
+                "panel",
             ),
             (self.fit.source if self.fit is not None else None, "inference"),
             (
                 self.specification.source if self.specification is not None else None,
-                "specification",
+                "model",
             ),
             (
                 self.simulation.source if self.simulation is not None else None,
@@ -162,7 +161,7 @@ class ModelSnapshot(Value):
             ),
             (
                 self.predictive.source if self.predictive is not None else None,
-                "predictive",
+                "model",
             ),
         )
         for source, artifact_id in sources:
@@ -212,38 +211,19 @@ class ModelSnapshot(Value):
     def _validate_source(
         self,
         source: FactSource,
-        artifact_id: ArtifactId | Literal["inference", "simulation", "specification", "predictive"],
+        artifact_id: ArtifactId | Literal["inference", "simulation"],
     ) -> None:
         from nof1_causal_lab.study.artifact_files import artifact_file_spec
 
         ref = source.ref
         if ref.workspace_id != self.workspace_id:
             raise ValueError("Fact source belongs to another study")
-        if ref.path == "checks.json":
-            if (
-                artifact_id not in {"specification", "predictive"}
-                or ref.revision != self.commit_id
-                or source.pointer != f"/{artifact_id}"
-            ):
-                raise ValueError("Check source must identify this snapshot's recorded findings")
-            panel = self.state.current.get("panel")
-            expected = (
-                "stale"
-                if artifact_id == "predictive"
-                and self.predictive is not None
-                and self.predictive.value.panel_revision != (panel.revision if panel else None)
-                else "fresh"
-            )
-            if source.validity != expected:
-                raise ValueError("Check validity differs from its selected observation revision")
-            return
         if ref.path == "logs/attempt.json":
-            if artifact_id not in {"inference", "simulation", "specification"}:
-                raise ValueError("Only operation findings refer to action logs")
-            # The repository reader selects these logs through Git ancestry.
+            if artifact_id not in {"inference", "simulation"} or source.pointer != "/attempt/outcome/result/evidence":
+                raise ValueError("Evidence findings must identify their producing action facts")
             return
-        if artifact_id in {"inference", "simulation", "specification", "predictive"}:
-            raise ValueError("Operation findings require an action log or recorded check")
+        if artifact_id in {"inference", "simulation"}:
+            raise ValueError("Operation findings require their evidence action log")
         current = next(
             (record for key, record in self.state.current.items() if key == artifact_id),
             None,
@@ -253,8 +233,8 @@ class ModelSnapshot(Value):
         if (
             ref.path
             not in {
-                **artifact_file_spec(current.artifact_id).parquet,
-                **artifact_file_spec(current.artifact_id).json,
+                **artifact_file_spec(current.artifact_id).parquet_files,
+                **artifact_file_spec(current.artifact_id).json_files,
             }.values()
         ):
             raise ValueError("Fact source does not identify a declared artifact payload")

@@ -15,8 +15,9 @@ from typing import TYPE_CHECKING
 import pygit2
 from pydantic import TypeAdapter
 
-from nof1_causal_lab.actions.model_checks import CHECK_POLICY_VERSION
-from nof1_causal_lab.actions.predictive_checks import PREDICTIVE_POLICY_VERSION
+# Archived check identities belong to this one-time historical conversion.
+CHECK_POLICY_VERSION = "model-checks-v5"
+PREDICTIVE_POLICY_VERSION = "exact-model-checks-v6"
 from nof1_causal_lab.artifacts.identity import scientific_id
 from scripts.migrations.study_rewrite import rewrite_study
 

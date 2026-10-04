@@ -4,8 +4,10 @@ Check project strategy selection, trace structure, and exact location-scale
 reconstruction with deterministic standardized variates.
 """
 
+from __future__ import annotations
+
 import functools
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import dynestyx as dsx
 import jax
@@ -18,7 +20,10 @@ from numpy.testing import assert_allclose
 from numpyro import handlers
 from numpyro.infer.reparam import LocScaleReparam, ProjectedNormalReparam
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.artifacts.expressions import restoring_force
+from nof1_causal_lab.artifacts.mechanism import DriftMechanismSpec
+from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.models.ssm.autoreparam import (
     AutoReparam,
     _is_unconstrained,
@@ -31,12 +36,59 @@ from nof1_causal_lab.models.ssm.inference.types import ProductionDiagnostics
 from nof1_causal_lab.models.ssm.inference.utils import _DummyLikelihoodBackend
 from nof1_causal_lab.models.ssm.model import numpyro_model
 from nof1_causal_lab.models.ssm.transition_kinds import LATENT_TRANSITION_EULER_MARUYAMA
-from tests.model_fixtures import (
+from tests.inference_fixtures import (
     MinimalReparam,
     bind_panel_fixture,
     compile_fit_fixture,
     compile_model_fixture,
 )
+from tests.model_fixtures import (
+    construct_named,
+    load_model_fixture,
+    parameter_for,
+    parameter_laws,
+    two_state_gaussian_model,
+)
+
+
+def _particle_runtime_reconstructs_log_normal_hill_sites_with_parameter_distributions() -> (
+    ModelSpec
+):
+    model = load_model_fixture(
+        "dynamics_config/scientific_model_roundtrip_preserves_derived_dynamics_model_fixture.json"
+    )
+    latent_0 = construct_named(model, "latent_0")
+    (latent_0_potential,) = latent_0.dynamics
+    latent_0_dynamics_decay = parameter_for(model, SiteKind.DYNAMICS_DECAY, "latent_0")
+    latent_0_latent_1_hill_emax = parameter_for(model, SiteKind.HILL_EMAX, "latent_0", "latent_1")
+    latent_0_revised = latent_0.revised(
+        dynamics=(
+            DriftMechanismSpec(
+                id=latent_0_potential.id,
+                expression=restoring_force(
+                    latent_0.id, center=0.0, stiffness=latent_0_dynamics_decay.id, quartic=0.0
+                ),
+            ),
+        )
+    )
+    return model.revised(
+        edges=replace_constructs(model.edges, (latent_0_revised,)),
+        distributions=parameter_laws(
+            model,
+            {
+                latent_0_latent_1_hill_emax.id: dist.LogNormal(
+                    loc=jnp.array(-0.20000000298023224, dtype=jnp.float32),
+                    scale=jnp.array(0.30000001192092896, dtype=jnp.float32),
+                    validate_args=True,
+                )
+            },
+        ),
+    )
+
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -403,14 +455,7 @@ class TestAutoReparamSSM:
 
     def test_ssm_site_classification(self):
         """Verify which SSM sites get reparameterized and which don't."""
-        model = compile_fit_fixture(
-            ModelSpec.model_validate_json(
-                (
-                    Path(__file__).resolve().parents[2]
-                    / "fixtures/models/common/two_state_gaussian_model.json"
-                ).read_text()
-            )
-        )
+        model = compile_fit_fixture(two_state_gaussian_model())
         strategy = AutoReparam(centered=0.0)
 
         model_fn = functools.partial(numpyro_model, likelihood_backend=_DummyLikelihoodBackend())
@@ -462,14 +507,7 @@ class TestAutoReparamSSM:
         )
         from nof1_causal_lab.models.ssm.parameterization import build_site_registry
 
-        model = compile_fit_fixture(
-            ModelSpec.model_validate_json(
-                (
-                    Path(__file__).resolve().parents[2]
-                    / "fixtures/models/common/two_state_gaussian_model.json"
-                ).read_text()
-            )
-        )
+        model = compile_fit_fixture(two_state_gaussian_model())
         observations = jnp.zeros((5, 2))
         times = jnp.linspace(0, 1, 5)
         parameters, _, public_sites = prepare_model_parameters(
@@ -502,29 +540,18 @@ class TestAutoReparamSSM:
             ),
         )
         references = parameter_references(model)
-        marginals, pairs = (
-            posterior.get_posterior_marginals(references),
-            posterior.get_posterior_pairs(references),
-        )
+        marginals = posterior.get_posterior_marginals(references)
         assert marginals
-        assert pairs
         assert all(
             row.subject.parameter_id
             in {binding.parameter_id for binding in model.compiled.bindings}
             for row in marginals
         )
-        assert all(row[0] is not None and row[1] is not None for row in pairs)
 
     def test_particle_runtime_reconstructs_log_normal_hill_sites(self):
         """Nested TransformReparam + LocScaleReparam restores the public Hill site."""
 
-        spec = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "autoreparam/testautoreparamssm_test_particle_runtime_reconstructs_log_normal_hill_sites_with_parameter_distributions.json"
-            ).read_text()
-        )
+        spec = _particle_runtime_reconstructs_log_normal_hill_sites_with_parameter_distributions()
         model = compile_fit_fixture(spec)
         observations = jnp.zeros((3, 2))
         times = jnp.arange(3, dtype=jnp.float32)

@@ -5,6 +5,8 @@ This module tests:
 2. Validation checks - timestamps, dtype, coverage, gaps, hallucination, correlations
 """
 
+from nof1_causal_lab.artifacts.data_preparation import FilePreparedDataMetadata
+
 from datetime import datetime
 from typing import Any
 
@@ -58,16 +60,7 @@ def _create_worker_dfs(records: list[dict[str, Any]]) -> list[pl.DataFrame]:
 
 def validate_extraction(model: ModelSpec, dataframes: list[pl.DataFrame]) -> DataProfileArtifact:
     """Exercise stored data quality and model compatibility as distinct owners."""
-    metadata = PreparedDataMetadata(
-        source=SimulationReplicateRef(revision=GitOid("a" * 40), replicate=0),
-        variables=tuple(
-            item.observation.resolved(
-                item.observation.observation_window or model.measurement_clock or Duration("1d")
-            )
-            for item in model.indicators
-        ),
-        time_origin=None,
-    )
+    metadata = FilePreparedDataMetadata(source=SimulationReplicateRef(revision=GitOid("a" * 40), replicate=0), time_origin=None)
     data = pl.concat(dataframes).with_columns(pl.col("value").cast(pl.Float64, strict=False))
     return validate_model_data(
         model, dataframes, data_profile=profile_data(data, metadata=metadata)

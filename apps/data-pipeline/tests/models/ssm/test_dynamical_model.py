@@ -1,8 +1,10 @@
 """Native model execution across inference, warmup, simulation, and prediction."""
 
+from __future__ import annotations
+
 from importlib import import_module
-from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 
 import dynestyx as dsx
 import jax
@@ -10,15 +12,27 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from nof1_causal_lab.artifacts.likelihood import LinkFunction
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.likelihood import (
+    LinkFunction,
+)
 from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.ssm.dynamics.intervention import Intervention
 from nof1_causal_lab.models.ssm.inference import problem as problem_module
 from nof1_causal_lab.models.ssm.inference.parameter_transform import ParameterTransform
 from nof1_causal_lab.models.ssm.inference.targets.laplace.shared import _prepare_linearized_path
 from tests.dynamics_fixtures import potential_term
-from tests.model_fixtures import bind_panel_fixture, compile_fit_fixture, compile_model_fixture
+from tests.inference_fixtures import bind_panel_fixture, compile_fit_fixture, compile_model_fixture
+from tests.model_fixtures import (
+    load_model_fixture,
+)
+
+
+def _runtime_model_fixture() -> ModelSpec:
+    return load_model_fixture("dynamical_model/runtime_model_fixture.json")
+
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 
 @pytest.fixture
@@ -28,13 +42,7 @@ def runtime(monkeypatch):
     times = jnp.array([2.0, 2.1, 2.35])
     from nof1_causal_lab.models.ssm.execution.parameters import assemble_model_matrices
 
-    spec = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2]
-            / "fixtures/models"
-            / "dynamical_model/runtime_model_fixture.json"
-        ).read_text()
-    )
+    spec = _runtime_model_fixture()
     inputs = compile_fit_fixture(spec)
 
     def constrain(z):

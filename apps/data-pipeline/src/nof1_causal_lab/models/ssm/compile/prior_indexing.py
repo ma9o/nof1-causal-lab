@@ -52,10 +52,9 @@ def _native_dynamics_bindings(
     result = {}
     for index, component in enumerate(components):
         target = (
-            CompiledNodeTarget(component_index=index, target_index=component.target)
+            CompiledNodeTarget( target_index=component.target)
             if component.source is None
             else CompiledEdgeTarget(
-                component_index=index,
                 target_index=component.target,
                 source_index=component.source,
             )

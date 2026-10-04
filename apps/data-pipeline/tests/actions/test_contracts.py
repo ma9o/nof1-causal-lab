@@ -8,7 +8,6 @@ from typing import Any
 import pytest
 from pydantic import ValidationError
 
-from nof1_causal_lab.tool_contracts import CONTEXT_TOOLS
 from tests.artifact_contract_support import validate_artifact_payload
 from tests.helpers import make_model
 
@@ -65,23 +64,6 @@ def valid_artifact_payloads() -> dict[str, dict[str, Any]]:
         },
         "model": make_model(["Stress", "Perf"], [("Stress", "Perf")]).model_dump(mode="json"),
     }
-
-
-def test_tool_server_registry_matches_served_tool_contracts() -> None:
-    """Served tool contracts should match the tool server registry exactly."""
-    from nof1_causal_lab.tool_server import _TOOL_IMPLS
-
-    served_context_ids = {context_id for context_id, _tool_name in _TOOL_IMPLS}
-    assert served_context_ids == {"literature", "analysis"}
-
-    for context_id in served_context_ids:
-        contract_names = {tool.name for tool in CONTEXT_TOOLS[context_id]}
-        runtime_names = {
-            tool_name
-            for served_context_id, tool_name in _TOOL_IMPLS
-            if served_context_id == context_id
-        }
-        assert runtime_names == contract_names
 
 
 def test_validate_artifact_payload_accepts_all_artifacts(

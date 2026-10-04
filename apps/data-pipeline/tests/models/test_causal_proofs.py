@@ -1,8 +1,11 @@
 """Proof-carrying boundaries for numeric causal analysis."""
 
+from __future__ import annotations
+
 import subprocess
 from pathlib import Path
 from textwrap import dedent
+from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 import pytest
@@ -13,46 +16,45 @@ from nof1_causal_lab.artifacts.identification import (
     NonIdentifiableTreatmentStatus,
 )
 from nof1_causal_lab.artifacts.identity import GitRef
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.causal_proofs import (
     CausalCertificationError,
     CertifiedCausalAnalysis,
     certify_identified_estimand,
 )
-from nof1_causal_lab.models.ssm.inference.types import (
-    JointPosteriorDraws,
-)
+from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
 from tests.git_fixtures import git_oid
+from tests.model_fixtures import (
+    load_model_fixture,
+)
+
+
+def _treatment_outcome() -> ModelSpec:
+    return load_model_fixture("causal_proofs/treatment_outcome.json")
+
+
+def _conditioned_treatment_outcome() -> ModelSpec:
+    return load_model_fixture("causal_proofs/conditioned_treatment_outcome.json")
+
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+
 
 pytestmark = pytest.mark.contract
 
 
 def _identification():
-    model = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[1]
-            / "fixtures/models"
-            / "causal_proofs/treatment_outcome.json"
-        ).read_text()
-    )
+    model = _treatment_outcome()
     return IdentificationReport(
         outcome=model.constructs[1].id,
         treatments={
-            model.constructs[0].id: IdentifiedTreatmentStatus(
-                method="do_calculus", estimand="E[outcome | do(treatment)]"
-            )
+            model.constructs[0].id: IdentifiedTreatmentStatus(estimand="E[outcome | do(treatment)]")
         },
     )
 
 
 def test_identification_proof_is_estimand_specific() -> None:
-    design = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[1]
-            / "fixtures/models"
-            / "causal_proofs/treatment_outcome.json"
-        ).read_text()
-    )
+    design = _treatment_outcome()
     design_ref = GitRef(workspace_id="workspace", revision=git_oid(1), path="model.json")
 
     proof = certify_identified_estimand(
@@ -65,7 +67,6 @@ def test_identification_proof_is_estimand_specific() -> None:
 
     assert proof.treatment == "treatment"
     assert proof.outcome == "outcome"
-    assert proof.method == "do_calculus"
     assert proof.estimand == "E[outcome | do(treatment)]"
 
 
@@ -75,7 +76,7 @@ def test_identification_contract_rejects_linear_iv_evidence_for_nonlinear_models
     payload = _identification().model_dump(mode="json")
     finding = next(iter(payload["treatments"].values()))
     finding.update(method="instrumental_variable", estimand="IV(Z) [requires linearity]")
-    with pytest.raises(ValidationError, match="do_calculus"):
+    with pytest.raises(ValidationError, match="Extra inputs"):
         IdentificationReport.model_validate(payload)
 
 
@@ -84,12 +85,12 @@ def test_identification_contract_rejects_linear_iv_evidence_for_nonlinear_models
     [
         pytest.param(
             False,
-            "causal_proofs/treatment_outcome.json",
+            _treatment_outcome,
             id="False",
         ),
         pytest.param(
             True,
-            "causal_proofs/treatment_outcome.json",
+            _treatment_outcome,
             id="True",
         ),
     ],
@@ -97,9 +98,7 @@ def test_identification_contract_rejects_linear_iv_evidence_for_nonlinear_models
 def test_identification_proof_rejects_unidentified_treatment(
     explicit_finding, _design_payload
 ) -> None:
-    model = ModelSpec.model_validate_json(
-        (Path(__file__).resolve().parents[1] / "fixtures/models" / _design_payload).read_text()
-    )
+    model = _design_payload()
     report = IdentificationReport(
         outcome=model.constructs[1].id,
         treatments={model.constructs[0].id: NonIdentifiableTreatmentStatus(notes="Unidentified")}
@@ -156,37 +155,26 @@ def test_causal_reporting_requires_retained_uncertainty_and_converged_exact_engi
     from nof1_causal_lab.models.causal_proofs import certify_conditioned_model
     from tests.inference_fixtures import inference_log
 
-    model = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[1]
-            / "fixtures/models"
-            / "causal_proofs/conditioned_treatment_outcome.json"
-        ).read_text()
-    )
+    model = _conditioned_treatment_outcome()
     revision = GitRef(workspace_id="workspace", revision=git_oid(2), path="model.json")
+    from tests.inference_fixtures import _report
     record = inference_log(model)
-    certify_conditioned_model(model, revision, record)
+    report = _report(model)
+    certify_conditioned_model(model, revision, record, model, report.core)
     with pytest.raises(CausalCertificationError, match="committed fit"):
         certify_conditioned_model(
             model,
             revision.revised(revision=git_oid(3)),
-            record,
+            record, model, report.core,
         )
     with pytest.raises(CausalCertificationError, match="differs from"):
         certify_conditioned_model(
-            ModelSpec.model_validate_json(
-                (
-                    Path(__file__).resolve().parents[1]
-                    / "fixtures/models"
-                    / "causal_proofs/treatment_outcome.json"
-                ).read_text()
-            ),
+            _treatment_outcome(),
             revision,
-            record,
+            record, model, report.core,
         )
     from nof1_causal_lab.artifacts.checks import NotEvaluated
 
-    report = record.record.attempt.outcome.result.report
     unavailable = report.revised(
         core=report.core.revised(
             engine=NotEvaluated(
@@ -197,16 +185,10 @@ def test_causal_reporting_requires_retained_uncertainty_and_converged_exact_engi
         )
     )
     with pytest.raises(CausalCertificationError, match="retained exact-engine evidence"):
-        certify_conditioned_model(model, revision, inference_log(model, report=unavailable))
-    prior = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[1]
-            / "fixtures/models"
-            / "causal_proofs/treatment_outcome.json"
-        ).read_text()
-    )
-    with pytest.raises(CausalCertificationError, match="no retained joint uncertainty"):
-        certify_conditioned_model(prior, revision, inference_log(prior))
+        certify_conditioned_model(model, revision, record, model, unavailable.core)
+    prior = _treatment_outcome()
+    with pytest.raises(CausalCertificationError, match="committed fit"):
+        certify_conditioned_model(prior, revision, inference_log(prior), prior, _report(prior).core)
     from nof1_causal_lab.models.ssm.inference.convergence import parameter_convergence
 
     diagnostics = report.core.inference_diagnostics
@@ -226,19 +208,13 @@ def test_causal_reporting_requires_retained_uncertainty_and_converged_exact_engi
         )
     )
     with pytest.raises(CausalCertificationError, match=r"r_hat fails.*ess_tail fails"):
-        certify_conditioned_model(model, revision, inference_log(model, report=mixed_poorly))
+        certify_conditioned_model(model, revision, record, model, mixed_poorly.core)
 
 
 def test_causal_analysis_joins_matching_proofs():
     from tests.inference_fixtures import inference_log
 
-    design = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[1]
-            / "fixtures/models"
-            / "causal_proofs/conditioned_treatment_outcome.json"
-        ).read_text()
-    )
+    design = _conditioned_treatment_outcome()
     design_ref = GitRef(workspace_id="workspace", revision=git_oid(2), path="model.json")
     analysis = CertifiedCausalAnalysis(
         model=design,
@@ -254,6 +230,8 @@ def test_causal_analysis_joins_matching_proofs():
             ),
         ),
         inference=inference_log(design),
+        fitted_model=design,
+        report=__import__("tests.inference_fixtures", fromlist=["_report"])._report(design).core,
     )
     assert analysis.treatments == ["treatment"]
     assert analysis.outcome == "outcome"

@@ -27,7 +27,6 @@
       "tool_calls": [
         {
           "id": "call_f1bac8ded4ca48c686d9dec6",
-          "type": "function",
           "name": "validate_extractions",
           "arguments": "{\"output_json\": \"{}\"}"
         }

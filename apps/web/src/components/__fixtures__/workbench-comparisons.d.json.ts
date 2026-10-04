@@ -2,7 +2,7 @@
 import type * as Domain from "@nof1-causal-lab/api-types";
 declare const value: Readonly<{
   pinned_model: Domain.ModelSpec;
-  pinned_inputs: Domain.ArtifactRecord["model_inputs"];
+  pinned_inputs: Record<string, string>;
   comparisons: Readonly<
     Partial<
       Record<
@@ -17,7 +17,7 @@ declare const value: Readonly<{
           | "after_dynamic_construct_ids"
           | "parameters"
           | "changed_inputs"
-        > & { beforeModel: Domain.ModelSpec; afterModel: Domain.ModelSpec }
+        > & { beforeModel: Domain.ModelSpec | null; afterModel: Domain.ModelSpec | null }
       >
     >
   >;

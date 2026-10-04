@@ -61,7 +61,7 @@ processes:
       http_get:
         host: 127.0.0.1
         scheme: http
-        path: /api/tools/docs
+        path: /api/docs
         port: 8100
       initial_delay_seconds: 2
       period_seconds: 1

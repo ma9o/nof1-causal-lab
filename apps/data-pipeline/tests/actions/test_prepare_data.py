@@ -1,5 +1,7 @@
 """One model-free preparation action retains extraction semantics and data findings."""
 
+from nof1_causal_lab.study.lineage import read_data_metadata
+
 import json
 from datetime import UTC, datetime
 from uuid import uuid4
@@ -156,9 +158,8 @@ def test_preparation_without_model_combines_computed_and_semantic_workers(monkey
             )
         )
     )
-    effects = evaluate_data_checks("data-only", state, effects)
-    assert {item.artifact_id for item in effects.effects.produced} == {"panel", "data_profile"}
-    assert effects.effects.checks is None
+    profile = evaluate_data_checks("data-only", state, effects)
+    assert {item.artifact_id for item in effects.effects.produced} == {"panel"}
     panel = next(item for item in effects.effects.produced if item.artifact_id == "panel")
     assert panel.derived_from == {"raw_data": raw.revision}
     observations = store.read_parquet_file("panel", panel.revision, "panel.parquet")
@@ -170,22 +171,16 @@ def test_preparation_without_model_combines_computed_and_semantic_workers(monkey
         ("indicator:stress", None),
         ("indicator:stress", 2),
     ]
-    metadata = store.read_value("panel", panel.revision, "metadata.json", PreparedDataMetadata)
+    metadata = read_data_metadata(store, panel.revision)
     assert metadata.preparation is not None
     assert (
         metadata.preparation.variables[1].extraction.how_to_measure
         == preparation.variables[1].extraction.how_to_measure
     )
     assert metadata.variables[1].ordinal_levels == ("low", "medium", "high")
-    profile_ref = next(
-        item for item in effects.effects.produced if item.artifact_id == "data_profile"
-    )
-    profile = DataProfileArtifact.model_validate(
-        store.read_json_file("data_profile", profile_ref.revision, "data_profile.json")
-    )
     assert set(profile.indicators) == {"indicator:steps", "indicator:stress"}
     labels = completion_messages(
-        effects, datetime.now(UTC), store.completion_reports(effects.effects.produced)
+        effects, datetime.now(UTC), (profile,)
     )
     assert "DATA_QUALITY_FINDINGS" in {label.label for label in labels}
     assert all(set(label.model_dump()) == {"timestamp", "level", "label"} for label in labels)

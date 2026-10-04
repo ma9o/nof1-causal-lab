@@ -5,7 +5,9 @@ export function getCapabilitiesQueryKey() {
 }
 
 export async function getCapabilities() {
-  const { data, response } = await apiClient.GET("/api/actions-enabled", { cache: "no-store" });
+  const { data, response } = await apiClient.GET("/api/workspaces", { cache: "no-store" });
   if (data === undefined) throw new Error(`Capabilities error ${response.status}`);
-  return data;
+  const enabled = response.headers.get("X-Actions-Enabled");
+  if (enabled !== "true" && enabled !== "false") throw new Error("Workspace response has no action capability");
+  return enabled === "true";
 }

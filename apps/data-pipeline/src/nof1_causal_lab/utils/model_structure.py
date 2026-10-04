@@ -7,14 +7,9 @@ from typing import TYPE_CHECKING
 from nof1_causal_lab.models.model_structure import reference_indicators
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.construct import ConstructSpec
     from nof1_causal_lab.artifacts.duration import Duration
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.models.model_structure import StructuralSelection
-
-
-def get_constructs(model: ModelSpec) -> list[ConstructSpec]:
-    return list(model.constructs)
 
 
 def get_reference_indicator_lookup(selection: StructuralSelection) -> dict[str, str]:

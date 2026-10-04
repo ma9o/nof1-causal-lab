@@ -45,19 +45,20 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.runner
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 from nof1_causal_lab.study.equations import observation_equations
 from tests.helpers import make_model
-from tests.model_fixtures import bind_panel_fixture, compile_fit_fixture, compile_model_fixture
+from tests.inference_fixtures import bind_panel_fixture, compile_fit_fixture, compile_model_fixture
+from tests.model_fixtures import _exact_model_model, load_model_fixture
 from tests.observation_fixtures import observation_laws
+
+
+def _authored_affine_delta_keeps_its_calibration_coefficients_complete_model() -> ModelSpec:
+    return load_model_fixture(
+        "delta_observations/authored_affine_delta_keeps_its_calibration_coefficients_complete_model.json"
+    )
 
 
 @pytest.fixture
 def exact_model():
-    return ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2]
-            / "fixtures/models"
-            / "delta_observations/exact_model_model.json"
-        ).read_text()
-    )
+    return _exact_model_model()
 
 
 @pytest.mark.contract
@@ -119,13 +120,7 @@ def test_authored_affine_delta_keeps_its_calibration_coefficients(exact_model):
         reasoning="Exact measurement with an unknown calibration offset.",
     )
     indicator = owner.indicators[0].revised(likelihood=likelihood)
-    model = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2]
-            / "fixtures/models"
-            / "delta_observations/authored_affine_delta_keeps_its_calibration_coefficients_complete_model.json"
-        ).read_text()
-    )
+    model = _authored_affine_delta_keeps_its_calibration_coefficients_complete_model()
     completed = model.indicator(indicator.observation.id).likelihood
     assert completed is not None
     assert isinstance(completed.parsed.intercept.value, str)
@@ -543,7 +538,7 @@ def test_exact_observations_pass_through_full_construct_diagnostics(exact_model)
         DesignInfo,
         measure_construct_simulation,
     )
-    from tests.model_fixtures import compile_model_fixture, parameter_draws
+    from tests.inference_fixtures import compile_model_fixture, parameter_draws
 
     draws, ticks = 2, 6
     compiled = compile_model_fixture(exact_model)

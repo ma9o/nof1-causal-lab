@@ -1,95 +1,86 @@
-"""Completed applied/rejected/raised attempts have typed, cached HTTP/tool results."""
+"""One contract covers saved calls, in-flight deduplication and retryable failures."""
 
+import asyncio
+from datetime import UTC, datetime
 from uuid import UUID
 
 import pytest
 from fastapi.testclient import TestClient
-from pydantic import TypeAdapter, ValidationError
 
-from nof1_causal_lab import study_api, tool_server
-from nof1_causal_lab.actions.contracts import EditModelRequest
-from nof1_causal_lab.actions.effects import ActionEffects
-from nof1_causal_lab.actions.results import ActionPoll, CompletedPoll, RunningPoll
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.study.history import StudyRepository
-from nof1_causal_lab.study.records import (
-    Applied,
-    AttemptRecord,
-    EditAttempt,
-    Raised,
-    Rejected,
+from nof1_causal_lab import tool_server
+from nof1_causal_lab.actions.contracts import SetQuestionRequest
+from nof1_causal_lab.actions.results import CompletedPoll, RunningPoll
+from nof1_causal_lab.actions.temporal import workflow as study_workflow
+from nof1_causal_lab.actions.temporal.activities import (
+    journal_activity,
+    read_inputs_activity,
+    set_question_activity,
 )
+from nof1_causal_lab.actions.temporal.messages import ActionRequest, StudyInit
+from nof1_causal_lab.artifacts.question import QuestionSpec
+from nof1_causal_lab.study.history import StudyRepository
+from nof1_causal_lab.study.records import Applied, Rejected
 from nof1_causal_lab.utils import data
-from tests.action_fixtures import edit_and_check, question_root
-from tests.helpers import run_async
 
 pytestmark = pytest.mark.contract
 
 
-@pytest.mark.parametrize("status", ["applied", "rejected", "raised"])
-def test_completed_poll_is_typed_for_tools_and_cached_for_http(tmp_path, monkeypatch, status):
+def test_call_contract_reuses_applied_and_running_calls_but_retries_failure(tmp_path, monkeypatch):
     monkeypatch.setattr(data, "_DATA_URI", str(tmp_path))
-    attempt_id = UUID(int=1)
-    request = EditModelRequest(expected_revision=None, model=ModelSpec())
-    root = question_root("POLL")
-    outcomes = {
-        "applied": edit_and_check("POLL", request, StudyRepository("POLL").state(root.commit_id)),
-        "rejected": Rejected(reason="revision_conflict", detail="Selected base changed"),
-        "raised": Raised(error_type="WorkerError", error_message="failed"),
-    }
-    publication = StudyRepository("POLL").append(
-        AttemptRecord(
-            seq=2,
-            ts="2026-01-01T00:00:00Z",
-            attempt_id=attempt_id,
-            attempt=EditAttempt(request=request, outcome=outcomes[status], action="edit_model"),
-        )
-    )
+    monkeypatch.setattr(study_workflow.workflow, "now", lambda: datetime(2026, 10, 4, tzinfo=UTC))
+    monkeypatch.setattr(study_workflow.workflow, "upsert_memo", lambda _: None)
+    request = SetQuestionRequest(question=QuestionSpec(text="Does exercise improve sleep?"))
+    repository = StudyRepository("CALLS")
+
+    async def scenario():
+        entered, release = asyncio.Event(), asyncio.Event()
+        executions = 0
+
+        async def execute(name, payload, **_options):
+            nonlocal executions
+            name = name if isinstance(name, str) else name.__name__
+            if name == "read_inputs_activity":
+                return await read_inputs_activity(payload)
+            if name == "set_question_activity":
+                executions += 1
+                entered.set()
+                await release.wait()
+                return await set_question_activity(payload)
+            if name == "journal_activity":
+                return await journal_activity(payload)
+            if name == "collect_completed_runs_activity":
+                return None
+            raise AssertionError(name)
+
+        monkeypatch.setattr(study_workflow.workflow, "execute_activity", execute)
+        machine = study_workflow.StudyWorkflow(StudyInit(workspace_id="CALLS"))
+        first = asyncio.create_task(machine.execute_action(ActionRequest(request=request, attempt_id=UUID(int=1))))
+        await entered.wait()
+        duplicate = await machine.execute_action(ActionRequest(request=request, attempt_id=UUID(int=2)))
+        assert isinstance(duplicate, RunningPoll)
+        assert duplicate.attempt_id == UUID(int=1)
+        assert executions == 1 and repository.attempts() == []
+        release.set()
+        applied = await first
+        assert isinstance(applied, CompletedPoll) and isinstance(applied.attempt.outcome, Applied)
+        assert await machine.execute_action(ActionRequest(request=request, attempt_id=UUID(int=3))) == applied
+        assert executions == 1 and len(repository.attempts()) == 1
+        restarted = study_workflow.StudyWorkflow(StudyInit(workspace_id="CALLS", initial_seq=1))
+        assert await restarted.execute_action(ActionRequest(request=request, attempt_id=UUID(int=4))) == applied
+        assert executions == 1 and len(repository.attempts()) == 1
+        failure = SetQuestionRequest(question=QuestionSpec(text="A different question"))
+        for attempt_id in (5, 6):
+            rejected = await restarted.execute_action(ActionRequest(request=failure, attempt_id=UUID(int=attempt_id)))
+            assert isinstance(rejected, CompletedPoll) and isinstance(rejected.attempt.outcome, Rejected)
+        assert len(repository.attempts()) == 3
+        assert [entry.record.attempt.outcome.status for entry in repository.attempts()] == ["applied", "rejected", "rejected"]
+
+    asyncio.run(scenario())
+    monkeypatch.setenv("READ_ONLY_FACADE", "1")
     client = TestClient(tool_server.app)
-    first = client.get(f"/api/studies/POLL/actions/{attempt_id}")
-    assert first.status_code == 200
-    assert first.json()["kind"] == "completed"
-    assert first.json()["commit_id"] == publication.commit_id
-    assert first.json()["attempt"]["outcome"]["status"] == status
-
-    def unexpected_render(*_args, **_kwargs):
-        raise AssertionError("A completed attempt should use its cached bytes")
-
-    monkeypatch.setattr(study_api, "CompletedPoll", unexpected_render)
-    second = client.get(f"/api/studies/POLL/actions/{attempt_id}")
-    assert second.content == first.content
-    typed = run_async(
-        study_api.read_action_poll("POLL", attempt_id, study_api.TemporalClientProvider())
-    )
-    assert isinstance(typed, CompletedPoll)
-    assert typed.model_dump(mode="json") == first.json()
-    tool = client.post(
-        "/api/tools/scientific/poll_action",
-        json={"workspace_id": "POLL", "input": {"attempt_id": str(attempt_id)}},
-    )
-    assert tool.status_code == 200
-    assert tool.json() == {"result": first.json()}
-
-
-def test_poll_and_action_schema_reject_unrelated_payloads():
-    adapter = TypeAdapter(ActionPoll)
-    assert adapter.validate_python({"kind": "running"}) == RunningPoll()
-    with pytest.raises(ValidationError):
-        adapter.validate_python({"kind": "completed", "commit_id": None})
-    # A successful edit cannot carry a preparation payload; nor can failure carry a result.
-    payload = EditAttempt(
-        action="edit_model",
-        request=None,
-        outcome=Applied(result=None, effects=ActionEffects()),
-    ).model_dump(mode="json")
-    payload["outcome"]["result"] = {"action": "prepare_data"}
-    with pytest.raises(ValidationError):
-        EditAttempt.model_validate(payload)
-    payload["outcome"] = {
-        "status": "raised",
-        "error_type": "Error",
-        "error_message": "failed",
-        "result": {},
-    }
-    with pytest.raises(ValidationError):
-        EditAttempt.model_validate(payload)
+    first = client.post("/api/studies/CALLS/set_question", json=request.model_dump(mode="json"))
+    second = client.post("/api/studies/CALLS/set_question", json=request.model_dump(mode="json"))
+    assert first.status_code == second.status_code == 200
+    assert first.content == second.content
+    assert len(repository.attempts()) == 3
+    assert client.post("/api/studies/CALLS/set_question", json={"question": {"text": "Unsaved"}}).status_code == 403

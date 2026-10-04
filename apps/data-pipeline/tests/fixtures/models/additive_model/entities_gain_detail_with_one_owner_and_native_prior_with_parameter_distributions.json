@@ -221,6 +221,6 @@
       }
     }
   },
-  "time_points": [],
-  "measurement_clock": null
+  "measurement_clock": null,
+  "law_layouts": {}
 }

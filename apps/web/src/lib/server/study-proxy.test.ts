@@ -4,13 +4,13 @@ import { proxyStudyRequest } from "./study-proxy";
 vi.mock("@/lib/runtime-urls", () => ({ getToolServerUrl: () => "http://tool-server" }));
 afterEach(() => vi.unstubAllGlobals());
 
-it("preserves branch, expected head, payload and backend conflicts for submissions", async () => {
+it("preserves named inputs, payload and backend rejections for calls", async () => {
   const fetcher = vi
     .fn()
-    .mockResolvedValue(Response.json({ detail: "Branch conflict" }, { status: 409 }));
+    .mockResolvedValue(Response.json({ detail: "Input unavailable" }, { status: 422 }));
   vi.stubGlobal("fetch", fetcher);
-  const body = JSON.stringify({ action: "edit_model", expected_revision: 1, model: {} });
-  const path = "/api/studies/STUDY/actions?branch=alternative&expected_head=abc";
+  const body = JSON.stringify({ action: "edit_model", expected_revision: "a".repeat(40), model: {} });
+  const path = "/api/studies/STUDY/edit_model";
   const response = await proxyStudyRequest(
     new Request(`http://web${path}`, {
       method: "POST",
@@ -24,6 +24,6 @@ it("preserves branch, expected head, payload and backend conflicts for submissio
       body,
     }),
   );
-  expect(response.status).toBe(409);
-  expect(await response.json()).toEqual({ detail: "Branch conflict" });
+  expect(response.status).toBe(422);
+  expect(await response.json()).toEqual({ detail: "Input unavailable" });
 });

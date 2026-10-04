@@ -7,7 +7,7 @@ from pydantic import AwareDatetime, Field
 from nof1_causal_lab.artifacts.base import Value
 
 from .checks import Assessment
-from .identity import ConstructId, ParameterRef
+from .identity import ConstructId, DistributionId, ParameterRef
 from .posterior_diagnostics import (
     ChainDiagnostics,
     LOODiagnostics,
@@ -18,7 +18,6 @@ from .posterior_diagnostics import (
     ParticleSamplerDiagnostics,
     PosteriorMarginal,
     RankHistogram,
-    TemperingDiagnostics,
     TraceSeries,
 )
 
@@ -34,9 +33,8 @@ class FitSettingsSpec(Value):
 
 
 class InferenceMetadata(Value):
-    """Inference metadata records the sampling method, sample count, and run duration."""
+    """Run measurements for the production particle sampler."""
 
-    method: str
     n_samples: int
     duration_seconds: float
 
@@ -45,11 +43,37 @@ class PosteriorDrawsInfo(Value):
     """Axes of aligned joint draws stored in the posterior's fitted payload."""
 
     n_draws: int = Field(ge=1)
-    parameter_shapes: Mapping[str, tuple[int, ...]]
     state_ids: tuple[ConstructId, ...] = ()
-    latent_shape: tuple[int, int] | None = Field(
-        default=None, description="Time and state axis lengths per retained latent draw."
-    )
+
+
+class InferenceEvidence(Value):
+    """Native execution telemetry; posterior atoms and coordinates belong to the model."""
+
+    distribution: DistributionId
+    time_origin: AwareDatetime | None
+    duration_seconds: float = Field(ge=0)
+    num_chains: int | None = Field(default=None, ge=1)
+    chain_extra_fields: Mapping[str, str] = Field(default_factory=dict)
+    observation_log_probs: str | None = None
+    observed_rows: str | None = None
+    exact_observation_rows: str | None = None
+    sampler_diagnostics: ParticleSamplerDiagnostics | None = None
+    phase_extra_fields: Mapping[str, Mapping[str, str]] = Field(default_factory=dict)
+    warmup_complete_log_posterior_history: str | None = None
+    all_complete_log_posterior_history: str | None = None
+    initial_latent_delta: str | None = None
+    final_latent_delta: str | None = None
+
+
+    @property
+    def array_references(self) -> frozenset[str]:
+        """Native buffers that must accompany the retained evidence."""
+        return frozenset((*self.chain_extra_fields.values(),
+            *(ref for fields in self.phase_extra_fields.values() for ref in fields.values()),
+            *(ref for ref in (self.observation_log_probs, self.observed_rows,
+                self.exact_observation_rows, self.warmup_complete_log_posterior_history,
+                self.all_complete_log_posterior_history, self.initial_latent_delta,
+                self.final_latent_delta) if ref is not None)))
 
 
 class InferenceReportCore(Value):
@@ -66,14 +90,12 @@ class InferenceReportCore(Value):
 
 
 class InferenceReportDetail(Value):
-    """Retained plot series served in full by the report endpoint."""
+    """Retained plot series served in full by the action result."""
 
-    tempering: TemperingDiagnostics | None = None
     trace_data: tuple[TraceSeries, ...] = ()
     rank_histograms: tuple[RankHistogram, ...] = ()
     pareto_k: tuple[ParetoKPoint, ...] = ()
     loo_pit: tuple[LOOPITPoint, ...] = ()
-    posterior_pairs: tuple[tuple[ParameterRef, ParameterRef], ...] = ()
     divergent: tuple[bool, ...] | None = None
     initial_latent_delta: tuple[tuple[float, ...], ...] | None = None
     final_latent_delta: tuple[tuple[float, ...], ...] | None = None

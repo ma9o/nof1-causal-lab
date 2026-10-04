@@ -46,7 +46,6 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, kw_only=True)
 class IdentifiedQuery:
-    method: Literal["do_calculus", "instrumental_variable"]
     estimand: str
     marginalized_confounders: tuple[str, ...]
     instruments: tuple[str, ...] = ()
@@ -58,13 +57,6 @@ class UnidentifiedQuery:
     notes: str | None = None
 
 
-@dataclass(frozen=True, kw_only=True)
-class IdentificationGraphInfo:
-    observed_constructs: tuple[str, ...]
-    total_constructs: int
-    unobserved_confounders: tuple[str, ...]
-    n_directed_edges: int
-    iv_allowed: bool = False
 
 
 @dataclass(frozen=True, kw_only=True)
@@ -73,7 +65,6 @@ class IdentificationResult:
 
     identifiable_treatments: Mapping[str, IdentifiedQuery]
     non_identifiable_treatments: Mapping[str, UnidentifiedQuery]
-    graph_info: IdentificationGraphInfo
 
     def __post_init__(self) -> None:
         freeze_fields(self)
@@ -109,15 +100,12 @@ def check_identifiability(
     Returns:
         Dict with:
             - identifiable_treatments: Map of treatment -> identification details
-                * method: 'do_calculus' or 'instrumental_variable'
                 * estimand: Closed-form estimand or IV placeholder
                 * marginalized_confounders: Unobserved constructs the estimand integrates out
                 * instruments: Optional list of IVs when applicable
             - non_identifiable_treatments: Map of treatment -> confounder context
                 * confounders: Unobserved constructs blocking identification
                 * notes: Optional explanation when confounders cannot be enumerated
-            - graph_info: Debug info about the graph structure
-                * iv_allowed: Whether IV fallback was used
     """
     outcome = get_outcome_name(constructs, outcome_id)
     if not outcome:
@@ -147,12 +135,6 @@ def check_identifiability(
         return IdentificationResult(
             identifiable_treatments=identifiable_treatments,
             non_identifiable_treatments=non_identifiable_treatments,
-            graph_info=IdentificationGraphInfo(
-                observed_constructs=tuple(sorted(observed_constructs)),
-                total_constructs=len(constructs),
-                unobserved_confounders=(),
-                n_directed_edges=0,
-            ),
         )
 
     # Convert DAG to ADMG via 2-timestep unrolling
@@ -179,7 +161,6 @@ def check_identifiability(
             # Map estimand back to original names for readability
             estimand_str = _canonicalize_estimand_string(str(estimand))
             identifiable_treatments[treatment] = IdentifiedQuery(
-                method="do_calculus",
                 estimand=estimand_str,
                 marginalized_confounders=tuple(sorted(unobserved_confounders)),
             )
@@ -195,7 +176,6 @@ def check_identifiability(
                 # IV identification available under the caller's linearity assumption.
                 iv_list = ", ".join(instruments)
                 identifiable_treatments[treatment] = IdentifiedQuery(
-                    method="instrumental_variable",
                     estimand=f"IV({iv_list}) [requires linearity]",
                     marginalized_confounders=tuple(sorted(unobserved_confounders)),
                     instruments=tuple(instruments),
@@ -220,13 +200,6 @@ def check_identifiability(
     return IdentificationResult(
         identifiable_treatments=identifiable_treatments,
         non_identifiable_treatments=non_identifiable_treatments,
-        graph_info=IdentificationGraphInfo(
-            observed_constructs=tuple(sorted(observed_constructs)),
-            total_constructs=len(constructs),
-            unobserved_confounders=tuple(sorted(unobserved_confounders)),
-            n_directed_edges=len(list(admg.directed.edges())),
-            iv_allowed=iv_allowed,
-        ),
     )
 
 

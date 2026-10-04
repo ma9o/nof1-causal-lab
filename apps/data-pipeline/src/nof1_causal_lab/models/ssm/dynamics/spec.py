@@ -37,7 +37,6 @@ class CompiledDynamics:
     vector_field: VectorField
     sample_params: Callable[[PriorFn], tuple[dict[str, Array], ...]]
     site_registry: tuple[SiteDescriptor, ...]
-    site_prefix: str = "vf"
 
 
 def compile_dynamics(spec: DynamicsSpec, *, prefix: str = "vf") -> CompiledDynamics:
@@ -76,7 +75,6 @@ def compile_dynamics(spec: DynamicsSpec, *, prefix: str = "vf") -> CompiledDynam
         vector_field=vector_field,
         sample_params=_sample_all_params,
         site_registry=site_registry,
-        site_prefix=prefix,
     )
 
 

@@ -21,19 +21,20 @@ from nof1_causal_lab.actions.temporal.messages import (
     AttemptPublication,
     EditModelInput,
     EvaluateChecksInput,
-    ReadBranchInput,
+    ReadInputsInput,
     SetQuestionInput,
 )
 from nof1_causal_lab.compilation_errors import AggregatedCompileError, IncompleteModelError
-from nof1_causal_lab.study.errors import ArtifactWriteRejected, StudyLookupError
-from nof1_causal_lab.study.history import BranchConflict, StudyRepository
+from nof1_causal_lab.study.errors import StudyLookupError
+from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.records import (
     ActionAttempt,
     Applied,
-    BranchBase,
+    ActionBase,
     DataPreparationResult,
     EditAttempt,
     ModelFitResult,
+    ModelSimulationResult,
     Rejected,
     SetQuestionAttempt,
     StudyRevision,
@@ -42,6 +43,10 @@ from nof1_causal_lab.study.records import (
 )
 from nof1_causal_lab.study.store import ArtifactStore, collect_run_traces
 from nof1_causal_lab.study.sweep import collect_completed_runs
+from nof1_causal_lab.study.state import StudyState
+from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
+from nof1_causal_lab.artifacts.identification import IdentificationReport
+from nof1_causal_lab.artifacts.validation_report import DataProfileArtifact, ValidationReportArtifact
 
 
 @activity.defn
@@ -69,16 +74,7 @@ async def run_action_activity(activity_input: ActionInput) -> ActionAttempt:
 
 @activity.defn
 async def edit_model_activity(activity_input: EditModelInput) -> EditAttempt:
-    try:
-        result = edit_model(
-            activity_input.workspace_id, activity_input.request, activity_input.state
-        )
-    except ArtifactWriteRejected as exc:
-        return EditAttempt(
-            action="edit_model",
-            request=activity_input.request,
-            outcome=Rejected(reason="revision_conflict", detail=str(exc)),
-        )
+    result = edit_model(activity_input.workspace_id, activity_input.request, activity_input.state)
     return EditAttempt(request=activity_input.request, outcome=result, action="edit_model")
 
 
@@ -91,7 +87,7 @@ async def set_question_activity(activity_input: SetQuestionInput) -> SetQuestion
 @activity.defn
 async def evaluate_model_checks_activity(
     activity_input: EvaluateChecksInput[ModelFitResult | None],
-) -> Applied[ModelFitResult | None]:
+) -> tuple[ModelCheckReport, IdentificationReport, ValidationReportArtifact | None]:
     from nof1_causal_lab.actions.model_checks import evaluate_model_checks
 
     if isinstance(activity_input.request, PrepareDataRequest):
@@ -110,7 +106,7 @@ async def evaluate_model_checks_activity(
 @activity.defn
 async def evaluate_data_checks_activity(
     activity_input: EvaluateChecksInput[DataPreparationResult],
-) -> Applied[DataPreparationResult]:
+) -> DataProfileArtifact:
     from nof1_causal_lab.actions.data_checks import evaluate_data_checks
 
     return await asyncio.to_thread(
@@ -122,13 +118,14 @@ async def evaluate_data_checks_activity(
 
 
 @activity.defn
-async def read_branch_activity(activity_input: ReadBranchInput) -> BranchBase:
+async def read_inputs_activity(activity_input: ReadInputsInput) -> ActionBase:
     repository = StudyRepository(activity_input.workspace_id)
-    try:
-        commit_id = repository.head(activity_input.branch)
-    except StudyLookupError as exc:
-        raise ApplicationError(str(exc), type=type(exc).__name__, non_retryable=True) from exc
-    return BranchBase(commit_id=commit_id, state=repository.state(commit_id))
+    saved = repository.saved_call(activity_input.request)
+    return ActionBase(
+        commit_id=repository.head(),
+        state=StudyState() if saved is not None else repository.input_state(activity_input.request),
+        saved=saved,
+    )
 
 
 @activity.defn
@@ -137,32 +134,28 @@ async def journal_activity(activity_input: AttemptPublication) -> StudyRevision:
     journal = StudyRepository(activity_input.workspace_id)
     existing = journal.read_attempt(activity_input.record.seq)
     if existing is not None:
-        return journal.append(existing.record, expected_head=activity_input.expected_head)
+        return journal.append(existing.record, parent_id=activity_input.parent_id)
     record = activity_input.record
     messages = record.messages
     if isinstance(record.attempt.outcome, Applied) and messages:
-        messages = (
-            messages[:-1]
-            + completion_messages(
-                Applied(
-                    result=record.attempt.outcome.result, effects=record.attempt.outcome.effects
-                ),
-                messages[-1].timestamp,
-                ArtifactStore(activity_input.workspace_id).completion_reports(
-                    record.attempt.outcome.effects.produced
-                ),
-            )
-            + messages[-1:]
-        )
+        store = ArtifactStore(activity_input.workspace_id)
+        inference, simulation = None, None
+        result = record.attempt.outcome.result
+        if record.attempt.action == "fit" and isinstance(result, ModelFitResult):
+            from nof1_causal_lab.actions.fit import read_inference_report
+            produced = next(info for info in record.attempt.outcome.effects.produced if info.artifact_id == "model")
+            inference = read_inference_report(store, produced.revision, result.evidence)
+        if record.attempt.action == "simulate" and isinstance(result, ModelSimulationResult):
+            from nof1_causal_lab.actions.simulate import read_simulation_report
+            simulation = read_simulation_report(store, result.evidence, journal.question().revision)
+        if inference is not None or simulation is not None:
+            messages = messages[:-1] + completion_messages(record.attempt.outcome, messages[-1].timestamp, inference=inference, simulation=simulation) + messages[-1:]
     logs = collect_run_traces(activity_input.workspace_id, record.seq)
     record = record.with_logs(
         messages=messages,
         trace_ids=tuple(path.removeprefix("traces/").removesuffix(".json") for path in logs),
     )
-    try:
-        return journal.append(record, expected_head=activity_input.expected_head, logs=logs)
-    except BranchConflict as exc:
-        raise ApplicationError(str(exc), type=type(exc).__name__, non_retryable=True) from exc
+    return journal.append(record, parent_id=activity_input.parent_id, logs=logs)
 
 
 @activity.defn
@@ -175,7 +168,7 @@ ALL_ACTIVITIES = [
     set_question_activity,
     edit_model_activity,
     journal_activity,
-    read_branch_activity,
+    read_inputs_activity,
     collect_completed_runs_activity,
     *INGESTION_ACTIVITIES,
     *MEASUREMENT_ACTIVITIES,

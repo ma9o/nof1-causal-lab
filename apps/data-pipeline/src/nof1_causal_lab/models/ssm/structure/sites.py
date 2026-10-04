@@ -56,14 +56,12 @@ class CompiledBlockTarget(Value):
 class CompiledNodeTarget(Value):
     """A node expression's component and owning state coordinate."""
 
-    component_index: int
     target_index: int
 
 
 class CompiledEdgeTarget(Value):
     """An edge expression's component and resolved effect/cause coordinates."""
 
-    component_index: int
     target_index: int
     source_index: int
 

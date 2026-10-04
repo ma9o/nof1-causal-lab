@@ -32,7 +32,7 @@ def empirical_points(values: np.ndarray) -> tuple[EmpiricalPoint, ...]:
     unique, counts = np.unique(values[np.isfinite(values)], return_counts=True)
     cumulative = np.cumsum(counts) / counts.sum() if counts.size else []
     return tuple(
-        EmpiricalPoint(value=value, probability=float(probability), count=int(count))
+        EmpiricalPoint(value=value, probability=float(probability), )
         for value, probability, count in zip(unique, cumulative, counts, strict=True)
     )
 
@@ -50,7 +50,6 @@ def observation_history(
 
     values = panel["value"].cast(pl.Float64).to_numpy()
     return ObservationHistory(
-        indicator_id=variable.id,
         label=variable.name,
         times=tuple(
             ObservationInstant(value).relative_to(origin).days for value in panel["anchor_time"]
@@ -82,7 +81,7 @@ def recorded_simulation_paths(
     from nof1_causal_lab.actions.simulation_summaries import category_probabilities
     from nof1_causal_lab.models.ssm.counterfactual.estimands import summarize_draws
 
-    stop = min(start + count, report.draws)
+    stop = min(start + count, report.evidence.draws)
 
     def paths(values: np.ndarray) -> tuple[RecordedPath, ...]:
         return tuple(
@@ -98,7 +97,7 @@ def recorded_simulation_paths(
         # Certification owns both reference keys; the reader hydrates those exact buffers.
         reference = cast("np.ndarray", reference)
         reference_observed = cast("np.ndarray", reference_observed)
-        outcome = report.state_ids.index(report.causal.value.outcome)
+        outcome = report.evidence.state_ids.index(report.causal.value.outcome)
         differences = latent[:, :, outcome] - reference[:, :, outcome]
         effect = PathSeries(
             label=report.causal.value.labels[report.causal.value.outcome],
@@ -109,11 +108,11 @@ def recorded_simulation_paths(
         difference = observed - reference_observed
         manifest = {
             identity: float(difference[:, -1, index].mean())
-            for index, identity in enumerate(report.observation_layout.indicator_ids)
+            for index, identity in enumerate(report.evidence.observation_layout.indicator_ids)
             if np.isfinite(difference[:, -1, index]).all()
         }
 
-    variables = report.observation_layout.variables
+    variables = report.evidence.observation_layout.variables
     category_levels = {
         index: ("0", "1")
         if variable.measurement_dtype == "binary"
@@ -124,9 +123,9 @@ def recorded_simulation_paths(
         or variable.categorical_levels
     }
     return SimulationPaths(
-        times=report.times,
-        time_origin=report.time_origin,
-        total_draws=report.draws,
+        times=report.evidence.times,
+        time_origin=report.evidence.time_origin,
+        total_draws=report.evidence.draws,
         start=start,
         count=stop - start,
         states={
@@ -135,7 +134,7 @@ def recorded_simulation_paths(
                 action=paths(latent[:, :, index]),
                 reference=paths(reference[:, :, index]) if reference is not None else (),
             )
-            for index, identity in enumerate(report.state_ids)
+            for index, identity in enumerate(report.evidence.state_ids)
         },
         indicators={
             variable.id: PathSeries(

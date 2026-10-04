@@ -1,5 +1,5 @@
 import type { Applied, DataPreparationResult } from "@nof1-causal-lab/api-types";
-import type { StudyRevision } from "@nof1-causal-lab/api-types";
+import type { TimelineRevision } from "@nof1-causal-lab/api-types";
 import type { ScopeContext } from "@/lib/model-asset/scope";
 import { ObservationPlots, dataComparisonHistory } from "./recorded-history";
 import { humanize, type EntitySelection } from "@/lib/model-asset/selection";
@@ -67,7 +67,7 @@ export function DataComparisonOutcome({
 function dataSelectionLabel(
   report: DataDiffReport,
   side: "left" | "right",
-  ticks: readonly StudyRevision[],
+  ticks: readonly TimelineRevision[],
 ) {
   const sources = report[side];
   return [...new Map(sources.map((source) => [source.revision, source])).values()]

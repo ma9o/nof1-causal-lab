@@ -4,7 +4,6 @@ import { ownLawUses } from "@/lib/model-asset/laws";
 import type { ScopeContext } from "@/lib/model-asset/scope";
 import { Hint, Prose, Section } from "../scope-primitives";
 import { LawSections } from "./law-sections";
-import { MechanismResponse } from "./mechanism-response";
 
 export function EdgeScope({ context, id }: { context: ScopeContext; id: EdgeId }) {
   const edge = context.entities.edgeById.get(id);
@@ -38,7 +37,6 @@ export function EdgeScope({ context, id }: { context: ScopeContext; id: EdgeId }
           </details>
         )}
       </Section>
-      {edge.mechanisms.length > 0 && <MechanismResponse context={context} owner={id} />}
       <LawSections context={context} uses={ownLawUses(edge)} />
       {disposition && disposition.disposition !== "retained_edge" && (
         <Section

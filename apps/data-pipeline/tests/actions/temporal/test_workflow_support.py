@@ -91,7 +91,7 @@ def test_temporal_failure_unwraps_application_error_and_copies_diagnostics() -> 
             ApplicationError(
                 "model failed",
                 diagnostics,
-                type="ModelCompileError",
+                type="ModelFitError",
                 non_retryable=True,
             )
         )
@@ -100,7 +100,7 @@ def test_temporal_failure_unwraps_application_error_and_copies_diagnostics() -> 
     failure = temporal_failure(error)
     diagnostics["local"] = True
 
-    assert failure.error_type == "ModelCompileError"
+    assert failure.error_type == "ModelFitError"
     assert failure.error_message == "model failed"
     assert failure.details == ('{"reason": "invalid"}',)
 

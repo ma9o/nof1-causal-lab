@@ -1,13 +1,14 @@
 """Native node potentials preserve nonlinear drift, metadata, and causal interventions."""
 
-from pathlib import Path
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.models.model_structure import StructuralSelection, selected_edges
 from nof1_causal_lab.models.ssm.dynamics import (
@@ -20,6 +21,17 @@ from nof1_causal_lab.models.ssm.dynamics import (
 from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec, compile_dynamics
 from nof1_causal_lab.models.ssm.execution.dynamical_model import continuous_state_evolution
 from tests.dynamics_fixtures import linear_term, potential_term
+from tests.model_fixtures import load_model_fixture
+
+
+def _directed_edges_cannot_be_reinterpreted_as_potentials_model_fixture() -> ModelSpec:
+    return load_model_fixture(
+        "node_potential/directed_edges_cannot_be_reinterpreted_as_potentials_model_fixture.json"
+    )
+
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 
 @pytest.mark.inference(concern="simulation")
@@ -108,13 +120,7 @@ def test_invalid_potential_coefficients_are_rejected(kwargs):
 
 @pytest.mark.contract
 def test_directed_edges_cannot_be_reinterpreted_as_potentials():
-    model = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[1]
-            / "fixtures/models"
-            / "node_potential/directed_edges_cannot_be_reinterpreted_as_potentials_model_fixture.json"
-        ).read_text()
-    )
+    model = _directed_edges_cannot_be_reinterpreted_as_potentials_model_fixture()
     edge = selected_edges(StructuralSelection(model, None))[0]
     with pytest.raises(ValueError, match="literal_error"):
         edge.revised(

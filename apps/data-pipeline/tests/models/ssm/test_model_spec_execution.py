@@ -10,9 +10,10 @@ import pytest
 from pydantic import TypeAdapter
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
-from nof1_causal_lab.artifacts.likelihood import (
-    ObservationLawSpec,
+from nof1_causal_lab.artifacts.expressions import (
+    LiteralExpression,
 )
+from nof1_causal_lab.artifacts.likelihood import ObservationLawSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.model_structure import (
     StructuralSelection,
@@ -25,26 +26,41 @@ from nof1_causal_lab.models.ssm.execution.dynamical_model import (
     build_dynamical_model,
 )
 from nof1_causal_lab.models.ssm.inference.persistence import condition_model
-from nof1_causal_lab.models.ssm.inference.shared import model_draws
 from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
 from nof1_causal_lab.models.ssm.parameterization import (
     assemble_deterministics_from_registry,
     build_site_registry,
 )
 from tests.helpers import make_model
-from tests.inference_fixtures import particle_posterior
-from tests.model_fixtures import compile_model_fixture
+from tests.inference_fixtures import compile_model_fixture, model_draws, particle_posterior
+from tests.model_fixtures import (
+    load_model_fixture,
+)
+
+
+def _fixed_quantities_and_interactions_remain_effective_in_edge_off_checks_model_fixture() -> (
+    ModelSpec
+):
+    return load_model_fixture(
+        "model_spec_execution/fixed_quantities_and_interactions_remain_effective_in_edge_off_checks_model_fixture.json"
+    )
+
+
+def _conditioning_revises_the_same_type_and_retains_joint_uncertainty_complete_test_model() -> (
+    ModelSpec
+):
+    return load_model_fixture(
+        "model_spec_execution/conditioning_revises_the_same_type_and_retains_joint_uncertainty_complete_test_model.json"
+    )
+
+
+def _model_model() -> ModelSpec:
+    return load_model_fixture("model_spec_execution/model_model.json")
 
 
 @pytest.fixture(scope="module")
 def model():
-    return ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2]
-            / "fixtures/models"
-            / "model_spec_execution/model_model.json"
-        ).read_text()
-    )
+    return _model_model()
 
 
 @pytest.mark.inference(concern="predictive")
@@ -84,12 +100,8 @@ def test_conditioning_revises_the_same_type_and_retains_joint_uncertainty(
                 reasoning="Joint law with category-specific parameter elements",
             ),
         )
-        model = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "model_spec_execution/conditioning_revises_the_same_type_and_retains_joint_uncertainty_complete_test_model.json"
-            ).read_text()
+        model = (
+            _conditioning_revises_the_same_type_and_retains_joint_uncertainty_complete_test_model()
         )
     count = 3
     samples = {
@@ -107,7 +119,7 @@ def test_conditioning_revises_the_same_type_and_retains_joint_uncertainty(
     samples.update(assemble_deterministics_from_registry(samples, compile_model_fixture(model)))
     paths = jnp.arange(count * 4 * 2, dtype=float).reshape(count, 4, 2)
     result = particle_posterior(JointPosteriorDraws(samples, paths))
-    conditioned = condition_model(
+    conditioned, _ = condition_model(
         model,
         compile_model_fixture(model),
         result,
@@ -161,285 +173,20 @@ def test_conditioning_revises_the_same_type_and_retains_joint_uncertainty(
     )
     identity, law = next(iter(loaded.distributions.items()))
     # A joint law's coordinates follow the outcome's scope, which checks them.
-    with pytest.raises(ValueError, match="one event coordinate per scientific quantity"):
+    with pytest.raises(ValueError, match="event width must match"):
         StructuralSelection(
             loaded.revised(
                 distributions={identity: empirical_distribution(empirical_atoms(law)[:, :-1])}
             ),
             None,
         )
-    with pytest.raises(ValueError, match="identity does not match"):
-        StructuralSelection(loaded.revised(time_points=(0.0, 1.0, 2.0, 5.0)), None)
+    with pytest.raises(ValueError, match="identity and event width must match"):
+        StructuralSelection(loaded.revised(law_layouts={identity: loaded.law_layouts[identity].revised(time_points=(0.0, 1.0, 2.0, 5.0))}), None)
     if categorical:
         construct = loaded.constructs[1]
         indicator = construct.indicators[0]
-        with pytest.raises(ValueError, match="identity does not match"):
-            StructuralSelection(
-                loaded.revised(
-                    edges=replace_constructs(
-                        loaded.edges,
-                        (
-                            construct.revised(
-                                indicators=(
-                                    indicator.revised(
-                                        observation=indicator.observation.revised(
-                                            categorical_levels=("medium", "low", "high")
-                                        )
-                                    ),
-                                )
-                            ),
-                        ),
-                    )
-                ),
-                None,
-            )
-
-
-@pytest.mark.inference(concern="simulation")
-def test_numerical_function_constructs_dynestyx_model(model):
-    samples = {
-        site.name: jnp.full((1, *site.shape), 0.5)
-        for site in build_site_registry(compile_model_fixture(model))
-    }
-    samples.update(assemble_deterministics_from_registry(samples, compile_model_fixture(model)))
-    native = build_dynamical_model(
-        compile_model_fixture(model),
-        {key: value[0] for key, value in samples.items()},
-        t0=jnp.asarray(0.0),
-    )
-    assert isinstance(native, dsx.DynamicalModel)
-    assert native.initial_condition.event_shape == (2,)
-    assert isinstance(native.observation_model, HeterogeneousObservation)
-    assert isinstance(native.state_evolution, dsx.StochasticContinuousTimeStateEvolution)
-    assert native.state_evolution.drift is not None
-    assert tuple(law.family for law in native.observation_model.laws) == tuple(
-        numeric.observation_families(compile_model_fixture(model))
-    )
-    assert native.state_evolution.drift(jnp.ones(2), jnp.empty(0), 0.0).shape == (2,)
-
-
-@pytest.mark.inference(concern="predictive")
-def test_predictive_runtime_uses_native_initial_and_observation_laws(model):
-    """Exercise model batching and prediction at one time point, without a trajectory solve."""
-    from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
-        sample_predictive_emissions,
-        simulate_latent_histories,
-    )
-
-    samples = {
-        site.name: jnp.full((2, *site.shape), 0.5)
-        for site in build_site_registry(compile_model_fixture(model))
-    }
-    samples.update(assemble_deterministics_from_registry(samples, compile_model_fixture(model)))
-    times = jnp.array([2.0])
-    key = jax.random.PRNGKey(14)
-    latents, predictors, _ = simulate_latent_histories(
-        compile_model_fixture(model), samples, times, key, None, ()
-    )
-    native = build_dynamical_model(
-        compile_model_fixture(model),
-        {name: values[0] for name, values in samples.items()},
-        t0=times[0],
-    )
-    assert isinstance(native.observation_model, HeterogeneousObservation)
-    init_key, _ = jax.random.split(jax.random.split(key, 2)[0])
-    np.testing.assert_allclose(latents[0, 0], native.initial_condition.sample(init_key), atol=1e-6)
-    np.testing.assert_allclose(
-        predictors[0, 0], native.observation_model.linear_predictor(latents[0, 0]), atol=1e-6
-    )
-    observations, mask, means = sample_predictive_emissions(
-        compile_model_fixture(model),
-        samples,
-        predictors,
-        times,
-        observation_support=None,
-        observation_mask=jnp.array([[True, False]]),
-        num_samples=2,
-        rng_key=jax.random.PRNGKey(15),
-    )
-    law = native.observation_model(latents[0, 0], None, times[0])
-    assert observations.shape == means.shape == mask.shape == (2, 1, 2)
-    np.testing.assert_allclose(means[0, 0, 0], law.mean[0], atol=1e-6)
-    assert np.all(np.isfinite(observations[:, :, 0]))
-    assert np.all(np.isnan(observations[:, :, 1]))
-    assert np.all(mask[:, :, 0])
-    assert not np.any(mask[:, :, 1])
-
-
-@pytest.mark.inference(concern="simulation")
-def test_predictive_edge_off_reaches_the_native_state_evolution(model, monkeypatch):
-    """Inspect the declared derivative at the solver boundary, without integrating a path."""
-    from dataclasses import replace
-
-    import equinox as eqx
-
-    from nof1_causal_lab.artifacts.expressions import LiteralExpression
-    from nof1_causal_lab.models.ssm.dynamics.spec import DynamicsSpec
-    from nof1_causal_lab.models.ssm.predictive import registry_runtime
-
-    samples = {
-        site.name: jnp.full((1, *site.shape), 0.5)
-        for site in build_site_registry(compile_model_fixture(model))
-    }
-    samples.update(assemble_deterministics_from_registry(samples, compile_model_fixture(model)))
-    terms = compile_model_fixture(model).dynamics.spec.components
-    edge = next(term for term in terms if term.edge_owned)
-    dynamics = DynamicsSpec(
-        2,
-        tuple(
-            replace(term, expression=LiteralExpression(value=0)) if term.edge_owned else term
-            for term in terms
-        ),
-    )
-    state = jnp.ones(2)
-
-    def inspect_drift(models, times, *_args):
-        return eqx.filter_vmap(
-            lambda native: native.state_evolution.total_drift(state, None, times[0])[None, :]
-        )(models)
-
-    monkeypatch.setattr(registry_runtime, "_simulate_model_predictive_draws", inspect_drift)
-    derivatives, _ = registry_runtime._simulate_vector_field_predictive_latents(
-        compile_model_fixture(model),
-        samples,
-        jnp.array([3.0]),
-        rng_key=jax.random.PRNGKey(21),
-        dynamics=dynamics,
-    )
-    natural = build_dynamical_model(
-        compile_model_fixture(model),
-        {name: values[0] for name, values in samples.items()},
-        t0=jnp.array(3.0),
-    )
-    assert isinstance(natural.state_evolution, dsx.StochasticContinuousTimeStateEvolution)
-    # This model's Hill edge vanishes at zero source, while the target's own
-    # nonlinear restoring dynamics stay the same.
-    source_zero = state.at[edge.source].set(0.0)
-    expected = natural.state_evolution.total_drift(source_zero, None, 3.0)[edge.target]
-    np.testing.assert_allclose(derivatives[0, 0, edge.target], expected, atol=1e-6)
-    assert (
-        derivatives[0, 0, edge.target]
-        != natural.state_evolution.total_drift(state, None, 3.0)[edge.target]
-    )
-
-
-@pytest.mark.contract
-def test_model_equality_does_not_depend_on_execution_cache(model):
-
-    restored = ModelSpec.model_validate_json(model.model_dump_json())
-    validate_execution_structure(StructuralSelection(model, None))
-    validate_execution_structure(StructuralSelection(restored, None))
-    assert restored == model
-
-
-@pytest.mark.inference(concern="simulation")
-def test_nonlinear_fixture_declares_the_same_drift_and_measurements():
-    """Compare a single true drift evaluation; no simulator or inference is run."""
-    from evaluation.fixtures import synthetic_nonlinear as fixture
-
-    from nof1_causal_lab.models.ssm.execution.parameters import assemble_model_matrices
-
-    source = fixture.load_synthetic_nonlinear_spec()
-    source = ModelSpec.model_validate_json(source.model_dump_json())
-    samples = {name: jnp.asarray(value) for name, value in fixture.SCALAR_RECOVERY_TARGETS.items()}
-    samples.update(
-        diffusion_diag_free=jnp.asarray(fixture.TRUE_DIFFUSION_SD),
-        lambda_free=jnp.asarray(
-            [
-                fixture.TRUE_LOADINGS[row, col]
-                for row, col in fixture.MEASUREMENT_LOADINGS_FREE_POSITIONS
-            ]
-        ),
-        manifest_var_diag_free=jnp.asarray(fixture.TRUE_MANIFEST_SD)[
-            compile_model_fixture(source).observation_noise_block.diag_support[:-2]
-        ],
-        manifest_means_free=jnp.asarray(fixture.TRUE_MANIFEST_MEANS)[
-            compile_model_fixture(source).observation_mean_block.free_support[:-2]
-        ],
-    )
-    matrices, _ = assemble_model_matrices(compile_model_fixture(source), samples)
-    np.testing.assert_allclose(matrices["lambda"][:-2, :-2], fixture.TRUE_LOADINGS)
-    np.testing.assert_allclose(matrices["manifest_means"][:-2], fixture.TRUE_MANIFEST_MEANS)
-    native = build_dynamical_model(
-        compile_model_fixture(source), {**samples, **matrices}, t0=jnp.asarray(0.0)
-    )
-    assert isinstance(native.state_evolution, dsx.StochasticContinuousTimeStateEvolution)
-    assert native.state_evolution.drift is not None
-    state = jnp.asarray([0.8, 0.5, 1.2])
-    controls = jnp.asarray([0.2, -0.4])
-    np.testing.assert_allclose(
-        native.state_evolution.drift(jnp.concatenate([state, controls]), None, 0.0)[:3],
-        fixture._synthetic_nonlinear_drift(np.asarray(state), np.asarray(controls)),
-        atol=1e-7,
-    )
-
-
-@pytest.mark.contract
-def test_fixed_quantities_and_interactions_remain_effective_in_edge_off_checks(monkeypatch):
-    from nof1_causal_lab.artifacts.expressions import LiteralExpression, linear_coefficient
-    from nof1_causal_lab.models.ssm.predictive import registry_runtime
-    from nof1_causal_lab.models.ssm.predictive.types import PredictiveDraws, PredictiveTrajectory
-    from nof1_causal_lab.models.ssm.simulation_checks import (
-        ConstructSimulationTarget,
-        _incoming_edge_off_target,
-        _resimulate_edge_off,
-    )
-    from tests.model_fixtures import parameter_draws
-
-    source = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2]
-            / "fixtures/models"
-            / "model_spec_execution/fixed_quantities_and_interactions_remain_effective_in_edge_off_checks_model_fixture.json"
-        ).read_text()
-    )
-    source = ModelSpec.model_validate_json(source.model_dump_json())
-    terms = compile_model_fixture(source).dynamics.spec.components
-    assert (
-        linear_coefficient(
-            terms[3].expression, selected_state_ids(StructuralSelection(source, None))[0]
-        )
-        == 0.7
-    )
-    assert not terms[3].parameters
-    target = _incoming_edge_off_target(
-        compile_model_fixture(source),
-        ConstructSimulationTarget(
-            construct=compile_model_fixture(source).states[2], edge_parents=("A", "B")
-        ),
-        numeric.state_names(compile_model_fixture(source)),
-        2,
-    )
-    assert target.components == (3, 4)
-    calls = []
-    original_samples = parameter_draws(source, 2)
-    paths = jnp.ones((2, 3, 3))
-    prediction = PredictiveDraws(
-        parameters=original_samples,
-        trajectory=PredictiveTrajectory(
-            paths, paths, paths, jnp.ones_like(paths, dtype=bool), paths
-        ),
-    )
-
-    compiled = compile_model_fixture(source)
-
-    def capture(model, samples, times, *, dynamics, **_kwargs):
-        assert model is compiled
-        assert samples is prediction.parameters
-        for index in (3, 4):
-            assert dynamics.components[index].expression == LiteralExpression(value=0)
-        for name, value in original_samples.items():
-            np.testing.assert_array_equal(samples[name], value)
-        calls.append(dynamics)
-        return jnp.zeros((2, len(times), 3)), jnp.zeros((2, len(times), 3))
-
-    monkeypatch.setattr(registry_runtime, "_simulate_vector_field_predictive_latents", capture)
-    _resimulate_edge_off(
-        compiled,
-        prediction,
-        jnp.arange(3),
-        target,
-        seed=0,
-    )
-    assert len(calls) == 1
-    assert compile_model_fixture(source).dynamics.spec.components == terms
+        renamed = loaded.revised(edges=replace_constructs(loaded.edges, (
+            construct.revised(indicators=(indicator.revised(observation=indicator.observation.revised(
+                categorical_levels=("medium", "low", "high"))),)),
+        )))
+        assert renamed.law_layouts == loaded.law_layouts

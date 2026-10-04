@@ -10,4 +10,4 @@ class ArtifactWriteRejected(Exception):
 
 
 class StudyLookupError(Exception):
-    """A requested branch, revision, artifact, or stored path does not exist."""
+    """A requested revision, artifact, or stored path does not exist."""

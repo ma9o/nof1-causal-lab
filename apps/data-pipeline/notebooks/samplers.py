@@ -181,12 +181,9 @@ class MultiPathfinderTrace:
     - ``path_positions`` (K, M+1, D): L-BFGS iterates per path.
     - ``path_elbo`` (K, M+1): ELBO per path x iter.
     - ``best_iter`` (K,): argmax-ELBO iter per path.
-    - ``path_inits`` (K, D): the overdispersed starting positions.
     - ``path_best_elbo`` (K,): selected-iterate ELBO per path (the mixture weight input).
     - ``candidate_positions`` (K·M, D): all per-path draws before resampling.
     - ``candidate_path_id`` (K·M,): which path each candidate came from.
-    - ``candidate_log_weight`` (K·M,): importance ratios ``log p(x) - log q_mix(x)``
-      under the equal-weight mixture of the K selected Gaussians.
     - ``draws`` (N, D): PSIR-resampled output.
     - ``pareto_k``: PSIS khat diagnostic (``> 0.7`` ⇒ unreliable).
     """
@@ -194,11 +191,9 @@ class MultiPathfinderTrace:
     path_positions: Array
     path_elbo: Array
     best_iter: Array
-    path_inits: Array
     path_best_elbo: Array
     candidate_positions: Array
     candidate_path_id: Array
-    candidate_log_weight: Array
     draws: Array
     pareto_k: float
     summary: str
@@ -349,11 +344,9 @@ def run_multipath_pathfinder(
         path_positions=jnp.stack(paths_pos, axis=0),
         path_elbo=jnp.stack(paths_elbo, axis=0),
         best_iter=jnp.asarray(best_iters),
-        path_inits=inits,
         path_best_elbo=jnp.asarray(best_elbos),
         candidate_positions=candidates,
         candidate_path_id=path_ids,
-        candidate_log_weight=smoothed_log_w,
         draws=draws,
         pareto_k=float(k_hat),
         summary=summary,

@@ -4,7 +4,7 @@ import { attemptError } from "@/lib/model-asset/journal";
 
 import type { RecordDependency } from "@nof1-causal-lab/api-types";
 import { useEffect, useMemo, useRef } from "react";
-import type { StudyRevision } from "@nof1-causal-lab/api-types";
+import type { TimelineRevision } from "@nof1-causal-lab/api-types";
 import { revisionTimeline, TIMELINE_LANES } from "@/lib/model-asset/revision-timeline";
 import {
   ACTION_STYLE,
@@ -67,18 +67,16 @@ export function VersionScrubber({
   dependencies,
   playhead,
   latest,
-  branch,
   comparedSeq,
   onPlayhead,
   onPreviewComparison,
   onEndPreview,
   onKeepComparison,
 }: {
-  ticks: readonly StudyRevision[];
+  ticks: readonly TimelineRevision[];
   dependencies: readonly RecordDependency[];
   playhead: number;
   latest: number;
-  branch: string;
   comparedSeq: number | null;
   onPlayhead: (seq: number) => void;
   onPreviewComparison: (seq: number) => void;
@@ -133,7 +131,7 @@ export function VersionScrubber({
         )}
         {selectedNode && (
           <span aria-live="polite" className="sr-only">
-            Viewing {timelineTickLabel(selectedNode.tick)} on {branch}.
+            Viewing {timelineTickLabel(selectedNode.tick)}.
           </span>
         )}
       </div>

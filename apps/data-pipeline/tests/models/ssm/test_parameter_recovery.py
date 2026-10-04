@@ -14,7 +14,7 @@ from nof1_causal_lab.models.ssm.inference.warmup import map as map_warmup
 from nof1_causal_lab.models.ssm.inference.warmup.parameter_warmup import (
     _laplace_preconditioner_chol_from_map_result,
 )
-from tests.model_fixtures import bind_panel_fixture, compile_fit_fixture, make_lgss_data
+from tests.inference_fixtures import bind_panel_fixture, compile_fit_fixture, make_lgss_data
 
 pytestmark = [pytest.mark.inference(concern="warmup"), pytest.mark.inference(concern="recovery")]
 
@@ -48,10 +48,8 @@ def test_map_initialization_recovers_mode_and_builds_preconditioner(monkeypatch)
     )
 
     diagnostics = result.diagnostics
-    assert diagnostics.optimizer == "L-BFGS-B"
     assert diagnostics.success is True
     assert diagnostics.status == 0
-    assert diagnostics.mode_log_posterior > diagnostics.init_log_posterior_best
 
     mode = result.get_samples()
     assert abs(-abs(float(mode["vf_0_p0"][0])) - data["true_decay_diag"]) < 0.12

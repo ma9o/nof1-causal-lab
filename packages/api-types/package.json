@@ -13,19 +13,15 @@
     "lint:fix": "biome check --fix .",
     "lint:biome": "biome check .",
     "lint:tsc": "tsc --noEmit",
-
-    "codegen": "bun run codegen:schemas && bun run codegen:types && bun run codegen:client",
-    "codegen:check": "bun run --parallel --no-exit-on-error codegen:schemas:check codegen:types:check codegen:client:check",
+    "codegen": "bun run codegen:schemas && bun run codegen:types",
+    "codegen:check": "bun run --parallel --no-exit-on-error codegen:schemas:check codegen:types:check",
     "codegen:schemas": "uv run --directory ../../apps/data-pipeline python -m scripts.codegen.export_api",
     "codegen:schemas:check": "bun run codegen:schemas --check",
     "codegen:types": "bun run scripts/generate.ts",
-    "codegen:types:check": "bun run codegen:types --check",
-    "codegen:client": "bun run scripts/generate-client.ts",
-    "codegen:client:check": "bun run codegen:client --check"
+    "codegen:types:check": "bun run codegen:types --check"
   },
   "devDependencies": {
     "@nof1-causal-lab/typescript-config": "workspace:*",
-    "json-schema-to-typescript": "^15.0.4",
     "openapi-typescript": "^7.13.0",
     "typescript": "^5"
   },

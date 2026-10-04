@@ -122,7 +122,6 @@ class GenerateConfig:
     max_tokens: int | None = None
     timeout: int | None = None
     reasoning_effort: EmbeddedReasoningEffort | None = None
-    max_tool_output: int | None = None
 
 
 @dataclass
@@ -191,7 +190,7 @@ class _OpenRouterResponse(_ResponseValue):
 class AssistantMessage(TypedDict):
     """Normalized assistant message passed to logs and the next conversation turn."""
 
-    role: Literal["assistant"]
+    role: Literal["assistant"]  # noqa: FIELD002 -- OpenAI's assistant-message wire protocol requires this role.
     content: str
     tool_calls: NotRequired[list[ChatCompletionMessageFunctionToolCallParam]]
     reasoning: NotRequired[str]
@@ -449,7 +448,6 @@ def _log_response_details(
 
 class ModelCallResult(TypedDict):
     message: AssistantMessage
-    completion: str
     usage: dict[str, int | None] | None
     model: str
     time: float
@@ -537,7 +535,6 @@ async def call_model(
 
     return {
         "message": message,
-        "completion": completion_text,
         "usage": _usage_from_response(parsed),
         "model": parsed.model,
         "time": elapsed,

@@ -20,10 +20,7 @@ from nof1_causal_lab.utils.config import (
     IngestionConfig,
     LLMDefaults,
     PiDefaults,
-    PipelineBehaviorConfig,
     PipelineConfig,
-    PriorElicitationConfig,
-    StructureProposalConfig,
     get_secret,
     get_secret_async,
     load_config,
@@ -48,7 +45,6 @@ class TestSamplerSpec:
         assert result.n_particles == 64
         options = result.marginal_particle_gibbs
         assert options.n_parameter_particles == 2
-        assert options.latent_smoother == "dsmc"
         assert options.dsmc_leaf_proposal == "amala_exact"
         assert options.latent_delta == 0.2
         assert options.amala_kappa == 0.75
@@ -58,7 +54,6 @@ class TestSamplerSpec:
         assert SamplerSpec.model_validate_json(encoded) == result
         assert options.param_step_size == 0.02
         assert options.param_target_accept == 0.35
-        assert options.latent_init_method == "predictive"
         assert result.retain_latent_paths is True
 
     def test_public_overrides_resolve_without_mutating_defaults(self, monkeypatch):
@@ -78,9 +73,7 @@ class TestSamplerSpec:
             "get_config",
             lambda: PipelineConfig(
                 ingestion=config.ingestion,
-                structure_proposal=config.structure_proposal,
                 extraction_workers=config.extraction_workers,
-                prior_elicitation=config.prior_elicitation,
                 inference=InferenceConfig(sampler=configured),
             ),
         )
@@ -129,18 +122,8 @@ MINIMAL_CONFIG = textwrap.dedent("""\
       llm:
         harness: none
         model: openrouter/gpt-4
-    structure_proposal:
-      sample_chunks: 3
-      chunk_size: 500
-      llm:
-        harness: none
-        model: openrouter/gpt-4
     extraction_workers:
       chunk_size: 300
-      llm:
-        harness: none
-        model: openrouter/gpt-4
-    prior_elicitation:
       llm:
         harness: none
         model: openrouter/gpt-4
@@ -169,27 +152,10 @@ FULL_CONFIG = textwrap.dedent("""\
         model: openrouter/claude-3
 
 
-    structure_proposal:
-      sample_chunks: 5
-      chunk_size: 800
-      latent_max_tool_turns: 25
-      measurement_max_tool_turns: 35
-      llm:
-        harness: none
-        model: openrouter/claude-3
-
     extraction_workers:
       chunk_size: 400
       max_concurrent_workers: 6
       max_tool_turns: 45
-      llm:
-        harness: none
-        model: openrouter/claude-3
-
-    prior_elicitation:
-      max_tool_turns: 100
-      literature_search:
-        enabled: false
       llm:
         harness: none
         model: openrouter/claude-3
@@ -205,7 +171,6 @@ FULL_CONFIG = textwrap.dedent("""\
         marginal_particle_gibbs:
           n_ieks_iters: 10
           n_parameter_particles: 3
-          latent_smoother: dsmc
           latent_delta: 0.29
           amala_kappa: 0.2
           amala_grad_clip: 77.0
@@ -254,16 +219,9 @@ class TestLoadConfig:
         monkeypatch.setattr(config_mod, "_find_config_path", lambda: config_file)
 
         cfg = load_config()
-        assert cfg.structure_proposal.llm.model == "openrouter/gpt-4"
-        assert cfg.structure_proposal.llm.harness == "none"
-        assert cfg.structure_proposal.sample_chunks == 3
-        assert cfg.structure_proposal.latent_max_tool_turns == 40
-        assert cfg.structure_proposal.measurement_max_tool_turns == 40
         assert cfg.extraction_workers.chunk_size == 300
         assert cfg.extraction_workers.max_concurrent_workers == 4
         assert cfg.extraction_workers.max_tool_turns == 40
-        assert cfg.prior_elicitation.llm.model == "openrouter/gpt-4"
-        assert cfg.prior_elicitation.max_tool_turns == 40
         # Defaults for optional sections
         assert cfg.llm.embedded.max_tokens == 65536
         assert cfg.llm.codex.reasoning_effort == "xhigh"
@@ -285,12 +243,8 @@ class TestLoadConfig:
 
         cfg = load_config()
         assert cfg.ingestion.max_tool_turns == 30
-        assert cfg.structure_proposal.latent_max_tool_turns == 25
-        assert cfg.structure_proposal.measurement_max_tool_turns == 35
         assert cfg.extraction_workers.max_concurrent_workers == 6
         assert cfg.extraction_workers.max_tool_turns == 45
-        assert cfg.prior_elicitation.max_tool_turns == 100
-        assert cfg.prior_elicitation.literature_search.enabled is False
         assert cfg.inference.sampler.num_warmup == 500
         assert cfg.inference.sampler.num_samples == 2000
         assert cfg.inference.sampler.num_chains == 2
@@ -299,7 +253,6 @@ class TestLoadConfig:
         assert cfg.inference.sampler.marginal_particle_gibbs.n_ieks_iters == 10
         assert cfg.inference.sampler.n_particles == 24
         assert cfg.inference.sampler.marginal_particle_gibbs.n_parameter_particles == 3
-        assert cfg.inference.sampler.marginal_particle_gibbs.latent_smoother == "dsmc"
         assert cfg.inference.sampler.marginal_particle_gibbs.latent_delta == 0.29
         assert cfg.inference.sampler.marginal_particle_gibbs.amala_kappa == 0.2
         assert cfg.inference.sampler.marginal_particle_gibbs.amala_grad_clip == 77.0
@@ -309,7 +262,6 @@ class TestLoadConfig:
         assert cfg.inference.sampler.marginal_particle_gibbs.param_target_accept == 0.4
         assert cfg.inference.sampler.marginal_particle_gibbs.adaptation_rate == 0.03
         assert cfg.inference.sampler.marginal_particle_gibbs.init_method == "random"
-        assert cfg.inference.sampler.marginal_particle_gibbs.latent_init_method == "predictive"
         assert cfg.inference.sampler.marginal_particle_gibbs.pathfinder_num_elbo_samples == 7
         assert cfg.inference.sampler.marginal_particle_gibbs.pathfinder_maxiter == 8
         assert cfg.inference.sampler.marginal_particle_gibbs.n_pathfinder_starts == 2
@@ -352,24 +304,14 @@ def _make_pipeline_config(**profile_llm_overrides) -> PipelineConfig:
     """Build a valid PipelineConfig with optional per-context llm overrides."""
     defaults = {
         "ingestion": EmbeddedLLMSpec(harness="none", model="openrouter/x"),
-        "structure_proposal": EmbeddedLLMSpec(harness="none", model="openrouter/x"),
         "extraction_workers": EmbeddedLLMSpec(harness="none", model="openrouter/x"),
-        "prior_elicitation": EmbeddedLLMSpec(harness="none", model="openrouter/x"),
     }
     defaults.update(profile_llm_overrides)
-    return PipelineConfig(
-        ingestion=IngestionConfig(llm=defaults["ingestion"]),
-        structure_proposal=StructureProposalConfig(llm=defaults["structure_proposal"]),
-        extraction_workers=ExtractionWorkersConfig(llm=defaults["extraction_workers"]),
-        prior_elicitation=PriorElicitationConfig(llm=defaults["prior_elicitation"]),
-        inference=InferenceConfig(),
-        llm=LLMDefaults(
+    return PipelineConfig(ingestion=IngestionConfig(llm=defaults["ingestion"]), extraction_workers=ExtractionWorkersConfig(llm=defaults["extraction_workers"]), inference=InferenceConfig(), llm=LLMDefaults(
             embedded=EmbeddedLLMDefaults(),
             claude_code=ClaudeCodeDefaults(),
             codex=CodexDefaults(),
-        ),
-        pipeline=PipelineBehaviorConfig(),
-    )
+        ))
 
 
 class TestValidateConfig:
@@ -452,21 +394,11 @@ class TestValidateConfig:
               llm:
                 harness: none
                 model: openrouter/gpt-4
-            structure_proposal:
-              sample_chunks: 3
-              chunk_size: 500
-              llm:
-                harness: none
-                model: openrouter/gpt-4
             extraction_workers:
               chunk_size: 300
               llm:
                 harness: claude-code
                 model: sonnet
-            prior_elicitation:
-              llm:
-                harness: none
-                model: openrouter/gpt-4
         """)
         config_file = tmp_path / "config.yaml"
         config_file.write_text(bad_config)

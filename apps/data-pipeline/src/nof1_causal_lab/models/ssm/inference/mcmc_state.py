@@ -31,7 +31,6 @@ class TrajectoryMCMCState(NamedTuple):
     param_step_size: jnp.ndarray
     # BlackJAX dual-averaging state. Carried but not updated when
     # adaptation_scheme == "simple"; evolves only during warmup otherwise.
-    latent_da: DualAveragingAdaptationState
     param_da: DualAveragingAdaptationState
 
 

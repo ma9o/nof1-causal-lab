@@ -1295,6 +1295,6 @@
       }
     }
   },
-  "time_points": [],
-  "measurement_clock": "1d"
+  "measurement_clock": "1d",
+  "law_layouts": {}
 }

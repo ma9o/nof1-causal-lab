@@ -42,7 +42,6 @@ class ParticleProblem:
     runtime: ParticleTarget
     site_info: SiteInfo
     public_sites: frozenset[str]
-    latent_transition_kind: str
     exact_constraints: ExactStateConstraints | None = None
 
     def __post_init__(self) -> None:
@@ -103,5 +102,5 @@ def build_particle_problem(
         tuple(int(index) for index in np.flatnonzero(~numeric.input_mask(model))),
     )
     return ParticleProblem(
-        runtime, site_info, public_sites, LATENT_TRANSITION_EULER_MARUYAMA, exact_constraints
+        runtime, site_info, public_sites, exact_constraints
     )

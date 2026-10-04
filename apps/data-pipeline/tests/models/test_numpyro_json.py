@@ -1,7 +1,9 @@
 """The persistence boundary preserves native laws, dimensions, and scientific evidence."""
 
+from __future__ import annotations
+
 import json
-from pathlib import Path
+from typing import TYPE_CHECKING
 
 import jax.numpy as jnp
 import numpy as np
@@ -9,12 +11,39 @@ import numpyro.distributions as dist
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter_spec import PersistenceTransformSpec
 from nof1_causal_lab.models.model_parameters import require_priors
 from nof1_causal_lab.models.model_structure import StructuralSelection
 from nof1_causal_lab.numpyro_json import NumPyroDistribution
 from nof1_causal_lab.prior_distributions import persistence_to_decay
+from tests.model_fixtures import parameter_laws, parameter_named, replace_parameters, x_model
+
+
+def _parameter_changes_distribution_without_keeping_authoring_history_model_with_prior_payloads() -> (
+    ModelSpec
+):
+    model = x_model()
+    rho_x = parameter_named(model, "rho_X")
+    return model.revised(
+        parameters=replace_parameters(
+            model.parameters, rho_x.revised(transform=rho_x.transform.revised(interval_days=7.0))
+        ),
+        distributions=parameter_laws(
+            model,
+            {
+                rho_x.id: dist.Normal(
+                    loc=jnp.array(0.4000000059604645, dtype=jnp.float32),
+                    scale=jnp.array(0.20000000298023224, dtype=jnp.float32),
+                    validate_args=True,
+                )
+            },
+        ),
+    )
+
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+
 
 _ADAPTER = TypeAdapter(NumPyroDistribution)
 
@@ -74,19 +103,9 @@ def test_invalid_native_constructors_are_rejected(payload):
 
 @pytest.mark.contract
 def test_parameter_changes_distribution_without_keeping_authoring_history():
-    model = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[1] / "fixtures/models" / "common/x_model.json"
-        ).read_text()
-    )
+    model = x_model()
     parameter = model.parameters[0]
-    specified = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[1]
-            / "fixtures/models"
-            / "numpyro_json/parameter_changes_distribution_without_keeping_authoring_history_model_with_prior_payloads.json"
-        ).read_text()
-    )
+    specified = _parameter_changes_distribution_without_keeping_authoring_history_model_with_prior_payloads()
     restored = type(model).model_validate_json(specified.model_dump_json())
     assert restored == specified
     assert restored.parameter(parameter.id).id == parameter.id
@@ -118,11 +137,7 @@ def test_parameter_changes_distribution_without_keeping_authoring_history():
 
 @pytest.mark.contract
 def test_parameter_tool_boundary_validates_the_reference_interval():
-    model = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[1] / "fixtures/models" / "common/x_model.json"
-        ).read_text()
-    )
+    model = x_model()
     with pytest.raises(ValidationError):
         model.parameters[0].revised(
             transform={"kind": "dt_persistence_to_ct_decay", "interval_days": -7.0},
@@ -134,22 +149,14 @@ def test_completed_model_requires_a_prior_on_each_parameter():
 
     from nof1_causal_lab.compilation_errors import IncompleteModelError
 
-    science = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[1] / "fixtures/models" / "common/x_model.json"
-        ).read_text()
-    )
+    science = x_model()
     draft = science.revised(
         distributions={},
         parameters=tuple(parameter.revised(distribution=None) for parameter in science.parameters),
     )
     with pytest.raises(IncompleteModelError, match="prior"):
         require_priors(StructuralSelection(draft, None))
-    completed = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[1] / "fixtures/models" / "common/x_model.json"
-        ).read_text()
-    )
+    completed = x_model()
     require_priors(StructuralSelection(completed, None))
     assert [p.id for p in completed.parameters] == [p.id for p in draft.parameters]
     assert all(p.distribution is not None for p in completed.parameters)
@@ -158,11 +165,7 @@ def test_completed_model_requires_a_prior_on_each_parameter():
 
 @pytest.mark.contract
 def test_law_memberships_reject_dangling_unused_and_accidentally_shared_scalar_laws():
-    model = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[1] / "fixtures/models" / "common/x_model.json"
-        ).read_text()
-    )
+    model = x_model()
     first, second = model.parameters[:2]
     assert first.distribution != second.distribution
     with pytest.raises(ValidationError, match="every reference must exist"):

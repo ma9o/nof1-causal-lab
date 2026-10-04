@@ -4,19 +4,19 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { demoModelSnapshot } from "@/components/__fixtures__/demo-artifacts";
 import { indexModel } from "@/lib/model-asset/entities";
-import type { Applied, StudyRevision } from "@nof1-causal-lab/api-types";
+import type { Applied, TimelineRevision } from "@nof1-causal-lab/api-types";
 import type { ScopeContext } from "@/lib/model-asset/scope";
 import { EditDetails } from "./edit-details";
 import { ActionFindings } from "../action-findings";
 import { humanize } from "@/lib/model-asset/selection";
 
-const hooks = vi.hoisted(() => ({ snapshot: vi.fn(), diff: vi.fn() }));
-vi.mock("@/lib/hooks/use-model-snapshot", () => ({ useModelSnapshot: hooks.snapshot }));
+const hooks = vi.hoisted(() => ({ diff: vi.fn() }));
 vi.mock("@/lib/hooks/use-model-diff", () => ({ useModelDiff: hooks.diff }));
 
 const context: ScopeContext = {
   ticks: [],
   dataDiff: null,
+  result: undefined,
   model: demoModelSnapshot,
   entities: indexModel(demoModelSnapshot.model?.value),
   select: vi.fn(),
@@ -40,67 +40,36 @@ const applied: Applied<null> = {
     ],
   },
 };
-const tick: StudyRevision = {
+const tick: TimelineRevision = {
   commit_id: "rewritten-edit",
   parent_ids: ["preceding-commit"],
   record: {
     seq: 5,
-    attempt_id: null,
     ts: "2026-09-30T00:00:00Z",
-    branch: "main",
     messages: [],
     trace_ids: [],
-    attempt: { action: "edit_model", request: null, outcome: applied },
+    attempt: { action: "edit_model", request: { action: "edit_model", expected_revision: "archived-authorship-base", panel_revision: null, model: fixtureValue(demoModelSnapshot.model).value }, outcome: applied },
   },
 };
 
 describe("edit change summaries after history compaction", () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    hooks.snapshot.mockReturnValue({
-      data: demoModelSnapshot,
-      isPlaceholderData: false,
-      error: null,
-    });
     hooks.diff.mockReturnValue({ data: undefined, error: null });
   });
 
-  it("compares to the preceding commit, even when the authorship base differs", () => {
+  it("compares the exact authored base named by the call", () => {
     renderToStaticMarkup(createElement(EditDetails, { context, tick }));
-    expect(hooks.snapshot).toHaveBeenCalledWith(
-      context.model.workspace_id,
-      "preceding-commit",
-      "main",
-      true,
-    );
-    expect(hooks.diff).toHaveBeenCalledWith(
-      context.model.workspace_id,
-      "preceding-commit",
-      "rewritten-edit",
-    );
+    expect(hooks.diff).toHaveBeenCalledWith(context.model.workspace_id, "archived-authorship-base", "rewritten-edit");
   });
 
-  it("shows an initial summary when the preceding commit has no model", () => {
-    hooks.snapshot.mockReturnValue({
-      data: { ...demoModelSnapshot, model: null },
-      isPlaceholderData: false,
-      error: null,
-    });
-    const html = renderToStaticMarkup(createElement(EditDetails, { context, tick }));
-    expect(hooks.diff).toHaveBeenCalledWith(context.model.workspace_id, "preceding-commit", null);
+  it("shows an initial summary when the call names no base", () => {
+    const request = fixtureValue(tick.record.attempt.request);
+    if (request.action !== "edit_model") throw new Error("Expected edit fixture");
+    const created = { ...tick, record: { ...tick.record, attempt: { ...tick.record.attempt, request: { ...request, expected_revision: null } } } };
+    const html = renderToStaticMarkup(createElement(EditDetails, { context, tick: created }));
+    expect(hooks.diff).toHaveBeenCalledWith(context.model.workspace_id, null, null);
     expect(html).toContain("Model created");
-    expect(html).not.toContain("Reading model changes");
-  });
-
-  it("waits for the selected parent instead of using a previous query's placeholder", () => {
-    hooks.snapshot.mockReturnValue({
-      data: demoModelSnapshot,
-      isPlaceholderData: true,
-      error: null,
-    });
-    const html = renderToStaticMarkup(createElement(EditDetails, { context, tick }));
-    expect(html).toContain("Reading model changes");
-    expect(hooks.diff).toHaveBeenCalledWith(context.model.workspace_id, "preceding-commit", null);
   });
 
   it("renders served graph and law changes in model terms, without definition paths or IDs", () => {

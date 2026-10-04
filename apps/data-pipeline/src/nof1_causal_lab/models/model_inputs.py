@@ -60,6 +60,7 @@ def compilation_input(model: ModelSpec) -> JsonObject:
             exclude={
                 "edges": True,
                 "distributions": True,
+                "law_layouts": True,
                 "time_points": True,
                 "parameters": {"__all__": {"distribution", "transform", "reasoning", "sources"}},
             },

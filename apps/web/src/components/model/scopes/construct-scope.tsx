@@ -14,7 +14,6 @@ import {
 } from "../scope-primitives";
 import { LawSections, SimulatedHistory } from "./law-sections";
 import { Katex } from "@/components/analysis-widgets/statistical-model-spec/ssm-equation-display";
-import { MechanismResponse } from "./mechanism-response";
 import { PredictiveFindings } from "../simulation-evidence";
 
 export function ConstructScope({ context, id }: { context: ScopeContext; id: ConstructId }) {
@@ -78,7 +77,6 @@ export function ConstructScope({ context, id }: { context: ScopeContext; id: Con
               ],
       )}
       <LawSections context={context} uses={ownLawUses(construct)} />
-      {construct.dynamics.length > 0 && <MechanismResponse context={context} owner={id} />}
       <SimulatedHistory context={context} id={id} kind="states" />
       {disposition && disposition.disposition !== "retained_state" && (
         <Section
@@ -129,7 +127,7 @@ export function IdentificationFinding({
         <Callout tone="ok">
           <div className="flex items-start gap-2">
             <StatusIcon status="passed" label="Identified" />
-            <span>{humanize(identified.method)}</span>
+            <span>Do-calculus</span>
           </div>
           {identified.marginalized_confounders.length > 0 && (
             <p className="mt-2">

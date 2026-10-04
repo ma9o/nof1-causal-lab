@@ -5,9 +5,11 @@ and particle sampling with ``inference``. Recovery checks live in
 ``test_parameter_recovery.py``.
 """
 
+from __future__ import annotations
+
 import time
-from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 from unittest.mock import Mock
 
 import jax
@@ -15,11 +17,12 @@ import jax.numpy as jnp
 import jax.random as random
 import numpy as np
 import pytest
-from dynestyx import StochasticContinuousTimeStateEvolution
 from numpyro.distributions import MultivariateNormal
 
+from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.artifacts.expressions import coefficient
 from nof1_causal_lab.artifacts.likelihood import LinkFunction
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.ssm.dynamics.edges import DenseLinear
 from nof1_causal_lab.models.ssm.dynamics.vector_field import VectorField
@@ -61,20 +64,49 @@ from nof1_causal_lab.models.ssm.inference.targets.laplace.shared import (
 )
 from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
 from nof1_causal_lab.models.ssm.inference.utils import _discover_sites
-from nof1_causal_lab.models.ssm.inference.warmup.map import (
-    _build_map_laplace_bundle,
-)
+from nof1_causal_lab.models.ssm.inference.warmup.map import _build_map_laplace_bundle
 from nof1_causal_lab.models.ssm.preflight import ObservationPreflightFailure
-from nof1_causal_lab.sampler_config import (
-    SamplerSpec,
-)
-from tests.inference_fixtures import particle_posterior
-from tests.model_fixtures import (
+from nof1_causal_lab.sampler_config import SamplerSpec
+from tests.inference_fixtures import (
     bind_panel_fixture,
     compile_fit_fixture,
     make_observation_support_runtime,
+    particle_posterior,
+)
+from tests.model_fixtures import (
+    construct_named,
+    one_state_gaussian_model,
+    parameter_for,
+    without_parameters,
 )
 from tests.observation_fixtures import mean_density, observation_kernel, observation_laws
+
+
+def _map_bundle_reuses_runtime_objectives_across_same_shape_datasets__make_aux_kalman_mcmc_smoke_spec() -> (
+    ModelSpec
+):
+    model = one_state_gaussian_model()
+    latent_0 = construct_named(model, "latent_0")
+    latent_0_diffusion_diag = parameter_for(model, SiteKind.DIFFUSION_DIAG, "latent_0")
+    latent_0_t0_var_diag = parameter_for(model, SiteKind.T0_VAR_DIAG, "latent_0")
+    latent_0_t0_means = parameter_for(model, SiteKind.T0_MEANS, "latent_0")
+    latent_0_revised = latent_0.revised(
+        coefficients=(
+            coefficient(latent_0_diffusion_diag.id, "diffusion_scale"),
+            coefficient(0.0, "initial_mean"),
+            coefficient(latent_0_t0_var_diag.id, "initial_scale"),
+        )
+    )
+    parameters, distributions = without_parameters(model, latent_0_t0_means)
+    return model.revised(
+        edges=replace_constructs(model.edges, (latent_0_revised,)),
+        parameters=parameters,
+        distributions=distributions,
+    )
+
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 
 def _runtime_dynamics(
@@ -835,13 +867,7 @@ class TestInferenceTracing:
 
     @pytest.mark.inference(concern="sampling")
     def test_discover_sites_uses_dummy_backend_for_structural_trace(self):
-        spec = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "common/one_state_gaussian_model.json"
-            ).read_text()
-        )
+        spec = one_state_gaussian_model()
         model = compile_fit_fixture(spec)
         observations = jnp.array([[1.0], [2.0]], dtype=jnp.float32)
         times = jnp.array([0.0, 1.0], dtype=jnp.float32)
@@ -866,13 +892,7 @@ class TestDefaultMethodRouting:
     """Regression tests for default inference routing."""
 
     def test_fit_without_method_dispatches_to_marginal_particle_gibbs(self, monkeypatch):
-        spec = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "common/one_state_gaussian_model.json"
-            ).read_text()
-        )
+        spec = one_state_gaussian_model()
         model = compile_fit_fixture(spec)
         observations = jnp.zeros((2, 1), dtype=jnp.float32)
         times = jnp.array([0.0, 1.0], dtype=jnp.float32)
@@ -897,7 +917,7 @@ class TestDefaultMethodRouting:
         )
         assert not isinstance(result, ObservationPreflightFailure)
 
-        assert result.method == "marginal_particle_gibbs"
+        assert isinstance(result, ParticleMCMCPosterior)
 
 
 @pytest.mark.contract
@@ -965,13 +985,7 @@ def test_map_objectives_receive_each_bound_dataset(monkeypatch):
     )
 
     model = compile_fit_fixture(
-        ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "inference_strategies/map_bundle_reuses_runtime_objectives_across_same_shape_datasets__make_aux_kalman_mcmc_smoke_spec.json"
-            ).read_text()
-        )
+        _map_bundle_reuses_runtime_objectives_across_same_shape_datasets__make_aux_kalman_mcmc_smoke_spec()
     )
     backend = Mock(
         spec=LaplaceLikelihood,
@@ -1008,3 +1022,7 @@ def test_map_objectives_receive_each_bound_dataset(monkeypatch):
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+if TYPE_CHECKING:
+    from dynestyx import StochasticContinuousTimeStateEvolution

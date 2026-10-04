@@ -64,7 +64,7 @@ async def plan_ingestion_activity(
 
     for index, raw_name in enumerate(activity_input.source.files):
         raw_storage_path = storage.join(
-            data_module.input_dir(activity_input.workspace_id), raw_name
+            data_module.scratch_dir(activity_input.workspace_id), "source-files", activity_input.source.hashes[raw_name], raw_name
         )
         local_raw = Path(upload_dir) / raw_name
         with storage.open_file(raw_storage_path, "rb") as uploaded:

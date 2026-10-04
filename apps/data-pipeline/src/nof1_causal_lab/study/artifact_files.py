@@ -9,44 +9,34 @@ filenames independently.
 
 from __future__ import annotations
 
-from dataclasses import dataclass, field
+from collections.abc import Mapping
+from types import MappingProxyType
 from typing import TYPE_CHECKING
 
-from nof1_causal_lab.utils.immutability import freeze_fields
+from pydantic import Field
+
+from nof1_causal_lab.artifacts.base import Value
 
 if TYPE_CHECKING:
-    from collections.abc import Mapping
-
     from nof1_causal_lab.artifacts.identity import ArtifactId
 
 
-@dataclass(frozen=True)
-class ArtifactFileSpec:
+class ArtifactFileSpec(Value):
     """An artifact file specification declares its JSON payloads and tables."""
 
-    json: Mapping[str, str] = field(default_factory=dict)
-    parquet: Mapping[str, str] = field(default_factory=dict)
+    json_files: Mapping[str, str] = Field(default_factory=dict)
+    parquet_files: Mapping[str, str] = Field(default_factory=dict)
 
-    def all_filenames(self) -> frozenset[str]:
-        return frozenset([*self.json.values(), *self.parquet.values()])
-
-    def __post_init__(self) -> None:
-        freeze_fields(self)
-
-
-ARTIFACT_FILE_SPECS: dict[ArtifactId, ArtifactFileSpec] = {
-    "question": ArtifactFileSpec(json={"question": "question.json"}),
-    "raw_data": ArtifactFileSpec(parquet={"raw": "raw.parquet"}),
-    "model": ArtifactFileSpec(json={"model": "model.json"}),
-    "identification_report": ArtifactFileSpec(
-        json={"identification_report": "identification_report.json"}
-    ),
-    "panel": ArtifactFileSpec(
-        json={"metadata": "metadata.json"}, parquet={"panel": "panel.parquet"}
-    ),
-    "data_profile": ArtifactFileSpec(json={"data_profile": "data_profile.json"}),
-    "validation_report": ArtifactFileSpec(json={"validation_report": "validation_report.json"}),
-}
+ARTIFACT_FILE_SPECS: Mapping[ArtifactId, ArtifactFileSpec] = MappingProxyType(
+    {
+        "question": ArtifactFileSpec(json_files={"question": "question.json"}),
+        "raw_data": ArtifactFileSpec(parquet_files={"raw": "raw.parquet"}),
+        "model": ArtifactFileSpec(json_files={"model": "model.json"}),
+        "panel": ArtifactFileSpec(
+            json_files={"metadata": "metadata.json"}, parquet_files={"panel": "panel.parquet"}
+        ),
+    }
+)
 
 
 def artifact_file_spec(artifact_id: ArtifactId) -> ArtifactFileSpec:
@@ -54,12 +44,9 @@ def artifact_file_spec(artifact_id: ArtifactId) -> ArtifactFileSpec:
 
 
 def json_filename(artifact_id: ArtifactId, key: str) -> str:
-    return artifact_file_spec(artifact_id).json[key]
+    return artifact_file_spec(artifact_id).json_files[key]
 
 
 def parquet_filename(artifact_id: ArtifactId, key: str) -> str:
-    return artifact_file_spec(artifact_id).parquet[key]
+    return artifact_file_spec(artifact_id).parquet_files[key]
 
-
-def is_declared_artifact_file(artifact_id: ArtifactId, filename: str) -> bool:
-    return filename in artifact_file_spec(artifact_id).all_filenames()

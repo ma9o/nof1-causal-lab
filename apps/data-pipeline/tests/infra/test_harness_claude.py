@@ -323,7 +323,6 @@ class TestSessionTurn:
         result = _run(session.turn("Submit"))
 
         assert result.terminal_tool_name == "validate_model"
-        assert result.terminal_tool_output == "VALID"
         assert result.tool_calls_fired == ["mcp__pipeline-tools__validate_model"]
 
         agent_result = session.result

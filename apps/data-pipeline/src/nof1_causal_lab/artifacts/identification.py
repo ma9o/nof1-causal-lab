@@ -18,9 +18,6 @@ class IdentifiedTreatmentStatus(Value):
     """Details on how a treatment effect is identified."""
 
     status: Literal["identified"] = "identified"
-    method: Literal["do_calculus"] = Field(
-        description="Nonparametric identification; linear-IV arguments do not certify ModelSpec."
-    )
     estimand: str = Field(description="Nonparametric estimand returned by do-calculus")
     marginalized_confounders: tuple[ConstructId, ...] = Field(
         default_factory=tuple,

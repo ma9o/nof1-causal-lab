@@ -5,12 +5,8 @@ from pathlib import Path
 
 import pytest
 
-from nof1_causal_lab.artifacts.expressions import (
-    hill as expr_hill,
-)
-from nof1_causal_lab.artifacts.expressions import (
-    state as expr_state,
-)
+from nof1_causal_lab.artifacts.expressions import hill as expr_hill
+from nof1_causal_lab.artifacts.expressions import state as expr_state
 from nof1_causal_lab.artifacts.mechanism import DriftMechanismSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.model_structure import (
@@ -24,7 +20,8 @@ from nof1_causal_lab.models.ssm.simulation_checks import (
     ConstructSimulationTarget,
     _incoming_edge_off_target,
 )
-from tests.model_fixtures import compile_model_fixture
+from tests.inference_fixtures import compile_model_fixture
+from tests.model_fixtures import additive_a_b_model
 
 pytestmark = pytest.mark.contract
 
@@ -72,13 +69,7 @@ def test_retired_execution_arrays_do_not_override_scientific_parameter_identity(
 
 
 def test_edge_off_targets_every_additive_contribution_without_running_a_simulation():
-    model = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2]
-            / "fixtures/models"
-            / "common/additive_a_b_model.json"
-        ).read_text()
-    )
+    model = additive_a_b_model()
     edge = model.edges[0]
     fixed_hill = DriftMechanismSpec(
         id="mechanism:fixed-hill-a",

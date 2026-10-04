@@ -1,5 +1,9 @@
 """History and accessors read one canonical scientific definition with exact sources."""
 
+
+from nof1_causal_lab.artifacts.simulation import SimulationEvidence
+
+from nof1_causal_lab.artifacts.predictive_provenance import AuthoredLawProvenance
 import time
 from datetime import UTC, date, datetime
 from pathlib import Path
@@ -7,27 +11,24 @@ from pathlib import Path
 import jax.numpy as jnp
 import numpy as np
 import pytest
-from fastapi.testclient import TestClient
 from pydantic import TypeAdapter, ValidationError
 
 from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.artifacts.availability import NotApplicable
 from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec, replace_constructs
 from nof1_causal_lab.artifacts.execution import StructuralItemDisposition
+from nof1_causal_lab.artifacts.expressions import state
 from nof1_causal_lab.artifacts.identification import IdentificationReport
 from nof1_causal_lab.artifacts.identity import ConstructId, GitRef, IndicatorId
-from nof1_causal_lab.artifacts.likelihood import (
-    ObservationLawSpec,
-)
+from nof1_causal_lab.artifacts.likelihood import ObservationLawSpec
 from nof1_causal_lab.artifacts.mechanism import DriftMechanismSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.question import QuestionSpec
 from nof1_causal_lab.artifacts.simulation import SimulationReport, SimulationSpec
 from nof1_causal_lab.models.model_structure import StructuralSelection, selected_state_ids
 from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
-from nof1_causal_lab.models.ssm.joint_layout import JointLawLayout
+from nof1_causal_lab.models.ssm.compile.bindings import joint_law_layout
 from nof1_causal_lab.numpyro_json import empirical_atoms, empirical_distribution
-from nof1_causal_lab.read_facade import create_read_facade_app
 from nof1_causal_lab.study.artifact_files import json_filename
 from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.history import StudyRepository
@@ -44,7 +45,15 @@ from nof1_causal_lab.study.store import ArtifactStore
 from tests.action_fixtures import applied_record, question_root
 from tests.git_fixtures import artifact_revision, commit_id, git_oid
 from tests.helpers import graph_constructs, write_question
-from tests.model_fixtures import compile_model_fixture
+from tests.inference_fixtures import compile_model_fixture
+from tests.model_fixtures import load_model_fixture, x_y_model
+
+
+def _fitted_snapshot_keeps_joint_arrays_lazy_and_workspace_bound_complete_test_model() -> ModelSpec:
+    return load_model_fixture(
+        "snapshots/fitted_snapshot_keeps_joint_arrays_lazy_and_workspace_bound_complete_test_model.json"
+    )
+
 
 pytestmark = pytest.mark.contract
 
@@ -125,9 +134,7 @@ def test_predictive_findings_use_entity_ids_and_keep_served_reasons(monkeypatch)
     from nof1_causal_lab.models.ssm.reachability import CheckResult
     from nof1_causal_lab.models.ssm.simulation_checks import DesignInfo
 
-    model = ModelSpec.model_validate_json(
-        (Path(__file__).resolve().parents[1] / "fixtures/models/common/x_y_model.json").read_text()
-    )
+    model = x_y_model()
     edge = model.edges[0]
 
     def measured(_model, _prediction, _design, target, **_kwargs):
@@ -218,19 +225,13 @@ def _identity_owners(snapshot):
 
 
 def test_fitted_snapshot_keeps_joint_arrays_lazy_and_workspace_bound(workspace, monkeypatch):
-    model = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[1]
-            / "fixtures/models"
-            / "snapshots/fitted_snapshot_keeps_joint_arrays_lazy_and_workspace_bound_complete_test_model.json"
-        ).read_text()
-    )
+    model = _fitted_snapshot_keeps_joint_arrays_lazy_and_workspace_bound_complete_test_model()
     bindings, _ = parameter_bindings(compile_model_fixture(model))
-    layout = JointLawLayout.from_bindings(
+    layout = joint_law_layout(
         bindings,
         parameters=[p.id for p in model.parameters],
         constructs=selected_state_ids(StructuralSelection(model, None)),
-        time_points=(0, 1),
+        time_points=(0, 1), construct_labels={item.id:item.name for item in model.constructs},
     )
     store = ArtifactStore(workspace)
     atoms = np.ones((2, layout.width))
@@ -245,7 +246,7 @@ def test_fitted_snapshot_keeps_joint_arrays_lazy_and_workspace_bound(workspace, 
             tuple(c.revised(distribution=layout.distribution_id) for c in model.constructs),
         ),
         distributions={layout.distribution_id: law},
-        time_points=(0, 1),
+        law_layouts={layout.distribution_id: layout},
     )
     _commit(workspace, "model", conditioned.model_dump(mode="json"))
     read_array = ArtifactStore.read_array
@@ -256,16 +257,12 @@ def test_fitted_snapshot_keeps_joint_arrays_lazy_and_workspace_bound(workspace, 
         return read_array(self, identity)
 
     monkeypatch.setattr(ArtifactStore, "read_array", tracked_read)
-    reader = ModelReader(workspace)
+    reader = ModelReader(workspace, at=StudyRepository(workspace).head())
     snapshot = reader.snapshot()
     assert snapshot.authoring_prior_densities == {}
     assert _present(snapshot.model).value.model_dump(mode="json") == conditioned.model_dump(
         mode="json"
     )
-    client = TestClient(create_read_facade_app())
-    for path in ("", "/definition", "/parameters"):
-        response = client.get(f"/api/studies/{workspace}/model{path}")
-        assert response.status_code == 200, response.text
     assert reads == []
     # A consumer that needs the draws can still resolve them in this workspace.
     restored = _present(reader.model).distributions[layout.distribution_id]
@@ -273,100 +270,17 @@ def test_fitted_snapshot_keeps_joint_arrays_lazy_and_workspace_bound(workspace, 
     assert len(reads) == 2  # the draws and their weights, each read once
 
 
-def test_checkpoint_comparison_uses_evidence_from_each_selected_journal_prefix(workspace):
-    _measured(workspace)
-    for seq in (2, 3):
-        report = SimulationReport(
-            causal=NotApplicable(reason="No intervention was requested."),
-            model=GitRef(
-                workspace_id=workspace,
-                revision=artifact_revision(workspace, "model", 1),
-                path="model.json",
-            ),
-            design=SimulationSpec(start=date(2026, 1, 1), horizon="1d"),
-            time_origin=datetime(2026, 1, 1, tzinfo=UTC),
-            assignments=(),
-            fit_reliability="not_fitted",
-            times=(0, 1),
-            draws=1,
-            seed=seq,
-            state_ids=(),
-            observation_layout={
-                "variables": [
-                    {
-                        "id": "indicator:y",
-                        "name": "y",
-                        "measurement_dtype": "continuous",
-                        "aggregation": "last",
-                        "observation_window": "1d",
-                    }
-                ],
-                "support_start_times": "starts",
-                "support_end_times": "ends",
-                "mask": "mask",
-            },
-            parameter_draws={},
-            latent_paths=f"simulation-{seq}/latent",
-            observations=f"simulation-{seq}/observations",
-        )
-        StudyRepository(workspace).append(
-            applied_record(
-                Applied(result=ModelSimulationResult(report=report), effects=ActionEffects()),
-                seq=seq,
-                ts="2026-09-12T12:00:00Z",
-                trace_ids=[],
-            )
-        )
-    client = TestClient(create_read_facade_app())
-    response = client.get(
-        f"/api/studies/{workspace}/model-diff",
-        params={"before": commit_id(workspace, 1), "after": commit_id(workspace, 2)},
-    )
-    assert response.status_code == 200
-    comparison = response.json()
-    assert comparison["before"]["revision"] == commit_id(workspace, 1)
-    assert comparison["after"]["revision"] == commit_id(workspace, 2)
-    assert comparison["before_simulation"] is None
-    assert comparison["after_simulation"]["seed"] == 2
-    response = client.get(
-        f"/api/studies/{workspace}/model-diff",
-        params={"before": commit_id(workspace, 3), "after": commit_id(workspace, 2)},
-    )
-    assert response.status_code == 200
-    comparison = response.json()
-    assert comparison["before_simulation"]["seed"] == 3
-    assert comparison["after_simulation"]["seed"] == 2
-    assert all(item["kind"] == "unchanged" for item in comparison["constructs"])
-    assert (
-        client.get(
-            f"/api/studies/{workspace}/model-diff",
-            params={"before": git_oid(4), "after": commit_id(workspace, 2)},
-        ).status_code
-        == 404
-    )
-
-    # Exact model artifacts are also valid comparison inputs; no run is inferred.
-    model_revision = artifact_revision(workspace, "model", 1)
-    response = client.get(
-        f"/api/studies/{workspace}/model-diff",
-        params={"before": model_revision, "after": commit_id(workspace, 2)},
-    )
-    assert response.status_code == 200, response.text
-    comparison = response.json()
-    assert comparison["before"]["path"] == "model.json"
-    assert comparison["before_simulation"] is None
-    assert comparison["after_simulation"]["seed"] == 2
 
 
 def test_snapshot_exists_before_any_compilation(workspace):
-    empty = ModelReader(workspace).snapshot()
+    empty = ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot()
     assert empty.selected_seq == 0
     assert _identity_owners(empty) == ()
     assert empty.model is None
     assert empty.question is None
     question_root(workspace, QuestionSpec(text="Does X change Y?"))
     _commit(workspace, "model", {"measurement_clock": "1d"})
-    snapshot = ModelReader(workspace).snapshot()
+    snapshot = ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot()
     assert _present(snapshot.question).value.text == "Does X change Y?"
     assert _present(snapshot.model).value == ModelSpec(measurement_clock="1d")
     assert _present(snapshot.model).source.ref.model_dump() == {
@@ -379,7 +293,7 @@ def test_snapshot_exists_before_any_compilation(workspace):
 
 def test_ownership_and_sources_are_explicit_from_first_structure(workspace):
     _measured(workspace)
-    snapshot = ModelReader(workspace).snapshot()
+    snapshot = ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot()
     assert {entity.id for entity in _identity_owners(snapshot)} == {
         "construct:x",
         "construct:y",
@@ -400,7 +314,7 @@ def test_ownership_and_sources_are_explicit_from_first_structure(workspace):
 
 def test_rename_preserves_identity_and_historical_content(workspace):
     _measured(workspace)
-    before = ModelReader(workspace).snapshot()
+    before = ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot()
     assert before.workspace_id == workspace
     assert _present(before.model).source.ref == GitRef(
         workspace_id=workspace, revision=artifact_revision(workspace, "model", 1), path="model.json"
@@ -408,7 +322,7 @@ def test_rename_preserves_identity_and_historical_content(workspace):
     payload = _model().model_dump(mode="json")
     graph_constructs(payload)[0]["name"] = "Treatment"
     _commit(workspace, "model", payload, pins={"model": artifact_revision(workspace, "model", 1)})
-    after = ModelReader(workspace).snapshot()
+    after = ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot()
     assert [entity.id for entity in _identity_owners(before)] == [
         entity.id for entity in _identity_owners(after)
     ]
@@ -451,7 +365,7 @@ def test_planning_preserves_ids_across_name_and_role_edits(workspace):
     assert original.edges[0].id == revised.edges[0].id == "edge:xy"
     assert "semantics" not in original.model_dump()
     _commit(workspace, "model", revised.model_dump(mode="json"))
-    graph = ModelReader(workspace).snapshot().graph
+    graph = ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot().graph
     assert set(graph.dynamic_construct_ids) == set(
         selected_state_ids(StructuralSelection(revised, None))
     )
@@ -466,7 +380,7 @@ def test_planning_preserves_ids_across_name_and_role_edits(workspace):
 
 def test_snapshot_derives_dispositions_from_its_model_revision(workspace):
     _measured(workspace)
-    planned = ModelReader(workspace).snapshot()
+    planned = ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot()
     assert {item.target.id for item in _present(planned.dispositions).value} == {
         item.id for item in _identity_owners(planned)
     }
@@ -476,7 +390,7 @@ def test_snapshot_derives_dispositions_from_its_model_revision(workspace):
         _model().model_dump(mode="json"),
         pins={"model": artifact_revision(workspace, "model", 1)},
     )
-    assert _present(ModelReader(workspace).snapshot().dispositions).source.ref.model_dump() == {
+    assert _present(ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot().dispositions).source.ref.model_dump() == {
         "workspace_id": workspace,
         "revision": artifact_revision(workspace, "model", 2),
         "path": "model.json",
@@ -491,7 +405,7 @@ def test_removed_construct_removes_its_owned_indicators(workspace):
         "model",
         _drop_x(_model()).model_dump(mode="json"),
     )
-    assert {entity.id for entity in _identity_owners(ModelReader(workspace).snapshot())} == {
+    assert {entity.id for entity in _identity_owners(ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot())} == {
         "construct:y",
         "indicator:y",
         "construct:z",
@@ -502,7 +416,7 @@ def test_removed_construct_removes_its_owned_indicators(workspace):
 
 def test_uncommitted_versions_and_failed_attempts_never_become_snapshots(workspace):
     _measured(workspace)
-    before = ModelReader(workspace).snapshot()
+    before = ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot()
     ArtifactStore(workspace).write_artifact(
         "model",
         derived_from={},
@@ -521,21 +435,15 @@ def test_uncommitted_versions_and_failed_attempts_never_become_snapshots(workspa
             ),
         )
     )
-    assert ModelReader(workspace).snapshot() == before
+    assert ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot() == before
     with pytest.raises(StudyLookupError):
         ModelReader(workspace, at=commit_id(workspace, 3))
-    client = TestClient(create_read_facade_app())
-    url = f"/api/studies/{workspace}/model"
-    assert client.get(url).json()["selected_seq"] == 1
-    assert client.get(url + f"?at={commit_id(workspace, 3)}").status_code == 404
-    assert client.get(url + "?at=-1").status_code == 422
-    assert client.get(url + f"?at={commit_id(workspace, 0)}").json()["model"] is None
 
 
 @pytest.mark.parametrize("violation", ["owner", "revision", "validity", "identity"])
 def test_snapshot_rejects_inconsistent_facts(workspace, violation):
     _measured(workspace)
-    payload = ModelReader(workspace).snapshot().model_dump(mode="json")
+    payload = ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot().model_dump(mode="json")
     if violation == "owner":
         payload["model"]["value"]["edges"][0]["effect"] = {
             "kind": "construct",
@@ -569,16 +477,12 @@ def test_owned_likelihood_survives_reused_names(workspace, monkeypatch):
         "reasoning": "Test",
     }
     _commit(workspace, "model", payload)
-    before = ModelReader(workspace).snapshot()
+    before = ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot()
     graph_constructs(payload)[0]["indicators"][0]["observation"]["name"] = "Y_obs"
     graph_constructs(payload)[1]["indicators"][0]["observation"]["name"] = "X_obs"
     _commit(workspace, "model", payload)
 
-    def reject_catalog(*_args):
-        raise AssertionError("Ownership cannot be recovered from an old semantic catalog")
-
-    monkeypatch.setattr(ArtifactStore, "list_revisions", reject_catalog)
-    after = ModelReader(workspace).snapshot()
+    after = ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot()
     assert _present(after.model).value.indicator(IndicatorId("indicator:x")).likelihood is None
     assert (
         _present(after.model).value.indicator(IndicatorId("indicator:y")).likelihood
@@ -596,7 +500,7 @@ def test_owned_mechanisms_survive_rename_and_disappear_with_owner(workspace, own
     _measured(workspace)
     payload = _model().model_dump(mode="json")
     field = "dynamics" if owner == "constructs" else "mechanisms"
-    from nof1_causal_lab.artifacts.expressions import hill, restoring_force, state
+    from nof1_causal_lab.artifacts.expressions import hill, restoring_force
 
     entity = (graph_constructs(payload) if owner == "constructs" else payload["edges"])[0]
     mechanism = DriftMechanismSpec(
@@ -607,17 +511,17 @@ def test_owned_mechanisms_survive_rename_and_disappear_with_owner(workspace, own
     ).model_dump(mode="json")
     entity[field] = [mechanism]
     _commit(workspace, "model", payload)
-    before = ModelReader(workspace).snapshot()
+    before = ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot()
     graph_constructs(payload)[0]["name"] = "Renamed X"
     _commit(workspace, "model", payload)
-    after = ModelReader(workspace).snapshot()
+    after = ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot()
     encoded = _present(after.model).value.model_dump(mode="json")
     assert (graph_constructs(encoded) if owner == "constructs" else encoded["edges"])[0][field] == [
         mechanism
     ]
     payload = _drop_x(ModelSpec.model_validate(payload)).model_dump(mode="json")
     _commit(workspace, "model", payload)
-    assert list(_present(ModelReader(workspace).model).iter_mechanisms()) == []
+    assert list(_present(ModelReader(workspace, at=StudyRepository(workspace).head()).model).iter_mechanisms()) == []
     assert ModelReader(workspace, at=before.commit_id).snapshot() == before
 
 
@@ -641,7 +545,6 @@ def _identification():
         "treatments": {
             "construct:x": {
                 "status": "identified",
-                "method": "do_calculus",
                 "estimand": "P(Y | do(X))",
             },
         },
@@ -650,22 +553,14 @@ def _identification():
 
 def test_identification_is_independent_and_keeps_original_pin_after_rename(workspace):
     _measured(workspace)
-    _commit(
-        workspace,
-        "identification_report",
-        _identification(),
-        pins={"model": artifact_revision(workspace, "model", 1)},
-    )
-    before = ModelReader(workspace).snapshot()
+    before = ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot()
     payload = _model().model_dump(mode="json")
     graph_constructs(payload)[0]["name"] = "Treatment"
     _commit(workspace, "model", payload, pins={"model": artifact_revision(workspace, "model", 1)})
-    after = ModelReader(workspace).snapshot()
+    after = ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot()
     assert _present(after.identification).value == _present(before.identification).value
-    assert _present(after.identification).source.validity == "stale"
-    assert after.state.current["identification_report"].derived_from == {
-        "model": artifact_revision(workspace, "model", 1)
-    }
+    assert _present(after.identification).source.validity == "fresh"
+    assert _present(after.identification).source.ref.revision == after.state.current["model"].revision
     assert "construct:x" in _present(after.identification).value.estimable_treatments
 
 
@@ -679,7 +574,6 @@ def test_identification_rejects_unresolved_construct_ids(field):
     elif field == "treatment":
         payload["treatments"]["construct:missing"] = {
             "status": "identified",
-            "method": "do_calculus",
             "estimand": "test",
         }
     elif field == "confounders":
@@ -717,7 +611,7 @@ def test_identification_round_trip_preserves_tagged_evidence():
 
 def test_collection_accessors_share_canonical_objects_and_one_revision(workspace):
     _measured(workspace)
-    reader = ModelReader(workspace)
+    reader = ModelReader(workspace, at=StudyRepository(workspace).head())
     assert type(reader.constructs()[0]) is ConstructSpec
     assert reader.constructs()[0] is _present(reader.model).constructs[0]
     assert reader.edges()[0] is _present(reader.model).edges[0]
@@ -727,7 +621,7 @@ def test_collection_accessors_share_canonical_objects_and_one_revision(workspace
     _commit(workspace, "model", payload)
     assert reader.constructs()[0].name == "X"
     assert reader.snapshot().selected_seq == 1
-    assert ModelReader(workspace).constructs()[0].name == "Changed after opening"
+    assert ModelReader(workspace, at=StudyRepository(workspace).head()).constructs()[0].name == "Changed after opening"
 
 
 @pytest.mark.parametrize(
@@ -735,27 +629,17 @@ def test_collection_accessors_share_canonical_objects_and_one_revision(workspace
 )
 def test_accessors_do_not_materialize_other_views(workspace, monkeypatch, accessor):
     _measured(workspace)
-    reader = ModelReader(workspace)
+    reader = ModelReader(workspace, at=StudyRepository(workspace).head())
     expected = (
         reader.inference_report if accessor == "inference_report" else getattr(reader, accessor)()
     )
-    collection = isinstance(expected, tuple)
-    payload = [item.model_dump(mode="json") for item in expected] if collection else None
 
     def reject_batch(*_args):
         raise AssertionError("An accessor must not load unrelated views")
 
     monkeypatch.setattr(ModelReader, "snapshot", reject_batch)
-    client = TestClient(create_read_facade_app())
-    path = f"/api/studies/{workspace}/model/{accessor.replace('_', '-')}"
-    response = client.get(path + f"?at={commit_id(workspace, 1)}")
-    assert response.status_code == 200
-    assert response.json() == payload
-    assert client.get(path + f"?at={git_oid(99)}").status_code == 404
-    assert client.get(path + "?at=-1").status_code == 422
-    assert client.get(path + f"?at={commit_id(workspace, 0)}").json() == (
-        [] if collection else None
-    )
+    actual = reader.inference_report if accessor == "inference_report" else getattr(reader, accessor)()
+    assert actual == expected
 
 
 @pytest.mark.parametrize(

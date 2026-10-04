@@ -1,6 +1,8 @@
 """Tests for posterior predictive checks (PPCs)."""
 
-from pathlib import Path
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import equinox as eqx
 import jax.numpy as jnp
@@ -9,8 +11,10 @@ import numpy as np
 import pytest
 
 from nof1_causal_lab.artifacts.identity import IndicatorId
-from nof1_causal_lab.artifacts.likelihood import DistributionFamily
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.likelihood import (
+    DistributionFamily,
+    OrderedLogisticLawSpec,
+)
 from nof1_causal_lab.models.posterior_predictive import (
     _check_calibration,
     _check_residual_autocorrelation,
@@ -18,14 +22,25 @@ from nof1_causal_lab.models.posterior_predictive import (
     _compute_overlays,
     _compute_test_stats,
 )
-from nof1_causal_lab.models.predictive_simulation import (
-    PredictiveObservationMeanOverflow,
-)
+from nof1_causal_lab.models.predictive_simulation import PredictiveObservationMeanOverflow
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
-from tests.model_fixtures import compile_model_fixture
+from tests.inference_fixtures import compile_model_fixture
+from tests.model_fixtures import (
+    load_model_fixture,
+)
 from tests.models.ssm._support import complex_mixed_family_config
 from tests.predictive_fixtures import sample_observation_fixture
+
+
+def _posterior_runtime_assembles_ordered_cutpoints_from_sample_sites_model_fixture() -> ModelSpec:
+    return load_model_fixture(
+        "posterior_predictive/testforwardsimulation_test_posterior_runtime_assembles_ordered_cutpoints_from_sample_sites_model_fixture.json"
+    )
+
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 
 def _make_lp_and_samples(
@@ -189,13 +204,7 @@ class TestForwardSimulation:
         )
         from nof1_causal_lab.models.ssm.predictive import registry_runtime
 
-        spec = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "posterior_predictive/testforwardsimulation_test_posterior_runtime_assembles_ordered_cutpoints_from_sample_sites_model_fixture.json"
-            ).read_text()
-        )
+        spec = _posterior_runtime_assembles_ordered_cutpoints_from_sample_sites_model_fixture()
         n_draws = 2
         ordered_base = jnp.zeros((n_draws, 2), dtype=jnp.float32)
         ordered_base = ordered_base.at[:, 1].set(-1.0)
@@ -219,7 +228,6 @@ class TestForwardSimulation:
             )
 
         def _fake_observations(models, linear_predictors, *_args, **_kwargs):
-            from nof1_causal_lab.artifacts.likelihood import OrderedLogisticLawSpec
 
             bound = models.observation_model.laws[1]
             assert isinstance(bound, OrderedLogisticLawSpec)

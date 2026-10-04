@@ -1,5 +1,5 @@
 import type { ActionId } from "@nof1-causal-lab/api-types";
-import type { StudyRevision } from "@nof1-causal-lab/api-types";
+import type { TimelineRevision } from "@nof1-causal-lab/api-types";
 import { TIMELINE_LANES, type RevisionTimelineNode } from "./revision-timeline";
 
 /** Horizontal pitch between consecutive actions. */
@@ -47,6 +47,6 @@ export function timelineLinkPath(from: { x: number; y: number }, to: { x: number
   return `M ${from.x} ${from.y} C ${from.x} ${mid}, ${from.x} ${mid}, ${from.x + bend} ${mid} H ${to.x - bend} C ${to.x} ${mid}, ${to.x} ${mid}, ${to.x} ${to.y}`;
 }
 
-export function timelineTickLabel(tick: StudyRevision) {
+export function timelineTickLabel(tick: TimelineRevision) {
   return `${tick.record.attempt.action} · ${tick.commit_id.slice(0, 7)}`;
 }

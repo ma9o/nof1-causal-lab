@@ -1,17 +1,16 @@
 """Execution planning reads canonical entities and preserves their source identities."""
 
-from pathlib import Path
+from __future__ import annotations
+
+from typing import TYPE_CHECKING
 
 import pytest
 
-from nof1_causal_lab.artifacts.construct import (
-    Role,
-    TemporalStatus,
-    replace_constructs,
-)
-from nof1_causal_lab.artifacts.likelihood import DeltaLawSpec
+from nof1_causal_lab.artifacts.construct import Role, TemporalStatus, replace_constructs
+from nof1_causal_lab.artifacts.expressions import coefficient, state
+from nof1_causal_lab.artifacts.likelihood import DeltaLawSpec, LikelihoodSpec
 from nof1_causal_lab.artifacts.mechanism import DriftMechanismSpec
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 from nof1_causal_lab.models.model_parameters import execution_parameters
 from nof1_causal_lab.models.model_structure import (
     StructuralCompilationError,
@@ -25,8 +24,20 @@ from nof1_causal_lab.models.model_structure import (
 from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
 from nof1_causal_lab.models.ssm.compile.support import _build_static_factor_structure
 from tests.helpers import make_model
-from tests.inference_fixtures import particle_posterior
-from tests.model_fixtures import compile_fit_fixture, compile_model_fixture
+from tests.inference_fixtures import compile_fit_fixture, compile_model_fixture, particle_posterior
+from tests.model_fixtures import load_model_fixture, x_y_model
+
+
+def _severed_components_do_not_require_priors_or_bind_numerical_parameters_complete_test_model() -> (
+    ModelSpec
+):
+    return load_model_fixture(
+        "structural_compiler/severed_components_do_not_require_priors_or_bind_numerical_parameters_complete_test_model.json"
+    )
+
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 
 @pytest.mark.contract
@@ -59,9 +70,7 @@ def test_model_rejects_duplicate_endpoint_pairs():
 def test_projected_coefficients_require_literals():
     import numpy as np
 
-    from nof1_causal_lab.artifacts.expressions import coefficient, state
     from nof1_causal_lab.artifacts.identity import scientific_id
-    from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
     from nof1_causal_lab.models.ssm.compile.mechanisms import iter_mechanism_components
 
     model = make_model(["U", "X", "Y"], [("U", "Y"), ("X", "Y")])
@@ -123,8 +132,6 @@ def test_projected_coefficients_require_literals():
 
 
 def _model_with_exact_measurement():
-    from nof1_causal_lab.artifacts.expressions import state
-    from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec
 
     model = make_model(
         ["X", "Y", "Driver", "History", "U"],
@@ -194,11 +201,7 @@ def test_source_ids_are_stable_across_authoring_reordering():
 
 @pytest.mark.contract
 def test_execution_checks_preserve_the_scientific_model():
-    model = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2] / "fixtures/models" / "common/x_y_model.json"
-        ).read_text()
-    )
+    model = x_y_model()
     before = model.model_dump(mode="json")
     compile_model_fixture(model)
     from nof1_causal_lab.models.ssm import numerics as numeric
@@ -237,23 +240,19 @@ def test_severed_components_do_not_require_priors_or_bind_numerical_parameters()
 
     from nof1_causal_lab.models.ssm import numerics as numeric
     from nof1_causal_lab.models.ssm.inference.persistence import condition_model
-    from nof1_causal_lab.models.ssm.inference.shared import model_draws
     from nof1_causal_lab.models.ssm.inference.types import (
         JointPosteriorDraws,
     )
     from nof1_causal_lab.models.ssm.predictive.parameters import sample_model_laws
+    from tests.inference_fixtures import model_draws
 
     model = make_model(
         ["A", "B", "Sink", "X", "Y"],
         [("A", "B"), ("B", "Sink"), ("Y", "Sink"), ("X", "Y")],
     )
     nodes = {item.name: item for item in model.constructs}
-    model = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2]
-            / "fixtures/models"
-            / "structural_compiler/severed_components_do_not_require_priors_or_bind_numerical_parameters_complete_test_model.json"
-        ).read_text()
+    model = (
+        _severed_components_do_not_require_priors_or_bind_numerical_parameters_complete_test_model()
     )
     island_parameter = model.parameters_for(nodes["A"].id)[0]
     outcome = nodes["Y"].id
@@ -284,7 +283,7 @@ def test_severed_components_do_not_require_priors_or_bind_numerical_parameters()
     )
     assert set(draws.state_ids) == {nodes["X"].id, nodes["Y"].id}
     # Exercise persistence with synthetic draws; no fitting or trajectory simulation.
-    conditioned = condition_model(
+    conditioned, _ = condition_model(
         unassigned,
         compile_model_fixture(unassigned, outcome),
         particle_posterior(

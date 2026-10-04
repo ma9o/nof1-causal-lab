@@ -1,8 +1,8 @@
-"""Typed inputs to the five scientific primitives."""
+"""Content-named inputs to scientific calls."""
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Literal
+from typing import Annotated, Literal
 
 from pydantic import Field
 
@@ -11,14 +11,11 @@ from nof1_causal_lab.artifacts.data_preparation import (
     FilePreparationSpec,
     SimulationReplicateRef,
 )
-from nof1_causal_lab.artifacts.identity import GitOid
+from nof1_causal_lab.artifacts.identity import GitOid, scientific_id
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.posterior import FitSettingsSpec
 from nof1_causal_lab.artifacts.question import QuestionSpec
 from nof1_causal_lab.artifacts.simulation import SimulationSpec
-
-if TYPE_CHECKING:
-    from nof1_causal_lab.actions.tool_definition import ToolDefinition
 
 
 class SetQuestionRequest(Value):
@@ -33,6 +30,9 @@ class EditModelRequest(Value):
 
     action: Literal["edit_model"] = "edit_model"
     expected_revision: GitOid | None
+    panel_revision: GitOid | None = Field(
+        default=None, description="Exact observations used by this edit's checks; omitted runs no predictive check."
+    )
     model: ModelSpec = Field(
         description="Endogenous constructs are modeled, with or without parents, and include every latent construct. Exogenous constructs are given by direct exact Delta readings and have no dynamics, diffusion, initial coefficients or trajectory law."
     )
@@ -59,6 +59,9 @@ class SimulateRequest(SimulationSpec):
 
     action: Literal["simulate"] = "simulate"
     model_revision: GitOid = Field()
+    panel_revision: GitOid | None = Field(
+        default=None, description="Exact panel dating authored-law simulations; fitted laws retain their own origin."
+    )
 
 
 type ScientificActionRequest = Annotated[
@@ -67,46 +70,6 @@ type ScientificActionRequest = Annotated[
 ]
 
 
-def scientific_tool_contracts() -> list[ToolDefinition]:
-    """Expose the same typed requests through the tool and study transports."""
-    from nof1_causal_lab.actions.results import ActionPoll, ActionReceipt, PollActionRequest
-    from nof1_causal_lab.actions.tool_definition import ToolDefinition
-
-    return [
-        ToolDefinition(
-            name=request.model_fields["action"].default,
-            description=description
-            + " Dispatch returns only attempt_id. Use poll_action for messages and the final result.",
-            input_schema=request,
-            output_schema=ActionReceipt,
-        )
-        for request, description in (
-            (
-                SetQuestionRequest,
-                "Set the study question as the study's first action: the user's words, the outcome, and named queries, each a dated window whose interventions are contrasted with the recorded course. Name constructs by the identities the model will define.",
-            ),
-            (
-                EditModelRequest,
-                "Revise scientific definitions and current laws; run or reuse applicable specification, identification, question, compatibility and exact predictive checks.",
-            ),
-            (
-                PrepareDataRequest,
-                "Prepare uploaded files and a recipe within optional source coverage bounds, or materialize one recorded simulation replicate; return model-independent observations, metadata and numerical data checks.",
-            ),
-            (
-                FitRequest,
-                "Condition the selected model on selected observations; return joint uncertainty and fitting diagnostics.",
-            ),
-            (
-                SimulateRequest,
-                "Generate a window starting on a calendar day, with interventions placed after the start, from current model uncertainty; measure the shared predictive batch.",
-            ),
-        )
-    ] + [
-        ToolDefinition(
-            name="poll_action",
-            description="Read messages and the final body of a dispatched scientific action.",
-            input_schema=PollActionRequest,
-            output_schema=ActionPoll,
-        )
-    ]
+def call_identity(request: Value) -> str:
+    """Parsed arguments, including file hashes, have one canonical call identity."""
+    return scientific_id("call", request.model_dump(mode="json", round_trip=True))

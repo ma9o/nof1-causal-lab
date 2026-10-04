@@ -17,7 +17,6 @@ if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.identity import GitRef
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.posterior import InferenceReportCore
-    from nof1_causal_lab.artifacts.posterior_diagnostics import ParticleMCMCEvidence
     from nof1_causal_lab.study.records import StudyRevision
 
 
@@ -28,7 +27,6 @@ class IdentifiedEstimand:
     model: GitRef
     treatment: str
     outcome: str
-    method: str
     estimand: str
 
 
@@ -41,11 +39,13 @@ class CertifiedCausalAnalysis:
     identification: IdentificationReport
     estimands: tuple[IdentifiedEstimand, ...]
     inference: StudyRevision
+    fitted_model: ModelSpec
+    report: InferenceReportCore
 
     def __post_init__(self) -> None:
         if not self.estimands:
             raise CausalCertificationError("at least one identified estimand is required")
-        certify_conditioned_model(self.model, self.model_revision, self.inference)
+        certify_conditioned_model(self.model, self.model_revision, self.inference, self.fitted_model, self.report)
         outcomes = {estimand.outcome for estimand in self.estimands}
         if len(outcomes) != 1:
             raise CausalCertificationError("all identified estimands must target the same outcome")
@@ -113,12 +113,11 @@ def certify_identified_estimand(
         model=model_revision,
         treatment=treatment,
         outcome=outcome,
-        method=details.method,
         estimand=details.estimand,
     )
 
 
-def certify_conditioned_model(model: ModelSpec, revision: GitRef, record: StudyRevision) -> None:
+def certify_conditioned_model(model: ModelSpec, revision: GitRef, record: StudyRevision, fitted_model: ModelSpec, report: InferenceReportCore) -> None:
     """Join the current scientific value to committed, converged exact-engine evidence."""
     from nof1_causal_lab.models.model_inputs import input_fingerprints
     from nof1_causal_lab.models.ssm.inference.convergence import convergence_failures
@@ -131,16 +130,12 @@ def certify_conditioned_model(model: ModelSpec, revision: GitRef, record: StudyR
 
     assert record.record.attempt.action == "fit"
     assert isinstance(record.record.attempt.outcome, Applied)
-    produced = next(
-        info
-        for info in record.record.attempt.outcome.effects.produced
-        if info.artifact_id == "model"
-    )
-    if produced.model_inputs["belief"] != input_fingerprints(model)["belief"]:
+    if input_fingerprints(fitted_model)["belief"] != input_fingerprints(model)["belief"]:
         raise CausalCertificationError(
             "The model value differs from the revision certified by the inference log"
         )
-    report, _evidence = read_fit_evidence(record)
+    if report.engine.kind != "evaluated":
+        raise CausalCertificationError("The fit has no retained exact-engine evidence")
     if not model.distributions or not model.time_points:
         raise CausalCertificationError("The model has no retained joint uncertainty")
     if failures := convergence_failures(report.convergence):
@@ -150,13 +145,3 @@ def certify_conditioned_model(model: ModelSpec, revision: GitRef, record: StudyR
             + ". Revise the model before reporting causal effects."
         )
 
-
-def read_fit_evidence(record: StudyRevision) -> tuple[InferenceReportCore, ParticleMCMCEvidence]:
-    """Consume the already-owned engine assessment; no journal report reconstruction."""
-    attempt = record.record.attempt
-    assert attempt.action == "fit"
-    assert attempt.outcome.status == "applied"
-    report = attempt.outcome.result.report.core
-    if report.engine.kind != "evaluated":
-        raise CausalCertificationError("The recorded fit has no retained exact-engine evidence")
-    return report, report.engine.evidence

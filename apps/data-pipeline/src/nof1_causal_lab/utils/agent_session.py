@@ -18,9 +18,7 @@ class TurnResult:
     ``stop_on_success`` fires and returns its success sentinel.
     """
 
-    completion: str
     terminal_tool_name: str | None = None
-    terminal_tool_output: str | None = None
     tool_calls_fired: list[str] = field(default_factory=list)
 
 
@@ -28,7 +26,5 @@ class TurnResult:
 class AgentResult:
     """Cumulative result of a completed session."""
 
-    completion: str
     trace: LLMTrace
     terminal_tool_name: str | None = None
-    terminal_tool_output: str | None = None

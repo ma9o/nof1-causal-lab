@@ -1,10 +1,4 @@
-"""Modal-backed fits and the hosted read-only facade.
-
-When ``DEPLOYMENT_ENV=production``, ``actions.runners.run_action`` routes fits
-here. The remote function runs the same ``run_action_locally`` against the same
-R2-backed artifact store — Modal is compute placement, not a different execution
-path. Version stamps come back as plain dicts (Modal pickles across an image boundary).
-"""
+"""Shared Modal images and the hosted read-only facade."""
 
 from __future__ import annotations
 
@@ -12,17 +6,10 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 import modal
-from pydantic import TypeAdapter
-
-from nof1_causal_lab.study.records import Applied
 
 if TYPE_CHECKING:
     from fastapi import FastAPI
 
-    from nof1_causal_lab.actions.contracts import FitRequest
-    from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid
-    from nof1_causal_lab.json_types import JsonObject
-    from nof1_causal_lab.study.records import ModelFitResult
 
 # ═══════════════════════════════════════════════════════════════════════════════
 # Modal images
@@ -63,33 +50,6 @@ secrets = modal.Secret.from_name("nof1-causal-lab-pipeline-secrets")
 
 
 @app.function(
-    timeout=10800,
-    cpu=8,
-    memory=32768,
-    image=gpu_image,
-    gpu=GPU_A100_80GB,
-    secrets=[secrets],
-)
-async def _run_fit_gpu(
-    workspace_id: str,
-    request: JsonObject,
-    pins: dict[ArtifactId, GitOid],
-) -> JsonObject:
-    """Run a fit on Modal GPU compute against the R2 artifact store."""
-    from nof1_causal_lab.actions.contracts import FitRequest
-    from nof1_causal_lab.actions.runners import run_action_locally
-    from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid
-
-    result = await run_action_locally(
-        workspace_id,
-        FitRequest.model_validate(request),
-        TypeAdapter(dict[ArtifactId, GitOid]).validate_python(pins),
-    )
-    payload: JsonObject = result.model_dump(mode="json")
-    return payload
-
-
-@app.function(
     image=cpu_image,
     env={"READ_ONLY_FACADE": "1"},
     secrets=[secrets],
@@ -100,20 +60,3 @@ def read_facade() -> FastAPI:
     from nof1_causal_lab.read_facade import create_read_facade_app
 
     return create_read_facade_app()
-
-
-# ═══════════════════════════════════════════════════════════════════════════════
-# Runner callables (bound by actions.runners)
-# ═══════════════════════════════════════════════════════════════════════════════
-
-
-async def run_fit_on_modal(
-    workspace_id: str,
-    request: FitRequest,
-    pins: dict[ArtifactId, GitOid],
-) -> Applied[ModelFitResult]:
-    """Run a fit remotely; credentials come from the Modal secret block."""
-    from nof1_causal_lab.study.records import ModelFitResult
-
-    raw = await _run_fit_gpu.remote.aio(workspace_id, request.model_dump(mode="json"), dict(pins))
-    return Applied[ModelFitResult].model_validate(raw)

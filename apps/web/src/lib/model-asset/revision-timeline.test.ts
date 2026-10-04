@@ -1,5 +1,5 @@
 import { fixtureValue } from "@/components/__fixtures__/fixture-value";
-import type { StudyRevision } from "@nof1-causal-lab/api-types";
+import type { TimelineRevision } from "@nof1-causal-lab/api-types";
 import { describe, expect, it } from "vitest";
 import { latestSeq } from "./journal";
 import { revisionTimeline } from "./revision-timeline";
@@ -9,7 +9,7 @@ import { workbenchJournal } from "@/components/__fixtures__/workbench";
 
 describe("argument timeline", () => {
   it("orders actions by execution, lanes them by what they produce and links served dependencies", () => {
-    const records: StudyRevision[] = [2, 5, 8, 6, 9, 13].map((seq, index) => {
+    const records: TimelineRevision[] = [2, 5, 8, 6, 9, 13].map((seq, index) => {
       const fixture = fixtureValue(
         workbenchJournal.find((revision) => revision.record.seq === seq),
       );

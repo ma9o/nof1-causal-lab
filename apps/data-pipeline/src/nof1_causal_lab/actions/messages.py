@@ -17,12 +17,13 @@ from nof1_causal_lab.study.records import (
     ActionMessage,
     Applied,
     DataPreparationResult,
-    ModelFitResult,
-    ModelSimulationResult,
 )
 
 if TYPE_CHECKING:
     from datetime import datetime
+    from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
+    from nof1_causal_lab.artifacts.posterior import InferenceReport
+    from nof1_causal_lab.artifacts.simulation import SimulationReport
 
 
 _QUESTION_LABELS = {
@@ -37,12 +38,15 @@ _QUESTION_LABELS = {
 def completion_messages[ResultT](
     applied: Applied[ResultT],
     timestamp: datetime,
-    reports: tuple[IdentificationReport | DataProfileArtifact | ValidationReportArtifact, ...],
+    reports: tuple[IdentificationReport | DataProfileArtifact | ValidationReportArtifact, ...] = (),
+    *,
+    checks: ModelCheckReport | None = None,
+    inference: InferenceReport | None = None,
+    simulation: SimulationReport | None = None,
 ) -> tuple[ActionMessage, ...]:
     """Warnings annotate a completed result; they never decide whether to publish it."""
     result = applied.result
     labels: dict[str, Literal["debug", "info", "warn"]] = {}
-    checks = applied.effects.checks
     if checks is not None:
         for finding in checks.specification:
             if finding.subject == "model_execution" and isinstance(finding, NotEvaluated):
@@ -94,7 +98,7 @@ def completion_messages[ResultT](
             ):
                 labels["MODEL_DATA_INCOMPATIBLE"] = "warn"
 
-    if isinstance(result, ModelFitResult) and convergence_failures(result.report.core.convergence):
+    if inference is not None and convergence_failures(inference.core.convergence):
         labels["CONVERGENCE_CHECK_FAILED"] = "warn"
     if isinstance(result, DataPreparationResult):
         if any(worker.status == "failed" for worker in result.workers):
@@ -103,8 +107,7 @@ def completion_messages[ResultT](
             labels["INGESTION_REUSED"] = "info"
         if result.extraction_reused:
             labels["EXTRACTION_REUSED"] = "info"
-    if isinstance(result, ModelSimulationResult):
-        simulation = result.report
+    if simulation is not None:
         if any(
             isinstance(finding, Evaluated) and finding.outcome in {"failed", "error"}
             for finding in simulation.findings

@@ -3,203 +3,215 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import TYPE_CHECKING, Any, override
+from typing import TYPE_CHECKING
 
-import dynestyx as dsx
-import jax.numpy as jnp
-import jax.random as random
-import jax.scipy.linalg as jla
-import numpy as np
-from dynestyx.inference.configs.discretizer import ExactAffineConfig
-
+from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.artifacts.expressions import Expression, coefficient, restoring_force, state
+from nof1_causal_lab.artifacts.likelihood import DeltaLawSpec
+from nof1_causal_lab.artifacts.mechanism import DriftMechanismSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.models.ssm.autoreparam import Strategy, _minimal_reparam
-from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
+from nof1_causal_lab.artifacts.parameter import SiteKind
 
 if TYPE_CHECKING:
-    from numpyro.primitives import Message
+    from collections.abc import Mapping
 
-    from nof1_causal_lab.artifacts.identity import ConstructId
+    from nof1_causal_lab.artifacts.construct import ConstructSpec
+    from nof1_causal_lab.artifacts.identity import DistributionId, ParameterId
+    from nof1_causal_lab.artifacts.indicator import IndicatorSpec
+    from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec
+    from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
+    from nof1_causal_lab.numpyro_json import NumPyroDistribution
 
 
-def affine_test_evolution(A, covariance, b=None, B=None):
-    """Library-owned exact affine reference, restricted to test data and comparisons."""
-    return dsx.discretize_state_evolution(
-        dsx.StochasticContinuousTimeStateEvolution(
-            drift=dsx.AffineDrift(A=A, b=b, B=B),
-            diffusion=dsx.FullDiffusion(jnp.linalg.cholesky(covariance)),
+def load_model_fixture(name: str) -> ModelSpec:
+    """Parse one current-format canonical model without study converters."""
+    return ModelSpec.model_validate_json(
+        (Path(__file__).parent / "fixtures/models" / name).read_text()
+    )
+
+
+def construct_named(model: ModelSpec, name: str) -> ConstructSpec:
+    return next(node for node in model.constructs if node.name == name)
+
+
+def indicator_named(model: ModelSpec, name: str) -> IndicatorSpec:
+    return next(
+        indicator for _, indicator in model.iter_indicators() if indicator.observation.name == name
+    )
+
+
+def likelihood_named(model: ModelSpec, name: str) -> LikelihoodSpec:
+    return next(
+        likelihood
+        for indicator, likelihood in model.iter_likelihoods()
+        if indicator.observation.name == name
+    )
+
+
+def parameter_named(model: ModelSpec, name: str) -> ParameterSpec:
+    return next(parameter for parameter in model.parameters if parameter.name == name)
+
+
+def parameter_for(model: ModelSpec, quantity: SiteKind, *owners: str) -> ParameterSpec:
+    names: dict[str, str] = {node.id: node.name for node in model.constructs} | {
+        indicator.observation.id: indicator.observation.name
+        for _, indicator in model.iter_indicators()
+    }
+    (parameter,) = tuple(
+        p
+        for p in model.parameters
+        if model.parameter_context(p.id).quantity == quantity
+        and {names[ref.id] for ref in model.parameter_context(p.id).owners if ref.id in names}
+        == set(owners)
+    )
+    return parameter
+
+
+def replace_parameters(
+    parameters: tuple[ParameterSpec, ...], *revisions: ParameterSpec
+) -> tuple[ParameterSpec, ...]:
+    updated = {parameter.id: parameter for parameter in revisions}
+    return tuple(updated.get(parameter.id, parameter) for parameter in parameters)
+
+
+def without_parameters(
+    model: ModelSpec, *removed: ParameterSpec
+) -> tuple[tuple[ParameterSpec, ...], Mapping[DistributionId, NumPyroDistribution]]:
+    ids = {parameter.id for parameter in removed}
+    retained = tuple(parameter for parameter in model.parameters if parameter.id not in ids)
+    used = {parameter.distribution for parameter in retained} | {
+        node.distribution for node in model.constructs
+    }
+    return retained, {
+        identity: law for identity, law in model.distributions.items() if identity in used
+    }
+
+
+def parameter_laws(
+    model: ModelSpec, updates: Mapping[ParameterId, NumPyroDistribution]
+) -> Mapping[DistributionId, NumPyroDistribution]:
+    replacements = {}
+    for identity, law in updates.items():
+        distribution = model.parameter(identity).distribution
+        assert distribution is not None, "Fixture parameter must own a law"
+        replacements[distribution] = law
+    return {**model.distributions, **replacements}
+
+
+def x_model() -> ModelSpec:
+    return load_model_fixture("common/x_model.json")
+
+
+def x_y_model() -> ModelSpec:
+    return load_model_fixture("common/x_y_model.json")
+
+
+def stress_sleep_model() -> ModelSpec:
+    return load_model_fixture("common/stress_sleep_model.json")
+
+
+def one_state_gaussian_model() -> ModelSpec:
+    return load_model_fixture("common/one_state_gaussian_model.json")
+
+
+def two_state_gaussian_model() -> ModelSpec:
+    return load_model_fixture("common/two_state_gaussian_model.json")
+
+
+def additive_a_b_model() -> ModelSpec:
+    return load_model_fixture("common/additive_a_b_model.json")
+
+
+def three_state_gaussian_model() -> ModelSpec:
+    return load_model_fixture(
+        "dag_to_ssm/testdynamicsmask_test_dynamics_support_zeros_non_edges__make_3latent_spec.json"
+    )
+
+
+def fixed_hill_model() -> ModelSpec:
+    return load_model_fixture("simulation_checks/fixed_hill_model.json")
+
+
+def mixed_family_model() -> ModelSpec:
+    return load_model_fixture("observation_support/mixed_family_model.json")
+
+
+def _make_lgss_data_model_fixture() -> ModelSpec:
+    model = load_model_fixture("common/one_state_gaussian_model.json")
+    latent_0 = construct_named(model, "latent_0")
+    latent_0_diffusion_diag = parameter_for(model, SiteKind.DIFFUSION_DIAG, "latent_0")
+    latent_0_t0_means = parameter_for(model, SiteKind.T0_MEANS, "latent_0")
+    latent_0_t0_var_diag = parameter_for(model, SiteKind.T0_VAR_DIAG, "latent_0")
+    latent_0_revised = latent_0.revised(
+        coefficients=(
+            coefficient(latent_0_diffusion_diag.id, "diffusion_scale"),
+            coefficient(0.0, "initial_mean"),
+            coefficient(1.0, "initial_scale"),
+        )
+    )
+    parameters, distributions = without_parameters(model, latent_0_t0_means, latent_0_t0_var_diag)
+    return model.revised(
+        edges=replace_constructs(model.edges, (latent_0_revised,)),
+        parameters=parameters,
+        distributions=distributions,
+    )
+
+
+def _exact_model_model() -> ModelSpec:
+    model = load_model_fixture(
+        "delta_observations/authored_affine_delta_keeps_its_calibration_coefficients_complete_model.json"
+    )
+    setting = construct_named(model, "setting")
+    setting_obs = indicator_named(model, "setting_obs")
+    setting_obs_likelihood = likelihood_named(model, "setting_obs")
+    manifest_mean_setting_obs = parameter_named(model, "manifest_mean_setting_obs")
+    setting_obs_revised = setting_obs.revised(
+        likelihood=setting_obs_likelihood.revised(
+            law=DeltaLawSpec[Expression](v=state(setting.id)),
+            reasoning="The recorded setting is exact at its observation anchor.",
+        )
+    )
+    setting_revised = setting.revised(indicators=(setting_obs_revised,))
+    parameters, distributions = without_parameters(model, manifest_mean_setting_obs)
+    return model.revised(
+        edges=replace_constructs(model.edges, (setting_revised,)),
+        parameters=parameters,
+        distributions=distributions,
+    )
+
+
+def _two_state_fixed_drift_model() -> ModelSpec:
+    model = load_model_fixture(
+        "dynamics_config/scientific_model_roundtrip_preserves_derived_dynamics_model_fixture.json"
+    )
+    latent_0 = construct_named(model, "latent_0")
+    (latent_0_potential,) = latent_0.dynamics
+    latent_0_dynamics_decay = parameter_for(model, SiteKind.DYNAMICS_DECAY, "latent_0")
+    latent_0_latent_1_hill_emax = parameter_for(model, SiteKind.HILL_EMAX, "latent_0", "latent_1")
+    latent_0_latent_1_hill_n = parameter_for(model, SiteKind.HILL_N, "latent_0", "latent_1")
+    latent_0_latent_1_hill_ec50 = parameter_for(model, SiteKind.HILL_EC50, "latent_0", "latent_1")
+    latent_0_revised = latent_0.revised(
+        dynamics=(
+            DriftMechanismSpec(
+                id=latent_0_potential.id,
+                expression=restoring_force(
+                    latent_0.id, center=0.0, stiffness=latent_0_dynamics_decay.id, quartic=0.0
+                ),
+            ),
+        )
+    )
+    parameters, distributions = without_parameters(
+        model, latent_0_latent_1_hill_emax, latent_0_latent_1_hill_n, latent_0_latent_1_hill_ec50
+    )
+    return model.revised(
+        edges=replace_constructs(
+            tuple(
+                edge
+                for edge in model.edges
+                if (edge.cause.name, edge.effect.name) not in (("latent_0", "latent_1"),)
+            ),
+            (latent_0_revised,),
         ),
-        ExactAffineConfig(covariance_jitter=0.0),
+        parameters=parameters,
+        distributions=distributions,
     )
-
-
-class MinimalReparam(Strategy):
-    """Test-owned minimal reparameterization strategy."""
-
-    @override
-    def configure(self, msg: Message):
-        return _minimal_reparam(msg["fn"], is_observed=msg.get("is_observed", False))
-
-
-def make_lgss_data(
-    *,
-    T: int = 100,
-    dt: float = 1.0,
-    decay_diag: float = -0.3,
-    diff_sd: float = 0.3,
-    obs_sd: float = 0.5,
-    seed: int = 42,
-) -> dict[str, Any]:
-    """Build 1D linear-Gaussian SSM data plus a free-parameter ModelSpec.
-
-    Returns a dict with ``observations``, ``times``, ``spec``, the true
-    parameter values, and ``n_latent`` for convenience. Used by recovery
-    checks that fit the same canonical 1D model with different inference
-    methods.
-    """
-    n_latent, n_manifest = 1, 1
-
-    true_dynamics = jnp.array([[decay_diag]])
-    true_diff_cov = jnp.array([[diff_sd**2]])
-    true_obs_var = jnp.array([[obs_sd**2]])
-
-    parameters = affine_test_evolution(true_dynamics, true_diff_cov).params_at(0.0, dt)
-    Ad, Qd = parameters.A, parameters.cov
-    Qd_chol = jla.cholesky(Qd + jnp.eye(n_latent) * 1e-8, lower=True)
-    R_chol = jla.cholesky(true_obs_var, lower=True)
-
-    key = random.PRNGKey(seed)
-    states = [jnp.zeros(n_latent)]
-    for _ in range(T - 1):
-        key, nk = random.split(key)
-        states.append(Ad @ states[-1] + Qd_chol @ random.normal(nk, (n_latent,)))
-    latent = jnp.stack(states)
-
-    key, obs_key = random.split(key)
-    observations = latent + random.normal(obs_key, (T, n_manifest)) @ R_chol.T
-    times = jnp.arange(T, dtype=float) * dt
-
-    spec = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[0]
-            / "fixtures/models"
-            / "model_fixtures/make_lgss_data_model_fixture.json"
-        ).read_text()
-    )
-
-    return {
-        "observations": observations,
-        "times": times,
-        "spec": spec,
-        "true_decay_diag": decay_diag,
-        "true_diff_diag": diff_sd,
-        "true_obs_sd": obs_sd,
-        "n_latent": n_latent,
-    }
-
-
-def make_observation_support_runtime(**kwargs: Any) -> ObservationSupportRuntime:
-    """Build ObservationSupportRuntime while accepting 2D interval coefficient inputs."""
-    support_kinds = kwargs["support_kinds"]
-    kwargs.setdefault(
-        "summary_operators",
-        ["mean" if kind == "interval" else "last" for kind in support_kinds],
-    )
-    kwargs.setdefault(
-        "anchor_policies",
-        [
-            "support_start" if operator == "first" else "support_end"
-            for operator in kwargs["summary_operators"]
-        ],
-    )
-    prev = np.asarray(kwargs["interval_prev_coeffs"], dtype=np.float64)
-    curr = np.asarray(kwargs["interval_curr_coeffs"], dtype=np.float64)
-    weights = np.asarray(kwargs["interval_weights"], dtype=np.float64)
-    if prev.ndim == 2:
-        prev = prev[..., None]
-        curr = curr[..., None]
-        weights = weights[..., None]
-    kwargs["interval_prev_coeffs"] = prev
-    kwargs["interval_curr_coeffs"] = curr
-    kwargs["interval_weights"] = weights
-    emission_slots = kwargs.get("emission_slot_indices")
-    if emission_slots is None:
-        support_end = np.asarray(kwargs["support_end_times"])
-        emission_slots = np.where(np.isfinite(support_end), 0, -1).astype(np.int64)
-    kwargs["emission_slot_indices"] = emission_slots
-    return ObservationSupportRuntime.assembled(**kwargs)
-
-
-def parameter_draws(model: ModelSpec, n_draws: int) -> dict[str, jnp.ndarray]:
-    """Repeat the authored prior reference point without invoking inference."""
-    from nof1_causal_lab.models.model_structure import StructuralSelection
-    from nof1_causal_lab.models.ssm.compile.inputs import compile_priors
-    from nof1_causal_lab.prior_distributions import prior_reference_value
-
-    priors, _, _ = compile_priors(compile_model_fixture(model), StructuralSelection(model, None))
-    return {
-        name: jnp.broadcast_to(value, (n_draws, *value.shape))
-        for name, law in priors.items()
-        for value in [jnp.asarray(prior_reference_value(law))]
-    }
-
-
-def compile_fit_fixture(spec: ModelSpec, outcome: ConstructId | None = None):
-    """Require real compilation in fixtures instead of forging fit evidence."""
-    from nof1_causal_lab.models.model_structure import StructuralSelection
-    from nof1_causal_lab.models.ssm.compile.inputs import (
-        CompiledFitInputs,
-        compile_ssm_inputs_from_model,
-    )
-
-    inputs = compile_ssm_inputs_from_model(StructuralSelection(spec, outcome))
-    assert isinstance(inputs, CompiledFitInputs), inputs
-    return inputs
-
-
-def compile_model_fixture(spec: ModelSpec, outcome: ConstructId | None = None):
-    """Compile native execution facts without imposing the fitting law restrictions."""
-    from nof1_causal_lab.models.model_structure import StructuralSelection
-    from nof1_causal_lab.models.ssm.compile.inputs import compile_executable_model
-
-    return compile_executable_model(StructuralSelection(spec, outcome))
-
-
-def bind_panel_fixture(model, observations, times, *, support=None):
-    """Publish a complete numerical test panel, including its identity-bearing rows."""
-    from datetime import UTC, datetime, timedelta
-
-    import polars as pl
-
-    from nof1_causal_lab.models.ssm.observation_support import simulation_observation_support
-    from nof1_causal_lab.models.ssm.runtime import BoundPanel, bind_panel
-
-    observations, times = jnp.asarray(observations), jnp.asarray(times)
-    support = (
-        simulation_observation_support(model, np.asarray(times)) if support is None else support
-    )
-    origin = datetime(1970, 1, 1, tzinfo=UTC)
-    rows = []
-    for i, observation in enumerate(model.observations):
-        for t, at in enumerate(np.asarray(times)):
-            start, end = support.support_start_times[t, i], support.support_end_times[t, i]
-            rows.append(
-                {
-                    "indicator_id": str(observation.id),
-                    "value": float(observations[t, i]),
-                    "anchor_time": origin + timedelta(days=float(at)),
-                    "support_start": origin + timedelta(days=float(start))
-                    if np.isfinite(start)
-                    else None,
-                    "support_end": origin + timedelta(days=float(end))
-                    if np.isfinite(end)
-                    else None,
-                    "support_kind": support.support_kinds[i],
-                    "summary_operator": support.summary_operators[i],
-                    "anchor_policy": support.anchor_policies[i],
-                    "observation_window": support.observation_windows[i],
-                }
-            )
-    panel = bind_panel(pl.DataFrame(rows), model=model, time_origin=origin)
-    assert isinstance(panel, BoundPanel), panel
-    return panel

@@ -129,12 +129,12 @@ New studies initialize their local bare repository on first use. On a fresh chec
 
 ```bash
 git clone --mirror data/DEMO/study/history.bundle data/DEMO/study/history.git
-git --git-dir=data/DEMO/study/history.git config nof1.format 16
+git --git-dir=data/DEMO/study/history.git config nof1.format 17
 ```
 
 #### Migrating a local study
 
-The current runtime requires format 16. To convert a format-15 study:
+The current runtime requires format 18. Restore only a bundle exported after the offline conversion. Convert a format-16 study through format 17, then format 18:
 
 1. Stop work on the study and close its workflow:
 
@@ -142,16 +142,19 @@ The current runtime requires format 16. To convert a format-15 study:
    temporal workflow signal --workflow-id study-STUDY --name close
    ```
 
-2. Run the [format-16 converter](../../apps/data-pipeline/scripts/migrations/migrate_format_16.py). The destination must be new and outside the source, and the source is left untouched.
+2. Run the [format-17 converter](../../apps/data-pipeline/scripts/migrations/migrate_format_17.py), then the [format-18 converter](../../apps/data-pipeline/scripts/migrations/migrate_format_18.py) into another new destination. The destination must be new and outside the source, and the source is left untouched.
 
    ```bash
-   uv run --directory apps/data-pipeline python -m scripts.migrations.migrate_format_16 \
-     ../../data/STUDY /tmp/format16/STUDY
+   uv run --directory apps/data-pipeline python -m scripts.migrations.migrate_format_17 \
+     ../../data/STUDY /tmp/format17/STUDY --file-hashes /path/to/verified-file-hashes.json
    ```
 
-   The converter folds retained result availability into explicit alternatives,
-   preserves scientific findings, draws and certification, and rewrites revision
-   references. It performs no inference or predictive execution.
+   The converter rebuilds retained call arguments, names each panel originally read,
+   removes branch fields and rewrites revision references. Missing upload hashes
+   require verified historical SHA-256 values keyed by source call commit; unknown
+   historical calls remain unknown; `--requests` accepts verified original arguments
+   for calls whose transport was not retained. It performs no scientific execution.
+   Convert format 15 with the [format-16 converter](../../apps/data-pipeline/scripts/migrations/migrate_format_16.py) first.
    Convert a format-14 study with the
    [format-15 converter](../../apps/data-pipeline/scripts/migrations/migrate_format_15.py)
    first. That conversion requires the original resolved sampler controls via
@@ -162,7 +165,7 @@ The current runtime requires format 16. To convert a format-15 study:
    [format-12](../../apps/data-pipeline/scripts/migrations/migrate_format_12.py)
    converter for their respective source format.
 
-3. Review the migrated snapshots and ref mapping before a live cutover. Then, while offline, back up each whole original under `.local/format15-backup-<date>/STUDY`, including `store/`, and replace `data/STUDY` with the migrated repository, keeping one study per ID. Keep backups outside `data/` in durable storage; temporary directories are only converter destinations.
+3. Review the migrated snapshots and ref mapping before a live cutover. Then, while offline, back up each whole original under `.local/format-backup-<date>/STUDY`, including `store/`, and replace `data/STUDY` with the migrated repository, keeping one study per ID. Keep backups outside `data/` in durable storage; temporary directories are only converter destinations.
 
 4. Restart the workers with the new code and start a fresh `study-STUDY` workflow from the migrated Git state; don't replay the previous workflow. Export any fixture bundle from the migrated repository, then run `bun run fixture:build` and `bun run fixture:check`.
 
@@ -179,11 +182,11 @@ uv run --directory apps/data-pipeline python -m scripts.migrations.squash_study_
   ../../data/STUDY /tmp/squashed/STUDY --at R
 ```
 
-Replace `R` with the applied commit OID. The dry run lists retained and dropped attempts without copying. The script keeps the root, `R`, the entire suffix, and the dependency closure of the prefix's last artifact/check writers (including retractions) and latest fresh simulation. It preserves saved artifact, check and log objects, all artifact refs, numerical files and authorship links; `squash-mapping.json` maps original commits to new commits or `null` for dropped actions. Sequence numbers and attempt IDs retain their gaps.
+Replace `R` with the applied commit OID. The dry run lists retained and dropped attempts without copying. The script keeps the root, `R`, the entire suffix, and the dependency closure of the prefix's last artifact writers (including retractions) and latest fresh simulation. It preserves saved artifact and log objects, all artifact refs, numerical files and authorship links; `squash-mapping.json` maps original commits to new commits or `null` for dropped actions. Sequence numbers and attempt IDs retain their gaps.
 
-At `R` and later commits, artifacts (including absence), checks and fresh reader findings are preserved. Stale findings can disappear, and earlier snapshots can change. This is the smallest closure of the mandatory writers, not a globally minimal history: reused reports and redundant retractions can retain extra actions. There is no optimizer, numerical execution or post-squash equality gate.
+At `R` and later commits, artifacts (including absence) and their supporting evidence are preserved; current code derives findings through the shared read cache. Stale findings can disappear, and earlier snapshots can change. This is the smallest closure of the mandatory writers, not a globally minimal history: redundant retractions can retain extra actions. There is no optimizer, numerical execution or post-squash equality gate.
 
-Only current-format, single-branch histories are supported. The script refuses records with archived metadata and `report_only` fit results, simulation-replicate panels anywhere in the preserved catalog, other branches (including successful attempts off the branch), and retained scientific inputs without a recorded producer. Review the new copy, select it offline, then start a fresh workflow and regenerate any fixture bundle using the migration procedure above. The source is unchanged.
+Only current-format histories with one main ref are supported. The script refuses recorded data comparisons, simulation-replicate panels anywhere in the preserved catalog, other Git heads, and retained scientific inputs without a recorded producer. Review the new copy, select it offline, then start a fresh workflow and regenerate any fixture bundle using the migration procedure above. The source is unchanged.
 
 ### Local stack
 
@@ -199,7 +202,7 @@ use), the study worker (task queue `nof1-studies`), the tool server
 with the study facade on port `8100`, and the web app on port `3000`.
 Startup order is health-gated (`depends_on` + readiness probes) and
 crashed processes restart automatically. The script **stays in the
-foreground** — wait until `curl -s http://localhost:8100/api/actions-enabled`
+foreground** — wait until `curl -s http://localhost:8100/api/workspaces`
 answers before proceeding (pass `-t=false` to disable the TUI when
 redirecting output to a file).
 
@@ -266,7 +269,7 @@ The command validates the selected Git snapshot, copies the durable workspace in
 `data/DEMO`, and rebuilds stable JSON and trace copies under `data/DEMO/fixture/`
 for Storybook and tests. It replaces `data/DEMO` as a unit rather than merging,
 and excludes `cache/` and `scratch/`. It exports all Git refs and objects to
-`study/history.bundle` so the tracked fixture retains branches, attempts and
+`study/history.bundle` so the tracked fixture retains the main history, attempts and
 artifact trees while its local bare repository remains gitignored. The files in
 `store/` retain the external numerical payloads.
 
@@ -279,7 +282,7 @@ bun run fixture:check
 
 Both commands restore the bundle into an isolated temporary repository and use the production readers to project artifacts, logs, traces, historical snapshots and workbench comparisons in one pass. They do not read the local `history.git` or the generated projections as inputs. DEMO has no numbered artifact directories or separate journal and trace directories.
 
-The bundle preserves the existing illustrative history and numerical findings. Its original posterior samples were not retained, so the fit remains explicitly report-only. Archived predictive checks belong to that attempt at `logs/predictive_checks.json` and are projected into the fixture directory. Regeneration does not fit, simulate, or invent missing scientific artifacts. Prior plot viewports use a small deterministic draw from the retained prior laws.
+The bundle preserves the illustrative action history and authored and extracted facts. DEMO retained no posterior samples, so its fit has no numerical evidence or posterior summaries. Reports and checks are current-code projections of retained inputs; their cache owner is [the artifact store](../../apps/data-pipeline/src/nof1_causal_lab/study/store.py). Regeneration does not fit, simulate, or invent missing scientific artifacts. Prior plot viewports use a small deterministic draw from the retained prior laws.
 
 ### Publishing a workspace
 
@@ -303,30 +306,31 @@ curl -s -X POST http://localhost:3000/api/upload \
   -F "workspaceId=$WORKSPACE_ID" \
   -F "file=@data/DEMO/input/dsar_bundle.zip"
 
-curl -s -X POST http://localhost:3000/api/studies/$WORKSPACE_ID/actions \
+curl -s -X POST http://localhost:3000/api/studies/$WORKSPACE_ID/set_question \
   -H 'Content-Type: application/json' \
   -d "{\"action\":\"set_question\",\"question\":{\"text\":\"$QUESTION\"}}"
 ```
 
-`GET /api/actions-enabled` returns false on a read-only facade. Setting the question starts the study and returns HTTP `202` with its `attempt_id`. Poll that attempt until `kind` is `completed`. Submit further actions as the [`nof1-study-api` skill](../../.agents/skills/nof1-study-api/SKILL.md) describes; the [action charts](../../README.md#documentation) show what each one does.
+`GET /api/workspaces` includes the `X-Actions-Enabled` capability header. Setting the question returns `kind: running` with progress or `kind: completed` with the full outcome. Repeat the same parsed arguments to read progress or the saved result. On a read-only facade, saved calls and model comparisons work; unsaved writing calls return 403. Submit further actions as the [`nof1-study-api` skill](../../.agents/skills/nof1-study-api/SKILL.md) describes; the [action charts](../../README.md#documentation) show what each one does.
 
 ### 2. Observe the study
 
 The study facade (tool server, port `8100`) is the source of truth:
 
 ```bash
-# Current state: artifact existence, freshness, revisions, the four action names,
-# and `running`, the attempt the study's Temporal workflow is executing
-curl -s http://localhost:8100/api/studies/$WORKSPACE_ID | jq '.artifacts'
-
-# The attempt journal: every action attempt (applied / rejected / raised)
+# Slim journal: every recorded call's arguments, status, messages and dependencies
 curl -s http://localhost:8100/api/studies/$WORKSPACE_ID/timeline \
   | jq '.attempts[] | {commit_id, seq: .record.seq, attempt: .record.attempt}'
 
-# Live progress of the running attempt (data-preparation steps and extraction fan-out)
-ATTEMPT_ID=$(curl -s http://localhost:8100/api/studies/$WORKSPACE_ID | jq -r '.running.attempt_id')
-curl -s "http://localhost:8100/api/studies/$WORKSPACE_ID/events?attempt_id=$ATTEMPT_ID" \
-  | jq '.[-3:]'
+# Read the running call's arguments, then repeat that action for progress
+curl -s http://localhost:8100/api/studies/$WORKSPACE_ID/timeline > /tmp/study-timeline.json
+jq '.running.request' /tmp/study-timeline.json > /tmp/running-call.json
+ACTION=$(jq -r '.running.action' /tmp/study-timeline.json)
+curl -s -X POST "http://localhost:8100/api/studies/$WORKSPACE_ID/$ACTION" \
+  -H 'Content-Type: application/json' -d @/tmp/running-call.json \
+  | jq '{kind, messages, events}'
+
+# The viewer repeats only applied calls with known arguments to obtain full results.
 ```
 
 ### 3. Verify via browser automation
@@ -339,11 +343,11 @@ If the UI behaves unexpectedly, check Next.js devtools MCP errors before debuggi
 
 ## Resuming after a failed action
 
-A failed execution is a `raised` outcome in the journal. The scientific branch is unchanged, and the outcome retains its error. Expected input rejections carry a `rejected` outcome:
+A failed execution is a `raised` outcome in the journal. Scientific state is unchanged, and the outcome retains its error. Expected input rejections carry a `rejected` outcome:
 
 ```bash
 curl -s http://localhost:8100/api/studies/$WORKSPACE_ID/timeline \
   | jq '.attempts[] | select(.record.attempt.outcome.status=="raised") | {seq: .record.seq, attempt: .record.attempt}'
 ```
 
-Correct the cause and resubmit the action to `/actions`, selecting fresh revisions if its inputs changed. There is no automatic-resume endpoint.
+Correct the cause and repeat its named action route, selecting fresh revisions if its inputs changed. There is no automatic-resume endpoint.

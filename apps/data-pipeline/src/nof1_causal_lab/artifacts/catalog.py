@@ -5,19 +5,15 @@ The machine file catalog declares all JSON, Parquet, and binary members.
 """
 
 from pydantic import BaseModel
+from typing import TypeAliasType
 
 from .data_preparation import PreparedDataMetadata
-from .identification import IdentificationReport
 from .identity import ArtifactId
 from .model_spec import ModelSpec
 from .question import QuestionSpec
-from .validation_report import DataProfileArtifact, ValidationReportArtifact
 
-ARTIFACT_CONTRACTS: dict[ArtifactId, type[BaseModel]] = {
+ARTIFACT_CONTRACTS: dict[ArtifactId, type[BaseModel] | TypeAliasType] = {
     "question": QuestionSpec,
     "panel": PreparedDataMetadata,
     "model": ModelSpec,
-    "identification_report": IdentificationReport,
-    "data_profile": DataProfileArtifact,
-    "validation_report": ValidationReportArtifact,
 }

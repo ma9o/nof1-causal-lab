@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping, Sequence
-from itertools import islice
 from typing import TYPE_CHECKING
 
 import numpy as np
@@ -48,10 +47,9 @@ def build_trace_data(
     for coordinate, values in sample_coordinates(chain_samples, sample_dims=2):
         reference = references[coordinate]
         if reference is not None:
-            label, subject = reference
+            _, subject = reference
             traces.append(
                 TraceSeries(
-                    parameter=label,
                     subject=subject,
                     chains=tuple(tuple(float(v) for v in chain) for chain in values),
                 )
@@ -67,7 +65,7 @@ def build_rank_histograms(
         reference = references[coordinate]
         if reference is None:
             continue
-        label, subject = reference
+        _, subject = reference
         n_chains, n_samples = values.shape
         total = n_chains * n_samples
         ranks = np.asarray(
@@ -78,9 +76,7 @@ def build_rank_histograms(
         )
         histograms.append(
             RankHistogram(
-                parameter=label,
                 subject=subject,
-                n_bins=n_bins,
                 expected_per_bin=float(n_samples / n_bins),
                 chains=tuple(
                     tuple(int(v) for v in chain)
@@ -142,25 +138,6 @@ def compute_posterior_marginals(
     )
 
 
-def compute_posterior_pairs(
-    samples: Mapping[str, jnp.ndarray],
-    references: ParameterReferences,
-    max_params: int = 6,
-) -> tuple[tuple[ParameterRef, ParameterRef], ...]:
-    """Select axes, retaining all original joint draws and their divergence flags."""
-    scalars = list(
-        islice(
-            (
-                (reference, values)
-                for coordinate, values in sample_coordinates(samples, sample_dims=1)
-                if (reference := references[coordinate]) is not None
-            ),
-            max_params,
-        )
-    )
-    return tuple(
-        (left[1], right[1]) for i, (left, _) in enumerate(scalars) for right, _ in scalars[i + 1 :]
-    )
 
 
 def pareto_k_points(values: Sequence[float], timesteps: Sequence[int]) -> tuple[ParetoKPoint, ...]:

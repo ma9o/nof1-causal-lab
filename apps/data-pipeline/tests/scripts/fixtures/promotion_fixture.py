@@ -76,7 +76,7 @@ def seed(root, workspace, options):
     report = InferenceReport(
         core=InferenceReportCore(
             time_origin=None,
-            inference_metadata=InferenceMetadata(method="test", n_samples=0, duration_seconds=0),
+            inference_metadata=InferenceMetadata(n_samples=0, duration_seconds=0),
             engine=NotEvaluated(
                 subject="production_engine",
                 reason="ARCHIVED_ENGINE_NOT_RETAINED",

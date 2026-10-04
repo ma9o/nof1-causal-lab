@@ -1,5 +1,5 @@
 import type { ActionId, RecordDependency } from "@nof1-causal-lab/api-types";
-import type { StudyRevision } from "@nof1-causal-lab/api-types";
+import type { TimelineRevision } from "@nof1-causal-lab/api-types";
 
 /**
  * Lanes group actions by what they produce: comparisons read histories, data makes them, and the
@@ -12,7 +12,7 @@ export const TIMELINE_LANES: ReadonlyArray<{ name: string; actions: readonly Act
 ];
 
 export interface RevisionTimelineNode {
-  tick: StudyRevision;
+  tick: TimelineRevision;
   column: number;
   lane: number;
 }
@@ -26,7 +26,7 @@ export interface RevisionTimelineLink {
 
 /** Presentation only: execution order gives columns; the served dependencies give links. */
 export function revisionTimeline(
-  ticks: readonly StudyRevision[],
+  ticks: readonly TimelineRevision[],
   dependencies: readonly RecordDependency[],
 ) {
   const nodes: RevisionTimelineNode[] = ticks.map((tick, column) => ({

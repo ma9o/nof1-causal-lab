@@ -6,28 +6,600 @@ enumerate the family/policy combinations so that any future eligibility change
 that reopens an exact likelihood ridge fails at construction.
 """
 
-from pathlib import Path
 from typing import Any
 
 import jax
 import jax.numpy as jnp
 import numpy as np
+import numpyro.distributions as dist
 import pytest
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.artifacts.expressions import (
+    CallExpression,
+    Expression,
+    coefficient,
+    restoring_potential,
+    state,
+)
+from nof1_causal_lab.artifacts.identity import DistributionId, IndicatorId, ParameterId
+from nof1_causal_lab.artifacts.indicator import IndicatorPolarity, IndicatorSpec
 from nof1_causal_lab.artifacts.likelihood import (
+    BernoulliLogitsLawSpec,
     CategoricalLawSpec,
+    DeltaLawSpec,
     DistributionFamily,
+    LikelihoodSpec,
     LinkFunction,
+    NormalLawSpec,
     OrderedLogisticLawSpec,
 )
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.observations import AuthoredObservationSpec
+from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 from nof1_causal_lab.compilation_errors import AggregatedCompileError
 from nof1_causal_lab.models.model_structure import StructuralSelection, selected_state_ids
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.compile.observations import materialize_observation_laws
+from nof1_causal_lab.utils.observation_semantics import SummaryOperator
 from tests.helpers import fixture_entity_id, make_model
-from tests.model_fixtures import compile_model_fixture
+from tests.inference_fixtures import compile_model_fixture
+from tests.model_fixtures import (
+    construct_named,
+    indicator_named,
+    likelihood_named,
+    load_model_fixture,
+    parameter_named,
+    without_parameters,
+)
+
+
+def _categorical_loading_pinned_in_mixed_construct__with_likelihoods() -> ModelSpec:
+    return load_model_fixture(
+        "identification_anchors/testcategoricalanchors_test_categorical_loading_pinned_in_mixed_construct__with_likelihoods.json"
+    )
+
+
+def _manifest_intercept_remains_free_for_raw_gaussian_sum_channel__with_likelihoods() -> ModelSpec:
+    return load_model_fixture(
+        "identification_anchors/testlocationanchors_test_manifest_intercept_remains_free_for_raw_gaussian_sum_channel__with_likelihoods.json"
+    )
+
+
+def _static_t0_mean_free_with_standardized_channel__with_likelihoods() -> ModelSpec:
+    return load_model_fixture(
+        "identification_anchors/testlocationanchors_test_static_t0_mean_free_with_standardized_channel__with_likelihoods.json"
+    )
+
+
+def _all_categorical_construct_gets_anchor_slope__with_likelihoods() -> ModelSpec:
+    model = _categorical_loading_pinned_in_mixed_construct__with_likelihoods()
+    mood = construct_named(model, "mood")
+    mood_kind = indicator_named(model, "mood_kind")
+    obs_sd_mood_rating = parameter_named(model, "obs_sd_mood_rating")
+    mood_revised = mood.revised(indicators=(mood_kind,))
+    parameters, distributions = without_parameters(model, obs_sd_mood_rating)
+    return model.revised(
+        edges=replace_constructs(model.edges, (mood_revised,)),
+        parameters=parameters,
+        distributions=distributions,
+    )
+
+
+def _exact_state_anchors_location_for_every_summary_complete_component_slots_2_false_count() -> (
+    ModelSpec
+):
+    _MOOD_RATING_INDICATOR_ID = IndicatorId("indicator:e05e217de7f4442abdc5")
+    _CINT_MOOD_PARAMETER_ID = ParameterId(
+        "parameter:403d1ba7a1dc2ea4b423d3918766b7d70dc5cab41ad22f6f0251ee151e43952d"
+    )
+    model = _all_categorical_construct_gets_anchor_slope__with_likelihoods()
+    mood = construct_named(model, "mood")
+    (mood_potential,) = mood.dynamics
+    rho_mood = parameter_named(model, "rho_mood")
+    obs_cat_intercepts = parameter_named(model, "obs_cat_intercepts")
+    obs_cat_slopes = parameter_named(model, "obs_cat_slopes")
+    sigma_mood = parameter_named(model, "sigma_mood")
+    mood_revised = mood.revised(
+        indicators=(
+            IndicatorSpec(
+                observation=AuthoredObservationSpec(
+                    id=_MOOD_RATING_INDICATOR_ID,
+                    name="mood_rating",
+                    measurement_dtype="count",
+                    aggregation=SummaryOperator.COUNT,
+                    observation_window=None,
+                ),
+                likelihood=LikelihoodSpec(
+                    law=DeltaLawSpec[Expression](v=state(mood.id)),
+                    reasoning="Exact observation with an optional unknown calibration offset",
+                ),
+                construct_polarity=IndicatorPolarity.POSITIVE,
+            ),
+        ),
+        dynamics=(
+            mood_potential.revised(
+                expression=restoring_potential(
+                    mood.id, center=_CINT_MOOD_PARAMETER_ID, stiffness=rho_mood.id, quartic=0.0
+                )
+            ),
+        ),
+    )
+    _parameters, distributions = without_parameters(model, obs_cat_intercepts, obs_cat_slopes)
+    distributions = {
+        identity: law
+        for identity, law in distributions.items()
+        if identity
+        not in (
+            rho_mood.distribution,
+            sigma_mood.distribution,
+        )
+    }
+    return model.revised(
+        edges=replace_constructs(model.edges, (mood_revised,)),
+        parameters=(
+            ParameterSpec(
+                id=_CINT_MOOD_PARAMETER_ID, name="cint_mood", description="center of cint_mood"
+            ),
+            rho_mood.revised(distribution=None),
+            sigma_mood.revised(distribution=None),
+        ),
+        distributions=distributions,
+    )
+
+
+def _exact_state_anchors_location_for_every_summary_complete_component_slots_2_false_sum() -> (
+    ModelSpec
+):
+    model = _exact_state_anchors_location_for_every_summary_complete_component_slots_2_false_count()
+    mood = construct_named(model, "mood")
+    mood_rating = indicator_named(model, "mood_rating")
+    mood_rating_revised = mood_rating.revised(
+        observation=mood_rating.observation.revised(
+            measurement_dtype="continuous", aggregation=SummaryOperator.SUM
+        )
+    )
+    mood_revised = mood.revised(indicators=(mood_rating_revised,))
+    return model.revised(edges=replace_constructs(model.edges, (mood_revised,)))
+
+
+def _exact_state_anchors_location_for_every_summary_complete_component_slots_2_false_last() -> (
+    ModelSpec
+):
+    model = _exact_state_anchors_location_for_every_summary_complete_component_slots_2_false_sum()
+    mood = construct_named(model, "mood")
+    mood_rating = indicator_named(model, "mood_rating")
+    mood_rating_revised = mood_rating.revised(
+        observation=mood_rating.observation.revised(aggregation=SummaryOperator.LAST)
+    )
+    mood_revised = mood.revised(indicators=(mood_rating_revised,))
+    return model.revised(edges=replace_constructs(model.edges, (mood_revised,)))
+
+
+def _free_center_without_standardized_channel_fails__with_likelihoods() -> ModelSpec:
+    _MOOD_FLAG_INDICATOR_ID = IndicatorId("indicator:f6e3cfa37e27221c32d7")
+    _MANIFEST_MEAN_MOOD_FLAG_PARAMETER_ID = ParameterId(
+        "parameter:5313b06cc9f7da6557b18d034bbbec6f84b3c074a293f6f005019171296895ac"
+    )
+    model = _exact_state_anchors_location_for_every_summary_complete_component_slots_2_false_sum()
+    mood = construct_named(model, "mood")
+    mood_revised = mood.revised(
+        indicators=(
+            IndicatorSpec(
+                observation=AuthoredObservationSpec(
+                    id=_MOOD_FLAG_INDICATOR_ID,
+                    name="mood_flag",
+                    measurement_dtype="binary",
+                    aggregation=SummaryOperator.LAST,
+                    observation_window=None,
+                ),
+                likelihood=LikelihoodSpec(
+                    law=BernoulliLogitsLawSpec[Expression](
+                        logits=(
+                            coefficient(
+                                _MANIFEST_MEAN_MOOD_FLAG_PARAMETER_ID, "observation_intercept"
+                            )
+                            + (coefficient(1.0, "loading") * state(mood.id))
+                        )
+                    ),
+                    reasoning="test",
+                ),
+                construct_polarity=IndicatorPolarity.POSITIVE,
+            ),
+        )
+    )
+    return model.revised(
+        edges=replace_constructs(model.edges, (mood_revised,)),
+        parameters=(
+            *model.parameters,
+            ParameterSpec(
+                id=_MANIFEST_MEAN_MOOD_FLAG_PARAMETER_ID,
+                name="manifest_mean_mood_flag",
+                description="likelihood.intercept for manifest_mean_mood_flag",
+            ),
+        ),
+    )
+
+
+def _exact_state_anchors_location_for_every_summary_complete_component_slots_true_sum() -> (
+    ModelSpec
+):
+    _MANIFEST_MEAN_MOOD_RATING_PARAMETER_ID = ParameterId(
+        "parameter:bca1520f34995d14ca61465d185091a1771da172ba8bb846e3a977f55273ad4e"
+    )
+    model = _exact_state_anchors_location_for_every_summary_complete_component_slots_2_false_sum()
+    mood = construct_named(model, "mood")
+    mood_rating = indicator_named(model, "mood_rating")
+    mood_rating_likelihood = likelihood_named(model, "mood_rating")
+    cint_mood = parameter_named(model, "cint_mood")
+    rho_mood = parameter_named(model, "rho_mood")
+    sigma_mood = parameter_named(model, "sigma_mood")
+    mood_rating_revised = mood_rating.revised(
+        likelihood=mood_rating_likelihood.revised(
+            law=DeltaLawSpec[Expression](
+                v=(
+                    coefficient(_MANIFEST_MEAN_MOOD_RATING_PARAMETER_ID, "observation_intercept")
+                    + (coefficient(1.0, "loading") * state(mood.id))
+                )
+            )
+        )
+    )
+    mood_revised = mood.revised(indicators=(mood_rating_revised,))
+    return model.revised(
+        edges=replace_constructs(model.edges, (mood_revised,)),
+        parameters=(
+            ParameterSpec(
+                id=_MANIFEST_MEAN_MOOD_RATING_PARAMETER_ID,
+                name="manifest_mean_mood_rating",
+                description="Observation intercept for mood_rating",
+            ),
+            cint_mood,
+            rho_mood,
+            sigma_mood,
+        ),
+    )
+
+
+def _exact_state_anchors_location_for_every_summary_complete_component_slots_true_last() -> (
+    ModelSpec
+):
+    model = _exact_state_anchors_location_for_every_summary_complete_component_slots_true_sum()
+    mood = construct_named(model, "mood")
+    mood_rating = indicator_named(model, "mood_rating")
+    mood_rating_revised = mood_rating.revised(
+        observation=mood_rating.observation.revised(aggregation=SummaryOperator.LAST)
+    )
+    mood_revised = mood.revised(indicators=(mood_rating_revised,))
+    return model.revised(edges=replace_constructs(model.edges, (mood_revised,)))
+
+
+def _exact_state_anchors_location_for_every_summary_complete_component_slots_true_count() -> (
+    ModelSpec
+):
+    model = _exact_state_anchors_location_for_every_summary_complete_component_slots_true_sum()
+    mood = construct_named(model, "mood")
+    mood_rating = indicator_named(model, "mood_rating")
+    mood_rating_revised = mood_rating.revised(
+        observation=mood_rating.observation.revised(
+            measurement_dtype="count", aggregation=SummaryOperator.COUNT
+        )
+    )
+    mood_revised = mood.revised(indicators=(mood_rating_revised,))
+    return model.revised(edges=replace_constructs(model.edges, (mood_revised,)))
+
+
+def _manifest_intercept_is_rejected_for_categorical_channel__with_likelihoods() -> ModelSpec:
+    _MANIFEST_MEAN_MOOD_KIND_PARAMETER_ID = ParameterId(
+        "parameter:9ee7f16619dec0fee01eccacf7ced00544ea939bab64c6916764d6713ad0c0d2"
+    )
+    _MANIFEST_MEAN_MOOD_KIND_DISTRIBUTION_ID = DistributionId(
+        "distribution:8fb0b4e3266ff97aba27d74c9c10662056a8c4d39d99176929f7646c4b91a73d"
+    )
+    model = _all_categorical_construct_gets_anchor_slope__with_likelihoods()
+    mood = construct_named(model, "mood")
+    mood_kind = indicator_named(model, "mood_kind")
+    mood_kind_likelihood = likelihood_named(model, "mood_kind")
+    obs_cat_intercepts = parameter_named(model, "obs_cat_intercepts")
+    obs_cat_slopes = parameter_named(model, "obs_cat_slopes")
+    rho_mood = parameter_named(model, "rho_mood")
+    sigma_mood = parameter_named(model, "sigma_mood")
+    mood_kind_revised = mood_kind.revised(
+        likelihood=mood_kind_likelihood.revised(
+            law=CategoricalLawSpec[Expression](
+                logits=CallExpression(
+                    function="category_logits",
+                    arguments=(
+                        (
+                            coefficient(
+                                _MANIFEST_MEAN_MOOD_KIND_PARAMETER_ID, "observation_intercept"
+                            )
+                            + (coefficient(1.0, "loading") * state(mood.id))
+                        ),
+                        coefficient(obs_cat_intercepts.id, "category_intercepts"),
+                        coefficient(obs_cat_slopes.id, "category_slopes"),
+                    ),
+                )
+            )
+        )
+    )
+    mood_revised = mood.revised(indicators=(mood_kind_revised,))
+    return model.revised(
+        edges=replace_constructs(model.edges, (mood_revised,)),
+        parameters=(
+            rho_mood,
+            ParameterSpec(
+                id=_MANIFEST_MEAN_MOOD_KIND_PARAMETER_ID,
+                name="manifest_mean_mood_kind",
+                description="Observation intercept for mood_kind",
+                distribution=_MANIFEST_MEAN_MOOD_KIND_DISTRIBUTION_ID,
+            ),
+            sigma_mood,
+            obs_cat_intercepts,
+            obs_cat_slopes,
+        ),
+        distributions={
+            **model.distributions,
+            _MANIFEST_MEAN_MOOD_KIND_DISTRIBUTION_ID: dist.Normal(
+                loc=0.0, scale=1.0, validate_args=False
+            ),
+        },
+    )
+
+
+def _static_t0_mean_gated_without_standardized_channel__with_likelihoods() -> ModelSpec:
+    _TRAIT_FLAG_INDICATOR_ID = IndicatorId("indicator:2af50d06b16a559dee9e")
+    _MANIFEST_MEAN_TRAIT_FLAG_PARAMETER_ID = ParameterId(
+        "parameter:7604955ad068e49b834a6599b202b4de46728634b8aa30f2e7777cc713953a6c"
+    )
+    _MANIFEST_MEAN_TRAIT_FLAG_DISTRIBUTION_ID = DistributionId(
+        "distribution:bec02fdd1551efc70d3c081bc3cdbad3004d831683e93df523591a64fa7e948a"
+    )
+    model = _static_t0_mean_free_with_standardized_channel__with_likelihoods()
+    trait = construct_named(model, "trait")
+    t0_sd_trait = parameter_named(model, "t0_sd_trait")
+    t0_mean_trait = parameter_named(model, "t0_mean_trait")
+    trait_revised = trait.revised(
+        indicators=(
+            IndicatorSpec(
+                observation=AuthoredObservationSpec(
+                    id=_TRAIT_FLAG_INDICATOR_ID,
+                    name="trait_flag",
+                    measurement_dtype="binary",
+                    aggregation=SummaryOperator.LAST,
+                    observation_window=None,
+                ),
+                likelihood=LikelihoodSpec(
+                    law=BernoulliLogitsLawSpec[Expression](
+                        logits=(
+                            coefficient(
+                                _MANIFEST_MEAN_TRAIT_FLAG_PARAMETER_ID, "observation_intercept"
+                            )
+                            + (coefficient(1.0, "loading") * state(trait.id))
+                        )
+                    ),
+                    reasoning="test",
+                ),
+                construct_polarity=IndicatorPolarity.POSITIVE,
+            ),
+        ),
+        coefficients=(
+            coefficient(0.0, "initial_mean"),
+            coefficient(t0_sd_trait.id, "initial_scale"),
+        ),
+    )
+    parameters, distributions = without_parameters(model, t0_mean_trait)
+    return model.revised(
+        edges=replace_constructs(model.edges, (trait_revised,)),
+        parameters=(
+            *parameters,
+            ParameterSpec(
+                id=_MANIFEST_MEAN_TRAIT_FLAG_PARAMETER_ID,
+                name="manifest_mean_trait_flag",
+                description="likelihood.intercept for manifest_mean_trait_flag",
+                distribution=_MANIFEST_MEAN_TRAIT_FLAG_DISTRIBUTION_ID,
+            ),
+        ),
+        distributions={
+            **distributions,
+            _MANIFEST_MEAN_TRAIT_FLAG_DISTRIBUTION_ID: dist.Normal(
+                loc=0.0, scale=1.0, validate_args=False
+            ),
+        },
+    )
+
+
+def _manifest_intercept_remains_free_for_binary_channel__with_likelihoods() -> ModelSpec:
+    _MOOD_FLAG_INDICATOR_ID = IndicatorId("indicator:f6e3cfa37e27221c32d7")
+    _MANIFEST_MEAN_MOOD_FLAG_PARAMETER_ID = ParameterId(
+        "parameter:92944ebc8cd24d4ef9e7c52a8cf36626b63e00598eba7e4a9781680d950652aa"
+    )
+    _MANIFEST_MEAN_MOOD_FLAG_DISTRIBUTION_ID = DistributionId(
+        "distribution:12b1eb4208f179cfe7f24dc517d33059930f432b6492172f54c40e83e4ed69ab"
+    )
+    model = _all_categorical_construct_gets_anchor_slope__with_likelihoods()
+    mood = construct_named(model, "mood")
+    obs_cat_intercepts = parameter_named(model, "obs_cat_intercepts")
+    obs_cat_slopes = parameter_named(model, "obs_cat_slopes")
+    rho_mood = parameter_named(model, "rho_mood")
+    sigma_mood = parameter_named(model, "sigma_mood")
+    mood_revised = mood.revised(
+        indicators=(
+            IndicatorSpec(
+                observation=AuthoredObservationSpec(
+                    id=_MOOD_FLAG_INDICATOR_ID,
+                    name="mood_flag",
+                    measurement_dtype="binary",
+                    aggregation=SummaryOperator.LAST,
+                    observation_window=None,
+                ),
+                likelihood=LikelihoodSpec(
+                    law=BernoulliLogitsLawSpec[Expression](
+                        logits=(
+                            coefficient(
+                                _MANIFEST_MEAN_MOOD_FLAG_PARAMETER_ID, "observation_intercept"
+                            )
+                            + (coefficient(1.0, "loading") * state(mood.id))
+                        )
+                    ),
+                    reasoning="test",
+                ),
+                construct_polarity=IndicatorPolarity.POSITIVE,
+            ),
+        )
+    )
+    _parameters, distributions = without_parameters(model, obs_cat_intercepts, obs_cat_slopes)
+    return model.revised(
+        edges=replace_constructs(model.edges, (mood_revised,)),
+        parameters=(
+            rho_mood,
+            ParameterSpec(
+                id=_MANIFEST_MEAN_MOOD_FLAG_PARAMETER_ID,
+                name="manifest_mean_mood_flag",
+                description="Observation intercept for mood_flag",
+                distribution=_MANIFEST_MEAN_MOOD_FLAG_DISTRIBUTION_ID,
+            ),
+            sigma_mood,
+        ),
+        distributions={
+            **distributions,
+            _MANIFEST_MEAN_MOOD_FLAG_DISTRIBUTION_ID: dist.Normal(
+                loc=0.0, scale=1.0, validate_args=False
+            ),
+        },
+    )
+
+
+def _manifest_intercept_is_rejected_for_standardized_channel__with_likelihoods() -> ModelSpec:
+    _MANIFEST_MEAN_MOOD_RATING_PARAMETER_ID = ParameterId(
+        "parameter:bca1520f34995d14ca61465d185091a1771da172ba8bb846e3a977f55273ad4e"
+    )
+    _MANIFEST_MEAN_MOOD_RATING_DISTRIBUTION_ID = DistributionId(
+        "distribution:d9087f182aea71973885f8cbf78f98441e37efbc8085c11f927f13088997b2e9"
+    )
+    model = _categorical_loading_pinned_in_mixed_construct__with_likelihoods()
+    mood = construct_named(model, "mood")
+    mood_rating = indicator_named(model, "mood_rating")
+    mood_rating_likelihood = likelihood_named(model, "mood_rating")
+    obs_sd_mood_rating = parameter_named(model, "obs_sd_mood_rating")
+    obs_cat_intercepts = parameter_named(model, "obs_cat_intercepts")
+    obs_cat_slopes = parameter_named(model, "obs_cat_slopes")
+    rho_mood = parameter_named(model, "rho_mood")
+    sigma_mood = parameter_named(model, "sigma_mood")
+    mood_rating_revised = mood_rating.revised(
+        likelihood=mood_rating_likelihood.revised(
+            law=NormalLawSpec[Expression](
+                loc=(
+                    coefficient(_MANIFEST_MEAN_MOOD_RATING_PARAMETER_ID, "observation_intercept")
+                    + (coefficient(1.0, "loading") * state(mood.id))
+                ),
+                scale=coefficient(0.0, "observation_scale"),
+            )
+        )
+    )
+    mood_revised = mood.revised(indicators=(mood_rating_revised,))
+    _parameters, distributions = without_parameters(
+        model, obs_sd_mood_rating, obs_cat_intercepts, obs_cat_slopes
+    )
+    return model.revised(
+        edges=replace_constructs(model.edges, (mood_revised,)),
+        parameters=(
+            rho_mood,
+            ParameterSpec(
+                id=_MANIFEST_MEAN_MOOD_RATING_PARAMETER_ID,
+                name="manifest_mean_mood_rating",
+                description="Observation intercept for mood_rating",
+                distribution=_MANIFEST_MEAN_MOOD_RATING_DISTRIBUTION_ID,
+            ),
+            sigma_mood,
+        ),
+        distributions={
+            **distributions,
+            _MANIFEST_MEAN_MOOD_RATING_DISTRIBUTION_ID: dist.Normal(
+                loc=0.0, scale=1.0, validate_args=False
+            ),
+        },
+    )
+
+
+def _cutpoints_keep_free_base_model_fixture() -> ModelSpec:
+    return load_model_fixture(
+        "identification_anchors/testorderedthresholds_test_cutpoints_keep_free_base_model_fixture.json"
+    )
+
+
+def _ordinal_only_construct_compiles__with_likelihoods() -> ModelSpec:
+    return load_model_fixture(
+        "identification_anchors/testorderedthresholds_test_ordinal_only_construct_compiles__with_likelihoods.json"
+    )
+
+
+def _manifest_intercept_is_rejected_for_threshold_channel__with_likelihoods() -> ModelSpec:
+    _MANIFEST_MEAN_MOOD_LEVEL_PARAMETER_ID = ParameterId(
+        "parameter:0bdc340bfd8c14cfd0b29c37f345a0d3d12539d90d56333f5caff8e5aefa8faa"
+    )
+    _MANIFEST_MEAN_MOOD_LEVEL_DISTRIBUTION_ID = DistributionId(
+        "distribution:a115b821036afd88a9926c11f8b6bb63d71a7ce1924ab784573f94d24eddf28b"
+    )
+    model = _ordinal_only_construct_compiles__with_likelihoods()
+    mood = construct_named(model, "mood")
+    mood_level = indicator_named(model, "mood_level")
+    mood_level_likelihood = likelihood_named(model, "mood_level")
+    obs_ordered_base_mood_level = parameter_named(model, "obs_ordered_base_mood_level")
+    obs_ordered_gaps_mood_level = parameter_named(model, "obs_ordered_gaps_mood_level")
+    rho_mood = parameter_named(model, "rho_mood")
+    sigma_mood = parameter_named(model, "sigma_mood")
+    mood_level_revised = mood_level.revised(
+        likelihood=mood_level_likelihood.revised(
+            law=OrderedLogisticLawSpec[Expression](
+                predictor=(
+                    coefficient(_MANIFEST_MEAN_MOOD_LEVEL_PARAMETER_ID, "observation_intercept")
+                    + (coefficient(1.0, "loading") * state(mood.id))
+                ),
+                cutpoints=CallExpression(
+                    function="ordered_cutpoints",
+                    arguments=(
+                        coefficient(obs_ordered_base_mood_level.id, "cutpoint_base"),
+                        coefficient(obs_ordered_gaps_mood_level.id, "cutpoint_gaps"),
+                    ),
+                ),
+            )
+        )
+    )
+    mood_revised = mood.revised(indicators=(mood_level_revised,))
+    return model.revised(
+        edges=replace_constructs(model.edges, (mood_revised,)),
+        parameters=(
+            rho_mood,
+            ParameterSpec(
+                id=_MANIFEST_MEAN_MOOD_LEVEL_PARAMETER_ID,
+                name="manifest_mean_mood_level",
+                description="Observation intercept for mood_level",
+                distribution=_MANIFEST_MEAN_MOOD_LEVEL_DISTRIBUTION_ID,
+            ),
+            sigma_mood,
+            obs_ordered_base_mood_level,
+            obs_ordered_gaps_mood_level,
+        ),
+        distributions={
+            **model.distributions,
+            _MANIFEST_MEAN_MOOD_LEVEL_DISTRIBUTION_ID: dist.Normal(
+                loc=0.0, scale=1.0, validate_args=False
+            ),
+        },
+    )
+
+
+def _reference_prefers_continuous_over_ordinal__with_likelihoods() -> ModelSpec:
+    return load_model_fixture(
+        "identification_anchors/testanchorsurfaces_test_reference_prefers_continuous_over_ordinal__with_likelihoods.json"
+    )
+
+
+def _free_center_with_standardized_channel_compiles__with_likelihoods() -> ModelSpec:
+    return load_model_fixture(
+        "identification_anchors/testlocationanchors_test_free_center_with_standardized_channel_compiles__with_likelihoods.json"
+    )
+
 
 pytestmark = pytest.mark.contract
 
@@ -107,13 +679,7 @@ _LIKELIHOOD_BY_DTYPE = {
 class TestOrderedThresholds:
     def test_cutpoints_keep_free_base(self):
         """The threshold base shifts the cutpoints instead of cancelling out."""
-        spec = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "identification_anchors/testorderedthresholds_test_cutpoints_keep_free_base_model_fixture.json"
-            ).read_text()
-        )
+        spec = _cutpoints_keep_free_base_model_fixture()
         laws = materialize_observation_laws(
             compile_model_fixture(spec),
             {
@@ -130,13 +696,7 @@ class TestOrderedThresholds:
 
     def test_ordinal_only_construct_compiles(self):
         """Well-at-zero anchors location; the fixed logistic link anchors scale."""
-        spec = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "identification_anchors/testorderedthresholds_test_ordinal_only_construct_compiles__with_likelihoods.json"
-            ).read_text()
-        )
+        spec = _ordinal_only_construct_compiles__with_likelihoods()
         assert numeric.categorical_anchors(compile_model_fixture(spec)) is not None
         assert not any(numeric.categorical_anchors(compile_model_fixture(spec)))
         assert float(compile_model_fixture(spec).loading_block.template[0, 0]) == 1.0
@@ -145,13 +705,7 @@ class TestOrderedThresholds:
     def test_manifest_intercept_is_rejected_for_threshold_channel(self):
         with pytest.raises(AggregatedCompileError, match=r"Observation intercept.*is inactive"):
             compile_model_fixture(
-                ModelSpec.model_validate_json(
-                    (
-                        Path(__file__).resolve().parents[2]
-                        / "fixtures/models"
-                        / "identification_anchors/testorderedthresholds_test_manifest_intercept_is_rejected_for_threshold_channel__with_likelihoods.json"
-                    ).read_text()
-                )
+                _manifest_intercept_is_rejected_for_threshold_channel__with_likelihoods()
             )
 
 
@@ -164,58 +718,28 @@ class TestLocationAnchors:
     def test_manifest_intercept_is_rejected_for_standardized_channel(self):
         with pytest.raises(AggregatedCompileError, match=r"Observation intercept.*is inactive"):
             compile_model_fixture(
-                ModelSpec.model_validate_json(
-                    (
-                        Path(__file__).resolve().parents[2]
-                        / "fixtures/models"
-                        / "identification_anchors/testlocationanchors_test_manifest_intercept_is_rejected_for_standardized_channel__with_likelihoods.json"
-                    ).read_text()
-                )
+                _manifest_intercept_is_rejected_for_standardized_channel__with_likelihoods()
             )
 
     def test_manifest_intercept_remains_free_for_raw_gaussian_sum_channel(self):
         indicator = _indicator("fill_quantity", "dose", "continuous")
         indicator["observation"]["aggregation"] = "sum"
-        spec = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "identification_anchors/testlocationanchors_test_manifest_intercept_remains_free_for_raw_gaussian_sum_channel__with_likelihoods.json"
-            ).read_text()
-        )
+        spec = _manifest_intercept_remains_free_for_raw_gaussian_sum_channel__with_likelihoods()
 
         assert numeric.observation_standardized(compile_model_fixture(spec)) == (False,)
         assert compile_model_fixture(spec).observation_mean_block.free_support.tolist() == [True]
 
     def test_manifest_intercept_remains_free_for_binary_channel(self):
-        spec = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "identification_anchors/testlocationanchors_test_manifest_intercept_remains_free_for_binary_channel__with_likelihoods.json"
-            ).read_text()
-        )
+        spec = _manifest_intercept_remains_free_for_binary_channel__with_likelihoods()
         assert compile_model_fixture(spec).observation_mean_block.free_support.tolist() == [True]
 
     def test_free_center_without_standardized_channel_fails(self):
-        model = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "identification_anchors/testlocationanchors_test_free_center_without_standardized_channel_fails__with_likelihoods.json"
-            ).read_text()
-        )
+        model = _free_center_without_standardized_channel_fails__with_likelihoods()
         with pytest.raises(ValueError, match="Construct 'mood' has no location anchor"):
             StructuralSelection(model, None)
 
     def test_free_center_with_standardized_channel_compiles(self):
-        spec = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "identification_anchors/testlocationanchors_test_free_center_with_standardized_channel_compiles__with_likelihoods.json"
-            ).read_text()
-        )
+        spec = _free_center_with_standardized_channel_compiles__with_likelihoods()
         assert numeric.observation_standardized(compile_model_fixture(spec)) is not None
         assert numeric.observation_standardized(compile_model_fixture(spec))[0]
 
@@ -224,40 +748,38 @@ class TestLocationAnchors:
         [
             pytest.param(
                 False,
-                "identification_anchors/testlocationanchors_test_exact_state_anchors_location_for_every_summary_complete_component_slots_2_false-last.json",
+                _exact_state_anchors_location_for_every_summary_complete_component_slots_2_false_last,
                 id="False-last",
             ),
             pytest.param(
                 False,
-                "identification_anchors/testlocationanchors_test_exact_state_anchors_location_for_every_summary_complete_component_slots_2_false-sum.json",
+                _exact_state_anchors_location_for_every_summary_complete_component_slots_2_false_sum,
                 id="False-sum",
             ),
             pytest.param(
                 False,
-                "identification_anchors/testlocationanchors_test_exact_state_anchors_location_for_every_summary_complete_component_slots_2_false-count.json",
+                _exact_state_anchors_location_for_every_summary_complete_component_slots_2_false_count,
                 id="False-count",
             ),
             pytest.param(
                 True,
-                "identification_anchors/testlocationanchors_test_exact_state_anchors_location_for_every_summary_complete_component_slots_true-last.json",
+                _exact_state_anchors_location_for_every_summary_complete_component_slots_true_last,
                 id="True-last",
             ),
             pytest.param(
                 True,
-                "identification_anchors/testlocationanchors_test_exact_state_anchors_location_for_every_summary_complete_component_slots_true-sum.json",
+                _exact_state_anchors_location_for_every_summary_complete_component_slots_true_sum,
                 id="True-sum",
             ),
             pytest.param(
                 True,
-                "identification_anchors/testlocationanchors_test_exact_state_anchors_location_for_every_summary_complete_component_slots_true-count.json",
+                _exact_state_anchors_location_for_every_summary_complete_component_slots_true_count,
                 id="True-count",
             ),
         ],
     )
     def test_exact_state_anchors_location_for_every_summary(self, affine, model_payload):
-        payload = (
-            Path(__file__).resolve().parents[2] / "fixtures/models" / model_payload
-        ).read_text()
+        payload = model_payload().model_dump_json()
         model = ModelSpec.model_validate_json(payload)
         if affine:
             with pytest.raises(ValueError, match="Construct 'mood' has no location anchor"):
@@ -266,25 +788,13 @@ class TestLocationAnchors:
             StructuralSelection(model, None)
 
     def test_static_t0_mean_gated_without_standardized_channel(self):
-        spec = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "identification_anchors/testlocationanchors_test_static_t0_mean_gated_without_standardized_channel__with_likelihoods.json"
-            ).read_text()
-        )
+        spec = _static_t0_mean_gated_without_standardized_channel__with_likelihoods()
         assert numeric.state_names(compile_model_fixture(spec)) is not None
         trait_index = numeric.state_names(compile_model_fixture(spec)).index("trait")
         assert not compile_model_fixture(spec).initial_mean_block.free_support[trait_index]
 
     def test_static_t0_mean_free_with_standardized_channel(self):
-        spec = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "identification_anchors/testlocationanchors_test_static_t0_mean_free_with_standardized_channel__with_likelihoods.json"
-            ).read_text()
-        )
+        spec = _static_t0_mean_free_with_standardized_channel__with_likelihoods()
         assert numeric.state_names(compile_model_fixture(spec)) is not None
         trait_index = numeric.state_names(compile_model_fixture(spec)).index("trait")
         assert compile_model_fixture(spec).initial_mean_block.free_support[trait_index]
@@ -304,13 +814,7 @@ class TestLocationAnchors:
 
 class TestCategoricalAnchors:
     def test_categorical_loading_pinned_in_mixed_construct(self):
-        spec = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "identification_anchors/testcategoricalanchors_test_categorical_loading_pinned_in_mixed_construct__with_likelihoods.json"
-            ).read_text()
-        )
+        spec = _categorical_loading_pinned_in_mixed_construct__with_likelihoods()
         assert numeric.observation_names(compile_model_fixture(spec)) is not None
         assert numeric.categorical_anchors(compile_model_fixture(spec)) is not None
         cat_row = numeric.observation_names(compile_model_fixture(spec)).index("mood_kind")
@@ -319,13 +823,7 @@ class TestCategoricalAnchors:
         assert not numeric.categorical_anchors(compile_model_fixture(spec))[cat_row]
 
     def test_all_categorical_construct_gets_anchor_slope(self):
-        spec = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "identification_anchors/testcategoricalanchors_test_all_categorical_construct_gets_anchor_slope__with_likelihoods.json"
-            ).read_text()
-        )
+        spec = _all_categorical_construct_gets_anchor_slope__with_likelihoods()
         assert numeric.categorical_anchors(compile_model_fixture(spec)) == (True,)
         assert numeric.observation_level_counts(compile_model_fixture(spec)) == (3,)
 
@@ -348,13 +846,7 @@ class TestCategoricalAnchors:
     def test_manifest_intercept_is_rejected_for_categorical_channel(self):
         with pytest.raises(AggregatedCompileError, match=r"Observation intercept.*is inactive"):
             compile_model_fixture(
-                ModelSpec.model_validate_json(
-                    (
-                        Path(__file__).resolve().parents[2]
-                        / "fixtures/models"
-                        / "identification_anchors/testcategoricalanchors_test_manifest_intercept_is_rejected_for_categorical_channel__with_likelihoods.json"
-                    ).read_text()
-                )
+                _manifest_intercept_is_rejected_for_categorical_channel__with_likelihoods()
             )
 
 
@@ -365,13 +857,7 @@ class TestCategoricalAnchors:
 
 class TestAnchorSurfaces:
     def test_reference_prefers_continuous_over_ordinal(self):
-        spec = ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "identification_anchors/testanchorsurfaces_test_reference_prefers_continuous_over_ordinal__with_likelihoods.json"
-            ).read_text()
-        )
+        spec = _reference_prefers_continuous_over_ordinal__with_likelihoods()
         assert numeric.observation_names(compile_model_fixture(spec)) is not None
         continuous_row = numeric.observation_names(compile_model_fixture(spec)).index("mood_rating")
         ordinal_row = numeric.observation_names(compile_model_fixture(spec)).index("mood_level")

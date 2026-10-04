@@ -33,7 +33,6 @@ class ParameterDiagnostics(Value):
 class TraceSeries(Value):
     """Every retained draw, grouped in original chain order."""
 
-    parameter: str
     subject: ParameterRef
     chains: tuple[tuple[float, ...], ...]
 
@@ -41,9 +40,7 @@ class TraceSeries(Value):
 class RankHistogram(Value):
     """Pooled-rank bin counts, grouped in original chain order."""
 
-    parameter: str
     subject: ParameterRef
-    n_bins: int
     expected_per_bin: float
     chains: tuple[tuple[int, ...], ...]
 
@@ -91,7 +88,6 @@ type ConvergenceAssessmentSubject = ConvergenceSubject | Literal["recorded_param
 class ParameterConvergenceReport(Value):
     """Recorded-chain criteria cover parameters, not latent-path mixing."""
 
-    scope: Literal["recorded_parameter_chains"] = "recorded_parameter_chains"
     assessments: tuple[Assessment[ConvergenceAssessmentSubject, NumericCriterionEvidence], ...]
 
     @computed_field
@@ -152,13 +148,6 @@ class LOODiagnostics(Value):
     p_loo: float
     se: float
     n_data_points: int
-    observation_unit: Literal["measurement_row"] = "measurement_row"
-    prediction_task: Literal["interpolation_given_other_measurements"] = (
-        "interpolation_given_other_measurements"
-    )
-    likelihood_source: Literal["exact_emission_on_joint_particle_draws"] = (
-        "exact_emission_on_joint_particle_draws"
-    )
     n_bad_k: int | None = None
     n_warn_k: int | None = None
     pareto_warning_limit: float = 0.5
@@ -168,8 +157,6 @@ class LOODiagnostics(Value):
 class ParticleMCMCEvidence(Value):
     """The production particle-MCMC target and its exact latent transition."""
 
-    engine: Literal["marginal_particle_gibbs"] = "marginal_particle_gibbs"
-    latent_transition: Literal["euler_maruyama"] = "euler_maruyama"
 
 
 class PosteriorMarginal(Value):
@@ -324,18 +311,9 @@ class ParticleSamplerDiagnostics(Value):
     """Typed exact-sampler settings and transition telemetry from the native producer."""
 
     settings: SamplerSpec
-    latent_kernel: str
-    latent_smoother: str
-    latent_smoother_algorithm: str
-    latent_smoother_family: str
-    latent_smoother_selection: str
-    latent_smoother_parallel: bool
     parameter_kernel: str
     mcmc_phase_seconds: float
-    latent_backward_sampling: bool
-    amala_delta_adapted: bool
     dsmc_leaf_proposal: str
-    latent_transition_kind: str
     diagnostic_metrics: tuple[str, ...]
     param_target_accept: float
     parameter_preconditioned: bool
@@ -346,7 +324,6 @@ class ParticleSamplerDiagnostics(Value):
     latent_block_coords: int | None
     initial_param_step_size: tuple[float, ...]
     final_param_step_size: tuple[float, ...]
-    latent_init_method: str
     latent_sign_flip_moves: bool | None = None
     chain_post_warmup_complete_log_posterior_mean: tuple[float, ...]
     latent_move_rms_mean: float | None = None
@@ -357,12 +334,3 @@ class ParticleSamplerDiagnostics(Value):
     amala_grad_norm_max: float | None = None
     parameter_warmup: ParameterWarmupDiagnostics
 
-
-class TemperingDiagnostics(Value):
-    """Retained tempering telemetry, separate from evidence of a production engine."""
-
-    n_levels: int
-    n_particles: int
-    accept_rates: tuple[float, ...]
-    beta_schedule: tuple[float, ...]
-    ess_history: tuple[float, ...]

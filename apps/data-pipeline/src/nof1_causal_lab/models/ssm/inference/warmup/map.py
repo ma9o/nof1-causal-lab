@@ -285,7 +285,6 @@ class LaplaceModeOptimizationResult:
     n_function_evals: int
     status: int
     success: bool
-    optimizer: str
     init_log_posterior_best: float
     optimizer_hess_inv: spo.LbfgsInvHessProduct
     final_eval_diagnostics: OuterEvaluationDiagnostics
@@ -469,7 +468,6 @@ def _optimize_laplace_parameter_mode(
             n_function_evals=1,
             status=0,
             success=True,
-            optimizer="L-BFGS-B",
             init_log_posterior_best=float(
                 jax.device_get(
                     runtime_log_posterior_fn(
@@ -615,7 +613,6 @@ def _optimize_laplace_parameter_mode(
         n_function_evals=int(opt_result.nfev),
         status=int(opt_result.status),
         success=bool(opt_result.success),
-        optimizer="L-BFGS-B",
         init_log_posterior_best=float(init_log_posterior_best),
         optimizer_hess_inv=opt_result.hess_inv,
         final_grad_norm=float(np.linalg.norm(final_grad)),
@@ -860,10 +857,8 @@ def fit_map(
     mode_log_posterior = mode_eval["log_posterior"]
     mode_log_likelihood = mode_eval["log_likelihood"]
     mode_log_prior = mode_eval["log_prior"]
-    mode_inner = mode_eval["inner"]
     logger.info(
-        "MAP mode found: optimizer=%s success=%s nit=%s nfev=%s objective=%.6f",
-        mode_result.optimizer,
+        "MAP L-BFGS-B mode found: success=%s nit=%s nfev=%s objective=%.6f",
         success,
         nit,
         nfev,
@@ -963,7 +958,6 @@ def fit_map(
             )
 
     diagnostics: WarmupDiagnostics = WarmupDiagnostics(
-        optimizer=mode_result.optimizer,
         success=success,
         status=status,
         n_iters=nit,
@@ -972,17 +966,6 @@ def fit_map(
         mode_log_posterior=mode_log_posterior,
         mode_log_likelihood=mode_log_likelihood,
         mode_log_prior=mode_log_prior,
-        mode_grad_norm=mode_result.final_grad_norm,
-        mode_inner_solver=_solver_label(mode_inner["solver_kind"]),
-        mode_inner_iterations=mode_inner["n_iterations"],
-        mode_inner_accepted_steps=mode_inner["n_accepted_steps"],
-        mode_inner_rel_change=mode_inner["final_rel_change"],
-        mode_inner_damping=mode_inner["final_damping"],
-        mode_inner_step_alpha=mode_inner["final_step_alpha"],
-        mode_inner_step_norm=mode_inner["final_step_norm"],
-        mode_inner_log_joint_gain=_inner_log_joint_gain(mode_inner),
-        mode_inner_laplace_logdet=mode_inner["laplace_logdet"],
-        mode_inner_min_chol_diag=mode_inner["min_chol_diag"],
         init_log_posterior_best=mode_result.init_log_posterior_best,
         n_init_samples=n_init_samples,
         n_ieks_iters=n_ieks_iters,

@@ -488,9 +488,60 @@
       }
     }
   },
-  "time_points": [
-    0.0,
-    1.0
-  ],
-  "measurement_clock": "1d"
+  "measurement_clock": "1d",
+  "law_layouts": {
+    "distribution:04aa492d6a497b07a87ec4b9ca053a0ad094e452f27802aaab99b5ee5b7dc228": {
+      "parameters": [
+        [
+          "parameter:279585fe4ef2bce5a87546777c0788476675435d79f539c6d25c67fa357e2778",
+          [
+            "element:3b3918538ec8d621f87e0fda88a027937d9b881f060c6aaba3f611306e581e4f"
+          ]
+        ],
+        [
+          "parameter:45ab650e8918992bbc18cb937edddf7e7750fa8fd64abcdc657ac2bd523b8550",
+          [
+            "element:c5cce8caf72ad960ca0f628c4e48c12441ecd2bf314d5042fec1794be15dc4ce"
+          ]
+        ],
+        [
+          "parameter:58d9d11a14b807b28b376c88488612536f37b7af747725282c4177e6b16b610e",
+          [
+            "element:1186fcbe0c71d3f4b7328151a0b8867927ad6a6ce1571c9235897d6a91937357"
+          ]
+        ],
+        [
+          "parameter:6a1b6341754182920efb9d3468d9e3c43857daa90cc063538e050cc85abb3404",
+          [
+            "element:67504e3e93a1423ba45b91be19783e09ceb56acbde2126e17d725a3de690249e"
+          ]
+        ],
+        [
+          "parameter:78d5767e06a3d1515ea8d5387cfb07bcd37096757720bb58606fc176a8c95c15",
+          [
+            "element:3cfc5ce717170d7546e07573efcdbb2541dc7a8c450423d8d7f61a39b294d0d3"
+          ]
+        ]
+      ],
+      "constructs": [
+        "construct:a1cddfa8657e4a8cb3ae",
+        "construct:c270c8ac9df81ed2ec60"
+      ],
+      "time_points": [
+        0.0,
+        1.0
+      ],
+      "labels": {
+        "element:3b3918538ec8d621f87e0fda88a027937d9b881f060c6aaba3f611306e581e4f": "rho_outcome",
+        "element:c5cce8caf72ad960ca0f628c4e48c12441ecd2bf314d5042fec1794be15dc4ce": "sigma_outcome",
+        "element:1186fcbe0c71d3f4b7328151a0b8867927ad6a6ce1571c9235897d6a91937357": "beta_treatment_outcome",
+        "element:67504e3e93a1423ba45b91be19783e09ceb56acbde2126e17d725a3de690249e": "sigma_treatment",
+        "element:3cfc5ce717170d7546e07573efcdbb2541dc7a8c450423d8d7f61a39b294d0d3": "rho_treatment"
+      },
+      "construct_labels": {
+        "construct:c270c8ac9df81ed2ec60": "treatment",
+        "construct:a1cddfa8657e4a8cb3ae": "outcome"
+      }
+    }
+  }
 }

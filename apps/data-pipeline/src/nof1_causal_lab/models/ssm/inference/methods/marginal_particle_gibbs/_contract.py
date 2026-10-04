@@ -5,7 +5,7 @@
 from __future__ import annotations
 
 from collections.abc import Callable, Mapping
-from typing import TYPE_CHECKING, Literal, NamedTuple
+from typing import TYPE_CHECKING, NamedTuple
 
 import jax.numpy as jnp
 
@@ -25,24 +25,12 @@ type TransitionLogProbFn = Callable[
     [ParticleContext, jnp.ndarray, jnp.ndarray, jnp.ndarray], jnp.ndarray
 ]
 
-_LATENT_SMOOTHER_DSMC = "dsmc"
 # Paid mixture leaf: the amala_exact z-anchored component plus a FIXED pilot
 # component (IEKS warmup moments) and a wide tail, all inside one paid proposal
 # density. Any component that is useless on a given fit costs only its share of
 # proposal mass — never correctness — so the mixture strictly generalizes
 # amala_exact (its z-component alone).
 _DSMC_LEAF_PROPOSAL_PAID_MIX = "paid_mix"
-
-
-class MPGibbsLatentSmoother(NamedTuple):
-    """Static metadata for an MPGibbs latent smoother implementation."""
-
-    name: Literal["dsmc"]
-    algorithm: str
-    family: str
-    selection: str
-    parallel: bool
-    backward_sampling: bool
 
 
 class MPGibbsLatentSmootherResult(NamedTuple):
@@ -52,17 +40,6 @@ class MPGibbsLatentSmootherResult(NamedTuple):
     final_label_log_probs: Float[Array, " K"]
     origin_path: jnp.ndarray
     diagnostics: Mapping[str, jnp.ndarray]
-
-
-def _resolve_latent_smoother(name: Literal["dsmc"]) -> MPGibbsLatentSmoother:
-    return MPGibbsLatentSmoother(
-        name=name,
-        algorithm="conditional_desequentialized_smc",
-        family="posterior_mixture_dsmc",
-        selection="tree_stitch_combination",
-        parallel=True,
-        backward_sampling=False,
-    )
 
 
 class MPGibbsStatic(NamedTuple):

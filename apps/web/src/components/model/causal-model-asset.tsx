@@ -1,9 +1,10 @@
 "use client";
 
 import {
+  type CompletedPoll,
   type ModelSnapshot,
   type RunningAction,
-  type StudyRevision,
+  type TimelineRevision,
 } from "@nof1-causal-lab/api-types";
 import Link from "next/link";
 import { useEffect, useMemo, useRef } from "react";
@@ -26,8 +27,7 @@ export interface CausalModelAssetViewProps {
   workspaceId: string;
   question: string | undefined;
   useSnapshot: SnapshotReader;
-  attempts: readonly StudyRevision[];
-  branches: StudyJournal["branches"];
+  attempts: readonly TimelineRevision[];
   dependencies: StudyJournal["dependencies"];
   useActionTrace: UseActionTrace;
   running: RunningAction | null;
@@ -42,18 +42,33 @@ export interface CausalModelAssetViewProps {
  * overlay its saved evidence on the parent version, and the record states what was compared.
  */
 export function CausalModelAssetView(props: CausalModelAssetViewProps) {
-  const { selected, current, viewAt, focusSeq } = useWorkbenchSnapshots(
+  const { selected, viewAt, focusSeq, hasSelectedState, hasCurrentState } = useWorkbenchSnapshots(
     props.attempts,
-    props.branches,
     props.useSnapshot,
   );
-  if (selected.error || current.error)
+  if (selected.error)
     return (
       <div role="alert" className="p-6">
-        {(selected.error ?? current.error)?.message}
+        {selected.error.message}
       </div>
     );
-  if (!selected.data || !current.data)
+  if (!hasSelectedState || !hasCurrentState) {
+    const tick = props.attempts.find((entry) => entry.record.seq === focusSeq) ?? props.attempts.at(-1);
+    return (
+      <div className="flex min-h-screen flex-col gap-4 bg-muted/20">
+        <header className="border-b bg-card p-4">
+          <Link href="/" className="text-sm font-semibold">N-of-1 Causal Lab</Link>
+          <p className="text-sm">{props.question ?? props.workspaceId}</p>
+        </header>
+        <VersionScrubber ticks={props.attempts} dependencies={props.dependencies} playhead={tick?.record.seq ?? 0} latest={0}
+          comparedSeq={null} onPlayhead={viewAt} onPreviewComparison={() => {}} onEndPreview={() => {}} onKeepComparison={() => {}} />
+        <section className="mx-4 flex min-h-64 flex-col rounded-2xl border bg-card">
+          <ActionRecord workspaceId={props.workspaceId} context={null} tick={tick} running={props.running} useActionTrace={props.useActionTrace} />
+        </section>
+      </div>
+    );
+  }
+  if (!selected.data)
     return (
       <div role="status" className="p-6">
         Loading model version…
@@ -62,9 +77,9 @@ export function CausalModelAssetView(props: CausalModelAssetViewProps) {
   return (
     <ModelRevision
       {...props}
+      result={selected.result}
       model={selected.data}
-      currentModel={current.data}
-      loadingRevision={selected.isPlaceholderData === true || current.isPlaceholderData === true}
+      loadingRevision={selected.isPlaceholderData === true}
       viewAt={viewAt}
       focusSeq={focusSeq}
     />
@@ -75,18 +90,17 @@ function ModelRevision({
   workspaceId,
   question: initialQuestion,
   attempts,
-  branches,
   dependencies,
   useActionTrace,
   model,
-  currentModel,
+  result,
   loadingRevision,
   viewAt,
   focusSeq,
   running,
 }: CausalModelAssetViewProps & {
   model: ModelSnapshot;
-  currentModel: ModelSnapshot;
+  result: CompletedPoll | undefined;
   loadingRevision: boolean;
   viewAt: (seq: number | null) => void;
   focusSeq: number;
@@ -113,14 +127,15 @@ function ModelRevision({
     question: initialQuestion,
     attempts,
     model,
-    currentModel,
+    focusSeq,
+    result,
     viewAt,
   });
   const recordedPaths = useSimulationPaths(model);
   const tick = ticks.find((item) => item.record.seq === focusSeq);
   const dataDiff =
     tick?.record.attempt.action === "data_diff" && tick.record.attempt.outcome.status === "applied"
-      ? tick.record.attempt.outcome.result.report
+      ? result?.attempt.action === "data_diff" && result.attempt.outcome.status === "applied" ? result.data_comparison : null
       : null;
   const context = { ...versionContext, dataDiff };
   // Nodes chart what the viewed version's action produced.
@@ -157,7 +172,6 @@ function ModelRevision({
         dependencies={dependencies}
         playhead={focusSeq}
         latest={latest}
-        branch={model.branch}
         comparedSeq={activeComparison?.after ?? null}
         onPlayhead={selectVersion}
         onPreviewComparison={(seq) => previewComparison(seq)}
@@ -283,8 +297,8 @@ function ModelRevision({
               context={context}
               tick={tick}
               running={
-                // Work dispatched after a branch head has no node yet; it runs under that head.
-                running && focusSeq === playhead && model.commit_id === branches[running.branch]
+                // Work still running has no completed timeline node yet.
+                running && focusSeq === latest
                   ? running
                   : null
               }
@@ -309,8 +323,8 @@ export function CausalModelAsset({
 }) {
   const useSnapshot = useMemo(
     () =>
-      function useWorkspaceSnapshot(commitId: string | undefined, branch: string) {
-        return useModelSnapshot(workspaceId, commitId, branch);
+      function useWorkspaceSnapshot(commitId: string | undefined) {
+        return useModelSnapshot(workspaceId, commitId);
       },
     [workspaceId],
   );
@@ -321,11 +335,11 @@ export function CausalModelAsset({
         const traceIds = record?.record.trace_ids ?? [];
         const query = useLLMTraceForAction(
           workspaceId,
-          record?.commit_id ?? null,
+          record,
           traceIds,
           enabled,
         );
-        if (!enabled || traceIds.length === 0 || query.isError) return { status: "absent" };
+        if (!enabled || record?.record.attempt.outcome.status !== "applied" || record.record.attempt.request === null || traceIds.length === 0 || query.isError) return { status: "absent" };
         if (query.data) return { status: "ready", trace: query.data };
         return { status: "loading" };
       },
@@ -337,7 +351,6 @@ export function CausalModelAsset({
       question={question}
       useSnapshot={useSnapshot}
       attempts={journal.attempts}
-      branches={journal.branches}
       dependencies={journal.dependencies}
       useActionTrace={useActionTrace}
       running={journal.running}

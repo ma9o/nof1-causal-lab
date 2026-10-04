@@ -19,6 +19,7 @@ with workflow.unsafe.imports_passed_through():
         FitRequest,
         PrepareDataRequest,
         SetQuestionRequest,
+        call_identity,
     )
     from nof1_causal_lab.actions.results import (
         ActionPoll,
@@ -39,18 +40,20 @@ with workflow.unsafe.imports_passed_through():
         EvaluateChecksInput,
         IngestionWorkflowInput,
         MeasurementsWorkflowInput,
-        ReadBranchInput,
+        ReadInputsInput,
         SetQuestionInput,
         StudyInit,
     )
     from nof1_causal_lab.actions.temporal.workflow_support import temporal_failure
     from nof1_causal_lab.artifacts.data_preparation import FilePreparationSpec
+    from nof1_causal_lab.artifacts.validation_report import DataProfileArtifact
+    from nof1_causal_lab.actions.messages import completion_messages
     from nof1_causal_lab.study.records import (
         ActionAttempt,
         ActionMessage,
         Applied,
         AttemptRecord,
-        BranchBase,
+        ActionBase,
         DataPreparationResult,
         EditAttempt,
         ModelFitResult,
@@ -61,7 +64,7 @@ with workflow.unsafe.imports_passed_through():
         applied_attempt,
         failed_attempt,
     )
-    from nof1_causal_lab.study.state import validate_lineage, validate_model_base
+    from nof1_causal_lab.study.state import validate_lineage
     from nof1_causal_lab.study.view_models import DataDiffRequest
 _RUN_ACTION_TIMEOUT = timedelta(hours=4)
 _WRITE_TIMEOUT = timedelta(minutes=5)
@@ -75,7 +78,6 @@ _ACTIVITY_RETRY = RetryPolicy(
     maximum_attempts=3,
     non_retryable_error_types=[
         "ActionExecutionError",
-        "ModelCompileError",
         "IncompleteModelError",
         "ModelFitError",
         "ArtifactWriteRejected",
@@ -94,6 +96,7 @@ class StudyWorkflow:
         self._closed = False
         self._lock = asyncio.Lock()
         self._attempts: dict[UUID, ActionPoll] = {}
+        self._calls: dict[str, UUID] = {}
         self._messages: tuple[ActionMessage, ...] = ()
 
     @workflow.run
@@ -102,8 +105,15 @@ class StudyWorkflow:
         await workflow.wait_condition(lambda: self._closed)
 
     @workflow.update
-    async def execute_action(self, request: ActionRequest) -> None:
-        self._attempts[request.attempt_id] = RunningPoll()
+    async def execute_action(self, request: ActionRequest) -> ActionPoll:
+        identity = call_identity(request.request)
+        existing = self.call_progress(identity)
+        if isinstance(existing, RunningPoll) or (
+            isinstance(existing, CompletedPoll) and isinstance(existing.attempt.outcome, Applied)
+        ):
+            return existing
+        self._calls[identity] = request.attempt_id
+        self._attempts[request.attempt_id] = RunningPoll(attempt_id=request.attempt_id, request=request.request)
         async with self._lock:
             try:
                 await self._execute_action(request)
@@ -124,6 +134,7 @@ class StudyWorkflow:
                 )
             finally:
                 workflow.upsert_memo({RUNNING_ACTION_MEMO: None})
+        return self._attempts[request.attempt_id]
 
     async def _execute_action(self, request: ActionRequest) -> None:
         action = request.request
@@ -133,41 +144,32 @@ class StudyWorkflow:
             ),
         )
         self._report_progress(request)
+        try:
+            base = await workflow.execute_activity(
+                "read_inputs_activity",
+                ReadInputsInput(workspace_id=self._workspace_id, request=action),
+                result_type=ActionBase,
+                start_to_close_timeout=_JOURNAL_TIMEOUT,
+                retry_policy=_ACTIVITY_RETRY,
+            )
+        except ActivityError as exc:
+            self._seq += 1
+            failure = temporal_failure(exc)
+            outcome = Rejected(reason="input_unavailable", detail=failure.error_message) if failure.error_type == "StudyLookupError" else failure
+            await self._journal(self._seq, request, None, failed_attempt(action, outcome))
+            return
+        if base.saved is not None:
+            saved = base.saved
+            self._attempts[request.attempt_id] = CompletedPoll(
+                commit_id=saved.commit_id, attempt=saved.record.attempt, messages=saved.record.messages
+            )
+            return
         self._seq += 1
         seq = self._seq
-        base = await workflow.execute_activity(
-            "read_branch_activity",
-            ReadBranchInput(workspace_id=self._workspace_id, branch=request.branch),
-            result_type=BranchBase,
-            start_to_close_timeout=_JOURNAL_TIMEOUT,
-            retry_policy=_ACTIVITY_RETRY,
+        lineage = validate_lineage(base.state, action.action) if not isinstance(action, DataDiffRequest) else (
+            None if base.state.has("question") else "Set the study question first"
         )
-        reason = (
-            "Branch conflict: head changed; reload the selected branch before retrying"
-            if not isinstance(action, DataDiffRequest)
-            and request.expected_head is not None
-            and request.expected_head != base.commit_id
-            else validate_model_base(base.state, action.expected_revision)
-            if isinstance(action, EditModelRequest)
-            else None
-        )
-        lineage = (
-            None
-            if isinstance(action, DataDiffRequest)
-            else validate_lineage(base.state, action.action)
-        )
-        rejection = (
-            Rejected(reason="revision_conflict", detail=reason)
-            if reason is not None
-            else Rejected(
-                reason="revision_conflict"
-                if isinstance(action, SetQuestionRequest)
-                else "input_unavailable",
-                detail=lineage,
-            )
-            if lineage is not None
-            else None
-        )
+        rejection = Rejected(reason="input_unavailable", detail=lineage) if lineage is not None else None
         if rejection is not None:
             await self._journal(seq, request, base, failed_attempt(action, rejection))
             return
@@ -218,7 +220,7 @@ class StudyWorkflow:
                 self._report_progress(request)
                 if isinstance(action, PrepareDataRequest):
                     assert isinstance(result.result, DataPreparationResult)
-                    result = await workflow.execute_activity(
+                    profile = await workflow.execute_activity(
                         "evaluate_data_checks_activity",
                         EvaluateChecksInput[DataPreparationResult](
                             workspace_id=self._workspace_id,
@@ -226,14 +228,15 @@ class StudyWorkflow:
                             applied=Applied(result=result.result, effects=result.effects),
                             request=action,
                         ),
-                        result_type=Applied[DataPreparationResult],
+                        result_type=DataProfileArtifact,
                         task_queue=MODEL_CHECKS_TASK_QUEUE,
                         start_to_close_timeout=_CHECK_TIMEOUT,
                         retry_policy=_ACTIVITY_RETRY,
                     )
+                    self._messages = (*self._messages, *completion_messages(result, workflow.now(), (profile,)))
                 else:
                     assert result.result is None or isinstance(result.result, ModelFitResult)
-                    result = await workflow.execute_activity(
+                    checks, identification, validation = await workflow.execute_activity(
                         evaluate_model_checks_activity,
                         EvaluateChecksInput[ModelFitResult | None](
                             workspace_id=self._workspace_id,
@@ -245,23 +248,11 @@ class StudyWorkflow:
                         start_to_close_timeout=_CHECK_TIMEOUT,
                         retry_policy=_ACTIVITY_RETRY,
                     )
-                attempt = applied_attempt(action, result)
+                    reports = (identification, validation) if validation is not None else (identification,)
+                    self._messages = (*self._messages, *completion_messages(result, workflow.now(), reports, checks=checks))
         except (ActivityError, ChildWorkflowError) as exc:
             attempt = failed_attempt(action, temporal_failure(exc))
-        try:
-            await self._journal(seq, request, base, attempt)
-        except ActivityError as exc:
-            failure = temporal_failure(exc)
-            if failure.error_type != "BranchConflict":
-                raise
-            await self._journal(
-                seq,
-                request,
-                base,
-                failed_attempt(
-                    action, Rejected(reason="revision_conflict", detail=failure.error_message)
-                ),
-            )
+        await self._journal(seq, request, base, attempt)
 
     async def _prepare_files(
         self, seq: int, request: ActionRequest, preparation: FilePreparationSpec
@@ -303,9 +294,7 @@ class StudyWorkflow:
             request=request.request,
             outcome=Applied(
                 result=DataPreparationResult(
-                    raw_data=extracted.result.raw_data,
                     workers=extracted.result.workers,
-                    n_observations=extracted.result.n_observations,
                     ingestion_reused=ingested.result.ingestion_reused,
                     extraction_reused=extracted.result.extraction_reused,
                 ),
@@ -323,21 +312,26 @@ class StudyWorkflow:
     def action_progress(self, attempt_id: UUID) -> ActionPoll | None:
         return self._attempts.get(attempt_id)
 
+    @workflow.query
+    def call_progress(self, identity: str) -> ActionPoll | None:
+        attempt_id = self._calls.get(identity)
+        return self._attempts.get(attempt_id) if attempt_id is not None else None
+
     def _report_progress(self, request: ActionRequest) -> None:
-        self._attempts[request.attempt_id] = RunningPoll(messages=self._messages)
+        self._attempts[request.attempt_id] = RunningPoll(attempt_id=request.attempt_id, request=request.request, messages=self._messages)
         workflow.upsert_memo(
             {
                 RUNNING_ACTION_MEMO: RunningAction(
                     attempt_id=request.attempt_id,
                     action=request.request.action,
-                    branch=request.branch,
+                    request=request.request,
                     messages=self._messages,
                 )
             }
         )
 
     async def _journal(
-        self, seq: int, request: ActionRequest, base: BranchBase, attempt: ActionAttempt
+        self, seq: int, request: ActionRequest, base: ActionBase | None, attempt: ActionAttempt
     ) -> None:
         outcome = attempt.outcome
         label = (
@@ -359,13 +353,10 @@ class StudyWorkflow:
             "journal_activity",
             AttemptPublication(
                 workspace_id=self._workspace_id,
-                expected_head=request.expected_head
-                if isinstance(request.request, DataDiffRequest)
-                else base.commit_id,
+                parent_id=base.commit_id if base is not None else None,
                 record=AttemptRecord(
                     seq=seq,
                     attempt_id=request.attempt_id,
-                    branch=request.branch,
                     ts=workflow.now().isoformat(),
                     attempt=attempt,
                     messages=messages,

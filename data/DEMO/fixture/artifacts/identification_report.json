@@ -7,7 +7,6 @@
       "marginalized_confounders": [
         "construct:2da513406663702e475d"
       ],
-      "method": "do_calculus",
       "status": "identified"
     },
     "construct:27f64faaddd59b2ad491": {
@@ -16,7 +15,6 @@
       "marginalized_confounders": [
         "construct:2da513406663702e475d"
       ],
-      "method": "do_calculus",
       "status": "identified"
     },
     "construct:428de2b75c12e36ca19d": {
@@ -25,7 +23,6 @@
       "marginalized_confounders": [
         "construct:2da513406663702e475d"
       ],
-      "method": "do_calculus",
       "status": "identified"
     },
     "construct:47ab45d6fa00e93be7ee": {
@@ -34,7 +31,6 @@
       "marginalized_confounders": [
         "construct:2da513406663702e475d"
       ],
-      "method": "do_calculus",
       "status": "identified"
     },
     "construct:4a7b8d4d0772b0b10e4e": {
@@ -43,7 +39,6 @@
       "marginalized_confounders": [
         "construct:2da513406663702e475d"
       ],
-      "method": "do_calculus",
       "status": "identified"
     },
     "construct:4cfc4a70f9d59a668364": {
@@ -52,7 +47,6 @@
       "marginalized_confounders": [
         "construct:2da513406663702e475d"
       ],
-      "method": "do_calculus",
       "status": "identified"
     },
     "construct:517d64db16ceb6e6a692": {
@@ -61,7 +55,6 @@
       "marginalized_confounders": [
         "construct:2da513406663702e475d"
       ],
-      "method": "do_calculus",
       "status": "identified"
     },
     "construct:5bf588dc29d582cd7423": {
@@ -70,7 +63,6 @@
       "marginalized_confounders": [
         "construct:2da513406663702e475d"
       ],
-      "method": "do_calculus",
       "status": "identified"
     },
     "construct:7b3d7a5f98ae353c60b6": {
@@ -79,7 +71,6 @@
       "marginalized_confounders": [
         "construct:2da513406663702e475d"
       ],
-      "method": "do_calculus",
       "status": "identified"
     },
     "construct:ac82920bb78125ab0aca": {
@@ -88,7 +79,6 @@
       "marginalized_confounders": [
         "construct:2da513406663702e475d"
       ],
-      "method": "do_calculus",
       "status": "identified"
     },
     "construct:b7418d1841c57d53abf8": {
@@ -97,7 +87,6 @@
       "marginalized_confounders": [
         "construct:2da513406663702e475d"
       ],
-      "method": "do_calculus",
       "status": "identified"
     },
     "construct:bb5a697c4e5f020f733d": {
@@ -106,7 +95,6 @@
       "marginalized_confounders": [
         "construct:2da513406663702e475d"
       ],
-      "method": "do_calculus",
       "status": "identified"
     },
     "construct:eb28b45b275c6732596f": {
@@ -115,7 +103,6 @@
       "marginalized_confounders": [
         "construct:2da513406663702e475d"
       ],
-      "method": "do_calculus",
       "status": "identified"
     },
     "construct:ecfbf689dbd8add308bb": {
@@ -124,7 +111,6 @@
       "marginalized_confounders": [
         "construct:2da513406663702e475d"
       ],
-      "method": "do_calculus",
       "status": "identified"
     }
   }

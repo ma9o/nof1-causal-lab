@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from pathlib import Path
+from tests.git_fixtures import artifact_revisions
+
 from typing import TYPE_CHECKING, Any
 
 import numpy as np
@@ -10,15 +11,18 @@ import pytest
 
 from nof1_causal_lab.actions.contracts import FitRequest
 from nof1_causal_lab.actions.runners import run_action_locally
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.models.ssm.inference.shared import model_draws
-from nof1_causal_lab.study.lineage import inference_is_current
 from nof1_causal_lab.study.state import apply_effects
 from nof1_causal_lab.study.store import read_model
 from tests.helpers import run_async, write_question
-from tests.inference_fixtures import particle_posterior
+from tests.inference_fixtures import (
+    bind_panel_fixture,
+    compile_model_fixture,
+    model_draws,
+    parameter_draws,
+    particle_posterior,
+)
 from tests.integration import runner_fixtures as fx
-from tests.model_fixtures import bind_panel_fixture, compile_model_fixture, parameter_draws
+from tests.model_fixtures import stress_sleep_model
 
 pytestmark = pytest.mark.contract
 
@@ -40,17 +44,7 @@ def test_inference_advances_model_and_uses_the_selected_input(
 
     original = fx.seed_model(artifact_store)
     panel = fx.seed_panel(artifact_store, model_revision=original.revision)
-    authored = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[1]
-            / "fixtures/models"
-            / "common/stress_sleep_model.json"
-        ).read_text()
-    )
-    from nof1_causal_lab.artifacts.posterior import InferenceReportDetail
-    from nof1_causal_lab.artifacts.posterior_diagnostics import ChainDiagnostics
-
-    telemetry = ChainDiagnostics(num_chains=1, num_samples=4, per_parameter=())
+    authored = stress_sleep_model()
     parameters = parameter_draws(authored, 4)
     states = tuple(numerics.state_ids(compile_model_fixture(authored)))
     paths = jnp.arange(4 * 2 * len(states), dtype=jnp.float32).reshape(4, 2, len(states))
@@ -72,11 +66,6 @@ def test_inference_advances_model_and_uses_the_selected_input(
                 jnp.zeros((2, 2)),
                 jnp.array([0.0, 1.0], dtype=jnp.float32),
             ),
-            "inference_diagnostics": telemetry,
-            "loo_diagnostics": None,
-            "posterior_marginals": (),
-            "posterior_pairs": (),
-            "detail": InferenceReportDetail(),
         }
 
     monkeypatch.setattr(stage5_fit, "fit_model", fake_fit_model)
@@ -102,9 +91,13 @@ def test_inference_advances_model_and_uses_the_selected_input(
             "panel": applied.result.panel.revision,
             "question": question.revision,
         } == info.derived_from
-        assert applied.result.report.core.inference_diagnostics == telemetry
-        assert applied.result.report.core.inference_metadata.n_samples == 4
-        assert applied.result.report.core.engine.evidence.latent_transition == "euler_maruyama"
+        from nof1_causal_lab.actions.fit import read_inference_report
+        report = read_inference_report(artifact_store, info.revision, applied.result.evidence)
+        assert report.core.inference_diagnostics.num_chains == 1
+        assert report.core.inference_diagnostics.num_samples == 4
+        assert report.core.inference_metadata.n_samples == 4
+        assert "report" not in applied.result.model_dump()
+        assert applied.result.evidence.distribution in read_model(artifact_store, info.revision).law_layouts
         conditioned = read_model(artifact_store, info.revision)
         assert type(conditioned) is type(authored)
         assert conditioned.distributions
@@ -114,9 +107,9 @@ def test_inference_advances_model_and_uses_the_selected_input(
         for name, values in parameters.items():
             np.testing.assert_array_equal(retained.parameters[name], values)
         state = apply_effects(state, applied.effects.produced, applied.effects.retracted)
-        assert inference_is_current(state)
+        assert state.current["model"].produced_by == "fit"
     assert fitted_inputs == [
         read_model(artifact_store, original.revision).model_dump(mode="json") for _ in range(2)
     ]
     assert read_model(artifact_store, original.revision).model_dump(mode="json") == fitted_inputs[0]
-    assert artifact_store.list_revisions("model") == revisions
+    assert artifact_revisions(artifact_store, "model") == revisions

@@ -103,18 +103,6 @@ class IngestionConfig:
 
 @with_config(ConfigDict(extra="forbid"))
 @dataclass(frozen=True)
-class StructureProposalConfig:
-    """Structure Proposal (orchestrator contexts)."""
-
-    llm: LLMProfileSpec
-    sample_chunks: int = 10
-    chunk_size: int = 100
-    latent_max_tool_turns: int = 40
-    measurement_max_tool_turns: int = 40
-
-
-@with_config(ConfigDict(extra="forbid"))
-@dataclass(frozen=True)
 class ExtractionWorkersConfig:
     """extraction: Support-Window Extraction (Workers).
 
@@ -128,26 +116,7 @@ class ExtractionWorkersConfig:
     max_events_per_window: int = 300
     max_rpm: int = 450
     worker_timeout: int = 120
-    chunk_size: int = 50
     max_tool_turns: int = 40
-
-
-@with_config(ConfigDict(extra="forbid"))
-@dataclass(frozen=True)
-class LiteratureSearchConfig:
-    """Literature search configuration for grounding priors."""
-
-    enabled: bool = True
-
-
-@with_config(ConfigDict(extra="forbid"))
-@dataclass(frozen=True)
-class PriorElicitationConfig:
-    """model-spec: Statistical Model Specification & Prior Elicitation."""
-
-    llm: LLMProfileSpec
-    max_tool_turns: int = 40
-    literature_search: LiteratureSearchConfig = field(default_factory=LiteratureSearchConfig)
 
 
 # ---------------------------------------------------------------------------
@@ -172,22 +141,13 @@ class InferenceConfig:
 
 @with_config(ConfigDict(extra="forbid"))
 @dataclass(frozen=True)
-class PipelineBehaviorConfig:
-    """Pipeline-level behavioral settings."""
-
-
-@with_config(ConfigDict(extra="forbid"))
-@dataclass(frozen=True)
 class PipelineConfig:
     """Full pipeline configuration."""
 
     ingestion: IngestionConfig
-    structure_proposal: StructureProposalConfig
     extraction_workers: ExtractionWorkersConfig
-    prior_elicitation: PriorElicitationConfig
     inference: InferenceConfig = field(default_factory=InferenceConfig)
     llm: LLMDefaults = field(default_factory=LLMDefaults)
-    pipeline: PipelineBehaviorConfig = field(default_factory=PipelineBehaviorConfig)
 
 
 # ---------------------------------------------------------------------------
@@ -197,11 +157,6 @@ class PipelineConfig:
 
 def get_secret(name: str) -> str | None:
     """Get a secret from environment variables."""
-    return os.getenv(name)
-
-
-async def get_secret_async(name: str) -> str | None:
-    """Async variant of ``get_secret``."""
     return os.getenv(name)
 
 
@@ -250,9 +205,7 @@ def get_config() -> PipelineConfig:
 def _iter_profile_llms(config: PipelineConfig) -> list[tuple[str, LLMProfileSpec]]:
     return [
         ("ingestion", config.ingestion.llm),
-        ("structure_proposal", config.structure_proposal.llm),
         ("extraction_workers", config.extraction_workers.llm),
-        ("prior_elicitation", config.prior_elicitation.llm),
     ]
 
 

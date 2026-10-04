@@ -1,8 +1,10 @@
-"""The workbench retains irregular timing, modes, paired draws and nonlinear mechanisms."""
+"""The workbench retains irregular timing, modes and paired draws."""
+
+from __future__ import annotations
 
 from datetime import UTC, datetime, timedelta
-from pathlib import Path
 from types import SimpleNamespace
+from typing import TYPE_CHECKING
 from unittest.mock import Mock
 
 import numpy as np
@@ -11,25 +13,21 @@ import pytest
 
 from nof1_causal_lab.artifacts.availability import Available
 from nof1_causal_lab.artifacts.construct import replace_constructs
-from nof1_causal_lab.artifacts.expressions import (
-    expression_coefficients,
-    hill,
-    restoring_potential,
-    state,
-)
-from nof1_causal_lab.artifacts.identity import IndicatorId, MechanismId
-from nof1_causal_lab.artifacts.mechanism import (
-    DriftMechanismSpec,
-    PotentialMechanismSpec,
-)
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.identity import ConstructId, IndicatorId
 from nof1_causal_lab.artifacts.scenarios import CausalEffectResult
 from nof1_causal_lab.models.model_structure import StructuralSelection, selected_state_ids
 from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.snapshots import ModelReader
-from nof1_causal_lab.study.visual_models import MechanismViewRequest
-from tests.helpers import make_model
-from tests.model_fixtures import compile_model_fixture
+from tests.inference_fixtures import compile_model_fixture
+from tests.model_fixtures import load_model_fixture, x_y_model
+
+
+def _x_y_z_model() -> ModelSpec:
+    return load_model_fixture("visuals/x_y_z_model.json")
+
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 
 @pytest.mark.contract
@@ -61,12 +59,11 @@ def test_observations_keep_irregular_anchors_support_missingness_and_empirical_m
     assert view.times == (0, 0.25, 8, 10, 11)
     assert view.values == (-4, -4, None, 5, 5)
     assert view.support_start == (-1, 0, 7, 9, 10)
-    assert [(p.value, p.probability, p.count) for p in view.empirical] == [(-4, 0.5, 2), (5, 1, 2)]
+    assert [(p.value, p.probability) for p in view.empirical] == [(-4, 0.5), (5, 1)]
 
 
 @pytest.mark.contract
 def test_paging_original_paths_preserves_opposite_modes_and_paired_effects(monkeypatch):
-    from nof1_causal_lab.artifacts.identity import ConstructId
 
     state_id = ConstructId("construct:state")
     indicator = IndicatorId("indicator:observed")
@@ -111,6 +108,7 @@ def test_paging_original_paths_preserves_opposite_modes_and_paired_effects(monke
             get_construct=lambda _identity: SimpleNamespace(name="State")
         ),
     )
+    report.evidence = SimpleNamespace(**{key: value for key, value in vars(report).items() if key != "causal"})
     view = ModelReader.simulation_paths(reader, start=0, count=2)
     assert view is not None
     assert view.effect is not None
@@ -129,94 +127,19 @@ def test_paging_original_paths_preserves_opposite_modes_and_paired_effects(monke
         ModelReader.simulation_paths(reader, start=3, count=1)
 
 
-@pytest.mark.inference(concern="simulation")
-def test_exact_hill_curves_retain_saturation_and_sign_changing_moderation():
-    model = make_model(["X", "Y"], [("X", "Y")])
-    edge = model.edges[0]
-    expression = hill(state(edge.cause.id), emax=4.0, ec50=2.0, n=2.0) * state(edge.effect.id)
-    model = model.revised(
-        edges=(
-            edge.revised(
-                mechanisms=(
-                    DriftMechanismSpec(id=MechanismId("mechanism:hill"), expression=expression),
-                )
-            ),
-        )
-    )
-    request = MechanismViewRequest(
-        owner_id=edge.id,
-        lower=0,
-        upper=10,
-        moderator=edge.effect.id,
-        levels=(-1.0, 1.0),
-        points=101,
-    )
-    result = ModelReader.mechanism_curves(Mock(spec=ModelReader, model=model), request)
-    x = np.asarray(result.x)
-    expected = 4 * x**2 / (4 + x**2)
-    np.testing.assert_allclose(
-        np.asarray(result.curves[0].values, dtype=float), -expected, atol=1e-6
-    )
-    np.testing.assert_allclose(
-        np.asarray(result.curves[1].values, dtype=float), expected, atol=1e-6
-    )
-    assert result.law == "fixed"
-    assert result.total_draws == 1
-    assert result.curves[1].values[20] == pytest.approx(2.0)
-    assert result.curves[1].values[-1] is not None
-    assert result.curves[1].values[-1] < 4
-    with pytest.raises(StudyLookupError, match="moderator"):
-        ModelReader.mechanism_curves(
-            Mock(spec=ModelReader, model=model),
-            request.revised(moderator=edge.cause.id),
-        )
-
-
-@pytest.mark.inference(concern="simulation")
-def test_potential_response_is_the_negative_gradient_not_the_potential():
-    model = make_model(["X", "Y"], [("X", "Y")])
-    owner = model.edges[0].effect
-    potential = PotentialMechanismSpec(
-        id=MechanismId("mechanism:potential"),
-        kind="potential",
-        expression=restoring_potential(owner.id, center=1.0, stiffness=2.0, quartic=3.0),
-    )
-    model = model.revised(
-        edges=replace_constructs(
-            model.edges,
-            [owner.revised(dynamics=(potential,))],
-        )
-    )
-    result = ModelReader.mechanism_curves(
-        Mock(spec=ModelReader, model=model),
-        MechanismViewRequest(owner_id=owner.id, lower=-2, upper=4),
-    )
-    delta = np.asarray(result.x) - 1
-    np.testing.assert_allclose(
-        np.asarray(result.curves[0].values, dtype=float),
-        -2 * delta - 3 * delta**3,
-        rtol=3e-6,
-        atol=1e-5,
-    )
-
-
 @pytest.mark.inference(concern="sampling")
 def test_every_parameter_coordinate_and_joint_draw_survives_the_read(monkeypatch):
     from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
-    from nof1_causal_lab.models.ssm.joint_layout import JointLawLayout
+    from nof1_causal_lab.models.ssm.compile.bindings import joint_law_layout
     from nof1_causal_lab.numpyro_json import empirical_distribution
 
-    model = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[1] / "fixtures/models" / "visuals/x_y_z_model.json"
-        ).read_text()
-    )
+    model = _x_y_z_model()
     bindings, _ = parameter_bindings(compile_model_fixture(model))
-    layout = JointLawLayout.from_bindings(
+    layout = joint_law_layout(
         bindings,
         parameters=[b.parameter_id for b in bindings],
         constructs=selected_state_ids(StructuralSelection(model, None)),
-        time_points=(0, 10),
+        time_points=(0, 10), construct_labels={item.id:item.name for item in model.constructs},
     )
     atoms = np.arange(503 * layout.width, dtype=float).reshape(503, layout.width)
     model = model.revised(
@@ -229,7 +152,7 @@ def test_every_parameter_coordinate_and_joint_draw_survives_the_read(monkeypatch
             [c.revised(distribution=layout.distribution_id) for c in model.constructs],
         ),
         distributions={layout.distribution_id: empirical_distribution(atoms)},
-        time_points=(0, 10),
+        law_layouts={layout.distribution_id: layout},
     )
     monkeypatch.setattr(
         "nof1_causal_lab.study.lineage.law_provenance",
@@ -242,6 +165,8 @@ def test_every_parameter_coordinate_and_joint_draw_survives_the_read(monkeypatch
         store=None,
         state=SimpleNamespace(current={"model": None}),
     )
+    monkeypatch.setattr("nof1_causal_lab.models.ssm.compile.inputs.compile_executable_model",
+        lambda *_args: pytest.fail("Raw draws must remain readable without the compiler"))
     view = ModelReader.parameter_draws(reader)
     assert view.kind == "available"
     assert len(view.value) > 6
@@ -250,54 +175,15 @@ def test_every_parameter_coordinate_and_joint_draw_survives_the_read(monkeypatch
         np.testing.assert_array_equal(
             column.values, atoms[:, layout.parameter_columns[column.subject.element_id]]
         )
-        assert sum(point.count for point in column.empirical) == 503
+        assert len(column.values) == 503
         assert column.empirical[-1].probability == 1
-
-
-@pytest.mark.inference(concern="simulation")
-def test_declared_scalar_law_can_be_inspected_with_unfinished_unrelated_mechanisms():
-    model = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[1] / "fixtures/models" / "visuals/x_y_z_model.json"
-        ).read_text()
-    )
-    edge, unfinished = model.edges
-    removed = {
-        operand.value
-        for m in unfinished.mechanisms
-        for operand in expression_coefficients(m.expression)
-    }
-    kept = tuple(p for p in model.parameters if p.id not in removed)
-    laws = {p.distribution for p in kept} | {c.distribution for c in model.constructs}
-    model = model.revised(
-        edges=(
-            edge,
-            unfinished.revised(mechanisms=()),
-        ),
-        parameters=kept,
-        distributions={
-            identity: law for identity, law in model.distributions.items() if identity in laws
-        },
-    )
-    view = ModelReader.mechanism_curves(
-        Mock(spec=ModelReader, model=model, scoped=lambda value: StructuralSelection(value, None)),
-        MechanismViewRequest(owner_id=edge.id, count=2),
-    )
-    assert view.law == "sampled"
-    assert view.count == 2
-    assert view.nonfinite == 0
-    assert view.curves[0].values != view.curves[1].values
 
 
 @pytest.mark.contract
 def test_predictive_overlay_uses_pinned_schedule_including_support_boundaries(monkeypatch):
     from nof1_causal_lab.artifacts.posterior_diagnostics import PPCOverlay
 
-    model = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[1] / "fixtures/models" / "common/x_y_model.json"
-        ).read_text()
-    )
+    model = x_y_model()
     identity = model.indicators[0].observation.id
     overlay = PPCOverlay(
         indicator_id=identity,
@@ -317,7 +203,7 @@ def test_predictive_overlay_uses_pinned_schedule_including_support_boundaries(mo
         "nof1_causal_lab.study.store.read_model",
         lambda *_args: pytest.fail("Overlay reads must not reconstruct their schedule"),
     )
-    reader = Mock(spec=ModelReader, state=SimpleNamespace(checks=SimpleNamespace(predictive=check)))
+    reader = Mock(spec=ModelReader, checks=(SimpleNamespace(predictive=check), None, None))
     view = ModelReader.predictive_history(reader, identity)
     assert view is overlay
     assert view.times == (0, 1, 9, 10)

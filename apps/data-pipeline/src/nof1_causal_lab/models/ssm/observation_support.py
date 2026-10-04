@@ -17,6 +17,7 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from datetime import datetime
 
+    from nof1_causal_lab.artifacts.observations import ResolvedObservationSpec
     from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
 
 
@@ -502,6 +503,31 @@ def validate_observation_support(
         )
 
     return None
+
+
+
+def recorded_observation_support(
+    times: np.ndarray,
+    variables: tuple[ResolvedObservationSpec, ...],
+    starts: np.ndarray,
+    ends: np.ndarray,
+) -> ObservationSupportRuntime | ObservationPreflightFailure:
+    """Parse the production observation coordinates, deriving only execution weights."""
+    names = tuple(variable.id for variable in variables)
+    kinds = tuple(variable.support_kind.value for variable in variables)
+    coefficients = _compile_interval_support_coefficients(times, starts, ends, kinds, names)
+    if isinstance(coefficients, ObservationPreflightFailure):
+        return coefficients
+    previous, current, weights, slots = coefficients
+    return ObservationSupportRuntime.assembled(
+        anchor_times=times, manifest_names=names, support_kinds=kinds,
+        summary_operators=tuple(variable.summary_operator.value for variable in variables),
+        anchor_policies=tuple(variable.anchor_policy.value for variable in variables),
+        observation_windows=tuple(str(variable.observation_window) for variable in variables),
+        support_start_times=starts, support_end_times=ends,
+        interval_prev_coeffs=previous, interval_curr_coeffs=current,
+        interval_weights=weights, emission_slot_indices=slots,
+    )
 
 
 def simulation_observation_support(

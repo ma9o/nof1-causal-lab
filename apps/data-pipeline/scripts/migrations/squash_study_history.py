@@ -25,7 +25,7 @@ from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.predictive_provenance import FittedLawProvenance, MixedLawProvenance
 from nof1_causal_lab.study.history import StudyRepository
-from nof1_causal_lab.study.lineage import fitted_law_report, law_provenance
+from nof1_causal_lab.study.lineage import law_provenance
 from nof1_causal_lab.study.records import (
     Applied,
     DataPreparationResult,
@@ -36,13 +36,12 @@ from nof1_causal_lab.study.records import (
 from nof1_causal_lab.study.store import ArtifactStore
 from nof1_causal_lab.utils.arrays import read_array
 
-_PRIMARY = {"model", "panel", "data_profile", "raw_data"}
+_PRIMARY = {"question", "model", "panel", "raw_data"}
 
 
 @dataclass(frozen=True)
 class HistorySquashPlan:
     source: Path
-    branch: str
     root: GitOid
     records: tuple[StudyRevision, ...]
     kept: frozenset[GitOid]
@@ -56,10 +55,10 @@ def plan_squash(source: Path, *, at: str) -> HistorySquashPlan:
         raise ValueError(f"No study repository at {path}")
     history = StudyRepository(source.name, repository_path=path)
     repo = history.repo
-    branches = history.branches()
-    if len(branches) != 1 or any(ref.startswith("refs/remotes/") for ref in repo.references):
-        raise ValueError("Squashing requires exactly one study branch")
-    branch, head = next(iter(branches.items()))
+    heads = {name for name in repo.references if name.startswith("refs/heads/")}
+    if heads != {"refs/heads/main"} or any(ref.startswith("refs/remotes/") for ref in repo.references):
+        raise ValueError("Squashing requires the single main study history")
+    head = history.head()
     boundary = GitOid(str(repo.revparse_single(at).peel(pygit2.Commit).id))
     records = history.attempts()
     ancestry = history.records(head)
@@ -73,16 +72,11 @@ def plan_squash(source: Path, *, at: str) -> HistorySquashPlan:
     # whose execution base cannot be remapped by this sequential-workflow rule.
     current = root
     for record in records:
-        if record.record.branch != branch or record.parent_ids != (current,):
+        if record.parent_ids != (current,):
             raise ValueError(f"Attempt {record.record.seq} is outside the single sequential branch")
         outcome = record.record.attempt.outcome
-        logs = repo[record.commit_id].peel(pygit2.Commit).tree["logs"].peel(pygit2.Tree)
-        if "retained-metadata.json" in logs or (
-            isinstance(outcome, Applied)
-            and isinstance(outcome.result, ModelFitResult)
-            and outcome.result.retention == "report_only"
-        ):
-            raise ValueError(f"Archived action at attempt {record.record.seq} is unsupported")
+        if isinstance(outcome, Applied) and record.record.attempt.action == "data_diff":
+            raise ValueError("Recorded comparisons cannot be squashed")
         if record.record.attempt.outcome.status == "applied":
             current = record.commit_id
     recorded_commits = {r.commit_id for r in records}
@@ -97,7 +91,7 @@ def plan_squash(source: Path, *, at: str) -> HistorySquashPlan:
 
     store = ArtifactStore(source.name, repository_path=path)
     # The catalog survives intact, including panels from actions we might drop.
-    for revision in store.list_revisions("panel"):
+    for revision in (ref.rsplit("/", 1)[1] for ref in repo.references if ref.startswith("refs/artifacts/panel/")):
         metadata = store.read_json_file("panel", revision, "metadata.json")
         if isinstance(
             TypeAdapter(DataSourceRef).validate_python(metadata["source"]), SimulationReplicateRef
@@ -151,28 +145,20 @@ def plan_squash(source: Path, *, at: str) -> HistorySquashPlan:
         match outcome.result:
             case ModelFitResult(model=model, panel=panel):
                 pins.update((("model", model.revision), ("panel", panel.revision)))
-            case ModelSimulationResult(report=report, panel=panel):
-                pins.add(("model", report.model.revision))
-                if panel is not None:
-                    pins.add(("panel", panel.revision))
-            case DataPreparationResult(raw_data=raw, model=model):
-                if raw is not None:
-                    pins.add(("raw_data", raw.revision))
-                if model is not None:
-                    pins.add(("model", model.revision))
+            case ModelSimulationResult(evidence=evidence):
+                pins.add(("model", evidence.model.revision))
+                if evidence.origin_panel_revision is not None:
+                    pins.add(("panel", evidence.origin_panel_revision))
+            case DataPreparationResult():
+                pass
             case None:
                 pass
             case _:
-                raise ValueError("Read-only comparisons cannot be squashed")
-        if record.record.attempt.action == "edit_model":
-            parent = history.state(record.parent_ids[0])
-            pins.update(
-                (key, parent.current[key].revision)
-                for key in ("panel", "data_profile")
-                if parent.has(key)
-            )
+                raise ValueError("Recorded comparisons cannot be squashed")
         for artifact in effects.produced:
-            if artifact.artifact_id in _PRIMARY - {"model"}:
+            if artifact.artifact_id == "model" and record.record.attempt.action == "edit_model":
+                pins.update((key, revision) for key, revision in artifact.derived_from.items() if key != "model")
+            elif artifact.artifact_id in _PRIMARY - {"model"}:
                 pins.update(artifact.derived_from.items())
         result = {producer(key, revision, record).commit_id for key, revision in pins}
         models = {revision for key, revision in pins if key == "model"}
@@ -181,7 +167,8 @@ def plan_squash(source: Path, *, at: str) -> HistorySquashPlan:
             owner = fitted_owner(revision)
             if owner is not None:
                 fit = producer("model", owner, record)
-                fitted_law_report([fit], owner)
+                if fit.record.attempt.outcome.result is None:
+                    raise ValueError("A fitted-law owner requires retained numerical evidence")
                 result.add(fit.commit_id)
         return result
 
@@ -194,8 +181,6 @@ def plan_squash(source: Path, *, at: str) -> HistorySquashPlan:
         effects = outcome.effects
         for artifact in (*effects.retracted, *effects.produced):
             last_writers[artifact.artifact_id] = record.commit_id
-        if effects.checks is not None:
-            last_writers["checks"] = record.commit_id
     kept = {root, boundary, *last_writers.values()}
     kept.update(r.commit_id for r in records if r.record.seq > boundary_record.record.seq)
     latest_simulation = next(
@@ -206,7 +191,7 @@ def plan_squash(source: Path, *, at: str) -> HistorySquashPlan:
         outcome = latest_simulation.record.attempt.outcome
         assert isinstance(outcome, Applied)
         assert isinstance(outcome.result, ModelSimulationResult)
-        report = outcome.result.report
+        report = outcome.result.evidence
         if report.model.revision == model.revision:
             kept.add(latest_simulation.commit_id)
 
@@ -219,7 +204,7 @@ def plan_squash(source: Path, *, at: str) -> HistorySquashPlan:
         for dependency in dependencies(record) - kept:
             kept.add(dependency)
             pending.append(dependency)
-    return HistorySquashPlan(source, branch, root, tuple(records), frozenset(kept))
+    return HistorySquashPlan(source, root, tuple(records), frozenset(kept))
 
 
 def copy_squashed(plan: HistorySquashPlan, destination: Path) -> dict[str, str | None]:
@@ -266,13 +251,6 @@ def copy_squashed(plan: HistorySquashPlan, destination: Path) -> dict[str, str |
                 )
         tree = repo.TreeBuilder()
         tree.insert("artifacts", artifacts.write(), pygit2.GIT_FILEMODE_TREE)
-        checks = (
-            original.tree
-            if isinstance(outcome, Applied) and outcome.effects.checks is not None
-            else previous
-        )
-        if "checks.json" in checks:
-            tree.insert("checks.json", checks["checks.json"].id, pygit2.GIT_FILEMODE_BLOB)
         tree.insert("logs", original.tree["logs"].id, pygit2.GIT_FILEMODE_TREE)
         rewritten = repo.create_commit(
             None,
@@ -288,8 +266,8 @@ def copy_squashed(plan: HistorySquashPlan, destination: Path) -> dict[str, str |
             repo.references.create(f"refs/actions/{record.record.attempt_id}", rewritten)
         if record.record.attempt.outcome.status == "applied":
             head = GitOid(str(rewritten))
-    repo.references.create(f"refs/heads/{plan.branch}", pygit2.Oid(hex=head))
-    repo.set_head(f"refs/heads/{plan.branch}")
+    repo.references.create("refs/heads/main", pygit2.Oid(hex=head))
+    repo.set_head("refs/heads/main")
     (destination / "squash-mapping.json").write_text(json.dumps(mapping, indent=2) + "\n")
     return mapping
 

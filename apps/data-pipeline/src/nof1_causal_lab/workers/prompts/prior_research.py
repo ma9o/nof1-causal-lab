@@ -137,53 +137,5 @@ If no literature evidence is available, use domain reasoning and be explicit abo
 Output your prior as JSON.
 """
 
-NO_LITERATURE = """\
-No relevant literature was found for this parameter.
-
-Use domain reasoning to propose a weakly informative prior:
-- Consider what effect sizes are typical in this research area
-- Think about what would be implausibly large or small
-- Be conservative and express uncertainty with a wider prior
-"""
 
 
-def format_literature_for_parameter(
-    sources: list[dict[str, str]],
-) -> str:
-    """Format literature sources for a single parameter.
-
-    Args:
-        sources: List of source dicts from Exa search
-
-    Returns:
-        Formatted string for prompt
-    """
-    if not sources:
-        return NO_LITERATURE
-
-    lines = ["### Relevant Literature\n"]
-
-    for i, source in enumerate(sources, 1):
-        title = source.get("title", "Untitled")
-        url = source.get("url", "")
-        snippet = source.get("snippet", "")
-        effect_size = source.get("effect_size", "")
-
-        lines.append(f"**Source {i}**: {title}")
-        if url:
-            lines.append(f"URL: {url}")
-        if snippet:
-            lines.append(f"Excerpt: {snippet}")
-        if effect_size:
-            lines.append(f"Effect size: {effect_size}")
-        lines.append("")
-
-    lines.extend(
-        [
-            "If you cite these results in a model-spec prior, each `sources` entry must be an object like:",
-            '`{"title": "...", "snippet": "...", "url": "https://...", "effect_size": "β=0.2", "study_interval_days": 7.0}`',
-            "Only `title` and `snippet` are required. If you are unsure, use `sources: []` instead of a malformed entry.",
-        ]
-    )
-
-    return "\n".join(lines)

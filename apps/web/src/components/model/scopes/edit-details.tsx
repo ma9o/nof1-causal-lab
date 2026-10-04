@@ -1,27 +1,25 @@
 import { modelConstructs } from "@/lib/model-accessors";
 import { useModelDiff } from "@/lib/hooks/use-model-diff";
-import { useModelSnapshot } from "@/lib/hooks/use-model-snapshot";
 import { parameterOwner } from "@/lib/model-asset/entities";
-import type { StudyRevision } from "@nof1-causal-lab/api-types";
+import type { TimelineRevision } from "@nof1-causal-lab/api-types";
 import type { ScopeContext } from "@/lib/model-asset/scope";
 import { humanize } from "@/lib/model-asset/selection";
 import { Hint, OwnerLink, Section } from "../scope-primitives";
 
-export function EditDetails({ context, tick }: { context: ScopeContext; tick: StudyRevision }) {
+export function EditDetails({ context, tick }: { context: ScopeContext; tick: TimelineRevision }) {
   const workspaceId = context.model.workspace_id;
-  const base = tick.parent_ids.at(0);
-  const previous = useModelSnapshot(workspaceId, base, tick.record.branch, base !== undefined);
-  const ready = base === undefined || (previous.data && !previous.isPlaceholderData);
-  const hasModel = ready && previous.data?.model != null;
-  const diff = useModelDiff(workspaceId, base ?? "", hasModel ? tick.commit_id : null);
-  const error = previous.error ?? diff.error;
+  const request = tick.record.attempt.request;
+  const base = request?.action === "edit_model" ? request.expected_revision : null;
+  const hasModel = base !== null;
+  const diff = useModelDiff(workspaceId, base, hasModel ? tick.commit_id : null);
+  const error = diff.error;
   return (
     <Section title="Model changes" wide>
       {error ? (
         <p role="alert" className="text-destructive">
           Unable to read model changes: {error.message}
         </p>
-      ) : !ready || (hasModel && !diff.data) ? (
+      ) : hasModel && !diff.data ? (
         <p role="status">Reading model changes…</p>
       ) : !hasModel ? (
         <p className="font-medium">Model created</p>
@@ -49,7 +47,7 @@ export function EditDetails({ context, tick }: { context: ScopeContext; tick: St
               const ref = change.kind === "removed" ? change.before : change.after;
               const model =
                 change.kind === "removed" ? diff.data.beforeModel : diff.data.afterModel;
-              const edge = model.edges.find((item) => item.id === ref.id);
+              const edge = model?.edges.find((item) => item.id === ref.id);
               const name = (id: string) =>
                 humanize(modelConstructs(model).find((item) => item.id === id)?.name ?? id);
               return (

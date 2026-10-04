@@ -1,5 +1,6 @@
 "use client";
 
+import type { TimelineRevision } from "@nof1-causal-lab/api-types";
 import { skipToken, useQuery } from "@tanstack/react-query";
 import { getLLMTraceForAction } from "../api/endpoints";
 
@@ -19,18 +20,18 @@ export function getLLMTraceForActionQueryKey(workspaceId: string | null, commitI
 /** Merged LLM trace of one recorded action: the conversation turn behind a scrubber tick. */
 export function useLLMTraceForAction(
   workspaceId: string | null,
-  commitId: string | null,
+  call: TimelineRevision | undefined,
   traceIds: readonly string[],
   enabled: boolean,
 ) {
   return useQuery({
-    queryKey: getLLMTraceForActionQueryKey(workspaceId, commitId),
+    queryKey: getLLMTraceForActionQueryKey(workspaceId, call?.commit_id ?? null),
     queryFn:
-      workspaceId !== null && commitId !== null && traceIds.length > 0
-        ? () => getLLMTraceForAction(workspaceId, commitId, traceIds)
+      workspaceId !== null && call !== undefined && call.record.attempt.outcome.status === "applied" && call.record.attempt.request !== null && traceIds.length > 0
+        ? () => getLLMTraceForAction(workspaceId, call, traceIds)
         : skipToken,
     // An action without traces (e.g. submitted directly through the API) has nothing to fetch.
-    enabled: !!workspaceId && commitId != null && traceIds.length > 0 && enabled,
+    enabled: !!workspaceId && call?.record.attempt.outcome.status === "applied" && call.record.attempt.request !== null && traceIds.length > 0 && enabled,
     staleTime: Number.POSITIVE_INFINITY,
     retry: false,
   });

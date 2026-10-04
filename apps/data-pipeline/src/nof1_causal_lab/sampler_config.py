@@ -5,8 +5,7 @@ from __future__ import annotations
 import math
 from typing import Literal
 
-import jax
-from pydantic import Field, FiniteFloat, InstanceOf, field_serializer, field_validator
+from pydantic import Field, FiniteFloat, field_serializer, field_validator
 
 from nof1_causal_lab.artifacts.base import Value
 
@@ -17,7 +16,6 @@ class MarginalParticleGibbsSpec(Value):
     """Marginalized Particle Gibbs inference settings."""
 
     n_parameter_particles: int = 2
-    latent_smoother: Literal["dsmc"] = "dsmc"
     latent_delta: float = 0.2
     parameter_proposal: Literal["random_walk", "pseudo_langevin"] = "pseudo_langevin"
     amala_delta_init: float = 1e-2
@@ -53,7 +51,6 @@ class MarginalParticleGibbsSpec(Value):
     adaptation_rate: float = 0.05
     adaptation_scheme: Literal["simple", "dual_averaging"] = "simple"
     init_method: Literal["random", "pathfinder"] = "pathfinder"
-    latent_init_method: Literal["predictive"] = "predictive"
     pathfinder_num_elbo_samples: int = 20
     pathfinder_maxiter: int = 20
     n_pathfinder_starts: int = 8
@@ -89,10 +86,3 @@ class SamplerSpec(Value):
         default_factory=MarginalParticleGibbsSpec
     )
 
-
-class SamplerInitialization(Value):
-    """Caller-owned immutable JAX buffers used only to initialize the sampler."""
-
-    parameter_preconditioner_chol: InstanceOf[jax.Array] | None = None
-    initial_positions: InstanceOf[jax.Array] | None = None
-    latent_trajectories: InstanceOf[jax.Array] | None = None

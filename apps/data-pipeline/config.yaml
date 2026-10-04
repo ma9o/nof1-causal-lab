@@ -39,16 +39,6 @@ ingestion:
     harness: codex
     model: gpt-5.5
 
-# Structure Proposal (orchestrator contexts)
-structure_proposal:
-  sample_chunks: 10
-  chunk_size: 100
-  latent_max_tool_turns: 40
-  measurement_max_tool_turns: 40
-  llm:
-    harness: codex
-    model: gpt-5.5
-
 # extraction: Support-Window Extraction (Workers)
 # extraction fans out across thousands of workers; harness cold-start per worker
 # is untenable, so `harness` is locked to `none` (enforced by config validator).
@@ -65,17 +55,6 @@ extraction_workers:
 # validation: Validation — no LLM (rule-based)
 
 # model-spec: Model Specification & Prior Elicitation
-prior_elicitation:
-  max_tool_turns: 200
-  literature_search:
-    enabled: true
-  llm:
-    harness: pi
-    provider: openai-codex
-    model: gpt-5.4-mini
-    thinking: high
-    timeout: 3600
-
 # Inference — no LLM (NumPyro SSM)
 
 # --- Inference -------------------------------------------------------------
@@ -95,7 +74,6 @@ inference:
       # The indexed production method: parallel-in-time c-dSMC tree smoother with the
       # paid mixture leaf (amala_exact z-component + fixed IEKS-pilot component + wide
       # tail). Benchmarked in notebooks/sampler_audit.py §15-§16.
-      latent_smoother: dsmc
       dsmc_leaf_proposal: paid_mix
       latent_delta: 0.2
       parameter_proposal: pseudo_langevin

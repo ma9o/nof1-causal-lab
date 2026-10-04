@@ -15,25 +15,92 @@ from nof1_causal_lab.artifacts.expressions import (
     BinaryExpression,
     CallExpression,
     CoefficientExpression,
+    Expression,
     LiteralExpression,
     StateExpression,
     coefficient,
+    state,
 )
-from nof1_causal_lab.artifacts.identity import ConstructId, scientific_id
-from nof1_causal_lab.artifacts.likelihood import (
-    LikelihoodSpec,
-    NormalLawSpec,
-    ObservationLawSpec,
+from nof1_causal_lab.artifacts.identity import (
+    ConstructId,
+    DistributionId,
+    ParameterId,
+    scientific_id,
 )
+from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec, NormalLawSpec, ObservationLawSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind
+from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 from nof1_causal_lab.compilation_errors import IncompleteModelError
 from nof1_causal_lab.models.likelihoods import function
 from nof1_causal_lab.models.model_parameters import iter_coefficient_uses
 from nof1_causal_lab.study.equations import observation_equations
 from tests.helpers import make_model
-from tests.model_fixtures import compile_model_fixture
+from tests.inference_fixtures import compile_model_fixture
+from tests.model_fixtures import (
+    construct_named,
+    indicator_named,
+    likelihood_named,
+    parameter_named,
+    x_y_model,
+)
 from tests.observation_fixtures import observation_kernel
+
+
+def _partial_law_is_explicit_and_unsupported_formulas_fail_before_execution_complete_test_model() -> (
+    ModelSpec
+):
+    _MANIFEST_MEAN_X_OBS_PARAMETER_ID = ParameterId(
+        "parameter:45b9d3457845e74a7a9b59f18ad0a57bb8091bb187650d4c597c2c34aefdce05"
+    )
+    _MANIFEST_MEAN_X_OBS_DISTRIBUTION_ID = DistributionId(
+        "distribution:691046b2f9e22a1f8ac7a79808b014fc604bbf2dae8819b0e0594fd70444c3f3"
+    )
+    model = x_y_model()
+    x = construct_named(model, "X")
+    x_obs = indicator_named(model, "X_obs")
+    x_obs_likelihood = likelihood_named(model, "X_obs")
+    rho_x = parameter_named(model, "rho_X")
+    rho_y = parameter_named(model, "rho_Y")
+    beta_x_y = parameter_named(model, "beta_X_Y")
+    sigma_x = parameter_named(model, "sigma_X")
+    sigma_y = parameter_named(model, "sigma_Y")
+    x_obs_revised = x_obs.revised(
+        likelihood=x_obs_likelihood.revised(
+            law=NormalLawSpec[Expression](
+                loc=(
+                    coefficient(_MANIFEST_MEAN_X_OBS_PARAMETER_ID, "observation_intercept")
+                    + (coefficient(1.0, "loading") * state(x.id))
+                ),
+                scale=coefficient(0.0, "observation_scale"),
+            ),
+            standardized=False,
+            reasoning="Partial",
+        )
+    )
+    x_revised = x.revised(indicators=(x_obs_revised,))
+    return model.revised(
+        edges=replace_constructs(model.edges, (x_revised,)),
+        parameters=(
+            rho_x,
+            rho_y,
+            beta_x_y,
+            sigma_x,
+            ParameterSpec(
+                id=_MANIFEST_MEAN_X_OBS_PARAMETER_ID,
+                name="manifest_mean_X_obs",
+                description="likelihood.intercept for manifest_mean_X_obs",
+                distribution=_MANIFEST_MEAN_X_OBS_DISTRIBUTION_ID,
+            ),
+            sigma_y,
+        ),
+        distributions={
+            **model.distributions,
+            _MANIFEST_MEAN_X_OBS_DISTRIBUTION_ID: dist.Normal(
+                loc=0.0, scale=0.5, validate_args=False
+            ),
+        },
+    )
 
 
 @pytest.mark.inference(concern="sampling")
@@ -157,9 +224,7 @@ from tests.observation_fixtures import observation_kernel
 def test_native_conditional_law_matches_exact_emission_lowering(
     family, link, observed, observation_law_payload, revise_law_payload
 ):
-    likelihood = LikelihoodSpec.model_validate_json(
-        (Path(__file__).resolve().parents[2] / "fixtures/models" / revise_law_payload).read_text()
-    )
+    likelihood = revise_law_payload()
     values = {
         "loading": 0.8,
         "observation_intercept": 0.3,
@@ -375,11 +440,7 @@ def test_authored_laws_preserve_coefficient_identities(
 
 @pytest.mark.contract
 def test_completion_binding_equations_and_serialization_follow_the_same_cross_loading():
-    model = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2] / "fixtures/models" / "common/x_y_model.json"
-        ).read_text()
-    )
+    model = x_y_model()
     owner, other = model.constructs
     indicator = owner.indicators[0]
     revised = LikelihoodSpec.model_validate_json(
@@ -465,13 +526,7 @@ def test_partial_law_is_explicit_and_unsupported_formulas_fail_before_execution(
         compile_model_fixture(unfinished)
     assert "?" in observation_equations(unfinished)[indicator.observation.id]
     compile_model_fixture(
-        ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[2]
-                / "fixtures/models"
-                / "likelihood_expressions/partial_law_is_explicit_and_unsupported_formulas_fail_before_execution_complete_test_model.json"
-            ).read_text()
-        )
+        _partial_law_is_explicit_and_unsupported_formulas_fail_before_execution_complete_test_model()
     )
     with pytest.raises(ValidationError, match="unknown constructs"):
         with_law(likelihood)
@@ -494,7 +549,7 @@ def test_law_map_preserves_every_constructor_operand_and_composes():
     """Mapping operands neither changes a law nor drops a native argument."""
     from pydantic import TypeAdapter
 
-    from nof1_causal_lab.artifacts.expressions import Expression, LiteralExpression
+    from nof1_causal_lab.artifacts.expressions import LiteralExpression
     from nof1_causal_lab.artifacts.likelihood import (
         OBSERVATION_LAW_TYPES,
         ObservationLawSpec,

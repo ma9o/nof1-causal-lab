@@ -14,14 +14,7 @@ import jax
 import jax.numpy as jnp
 from typing_extensions import TypedDict
 
-from nof1_causal_lab.artifacts.identity import ParameterRef
-from nof1_causal_lab.artifacts.posterior import InferenceReportDetail
-from nof1_causal_lab.artifacts.posterior_diagnostics import (
-    ChainDiagnostics,
-    LOODiagnostics,
-    ParetoKPoint,
-    PosteriorMarginal,
-)
+
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior
 from nof1_causal_lab.models.ssm.preflight import ObservationPreflightFailure
@@ -41,7 +34,6 @@ if TYPE_CHECKING:
 
     from nof1_causal_lab.artifacts.posterior import FitSettingsSpec
     from nof1_causal_lab.models.model_structure import StructuralSelection
-    from nof1_causal_lab.sampler_config import SamplerInitialization
 
 logger = logging.getLogger(__name__)
 
@@ -53,11 +45,6 @@ class FittedModelResult(TypedDict, closed=True):
     duration_seconds: float
     result: ParticleMCMCPosterior
     panel: BoundPanel
-    inference_diagnostics: ChainDiagnostics
-    loo_diagnostics: tuple[LOODiagnostics, tuple[ParetoKPoint, ...]] | None
-    posterior_marginals: tuple[PosteriorMarginal, ...]
-    posterior_pairs: tuple[tuple[ParameterRef, ParameterRef], ...]
-    detail: InferenceReportDetail
 
 
 class ModelFitFailure(TypedDict, closed=True):
@@ -92,9 +79,8 @@ def fit_prepared_model(
     prepared: PreparedFit,
     *,
     sampler: SamplerSpec,
-    initialization: SamplerInitialization | None = None,
 ) -> ParticleMCMCPosterior | ObservationPreflightFailure:
-    """Run on resolved sampler choices and explicit initialization buffers."""
+    """Run on resolved sampler choices and the sampler's owned initialization."""
     from nof1_causal_lab.models.ssm.inference import fit
 
     profile_dir = resolve_profile_dir(None)
@@ -104,7 +90,6 @@ def fit_prepared_model(
             prepared.inputs.prior_runtime_bundle,
             prepared.panel,
             sampler=sampler,
-            initialization=initialization,
             clock=time.monotonic,
         )
     finally:
@@ -161,7 +146,6 @@ def fit_model(
     *,
     time_origin: datetime | None,
     sampler: SamplerSpec,
-    compute_loo_diagnostics: bool = True,
 ) -> FittedModelResult | ModelFitFailure:
     """Fit the SSM model to data.
 
@@ -226,68 +210,18 @@ def fit_model(
             "duration_seconds": _fit_elapsed_seconds(t0),
         }
     logger.info(
-        "Inference kernel complete in %.1fs: method=%s wide_rows=%d manifest_vars=%d",
+        "Particle inference complete in %.1fs: wide_rows=%d manifest_vars=%d",
         _fit_elapsed_seconds(fit_t0),
-        result.method,
         len(panel.times),
         len(numeric.observation_names(panel.model)),
     )
 
-    # The engine owns the telemetry payload.
-    logger.info("Collecting sampler diagnostics...")
-    from nof1_causal_lab.actions.inference.subjects import parameter_references
-
-    references = parameter_references(prepared.inputs)
-    inference_diagnostics = result.get_inference_diagnostics(references)
-
-    loo_diag = None
-    if compute_loo_diagnostics:
-        logger.info("Computing leave-one-measurement-row-out diagnostics...")
-        loo_diag = result.get_loo_diagnostics(observations=panel.observations)
-    else:
-        logger.info("Skipping LOO diagnostics by configuration.")
-
-    # Posterior marginals and pairs
-    logger.info("Extracting posterior summaries...")
-    posterior_marginals = result.get_posterior_marginals(references)
-    posterior_pairs = result.get_posterior_pairs(references)
-    traces, ranks = result.get_chain_detail(references)
-    # The native producer retains these arrays; detail publishes them directly.
-    detail = InferenceReportDetail(
-        trace_data=traces,
-        rank_histograms=ranks,
-        pareto_k=loo_diag[1] if loo_diag else (),
-        posterior_pairs=posterior_pairs,
-        divergent=tuple(
-            bool(v) for v in result.diagnostics.mcmc.get_extra_fields()["diverging"].reshape(-1)
-        )
-        if "diverging" in result.diagnostics.mcmc.get_extra_fields()
-        else None,
-        initial_latent_delta=tuple(
-            tuple(float(v) for v in row) for row in result.initial_latent_delta
-        )
-        if result.initial_latent_delta is not None
-        else None,
-        final_latent_delta=tuple(tuple(float(v) for v in row) for row in result.final_latent_delta)
-        if result.final_latent_delta is not None
-        else None,
-    )
-    logger.info(
-        "Posterior summaries ready in %.1fs: n_samples=%d",
-        _fit_elapsed_seconds(t0),
-        result.draws.describe().n_draws,
-    )
-
+    logger.info("Retaining native posterior and sampler telemetry: n_samples=%d", result.draws.describe().n_draws)
     return {
         "fitted": True,
         "duration_seconds": _fit_elapsed_seconds(t0),
         "result": result,
         "panel": panel,
-        "inference_diagnostics": inference_diagnostics,
-        "loo_diagnostics": loo_diag,
-        "posterior_marginals": posterior_marginals,
-        "posterior_pairs": posterior_pairs,
-        "detail": detail,
     }
 
 

@@ -13,7 +13,11 @@ import json
 import re
 from datetime import UTC, datetime
 from pathlib import Path
+from collections.abc import Callable
 from typing import TYPE_CHECKING
+from uuid import uuid4
+
+from pydantic import TypeAdapter
 
 import numpy as np
 import polars as pl
@@ -23,7 +27,7 @@ import pyarrow.parquet as pq
 from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid
 from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.git_objects import object_tree, open_repository, read_file, write_tree
-from nof1_causal_lab.study.state import ArtifactRecord, StudyState
+from nof1_causal_lab.study.state import ArtifactRecord
 from nof1_causal_lab.study.view_models import DataPoint, DataRef, DataSeries, Dataset
 from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
@@ -32,16 +36,39 @@ if TYPE_CHECKING:
     from jax.typing import ArrayLike
     from pydantic import BaseModel
 
-    from nof1_causal_lab.artifacts.identification import IdentificationReport
     from nof1_causal_lab.artifacts.measurements import ObservationRecord
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.observations import ResolvedObservationSpec
     from nof1_causal_lab.artifacts.question import QuestionSpec
-    from nof1_causal_lab.artifacts.validation_report import (
-        DataProfileArtifact,
-        ValidationReportArtifact,
-    )
     from nof1_causal_lab.json_types import JsonObject
+
+
+_CODE_DIGEST = hashlib.sha256(b"".join(
+    path.read_bytes() for path in sorted(Path(__file__).parents[1].rglob("*.py"))
+)).hexdigest()
+
+
+def cached_read[T](
+    workspace_id: str, key: tuple[str, ...], adapter: TypeAdapter[T], render: Callable[[], T]
+) -> tuple[bytes, bool]:
+    """One atomic cache for projections of immutable inputs and current package code."""
+    digest = hashlib.sha256("\0".join((_CODE_DIGEST, *key)).encode()).hexdigest()
+    path = Path(data_module.cache_dir(workspace_id)) / "reads" / f"{digest}.json"
+    reused = path.exists()
+    if not reused:
+        body = adapter.dump_json(render(), by_alias=True)
+        path.parent.mkdir(parents=True, exist_ok=True)
+        partial = path.with_name(f"{digest}.{uuid4().hex}.partial")
+        partial.write_bytes(body)
+        partial.replace(path)
+    return path.read_bytes(), reused
+
+
+def cached_value[T](
+    workspace_id: str, key: tuple[str, ...], adapter: TypeAdapter[T], render: Callable[[], T]
+) -> tuple[T, bool]:
+    body, reused = cached_read(workspace_id, key, adapter, render)
+    return adapter.validate_json(body), reused
 
 
 def utc_now_iso() -> str:
@@ -101,30 +128,11 @@ class ArtifactStore:
         created_at: str | None = None,
     ) -> ArtifactRecord:
         """Write one content-addressed tree; Git assigns its immutable identity."""
-        model_inputs: dict[str, str] = {}
-        consumed_model_inputs: dict[str, str] = {}
-        if artifact_id == "model":
-            from nof1_causal_lab.artifacts.model_spec import ModelSpec
-            from nof1_causal_lab.models.model_inputs import input_fingerprints
-            from nof1_causal_lab.study.artifact_files import json_filename
-
-            assert json_files is not None
-            value = ModelSpec.model_validate(json_files[json_filename("model", "model")])
-            model_inputs = input_fingerprints(value)
-        elif "model" in derived_from:
-            from nof1_causal_lab.study.model_dependencies import MODEL_INPUTS
-
-            purpose = MODEL_INPUTS[artifact_id]
-            source = self.read_meta("model", derived_from["model"])
-            consumed_model_inputs = {purpose: source.model_inputs[purpose]}
-
         metadata = {
             "artifact_id": artifact_id,
             "derived_from": derived_from,
             "produced_by": produced_by,
             "created_at": created_at if created_at is not None else utc_now_iso(),
-            "model_inputs": model_inputs,
-            "consumed_model_inputs": consumed_model_inputs,
         }
 
         files = {
@@ -154,14 +162,6 @@ class ArtifactStore:
         )
         return ArtifactRecord.model_validate({**metadata, "revision": str(revision)})
 
-    def list_revisions(self, artifact_id: ArtifactId) -> list[GitOid]:
-        prefix = f"refs/artifacts/{artifact_id}/"
-        revisions = [
-            GitOid(ref.removeprefix(prefix))
-            for ref in self.repo.references
-            if ref.startswith(prefix)
-        ]
-        return sorted(revisions, key=lambda oid: (self.read_meta(artifact_id, oid).created_at, oid))
 
     def read_meta(self, artifact_id: ArtifactId, revision: str) -> ArtifactRecord:
         metadata = json.loads(read_file(self.repo, revision, "meta.json"))
@@ -172,48 +172,6 @@ class ArtifactStore:
             )
         return info
 
-    def completion_reports(
-        self, produced: tuple[ArtifactRecord, ...]
-    ) -> tuple[IdentificationReport | DataProfileArtifact | ValidationReportArtifact, ...]:
-        from nof1_causal_lab.artifacts.identification import IdentificationReport
-        from nof1_causal_lab.artifacts.validation_report import (
-            DataProfileArtifact,
-            ValidationReportArtifact,
-        )
-
-        reports: list[IdentificationReport | DataProfileArtifact | ValidationReportArtifact] = []
-        for artifact in produced:
-            match artifact.artifact_id:
-                case "identification_report":
-                    reports.append(
-                        self.read_value(
-                            artifact.artifact_id,
-                            artifact.revision,
-                            "identification_report.json",
-                            IdentificationReport,
-                        )
-                    )
-                case "data_profile":
-                    reports.append(
-                        self.read_value(
-                            artifact.artifact_id,
-                            artifact.revision,
-                            "data_profile.json",
-                            DataProfileArtifact,
-                        )
-                    )
-                case "validation_report":
-                    reports.append(
-                        self.read_value(
-                            artifact.artifact_id,
-                            artifact.revision,
-                            "validation_report.json",
-                            ValidationReportArtifact,
-                        )
-                    )
-                case _:
-                    pass
-        return tuple(reports)
 
     def read_value[ValueT: BaseModel](
         self, artifact_id: ArtifactId, revision: str, name: str, target: type[ValueT]
@@ -304,22 +262,17 @@ def read_attempt_trace(workspace_id: str, commit_id: str, subroutine_id: str) ->
     return value
 
 
-def read_current_state(workspace_id: str, *, branch: str = "main") -> StudyState:
-    from nof1_causal_lab.study.history import StudyRepository
-
-    repository = StudyRepository(workspace_id)
-    return repository.state(repository.head(branch))
-
-
 def read_payload(store: ArtifactStore, artifact_id: ArtifactId, revision: str) -> BaseModel:
     from functools import cache
+
+    from pydantic import TypeAdapter
 
     from nof1_causal_lab.artifacts.catalog import ARTIFACT_CONTRACTS
     from nof1_causal_lab.study.artifact_files import artifact_file_spec
 
     """Validate one immutable primary JSON payload with its production contract."""
-    filename = next(iter(artifact_file_spec(artifact_id).json.values()))
-    return ARTIFACT_CONTRACTS[artifact_id].model_validate(
+    filename = next(iter(artifact_file_spec(artifact_id).json_files.values()))
+    return TypeAdapter[BaseModel](ARTIFACT_CONTRACTS[artifact_id]).validate_python(
         store.read_json_file(artifact_id, revision, filename),
         context={"distribution_array_loader": cache(store.read_array)},
     )

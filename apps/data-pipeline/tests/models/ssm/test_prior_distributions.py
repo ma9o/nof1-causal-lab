@@ -1,7 +1,6 @@
 """Small analytic checks for native prior laws and their JSON boundary."""
 
 import math
-from pathlib import Path
 
 import jax
 import jax.numpy as jnp
@@ -11,7 +10,11 @@ import pytest
 from numpyro.distributions import constraints, transforms
 from pydantic import TypeAdapter
 
+from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.artifacts.expressions import restoring_force
+from nof1_causal_lab.artifacts.mechanism import DriftMechanismSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.distributions import PriorDistributionFamily
 from nof1_causal_lab.models.model_structure import StructuralSelection
 from nof1_causal_lab.numpyro_json import NumPyroDistribution
@@ -22,7 +25,97 @@ from nof1_causal_lab.prior_distributions import (
     persistence_to_decay,
     prior_reference_value,
 )
-from tests.model_fixtures import compile_fit_fixture, compile_model_fixture
+from tests.inference_fixtures import compile_fit_fixture, compile_model_fixture
+from tests.model_fixtures import (
+    construct_named,
+    load_model_fixture,
+    parameter_for,
+    parameter_laws,
+    parameter_named,
+    replace_parameters,
+    without_parameters,
+)
+
+
+def _scientific_roundtrip_preserves_distinct_native_coordinate_laws_with_parameter_distributions() -> (
+    ModelSpec
+):
+    model = load_model_fixture(
+        "dynamics_config/scientific_model_roundtrip_preserves_derived_dynamics_model_fixture.json"
+    )
+    latent_0 = construct_named(model, "latent_0")
+    (latent_0_potential,) = latent_0.dynamics
+    latent_0_dynamics_decay = parameter_for(model, SiteKind.DYNAMICS_DECAY, "latent_0")
+    latent_0_latent_1_hill_emax = parameter_for(model, SiteKind.HILL_EMAX, "latent_0", "latent_1")
+    latent_0_latent_1_hill_n = parameter_for(model, SiteKind.HILL_N, "latent_0", "latent_1")
+    latent_0_latent_1_hill_ec50 = parameter_for(model, SiteKind.HILL_EC50, "latent_0", "latent_1")
+    latent_0_t0_means = parameter_for(model, SiteKind.T0_MEANS, "latent_0")
+    latent_1_t0_means = parameter_for(model, SiteKind.T0_MEANS, "latent_1")
+    latent_0_revised = latent_0.revised(
+        dynamics=(
+            DriftMechanismSpec(
+                id=latent_0_potential.id,
+                expression=restoring_force(
+                    latent_0.id, center=0.0, stiffness=latent_0_dynamics_decay.id, quartic=0.0
+                ),
+            ),
+        )
+    )
+    parameters, distributions = without_parameters(
+        model, latent_0_latent_1_hill_emax, latent_0_latent_1_hill_n, latent_0_latent_1_hill_ec50
+    )
+    return model.revised(
+        edges=replace_constructs(
+            tuple(
+                edge
+                for edge in model.edges
+                if (edge.cause.name, edge.effect.name) not in (("latent_0", "latent_1"),)
+            ),
+            (latent_0_revised,),
+        ),
+        parameters=parameters,
+        distributions={
+            key: law
+            for key, law in parameter_laws(
+                model,
+                {
+                    latent_0_t0_means.id: dist.Normal(loc=-1.0, scale=0.5, validate_args=False),
+                    latent_1_t0_means.id: dist.StudentT(
+                        df=4.0, loc=0.3, scale=0.7, validate_args=False
+                    ),
+                },
+            ).items()
+            if key in distributions
+        },
+    )
+
+
+def _compiler_and_dynestyx_parameter_trace_use_the_exact_persistence_law_complete_test_model() -> (
+    ModelSpec
+):
+    return load_model_fixture(
+        "prior_distributions/compiler_and_dynestyx_parameter_trace_use_the_exact_persistence_law_complete_test_model.json"
+    )
+
+
+def _compiler_and_dynestyx_parameter_trace_use_the_exact_persistence_law_with_parameter_distributions() -> (
+    ModelSpec
+):
+    model = (
+        _compiler_and_dynestyx_parameter_trace_use_the_exact_persistence_law_complete_test_model()
+    )
+    rho_mood = parameter_named(model, "rho_mood")
+    return model.revised(
+        parameters=replace_parameters(
+            model.parameters,
+            rho_mood.revised(transform=rho_mood.transform.revised(interval_days=7.0)),
+        ),
+        distributions=parameter_laws(
+            model,
+            {rho_mood.id: dist.Beta(concentration1=2.0, concentration0=3.0, validate_args=False)},
+        ),
+    )
+
 
 _ADAPTER = TypeAdapter(NumPyroDistribution)
 
@@ -203,13 +296,7 @@ def test_mixture_reference_uses_its_weights_instead_of_treating_components_as_co
 def test_scientific_roundtrip_preserves_distinct_native_coordinate_laws():
     from nof1_causal_lab.models.ssm.compile.prior_compilation import compile_priors
 
-    model = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2]
-            / "fixtures/models"
-            / "prior_distributions/scientific_roundtrip_preserves_distinct_native_coordinate_laws_with_parameter_distributions.json"
-        ).read_text()
-    )
+    model = _scientific_roundtrip_preserves_distinct_native_coordinate_laws_with_parameter_distributions()
     restored = ModelSpec.model_validate_json(model.model_dump_json())
     assert restored == model
     before = compile_priors(compile_model_fixture(model), StructuralSelection(model, None))[0][
@@ -231,25 +318,15 @@ def test_compiler_and_dynestyx_parameter_trace_use_the_exact_persistence_law():
     from nof1_causal_lab.artifacts.parameter import SiteKind
     from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
 
-    definition = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2]
-            / "fixtures/models"
-            / "prior_distributions/compiler_and_dynestyx_parameter_trace_use_the_exact_persistence_law_complete_test_model.json"
-        ).read_text()
+    definition = (
+        _compiler_and_dynestyx_parameter_trace_use_the_exact_persistence_law_complete_test_model()
     )
     decay = next(
         p
         for p in definition.parameters
         if definition.parameter_context(p.id).quantity == SiteKind.DYNAMICS_DECAY
     )
-    definition = ModelSpec.model_validate_json(
-        (
-            Path(__file__).resolve().parents[2]
-            / "fixtures/models"
-            / "prior_distributions/compiler_and_dynestyx_parameter_trace_use_the_exact_persistence_law_with_parameter_distributions.json"
-        ).read_text()
-    )
+    definition = _compiler_and_dynestyx_parameter_trace_use_the_exact_persistence_law_with_parameter_distributions()
     restored = ModelSpec.model_validate_json(definition.model_dump_json())
     model = compile_fit_fixture(restored)
     binding = next(

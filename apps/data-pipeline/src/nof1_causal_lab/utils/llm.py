@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Literal, Protocol
+from typing import TYPE_CHECKING, Protocol
 
 from pydantic import Field
 from typing_extensions import TypedDict
@@ -27,7 +27,6 @@ class TraceToolCall(TypedDict):
     """A function invocation with the call identity used to match its result."""
 
     id: str
-    type: Literal["function"]
     name: str
     arguments: str
 

@@ -6,9 +6,9 @@ Generated API artifacts and generated documentation have separate ownership and 
 
 `bun run codegen` exports the Python contracts and API together, then generates the TypeScript types and facade client:
 
-- **Contracts**: [`artifacts/catalog.py`](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/catalog.py) and the domain owners in `artifacts/` and [`study/records.py`](../../apps/data-pipeline/src/nof1_causal_lab/study/records.py) are the source of truth. [`export_api.py`](../../apps/data-pipeline/scripts/codegen/export_api.py) writes the JSON schemas; `generate.ts` then feeds them through [`json-schema-to-typescript`](https://github.com/bcherny/json-schema-to-typescript) to write the TypeScript models and metadata.
-- **Agent API**: The same exporter writes the OpenAPI schema and the generated `nof1-study-api` skill from the FastAPI application.
-- **Facade client**: [`generate-client.ts`](../../packages/api-types/scripts/generate-client.ts) uses [openapi-typescript](https://openapi-ts.dev/node) to generate every exported OpenAPI operation, including actions, polling, traces and multipart uploads. Response declarations reference the existing domain types; [openapi-fetch](https://openapi-ts.dev/openapi-fetch/) supplies the runtime client. Upload inputs use native `Blob` values, serialized as `FormData` by the caller.
+- **Contract graph**: [`artifacts/catalog.py`](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/catalog.py), the domain owners, and typed FastAPI routes are the source of truth. [`export_api.py`](../../apps/data-pipeline/scripts/codegen/export_api.py) generates their validation and serialization schemas together in `openapi.json`, including stored roots and generic bodies.
+- **Types and client**: [`generate.ts`](../../packages/api-types/scripts/generate.ts) runs [openapi-typescript](https://openapi-ts.dev/node) once. Named contract aliases and generic declarations come from that AST; [openapi-fetch](https://openapi-ts.dev/openapi-fetch/) supplies the runtime client. Upload inputs use native `Blob` values, serialized as `FormData` by the caller.
+- **Agent skill**: The exporter generates `nof1-study-api` from the application's endpoint descriptions and [action contracts](../../apps/data-pipeline/src/nof1_causal_lab/study_api.py).
 
 Native NumPyro distributions use the shared [JSON codec](../../apps/data-pipeline/src/nof1_causal_lab/numpyro_json.py) on scientific parameters and compiled sites. Export derives constructor signatures from native distribution arguments and constraints. There is no separate prior-parameter class hierarchy.
 
@@ -17,7 +17,7 @@ bun run codegen       # regenerate API artifacts
 bun run codegen:check # verify API artifact drift
 ```
 
-Generated API files are committed. Run `codegen` after editing an artifact, read model, study record, tool contract, or facade response.
+Generated API files are committed. Run `codegen` after editing an artifact, read model, study record, endpoint contract, or facade response.
 
 Python generic owners export their parameter names, declaration bodies and typed
 applications through [`type_system_catalog.py`](../../apps/data-pipeline/scripts/codegen/type_system_catalog.py).
@@ -27,7 +27,7 @@ specialization. The facade client reads the same generic metadata to reference
 the canonical declarations. Generic operands come from Python types; generated
 schema names are never parsed to recover them.
 
-The combined `contracts.json` includes all registered JSON artifact payloads, facade responses, study records, and tool results. `panel` is a Parquet artifact whose file layout is declared in the generated metadata. OpenAPI remains the HTTP operation description; it is not a second source of domain types.
+`openapi.json` owns the exported component graph. `x-contract-roots` identifies stored payloads and public read contracts; `x-typescript-generics` references component bodies with `x-typescript-parameters`. Components retain `x-python-module`, `x-layer` and `x-concern` for the type diagram. `panel` combines JSON metadata with a Parquet file declared by the machine artifact catalog. The [artifact catalog](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/catalog.py) names durable facts; reports and checks are response types derived through [the shared read cache](../../apps/data-pipeline/src/nof1_causal_lab/study/store.py).
 
 ## Documentation Artifacts
 
@@ -111,8 +111,7 @@ Workflow: **edit Python → `bun run codegen` → commit both**.
 
 Follow the [type naming conventions](#type-naming-conventions). `ModelSpec` is the
 directly persisted scientific definition; `ConstructSpec`, `IndicatorSpec`, and
-`ParameterSpec` retain their canonical ownership inside it. `ToolDefinition`
-describes a callable tool, while [`Value`](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/base.py) supplies the shared immutable
+`ParameterSpec` retain their canonical ownership inside it, while [`Value`](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/base.py) supplies the shared immutable
 base. Server-composed views and study records share this export. Frontend code
 owns presentation state only.
 
@@ -135,7 +134,7 @@ the payload or its absence reason.
 
 - **New/changed field**: edit the owning Python model.
 - **New artifact contract**: add the payload class in `artifacts/`, register it in `ARTIFACT_CONTRACTS`, add re-export in `index.ts`.
-- **New/changed tool**: update its `ToolDefinition` and its registration in [`tool_contracts.py`](../../apps/data-pipeline/src/nof1_causal_lab/tool_contracts.py).
+- **New/changed endpoint**: update its typed FastAPI contract and regenerate the OpenAPI schema and agent skill.
 
 ## File ownership
 
@@ -169,5 +168,4 @@ the declarations preserve discriminators and scientific IDs in JSON imports.
 ## Troubleshooting
 
 - **Optional vs required mismatch**: `Value` owns serialization presence through Pydantic configuration; check the field's validation and serialization schemas separately.
-- **Spurious named type aliases** (e.g. `type RHat = number`): `stripFieldTitles()` in `generate.ts` strips Pydantic's per-field `title` annotations that cause these.
 - **Circular imports**: artifact contracts import other contracts; numerical implementations import those contracts. Keep the `artifacts` package initializer free of re-exports.

@@ -9,7 +9,7 @@ if TYPE_CHECKING:
     from numpy.typing import ArrayLike
     from xarray import DataTree
 
-    from nof1_causal_lab.artifacts.identity import ConstructId, ParameterRef
+    from nof1_causal_lab.artifacts.identity import ConstructId
     from nof1_causal_lab.models.ssm.inference.mcmc_state import TrajectoryMCMCResult
 
 
@@ -17,7 +17,7 @@ import logging
 from collections.abc import Mapping
 from dataclasses import dataclass, field
 from types import MappingProxyType
-from typing import Literal, Self
+from typing import Self
 
 import jax.numpy as jnp
 from numpy.typing import NDArray
@@ -38,7 +38,6 @@ from nof1_causal_lab.artifacts.posterior_diagnostics import (
 from nof1_causal_lab.models.ssm.inference.diagnostics_viz import (
     ParameterReferences,
     compute_posterior_marginals,
-    compute_posterior_pairs,
     pareto_k_points,
 )
 from nof1_causal_lab.models.ssm.inference.diagnostics_viz import (
@@ -81,7 +80,6 @@ class WarmupDiagnostics:
     "Initialization-only MAP measurements and native proposal inputs."
 
     likelihood_backend: object
-    optimizer: str
     success: bool
     status: int
     n_iters: int
@@ -90,17 +88,6 @@ class WarmupDiagnostics:
     mode_log_posterior: float
     mode_log_likelihood: float
     mode_log_prior: float
-    mode_grad_norm: float | None
-    mode_inner_solver: str
-    mode_inner_iterations: int
-    mode_inner_accepted_steps: int
-    mode_inner_rel_change: float
-    mode_inner_damping: float
-    mode_inner_step_alpha: float
-    mode_inner_step_norm: float
-    mode_inner_log_joint_gain: float | None
-    mode_inner_laplace_logdet: float
-    mode_inner_min_chol_diag: float
     init_log_posterior_best: float
     n_init_samples: int
     n_ieks_iters: int
@@ -134,7 +121,6 @@ class ProductionDiagnostics:
     marginal_particle_gibbs_phase_extra_fields: Mapping[str, Mapping[str, jnp.ndarray]] | None = (
         None
     )
-    chain_complete_log_posterior_history: jnp.ndarray | None = None
     warmup_complete_log_posterior_history: jnp.ndarray | None = None
     all_complete_log_posterior_history: jnp.ndarray | None = None
 
@@ -165,7 +151,6 @@ class WarmupProposal:
 
     _samples: Mapping[str, jnp.ndarray]
     diagnostics: WarmupDiagnostics
-    method: Literal["map"] = field(init=False, default="map")
 
     def get_samples(self) -> Mapping[str, jnp.ndarray]:
         """Return approximate parameter draws for warmup consumers."""
@@ -213,12 +198,6 @@ class JointPosteriorDraws:
         return PosteriorDrawsInfo(
             n_draws=counts[0],
             state_ids=self.state_ids,
-            parameter_shapes={
-                name: tuple(values.shape[1:]) for name, values in self.parameters.items()
-            },
-            latent_shape=(self.latent_paths.shape[1], self.latent_paths.shape[2])
-            if self.latent_paths is not None
-            else None,
         )
 
 
@@ -234,9 +213,6 @@ class ParticleMCMCPosterior:
     evidence: ParticleMCMCEvidence = field(default_factory=ParticleMCMCEvidence)
     initial_latent_delta: jnp.ndarray | None = None
     final_latent_delta: jnp.ndarray | None = None
-    method: Literal["marginal_particle_gibbs"] = field(
-        init=False, default="marginal_particle_gibbs"
-    )
 
     @classmethod
     def from_run(
@@ -333,7 +309,7 @@ class ParticleMCMCPosterior:
         return _build_trace_data(samples, references), _build_rank_histograms(samples, references)
 
     def get_loo_diagnostics(
-        self, *, observations: jnp.ndarray
+        self, *, observed_rows: jnp.ndarray
     ) -> tuple[LOODiagnostics, tuple[ParetoKPoint, ...]] | None:
         """PSIS leave-one-measurement-row-out from the joint particle posterior.
 
@@ -355,7 +331,6 @@ class ParticleMCMCPosterior:
         from arviz_stats.utils import ELPDDataLOO
 
         factors = self.diagnostics.observation_log_probs
-        observed_rows = jnp.any(~jnp.isnan(observations), axis=1)
         factors = factors[:, :, observed_rows]
         if factors.shape[1] == 0 or factors.shape[2] == 0:
             return None
@@ -387,8 +362,3 @@ class ParticleMCMCPosterior:
     ) -> tuple[PosteriorMarginal, ...]:
         """Compute marginal posterior density data for visualization."""
         return compute_posterior_marginals(self.draws.parameters, references, n_bins)
-
-    def get_posterior_pairs(
-        self, references: ParameterReferences, max_params: int = 6
-    ) -> tuple[tuple[ParameterRef, ParameterRef], ...]:
-        return compute_posterior_pairs(self.draws.parameters, references, max_params)

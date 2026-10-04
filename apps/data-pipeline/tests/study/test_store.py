@@ -1,5 +1,7 @@
 """Versioned artifact store + transition log."""
 
+from tests.git_fixtures import artifact_revisions
+
 import polars as pl
 import pytest
 
@@ -16,7 +18,8 @@ from nof1_causal_lab.study.records import (
     Rejected,
 )
 from nof1_causal_lab.study.state import RetractedArtifact
-from nof1_causal_lab.study.store import ArtifactStore, read_current_state
+from nof1_causal_lab.study.store import ArtifactStore
+from nof1_causal_lab.study.history import StudyRepository
 from tests.action_fixtures import applied_record
 from tests.git_fixtures import git_oid
 from tests.helpers import make_model
@@ -50,7 +53,7 @@ class TestArtifactStore:
         assert first.revision != second.revision
         assert all(len(info.revision) == 40 for info in (first, second))
         assert not list(__import__("pathlib").Path(store._root).glob("*/v*"))
-        assert store.list_revisions("model") == [first.revision, second.revision]
+        assert artifact_revisions(store, "model") == [first.revision, second.revision]
         # Old revision stays readable — nothing is overwritten.
         assert store.read_json_file("model", first.revision, "model.json") == {
             "measurement_clock": "1d"
@@ -86,7 +89,7 @@ class TestArtifactStore:
 
     def test_empty_artifact_has_no_versions(self, workspace):
         store = ArtifactStore(workspace)
-        assert store.list_revisions("model") == []
+        assert artifact_revisions(store, "model") == []
 
 
 class TestStudyRepository:
@@ -221,7 +224,7 @@ class TestDerivedCurrentState:
 
         # Persisting a revision is not the commit boundary. Until an applied
         # transition records it, readers continue to see the prior state.
-        assert read_current_state(workspace).get("model") == first
+        assert StudyRepository(workspace).state(StudyRepository(workspace).head()).get("model") == first
 
         self._append(
             workspace,
@@ -230,7 +233,7 @@ class TestDerivedCurrentState:
             produced=[second],
         )
 
-        assert read_current_state(workspace).get("model") == second
+        assert StudyRepository(workspace).state(StudyRepository(workspace).head()).get("model") == second
 
     def test_rejected_and_raised_effects_are_not_current(self, workspace):
         store = ArtifactStore(workspace)
@@ -260,7 +263,7 @@ class TestDerivedCurrentState:
             status="raised",
         )
 
-        assert read_current_state(workspace).current == {}
+        assert StudyRepository(workspace).state(StudyRepository(workspace).head()).current == {}
 
     def test_applied_retraction_removes_optional_output(self, workspace):
         store = ArtifactStore(workspace)
@@ -277,7 +280,7 @@ class TestDerivedCurrentState:
             produced=[panel_v1],
         )
 
-        state_with_panel = read_current_state(workspace)
+        state_with_panel = StudyRepository(workspace).state(StudyRepository(workspace).head())
         assert state_with_panel.get("panel") == panel_v1
 
         self._append(
@@ -293,5 +296,5 @@ class TestDerivedCurrentState:
             ],
         )
 
-        state_without_panel = read_current_state(workspace)
+        state_without_panel = StudyRepository(workspace).state(StudyRepository(workspace).head())
         assert state_without_panel.get("panel") is None

@@ -1,7 +1,5 @@
-import { fixtureValue } from "@/components/__fixtures__/fixture-value";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { withContainer } from "@/components/story-decorators";
-import { posterior } from "@/components/__fixtures__/inference-data";
 import { ParetoKChart } from "./pareto-k-chart";
 
 const meta = {
@@ -14,5 +12,5 @@ export default meta;
 type Story = StoryObj<typeof meta>;
 
 export const Default: Story = {
-  args: { loo: fixtureValue(posterior.core.loo_diagnostics), points: posterior.detail.pareto_k },
+  render: () => <p>No retained leave-one-out evidence.</p>,
 };

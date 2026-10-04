@@ -10,7 +10,7 @@
  */
 
 import type { ArtifactId } from "./models";
-export const ARTIFACT_IDS = ["question","raw_data","model","identification_report","panel","data_profile","validation_report"] as const satisfies readonly ArtifactId[];
+export const ARTIFACT_IDS = ["question","raw_data","model","panel"] as const satisfies readonly ArtifactId[];
 
 const _OBS_HYPERS_BY_DIST = {
   "student_t": [

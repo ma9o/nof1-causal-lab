@@ -85,7 +85,7 @@ export default function LandingPage() {
       const workspaceId = generateAnonymousWorkspaceId();
       await uploadFile(file, workspaceId);
 
-      const { data, response } = await apiClient.POST("/api/studies/{workspace_id}/actions", {
+      const { data, response } = await apiClient.POST("/api/studies/{workspace_id}/set_question", {
         params: { path: { workspace_id: workspaceId } },
         body: { action: "set_question", question: { text: question } },
       });

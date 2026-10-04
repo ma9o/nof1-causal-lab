@@ -322,7 +322,7 @@ def _compile_laws(
 ) -> tuple[CompiledLaw, ...]:
     from nof1_causal_lab.artifacts.parameter import PriorAuthoringTransform
     from nof1_causal_lab.models.ssm.compile.prior_compilation import quantity_parameter_law
-    from nof1_causal_lab.models.ssm.joint_layout import JointLawLayout
+    from nof1_causal_lab.models.ssm.compile.bindings import joint_law_layout
     from nof1_causal_lab.numpyro_json import distribution_shape
 
     model = selection.model
@@ -343,11 +343,12 @@ def _compile_laws(
             state for state in endogenous if model.get_construct(state).distribution == identity
         )
         retained.update(trajectories)
-        layout = JointLawLayout.from_bindings(
+        layout = joint_law_layout(
             bindings,
             parameters=tuple(parameter.id for parameter in members),
             constructs=trajectories,
             time_points=model.time_points if trajectories else (),
+            construct_labels={identity: model.get_construct(identity).name for identity in trajectories},
         )
         batch_shape, event_shape = distribution_shape(law)
         if not batch_shape and not event_shape:
@@ -359,6 +360,11 @@ def _compile_laws(
             raise AggregatedCompileError(
                 ["Joint probability laws must use native scientific coordinates"]
             )
+        if event_shape:
+            retained_layout = model.law_layouts[identity]
+            if layout.parameters != retained_layout.parameters or layout.constructs != retained_layout.constructs:
+                raise AggregatedCompileError(["Current execution coordinates do not support the retained joint law"])
+            layout = retained_layout
         result.append(CompiledLaw(index, law, layout))
     if retained and retained != set(endogenous):
         raise AggregatedCompileError(

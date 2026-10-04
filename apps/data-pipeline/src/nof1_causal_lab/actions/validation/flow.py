@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 import polars as pl
 
 from nof1_causal_lab.artifacts.identity import IndicatorId
+from nof1_causal_lab.artifacts.data_preparation import FilePreparedDataMetadata
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.construct import ConstructSpec
@@ -97,7 +98,6 @@ def validate_extraction(
 
     indicator_audits = build_indicator_audits(
         indicator_ids=indicator_ids,
-        indicator_lookup=indicator_lookup,
         model_data=combined,
         indicator_issues=indicator_issues,
         indicator_health=indicator_health,
@@ -127,7 +127,6 @@ def profile_data(
     issues, health, dataset_issues = run_rules(context, indicator_rules=DATA_RULES)
     audits = build_indicator_audits(
         indicator_ids=identities,
-        indicator_lookup=lookup,
         model_data=data,
         indicator_issues=issues,
         indicator_health=health,
@@ -172,7 +171,7 @@ def profile_data(
                         message="Observed numeric values must be finite",
                     )
                 )
-    if metadata is not None and metadata.preparation is not None:
+    if isinstance(metadata, FilePreparedDataMetadata):
         from nof1_causal_lab.artifacts.data_preparation import check_semantic_collisions
 
         for variable in metadata.preparation.variables:

@@ -40,8 +40,8 @@ export function placeComparisonOverlay(
   const constructs = new Map(
     (comparison ? modelConstructs(comparison.afterModel) : []).map((item) => [item.id, item]),
   );
-  const beforeEdges = new Map(comparison?.beforeModel.edges.map((item) => [item.id, item]));
-  const afterEdges = new Map(comparison?.afterModel.edges.map((item) => [item.id, item]));
+  const beforeEdges = new Map(comparison?.beforeModel?.edges.map((item) => [item.id, item]));
+  const afterEdges = new Map(comparison?.afterModel?.edges.map((item) => [item.id, item]));
   const afterDispositions = new Map(
     comparison?.after_dispositions.map((item) => [item.target.id, item]),
   );

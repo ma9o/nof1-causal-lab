@@ -1,64 +1,70 @@
-"""Explicit action-owned checks, selected by the scientific inputs they consume."""
+"""Current-code findings cached by the scientific inputs their existing owners consume."""
 
 from __future__ import annotations
 
 from functools import cache
 from typing import TYPE_CHECKING, Literal
+from pydantic import TypeAdapter
 
-from nof1_causal_lab.actions.checks import check_specification
-from nof1_causal_lab.artifacts.identity import scientific_id
-from nof1_causal_lab.artifacts.model_checks import ModelCheckReport, QuestionCheckReport
+from nof1_causal_lab.actions.checks import check_model_data, check_specification
+from nof1_causal_lab.actions.data_checks import read_data_profile
+from nof1_causal_lab.artifacts.checks import SpecificationAssessment
+from nof1_causal_lab.artifacts.identification import IdentificationReport
+from nof1_causal_lab.artifacts.model_checks import CheckGroup, ModelCheckReport, QuestionCheckReport
+from nof1_causal_lab.artifacts.validation_report import ValidationIssue, ValidationReportArtifact
+from nof1_causal_lab.models.model_inputs import data_binding_issues, input_fingerprints
 from nof1_causal_lab.models.model_structure import StructuralSelection
 from nof1_causal_lab.models.ssm.compile.inputs import compile_fit_inputs, compile_model
-from nof1_causal_lab.study.artifact_files import json_filename, parquet_filename
-from nof1_causal_lab.study.records import Applied, ModelFitResult
-from nof1_causal_lab.study.state import RetractedArtifact, apply_effects
-from nof1_causal_lab.study.store import ArtifactStore, read_model, read_question
+from nof1_causal_lab.study.lineage import read_data_metadata
+from nof1_causal_lab.study.state import apply_effects
+from nof1_causal_lab.study.store import ArtifactStore, cached_value, read_model, read_question
 
 if TYPE_CHECKING:
-    import polars as pl
-
-    from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid
-    from nof1_causal_lab.artifacts.model_checks import CheckGroup
-    from nof1_causal_lab.artifacts.question import QuestionSpec
-    from nof1_causal_lab.models.ssm.compile.inputs import (
-        FitCompilationResult,
-        ModelCompilationResult,
-    )
-    from nof1_causal_lab.study.state import ArtifactRecord, StudyState
-
-# Bump when a check's interpretation or implementation changes.
-CHECK_POLICY_VERSION = "model-checks-v5"
+    from collections.abc import Callable
+    from nof1_causal_lab.artifacts.identity import GitOid
+    from nof1_causal_lab.models.ssm.compile.inputs import FitCompilationResult, ModelCompilationResult
+    from nof1_causal_lab.study.records import Applied, ModelFitResult
+    from nof1_causal_lab.study.state import StudyState
 
 
-def evaluate_model_checks[ResultT: ModelFitResult | None](
-    workspace_id: str,
-    state: StudyState,
-    applied: Applied[ResultT],
-    *,
-    action: Literal["edit_model", "fit"],
-) -> Applied[ResultT]:
-    """Finish one edit or fit before its model and findings commit together.
+def read_identification(store: ArtifactStore, selection: StructuralSelection) -> IdentificationReport:
+    inputs = input_fingerprints(selection.model)
+    value, _ = cached_value(store.workspace_id,
+        ("identification", inputs["identification"], selection.outcome or ""),
+        TypeAdapter(IdentificationReport), lambda: selection.identification)
+    return value
 
-    This is a fixed sequence, not an artifact scheduler. Reuse is scoped to the
-    selected snapshot and keyed independently for each family of scientific checks.
-    """
-    selected = apply_effects(state, applied.effects.produced, applied.effects.retracted)
-    if not selected.has("model"):
-        return applied
+
+def read_validation(
+    store: ArtifactStore, selection: StructuralSelection, panel_revision: GitOid, inputs: Callable[[], FitCompilationResult],
+) -> tuple[ValidationReportArtifact, bool]:
+    from nof1_causal_lab.actions.validation.flow import validate_extraction
+
+    def render() -> ValidationReportArtifact:
+        model = selection.model
+        panel = store.read_parquet_file("panel", panel_revision, "panel.parquet")
+        metadata = read_data_metadata(store, panel_revision)
+        audit = validate_extraction(model, [panel], data_profile=read_data_profile(store, panel_revision))
+        issues = tuple(ValidationIssue(indicator_id=None, issue_type="measurement_definitions", severity="error", message=issue)
+            for issue in data_binding_issues(model, metadata))
+        return ValidationReportArtifact(data=audit.revised(dataset_issues=(*audit.dataset_issues, *issues)),
+            preflight=check_model_data(inputs(), panel, time_origin=metadata.time_origin))
+
+    fingerprints = input_fingerprints(selection.model)
+    return cached_value(store.workspace_id,
+        ("compatibility", fingerprints["observations"], fingerprints["belief"], selection.outcome or "", panel_revision),
+        TypeAdapter(ValidationReportArtifact), render)
+
+
+def read_model_checks(
+    workspace_id: str, state: StudyState, *, action: Literal["edit_model", "fit"],
+) -> tuple[ModelCheckReport, IdentificationReport, ValidationReportArtifact | None]:
+    """Reuse across Git revisions with equal consumed inputs; never persist check identities."""
     store = ArtifactStore(workspace_id)
-    model_record = selected.current["model"]
-    model = read_model(store, model_record.revision)
-    question_record = selected.current["question"]
-    question = read_question(store, question_record.revision)
-    # The question's outcome scopes what compiles, fits and simulates.
+    model_record, question_record = state.current["model"], state.current["question"]
+    model, question = read_model(store, model_record.revision), read_question(store, question_record.revision)
     selection = StructuralSelection.for_question(model, question)
-    inputs = model_record.model_inputs
-    previous = state.checks
-    keys: dict[CheckGroup, str] = {}
-    reused: list[CheckGroup | Literal["predictive"]] = []
-    produced = list(applied.effects.produced)
-    retracted = list(applied.effects.retracted)
+    fingerprints = input_fingerprints(model)
 
     @cache
     def compilation() -> ModelCompilationResult:
@@ -68,190 +74,45 @@ def evaluate_model_checks[ResultT: ModelFitResult | None](
     def fit_inputs() -> FitCompilationResult:
         return compile_fit_inputs(compilation(), selection)
 
-    def unchanged(group: CheckGroup, values: object) -> bool:
-        keys[group] = scientific_id("check", [CHECK_POLICY_VERSION, group, values])
-        same = previous is not None and previous.input_keys.get(group) == keys[group]
-        if same:
-            reused.append(group)
-        return same
+    specification, specification_reused = cached_value(workspace_id,
+        ("specification", fingerprints["compilation"], fingerprints["belief"], selection.outcome or ""),
+        TypeAdapter(tuple[SpecificationAssessment, ...]), lambda: check_specification(compilation(), fit_inputs()))
+    identification, identification_reused = cached_value(workspace_id,
+        ("identification", fingerprints["identification"], selection.outcome or ""),
+        TypeAdapter(IdentificationReport), lambda: selection.identification)
+    panel = state.get("panel")
+    from nof1_causal_lab.models.question_checks import question_findings
 
-    specification = (
-        previous.specification
-        if unchanged("specification", [inputs["compilation"], inputs["belief"], selection.outcome])
-        and previous is not None
-        else check_specification(compilation(), fit_inputs())
-    )
-    if not unchanged("identification", [inputs["identification"], selection.outcome]):
-        identification_record = _write_identification(
-            store,
-            {"question": question_record.revision, "model": model_record.revision},
-            selection,
-        )
-    else:
-        identification_record = selected.current["identification_report"]
-    produced.append(identification_record)
+    def question_report() -> QuestionCheckReport:
+        return QuestionCheckReport(question_revision=question_record.revision,
+            panel_revision=panel.revision if panel is not None else None,
+            findings=question_findings(question, selection,
+                panel=store.read_parquet_file("panel", panel.revision, "panel.parquet") if panel is not None else None,
+                time_origin=read_data_metadata(store, panel.revision).time_origin if panel is not None else None))
 
-    current_panel = selected.get("panel")
-    question_checks = (
-        previous.question
-        if unchanged(
-            "question",
-            [
-                question_record.revision,
-                inputs["identification"],
-                identification_record.revision,
-                current_panel.revision if current_panel is not None else None,
-            ],
-        )
-        and previous is not None
-        else _check_question(store, question_record, question, selection, current_panel)
-    )
-
-    panel = current_panel if action == "edit_model" else None
-    if panel is not None:
-        pins: dict[ArtifactId, GitOid] = {
-            "question": question_record.revision,
-            "model": model_record.revision,
-            "panel": panel.revision,
-            "data_profile": selected.current["data_profile"].revision,
-        }
-        if not unchanged(
-            "compatibility",
-            [
-                inputs["observations"],
-                inputs["belief"],
-                selection.outcome,
-                panel.revision,
-                pins["data_profile"],
-            ],
-        ):
-            produced.append(_write_validation(store, pins, selection, fit_inputs()))
-        else:
-            produced.append(selected.current["validation_report"])
-    elif action == "edit_model":
-        retracted.extend(
-            RetractedArtifact(artifact_id=identity, reason_ref=f"{identity}.panel_absent")
-            for identity in ("data_profile", "validation_report")
-            if selected.has(identity)
-        )
-
+    question_checks, question_reused = cached_value(workspace_id,
+        ("question", question_record.revision, fingerprints["identification"], selection.outcome or "", panel.revision if panel is not None else ""),
+        TypeAdapter(QuestionCheckReport), question_report)
+    reused: list[CheckGroup | Literal["predictive"]] = [group for group, hit in (("specification", specification_reused), ("identification", identification_reused), ("question", question_reused)) if hit]
+    validation = None
     predictive = None
+    if panel is not None:
+        validation, hit = read_validation(store, selection, panel.revision, fit_inputs)
+        if hit:
+            reused.append("compatibility")
     if action == "edit_model":
         from nof1_causal_lab.actions.predictive_checks import check_model_predictive
-
-        predictive, was_reused = check_model_predictive(
-            store,
-            selected,
-            selection,
-            compilation,
-            previous=previous.predictive if previous is not None else None,
-        )
-        if was_reused:
+        predictive, hit = check_model_predictive(store, state, selection, compilation)
+        if hit:
             reused.append("predictive")
-    return Applied(
-        result=applied.result,
-        effects=applied.effects.with_checks(
-            produced=tuple(produced),
-            retracted=tuple(retracted),
-            checks=ModelCheckReport(
-                input_keys=keys,
-                specification=specification,
-                question=question_checks,
-                predictive=predictive,
-                reused=tuple(reused),
-            ),
-        ),
-    )
+    return ModelCheckReport(specification=specification, question=question_checks,
+        predictive=predictive, reused=tuple(reused)), identification, validation
 
 
-def _read_panel(store: ArtifactStore, revision: GitOid) -> pl.DataFrame:
-    return store.read_parquet_file("panel", revision, parquet_filename("panel", "panel"))
-
-
-def _write_identification(
-    store: ArtifactStore, pins: dict[ArtifactId, GitOid], selection: StructuralSelection
-) -> ArtifactRecord:
-    report = selection.identification
-    return store.write_artifact(
-        "identification_report",
-        derived_from=pins,
-        produced_by="check:identification_report",
-        json_files={
-            json_filename("identification_report", "identification_report"): report.model_dump(
-                mode="json"
-            )
-        },
-    )
-
-
-def _check_question(
-    store: ArtifactStore,
-    record: ArtifactRecord,
-    question: QuestionSpec,
-    selection: StructuralSelection,
-    panel: ArtifactRecord | None,
-) -> QuestionCheckReport:
-    from nof1_causal_lab.models.question_checks import question_findings
-    from nof1_causal_lab.study.lineage import read_data_metadata
-
-    return QuestionCheckReport(
-        question_revision=record.revision,
-        panel_revision=panel.revision if panel is not None else None,
-        findings=question_findings(
-            question,
-            selection,
-            panel=_read_panel(store, panel.revision) if panel is not None else None,
-            time_origin=read_data_metadata(store, panel.revision).time_origin
-            if panel is not None
-            else None,
-        ),
-    )
-
-
-def _write_validation(
-    store: ArtifactStore,
-    pins: dict[ArtifactId, GitOid],
-    selection: StructuralSelection,
-    inputs: FitCompilationResult,
-) -> ArtifactRecord:
-    from nof1_causal_lab.actions.validation.flow import (
-        validate_extraction,
-    )
-    from nof1_causal_lab.artifacts.validation_report import (
-        ValidationIssue,
-        ValidationReportArtifact,
-    )
-
-    model = selection.model
-    panel = _read_panel(store, pins["panel"])
-    from nof1_causal_lab.artifacts.validation_report import DataProfileArtifact
-
-    profile = store.read_value(
-        "data_profile", pins["data_profile"], "data_profile.json", DataProfileArtifact
-    )
-    audit_result = validate_extraction(model, [panel], data_profile=profile)
-    from nof1_causal_lab.actions.checks import check_model_data
-    from nof1_causal_lab.models.model_inputs import data_binding_issues
-    from nof1_causal_lab.study.lineage import read_data_metadata
-
-    preflight = check_model_data(
-        inputs, panel, time_origin=read_data_metadata(store, pins["panel"]).time_origin
-    )
-    binding_issues = tuple(
-        ValidationIssue(
-            indicator_id=None, issue_type="measurement_definitions", severity="error", message=issue
-        )
-        for issue in data_binding_issues(model, read_data_metadata(store, pins["panel"]))
-    )
-    payload = ValidationReportArtifact(
-        data=audit_result.revised(dataset_issues=(*audit_result.dataset_issues, *binding_issues)),
-        preflight=preflight,
-    )
-    return store.write_artifact(
-        "validation_report",
-        derived_from=pins,
-        produced_by="check:validation_report",
-        json_files={
-            json_filename("validation_report", "validation_report"): payload.model_dump(mode="json")
-        },
-    )
+def evaluate_model_checks(
+    workspace_id: str, state: StudyState, applied: Applied[ModelFitResult | None],
+    *, action: Literal["edit_model", "fit"],
+) -> tuple[ModelCheckReport, IdentificationReport, ValidationReportArtifact | None]:
+    """The existing check activity warms the same reads used by saved calls."""
+    return read_model_checks(workspace_id,
+        apply_effects(state, applied.effects.produced, applied.effects.retracted), action=action)

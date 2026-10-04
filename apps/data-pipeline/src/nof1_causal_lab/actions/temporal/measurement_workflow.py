@@ -203,7 +203,6 @@ class MeasurementsWorkflow:
                                 workspace_id=workflow_input.workspace_id,
                                 run_id=plan.run_id,
                                 chunk=chunk,
-                                attempt=1,
                                 llm=plan.llm,
                                 max_tool_turns=plan.max_tool_turns,
                             ),

@@ -1,6 +1,6 @@
 import { getToolServerUrl } from "@/lib/runtime-urls";
 
-/** Preserve scientific payloads, branch selection and optimistic heads end to end. */
+/** Preserve content-named action arguments and complete results end to end. */
 export async function proxyStudyRequest(request: Request) {
   const url = new URL(request.url);
   const response = await fetch(`${getToolServerUrl()}${url.pathname}${url.search}`, {

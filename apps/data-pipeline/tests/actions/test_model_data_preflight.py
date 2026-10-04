@@ -2,7 +2,6 @@
 
 import time
 from datetime import UTC, datetime
-from pathlib import Path
 
 import polars as pl
 import pytest
@@ -12,24 +11,19 @@ from nof1_causal_lab.actions.contracts import EditModelRequest
 from nof1_causal_lab.actions.data_checks import evaluate_data_checks
 from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.actions.messages import completion_messages
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.validation_report import ValidationReportArtifact
 from nof1_causal_lab.models.model_structure import StructuralSelection
 from nof1_causal_lab.models.ssm.inference import fit
 from nof1_causal_lab.models.ssm.preflight import ObservationPreflightFailure
-from nof1_causal_lab.sampler_config import (
-    SamplerSpec,
-)
+from nof1_causal_lab.sampler_config import SamplerSpec
 from nof1_causal_lab.study.records import Applied, DataPreparationResult
 from nof1_causal_lab.study.state import StudyState
 from nof1_causal_lab.study.store import ArtifactStore
 from tests.action_fixtures import edit_and_check
 from tests.helpers import write_question
-from tests.integration.runner_fixtures import (
-    panel_frame,
-    panel_metadata,
-)
-from tests.model_fixtures import compile_fit_fixture
+from tests.inference_fixtures import compile_fit_fixture
+from tests.integration.runner_fixtures import panel_frame, panel_metadata
+from tests.model_fixtures import stress_sleep_model
 
 pytestmark = pytest.mark.contract
 
@@ -45,13 +39,7 @@ def test_specification_reports_each_distinct_fit_law_reason_once(monkeypatch):
 
     monkeypatch.setattr(compilation, "compile_priors", unsupported)
     selection = StructuralSelection(
-        ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[1]
-                / "fixtures/models"
-                / "common/stress_sleep_model.json"
-            ).read_text()
-        ),
+        stress_sleep_model(),
         None,
     )
     compiled = compilation.compile_model(selection)
@@ -65,13 +53,7 @@ def test_specification_reports_each_distinct_fit_law_reason_once(monkeypatch):
 
 def test_interval_summary_fails_shared_preflight_before_particle_dispatch():
     model, panel = (
-        ModelSpec.model_validate_json(
-            (
-                Path(__file__).resolve().parents[1]
-                / "fixtures/models"
-                / "common/stress_sleep_model.json"
-            ).read_text()
-        ),
+        stress_sleep_model(),
         panel_frame(n_days=4),
     )
     inputs = compile_fit_fixture(model)
@@ -116,43 +98,35 @@ def test_edit_with_missing_panel_variable_saves_compatibility_findings(tmp_path,
         json_files={"metadata.json": metadata.model_dump(mode="json")},
         parquet_files={"panel.parquet": panel},
     )
-    prepared = evaluate_data_checks(
+    evaluate_data_checks(
         "TEST",
         StudyState(),
         Applied(result=DataPreparationResult(), effects=ActionEffects(produced=[record])),
     )
-    state = StudyState().with_artifacts([write_question(store), *prepared.effects.produced])
+    state = StudyState().with_artifacts([write_question(store), record])
     edited = edit_and_check(
         "TEST",
         EditModelRequest(
             expected_revision=None,
-            model=ModelSpec.model_validate_json(
-                (
-                    Path(__file__).resolve().parents[1]
-                    / "fixtures/models"
-                    / "common/stress_sleep_model.json"
-                ).read_text()
-            ),
+            model=stress_sleep_model(),
         ),
         state,
     )
     assert "model" in {item.artifact_id for item in edited.effects.produced}
-    validation = next(
-        item for item in edited.effects.produced if item.artifact_id == "validation_report"
-    )
-    report = ValidationReportArtifact.model_validate(
-        store.read_json_file("validation_report", validation.revision, "validation_report.json")
-    )
+    from nof1_causal_lab.actions.model_checks import read_model_checks
+    checks, identification, report = read_model_checks("TEST", state.with_artifacts(edited.effects.produced), action="edit_model")
+    assert report is not None
     finding = report.preflight[0]
     assert finding.subject == "fit_preflight"
     assert finding.kind == "evaluated"
     assert finding.outcome == "failed"
     assert "missing model indicators" in finding.evidence
     assert "sleep_score" in finding.evidence
-    assert edited.effects.checks.predictive.evaluation.reason == "NO_COMPATIBLE_PANEL"
+    assert checks.predictive.evaluation.reason == "NO_COMPATIBLE_PANEL"
     messages = completion_messages(
         edited,
         datetime.now(UTC),
-        store.completion_reports(edited.effects.produced),
+        (identification, report),
+        checks=checks,
     )
     assert "MODEL_DATA_INCOMPATIBLE" in {message.label for message in messages}

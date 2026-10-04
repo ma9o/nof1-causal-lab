@@ -78,12 +78,7 @@ def test_library_parameter_output_preserves_public_vector_sites_and_chain_order(
         observations=jnp.zeros((4, 1)),
         times=jnp.arange(4.0),
     )
-    problem = ParticleProblem(
-        runtime=runtime,
-        site_info={},
-        public_sites=frozenset({"beta"}),
-        latent_transition_kind="euler_maruyama",
-    )
+    problem = ParticleProblem(runtime=runtime, site_info={}, public_sites=frozenset({"beta"}))
     samples = extract_grouped_public_samples(positions, bundle=problem, num_chains=2, num_samples=3)
     assert set(samples) == {"beta"}
     np.testing.assert_array_equal(samples["beta"], 2 * positions)
@@ -156,7 +151,7 @@ def test_loo_uses_joint_emissions_and_omits_only_completely_missing_rows(monkeyp
 
     # Test the scientific factor boundary without computing PSIS or fitting.
     monkeypatch.setattr(import_module("arviz_stats.loo"), "loo", estimate)
-    measured = posterior.get_loo_diagnostics(observations=observations)
+    measured = posterior.get_loo_diagnostics(observed_rows=jnp.any(jnp.isfinite(observations), axis=1))
     assert measured is not None
     result, points = measured
     assert [(point.rank, point.timestep, point.k, point.status) for point in points] == [
@@ -183,7 +178,7 @@ def test_loo_all_missing_rows_have_no_predictive_estimate():
             mcmc=TrajectoryMCMCResult({}, {}, num_chains=2, num_samples=3),
         ),
     )
-    assert posterior.get_loo_diagnostics(observations=jnp.full((4, 2), jnp.nan)) is None
+    assert posterior.get_loo_diagnostics(observed_rows=jnp.zeros(4, dtype=bool)) is None
 
 
 def test_loo_cannot_reweight_away_an_exact_state_constraint():
@@ -195,7 +190,7 @@ def test_loo_cannot_reweight_away_an_exact_state_constraint():
             mcmc=TrajectoryMCMCResult({}, {}, num_chains=2, num_samples=3),
         ),
     )
-    assert posterior.get_loo_diagnostics(observations=jnp.ones((2, 1))) is None
+    assert posterior.get_loo_diagnostics(observed_rows=jnp.ones(2, dtype=bool)) is None
 
 
 def test_published_particle_buffers_are_frozen_and_do_not_alias_builder_maps():

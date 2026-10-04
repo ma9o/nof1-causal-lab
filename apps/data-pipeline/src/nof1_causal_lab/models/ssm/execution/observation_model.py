@@ -40,7 +40,6 @@ if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.dynamics.expression import BoundExpression
     from nof1_causal_lab.models.ssm.execution.contracts import ObservationLaws
     from nof1_causal_lab.models.ssm.execution.observation_dispatch import (
-        MeanObservationSampler,
         PointObservationSampler,
     )
     from nof1_causal_lab.models.ssm.execution.observation_operator import ObservationOperator
@@ -128,7 +127,6 @@ def compile_law_groups(
 class CompiledObservationModel:
     kernel: ObservationKernel
     point_sampler: PointObservationSampler
-    interval_summary_sampler: MeanObservationSampler | None
     mean_log_prob_fn: EmissionLogProbFn | None
     observation_operator: ObservationOperator | None
 
@@ -343,10 +341,7 @@ def compile_observation_model(
     observation_support: ObservationSupportRuntime | None = None,
 ) -> CompiledObservationModel:
     """Compile exact laws, shared response projection, and initialization operations."""
-    from .observation_dispatch import (
-        build_interval_summary_sampler,
-        build_point_observation_sampler,
-    )
+    from .observation_dispatch import build_point_observation_sampler
 
     if manifest_cov.shape != (len(laws), len(laws)):
         raise ValueError("manifest_cov must match the compiled observation law axes")
@@ -403,7 +398,7 @@ def compile_observation_model(
     kernel = ObservationKernel(density, response, grad_hess)
     point_sampler = build_point_observation_sampler(laws, manifest_cov, groups=groups)
     if operator is None or not operator.requires_interval_summary_handling:
-        return CompiledObservationModel(kernel, point_sampler, None, None, operator)
+        return CompiledObservationModel(kernel, point_sampler, None, operator)
     interval_groups = compile_law_groups(laws, operator.interval_summary_indices, interval=True)
     if any(
         isinstance(group.laws[0], (CategoricalLawSpec, OrderedLogisticLawSpec))
@@ -423,7 +418,6 @@ def compile_observation_model(
     return CompiledObservationModel(
         kernel,
         point_sampler,
-        build_interval_summary_sampler(laws, manifest_cov, operator.interval_summary_indices),
         mean_density,
         operator,
     )

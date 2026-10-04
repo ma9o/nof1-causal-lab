@@ -212,7 +212,7 @@ def test_response_presence_is_independent_of_request_defaults_and_excluded_field
     )
 
     class PrivateField(Value):
-        visible: int = 0
+        visible: int = 0  # noqa: V107 -- The serialization assertion below reads this field through model_dump.
         excluded: str | None = Field(default=None, exclude=True)
 
     value = PrivateField(excluded="private")

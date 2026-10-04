@@ -6,13 +6,25 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.models.model_structure import StructuralSelection
 
 
 def validate_distribution_memberships(model: ModelSpec) -> None:
-    """A scalar law belongs to one parameter; joint laws are checked by the selection."""
+    """Own scalar membership and retained joint identities before compilation."""
     from nof1_causal_lab.numpyro_json import distribution_shape
 
+    joint = {identity for identity, law in model.distributions.items() if distribution_shape(law) != ((), ())}
+    if set(model.law_layouts) != joint:
+        raise ValueError("Each joint law requires exactly one retained scientific layout")
+    grids = {layout.time_points for layout in model.law_layouts.values() if layout.constructs}
+    if len(grids) > 1:
+        raise ValueError("Joint trajectories must share their retained time grid")
+    for identity, layout in model.law_layouts.items():
+        parameters = tuple(sorted(parameter.id for parameter in model.parameters if parameter.distribution == identity))
+        constructs = tuple(sorted(construct.id for construct in model.constructs if construct.distribution == identity))
+        if tuple(parameter for parameter, _ in layout.parameters) != parameters or layout.constructs != constructs:
+            raise ValueError("Joint layout membership must match its scientific quantities")
+        if identity != layout.distribution_id or distribution_shape(model.distributions[identity]) != ((), (layout.width,)):
+            raise ValueError("Joint law identity and event width must match its retained coordinates")
     for identity, law in model.distributions.items():
         if distribution_shape(law) != ((), ()):
             continue
@@ -23,47 +35,3 @@ def validate_distribution_memberships(model: ModelSpec) -> None:
             construct.distribution == identity for construct in model.constructs
         ):
             raise ValueError("A scalar distribution must belong to exactly one parameter")
-
-
-def validate_joint_laws(selection: StructuralSelection) -> None:
-    """Each joint law's identity and width follow the coordinates this scope compiles."""
-    from nof1_causal_lab.models.model_structure import StructuralSelectionError
-    from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
-    from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel, compile_model
-    from nof1_causal_lab.models.ssm.joint_layout import JointLawLayout
-    from nof1_causal_lab.numpyro_json import distribution_shape
-
-    model = selection.model
-    joint = {
-        identity: law
-        for identity, law in model.distributions.items()
-        if distribution_shape(law) != ((), ())
-    }
-    if not joint:
-        return
-    compiled = compile_model(selection)
-    if not isinstance(compiled, CompiledModel):
-        raise StructuralSelectionError(
-            f"A fitted joint law requires an executable model: {compiled.message}"
-        )
-    bindings, _ = parameter_bindings(compiled)
-    for identity, law in joint.items():
-        layout = JointLawLayout.from_bindings(
-            bindings,
-            parameters=[
-                parameter.id for parameter in model.parameters if parameter.distribution == identity
-            ],
-            constructs=[
-                construct.id for construct in model.constructs if construct.distribution == identity
-            ],
-            time_points=model.time_points,
-        )
-        expected = layout.distribution_id
-        if identity != expected:
-            raise StructuralSelectionError(
-                f"Joint distribution identity does not match its scientific event coordinates: expected {expected}"
-            )
-        if distribution_shape(law) != ((), (layout.width,)):
-            raise StructuralSelectionError(
-                "A joint distribution must have one event coordinate per scientific quantity"
-            )
