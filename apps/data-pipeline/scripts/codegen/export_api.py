@@ -18,7 +18,7 @@ from fastapi import routing
 from fastapi.openapi.utils import get_fields_from_routes, get_openapi_path
 from pydantic import TypeAdapter
 
-from nof1_causal_lab.actions.progress import ProgressEvent
+from nof1_causal_lab.actions.progress_contracts import ProgressEvent
 from nof1_causal_lab.actions.results import ActionPoll
 from nof1_causal_lab.artifacts.catalog import ARTIFACT_CONTRACTS
 from nof1_causal_lab.artifacts.effects import EffectSummary
@@ -28,8 +28,8 @@ from nof1_causal_lab.artifacts.likelihood import OBSERVATION_FAMILY_SPECS
 from nof1_causal_lab.artifacts.scenarios import (
     CausalEffectResult,
 )
-from nof1_causal_lab.study.snapshot_models import ModelSnapshot
 from nof1_causal_lab.study.records import StudyRevision
+from nof1_causal_lab.study.snapshot_models import ModelSnapshot
 
 # Import all artifact contracts — this pulls in every nested domain model
 from nof1_causal_lab.study.view_models import (
@@ -44,8 +44,8 @@ from nof1_causal_lab.study.visual_models import (
     SimulationPaths,
 )
 from nof1_causal_lab.study_api import (
-    TimelineRevision,
     TimelineResponse,
+    TimelineRevision,
 )
 from nof1_causal_lab.utils.llm import LLMTrace
 from scripts.codegen.type_system_catalog import (
@@ -283,7 +283,11 @@ def _curl_block(
                 schema = components[schema["$ref"].rsplit("/", 1)[-1]]
             fields = schema.get("properties", {})
             for index, (name, field) in enumerate(fields.items()):
-                value = "@/path/to/file" if field.get("contentMediaType") == "application/octet-stream" else name.upper()
+                value = (
+                    "@/path/to/file"
+                    if field.get("contentMediaType") == "application/octet-stream"
+                    else name.upper()
+                )
                 suffix = " \\" if index < len(fields) - 1 else ""
                 lines.append(f'  -F "{name}={value}"{suffix}')
             return "```bash\n" + "\n".join(lines) + "\n```"

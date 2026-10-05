@@ -20,15 +20,21 @@ from nof1_causal_lab.actions.contracts import (
     SetQuestionRequest,
     SimulateRequest,
 )
-from nof1_causal_lab.actions.progress import ProgressEvent
+from nof1_causal_lab.actions.progress_contracts import ProgressEvent
 from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.artifacts.data_preparation import (
     FilePreparationSpec,
     FileSourceRef,
 )
+from nof1_causal_lab.artifacts.identification import IdentificationReport
 from nof1_causal_lab.artifacts.identity import (
     ArtifactId,
     GitOid,
+)
+from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
+from nof1_causal_lab.artifacts.validation_report import (
+    DataProfileArtifact,
+    ValidationReportArtifact,
 )
 from nof1_causal_lab.json_types import JsonObject
 from nof1_causal_lab.llm_specs import (
@@ -45,7 +51,7 @@ from nof1_causal_lab.study.records import (
 from nof1_causal_lab.study.state import (
     StudyState,
 )
-from nof1_causal_lab.study.view_models import DataDiffRequest
+from nof1_causal_lab.study.view_models import DataDiffRequest, ModelDiffRequest
 from nof1_causal_lab.workers.context import MeasurementContext
 from nof1_causal_lab.workers.schemas import ExtractionRow, WorkerOutput
 
@@ -67,13 +73,13 @@ class ReadInputsInput(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     workspace_id: str
-    request: ScientificActionRequest | DataDiffRequest
+    request: ScientificActionRequest | DataDiffRequest | ModelDiffRequest
 
 
 class ActionRequest(BaseModel):
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    request: ScientificActionRequest | DataDiffRequest
+    request: ScientificActionRequest | DataDiffRequest | ModelDiffRequest
     attempt_id: UUID = Field(default_factory=uuid4)
 
 
@@ -82,7 +88,7 @@ class ActionInput(BaseModel):
 
     workspace_id: str
     request: Annotated[
-        FitRequest | SimulateRequest | PrepareDataRequest | DataDiffRequest,
+        FitRequest | SimulateRequest | PrepareDataRequest | DataDiffRequest | ModelDiffRequest,
         Field(discriminator="action"),
     ]
     state: StudyState
@@ -438,6 +444,10 @@ class AttemptPublication(Value):
     workspace_id: str
     parent_id: GitOid | None
     record: AttemptRecord
+    model_checks: (
+        tuple[ModelCheckReport, IdentificationReport, ValidationReportArtifact | None] | None
+    ) = None
+    data_profile: DataProfileArtifact | None = None
 
 
 class MeasurementChunkContext(BaseModel):

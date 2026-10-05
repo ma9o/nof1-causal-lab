@@ -176,7 +176,7 @@ def test_preparation_without_model_combines_computed_and_semantic_workers(monkey
     )
     assert metadata.variables[1].ordinal_levels == ("low", "medium", "high")
     assert set(profile.indicators) == {"indicator:steps", "indicator:stress"}
-    labels = completion_messages(effects, datetime.now(UTC), (profile,))
+    labels = completion_messages(effects.result, datetime.now(UTC), (profile,))
     assert "DATA_QUALITY_FINDINGS" in {label.label for label in labels}
     assert all(set(label.model_dump()) == {"timestamp", "level", "label"} for label in labels)
 

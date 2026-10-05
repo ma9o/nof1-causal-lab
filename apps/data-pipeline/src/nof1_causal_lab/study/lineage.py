@@ -44,7 +44,7 @@ def inference_report_is_current(result: ModelFitResult, state: StudyState) -> bo
 
 
 def read_data_metadata(store: ArtifactStore, revision: GitOid) -> PreparedDataMetadata:
-    return TypeAdapter(PreparedDataMetadata).validate_python(
+    return TypeAdapter[PreparedDataMetadata](PreparedDataMetadata).validate_python(
         store.read_json_file("panel", revision, json_filename("panel", "metadata"))
     )
 
@@ -60,9 +60,11 @@ def fitted_law_report(
     assert fitted.record.attempt.outcome.status == "applied"
     result = fitted.record.attempt.outcome.result
     assert result is not None
-    from nof1_causal_lab.actions.fit import read_inference_report
+    from nof1_causal_lab.artifacts.posterior import InferenceReport
 
-    return read_inference_report(store, revision, result.evidence).core
+    return store.read_report(
+        fitted.record.attempt.outcome.effects.reports["inference"], InferenceReport
+    ).core
 
 
 def law_provenance(

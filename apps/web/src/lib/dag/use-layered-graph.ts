@@ -147,7 +147,7 @@ export function useLayeredGraph({
       : {};
 
   const simulationResult = simulationVisible ? simulation : null;
-  const days = useMemo(() => simulationResult?.times ?? [], [simulationResult]);
+  const days = useMemo(() => simulationResult?.evidence.times ?? [], [simulationResult]);
   const {
     index: clampedDayIndex,
     setIndex: setDayIndex,

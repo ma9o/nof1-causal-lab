@@ -16,7 +16,7 @@ import type {
   TimelineRevision,
 } from "@nof1-causal-lab/api-types";
 import { delay, HttpResponse, http } from "msw";
-import { presentEntries, modelConstructs } from "@/lib/model-accessors";
+import { modelConstructs } from "@/lib/model-accessors";
 import { demoModelSnapshot, demoSnapshotAt } from "./demo-artifacts";
 import { demoTraces } from "./demo-traces";
 import comparisonFixture from "./workbench-comparisons.json";
@@ -262,6 +262,7 @@ const dataComparison: DataDiffReport = {
                   bin_end: value + 0.5,
                   count: 1,
                 })),
+                frame: [1, 3],
               },
             ],
             overlays: [
@@ -277,6 +278,7 @@ const dataComparison: DataDiffReport = {
                   [1, 2, 3],
                   [2, 3, 4],
                 ],
+                frame: [0, 4],
               },
             ],
           },
@@ -286,18 +288,32 @@ const dataComparison: DataDiffReport = {
   ],
 };
 
-const retainedMetadata = fixtureValue(demoModelSnapshot.metadata).value;
-if (retainedMetadata.kind !== "file") throw new Error("The workbench requires a file preparation recipe");
+const demoMetadata = fixtureValue(demoModelSnapshot.metadata).value;
+if (demoMetadata.kind !== "file")
+  throw new Error("The workbench requires a file preparation recipe");
+const retainedMetadata = demoMetadata;
 function preparation(seq: number): PrepareDataRequest {
   return {
     action: "prepare_data",
+    reasoning: null,
     input: {
-      source: { ...retainedMetadata.source, hashes: Object.fromEntries(retainedMetadata.source.files.map((name) => [name, "0".repeat(64)])) },
+      source: {
+        ...retainedMetadata.source,
+        hashes: Object.fromEntries(
+          retainedMetadata.source.files.map((name) => [name, "0".repeat(64)]),
+        ),
+      },
       definition: { ...retainedMetadata.preparation, context: `Illustrative preparation ${seq}` },
     },
   };
 }
-const settings = (seed: number) => ({ num_samples: null, num_warmup: null, num_chains: null, n_particles: null, seed });
+const settings = (seed: number) => ({
+  num_samples: null,
+  num_warmup: null,
+  num_chains: null,
+  n_particles: null,
+  seed,
+});
 const workbenchRecords: StudyRevision[] = [
   record(1, {
     action: "prepare_data",
@@ -312,6 +328,7 @@ const workbenchRecords: StudyRevision[] = [
       effects: {
         produced: [fixtureValue(fixtureValue(snapshots.get(1)).state.current.raw_data)],
         retracted: [],
+        reports: {},
       },
     },
   }),
@@ -320,13 +337,20 @@ const workbenchRecords: StudyRevision[] = [
       seq,
       {
         action: "edit_model",
-        request: { action: "edit_model", expected_revision: seq === 2 ? null : modelId(seq - 2), panel_revision: null, model: fixtureValue(fixtureValue(snapshots.get(seq)).model).value },
+        request: {
+          action: "edit_model",
+          reasoning: null,
+          expected_revision: seq === 2 ? null : modelId(seq - 2),
+          panel_revision: null,
+          model: fixtureValue(fixtureValue(snapshots.get(seq)).model).value,
+        },
         outcome: {
           status: "applied",
           result: null,
           effects: {
             produced: [fixtureValue(fixtureValue(snapshots.get(seq)).state.current.model)],
             retracted: [],
+            reports: {},
           },
         },
       },
@@ -356,6 +380,7 @@ const workbenchRecords: StudyRevision[] = [
       effects: {
         produced: [fixtureValue(fixtureValue(snapshots.get(5)).state.current.panel)],
         retracted: [],
+        reports: {},
       },
     },
   }),
@@ -374,13 +399,20 @@ const workbenchRecords: StudyRevision[] = [
     7,
     {
       action: "edit_model",
-      request: { action: "edit_model", expected_revision: modelId(3), panel_revision: panelId, model: fixtureValue(models.get(modelId(4))) },
+      request: {
+        action: "edit_model",
+        reasoning: null,
+        expected_revision: modelId(3),
+        panel_revision: panelId,
+        model: fixtureValue(models.get(modelId(4))),
+      },
       outcome: {
         status: "applied",
         result: null,
         effects: {
           produced: [fixtureValue(fixtureValue(snapshots.get(7)).state.current.model)],
           retracted: [],
+          reports: {},
         },
       },
     },
@@ -388,17 +420,24 @@ const workbenchRecords: StudyRevision[] = [
   ),
   record(8, {
     action: "fit",
-    request: { action: "fit", model_revision: modelId(4), panel_revision: panelId, settings: settings(8) },
+    request: {
+      action: "fit",
+      reasoning: null,
+      model_revision: modelId(4),
+      panel_revision: panelId,
+      settings: settings(8),
+    },
     outcome: {
       status: "applied",
       result: null,
-      effects: { produced: [v5], retracted: [] },
+      effects: { produced: [v5], retracted: [], reports: {} },
     },
   }),
   record(9, {
     action: "simulate",
     request: {
       action: "simulate",
+      reasoning: null,
       model_revision: modelId(5),
       panel_revision: panelId,
       ...fixtureValue(simulations.get(5)).evidence.design,
@@ -408,31 +447,44 @@ const workbenchRecords: StudyRevision[] = [
       result: {
         evidence: fixtureValue(simulations.get(5)).evidence,
       },
-      effects: { produced: [], retracted: [] },
+      effects: { produced: [], retracted: [], reports: {} },
     },
   }),
   record(10, {
     action: "fit",
-    request: { action: "fit", model_revision: modelId(4), panel_revision: panelId, settings: settings(10) },
+    request: {
+      action: "fit",
+      reasoning: null,
+      model_revision: modelId(4),
+      panel_revision: panelId,
+      settings: settings(10),
+    },
     outcome: {
       status: "applied",
       result: null,
-      effects: { produced: [v6], retracted: [] },
+      effects: { produced: [v6], retracted: [], reports: {} },
     },
   }),
   record(11, {
     action: "edit_model",
-    request: { action: "edit_model", expected_revision: modelId(6), panel_revision: panelId, model: pinnedModel },
+    request: {
+      action: "edit_model",
+      reasoning: null,
+      expected_revision: modelId(6),
+      panel_revision: panelId,
+      model: pinnedModel,
+    },
     outcome: {
       status: "applied",
       result: null,
-      effects: { produced: [v7], retracted: [] },
+      effects: { produced: [v7], retracted: [], reports: {} },
     },
   }),
   record(12, {
     action: "simulate",
     request: {
       action: "simulate",
+      reasoning: null,
       model_revision: modelId(7),
       panel_revision: panelId,
       ...fixtureValue(simulations.get(7)).evidence.design,
@@ -442,20 +494,21 @@ const workbenchRecords: StudyRevision[] = [
       result: {
         evidence: fixtureValue(simulations.get(7)).evidence,
       },
-      effects: { produced: [], retracted: [] },
+      effects: { produced: [], retracted: [], reports: {} },
     },
   }),
   record(13, {
     action: "data_diff",
     request: {
       action: "data_diff",
+      reasoning: null,
       left: fixtureValue(dataComparison.left[0]),
       right: fixtureValue(dataComparison.right[0]),
     },
     outcome: {
       status: "applied",
       result: null,
-      effects: { produced: [], retracted: [] },
+      effects: { produced: [], retracted: [], reports: {} },
     },
   }),
 ];
@@ -516,10 +569,33 @@ for (const seq of [8, 9]) {
   });
 }
 // Failed attempts and comparisons are leaves; successful scientific calls form one journal.
-for (const [seq, snapshot] of snapshots) snapshots.set(seq, { ...snapshot, commit_id: commitId(seq) });
-const commitParents: Record<number, number> = { 1: 0, 2: 1, 3: 2, 4: 3, 5: 4, 6: 5, 7: 5, 8: 7, 9: 8, 10: 9, 11: 10, 12: 11, 13: 12 };
-for (const [index, entry] of journal.entries()) journal[index] = { ...entry, parent_ids: [commitId(fixtureValue(commitParents[entry.record.seq]))] };
-snapshots.set(13, { ...fixtureValue(snapshots.get(12)), selected_seq: 13, commit_id: commitId(13) });
+for (const [seq, snapshot] of snapshots)
+  snapshots.set(seq, { ...snapshot, commit_id: commitId(seq) });
+const commitParents: Record<number, number> = {
+  1: 0,
+  2: 1,
+  3: 2,
+  4: 3,
+  5: 4,
+  6: 5,
+  7: 5,
+  8: 7,
+  9: 8,
+  10: 9,
+  11: 10,
+  12: 11,
+  13: 12,
+};
+for (const [index, entry] of journal.entries())
+  journal[index] = {
+    ...entry,
+    parent_ids: [commitId(fixtureValue(commitParents[entry.record.seq]))],
+  };
+snapshots.set(13, {
+  ...fixtureValue(snapshots.get(12)),
+  selected_seq: 13,
+  commit_id: commitId(13),
+});
 // Backend-shaped argument dependencies for the journal above, as the timeline route serves them.
 const dependencies: RecordDependency[] = (
   [
@@ -576,21 +652,30 @@ export const workbenchJournal: TimelineRevision[] = journal.map((entry) => {
 export function workbenchResult(seq: number): CompletedPoll {
   const entry = fixtureValue(journal.find((item) => item.record.seq === seq));
   const snapshot = snapshots.get(seq) ?? null;
-  const paths = snapshot?.simulation ? {
-    ...visualFixture.simulation,
-    effect: snapshot.simulation.value.causal.kind === "available" ? visualFixture.simulation.effect : null,
-  } : null;
+  const paths = snapshot?.simulation
+    ? {
+        ...visualFixture.simulation,
+        effect:
+          snapshot.simulation.value.causal.kind === "available"
+            ? visualFixture.simulation.effect
+            : null,
+      }
+    : null;
   return {
-    kind: "completed", commit_id: entry.commit_id, attempt: entry.record.attempt, messages: entry.record.messages,
+    kind: "completed",
+    commit_id: entry.commit_id,
+    attempt: entry.record.attempt,
+    messages: entry.record.messages,
     snapshot,
     inference_report: null,
     data_comparison: entry.record.attempt.action === "data_diff" ? dataComparison : null,
+    model_comparison: null,
     checks:
       entry.record.attempt.action === "edit_model" || entry.record.attempt.action === "fit"
         ? {
-            specification: snapshot.specification?.value ?? [],
-            question: snapshot.question_checks?.value ?? null,
-            predictive: snapshot.predictive?.value ?? null,
+            specification: fixtureValue(snapshot).specification?.value ?? [],
+            question: fixtureValue(snapshot).question_checks?.value ?? null,
+            predictive: fixtureValue(snapshot).predictive?.value ?? null,
             reused: [],
           }
         : null,
@@ -612,39 +697,63 @@ export function workbenchHandlers() {
     attempts: workbenchJournal,
     dependencies,
     running: {
-      attempt_id: "0f17a770-5d1e-4c2b-9a3f-6b8e2d4c1a90", action: "fit", events: [],
-      request: { action: "fit", model_revision: modelId(7), panel_revision: panelId, settings: settings(13) },
+      attempt_id: "0f17a770-5d1e-4c2b-9a3f-6b8e2d4c1a90",
+      action: "fit",
+      events: [],
+      request: {
+        action: "fit",
+        reasoning: null,
+        model_revision: modelId(7),
+        panel_revision: panelId,
+        settings: settings(13),
+      },
       messages: [{ timestamp: "2026-09-16T12:05:00Z", level: "info", label: "FIT_STARTED" }],
     },
   });
   return [
     http.get(`/api/studies/${WORKBENCH_WORKSPACE}/timeline`, () => HttpResponse.json(timeline())),
-    ...["set_question", "edit_model", "prepare_data", "fit", "simulate", "data_diff"].map((action) =>
+    ...[
+      "set_question",
+      "edit_model",
+      "prepare_data",
+      "fit",
+      "simulate",
+      "data_diff",
+      "model_diff",
+    ].map((action) =>
       http.post(`/api/studies/${WORKBENCH_WORKSPACE}/${action}`, async ({ request }) => {
         const body = await request.json();
-        const entry = journal.find((item) => JSON.stringify(item.record.attempt.request) === JSON.stringify(body));
-        return entry ? HttpResponse.json(workbenchResult(entry.record.seq)) : HttpResponse.json({ detail: "No saved story call" }, { status: 403 });
+        const entry = journal.find(
+          (item) => JSON.stringify(item.record.attempt.request) === JSON.stringify(body),
+        );
+        return entry
+          ? HttpResponse.json(workbenchResult(entry.record.seq))
+          : HttpResponse.json({ detail: "No saved story call" }, { status: 403 });
       }),
     ),
-    http.post(`/api/studies/${WORKBENCH_WORKSPACE}/model_diff`, async ({ request }) => {
-      const query = await request.json() as { before: string; after: string };
+    http.get(`/api/studies/${WORKBENCH_WORKSPACE}/model-comparison`, async ({ request }) => {
+      const query = new URL(request.url).searchParams;
       await delay(180);
-      const before = snapshotByModelRef(query.before);
-      const after = snapshotByModelRef(query.after);
+      const before = snapshotByModelRef(query.get("before"));
+      const after = snapshotByModelRef(query.get("after"));
       if (!before || !after)
         return HttpResponse.json({ error: "Unknown story version" }, { status: 404 });
       const beforeVersion = before.model?.source.ref.revision ?? "no-model";
       const afterVersion = after.model?.source.ref.revision ?? "no-model";
       return HttpResponse.json({
         ...fixtureValue(definitionComparisons[`${beforeVersion}:${afterVersion}`]),
-        before_model: before.model?.value ?? null, after_model: after.model?.value ?? null,
+        before_model: before.model?.value ?? null,
+        after_model: after.model?.value ?? null,
         before: before.model?.source.ref ?? null,
         after: after.model?.source.ref ?? null,
-        before_checks: checks, after_checks: checks,
+        before_checks: checks,
+        after_checks: checks,
         before_fit: before.fit?.source.validity === "fresh" ? before.fit.value.report : null,
         after_fit: after.fit?.source.validity === "fresh" ? after.fit.value.report : null,
-        before_simulation: before.simulation?.source.validity === "fresh" ? before.simulation.value : null,
-        after_simulation: after.simulation?.source.validity === "fresh" ? after.simulation.value : null,
+        before_simulation:
+          before.simulation?.source.validity === "fresh" ? before.simulation.value : null,
+        after_simulation:
+          after.simulation?.source.validity === "fresh" ? after.simulation.value : null,
       } satisfies ModelDiffReport);
     }),
   ];

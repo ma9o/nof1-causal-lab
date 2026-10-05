@@ -11,13 +11,16 @@ import type {
   SimulationPaths,
   StructuralItemDisposition,
 } from "@nof1-causal-lab/api-types";
-import { scaleLinear } from "d3-scale";
 import { Pause, Play } from "lucide-react";
 import type { KeyboardEvent, ReactNode } from "react";
-import { LawPlot, lawExtent } from "@/components/charts/law-density";
+import { DensityMarks, densityPeak } from "@/components/charts/distribution-chart";
+import { DrawsChart } from "@/components/charts/draws-chart";
+import { lawDomain, lawLayers } from "@/components/charts/law-layers";
+import { CHART_COLORS, cssColor } from "@/components/charts/chart-tokens";
+import { type PlotBox, extentOf, linearScale, padDomain } from "@/components/charts/plot-geometry";
+import { ProfileMarks, profileDomain, profileSummary } from "@/components/charts/profile-strip";
+import { dataComparisonChart, pathLayers } from "@/components/charts/series-adapters";
 import { Button } from "@/components/ui/button";
-import { HistoryPlot } from "@/components/charts/history-plot";
-import { dataComparisonHistory, pathLines } from "@/components/model/scopes/recorded-history";
 import {
   LAYERED_EDGE_SLOT_HEIGHT,
   LAYERED_EDGE_SLOT_WIDTH,
@@ -221,6 +224,58 @@ function StripOverflow({ hidden }: { hidden: number }) {
   ) : null;
 }
 
+/** Dated markers drawn by the card itself, so each keeps its own label at any zoom. */
+function CardMarkers({
+  times,
+  markers,
+}: {
+  times: readonly number[];
+  markers: readonly { time: number; label: string }[];
+}) {
+  const domain = extentOf(times);
+  if (!domain || markers.length === 0) return null;
+  const x = linearScale(domain[0] === domain[1] ? padDomain(domain) : domain, [
+    STRIP.x + 1,
+    STRIP.x + STRIP.width - 1,
+  ]);
+  return (
+    <g pointerEvents="none">
+      {markers.map((marker) => (
+        <g key={`${marker.time}-${marker.label}`} role="img" aria-label={marker.label}>
+          <title>{marker.label}</title>
+          <line
+            x1={x(marker.time)}
+            x2={x(marker.time)}
+            y1={STRIP.top}
+            y2={STRIP.top + STRIP.height}
+            stroke={cssColor(CHART_COLORS.intervened)}
+            strokeDasharray="3 3"
+            strokeWidth={0.8}
+          />
+        </g>
+      ))}
+    </g>
+  );
+}
+
+/** A law's backend curves inside a card or slot, on the law's own value range. */
+function LawMarks({ curve, box }: { curve: LawCurve; box: PlotBox }) {
+  const domain = lawDomain(curve);
+  if (!domain) return null;
+  const layers = lawLayers(curve);
+  return (
+    <DensityMarks
+      layers={layers}
+      x={linearScale(domain[0] === domain[1] ? padDomain(domain) : domain, [
+        box.left,
+        box.left + box.width,
+      ])}
+      box={box}
+      peak={densityPeak(layers)}
+    />
+  );
+}
+
 /** Each own law's backend curves: the prior outlined, posteriors filled after a fit. */
 function LawStrip({ laws }: { laws: LawCurve[] }) {
   const shown = laws.slice(0, STRIP_ROWS);
@@ -228,6 +283,7 @@ function LawStrip({ laws }: { laws: LawCurve[] }) {
     <g>
       {shown.map((curve, index) => {
         const posterior = curve.posteriors.length === 1 ? curve.posteriors[0] : null;
+        const domain = lawDomain(curve);
         return (
           <StripRow
             key={curve.parameter.id}
@@ -242,14 +298,16 @@ function LawStrip({ laws }: { laws: LawCurve[] }) {
                   : truncate(curve.family ?? "prior", 9)
             }
             valueTone={posterior && !curve.stale ? DAG_COLORS.ink : DAG_COLORS.muted}
-            range={lawExtent(curve)}
+            {...(domain ? { range: domain } : {})}
           >
-            <LawPlot
+            <LawMarks
               curve={curve}
-              x={STRIP.x + STRIP_ROW.plot}
-              y={rowTop(index) + 2}
-              width={STRIP.width - STRIP_ROW.plot}
-              height={STRIP_ROW.height - 8}
+              box={{
+                left: STRIP.x + STRIP_ROW.plot,
+                top: rowTop(index) + 2,
+                width: STRIP.width - STRIP_ROW.plot,
+                height: STRIP_ROW.height - 8,
+              }}
             />
           </StripRow>
         );
@@ -259,7 +317,7 @@ function LawStrip({ laws }: { laws: LawCurve[] }) {
   );
 }
 
-/** A node's prepared indicators: observation counts and recorded range, quartiles and median. */
+/** A node's prepared indicators: observation counts and their profile strips. */
 function DataStrip({
   rows,
 }: {
@@ -269,65 +327,30 @@ function DataStrip({
   return (
     <g>
       {shown.map(({ indicator, profile }, index) => {
-        const { min, q25, q50, q75, max } = profile;
-        const quartiles =
-          min != null && q25 != null && q50 != null && q75 != null && max != null
-            ? { min, q25, q50, q75, max }
-            : null;
         const name = humanize(indicator.observation.name);
-        const counted = `${name} · ${profile.n_obs.toLocaleString()} observations`;
-        const sx = scaleLinear()
-          .domain(
-            quartiles && quartiles.min !== quartiles.max
-              ? [quartiles.min, quartiles.max]
-              : [(min ?? 0) - 0.5, (max ?? 0) + 0.5],
-          )
-          .range([STRIP.x + STRIP_ROW.plot, STRIP.x + STRIP.width]);
-        const mid = rowTop(index) + 8.5;
+        const domain = profileDomain(profile, []);
         return (
           <StripRow
             key={indicator.observation.id}
             index={index}
-            title={
-              quartiles
-                ? `${counted} · min ${formatSignificant(quartiles.min)} · quartiles ${formatSignificant(quartiles.q25)}–${formatSignificant(quartiles.q75)} · median ${formatSignificant(quartiles.q50)} · max ${formatSignificant(quartiles.max)}`
-                : counted
-            }
+            title={`${name} · ${profileSummary(profile)}`}
             label={name}
             value={`n ${formatSignificant(profile.n_obs)}`}
             valueTone={DAG_COLORS.ink}
-            {...(quartiles ? { range: [quartiles.min, quartiles.max] as const } : {})}
+            {...(domain ? { range: domain } : {})}
           >
-            {quartiles ? (
-              <>
-                <line
-                  x1={sx(quartiles.min)}
-                  x2={sx(quartiles.max)}
-                  y1={mid}
-                  y2={mid}
-                  stroke={DAG_COLORS.muted}
-                />
-                <rect
-                  x={sx(quartiles.q25)}
-                  y={mid - 4}
-                  width={Math.max(1.2, sx(quartiles.q75) - sx(quartiles.q25))}
-                  height={8}
-                  rx={1.5}
-                  fill={DAG_COLORS.intervention}
-                  fillOpacity={0.14}
-                  stroke={DAG_COLORS.intervention}
-                  strokeWidth={0.8}
-                />
-                <line
-                  x1={sx(quartiles.q50)}
-                  x2={sx(quartiles.q50)}
-                  y1={mid - 4}
-                  y2={mid + 4}
-                  stroke={DAG_COLORS.intervention}
-                  strokeWidth={1.4}
-                />
-              </>
-            ) : null}
+            {domain && (
+              <ProfileMarks
+                profile={profile}
+                values={[]}
+                x={linearScale(padDomain(domain, 0.02), [
+                  STRIP.x + STRIP_ROW.plot,
+                  STRIP.x + STRIP.width,
+                ])}
+                top={rowTop(index) + 2}
+                height={12}
+              />
+            )}
           </StripRow>
         );
       })}
@@ -505,13 +528,14 @@ function EdgeSlot({
           strokeOpacity={0.55}
           strokeDasharray={disposition === "projected_edge" ? "4,3" : undefined}
         />
-        <LawPlot
+        <LawMarks
           curve={law}
-          x={7}
-          y={5}
-          width={LAYERED_EDGE_SLOT_WIDTH - 14}
-          height={LAYERED_EDGE_SLOT_HEIGHT - 19}
-          color={tone}
+          box={{
+            left: 7,
+            top: 5,
+            width: LAYERED_EDGE_SLOT_WIDTH - 14,
+            height: LAYERED_EDGE_SLOT_HEIGHT - 19,
+          }}
         />
         <text
           x={LAYERED_EDGE_SLOT_WIDTH / 2}
@@ -845,8 +869,9 @@ export function LayeredCausalGraph({
                     })
                   : [];
               const assignments =
-                simulationResult?.assignments.filter((event) => event.target === construct.id) ??
-                [];
+                simulationResult?.evidence.assignments.filter(
+                  (event) => event.target === construct.id,
+                ) ?? [];
               return (
                 <g
                   key={node.id}
@@ -865,7 +890,7 @@ export function LayeredCausalGraph({
                     failures={dataDiff ? [] : entityFailures(model, construct)}
                     status={nodeStatuses.get(construct.id) ?? undefined}
                     assignments={assignments}
-                    timeOrigin={simulationResult?.time_origin ?? null}
+                    timeOrigin={simulationResult?.evidence.time_origin ?? null}
                     selected={selected}
                     dimmed={dimmed}
                     onSelect={select}
@@ -928,7 +953,12 @@ export function LayeredCausalGraph({
                                     height={STRIP_ROW.height - 2}
                                     pointerEvents="none"
                                   >
-                                    <HistoryPlot {...dataComparisonHistory(variable)} compact />
+                                    <DrawsChart
+                                      {...dataComparisonChart(variable)}
+                                      height={STRIP_ROW.height - 2}
+                                      resolution={zoom}
+                                      compact
+                                    />
                                   </foreignObject>
                                 )}
                               </StripRow>
@@ -938,23 +968,17 @@ export function LayeredCausalGraph({
                         <StripOverflow hidden={nodeIndicators.length - STRIP_ROWS} />
                       </>
                     ) : series ? (
-                      <foreignObject
-                        x={STRIP.x}
-                        y={STRIP.top}
-                        width={STRIP.width}
-                        height={STRIP.height}
-                        pointerEvents="none"
-                      >
-                        <HistoryPlot
-                          compact
+                      <>
+                        <CardMarkers
                           times={simulationPaths.times}
-                          series={pathLines(series)}
-                          label={`${humanize(series.label)}: ${series.action.length} individual simulation draws`}
                           markers={[
                             ...(simulationResult
                               ? assignments.map((event) => ({
                                   time: event.time,
-                                  label: assignmentLabel(event, simulationResult.time_origin),
+                                  label: assignmentLabel(
+                                    event,
+                                    simulationResult.evidence.time_origin,
+                                  ),
                                 }))
                               : []),
                             ...(variant === "workbench" && currentDay !== undefined
@@ -962,7 +986,26 @@ export function LayeredCausalGraph({
                               : []),
                           ]}
                         />
-                      </foreignObject>
+                        <foreignObject
+                          x={STRIP.x}
+                          y={STRIP.top}
+                          width={STRIP.width}
+                          height={STRIP.height}
+                          pointerEvents="none"
+                        >
+                          <DrawsChart
+                            compact
+                            height={STRIP.height}
+                            resolution={zoom}
+                            times={simulationPaths.times}
+                            timeOrigin={simulationPaths.time_origin}
+                            layers={pathLayers(series, "both", false)}
+                            frame={series.frame}
+                            levels={series.levels}
+                            label={`${humanize(series.label)}: ${series.action.length} individual simulation draws`}
+                          />
+                        </foreignObject>
+                      </>
                     ) : prepared.length > 0 ? (
                       <DataStrip rows={prepared} />
                     ) : (

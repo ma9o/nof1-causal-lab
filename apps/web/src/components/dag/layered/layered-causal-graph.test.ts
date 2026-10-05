@@ -52,22 +52,25 @@ const model = {
 
 const report: SimulationReport = {
   ...demoSimulationResult,
-  time_origin: "2026-01-01T00:00:00Z",
-  times: [0, 1, 2, 3, 4, 5, 6, 7],
-  design: {
-    start: "2026-01-01",
-    horizon: "7d",
-    interventions: [
-      { target: dose.id, after: "1d", value: 10 },
-      { target: dose.id, after: "3d", value: 5 },
-      { target: dose.id, after: "6d", value: 0 },
+  evidence: {
+    ...demoSimulationResult.evidence,
+    time_origin: "2026-01-01T00:00:00Z",
+    times: [0, 1, 2, 3, 4, 5, 6, 7],
+    design: {
+      start: "2026-01-01",
+      horizon: "7d",
+      interventions: [
+        { target: dose.id, after: "1d", value: 10 },
+        { target: dose.id, after: "3d", value: 5 },
+        { target: dose.id, after: "6d", value: 0 },
+      ],
+    },
+    assignments: [
+      { target: dose.id, time: 1, value: 10 },
+      { target: dose.id, time: 3, value: 5 },
+      { target: dose.id, time: 6, value: 0 },
     ],
   },
-  assignments: [
-    { target: dose.id, time: 1, value: 10 },
-    { target: dose.id, time: 3, value: 5 },
-    { target: dose.id, time: 6, value: 0 },
-  ],
 };
 const paths: SimulationPaths = {
   effect_summary: null,
@@ -75,7 +78,7 @@ const paths: SimulationPaths = {
   manifest_effects: {},
   action_category_probabilities: {},
   reference_category_probabilities: {},
-  times: report.times,
+  times: report.evidence.times,
   time_origin: null,
   total_draws: 1,
   start: 0,
@@ -86,6 +89,7 @@ const paths: SimulationPaths = {
       levels: null,
       action: [{ draw: 0, values: [9, 10, 9, 5, 6, 4, 0, 1] }],
       reference: [],
+      frame: [0, 10],
     },
   },
   indicators: {},
@@ -120,9 +124,9 @@ describe("dated intervention overlay", () => {
   it("shows every dated assignment without implying a continuously fixed value", () => {
     const markup = render("asset", report);
     expect(markup.match(/>3 assignments</g)).toHaveLength(1);
-    for (const event of report.assignments) {
+    for (const event of report.evidence.assignments) {
       expect(markup).toContain(
-        `aria-label="${formatModelDate(event.time, report.time_origin)} (day ${event.time}): set to ${event.value}"`,
+        `aria-label="${formatModelDate(event.time, report.evidence.time_origin)} (day ${event.time}): set to ${event.value}"`,
       );
     }
     expect(markup).not.toContain("do(");

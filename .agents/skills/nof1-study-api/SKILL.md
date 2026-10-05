@@ -11,7 +11,12 @@ The public scientific interface has seven calls: `set_question`, `edit_model`,
 `prepare_data`, `fit`, `simulate`, `data_diff`, and `model_diff`.
 Call each at `POST /api/studies/{workspace_id}/{action}` with its typed JSON arguments.
 
-A call is identified by its action and parsed arguments. Name model and panel inputs
+A call is identified by its action and parsed scientific arguments. Every call accepts
+an optional `reasoning` string explaining why the caller is taking the action and
+what goal it serves. It is retained with the original request and shown first in the
+action log, including running and failed calls. Reasoning is excluded from call
+identity: changing or omitting it while polling preserves the original explanation
+and never starts another applied or running call. Name model and panel inputs
 by immutable revision OIDs. `prepare_data` names uploaded files and captures their
 call-time SHA-256 hashes in `input.source.hashes`; repeat those retained hashes to
 read a saved call without the upload files. `edit_model` names its base
@@ -19,7 +24,7 @@ read a saved call without the upload files. `edit_model` names its base
 `panel_revision` for authored-law calendar binding. There are no branches or public
 head-conflict controls. Every study starts with its immutable `set_question` call.
 
-The six recorded calls run through the existing serialized Temporal study workflow.
+All seven calls run through the serialized Temporal study workflow.
 The response is `kind: running` with the call's arguments, attempt_id, messages and
 step/extraction events, or `kind: completed` with the correlated attempt and outcome.
 For running calls, repeat the response's `request`; it includes the canonical
@@ -31,16 +36,18 @@ the journal with their messages and error; repeating them retries execution.
 
 Completed applied responses include `snapshot`, `checks`, `inference_report`,
 `observation_histories`, `predictive_overlays`, `simulation_paths`, `parameter_draws`,
-`data_comparison`, `artifacts`, `arrays`, and `traces`, alongside the typed `attempt.outcome`.
+`data_comparison`, `model_comparison`, `artifacts`, `arrays`, and `traces`, alongside the typed `attempt.outcome`.
 All retained simulation paths and large arrays are returned without paging. Tables
 are JSON rows, and `arrays` maps immutable array identities to their complete values.
 Missing numerical values are null. No extra result or artifact read is needed.
-Reports, checks and comparisons are current-code reads of retained facts, cached by
-the package code digest and immutable inputs in the shared read cache.
+Reports and checks are retained with the action that computed them. Comparisons are
+projections of immutable inputs, cached by the package code digest in the shared read cache.
 
-`model_diff {before, after}` is a cached comparison read. It returns the comparison
-and each present model definition, creates no attempt, leaf or timeline entry, and works on
-the read-only facade. Edit details and hover/pin previews use this same call.
+`model_diff {before, after}` records a comparison leaf like `data_diff` and returns
+the comparison and each present model definition in `model_comparison`. Comparison
+leaves retain their requests and outcomes without advancing scientific state.
+Edit details and hover/pin previews read the same immutable projection through
+`GET /api/studies/{workspace_id}/model-comparison?before=OID&after=OID`.
 Pre-model checkpoints have an empty comparison side; failed attempts compare their
 unchanged execution parent.
 
@@ -55,7 +62,7 @@ header supplies the landing page capability. `POST /api/upload` stages a named i
 file (`multipart/form-data` with `workspaceId` and `file`).
 
 With READ_ONLY_FACADE=1, saved calls are answered and unsaved recorded calls return
-403. Model comparisons remain available. Scientific checks,
+403. Viewer comparison projections remain available. Scientific checks,
 production fitting and simulations continue using the exact nonlinear engines.
 
 ## Endpoints
@@ -105,9 +112,23 @@ curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/fit"
   -d '{"action": "fit", "model_revision": "string", "panel_revision": "string"}'
 ```
 
+### GET `/api/studies/{workspace_id}/model-comparison`
+
+Read the immutable comparison projection for viewer previews without submitting an action.
+
+**Parameters**
+
+- `workspace_id` (path, required)
+- `before` (query, required)
+- `after` (query, required)
+
+```bash
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/model-comparison"
+```
+
 ### POST `/api/studies/{workspace_id}/model_diff`
 
-Compare named before/after model trees or checkpoints, including their definitions and evidence. Cached by parsed arguments. Never creates an attempt, leaf, or timeline entry, and works on the read-only facade.
+Compare named before/after model trees or checkpoints and retain a comparison leaf, including definitions and evidence in model_comparison. Identical applied calls reuse the comparison; running calls return progress. Failures stay in the timeline and can be retried.
 
 **Parameters**
 
@@ -117,7 +138,7 @@ Compare named before/after model trees or checkpoints, including their definitio
 curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/model_diff" \
   -X POST \
   -H 'Content-Type: application/json' \
-  -d '{"before": "string", "after": "string"}'
+  -d '{"action": "model_diff", "before": "string", "after": "string"}'
 ```
 
 ### POST `/api/studies/{workspace_id}/prepare_data`

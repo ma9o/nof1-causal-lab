@@ -1,8 +1,6 @@
 """Read findings follow their scientific revision and observational inputs."""
 
-import json
 from pathlib import Path
-from typing import TYPE_CHECKING
 
 import polars as pl
 import pytest
@@ -18,35 +16,11 @@ from nof1_causal_lab.study.records import Applied, DataPreparationResult, ModelF
 from nof1_causal_lab.study.snapshots import ModelReader
 from nof1_causal_lab.study.store import ArtifactStore
 from tests.action_fixtures import applied_record
-from tests.git_fixtures import artifact_revision, commit_id
+from tests.git_fixtures import artifact_revision
 from tests.helpers import make_model, write_question
-from tests.inference_fixtures import compile_fit_fixture, compile_model_fixture
 from tests.model_fixtures import x_y_model
 
-if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid
-
 FIXTURE = Path(__file__).resolve().parents[4] / "data/DEMO/fixture/artifacts"
-
-
-@pytest.mark.contract
-def test_runtime_diagnostic_subjects_match_posterior_marginals():
-    from nof1_causal_lab.actions.inference.subjects import parameter_references
-    from nof1_causal_lab.artifacts.identity import ParameterRef
-    from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
-
-    model = x_y_model()
-    bindings, auxiliary = parameter_bindings(compile_model_fixture(model))
-    references = parameter_references(compile_fit_fixture(model))
-    assert set(references) == {c for b in bindings for c in b.coordinates.values()} | set(auxiliary)
-    for binding in bindings:
-        for element, coordinate in binding.coordinates.items():
-            reference = references[coordinate]
-            assert reference is not None
-            label, subject = reference
-            assert subject == ParameterRef(parameter_id=binding.parameter_id, element_id=element)
-            assert label == binding.elements[element]
-    assert all(references[coordinate] is None for coordinate in auxiliary)
 
 
 @pytest.mark.contract
@@ -81,6 +55,7 @@ def test_fit_without_retained_atoms_has_no_report(monkeypatch, tmp_path):
 
 @pytest.mark.contract
 def test_joint_reports_and_raw_draws_use_production_labels_without_compiling(monkeypatch, tmp_path):
+    from nof1_causal_lab.actions.fit import read_inference_report
     from nof1_causal_lab.artifacts.identity import GitRef
     from nof1_causal_lab.artifacts.posterior import InferenceEvidence
     from nof1_causal_lab.utils import data
@@ -119,10 +94,18 @@ def test_joint_reports_and_raw_draws_use_production_labels_without_compiling(mon
     journal.append(
         applied_record(
             Applied(
-                result=result, effects=ActionEffects(produced=(write_question(store), panel, info))
+                result=result,
+                effects=ActionEffects(
+                    produced=(write_question(store), panel, info),
+                    reports={
+                        "inference": store.write_report(
+                            read_inference_report(store, info.revision, result.evidence)
+                        )
+                    },
+                ),
             ),
             seq=1,
-        )
+        ),
     )
     monkeypatch.setattr(
         "nof1_causal_lab.models.ssm.compile.inputs.compile_model",
@@ -131,7 +114,9 @@ def test_joint_reports_and_raw_draws_use_production_labels_without_compiling(mon
     reader = ModelReader("LABELS", at=journal.head())
     report = reader.inference_report
     assert report is not None
-    assert {row.parameter for row in report.value.core.posterior_marginals} == set(labels.values())
+    marginals = report.value.core.posterior_marginals
+    assert marginals is not None
+    assert {row.parameter for row in marginals} == set(labels.values())
     assert report.value.core.inference_diagnostics is None
     assert report.value.core.engine.kind == "not_evaluated"
     assert report.value.core.engine.reason == "ARCHIVED_ENGINE_NOT_RETAINED"

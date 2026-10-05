@@ -3,7 +3,7 @@
   "info": {
     "title": "nof1-causal-lab study API",
     "version": "0.1.0",
-    "description": "The public scientific interface has seven calls: `set_question`, `edit_model`,\n`prepare_data`, `fit`, `simulate`, `data_diff`, and `model_diff`.\nCall each at `POST /api/studies/{workspace_id}/{action}` with its typed JSON arguments.\n\nA call is identified by its action and parsed arguments. Name model and panel inputs\nby immutable revision OIDs. `prepare_data` names uploaded files and captures their\ncall-time SHA-256 hashes in `input.source.hashes`; repeat those retained hashes to\nread a saved call without the upload files. `edit_model` names its base\n`expected_revision` and optional check `panel_revision`. `simulate` names an optional\n`panel_revision` for authored-law calendar binding. There are no branches or public\nhead-conflict controls. Every study starts with its immutable `set_question` call.\n\nThe six recorded calls run through the existing serialized Temporal study workflow.\nThe response is `kind: running` with the call's arguments, attempt_id, messages and\nstep/extraction events, or `kind: completed` with the correlated attempt and outcome.\nFor running calls, repeat the response's `request`; it includes the canonical\narguments and captured file hashes even when the first request omitted them.\nRepeat exactly the same arguments to read progress or the completed result. An\nidentical running call starts no second attempt. Applied calls reuse saved results\nwithout action execution or another timeline entry. Rejected and raised calls remain in\nthe journal with their messages and error; repeating them retries execution.\n\nCompleted applied responses include `snapshot`, `checks`, `inference_report`,\n`observation_histories`, `predictive_overlays`, `simulation_paths`, `parameter_draws`,\n`data_comparison`, `artifacts`, `arrays`, and `traces`, alongside the typed `attempt.outcome`.\nAll retained simulation paths and large arrays are returned without paging. Tables\nare JSON rows, and `arrays` maps immutable array identities to their complete values.\nMissing numerical values are null. No extra result or artifact read is needed.\nReports, checks and comparisons are current-code reads of retained facts, cached by\nthe package code digest and immutable inputs in the shared read cache.\n\n`model_diff {before, after}` is a cached comparison read. It returns the comparison\nand each present model definition, creates no attempt, leaf or timeline entry, and works on\nthe read-only facade. Edit details and hover/pin previews use this same call.\nPre-model checkpoints have an empty comparison side; failed attempts compare their\nunchanged execution parent.\n\nRead `GET /api/studies/{workspace_id}/timeline` for replayable arguments, status,\nmessages, errors, trace ids, input dependency links, and the running call. Scientific\nresults and branches are excluded. The viewer repeats applied calls only; failed or\nunknown calls are displayed from the journal without executing them. Input panes\nresolve the earlier calls named by the selected call's dependency links.\n\n`GET /api/workspaces` lists available studies and questions. Its X-Actions-Enabled\nheader supplies the landing page capability. `POST /api/upload` stages a named input\nfile (`multipart/form-data` with `workspaceId` and `file`).\n\nWith READ_ONLY_FACADE=1, saved calls are answered and unsaved recorded calls return\n403. Model comparisons remain available. Scientific checks,\nproduction fitting and simulations continue using the exact nonlinear engines.\n"
+    "description": "The public scientific interface has seven calls: `set_question`, `edit_model`,\n`prepare_data`, `fit`, `simulate`, `data_diff`, and `model_diff`.\nCall each at `POST /api/studies/{workspace_id}/{action}` with its typed JSON arguments.\n\nA call is identified by its action and parsed scientific arguments. Every call accepts\nan optional `reasoning` string explaining why the caller is taking the action and\nwhat goal it serves. It is retained with the original request and shown first in the\naction log, including running and failed calls. Reasoning is excluded from call\nidentity: changing or omitting it while polling preserves the original explanation\nand never starts another applied or running call. Name model and panel inputs\nby immutable revision OIDs. `prepare_data` names uploaded files and captures their\ncall-time SHA-256 hashes in `input.source.hashes`; repeat those retained hashes to\nread a saved call without the upload files. `edit_model` names its base\n`expected_revision` and optional check `panel_revision`. `simulate` names an optional\n`panel_revision` for authored-law calendar binding. There are no branches or public\nhead-conflict controls. Every study starts with its immutable `set_question` call.\n\nAll seven calls run through the serialized Temporal study workflow.\nThe response is `kind: running` with the call's arguments, attempt_id, messages and\nstep/extraction events, or `kind: completed` with the correlated attempt and outcome.\nFor running calls, repeat the response's `request`; it includes the canonical\narguments and captured file hashes even when the first request omitted them.\nRepeat exactly the same arguments to read progress or the completed result. An\nidentical running call starts no second attempt. Applied calls reuse saved results\nwithout action execution or another timeline entry. Rejected and raised calls remain in\nthe journal with their messages and error; repeating them retries execution.\n\nCompleted applied responses include `snapshot`, `checks`, `inference_report`,\n`observation_histories`, `predictive_overlays`, `simulation_paths`, `parameter_draws`,\n`data_comparison`, `model_comparison`, `artifacts`, `arrays`, and `traces`, alongside the typed `attempt.outcome`.\nAll retained simulation paths and large arrays are returned without paging. Tables\nare JSON rows, and `arrays` maps immutable array identities to their complete values.\nMissing numerical values are null. No extra result or artifact read is needed.\nReports and checks are retained with the action that computed them. Comparisons are\nprojections of immutable inputs, cached by the package code digest in the shared read cache.\n\n`model_diff {before, after}` records a comparison leaf like `data_diff` and returns\nthe comparison and each present model definition in `model_comparison`. Comparison\nleaves retain their requests and outcomes without advancing scientific state.\nEdit details and hover/pin previews read the same immutable projection through\n`GET /api/studies/{workspace_id}/model-comparison?before=OID&after=OID`.\nPre-model checkpoints have an empty comparison side; failed attempts compare their\nunchanged execution parent.\n\nRead `GET /api/studies/{workspace_id}/timeline` for replayable arguments, status,\nmessages, errors, trace ids, input dependency links, and the running call. Scientific\nresults and branches are excluded. The viewer repeats applied calls only; failed or\nunknown calls are displayed from the journal without executing them. Input panes\nresolve the earlier calls named by the selected call's dependency links.\n\n`GET /api/workspaces` lists available studies and questions. Its X-Actions-Enabled\nheader supplies the landing page capability. `POST /api/upload` stages a named input\nfile (`multipart/form-data` with `workspaceId` and `file`).\n\nWith READ_ONLY_FACADE=1, saved calls are answered and unsaved recorded calls return\n403. Viewer comparison projections remain available. Scientific checks,\nproduction fitting and simulations continue using the exact nonlinear engines.\n"
   },
   "paths": {
     "/api/studies/{workspace_id}/set_question": {
@@ -309,7 +309,7 @@
     "/api/studies/{workspace_id}/model_diff": {
       "post": {
         "summary": "Model Diff",
-        "description": "Compare named before/after model trees or checkpoints, including their definitions and evidence. Cached by parsed arguments. Never creates an attempt, leaf, or timeline entry, and works on the read-only facade.",
+        "description": "Compare named before/after model trees or checkpoints and retain a comparison leaf, including definitions and evidence in model_comparison. Identical applied calls reuse the comparison; running calls return progress. Failures stay in the timeline and can be retried.",
         "operationId": "model_diff",
         "parameters": [
           {
@@ -332,6 +332,62 @@
             }
           }
         },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ActionPoll"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/api/studies/{workspace_id}/model-comparison": {
+      "get": {
+        "summary": "Preview Model Comparison",
+        "description": "Read the immutable comparison projection for viewer previews without submitting an action.",
+        "operationId": "preview_model_comparison_api_studies__workspace_id__model_comparison_get",
+        "parameters": [
+          {
+            "name": "workspace_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Workspace Id"
+            }
+          },
+          {
+            "name": "before",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/GitOid-Input"
+            }
+          },
+          {
+            "name": "after",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/GitOid-Input"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -475,6 +531,7 @@
             "data_diff": "#/components/schemas/Attempt_Literal__data_diff___DataDiffRequest_NoneType_",
             "edit_model": "#/components/schemas/Attempt_Literal__edit_model___EditModelRequest_NoneType_",
             "fit": "#/components/schemas/Attempt_Literal__fit___FitRequest_Union_ModelFitResult__NoneType__",
+            "model_diff": "#/components/schemas/Attempt_Literal__model_diff___ModelDiffRequest_NoneType_",
             "prepare_data": "#/components/schemas/Attempt_Literal__prepare_data___PrepareDataRequest_DataPreparationResult_",
             "set_question": "#/components/schemas/Attempt_Literal__set_question___SetQuestionRequest_NoneType_",
             "simulate": "#/components/schemas/Attempt_Literal__simulate___SimulateRequest_ModelSimulationResult_"
@@ -499,6 +556,9 @@
           },
           {
             "$ref": "#/components/schemas/Attempt_Literal__data_diff___DataDiffRequest_NoneType_"
+          },
+          {
+            "$ref": "#/components/schemas/Attempt_Literal__model_diff___ModelDiffRequest_NoneType_"
           }
         ],
         "x-python-module": "nof1_causal_lab.study.records",
@@ -523,11 +583,22 @@
             },
             "title": "Retracted",
             "type": "array"
+          },
+          "reports": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/GitOid-Output"
+            },
+            "propertyNames": {
+              "$ref": "#/components/schemas/ActionReportName"
+            },
+            "title": "Reports",
+            "type": "object"
           }
         },
         "required": [
           "produced",
-          "retracted"
+          "retracted",
+          "reports"
         ],
         "title": "ActionEffects",
         "type": "object",
@@ -541,7 +612,10 @@
             "$ref": "#/components/schemas/ScientificActionId"
           },
           {
-            "const": "data_diff",
+            "enum": [
+              "data_diff",
+              "model_diff"
+            ],
             "type": "string"
           }
         ],
@@ -605,6 +679,20 @@
         "x-layer": "transport",
         "x-concern": "api_tools",
         "description": "A call returns running arguments, messages and progress, or its complete saved outcome and scientific views."
+      },
+      "ActionReportName": {
+        "enum": [
+          "checks",
+          "identification",
+          "validation",
+          "data-profile",
+          "inference",
+          "simulation"
+        ],
+        "type": "string",
+        "x-python-module": "nof1_causal_lab.actions.effects",
+        "x-layer": "transport",
+        "x-concern": "execution_history"
       },
       "Added_Annotated_Any__WithJsonSchema__": {
         "additionalProperties": false,
@@ -1092,7 +1180,7 @@
         "x-layer": "study",
         "x-concern": "execution_history"
       },
-      "Attempt_ActionId_Union_ScientificActionRequest__DataDiffRequest__NoneType_": {
+      "Attempt_ActionId_Union_ScientificActionRequest__DataDiffRequest__ModelDiffRequest__NoneType_": {
         "additionalProperties": false,
         "properties": {
           "action": {
@@ -1105,6 +1193,9 @@
               },
               {
                 "$ref": "#/components/schemas/DataDiffRequest-Output"
+              },
+              {
+                "$ref": "#/components/schemas/ModelDiffRequest-Output"
               },
               {
                 "type": "null"
@@ -1141,9 +1232,9 @@
           "request",
           "outcome"
         ],
-        "title": "Attempt[ActionId, Union[ScientificActionRequest, DataDiffRequest], NoneType]",
+        "title": "Attempt[ActionId, Union[ScientificActionRequest, DataDiffRequest, ModelDiffRequest], NoneType]",
         "type": "object",
-        "x-typescript-type": "Attempt<ActionId, ScientificActionRequest | DataDiffRequest, null>",
+        "x-typescript-type": "Attempt<ActionId, ScientificActionRequest | DataDiffRequest | ModelDiffRequest, null>",
         "x-python-module": "nof1_causal_lab.study.records",
         "x-layer": "study",
         "x-concern": "execution_history"
@@ -1366,6 +1457,60 @@
         "title": "Attempt[Literal['fit'], FitRequest, Union[ModelFitResult, NoneType]]",
         "type": "object",
         "x-typescript-type": "Attempt<\"fit\", FitRequest, ModelFitResult | null>",
+        "x-python-module": "nof1_causal_lab.study.records",
+        "x-layer": "study",
+        "x-concern": "execution_history"
+      },
+      "Attempt_Literal__model_diff___ModelDiffRequest_NoneType_": {
+        "additionalProperties": false,
+        "properties": {
+          "action": {
+            "const": "model_diff",
+            "title": "Action",
+            "type": "string"
+          },
+          "request": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelDiffRequest-Output"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Parsed arguments, or null for a historical attempt whose arguments were not retained"
+          },
+          "outcome": {
+            "discriminator": {
+              "mapping": {
+                "applied": "#/components/schemas/Applied_NoneType_",
+                "raised": "#/components/schemas/Raised",
+                "rejected": "#/components/schemas/Rejected"
+              },
+              "propertyName": "status"
+            },
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Applied_NoneType_"
+              },
+              {
+                "$ref": "#/components/schemas/Rejected"
+              },
+              {
+                "$ref": "#/components/schemas/Raised"
+              }
+            ],
+            "title": "Outcome"
+          }
+        },
+        "required": [
+          "action",
+          "request",
+          "outcome"
+        ],
+        "title": "Attempt[Literal['model_diff'], ModelDiffRequest, NoneType]",
+        "type": "object",
+        "x-typescript-type": "Attempt<\"model_diff\", ModelDiffRequest, null>",
         "x-python-module": "nof1_causal_lab.study.records",
         "x-layer": "study",
         "x-concern": "execution_history"
@@ -2847,6 +2992,17 @@
             ],
             "default": null
           },
+          "model_comparison": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelDiffReport"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null
+          },
           "checks": {
             "anyOf": [
               {
@@ -2930,6 +3086,7 @@
           "snapshot",
           "inference_report",
           "data_comparison",
+          "model_comparison",
           "checks",
           "observation_histories",
           "predictive_overlays",
@@ -3474,6 +3631,19 @@
           },
           "right": {
             "$ref": "#/components/schemas/DataSelection-Input"
+          },
+          "reasoning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.",
+            "title": "Reasoning"
           }
         },
         "required": [
@@ -3501,12 +3671,26 @@
           },
           "right": {
             "$ref": "#/components/schemas/DataSelection-Output"
+          },
+          "reasoning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.",
+            "title": "Reasoning"
           }
         },
         "required": [
           "action",
           "left",
-          "right"
+          "right",
+          "reasoning"
         ],
         "title": "DataDiffRequest",
         "type": "object",
@@ -4336,6 +4520,19 @@
           "model": {
             "$ref": "#/components/schemas/ModelSpec-Input",
             "description": "Endogenous constructs are modeled, with or without parents, and include every latent construct. Exogenous constructs are given by direct exact Delta readings and have no dynamics, diffusion, initial coefficients or trajectory law."
+          },
+          "reasoning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.",
+            "title": "Reasoning"
           }
         },
         "required": [
@@ -4383,13 +4580,27 @@
           "model": {
             "$ref": "#/components/schemas/ModelSpec-Output",
             "description": "Endogenous constructs are modeled, with or without parents, and include every latent construct. Exogenous constructs are given by direct exact Delta readings and have no dynamics, diffusion, initial coefficients or trajectory law."
+          },
+          "reasoning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.",
+            "title": "Reasoning"
           }
         },
         "required": [
           "action",
           "expected_revision",
           "panel_revision",
-          "model"
+          "model",
+          "reasoning"
         ],
         "title": "EditModelRequest",
         "type": "object",
@@ -5050,7 +5261,7 @@
         ],
         "title": "ExtractionPlanEvent",
         "type": "object",
-        "x-python-module": "nof1_causal_lab.actions.progress",
+        "x-python-module": "nof1_causal_lab.actions.progress_contracts",
         "x-layer": "study",
         "x-concern": "execution_history"
       },
@@ -5112,7 +5323,7 @@
         ],
         "title": "ExtractionSnapshotEvent",
         "type": "object",
-        "x-python-module": "nof1_causal_lab.actions.progress",
+        "x-python-module": "nof1_causal_lab.actions.progress_contracts",
         "x-layer": "study",
         "x-concern": "execution_history"
       },
@@ -5248,7 +5459,7 @@
         ],
         "title": "ExtractionWorkerEvent",
         "type": "object",
-        "x-python-module": "nof1_causal_lab.actions.progress",
+        "x-python-module": "nof1_causal_lab.actions.progress_contracts",
         "x-layer": "study",
         "x-concern": "execution_history"
       },
@@ -5609,6 +5820,19 @@
           },
           "settings": {
             "$ref": "#/components/schemas/FitSettingsSpec-Input"
+          },
+          "reasoning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.",
+            "title": "Reasoning"
           }
         },
         "required": [
@@ -5639,13 +5863,27 @@
           },
           "settings": {
             "$ref": "#/components/schemas/FitSettingsSpec-Output"
+          },
+          "reasoning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.",
+            "title": "Reasoning"
           }
         },
         "required": [
           "action",
           "model_revision",
           "panel_revision",
-          "settings"
+          "settings",
+          "reasoning"
         ],
         "title": "FitRequest",
         "type": "object",
@@ -6293,15 +6531,87 @@
       },
       "IndicatorEmpiricalProfile": {
         "additionalProperties": false,
-        "description": "Retained count of usable observations for one indicator.",
+        "description": "Count, recorded range, quartiles and mean of one indicator's usable observations.",
         "properties": {
           "n_obs": {
             "title": "N Obs",
             "type": "integer"
+          },
+          "min": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Min"
+          },
+          "q25": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Q25"
+          },
+          "q50": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Q50"
+          },
+          "q75": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Q75"
+          },
+          "max": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Max"
+          },
+          "mean": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mean"
           }
         },
         "required": [
-          "n_obs"
+          "n_obs",
+          "min",
+          "q25",
+          "q50",
+          "q75",
+          "max",
+          "mean"
         ],
         "title": "IndicatorEmpiricalProfile",
         "type": "object",
@@ -8281,13 +8591,32 @@
       },
       "ModelDiffRequest-Input": {
         "additionalProperties": false,
-        "description": "An immutable comparison read; it creates no attempt or journal record.",
+        "description": "Compare two immutable model trees or checkpoints and record a comparison leaf.",
         "properties": {
+          "action": {
+            "const": "model_diff",
+            "default": "model_diff",
+            "title": "Action",
+            "type": "string"
+          },
           "before": {
             "$ref": "#/components/schemas/GitOid-Input"
           },
           "after": {
             "$ref": "#/components/schemas/GitOid-Input"
+          },
+          "reasoning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.",
+            "title": "Reasoning"
           }
         },
         "required": [
@@ -8302,18 +8631,39 @@
       },
       "ModelDiffRequest-Output": {
         "additionalProperties": false,
-        "description": "An immutable comparison read; it creates no attempt or journal record.",
+        "description": "Compare two immutable model trees or checkpoints and record a comparison leaf.",
         "properties": {
+          "action": {
+            "const": "model_diff",
+            "default": "model_diff",
+            "title": "Action",
+            "type": "string"
+          },
           "before": {
             "$ref": "#/components/schemas/GitOid-Output"
           },
           "after": {
             "$ref": "#/components/schemas/GitOid-Output"
+          },
+          "reasoning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.",
+            "title": "Reasoning"
           }
         },
         "required": [
+          "action",
           "before",
-          "after"
+          "after",
+          "reasoning"
         ],
         "title": "ModelDiffRequest",
         "type": "object",
@@ -10376,6 +10726,29 @@
             },
             "title": "Spaghetti Draws",
             "type": "array"
+          },
+          "frame": {
+            "anyOf": [
+              {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Value range charts show: the replicates' widest per-time central 95%, covering every\nobservation.",
+            "readOnly": true,
+            "title": "Frame"
           }
         },
         "required": [
@@ -10385,7 +10758,8 @@
           "indicator_id",
           "observed",
           "median",
-          "spaghetti_draws"
+          "spaghetti_draws",
+          "frame"
         ],
         "title": "PPCOverlay",
         "type": "object",
@@ -10438,6 +10812,29 @@
             },
             "title": "Histogram",
             "type": "array"
+          },
+          "frame": {
+            "anyOf": [
+              {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Value range charts show: the replicates' central 95%, covering the observed value.",
+            "readOnly": true,
+            "title": "Frame"
           }
         },
         "required": [
@@ -10446,7 +10843,8 @@
           "observed_value",
           "rep_values",
           "p_value",
-          "histogram"
+          "histogram",
+          "frame"
         ],
         "title": "PPCTestStat",
         "type": "object",
@@ -11342,13 +11740,37 @@
             ],
             "default": null,
             "title": "Levels"
+          },
+          "frame": {
+            "anyOf": [
+              {
+                "maxItems": 2,
+                "minItems": 2,
+                "prefixItems": [
+                  {
+                    "type": "number"
+                  },
+                  {
+                    "type": "number"
+                  }
+                ],
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Value range charts show: the widest per-time central 95% of both arms' draws.",
+            "readOnly": true,
+            "title": "Frame"
           }
         },
         "required": [
           "label",
           "action",
           "reference",
-          "levels"
+          "levels",
+          "frame"
         ],
         "title": "PathSeries",
         "type": "object",
@@ -12059,6 +12481,19 @@
               }
             ],
             "title": "Input"
+          },
+          "reasoning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.",
+            "title": "Reasoning"
           }
         },
         "required": [
@@ -12090,11 +12525,25 @@
               }
             ],
             "title": "Input"
+          },
+          "reasoning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.",
+            "title": "Reasoning"
           }
         },
         "required": [
           "action",
-          "input"
+          "input",
+          "reasoning"
         ],
         "title": "PrepareDataRequest",
         "type": "object",
@@ -12146,7 +12595,7 @@
             "$ref": "#/components/schemas/ExtractionSnapshotEvent"
           }
         ],
-        "x-python-module": "nof1_causal_lab.actions.progress",
+        "x-python-module": "nof1_causal_lab.actions.progress_contracts",
         "x-layer": "study",
         "x-concern": "execution_history",
         "description": "A progress event records one running attempt's step status or extraction telemetry."
@@ -12157,7 +12606,7 @@
           "extraction"
         ],
         "type": "string",
-        "x-python-module": "nof1_causal_lab.actions.progress",
+        "x-python-module": "nof1_causal_lab.actions.progress_contracts",
         "x-layer": "study",
         "x-concern": "execution_history"
       },
@@ -13008,6 +13457,9 @@
               },
               {
                 "$ref": "#/components/schemas/DataDiffRequest-Output"
+              },
+              {
+                "$ref": "#/components/schemas/ModelDiffRequest-Output"
               }
             ],
             "title": "Request"
@@ -13062,6 +13514,9 @@
               },
               {
                 "$ref": "#/components/schemas/DataDiffRequest-Output"
+              },
+              {
+                "$ref": "#/components/schemas/ModelDiffRequest-Output"
               }
             ],
             "title": "Request"
@@ -13284,6 +13739,19 @@
           },
           "question": {
             "$ref": "#/components/schemas/QuestionSpec-Input"
+          },
+          "reasoning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.",
+            "title": "Reasoning"
           }
         },
         "required": [
@@ -13307,11 +13775,25 @@
           },
           "question": {
             "$ref": "#/components/schemas/QuestionSpec-Output"
+          },
+          "reasoning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.",
+            "title": "Reasoning"
           }
         },
         "required": [
           "action",
-          "question"
+          "question",
+          "reasoning"
         ],
         "title": "SetQuestionRequest",
         "type": "object",
@@ -13362,6 +13844,19 @@
             ],
             "default": null,
             "description": "Exact panel dating authored-law simulations; fitted laws retain their own origin."
+          },
+          "reasoning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.",
+            "title": "Reasoning"
           }
         },
         "required": [
@@ -13418,6 +13913,19 @@
             ],
             "default": null,
             "description": "Exact panel dating authored-law simulations; fitted laws retain their own origin."
+          },
+          "reasoning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "description": "Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.",
+            "title": "Reasoning"
           }
         },
         "required": [
@@ -13426,7 +13934,8 @@
           "interventions",
           "action",
           "model_revision",
-          "panel_revision"
+          "panel_revision",
+          "reasoning"
         ],
         "title": "SimulateRequest",
         "type": "object",
@@ -14502,7 +15011,7 @@
         ],
         "title": "StepError",
         "type": "object",
-        "x-python-module": "nof1_causal_lab.actions.progress",
+        "x-python-module": "nof1_causal_lab.actions.progress_contracts",
         "x-layer": "study",
         "x-concern": "execution_history"
       },
@@ -14554,7 +15063,7 @@
         ],
         "title": "StepEvent",
         "type": "object",
-        "x-python-module": "nof1_causal_lab.actions.progress",
+        "x-python-module": "nof1_causal_lab.actions.progress_contracts",
         "x-layer": "study",
         "x-concern": "execution_history"
       },
@@ -14565,7 +15074,7 @@
           "failed"
         ],
         "type": "string",
-        "x-python-module": "nof1_causal_lab.actions.progress",
+        "x-python-module": "nof1_causal_lab.actions.progress_contracts",
         "x-layer": "study",
         "x-concern": "execution_history"
       },
@@ -14843,7 +15352,7 @@
             "type": "array"
           },
           "attempt": {
-            "$ref": "#/components/schemas/Attempt_ActionId_Union_ScientificActionRequest__DataDiffRequest__NoneType_"
+            "$ref": "#/components/schemas/Attempt_ActionId_Union_ScientificActionRequest__DataDiffRequest__ModelDiffRequest__NoneType_"
           }
         },
         "required": [

@@ -15,6 +15,7 @@ from .checks import (
     NotEvaluated,
     NumericCriterionEvidence,
 )
+from .display_frames import central_frame
 from .effects import HistogramBin
 from .identity import IndicatorId, ParameterRef
 
@@ -158,7 +159,6 @@ class ParticleMCMCEvidence(Value):
     """The production particle-MCMC target and its exact latent transition."""
 
 
-
 class PosteriorMarginal(Value):
     """One parameter's posterior interval, scale and density plot."""
 
@@ -195,6 +195,14 @@ class PPCOverlay(Value):
     median: tuple[float | None, ...]
     spaghetti_draws: tuple[tuple[float | None, ...], ...] = Field(default_factory=tuple)
 
+    @computed_field
+    @property
+    def frame(self) -> tuple[float, float] | None:
+        """Value range charts show: the replicates' widest per-time central 95%, covering every
+        observation.
+        """
+        return central_frame(self.spaghetti_draws, self.observed)
+
     @model_validator(mode="after")
     def aligned_schedule(self) -> "PPCOverlay":
         if (
@@ -222,6 +230,12 @@ class PPCTestStat(Value):
     rep_values: tuple[float, ...]
     p_value: float | None
     histogram: tuple[HistogramBin, ...]
+
+    @computed_field
+    @property
+    def frame(self) -> tuple[float, float] | None:
+        """Value range charts show: the replicates' central 95%, covering the observed value."""
+        return central_frame(((value,) for value in self.rep_values), (self.observed_value,))
 
 
 class PosteriorPredictiveChecks(Value):
@@ -333,4 +347,3 @@ class ParticleSamplerDiagnostics(Value):
     amala_grad_norm_mean: float | None = None
     amala_grad_norm_max: float | None = None
     parameter_warmup: ParameterWarmupDiagnostics
-

@@ -27,6 +27,7 @@ const applied: Applied<null> = {
   result: null,
   effects: {
     retracted: [],
+    reports: {},
     produced: [
       {
         artifact_id: "model",
@@ -46,7 +47,17 @@ const tick: TimelineRevision = {
     ts: "2026-09-30T00:00:00Z",
     messages: [],
     trace_ids: [],
-    attempt: { action: "edit_model", request: { action: "edit_model", expected_revision: "archived-authorship-base", panel_revision: null, model: fixtureValue(demoModelSnapshot.model).value }, outcome: applied },
+    attempt: {
+      action: "edit_model",
+      request: {
+        action: "edit_model",
+        reasoning: null,
+        expected_revision: "archived-authorship-base",
+        panel_revision: null,
+        model: fixtureValue(demoModelSnapshot.model).value,
+      },
+      outcome: applied,
+    },
   },
 };
 
@@ -58,13 +69,23 @@ describe("edit change summaries after history compaction", () => {
 
   it("compares the exact authored base named by the call", () => {
     renderToStaticMarkup(createElement(EditDetails, { context, tick }));
-    expect(hooks.diff).toHaveBeenCalledWith(context.model.workspace_id, "archived-authorship-base", "rewritten-edit");
+    expect(hooks.diff).toHaveBeenCalledWith(
+      context.model.workspace_id,
+      "archived-authorship-base",
+      "rewritten-edit",
+    );
   });
 
   it("shows an initial summary when the call names no base", () => {
     const request = fixtureValue(tick.record.attempt.request);
     if (request.action !== "edit_model") throw new Error("Expected edit fixture");
-    const created = { ...tick, record: { ...tick.record, attempt: { ...tick.record.attempt, request: { ...request, expected_revision: null } } } };
+    const created = {
+      ...tick,
+      record: {
+        ...tick.record,
+        attempt: { ...tick.record.attempt, request: { ...request, expected_revision: null } },
+      },
+    };
     const html = renderToStaticMarkup(createElement(EditDetails, { context, tick: created }));
     expect(hooks.diff).toHaveBeenCalledWith(context.model.workspace_id, null, null);
     expect(html).toContain("Model created");
@@ -84,8 +105,8 @@ describe("edit change summaries after history compaction", () => {
         after_dispositions: [],
         before_dynamic_construct_ids: [],
         after_dynamic_construct_ids: [],
-        beforeModel: fixtureValue(context.model.model).value,
-        afterModel: fixtureValue(context.model.model).value,
+        before_model: fixtureValue(context.model.model).value,
+        after_model: fixtureValue(context.model.model).value,
         parameters: [{ kind: "added", after: parameter }],
         changed_inputs: ["compilation", "belief"],
       },

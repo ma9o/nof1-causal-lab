@@ -13,16 +13,14 @@ import json
 import re
 from datetime import UTC, datetime
 from pathlib import Path
-from collections.abc import Callable
 from typing import TYPE_CHECKING
 from uuid import uuid4
-
-from pydantic import TypeAdapter
 
 import numpy as np
 import polars as pl
 import pyarrow as pa
 import pyarrow.parquet as pq
+import pygit2
 
 from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid
 from nof1_causal_lab.study.errors import StudyLookupError
@@ -33,8 +31,10 @@ from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
 
 if TYPE_CHECKING:
+    from collections.abc import Callable
+
     from jax.typing import ArrayLike
-    from pydantic import BaseModel
+    from pydantic import BaseModel, TypeAdapter
 
     from nof1_causal_lab.artifacts.measurements import ObservationRecord
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
@@ -43,9 +43,9 @@ if TYPE_CHECKING:
     from nof1_causal_lab.json_types import JsonObject
 
 
-_CODE_DIGEST = hashlib.sha256(b"".join(
-    path.read_bytes() for path in sorted(Path(__file__).parents[1].rglob("*.py"))
-)).hexdigest()
+_CODE_DIGEST = hashlib.sha256(
+    b"".join(path.read_bytes() for path in sorted(Path(__file__).parents[1].rglob("*.py")))
+).hexdigest()
 
 
 def cached_read[T](
@@ -117,6 +117,14 @@ class ArtifactStore:
 
         return read_array(storage.join(self._root, "arrays"), identity)
 
+    def write_report(self, report: BaseModel) -> GitOid:
+        """Retain the computed report as a Git blob for the action's publication."""
+        return GitOid(str(self.repo.create_blob(report.model_dump_json(round_trip=True).encode())))
+
+    def read_report[ReportT: BaseModel](self, revision: GitOid, target: type[ReportT]) -> ReportT:
+        payload = self.repo[pygit2.Oid(hex=revision)].peel(pygit2.Blob).data
+        return target.model_validate_json(payload)
+
     def write_artifact(
         self,
         artifact_id: ArtifactId,
@@ -162,7 +170,6 @@ class ArtifactStore:
         )
         return ArtifactRecord.model_validate({**metadata, "revision": str(revision)})
 
-
     def read_meta(self, artifact_id: ArtifactId, revision: str) -> ArtifactRecord:
         metadata = json.loads(read_file(self.repo, revision, "meta.json"))
         info = ArtifactRecord(**metadata, revision=GitOid(revision))
@@ -171,7 +178,6 @@ class ArtifactStore:
                 f"Git object {revision} is {info.artifact_id}, not {artifact_id}"
             )
         return info
-
 
     def read_value[ValueT: BaseModel](
         self, artifact_id: ArtifactId, revision: str, name: str, target: type[ValueT]

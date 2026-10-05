@@ -4,14 +4,13 @@ from uuid import uuid4
 
 import pytest
 
-from nof1_causal_lab.actions.progress import (
+from nof1_causal_lab.actions.progress import emit_event, read_events
+from nof1_causal_lab.actions.progress_contracts import (
     ExtractionPlanEvent,
     ExtractionSnapshotEvent,
     ExtractionWorkerEvent,
     StepError,
     StepEvent,
-    emit_event,
-    read_events,
 )
 
 pytestmark = pytest.mark.contract

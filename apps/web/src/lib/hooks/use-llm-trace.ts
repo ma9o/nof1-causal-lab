@@ -27,11 +27,20 @@ export function useLLMTraceForAction(
   return useQuery({
     queryKey: getLLMTraceForActionQueryKey(workspaceId, call?.commit_id ?? null),
     queryFn:
-      workspaceId !== null && call !== undefined && call.record.attempt.outcome.status === "applied" && call.record.attempt.request !== null && traceIds.length > 0
+      workspaceId !== null &&
+      call !== undefined &&
+      call.record.attempt.outcome.status === "applied" &&
+      call.record.attempt.request !== null &&
+      traceIds.length > 0
         ? () => getLLMTraceForAction(workspaceId, call, traceIds)
         : skipToken,
     // An action without traces (e.g. submitted directly through the API) has nothing to fetch.
-    enabled: !!workspaceId && call?.record.attempt.outcome.status === "applied" && call.record.attempt.request !== null && traceIds.length > 0 && enabled,
+    enabled:
+      !!workspaceId &&
+      call?.record.attempt.outcome.status === "applied" &&
+      call.record.attempt.request !== null &&
+      traceIds.length > 0 &&
+      enabled,
     staleTime: Number.POSITIVE_INFINITY,
     retry: false,
   });

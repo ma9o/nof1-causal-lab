@@ -9,6 +9,7 @@ from temporalio.exceptions import ApplicationError
 
 from nof1_causal_lab.actions.contracts import PrepareDataRequest
 from nof1_causal_lab.actions.edit_model import edit_model
+from nof1_causal_lab.actions.effects import ActionReportName
 from nof1_causal_lab.actions.errors import ActionExecutionError
 from nof1_causal_lab.actions.messages import completion_messages
 from nof1_causal_lab.actions.runners import run_action
@@ -25,7 +26,10 @@ from nof1_causal_lab.actions.temporal.messages import (
     SetQuestionInput,
 )
 from nof1_causal_lab.artifacts.identification import IdentificationReport
+from nof1_causal_lab.artifacts.identity import GitOid
 from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
+from nof1_causal_lab.artifacts.posterior import InferenceReport
+from nof1_causal_lab.artifacts.simulation import SimulationReport
 from nof1_causal_lab.artifacts.validation_report import (
     DataProfileArtifact,
     ValidationReportArtifact,
@@ -140,34 +144,56 @@ async def journal_activity(activity_input: AttemptPublication) -> StudyRevision:
         return journal.append(existing.record, parent_id=activity_input.parent_id)
     record = activity_input.record
     messages = record.messages
-    if isinstance(record.attempt.outcome, Applied) and messages:
+    reports: dict[ActionReportName, bytes] = {}
+    if isinstance(record.attempt.outcome, Applied):
+        if activity_input.model_checks is not None:
+            checks, identification, validation = activity_input.model_checks
+            reports["checks"] = checks.model_dump_json(round_trip=True).encode()
+            reports["identification"] = identification.model_dump_json(round_trip=True).encode()
+            if validation is not None:
+                reports["validation"] = validation.model_dump_json(round_trip=True).encode()
+        if activity_input.data_profile is not None:
+            reports["data-profile"] = activity_input.data_profile.model_dump_json(
+                round_trip=True
+            ).encode()
         store = ArtifactStore(activity_input.workspace_id)
         inference, simulation = None, None
         result = record.attempt.outcome.result
         if record.attempt.action == "fit" and isinstance(result, ModelFitResult):
-            from nof1_causal_lab.actions.fit import read_inference_report
-
-            produced = next(
-                info
-                for info in record.attempt.outcome.effects.produced
-                if info.artifact_id == "model"
+            inference = store.read_report(
+                record.attempt.outcome.effects.reports["inference"], InferenceReport
             )
-            inference = read_inference_report(store, produced.revision, result.evidence)
         if record.attempt.action == "simulate" and isinstance(result, ModelSimulationResult):
-            from nof1_causal_lab.actions.simulate import read_simulation_report
-
-            simulation = read_simulation_report(store, result.evidence, journal.question().revision)
-        if inference is not None or simulation is not None:
+            simulation = store.read_report(
+                record.attempt.outcome.effects.reports["simulation"], SimulationReport
+            )
+        if messages and (inference is not None or simulation is not None):
             messages = (
                 messages[:-1]
                 + completion_messages(
-                    record.attempt.outcome,
+                    record.attempt.outcome.result,
                     messages[-1].timestamp,
                     inference=inference,
                     simulation=simulation,
                 )
                 + messages[-1:]
             )
+        outcome = record.attempt.outcome
+        record = record.revised(
+            attempt=record.attempt.revised(
+                outcome=outcome.revised(
+                    effects=outcome.effects.revised(
+                        reports={
+                            **outcome.effects.reports,
+                            **{
+                                name: GitOid(str(journal.repo.create_blob(body)))
+                                for name, body in reports.items()
+                            },
+                        }
+                    )
+                )
+            )
+        )
     logs = collect_run_traces(activity_input.workspace_id, record.seq)
     record = record.with_logs(
         messages=messages,

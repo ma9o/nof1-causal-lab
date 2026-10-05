@@ -1,4 +1,4 @@
-"""Current-code findings cached by the scientific inputs their existing owners consume."""
+"""Evaluate action-owned findings, reusing equal scientific inputs during execution."""
 
 from __future__ import annotations
 
@@ -22,26 +22,14 @@ from nof1_causal_lab.study.store import ArtifactStore, cached_value, read_model,
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+
     from nof1_causal_lab.artifacts.identity import GitOid
     from nof1_causal_lab.models.ssm.compile.inputs import (
         FitCompilationResult,
         ModelCompilationResult,
     )
-    from nof1_causal_lab.study.records import Applied, ModelFitResult
+    from nof1_causal_lab.study.records import Applied
     from nof1_causal_lab.study.state import StudyState
-
-
-def read_identification(
-    store: ArtifactStore, selection: StructuralSelection
-) -> IdentificationReport:
-    inputs = input_fingerprints(selection.model)
-    value, _ = cached_value(
-        store.workspace_id,
-        ("identification", inputs["identification"], selection.outcome or ""),
-        TypeAdapter(IdentificationReport),
-        lambda: selection.identification,
-    )
-    return value
 
 
 def read_validation(
@@ -94,7 +82,7 @@ def read_model_checks(
     *,
     action: Literal["edit_model", "fit"],
 ) -> tuple[ModelCheckReport, IdentificationReport, ValidationReportArtifact | None]:
-    """Reuse across Git revisions with equal consumed inputs; never persist check identities."""
+    """Evaluate a check bundle for the action to retain with its outcome."""
     store = ArtifactStore(workspace_id)
     model_record, question_record = state.current["model"], state.current["question"]
     model, question = (
@@ -190,14 +178,14 @@ def read_model_checks(
     )
 
 
-def evaluate_model_checks(
+def evaluate_model_checks[ResultT](
     workspace_id: str,
     state: StudyState,
-    applied: Applied[ModelFitResult | None],
+    applied: Applied[ResultT],
     *,
     action: Literal["edit_model", "fit"],
 ) -> tuple[ModelCheckReport, IdentificationReport, ValidationReportArtifact | None]:
-    """The existing check activity warms the same reads used by saved calls."""
+    """Return the reports the workflow publishes with the action's outcome."""
     return read_model_checks(
         workspace_id,
         apply_effects(state, applied.effects.produced, applied.effects.retracted),

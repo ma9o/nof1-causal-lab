@@ -1,18 +1,140 @@
 import type { ModelPredictiveReport } from "@nof1-causal-lab/api-types";
+import { useState } from "react";
+import type { ArmChoice } from "@/components/charts/series-adapters";
 import { resolveEntity, type ModelEntities } from "@/lib/model-asset/entities";
 import type { ScopeContext } from "@/lib/model-asset/scope";
 import { formatPlain, humanize } from "@/lib/model-asset/selection";
 import { hasCausalEffects } from "@/lib/simulation-report";
-import { useSimulationPaths } from "@/lib/hooks/use-visuals";
+import { ALL_DRAWS, type DrawSelection, useSimulationPaths } from "@/lib/hooks/use-visuals";
 import { formatModelDate } from "@/lib/utils/format";
 import { SimulationHistory } from "./scopes/recorded-history";
 import { Hint, KeyValue, Section, StatusIcon } from "./scope-primitives";
 
-/** The design, saved histories and certified effect of the selected simulation. */
+type DrawMode = "all" | 24 | 1;
+
+interface SimulationView {
+  readonly mode: DrawMode;
+  readonly start: number;
+  readonly arms: ArmChoice;
+}
+
+const selectionOf = (view: SimulationView): DrawSelection =>
+  view.mode === "all" ? ALL_DRAWS : { start: view.start, count: view.mode };
+
+function Choice({
+  pressed,
+  onClick,
+  children,
+}: {
+  pressed: boolean;
+  onClick: () => void;
+  children: string;
+}) {
+  return (
+    <button
+      type="button"
+      aria-pressed={pressed}
+      onClick={onClick}
+      className="rounded border px-2 py-1 text-[10.5px] aria-pressed:border-foreground aria-pressed:bg-foreground aria-pressed:text-background"
+    >
+      {children}
+    </button>
+  );
+}
+
+/** One control for every chart of the simulation: which draws, and which arms. */
+function SimulationControls({
+  view,
+  onChange,
+  total,
+  paired,
+}: {
+  view: SimulationView;
+  onChange: (view: SimulationView) => void;
+  total: number;
+  paired: boolean;
+}) {
+  const page = view.mode === "all" ? total : view.mode;
+  return (
+    <div
+      className="flex flex-wrap items-center gap-x-4 gap-y-2"
+      role="group"
+      aria-label="Shown draws"
+    >
+      <div className="flex flex-wrap items-center gap-1">
+        <span className="mr-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+          Draws
+        </span>
+        {(["all", 24, 1] as const).map((mode) => (
+          <Choice
+            key={mode}
+            pressed={view.mode === mode}
+            onClick={() => onChange({ ...view, mode, start: 0 })}
+          >
+            {mode === "all" ? `All ${total}` : mode === 1 ? "One" : `${mode}`}
+          </Choice>
+        ))}
+        {view.mode !== "all" && (
+          <span className="flex items-center gap-1 text-[10.5px]">
+            <button
+              type="button"
+              aria-label="Previous draws"
+              disabled={view.start === 0}
+              className="px-1 disabled:opacity-30"
+              onClick={() => onChange({ ...view, start: Math.max(0, view.start - page) })}
+            >
+              ←
+            </button>
+            {view.start + 1}
+            {page > 1 ? `–${Math.min(view.start + page, total)}` : ""} of {total}
+            <button
+              type="button"
+              aria-label="Next draws"
+              disabled={view.start + page >= total}
+              className="px-1 disabled:opacity-30"
+              onClick={() => onChange({ ...view, start: view.start + page })}
+            >
+              →
+            </button>
+          </span>
+        )}
+      </div>
+      {paired && (
+        <div className="flex flex-wrap items-center gap-1">
+          <span className="mr-1 text-[10px] uppercase tracking-wide text-muted-foreground">
+            Arms
+          </span>
+          {(
+            [
+              ["both", "Both"],
+              ["reference", "Reference"],
+              ["intervened", "Intervened"],
+            ] as const
+          ).map(([arms, label]) => (
+            <Choice
+              key={arms}
+              pressed={view.arms === arms}
+              onClick={() => onChange({ ...view, arms })}
+            >
+              {label}
+            </Choice>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/**
+ * The selected simulation: the question's outcome first, then every state and simulated
+ * observation in the same chart, all following one draw and arm control.
+ */
 export function SimulationEvidence({ context }: { context: ScopeContext }) {
   const { model, entities } = context;
   const simulation = model.simulation;
-  const paths = useSimulationPaths(model);
+  const [view, setView] = useState<SimulationView>({ mode: "all", start: 0, arms: "both" });
+  const selection = selectionOf(view);
+  const paths = useSimulationPaths(model, selection);
   if (!simulation)
     return (
       <Section title="Simulation">
@@ -21,12 +143,34 @@ export function SimulationEvidence({ context }: { context: ScopeContext }) {
     );
   const report = simulation.value;
   const names = new Map(entities.constructs.map((item) => [item.id, humanize(item.name)]));
-
+  const outcome = hasCausalEffects(report)
+    ? report.causal.value.outcome
+    : (model.question?.value.outcome ?? null);
+  const simulatedOutcome =
+    outcome !== null && report.evidence.state_ids.some((id) => id === outcome) ? outcome : null;
   const timeLabel = (day: number) =>
     `${formatModelDate(day, report.evidence.time_origin)} (day ${day})`;
+  const chart = { model, selection, arms: view.arms };
   return (
     <>
-      <Section title="Causal effect" source={simulation.source} wide>
+      <Section title="The question's outcome" source={simulation.source} wide>
+        <SimulationControls
+          view={view}
+          onChange={setView}
+          total={report.evidence.draws}
+          paired={report.evidence.reference_latent_paths !== null}
+        />
+        {simulatedOutcome ? (
+          <SimulationHistory
+            {...chart}
+            id={simulatedOutcome}
+            kind="states"
+            title={names.get(simulatedOutcome) ?? simulatedOutcome}
+            height={200}
+          />
+        ) : (
+          <Hint>The question names no simulated outcome.</Hint>
+        )}
         {hasCausalEffects(report) ? (
           <>
             <Hint>
@@ -50,8 +194,13 @@ export function SimulationEvidence({ context }: { context: ScopeContext }) {
                 ]}
               />
             )}
-            <SimulationHistory model={model} id={report.causal.value.outcome} kind="effect" />
-
+            <SimulationHistory
+              {...chart}
+              id={report.causal.value.outcome}
+              kind="effect"
+              title="Paired effect"
+              height={160}
+            />
             {report.causal.value.warnings.map((warning) => (
               <Hint key={warning} issue>
                 {warning}
@@ -70,7 +219,7 @@ export function SimulationEvidence({ context }: { context: ScopeContext }) {
             ["End", timeLabel(report.evidence.times.at(-1) ?? report.evidence.times[1])],
             ["Draws", report.evidence.draws.toLocaleString()],
             ["Fit reliability", humanize(report.fit_reliability)],
-            ["Laws", humanize(report.law?.interpretation ?? "unknown")],
+            ["Laws", humanize(report.law.interpretation)],
           ]}
         />
         {report.evidence.design.interventions.length === 0 ? (
@@ -85,16 +234,36 @@ export function SimulationEvidence({ context }: { context: ScopeContext }) {
           ))
         )}
       </Section>
-      {report.evidence.state_ids.map((id) => (
-        <Section key={id} title={names.get(id) ?? id} source={simulation.source} wide>
-          <SimulationHistory model={model} id={id} kind="states" />
-        </Section>
-      ))}
-      {report.evidence.observation_layout.variables.map((variable) => (
-        <Section key={variable.id} title={humanize(variable.name)} source={simulation.source} wide>
-          <SimulationHistory model={model} id={variable.id} kind="indicators" />
-        </Section>
-      ))}
+      <Section title="States" source={simulation.source} wide>
+        <div className="grid grid-cols-2 gap-3">
+          {report.evidence.state_ids
+            .filter((id) => id !== simulatedOutcome)
+            .map((id) => (
+              <SimulationHistory
+                key={id}
+                {...chart}
+                id={id}
+                kind="states"
+                title={names.get(id) ?? id}
+                height={110}
+              />
+            ))}
+        </div>
+      </Section>
+      <Section title="Simulated observations" source={simulation.source} wide>
+        <div className="grid grid-cols-2 gap-3">
+          {report.evidence.observation_layout.variables.map((variable) => (
+            <SimulationHistory
+              key={variable.id}
+              {...chart}
+              id={variable.id}
+              kind="indicators"
+              title={humanize(variable.name)}
+              height={110}
+            />
+          ))}
+        </div>
+      </Section>
       {report.findings.length > 0 && (
         <Section title="Simulation checks" source={simulation.source} wide>
           <PredictiveFindings findings={report.findings} entities={entities} />

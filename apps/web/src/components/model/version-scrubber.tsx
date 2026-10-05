@@ -3,64 +3,75 @@
 import { attemptError } from "@/lib/model-asset/journal";
 
 import type { RecordDependency } from "@nof1-causal-lab/api-types";
-import { useEffect, useMemo, useRef } from "react";
+import { type KeyboardEvent, useEffect, useMemo, useRef, useState } from "react";
 import type { TimelineRevision } from "@nof1-causal-lab/api-types";
-import { revisionTimeline, TIMELINE_LANES } from "@/lib/model-asset/revision-timeline";
+import { revisionTimeline, type RevisionTimelineNode } from "@/lib/model-asset/revision-timeline";
 import {
   ACTION_STYLE,
   type ActionGlyph,
-  COLUMN,
   FAILED_COLOR,
-  GUTTER,
-  LABEL_TOP,
-  laneY,
+  FAILED_MARK,
+  MARK,
+  PITCH,
+  timelineLayout,
   timelineLinkPath,
-  timelinePosition,
-  timelineSize,
+  timelinePoint,
   timelineTickLabel,
 } from "@/lib/model-asset/timeline-presentation";
 import { cn } from "@/lib/utils";
 
-const MARK = 16;
 const HOVER_INTENT_MS = 300;
+/** Sweeping across ticks on the way to the readout must not change what it shows. */
+const READOUT_INTENT_MS = 120;
+const COMPARED_COLOR = "#b45309";
 
 /** One action's mark on the rail; a failed attempt takes the same slot as a cross. */
 function ActionMark({
   glyph,
   color,
   failed,
+  size,
 }: {
   glyph: ActionGlyph;
   color: string;
   failed: boolean;
+  size: number;
 }) {
   return (
-    <svg viewBox="0 0 16 16" width={MARK} height={MARK} aria-hidden="true">
+    <svg
+      viewBox="0 0 16 16"
+      width={size}
+      height={size}
+      aria-hidden="true"
+      className="block flex-none"
+    >
       <circle cx={8} cy={8} r={8} className="fill-card" />
       {failed ? (
         <path
-          d="M4.75 4.75 11.25 11.25M11.25 4.75 4.75 11.25"
+          d="M4.5 4.5 11.5 11.5M11.5 4.5 4.5 11.5"
           stroke={FAILED_COLOR}
-          strokeWidth={2}
+          strokeWidth={2.8}
           strokeLinecap="round"
         />
       ) : glyph === "dot" ? (
-        <circle cx={8} cy={8} r={5} fill={color} />
+        <circle cx={8} cy={8} r={6} fill={color} />
       ) : glyph === "diamond" ? (
-        <rect x={4} y={4} width={8} height={8} rx={1.5} transform="rotate(45 8 8)" fill={color} />
+        <rect x={3} y={3} width={10} height={10} rx={1.5} transform="rotate(45 8 8)" fill={color} />
       ) : glyph === "ring" ? (
-        <circle cx={8} cy={8} r={4.25} fill="none" stroke={color} strokeWidth={2.5} />
+        <circle cx={8} cy={8} r={4.75} fill="none" stroke={color} strokeWidth={3.5} />
       ) : (
-        <path d="M5.5 3.75 12.25 8 5.5 12.25Z" fill={color} stroke={color} strokeLinejoin="round" />
+        <path d="M4.5 2.75 13.25 8 4.5 13.25Z" fill={color} stroke={color} strokeLinejoin="round" />
       )}
     </svg>
   );
 }
 
 /**
- * The study's actions in execution order, one column each, in lanes by what they produce. Links
- * follow the served dependencies: each action connects to the earlier actions whose outputs its
- * request named, and dotted links mark outputs only its checks read.
+ * The study's actions in execution order, one narrow column each, in lanes by what they produce.
+ * Links follow the served dependencies: each action connects to the earlier actions whose outputs
+ * its request named, and dotted links mark outputs only its checks read. A failed attempt hangs
+ * off its lane's track, since nothing can depend on it. The readout names the action under the
+ * pointer, else the viewed one, and holds it while the pointer travels over to Compare.
  */
 export function VersionScrubber({
   ticks,
@@ -71,6 +82,7 @@ export function VersionScrubber({
   onPlayhead,
   onPreviewComparison,
   onEndPreview,
+  onRetainPreview,
   onKeepComparison,
 }: {
   ticks: readonly TimelineRevision[];
@@ -81,234 +93,335 @@ export function VersionScrubber({
   onPlayhead: (seq: number) => void;
   onPreviewComparison: (seq: number) => void;
   onEndPreview: () => void;
+  onRetainPreview: () => void;
   onKeepComparison: (seq: number) => void;
 }) {
   const viewport = useRef<HTMLDivElement>(null);
-  const selected = useRef<HTMLDivElement>(null);
+  const buttons = useRef(new Map<number, HTMLButtonElement>());
   const timeline = useMemo(() => revisionTimeline(ticks, dependencies), [ticks, dependencies]);
-  const { width, height } = timelineSize(timeline.nodes.length);
+  const layout = useMemo(() => timelineLayout(timeline), [timeline]);
+  // The readout follows the pointer after it settles, or keyboard focus; the column highlight
+  // follows the pointer at once.
+  const [focusSeq, setFocusSeq] = useState<number | null>(null);
+  const [hoverSeq, setHoverSeq] = useState<number | null>(null);
   const selectedNode = timeline.nodes.find((node) => node.tick.record.seq === playhead);
-  const hasComparisons = timeline.nodes.some(
-    (node) =>
-      node.tick.record.attempt.outcome.status === "applied" &&
-      node.tick.record.attempt.action !== "data_diff" &&
-      node.tick.record.seq !== playhead,
-  );
+  const focusNode =
+    timeline.nodes.find((node) => node.tick.record.seq === focusSeq) ?? selectedNode;
+  const hoverNode =
+    hoverSeq === playhead
+      ? undefined
+      : timeline.nodes.find((node) => node.tick.record.seq === hoverSeq);
+  const latestNode = timeline.nodes.find((node) => node.tick.record.seq === latest);
+  const tabStop = selectedNode ?? timeline.nodes.at(-1);
+  const canCompare = (node: RevisionTimelineNode) =>
+    !node.failed &&
+    node.tick.record.attempt.action !== "data_diff" &&
+    node.tick.record.attempt.action !== "model_diff" &&
+    node.tick.record.seq !== playhead;
+  const hasComparisons = timeline.nodes.some(canCompare);
   // A comparison costs a backend diff: start it only once the pointer rests on a tick.
   const hoverIntent = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const cancelHoverIntent = () => {
+  const readoutIntent = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const cancelIntents = () => {
     if (hoverIntent.current) clearTimeout(hoverIntent.current);
+    if (readoutIntent.current) clearTimeout(readoutIntent.current);
     hoverIntent.current = null;
+    readoutIntent.current = null;
   };
-  useEffect(() => cancelHoverIntent, []);
+  useEffect(() => cancelIntents, []);
 
   useEffect(() => {
     const frame = viewport.current;
-    const node = selected.current;
+    const node = buttons.current.get(playhead);
     if (!frame || !node) return;
     const left = node.offsetLeft;
     if (left < frame.scrollLeft || left + node.offsetWidth > frame.scrollLeft + frame.clientWidth) {
       frame.scrollLeft = Math.max(0, left - frame.clientWidth / 2 + node.offsetWidth / 2);
     }
-    if (node.offsetTop < frame.scrollTop) frame.scrollTop = node.offsetTop;
-    else if (node.offsetTop + node.offsetHeight > frame.scrollTop + frame.clientHeight) {
-      frame.scrollTop = node.offsetTop + node.offsetHeight - frame.clientHeight;
-    }
   }, [playhead, selectedNode?.column]);
 
-  return (
-    <nav aria-label="Action history" className="flex-none border-b bg-card">
-      <div className="flex items-center gap-4 px-5 pt-2.5 text-xs">
+  const moveFocus = (event: KeyboardEvent<HTMLButtonElement>, column: number) => {
+    const target =
+      event.key === "ArrowRight"
+        ? column + 1
+        : event.key === "ArrowLeft"
+          ? column - 1
+          : event.key === "Home"
+            ? 0
+            : event.key === "End"
+              ? timeline.nodes.length - 1
+              : null;
+    if (target === null) return;
+    event.preventDefault();
+    const node = timeline.nodes[target];
+    if (node) buttons.current.get(node.tick.record.seq)?.focus();
+  };
+
+  if (timeline.nodes.length === 0)
+    return (
+      <nav
+        aria-label="Action history"
+        className="flex flex-none items-center gap-4 border-b bg-card px-5 py-2.5 text-xs"
+      >
         <span className="font-semibold">Timeline</span>
+        <p className="text-muted-foreground">No actions yet.</p>
+      </nav>
+    );
+
+  const focusError = focusNode ? attemptError(focusNode.tick.record.attempt.outcome) : null;
+  return (
+    <nav
+      aria-label="Action history"
+      className="flex flex-none flex-wrap border-b bg-card md:flex-nowrap"
+      onPointerLeave={() => setFocusSeq(null)}
+      onBlur={(event) => {
+        const next = event.relatedTarget;
+        if (!(next instanceof Node && event.currentTarget.contains(next))) setFocusSeq(null);
+      }}
+    >
+      {selectedNode && (
+        <span aria-live="polite" className="sr-only">
+          Viewing {timelineTickLabel(selectedNode.tick)}.
+        </span>
+      )}
+      {hasComparisons && selectedNode && (
+        <span id="model-version-comparison-instructions" className="sr-only">
+          Preview topology differences with {timelineTickLabel(selectedNode.tick)}. Tab to Compare
+          to keep the comparison open.
+        </span>
+      )}
+      <div className="relative w-38 flex-none" style={{ height: layout.height }}>
+        <span
+          className="absolute left-5 text-xs leading-4 font-semibold"
+          style={{ top: (layout.height - 16) / 2 }}
+        >
+          Timeline
+        </span>
+        <span aria-hidden="true" className="absolute top-1.5 bottom-1.5 left-19 w-px bg-border" />
+        {layout.lanes.map((lane) => (
+          <span
+            key={lane.name}
+            className="absolute right-2 font-mono text-[9px] leading-2.5 text-muted-foreground"
+            style={{ top: lane.track - 5 }}
+          >
+            {lane.name}
+          </span>
+        ))}
+      </div>
+      <div ref={viewport} className="min-w-0 flex-1 overflow-x-auto overflow-y-hidden">
+        <div className="relative" style={{ width: layout.width, height: layout.height }}>
+          {[selectedNode, hoverNode].map(
+            (node) =>
+              node && (
+                <span
+                  key={node.tick.record.seq}
+                  aria-hidden="true"
+                  className={cn(
+                    "absolute top-0.5 bottom-0.5 rounded",
+                    node === selectedNode ? "bg-foreground/6" : "bg-foreground/3",
+                  )}
+                  style={{ left: timelinePoint(layout, node).x - PITCH / 2, width: PITCH }}
+                />
+              ),
+          )}
+          <svg
+            aria-hidden="true"
+            width={layout.width}
+            height={layout.height}
+            className="pointer-events-none absolute inset-0 overflow-visible"
+          >
+            {layout.lanes.map((lane) => (
+              <line
+                key={lane.name}
+                x1={0}
+                x2={layout.width}
+                y1={lane.track}
+                y2={lane.track}
+                className="stroke-border"
+                strokeDasharray="1 3"
+              />
+            ))}
+            {timeline.links
+              .map((link) => ({
+                link,
+                touches: link.from === selectedNode || link.to === selectedNode,
+              }))
+              .sort((a, b) => Number(a.touches) - Number(b.touches))
+              .map(({ link, touches }) => (
+                <path
+                  key={`${link.from.tick.record.seq}:${link.to.tick.record.seq}:${link.argument}`}
+                  data-argument={link.argument}
+                  d={timelineLinkPath(layout, link)}
+                  fill="none"
+                  className={touches ? "stroke-muted-foreground" : "stroke-border"}
+                  strokeWidth={touches ? 1.5 : 1}
+                  strokeDasharray={link.check ? "1.5 2.5" : link.to.failed ? "2 3" : undefined}
+                />
+              ))}
+          </svg>
+          {latestNode && (
+            <span
+              aria-hidden="true"
+              className="absolute size-1 rounded-full bg-muted-foreground"
+              style={{ left: timelinePoint(layout, latestNode).x - 2, top: layout.height - 5 }}
+            />
+          )}
+          {timeline.nodes.map((node) => {
+            const seq = node.tick.record.seq;
+            const point = timelinePoint(layout, node);
+            const style = ACTION_STYLE[node.tick.record.attempt.action];
+            const current = node === selectedNode;
+            const compared = seq === comparedSeq;
+            const comparable = canCompare(node);
+            const size = node.failed ? FAILED_MARK : MARK;
+            const label = `${timelineTickLabel(node.tick)}${node.failed ? " · failed" : ""}${seq === latest ? " · latest" : ""}`;
+            const error = attemptError(node.tick.record.attempt.outcome);
+            return (
+              <button
+                key={seq}
+                ref={(element) => {
+                  if (element) buttons.current.set(seq, element);
+                  else buttons.current.delete(seq);
+                }}
+                type="button"
+                tabIndex={node === tabStop ? 0 : -1}
+                aria-label={label}
+                aria-current={current ? "step" : undefined}
+                aria-describedby={comparable ? "model-version-comparison-instructions" : undefined}
+                aria-expanded={comparable ? compared : undefined}
+                aria-controls={compared ? "model-comparison-preview" : undefined}
+                data-compared={compared || undefined}
+                title={`${label}\n${new Date(node.tick.record.ts).toLocaleString()}${error ? `\n${error}` : ""}`}
+                className="absolute top-0 cursor-pointer rounded outline-none focus-visible:ring-2 focus-visible:ring-ring"
+                style={{ left: point.x - PITCH / 2, width: PITCH, height: layout.height }}
+                onPointerEnter={() => {
+                  cancelIntents();
+                  setHoverSeq(seq);
+                  readoutIntent.current = setTimeout(() => setFocusSeq(seq), READOUT_INTENT_MS);
+                  if (!comparable) return onEndPreview();
+                  hoverIntent.current = setTimeout(() => onPreviewComparison(seq), HOVER_INTENT_MS);
+                }}
+                onPointerLeave={() => {
+                  cancelIntents();
+                  setHoverSeq(null);
+                  onEndPreview();
+                }}
+                onFocus={() => {
+                  setFocusSeq(seq);
+                  if (comparable) onPreviewComparison(seq);
+                }}
+                onBlur={onEndPreview}
+                onClick={() => {
+                  cancelIntents();
+                  onPlayhead(seq);
+                }}
+                onKeyDown={(event) => moveFocus(event, node.column)}
+              >
+                <span
+                  className={cn(
+                    "absolute grid place-items-center rounded-full",
+                    (current || compared) && "outline-[1.5px] outline-offset-[1.5px]",
+                  )}
+                  style={{
+                    left: (PITCH - size) / 2,
+                    top: point.y - size / 2,
+                    outlineColor: compared
+                      ? COMPARED_COLOR
+                      : node.failed
+                        ? FAILED_COLOR
+                        : style.color,
+                  }}
+                >
+                  <ActionMark
+                    glyph={style.glyph}
+                    color={style.color}
+                    failed={node.failed}
+                    size={size}
+                  />
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      </div>
+      <div
+        className="flex w-full items-center gap-2.5 border-t px-3.5 py-1.5 md:w-80 md:flex-none md:border-t-0 md:border-l md:py-0 lg:w-95"
+        onPointerEnter={onRetainPreview}
+        onPointerLeave={onEndPreview}
+        onFocus={onRetainPreview}
+        onBlur={onEndPreview}
+      >
+        {focusNode && (
+          <div className="flex min-w-0 flex-1 flex-col">
+            <div className="flex min-w-0 items-center gap-1.5 whitespace-nowrap">
+              <ActionMark
+                glyph={ACTION_STYLE[focusNode.tick.record.attempt.action].glyph}
+                color={ACTION_STYLE[focusNode.tick.record.attempt.action].color}
+                failed={focusNode.failed}
+                size={12}
+              />
+              <span
+                className={cn(
+                  "truncate text-xs leading-4",
+                  focusNode === selectedNode ? "font-semibold" : "font-medium",
+                  focusNode.tick.record.seq === comparedSeq
+                    ? "text-amber-900"
+                    : focusNode.failed && "text-muted-foreground",
+                )}
+              >
+                {focusNode.tick.record.attempt.action}
+              </span>
+              <span
+                className={cn(
+                  "flex-none font-mono text-[10.5px] leading-4",
+                  focusNode === selectedNode ? "text-foreground/70" : "text-muted-foreground",
+                )}
+              >
+                {focusNode.tick.commit_id.slice(0, 7)}
+              </span>
+              {focusNode.tick.record.seq === latest && (
+                <span
+                  title="Latest action"
+                  className="size-1.5 flex-none rounded-full bg-muted-foreground"
+                />
+              )}
+            </div>
+            <p className="truncate text-[10.5px] leading-3.5 text-muted-foreground">
+              {focusNode === selectedNode
+                ? "Viewing · "
+                : focusNode.tick.record.seq === comparedSeq
+                  ? "Comparing · "
+                  : ""}
+              {layout.lanes[focusNode.lane]?.name} ·{" "}
+              {new Date(focusNode.tick.record.ts).toLocaleString()}
+              {focusError && <span className="text-red-700"> · {focusError}</span>}
+            </p>
+          </div>
+        )}
+        {focusNode && selectedNode && canCompare(focusNode) && (
+          <button
+            type="button"
+            aria-label={`Compare ${timelineTickLabel(selectedNode.tick)} with ${timelineTickLabel(focusNode.tick)}`}
+            onClick={() => onKeepComparison(focusNode.tick.record.seq)}
+            className={cn(
+              "flex-none cursor-pointer rounded-md border px-2 py-0.5 text-xs hover:bg-muted",
+              focusNode.tick.record.seq === comparedSeq &&
+                "border-amber-500 text-amber-900 hover:bg-amber-50",
+            )}
+          >
+            Compare
+          </button>
+        )}
         {playhead !== latest && (
           <button
             type="button"
             onClick={() => onPlayhead(latest)}
-            className="ml-auto cursor-pointer rounded-md border px-2 py-0.5 hover:bg-muted"
+            className="flex-none cursor-pointer rounded-md border px-2 py-0.5 text-xs hover:bg-muted"
           >
             Return to latest
           </button>
         )}
-        {selectedNode && (
-          <span aria-live="polite" className="sr-only">
-            Viewing {timelineTickLabel(selectedNode.tick)}.
-          </span>
-        )}
       </div>
-      {hasComparisons && selectedNode && (
-        <span id="model-version-comparison-instructions" className="sr-only">
-          Preview topology differences with {timelineTickLabel(selectedNode.tick)}. Use Compare to
-          keep the comparison open.
-        </span>
-      )}
-      {timeline.nodes.length === 0 ? (
-        <p className="px-5 py-4 text-xs text-muted-foreground">No actions yet.</p>
-      ) : (
-        <div ref={viewport} className="overflow-x-auto px-3 pb-1.5">
-          <div className="relative" style={{ width, minWidth: "100%", height }}>
-            {TIMELINE_LANES.map((lane, index) => (
-              <span
-                key={lane.name}
-                className="absolute left-2 font-mono text-[10px] text-muted-foreground"
-                style={{ top: laneY(index) - 7 }}
-              >
-                {lane.name}
-              </span>
-            ))}
-            <svg
-              aria-hidden="true"
-              width={width}
-              height={height}
-              className="pointer-events-none absolute inset-0 overflow-visible"
-            >
-              {TIMELINE_LANES.map((lane, index) => (
-                <line
-                  key={lane.name}
-                  x1={GUTTER - 8}
-                  x2={width - 12}
-                  y1={laneY(index)}
-                  y2={laneY(index)}
-                  className="stroke-border"
-                  strokeDasharray="1 5"
-                />
-              ))}
-              {timeline.links.map((link) => {
-                const from = timelinePosition(link.from);
-                const to = timelinePosition(link.to);
-                const touches = link.from === selectedNode || link.to === selectedNode;
-                return (
-                  <path
-                    key={`${link.from.tick.record.seq}:${link.to.tick.record.seq}`}
-                    data-argument={link.argument}
-                    d={timelineLinkPath(from, to)}
-                    fill="none"
-                    className={touches ? "stroke-muted-foreground" : "stroke-border"}
-                    strokeWidth={touches ? 2 : 1.5}
-                    strokeDasharray={
-                      link.check
-                        ? "2 4"
-                        : link.to.tick.record.attempt.outcome.status !== "applied"
-                          ? "3 4"
-                          : undefined
-                    }
-                  />
-                );
-              })}
-            </svg>
-            {timeline.nodes.map((node) => {
-              const point = timelinePosition(node);
-              const current = node === selectedNode;
-              const failed = node.tick.record.attempt.outcome.status !== "applied";
-              const canCompare =
-                !failed &&
-                node.tick.record.attempt.action !== "data_diff" &&
-                node.tick.record.seq !== playhead;
-              const compared = node.tick.record.seq === comparedSeq;
-              const isLatest = node.tick.record.seq === latest;
-              const style = ACTION_STYLE[node.tick.record.attempt.action];
-              const label = timelineTickLabel(node.tick);
-              const accessibleLabel = `${label}${failed ? " · failed" : ""}${isLatest ? " · latest" : ""}`;
-              return (
-                <div
-                  key={node.tick.record.seq}
-                  ref={current ? selected : undefined}
-                  className="group absolute"
-                  style={{
-                    left: point.x - COLUMN / 2,
-                    top: point.y - MARK / 2,
-                    width: COLUMN,
-                    height: LABEL_TOP + 30 - (point.y - MARK / 2),
-                  }}
-                  onPointerEnter={() => {
-                    cancelHoverIntent();
-                    if (!canCompare) return onEndPreview();
-                    hoverIntent.current = setTimeout(
-                      () => onPreviewComparison(node.tick.record.seq),
-                      HOVER_INTENT_MS,
-                    );
-                  }}
-                  onPointerLeave={() => {
-                    cancelHoverIntent();
-                    onEndPreview();
-                  }}
-                  onFocus={() => canCompare && onPreviewComparison(node.tick.record.seq)}
-                  onBlur={onEndPreview}
-                >
-                  <button
-                    type="button"
-                    aria-label={accessibleLabel}
-                    aria-current={current ? "step" : undefined}
-                    aria-describedby={
-                      canCompare ? "model-version-comparison-instructions" : undefined
-                    }
-                    aria-expanded={canCompare ? compared : undefined}
-                    aria-controls={compared ? "model-comparison-preview" : undefined}
-                    title={`${accessibleLabel}\n${new Date(node.tick.record.ts).toLocaleString()}${failed && attemptError(node.tick.record.attempt.outcome) ? `\n${attemptError(node.tick.record.attempt.outcome)}` : ""}`}
-                    onClick={() => {
-                      cancelHoverIntent();
-                      onPlayhead(node.tick.record.seq);
-                    }}
-                    className="flex h-full w-full cursor-pointer flex-col items-center rounded-md outline-none focus-visible:ring-2 focus-visible:ring-ring"
-                    data-compared={compared || undefined}
-                  >
-                    <span
-                      className={cn(
-                        "grid size-4 place-items-center rounded-full",
-                        (current || compared) && "outline-2 outline-offset-2",
-                      )}
-                      style={{
-                        outlineColor: compared ? "#b45309" : failed ? FAILED_COLOR : style.color,
-                      }}
-                    >
-                      <ActionMark glyph={style.glyph} color={style.color} failed={failed} />
-                    </span>
-                    {/* Every label sits in the shared row; a hairline ties it to its mark. */}
-                    <span aria-hidden="true" className="my-0.5 w-px flex-1 bg-border/70" />
-                    <span
-                      className={cn(
-                        "block max-w-full truncate px-1 text-[11px] leading-4",
-                        current
-                          ? "font-semibold text-foreground"
-                          : failed
-                            ? "text-muted-foreground/70 group-hover:text-foreground"
-                            : "text-muted-foreground group-hover:text-foreground",
-                        compared && "text-amber-900",
-                      )}
-                    >
-                      {node.tick.record.attempt.action}
-                    </span>
-                    <span
-                      className={cn(
-                        "flex items-center gap-1 font-mono text-[10px] leading-3.5",
-                        current ? "text-foreground/70" : "text-muted-foreground/70",
-                      )}
-                    >
-                      {node.tick.commit_id.slice(0, 7)}
-                      {isLatest && (
-                        <span
-                          title="Latest action"
-                          aria-hidden="true"
-                          className="size-1.5 rounded-full bg-current"
-                        />
-                      )}
-                    </span>
-                  </button>
-                  {canCompare && selectedNode && (
-                    <button
-                      type="button"
-                      aria-label={`Compare ${timelineTickLabel(selectedNode.tick)} with ${label}`}
-                      onClick={() => onKeepComparison(node.tick.record.seq)}
-                      className="absolute top-0 left-[calc(50%+14px)] cursor-pointer rounded border bg-card px-1 text-[9px] leading-[14px] text-muted-foreground opacity-0 shadow-xs transition-opacity hover:text-foreground group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:outline-2 focus-visible:outline-ring [@media(hover:none)]:opacity-100"
-                    >
-                      Compare
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
     </nav>
   );
 }

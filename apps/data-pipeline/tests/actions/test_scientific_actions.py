@@ -142,6 +142,12 @@ def test_durable_replication_preserves_current_laws_without_comparison(
         )
         pins["model"] = fitted.revision
         produced.append(fitted)
+        from nof1_causal_lab.actions.fit import read_inference_report
+
+        evidence = inference_log(model).record.attempt.outcome.result.evidence
+        reports = {
+            "inference": store.write_report(read_inference_report(store, fitted.revision, evidence))
+        }
     state = StudyState().with_artifacts(produced)
     journal.append(
         applied_record(
@@ -153,9 +159,9 @@ def test_durable_replication_preserves_current_laws_without_comparison(
                     panel=GitRef(
                         workspace_id="TEST", revision=produced[2].revision, path="panel.parquet"
                     ),
-                    evidence=inference_log(model).record.attempt.outcome.result.evidence,
+                    evidence=evidence,
                 ),
-                effects=ActionEffects(produced=tuple(produced)),
+                effects=ActionEffects(produced=tuple(produced), reports=reports),
             )
             if fitted_laws
             else Applied(result=None, effects=ActionEffects(produced=tuple(produced))),
@@ -414,7 +420,6 @@ def test_causal_action_uses_common_generator_and_requires_matching_engine_eviden
 def test_data_profile_survives_model_edits(tmp_path, monkeypatch):
     from nof1_causal_lab.actions.data_checks import evaluate_data_checks, require_data_binding
     from nof1_causal_lab.study.records import DataPreparationResult
-    from nof1_causal_lab.study.state import apply_effects
     from nof1_causal_lab.study.store import ArtifactStore
     from nof1_causal_lab.utils import data as data_module
     from tests.integration.runner_fixtures import seed_panel

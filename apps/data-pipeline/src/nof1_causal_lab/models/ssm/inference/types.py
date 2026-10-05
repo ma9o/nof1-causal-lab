@@ -31,13 +31,11 @@ from nof1_causal_lab.artifacts.posterior_diagnostics import (
     ParetoKPoint,
     ParticleMCMCEvidence,
     ParticleSamplerDiagnostics,
-    PosteriorMarginal,
     RankHistogram,
     TraceSeries,
 )
 from nof1_causal_lab.models.ssm.inference.diagnostics_viz import (
     ParameterReferences,
-    compute_posterior_marginals,
     pareto_k_points,
 )
 from nof1_causal_lab.models.ssm.inference.diagnostics_viz import (
@@ -356,9 +354,3 @@ class ParticleMCMCPosterior:
             n_bad_k=sum(point.status == "failed" for point in points) if values else None,
             n_warn_k=sum(point.status == "warning" for point in points) if values else None,
         ), points
-
-    def get_posterior_marginals(
-        self, references: ParameterReferences, n_bins: int = 50
-    ) -> tuple[PosteriorMarginal, ...]:
-        """Compute marginal posterior density data for visualization."""
-        return compute_posterior_marginals(self.draws.parameters, references, n_bins)

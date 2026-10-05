@@ -73,6 +73,24 @@
   --chart-3: oklch(0.546 0.245 262.881);
   --chart-4: oklch(0.488 0.243 264.376);
   --chart-5: oklch(0.424 0.199 265.638);
+  /* Chart roles: colour names a mark's arm, chain or role, never its draw number. */
+  --chart-reference: oklch(0.5 0.1 250);
+  --chart-intervened: oklch(0.6 0.17 42);
+  --chart-replicate: oklch(0.55 0.09 185);
+  --chart-observed: var(--foreground);
+  --chart-prior: var(--muted-foreground);
+  --chart-posterior: oklch(0.48 0.13 268);
+  --chart-flagged: var(--destructive);
+  --chart-warning: var(--warning);
+  --chart-grid: var(--border);
+  --chart-axis: var(--muted-foreground);
+  --chart-chain-1: oklch(0.5 0.1 250);
+  --chart-chain-2: oklch(0.6 0.17 42);
+  --chart-chain-3: oklch(0.55 0.09 185);
+  --chart-chain-4: oklch(0.5 0.13 315);
+  --chart-added: oklch(0.58 0.14 155);
+  --chart-removed: oklch(0.57 0.2 22);
+  --chart-revised: oklch(0.68 0.15 75);
   --edge-temporal: oklch(0.55 0 0);
   --edge-contemporary: oklch(0.4 0 0);
 }

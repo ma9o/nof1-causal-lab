@@ -44,6 +44,7 @@ MODULE_ROLES: dict[str, ModuleRole] = {
     "actions/ingestion/tools": "shell",
     "actions/messages": "projection",
     "actions/progress": "edge",
+    "actions/progress_contracts": "domain",
     "actions/results": "domain",
     "actions/temporal/activity_errors": "edge",
     "actions/temporal/backend_config": "edge",

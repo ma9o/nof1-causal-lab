@@ -1,0 +1,78 @@
+import type { RunningAction, SimulateRequest, TimelineRevision } from "@nof1-causal-lab/api-types";
+import { createElement } from "react";
+import { renderToStaticMarkup } from "react-dom/server";
+import { describe, expect, it } from "vitest";
+import { ActionRecord, type ActionTraceState } from "./action-record";
+
+const intent = "Check <revised> assumptions.\nGoal: choose a model to fit.";
+const request: SimulateRequest = {
+  action: "simulate",
+  model_revision: "1".repeat(40),
+  panel_revision: null,
+  start: "2026-01-01",
+  horizon: "1d",
+  interventions: [],
+  reasoning: intent,
+};
+const tick: TimelineRevision = {
+  commit_id: "2".repeat(40),
+  parent_ids: ["1".repeat(40)],
+  record: {
+    seq: 2,
+    ts: "2026-10-05T12:00:00Z",
+    messages: [],
+    trace_ids: [],
+    attempt: {
+      action: "simulate",
+      request: { ...request, reasoning: null },
+      outcome: {
+        status: "applied",
+        result: null,
+        effects: { produced: [], retracted: [], reports: {} },
+      },
+    },
+  },
+};
+const render = (selected: TimelineRevision | undefined, running: RunningAction | null = null) =>
+  renderToStaticMarkup(
+    createElement(ActionRecord, {
+      workspaceId: "STORYBOOK",
+      context: null,
+      tick: selected,
+      running,
+      useActionTrace: (): ActionTraceState => ({ status: "absent" }),
+    }),
+  );
+
+describe("action reasoning", () => {
+  it.each([
+    { status: "applied", result: null, effects: { produced: [], retracted: [], reports: {} } },
+    { status: "rejected", reason: "scientific_inputs", detail: "The model is incomplete" },
+    { status: "raised", error_type: "FitError", error_message: "Fit failed", details: [] },
+  ] as const)("shows the caller's intent first for $status calls", (outcome) => {
+    const selected: TimelineRevision = {
+      ...tick,
+      record: { ...tick.record, attempt: { action: "simulate", request, outcome } },
+    };
+    const html = render(selected);
+    expect(html).toContain("Check &lt;revised&gt; assumptions.\nGoal: choose a model to fit.");
+    expect(html.indexOf('aria-label="Reasoning"')).toBeLessThan(
+      html.indexOf(outcome.status === "applied" ? 'aria-label="Simulator log"' : "Simulate failed"),
+    );
+  });
+
+  it("shows intent before a running call's messages", () => {
+    const html = render(undefined, {
+      action: "simulate",
+      attempt_id: "0f17a770-5d1e-4c2b-9a3f-6b8e2d4c1a90",
+      request,
+      events: [],
+      messages: [{ timestamp: tick.record.ts, level: "info", label: "SIMULATE_STARTED" }],
+    });
+    expect(html.indexOf('aria-label="Reasoning"')).toBeLessThan(html.indexOf("SIMULATE_STARTED"));
+  });
+
+  it("omits the section when no reasoning was supplied", () => {
+    expect(render(tick)).not.toContain('aria-label="Reasoning"');
+  });
+});

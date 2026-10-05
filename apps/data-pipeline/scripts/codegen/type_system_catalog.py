@@ -205,7 +205,7 @@ CONCERNS = {
             "actions.effects",
             "study.store",
             "study.records",
-            "actions.progress",
+            "actions.progress_contracts",
         ),
     ),
     "read_models": (
@@ -276,7 +276,7 @@ ALIAS_MODULES = {
     "NumPyroDistribution": "numpyro_json",
     "EntityRef": "artifacts.identity",
     "SimulationReport": "artifacts.simulation",
-    "ProgressEvent": "actions.progress",
+    "ProgressEvent": "actions.progress_contracts",
 }
 
 
@@ -316,7 +316,7 @@ def _layer_for(name: str, module: str) -> str:
         return "identity"
     if module.endswith(("study.snapshot_models", "study.view_models")):
         return "read_models"
-    if module.startswith("nof1_causal_lab.study.") or module.endswith("actions.progress"):
+    if module.startswith("nof1_causal_lab.study.") or module.endswith("actions.progress_contracts"):
         return "study"
     if module.endswith(("study_api", "tool_server", "json_types", "utils.llm", "numpyro_json")):
         return "transport"

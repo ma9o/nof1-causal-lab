@@ -1,7 +1,6 @@
 """History and accessors read one canonical scientific definition with exact sources."""
 
 import time
-from datetime import UTC, date, datetime
 from pathlib import Path
 
 import jax.numpy as jnp
@@ -10,7 +9,6 @@ import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from nof1_causal_lab.actions.effects import ActionEffects
-from nof1_causal_lab.artifacts.availability import NotApplicable
 from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec, replace_constructs
 from nof1_causal_lab.artifacts.execution import StructuralItemDisposition
 from nof1_causal_lab.artifacts.expressions import state
@@ -168,7 +166,7 @@ def test_predictive_findings_use_entity_ids_and_keep_served_reasons(monkeypatch)
         assert finding.evidence[0].note == "Served reason."
 
 
-def _commit(workspace, artifact_id, payload, *, pins=None, retracted=()):
+def _commit(workspace, artifact_id, payload, *, pins=None, retracted=(), reports=None):
     journal = StudyRepository(workspace)
     store = ArtifactStore(workspace)
     info = store.write_artifact(
@@ -186,12 +184,13 @@ def _commit(workspace, artifact_id, payload, *, pins=None, retracted=()):
                 effects=ActionEffects(
                     produced=[info] if rooted else [write_question(store), info],
                     retracted=list(retracted),
+                    reports=reports or {},
                 ),
             ),
             seq=journal.latest_seq() + 1,
             ts="2026-09-12T12:00:00Z",
             trace_ids=[],
-        )
+        ),
     )
     return info
 
@@ -377,7 +376,9 @@ def test_snapshot_derives_dispositions_from_its_model_revision(workspace):
         _model().model_dump(mode="json"),
         pins={"model": artifact_revision(workspace, "model", 1)},
     )
-    assert _present(ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot().dispositions).source.ref.model_dump() == {
+    assert _present(
+        ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot().dispositions
+    ).source.ref.model_dump() == {
         "workspace_id": workspace,
         "revision": artifact_revision(workspace, "model", 2),
         "path": "model.json",
@@ -392,7 +393,12 @@ def test_removed_construct_removes_its_owned_indicators(workspace):
         "model",
         _drop_x(_model()).model_dump(mode="json"),
     )
-    assert {entity.id for entity in _identity_owners(ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot())} == {
+    assert {
+        entity.id
+        for entity in _identity_owners(
+            ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot()
+        )
+    } == {
         "construct:y",
         "indicator:y",
         "construct:z",
@@ -430,7 +436,11 @@ def test_uncommitted_versions_and_failed_attempts_never_become_snapshots(workspa
 @pytest.mark.parametrize("violation", ["owner", "revision", "validity", "identity"])
 def test_snapshot_rejects_inconsistent_facts(workspace, violation):
     _measured(workspace)
-    payload = ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot().model_dump(mode="json")
+    payload = (
+        ModelReader(workspace, at=StudyRepository(workspace).head())
+        .snapshot()
+        .model_dump(mode="json")
+    )
     if violation == "owner":
         payload["model"]["value"]["edges"][0]["effect"] = {
             "kind": "construct",
@@ -508,7 +518,14 @@ def test_owned_mechanisms_survive_rename_and_disappear_with_owner(workspace, own
     ]
     payload = _drop_x(ModelSpec.model_validate(payload)).model_dump(mode="json")
     _commit(workspace, "model", payload)
-    assert list(_present(ModelReader(workspace, at=StudyRepository(workspace).head()).model).iter_mechanisms()) == []
+    assert (
+        list(
+            _present(
+                ModelReader(workspace, at=StudyRepository(workspace).head()).model
+            ).iter_mechanisms()
+        )
+        == []
+    )
     assert ModelReader(workspace, at=before.commit_id).snapshot() == before
 
 
@@ -539,11 +556,26 @@ def _identification():
 
 
 def test_identification_is_independent_and_keeps_original_pin_after_rename(workspace):
-    _measured(workspace)
+    from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
+
+    store = ArtifactStore(workspace)
+    reports = {
+        "checks": store.write_report(ModelCheckReport(specification=())),
+        "identification": store.write_report(
+            IdentificationReport.model_validate(_identification())
+        ),
+    }
+    _commit(workspace, "model", _model().model_dump(mode="json"), reports=reports)
     before = ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot()
     payload = _model().model_dump(mode="json")
     graph_constructs(payload)[0]["name"] = "Treatment"
-    _commit(workspace, "model", payload, pins={"model": artifact_revision(workspace, "model", 1)})
+    _commit(
+        workspace,
+        "model",
+        payload,
+        pins={"model": artifact_revision(workspace, "model", 1)},
+        reports=reports,
+    )
     after = ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot()
     assert _present(after.identification).value == _present(before.identification).value
     assert _present(after.identification).source.validity == "fresh"
@@ -610,7 +642,10 @@ def test_collection_accessors_share_canonical_objects_and_one_revision(workspace
     _commit(workspace, "model", payload)
     assert reader.constructs()[0].name == "X"
     assert reader.snapshot().selected_seq == 1
-    assert ModelReader(workspace, at=StudyRepository(workspace).head()).constructs()[0].name == "Changed after opening"
+    assert (
+        ModelReader(workspace, at=StudyRepository(workspace).head()).constructs()[0].name
+        == "Changed after opening"
+    )
 
 
 @pytest.mark.parametrize(

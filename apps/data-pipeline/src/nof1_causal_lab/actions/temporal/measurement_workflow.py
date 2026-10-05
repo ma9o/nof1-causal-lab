@@ -12,7 +12,7 @@ from temporalio.exceptions import ChildWorkflowError
 from nof1_causal_lab.actions.errors import execution_failure_handler
 
 with workflow.unsafe.imports_passed_through():
-    from nof1_causal_lab.actions.progress import (
+    from nof1_causal_lab.actions.progress_contracts import (
         ExtractionPlanEvent,
         ExtractionSnapshotEvent,
         ExtractionWorkerEvent,

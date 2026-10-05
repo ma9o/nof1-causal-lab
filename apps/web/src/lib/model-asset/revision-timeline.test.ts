@@ -3,7 +3,7 @@ import type { TimelineRevision } from "@nof1-causal-lab/api-types";
 import { describe, expect, it } from "vitest";
 import { latestSeq } from "./journal";
 import { revisionTimeline } from "./revision-timeline";
-import { timelinePosition, timelineTickLabel } from "./timeline-presentation";
+import { timelineLayout, timelinePoint, timelineTickLabel } from "./timeline-presentation";
 
 import { workbenchJournal } from "@/components/__fixtures__/workbench";
 
@@ -65,10 +65,14 @@ describe("argument timeline", () => {
       [2, 6],
       [5, 6],
     ]);
-    const comparison = fixtureValue(timeline.nodes[5]);
-    const simulation = fixtureValue(timeline.nodes[4]);
-    expect(timelinePosition(comparison).y).toBeLessThan(timelinePosition(simulation).y);
-    expect(timelinePosition(comparison).x).toBeGreaterThan(timelinePosition(simulation).x);
+    const layout = timelineLayout(timeline);
+    const point = (index: number) => timelinePoint(layout, fixtureValue(timeline.nodes[index]));
+    expect(point(5).y).toBeLessThan(point(4).y);
+    expect(point(5).x).toBeGreaterThan(point(4).x);
+    // The failed fit leaves the model track for a side track toward the data lane its inputs
+    // come from, so the track later model actions use runs past it.
+    expect(point(3).y).toBeLessThan(point(2).y);
+    expect(point(3).y).toBeGreaterThan(point(4).y);
     expect(timelineTickLabel(fixtureValue(timeline.nodes[3]).tick)).toBe("fit · 4444444");
     expect(latestSeq(records)).toBe(5);
   });

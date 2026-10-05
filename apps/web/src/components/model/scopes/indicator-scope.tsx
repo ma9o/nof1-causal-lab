@@ -1,16 +1,14 @@
 import { presentEntries } from "@/lib/model-accessors";
 import type { IndicatorId } from "@nof1-causal-lab/api-types";
-import { TestStatSparkline } from "@/components/analysis-widgets/posterior/ppc-warnings-table";
-import { QuantileStrip } from "@/components/charts/quantile-strip";
+import { StatStrip } from "@/components/charts/stat-strip";
 import { indicatorPresentation, dispositionLabel } from "@/lib/model-asset/inspector";
 import { ownLawUses } from "@/lib/model-asset/laws";
 import { formatFillNull, humanize } from "@/lib/model-asset/selection";
 import type { ScopeContext } from "@/lib/model-asset/scope";
-import { formatSignificant } from "@/lib/utils/format";
 import { Hint, KeyValue, Section, StatusIcon } from "../scope-primitives";
 import { LawSections, SimulatedHistory } from "./law-sections";
 import { Katex } from "@/components/analysis-widgets/statistical-model-spec/ssm-equation-display";
-import { ObservationPlots, PredictiveHistoryPlot } from "./recorded-history";
+import { ObservationPlots, ObservedProfile, PredictiveHistoryPlot } from "./recorded-history";
 import { PredictiveFindings } from "../simulation-evidence";
 
 const CHECK_STATUS = {
@@ -24,9 +22,11 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
   const scope = indicatorPresentation(context, id);
   if (!scope) return null;
   const { indicator, disposition, audit, counts, likelihood, predictive, checks, issues } = scope;
-  const preparation = context.model.metadata?.value.preparation?.variables.find(
-    (variable) => variable.observation.id === id,
-  );
+  const metadata = context.model.metadata?.value;
+  const preparation =
+    metadata?.kind === "file"
+      ? metadata.preparation.variables.find((variable) => variable.observation.id === id)
+      : undefined;
   const equation = context.model.observation_equations[id];
   const empirical = context.model.profile?.value.indicators[id]?.profile;
   const comparison =
@@ -113,13 +113,13 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
           {counts != null && <Hint>{counts.toLocaleString()} observations</Hint>}
           <ObservationPlots model={context.model} id={id} />
           {empirical && (
-            <details>
-              <summary className="cursor-pointer text-muted-foreground">Numerical summary</summary>
-              <QuantileStrip profile={empirical} />
+            <>
+              <ObservedProfile model={context.model} id={id} profile={empirical} />
               <Hint>
-                Range, quartiles and median of the prepared values; the dot is their mean.
+                Every prepared value as a dot over the interquartile box; the bar is the median and
+                the diamond the mean.
               </Hint>
-            </details>
+            </>
           )}
         </Section>
       )}
@@ -177,10 +177,8 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
             <div className="grid grid-cols-2 gap-2">
               {statistics.map((statistic) => (
                 <div key={statistic.stat_name} className="min-w-0">
-                  <Hint>
-                    T({statistic.stat_name}) = {formatSignificant(statistic.observed_value)}
-                  </Hint>
-                  <TestStatSparkline stat={statistic} />
+                  <Hint>T({statistic.stat_name})</Hint>
+                  <StatStrip stat={statistic} />
                 </div>
               ))}
             </div>

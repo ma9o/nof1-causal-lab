@@ -6,6 +6,7 @@ from typing import Annotated, Literal
 
 from pydantic import Field
 
+from nof1_causal_lab.artifacts.action import ACTION_REASONING_DESCRIPTION
 from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.artifacts.data_preparation import (
     FilePreparationSpec,
@@ -23,6 +24,7 @@ class SetQuestionRequest(Value):
 
     action: Literal["set_question"] = "set_question"
     question: QuestionSpec
+    reasoning: str | None = Field(default=None, description=ACTION_REASONING_DESCRIPTION)
 
 
 class EditModelRequest(Value):
@@ -31,11 +33,13 @@ class EditModelRequest(Value):
     action: Literal["edit_model"] = "edit_model"
     expected_revision: GitOid | None
     panel_revision: GitOid | None = Field(
-        default=None, description="Exact observations used by this edit's checks; omitted runs no predictive check."
+        default=None,
+        description="Exact observations used by this edit's checks; omitted runs no predictive check.",
     )
     model: ModelSpec = Field(
         description="Endogenous constructs are modeled, with or without parents, and include every latent construct. Exogenous constructs are given by direct exact Delta readings and have no dynamics, diffusion, initial coefficients or trajectory law."
     )
+    reasoning: str | None = Field(default=None, description=ACTION_REASONING_DESCRIPTION)
 
 
 class PrepareDataRequest(Value):
@@ -43,6 +47,7 @@ class PrepareDataRequest(Value):
 
     action: Literal["prepare_data"] = "prepare_data"
     input: FilePreparationSpec | SimulationReplicateRef
+    reasoning: str | None = Field(default=None, description=ACTION_REASONING_DESCRIPTION)
 
 
 class FitRequest(Value):
@@ -52,6 +57,7 @@ class FitRequest(Value):
     model_revision: GitOid = Field()
     panel_revision: GitOid = Field()
     settings: FitSettingsSpec = Field(default_factory=FitSettingsSpec)
+    reasoning: str | None = Field(default=None, description=ACTION_REASONING_DESCRIPTION)
 
 
 class SimulateRequest(SimulationSpec):
@@ -60,8 +66,10 @@ class SimulateRequest(SimulationSpec):
     action: Literal["simulate"] = "simulate"
     model_revision: GitOid = Field()
     panel_revision: GitOid | None = Field(
-        default=None, description="Exact panel dating authored-law simulations; fitted laws retain their own origin."
+        default=None,
+        description="Exact panel dating authored-law simulations; fitted laws retain their own origin.",
     )
+    reasoning: str | None = Field(default=None, description=ACTION_REASONING_DESCRIPTION)
 
 
 type ScientificActionRequest = Annotated[
@@ -71,5 +79,7 @@ type ScientificActionRequest = Annotated[
 
 
 def call_identity(request: Value) -> str:
-    """Parsed arguments, including file hashes, have one canonical call identity."""
-    return scientific_id("call", request.model_dump(mode="json", round_trip=True))
+    """Scientific arguments, including file hashes but excluding intent, name the call."""
+    return scientific_id(
+        "call", request.model_dump(mode="json", round_trip=True, exclude={"reasoning"})
+    )

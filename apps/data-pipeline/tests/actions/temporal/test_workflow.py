@@ -9,7 +9,7 @@ import dataclasses
 import json
 import uuid
 from pathlib import Path
-from typing import Any
+from typing import Any, cast
 from unittest.mock import AsyncMock
 
 import pytest
@@ -235,12 +235,16 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                 async def execute(request):
                     response = await study_api._dispatch_action(workspace_id, request, clients)
                     if isinstance(response, RunningPoll):
-                        polled = await handle.get_update_handle(str(response.attempt_id), result_type=ActionPoll).result()
+                        polled = await handle.get_update_handle(
+                            str(response.attempt_id),
+                            result_type=cast("type[ActionPoll]", ActionPoll),
+                        ).result()
                     elif isinstance(response, Response):
                         polled = TypeAdapter(ActionPoll).validate_json(bytes(response.body))
                     else:
                         polled = response
-                    assert isinstance(polled, CompletedPoll) and polled.commit_id is not None
+                    assert isinstance(polled, CompletedPoll)
+                    assert polled.commit_id is not None
                     record = StudyRepository(workspace_id).record(polled.commit_id)
                     assert polled.attempt == record.record.attempt
                     assert polled.messages[0].label == f"{request.action.upper()}_STARTED"
@@ -277,6 +281,9 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                 assert prepared.record.attempt.outcome.status == "applied", prepared
                 assert state(prepared).has("panel")
                 assert set(state(prepared).current) == {"question", "raw_data", "panel"}
+                from nof1_causal_lab.study.snapshots import ModelReader
+
+                assert ModelReader(workspace_id, at=prepared.commit_id).data_profile is not None
                 edited = await execute(
                     EditModelRequest(
                         expected_revision=None,
@@ -284,6 +291,8 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                     )
                 )
                 assert edited.record.attempt.outcome.status == "applied", edited
+                saved_checks = ModelReader(workspace_id, at=edited.commit_id).checks
+                assert saved_checks is not None
                 model_revision = state(edited).current["model"].revision
                 before = state().current
 
@@ -320,7 +329,9 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                     EditModelRequest(expected_revision=model_revision, model=revised)
                 )
                 assert rewritten.record.attempt.outcome.status == "applied", rewritten
-                assert rewritten.record.seq == max(item.record.seq for item in recovered.attempts) + 1
+                assert (
+                    rewritten.record.seq == max(item.record.seq for item in recovered.attempts) + 1
+                )
                 records = StudyRepository(workspace_id).attempts()
                 assert [record.record.attempt.outcome.status for record in records] == [
                     "rejected",
@@ -353,6 +364,40 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                 assert all("move" not in record.model_dump() for record in records)
                 assert read_model(store, state(rewritten).current["model"].revision) == revised
                 assert state(rewritten).current["question"] == state(root).current["question"]
+                assert ModelReader(workspace_id, at=edited.commit_id).checks == saved_checks
+                from nof1_causal_lab.study.view_models import ModelDiffRequest
+
+                head = StudyRepository(workspace_id).head()
+                comparison_request = ModelDiffRequest(
+                    before=edited.commit_id,
+                    after=rewritten.commit_id,
+                    reasoning="Check the revised edge before deciding which model to fit.",
+                )
+                compared = await execute(comparison_request)
+                assert compared.record.attempt.action == "model_diff"
+                assert compared.record.attempt.outcome.status == "applied"
+                assert StudyRepository(workspace_id).head() == head
+                saved = await study_api.model_diff(
+                    workspace_id, comparison_request.revised(reasoning=None), clients
+                )
+                assert isinstance(saved, Response)
+                completion = CompletedPoll.model_validate_json(bytes(saved.body))
+                assert completion.model_comparison is not None
+                assert completion.model_comparison.before_model == measured
+                assert completion.model_comparison.after_model == revised
+                assert completion.attempt.request == comparison_request
+                reverse = await execute(
+                    ModelDiffRequest(before=rewritten.commit_id, after=edited.commit_id)
+                )
+                assert reverse.record.attempt.outcome.status == "applied"
+                assert reverse.record.attempt.request.reasoning is None
+                assert StudyRepository(workspace_id).head() == head
+                timeline = await study_api.get_timeline(workspace_id, clients)
+                assert {
+                    (link.source_seq, link.argument)
+                    for link in timeline.dependencies
+                    if link.seq == compared.record.seq
+                } == {(edited.record.seq, "before"), (rewritten.record.seq, "after")}
                 await handle.signal(StudyWorkflow.close)
                 await handle.result()
         finally:

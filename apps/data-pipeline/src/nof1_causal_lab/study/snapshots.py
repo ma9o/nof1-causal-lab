@@ -58,9 +58,9 @@ if TYPE_CHECKING:
         ParameterId,
     )
     from nof1_causal_lab.artifacts.indicator import IndicatorSpec
+    from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
-    from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
     from nof1_causal_lab.artifacts.posterior import InferenceReport
     from nof1_causal_lab.artifacts.posterior_diagnostics import DensityCurve, PPCOverlay
     from nof1_causal_lab.artifacts.question import QuestionSpec
@@ -83,9 +83,7 @@ class ModelReader:
     Lookup indexes are private to this reader; they are not a second public domain model.
     """
 
-    def __init__(
-        self, workspace_id: str, *, at: GitOid
-    ) -> None:
+    def __init__(self, workspace_id: str, *, at: GitOid) -> None:
         self.repository = StudyRepository(workspace_id)
         self.commit_id = self.repository.resolve(at=at)
         self.store = ArtifactStore(workspace_id)
@@ -257,33 +255,68 @@ class ModelReader:
         )
 
     @cached_property
+    def _model_check_record(self) -> StudyRevision | None:
+        return self._report_record("model")
+
+    def _report_record(self, artifact_id: ArtifactId) -> StudyRevision | None:
+        selected = self.state.get(artifact_id)
+        if selected is None:
+            return None
+        return next(
+            (
+                record
+                for record in reversed(self.records)
+                if isinstance(record.record.attempt.outcome, Applied)
+                and any(
+                    item.artifact_id == artifact_id and item.revision == selected.revision
+                    for item in record.record.attempt.outcome.effects.produced
+                )
+            ),
+            None,
+        )
+
+    @cached_property
     def checks(
         self,
     ) -> tuple[ModelCheckReport, IdentificationReport, ValidationReportArtifact | None] | None:
-        from nof1_causal_lab.actions.model_checks import read_model_checks
+        from nof1_causal_lab.artifacts.identification import IdentificationReport
+        from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
+        from nof1_causal_lab.artifacts.validation_report import ValidationReportArtifact
 
-        if not self.state.has("model"):
+        record = self._model_check_record
+        if record is None:
             return None
-        action = (
-            "fit"
-            if self.records and self.records[-1].record.attempt.action == "fit"
-            else "edit_model"
+        checks = self.repository.read_report(record.commit_id, "checks", ModelCheckReport)
+        if checks is None:
+            return None
+        identification = self.repository.read_report(
+            record.commit_id, "identification", IdentificationReport
         )
-        return read_model_checks(self.workspace_id, self.state, action=action)
+        assert identification is not None, "Model checks must retain their identification report"
+        validation = self.repository.read_report(
+            record.commit_id, "validation", ValidationReportArtifact
+        )
+        return checks, identification, validation
 
     @cached_property
     def data_profile(self) -> Sourced[DataProfileArtifact] | None:
-        if not self.state.has("panel"):
+        record = self._report_record("panel")
+        if record is None:
             return None
-        from nof1_causal_lab.actions.data_checks import read_data_profile
+        from nof1_causal_lab.artifacts.validation_report import DataProfileArtifact
 
-        return self.fact(
-            read_data_profile(self.store, self.state.current["panel"].revision), "panel", ""
-        )
+        profile = self.repository.read_report(record.commit_id, "data-profile", DataProfileArtifact)
+        return self.fact(profile, "panel", "") if profile is not None else None
 
     @cached_property
     def validation_report(self) -> Sourced[ValidationReportArtifact] | None:
-        if self.checks is None or self.checks[2] is None:
+        if (
+            self.checks is None
+            or self.checks[2] is None
+            or self.checks[0].question is None
+            or not self.state.has("panel")
+            or self.checks[0].question.panel_revision != self.state.current["panel"].revision
+        ):
             return None
         return self.fact(self.checks[2].for_indicators(frozenset(self._indicator_ids)), "panel", "")
 
@@ -306,11 +339,11 @@ class ModelReader:
         assert isinstance(record.record.attempt.outcome, Applied)
         result = record.record.attempt.outcome.result
         assert result is not None
-        from nof1_causal_lab.actions.fit import read_inference_report
+        from nof1_causal_lab.artifacts.posterior import InferenceReport
 
-        report = read_inference_report(
-            self.store, self.state.current["model"].revision, result.evidence
-        )
+        report = self.repository.read_report(record.commit_id, "inference", InferenceReport)
+        if report is None:
+            return None
         current = inference_report_is_current(result, self.state)
         return Sourced(
             value=report,
@@ -326,11 +359,9 @@ class ModelReader:
         )
 
     def identification(self) -> Sourced[IdentificationReport] | None:
-        if self.selection is None:
+        if self.checks is None:
             return None
-        from nof1_causal_lab.actions.model_checks import read_identification
-
-        return self.fact(read_identification(self.store, self.selection), "model", "")
+        return self.fact(self.checks[1], "model", "")
 
     def dispositions(self) -> Sourced[tuple[StructuralItemDisposition, ...]] | None:
         selection = self.selection
@@ -413,14 +444,11 @@ class ModelReader:
                 record.record.attempt.outcome, Applied
             ):
                 continue
-            from nof1_causal_lab.actions.simulate import read_simulation_report
+            from nof1_causal_lab.artifacts.simulation import SimulationReport
 
-            evidence = record.record.attempt.outcome.result.evidence
-            report = read_simulation_report(
-                self.store,
-                evidence,
-                self.repository.state(record.commit_id).current["question"].revision,
-            )
+            report = self.repository.read_report(record.commit_id, "simulation", SimulationReport)
+            if report is None:
+                return None
             pins: dict[ArtifactId, GitOid] = {"model": report.evidence.model.revision}
             current = all(
                 self.state.has(aid) and self.state.current[aid].revision == revision

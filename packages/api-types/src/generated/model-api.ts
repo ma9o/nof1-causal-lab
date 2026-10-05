@@ -132,9 +132,29 @@ export interface paths {
         readonly put?: never;
         /**
          * Model Diff
-         * @description Compare named before/after model trees or checkpoints, including their definitions and evidence. Cached by parsed arguments. Never creates an attempt, leaf, or timeline entry, and works on the read-only facade.
+         * @description Compare named before/after model trees or checkpoints and retain a comparison leaf, including definitions and evidence in model_comparison. Identical applied calls reuse the comparison; running calls return progress. Failures stay in the timeline and can be retried.
          */
         readonly post: operations["model_diff"];
+        readonly delete?: never;
+        readonly options?: never;
+        readonly head?: never;
+        readonly patch?: never;
+        readonly trace?: never;
+    };
+    readonly "/api/studies/{workspace_id}/model-comparison": {
+        readonly parameters: {
+            readonly query?: never;
+            readonly header?: never;
+            readonly path?: never;
+            readonly cookie?: never;
+        };
+        /**
+         * Preview Model Comparison
+         * @description Read the immutable comparison projection for viewer previews without submitting an action.
+         */
+        readonly get: operations["preview_model_comparison_api_studies__workspace_id__model_comparison_get"];
+        readonly put?: never;
+        readonly post?: never;
         readonly delete?: never;
         readonly options?: never;
         readonly head?: never;
@@ -208,7 +228,7 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /** @description A closed action attempt pairs its request with only that action's successful result or failure outcome. */
-        readonly ActionAttempt: Domain.Attempt<"set_question", Domain.SetQuestionRequest, null> | Domain.Attempt<"edit_model", Domain.EditModelRequest, null> | Domain.Attempt<"prepare_data", Domain.PrepareDataRequest, Domain.DataPreparationResult> | Domain.Attempt<"fit", Domain.FitRequest, Domain.ModelFitResult | null> | Domain.Attempt<"simulate", Domain.SimulateRequest, Domain.ModelSimulationResult> | Domain.Attempt<"data_diff", Domain.DataDiffRequest, null>;
+        readonly ActionAttempt: Domain.Attempt<"set_question", Domain.SetQuestionRequest, null> | Domain.Attempt<"edit_model", Domain.EditModelRequest, null> | Domain.Attempt<"prepare_data", Domain.PrepareDataRequest, Domain.DataPreparationResult> | Domain.Attempt<"fit", Domain.FitRequest, Domain.ModelFitResult | null> | Domain.Attempt<"simulate", Domain.SimulateRequest, Domain.ModelSimulationResult> | Domain.Attempt<"data_diff", Domain.DataDiffRequest, null> | Domain.Attempt<"model_diff", Domain.ModelDiffRequest, null>;
         /**
          * ActionEffects
          * @description What an executed action did to the store: the workflow installs this.
@@ -218,8 +238,10 @@ export interface components {
             readonly produced: readonly components["schemas"]["ArtifactRecord"][];
             /** Retracted */
             readonly retracted: readonly components["schemas"]["RetractedArtifact"][];
+            /** Reports */
+            readonly reports: Readonly<Partial<Record<components["schemas"]["ActionReportName"], components["schemas"]["GitOid-Output"]>>>;
         };
-        readonly ActionId: components["schemas"]["ScientificActionId"] | "data_diff";
+        readonly ActionId: components["schemas"]["ScientificActionId"] | ("data_diff" | "model_diff");
         /**
          * ActionMessage
          * @description A label emitted by an attempt; measurements belong in its scientific result.
@@ -240,6 +262,8 @@ export interface components {
         };
         /** @description A call returns running arguments, messages and progress, or its complete saved outcome and scientific views. */
         readonly ActionPoll: components["schemas"]["RunningPoll"] | components["schemas"]["CompletedPoll"];
+        /** @enum {string} */
+        readonly ActionReportName: "checks" | "identification" | "validation" | "data-profile" | "inference" | "simulation";
         /** Added[ConstructRef] */
         readonly Added_ConstructRef_: {
             /**
@@ -377,14 +401,14 @@ export interface components {
             readonly trace_ids: readonly string[];
             readonly attempt: components["schemas"]["ActionAttempt"];
         };
-        /** Attempt[ActionId, Union[ScientificActionRequest, DataDiffRequest], NoneType] */
-        readonly Attempt_ActionId_Union_ScientificActionRequest__DataDiffRequest__NoneType_: {
+        /** Attempt[ActionId, Union[ScientificActionRequest, DataDiffRequest, ModelDiffRequest], NoneType] */
+        readonly Attempt_ActionId_Union_ScientificActionRequest__DataDiffRequest__ModelDiffRequest__NoneType_: {
             readonly action: components["schemas"]["ActionId"];
             /**
              * Request
              * @description Parsed arguments, or null for a historical attempt whose arguments were not retained
              */
-            readonly request: components["schemas"]["ScientificActionRequest"] | components["schemas"]["DataDiffRequest-Output"] | null;
+            readonly request: components["schemas"]["ScientificActionRequest"] | components["schemas"]["DataDiffRequest-Output"] | components["schemas"]["ModelDiffRequest-Output"] | null;
             /** Outcome */
             readonly outcome: Domain.Applied<null> | components["schemas"]["Rejected"] | components["schemas"]["Raised"];
         };
@@ -423,6 +447,18 @@ export interface components {
             readonly request: components["schemas"]["FitRequest-Output"] | null;
             /** Outcome */
             readonly outcome: Domain.Applied<Domain.ModelFitResult | null> | components["schemas"]["Rejected"] | components["schemas"]["Raised"];
+        };
+        /** Attempt[Literal['model_diff'], ModelDiffRequest, NoneType] */
+        readonly Attempt_Literal__model_diff___ModelDiffRequest_NoneType_: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            readonly action: "model_diff";
+            /** @description Parsed arguments, or null for a historical attempt whose arguments were not retained */
+            readonly request: components["schemas"]["ModelDiffRequest-Output"] | null;
+            /** Outcome */
+            readonly outcome: Domain.Applied<null> | components["schemas"]["Rejected"] | components["schemas"]["Raised"];
         };
         /** Attempt[Literal['prepare_data'], PrepareDataRequest, DataPreparationResult] */
         readonly Attempt_Literal__prepare_data___PrepareDataRequest_DataPreparationResult_: {
@@ -872,6 +908,8 @@ export interface components {
             /** @default null */
             readonly data_comparison: components["schemas"]["DataDiffReport"] | null;
             /** @default null */
+            readonly model_comparison: components["schemas"]["ModelDiffReport"] | null;
+            /** @default null */
             readonly checks: components["schemas"]["ModelCheckReport"] | null;
             /** Observation Histories */
             readonly observation_histories: Readonly<Partial<Record<components["schemas"]["IndicatorId-Output"], components["schemas"]["ObservationHistory"]>>>;
@@ -1140,6 +1178,12 @@ export interface components {
             readonly action?: "data_diff";
             readonly left: components["schemas"]["DataSelection-Input"];
             readonly right: components["schemas"]["DataSelection-Input"];
+            /**
+             * Reasoning
+             * @description Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.
+             * @default null
+             */
+            readonly reasoning?: string | null;
         };
         /**
          * DataDiffRequest
@@ -1154,6 +1198,12 @@ export interface components {
             readonly action: "data_diff";
             readonly left: components["schemas"]["DataSelection-Output"];
             readonly right: components["schemas"]["DataSelection-Output"];
+            /**
+             * Reasoning
+             * @description Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.
+             * @default null
+             */
+            readonly reasoning: string | null;
         };
         /**
          * DataPoint
@@ -1424,6 +1474,12 @@ export interface components {
             readonly panel_revision?: components["schemas"]["GitOid-Input"] | null;
             /** @description Endogenous constructs are modeled, with or without parents, and include every latent construct. Exogenous constructs are given by direct exact Delta readings and have no dynamics, diffusion, initial coefficients or trajectory law. */
             readonly model: components["schemas"]["ModelSpec-Input"];
+            /**
+             * Reasoning
+             * @description Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.
+             * @default null
+             */
+            readonly reasoning?: string | null;
         };
         /**
          * EditModelRequest
@@ -1443,6 +1499,12 @@ export interface components {
             readonly panel_revision: components["schemas"]["GitOid-Output"] | null;
             /** @description Endogenous constructs are modeled, with or without parents, and include every latent construct. Exogenous constructs are given by direct exact Delta readings and have no dynamics, diffusion, initial coefficients or trajectory law. */
             readonly model: components["schemas"]["ModelSpec-Output"];
+            /**
+             * Reasoning
+             * @description Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.
+             * @default null
+             */
+            readonly reasoning: string | null;
         };
         /**
          * EffectSummary
@@ -1858,6 +1920,12 @@ export interface components {
             readonly model_revision: components["schemas"]["GitOid-Input"];
             readonly panel_revision: components["schemas"]["GitOid-Input"];
             readonly settings?: components["schemas"]["FitSettingsSpec-Input"];
+            /**
+             * Reasoning
+             * @description Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.
+             * @default null
+             */
+            readonly reasoning?: string | null;
         };
         /**
          * FitRequest
@@ -1872,6 +1940,12 @@ export interface components {
             readonly model_revision: components["schemas"]["GitOid-Output"];
             readonly panel_revision: components["schemas"]["GitOid-Output"];
             readonly settings: components["schemas"]["FitSettingsSpec-Output"];
+            /**
+             * Reasoning
+             * @description Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.
+             * @default null
+             */
+            readonly reasoning: string | null;
         };
         /**
          * FitSettingsSpec
@@ -2112,11 +2186,23 @@ export interface components {
         };
         /**
          * IndicatorEmpiricalProfile
-         * @description Retained count of usable observations for one indicator.
+         * @description Count, recorded range, quartiles and mean of one indicator's usable observations.
          */
         readonly IndicatorEmpiricalProfile: {
             /** N Obs */
             readonly n_obs: number;
+            /** Min */
+            readonly min: number | null;
+            /** Q25 */
+            readonly q25: number | null;
+            /** Q50 */
+            readonly q50: number | null;
+            /** Q75 */
+            readonly q75: number | null;
+            /** Max */
+            readonly max: number | null;
+            /** Mean */
+            readonly mean: number | null;
         };
         /** @description A persistent indicator identity survives changes to its measurement label. */
         readonly "IndicatorId-Input": `indicator:${string}`;
@@ -2939,19 +3025,43 @@ export interface components {
         };
         /**
          * ModelDiffRequest
-         * @description An immutable comparison read; it creates no attempt or journal record.
+         * @description Compare two immutable model trees or checkpoints and record a comparison leaf.
          */
         readonly "ModelDiffRequest-Input": {
+            /**
+             * Action
+             * @default model_diff
+             * @constant
+             */
+            readonly action?: "model_diff";
             readonly before: components["schemas"]["GitOid-Input"];
             readonly after: components["schemas"]["GitOid-Input"];
+            /**
+             * Reasoning
+             * @description Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.
+             * @default null
+             */
+            readonly reasoning?: string | null;
         };
         /**
          * ModelDiffRequest
-         * @description An immutable comparison read; it creates no attempt or journal record.
+         * @description Compare two immutable model trees or checkpoints and record a comparison leaf.
          */
         readonly "ModelDiffRequest-Output": {
+            /**
+             * Action
+             * @default model_diff
+             * @constant
+             */
+            readonly action: "model_diff";
             readonly before: components["schemas"]["GitOid-Output"];
             readonly after: components["schemas"]["GitOid-Output"];
+            /**
+             * Reasoning
+             * @description Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.
+             * @default null
+             */
+            readonly reasoning: string | null;
         };
         /**
          * ModelFitResult
@@ -3549,6 +3659,15 @@ export interface components {
             readonly median: readonly (number | null)[];
             /** Spaghetti Draws */
             readonly spaghetti_draws: readonly (readonly (number | null)[])[];
+            /**
+             * Frame
+             * @description Value range charts show: the replicates' widest per-time central 95%, covering every
+             *     observation.
+             */
+            readonly frame: readonly [
+                number,
+                number
+            ] | null;
         };
         /**
          * PPCTestStat
@@ -3573,6 +3692,14 @@ export interface components {
             readonly p_value: number | null;
             /** Histogram */
             readonly histogram: readonly components["schemas"]["HistogramBin"][];
+            /**
+             * Frame
+             * @description Value range charts show: the replicates' central 95%, covering the observed value.
+             */
+            readonly frame: readonly [
+                number,
+                number
+            ] | null;
         };
         /**
          * PanelRef
@@ -3891,6 +4018,14 @@ export interface components {
              * @default null
              */
             readonly levels: readonly string[] | null;
+            /**
+             * Frame
+             * @description Value range charts show: the widest per-time central 95% of both arms' draws.
+             */
+            readonly frame: readonly [
+                number,
+                number
+            ] | null;
         };
         /**
          * PathfinderDiagnostics
@@ -4138,6 +4273,12 @@ export interface components {
             readonly action?: "prepare_data";
             /** Input */
             readonly input: components["schemas"]["FilePreparationSpec-Input"] | components["schemas"]["SimulationReplicateRef-Input"];
+            /**
+             * Reasoning
+             * @description Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.
+             * @default null
+             */
+            readonly reasoning?: string | null;
         };
         /**
          * PrepareDataRequest
@@ -4151,6 +4292,12 @@ export interface components {
             readonly action: "prepare_data";
             /** Input */
             readonly input: components["schemas"]["FilePreparationSpec-Output"] | components["schemas"]["SimulationReplicateRef-Output"];
+            /**
+             * Reasoning
+             * @description Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.
+             * @default null
+             */
+            readonly reasoning: string | null;
         };
         readonly PreparedDataMetadata: components["schemas"]["FilePreparedDataMetadata"] | components["schemas"]["SimulationPreparedDataMetadata"];
         /** @description A progress event records one running attempt's step status or extraction telemetry. */
@@ -4453,7 +4600,7 @@ export interface components {
             readonly attempt_id: string;
             readonly action: components["schemas"]["ActionId"];
             /** Request */
-            readonly request: components["schemas"]["ScientificActionRequest"] | components["schemas"]["DataDiffRequest-Output"];
+            readonly request: components["schemas"]["ScientificActionRequest"] | components["schemas"]["DataDiffRequest-Output"] | components["schemas"]["ModelDiffRequest-Output"];
             /** Messages */
             readonly messages: readonly components["schemas"]["ActionMessage"][];
             /**
@@ -4475,7 +4622,7 @@ export interface components {
              */
             readonly attempt_id: string;
             /** Request */
-            readonly request: components["schemas"]["ScientificActionRequest"] | components["schemas"]["DataDiffRequest-Output"];
+            readonly request: components["schemas"]["ScientificActionRequest"] | components["schemas"]["DataDiffRequest-Output"] | components["schemas"]["ModelDiffRequest-Output"];
             /**
              * Messages
              * @default []
@@ -4586,6 +4733,12 @@ export interface components {
              */
             readonly action?: "set_question";
             readonly question: components["schemas"]["QuestionSpec-Input"];
+            /**
+             * Reasoning
+             * @description Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.
+             * @default null
+             */
+            readonly reasoning?: string | null;
         };
         /**
          * SetQuestionRequest
@@ -4598,6 +4751,12 @@ export interface components {
              */
             readonly action: "set_question";
             readonly question: components["schemas"]["QuestionSpec-Output"];
+            /**
+             * Reasoning
+             * @description Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.
+             * @default null
+             */
+            readonly reasoning: string | null;
         };
         /**
          * SimulateRequest
@@ -4632,6 +4791,12 @@ export interface components {
              * @default null
              */
             readonly panel_revision?: components["schemas"]["GitOid-Input"] | null;
+            /**
+             * Reasoning
+             * @description Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.
+             * @default null
+             */
+            readonly reasoning?: string | null;
         };
         /**
          * SimulateRequest
@@ -4665,6 +4830,12 @@ export interface components {
              * @default null
              */
             readonly panel_revision: components["schemas"]["GitOid-Output"] | null;
+            /**
+             * Reasoning
+             * @description Why the caller is taking this action and what goal it serves. Retained with the original call and shown at the top of its action log; excluded from call identity.
+             * @default null
+             */
+            readonly reasoning: string | null;
         };
         /**
          * SimulationEvidence
@@ -5199,7 +5370,7 @@ export interface components {
             readonly messages: readonly components["schemas"]["ActionMessage"][];
             /** Trace Ids */
             readonly trace_ids: readonly string[];
-            readonly attempt: Domain.Attempt<Domain.ActionId, Domain.ScientificActionRequest | Domain.DataDiffRequest, null>;
+            readonly attempt: Domain.Attempt<Domain.ActionId, Domain.ScientificActionRequest | Domain.DataDiffRequest | Domain.ModelDiffRequest, null>;
         };
         /** TimelineResponse */
         readonly TimelineResponse: {
@@ -5650,6 +5821,40 @@ export interface operations {
                 readonly "application/json": components["schemas"]["ModelDiffRequest-Input"];
             };
         };
+        readonly responses: {
+            /** @description Successful Response */
+            readonly 200: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["ActionPoll"];
+                };
+            };
+            /** @description Validation Error */
+            readonly 422: {
+                headers: {
+                    readonly [name: string]: unknown;
+                };
+                content: {
+                    readonly "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    readonly preview_model_comparison_api_studies__workspace_id__model_comparison_get: {
+        readonly parameters: {
+            readonly query: {
+                readonly before: components["schemas"]["GitOid-Input"];
+                readonly after: components["schemas"]["GitOid-Input"];
+            };
+            readonly header?: never;
+            readonly path: {
+                readonly workspace_id: string;
+            };
+            readonly cookie?: never;
+        };
+        readonly requestBody?: never;
         readonly responses: {
             /** @description Successful Response */
             readonly 200: {

@@ -32,7 +32,6 @@ from nof1_causal_lab.models.ssm.autoreparam import (
 )
 from nof1_causal_lab.models.ssm.dynamics.vector_field import StructuralDrift
 from nof1_causal_lab.models.ssm.inference.problem import build_particle_problem
-from nof1_causal_lab.models.ssm.inference.types import ProductionDiagnostics
 from nof1_causal_lab.models.ssm.inference.utils import _DummyLikelihoodBackend
 from nof1_causal_lab.models.ssm.model import numpyro_model
 from nof1_causal_lab.models.ssm.transition_kinds import LATENT_TRANSITION_EULER_MARUYAMA
@@ -494,13 +493,6 @@ class TestAutoReparamSSM:
 
     def test_extract_constrained_samples_filters_auxiliary_sites(self):
         """Report original parameters, excluding reparam auxiliaries and assembled matrices."""
-        from nof1_causal_lab.actions.inference.subjects import (
-            parameter_references,
-        )
-        from nof1_causal_lab.models.ssm.inference.types import (
-            JointPosteriorDraws,
-            ParticleMCMCPosterior,
-        )
         from nof1_causal_lab.models.ssm.inference.utils import (
             extract_constrained_samples,
             prepare_model_parameters,
@@ -525,28 +517,6 @@ class TestAutoReparamSSM:
         assert samples["vf_0_p0"].shape[0] == 2
         assert samples["diffusion_diag_free"].shape[0] == 2
         assert set(samples) == {site.name for site in build_site_registry(model.compiled)}
-        from nof1_causal_lab.models.ssm.inference.mcmc_state import TrajectoryMCMCResult
-
-        posterior = ParticleMCMCPosterior.from_run(
-            draws=JointPosteriorDraws(parameters=samples),
-            diagnostics=ProductionDiagnostics(
-                mcmc=TrajectoryMCMCResult(
-                    chain_samples={k: v[None] for k, v in samples.items()},
-                    chain_extra_fields={},
-                    num_chains=1,
-                    num_samples=2,
-                ),
-                observation_log_probs=jnp.zeros((1, 2, 0)),
-            ),
-        )
-        references = parameter_references(model)
-        marginals = posterior.get_posterior_marginals(references)
-        assert marginals
-        assert all(
-            row.subject.parameter_id
-            in {binding.parameter_id for binding in model.compiled.bindings}
-            for row in marginals
-        )
 
     def test_particle_runtime_reconstructs_log_normal_hill_sites(self):
         """Nested TransformReparam + LocScaleReparam restores the public Hill site."""

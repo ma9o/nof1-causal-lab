@@ -31,9 +31,15 @@ class ValidationIssue(Value):
 
 
 class IndicatorEmpiricalProfile(Value):
-    """Retained count of usable observations for one indicator."""
+    """Count, recorded range, quartiles and mean of one indicator's usable observations."""
 
     n_obs: int
+    min: float | None
+    q25: float | None
+    q50: float | None
+    q75: float | None
+    max: float | None
+    mean: float | None
 
 
 class IndicatorAudit(Value):

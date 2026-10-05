@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import re
 from datetime import timedelta
+from typing import TYPE_CHECKING
 from uuid import UUID
 
 from temporalio import workflow
@@ -12,6 +13,10 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, ChildWorkflowError
 
 from nof1_causal_lab.actions.effects import ActionEffects
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.identification import IdentificationReport
+    from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
 
 with workflow.unsafe.imports_passed_through():
     from nof1_causal_lab.actions.contracts import (
@@ -21,6 +26,7 @@ with workflow.unsafe.imports_passed_through():
         SetQuestionRequest,
         call_identity,
     )
+    from nof1_causal_lab.actions.messages import completion_messages
     from nof1_causal_lab.actions.results import (
         ActionPoll,
         CompletedPoll,
@@ -46,14 +52,16 @@ with workflow.unsafe.imports_passed_through():
     )
     from nof1_causal_lab.actions.temporal.workflow_support import temporal_failure
     from nof1_causal_lab.artifacts.data_preparation import FilePreparationSpec
-    from nof1_causal_lab.artifacts.validation_report import DataProfileArtifact
-    from nof1_causal_lab.actions.messages import completion_messages
+    from nof1_causal_lab.artifacts.validation_report import (
+        DataProfileArtifact,
+        ValidationReportArtifact,
+    )
     from nof1_causal_lab.study.records import (
         ActionAttempt,
+        ActionBase,
         ActionMessage,
         Applied,
         AttemptRecord,
-        ActionBase,
         DataPreparationResult,
         EditAttempt,
         ModelFitResult,
@@ -61,11 +69,10 @@ with workflow.unsafe.imports_passed_through():
         Rejected,
         SetQuestionAttempt,
         StudyRevision,
-        applied_attempt,
         failed_attempt,
     )
     from nof1_causal_lab.study.state import validate_lineage
-    from nof1_causal_lab.study.view_models import DataDiffRequest
+    from nof1_causal_lab.study.view_models import DataDiffRequest, ModelDiffRequest
 _RUN_ACTION_TIMEOUT = timedelta(hours=4)
 _WRITE_TIMEOUT = timedelta(minutes=5)
 _CHECK_TIMEOUT = timedelta(hours=1)
@@ -113,7 +120,9 @@ class StudyWorkflow:
         ):
             return existing
         self._calls[identity] = request.attempt_id
-        self._attempts[request.attempt_id] = RunningPoll(attempt_id=request.attempt_id, request=request.request)
+        self._attempts[request.attempt_id] = RunningPoll(
+            attempt_id=request.attempt_id, request=request.request
+        )
         async with self._lock:
             try:
                 await self._execute_action(request)
@@ -155,24 +164,36 @@ class StudyWorkflow:
         except ActivityError as exc:
             self._seq += 1
             failure = temporal_failure(exc)
-            outcome = Rejected(reason="input_unavailable", detail=failure.error_message) if failure.error_type == "StudyLookupError" else failure
+            outcome = (
+                Rejected(reason="input_unavailable", detail=failure.error_message)
+                if failure.error_type == "StudyLookupError"
+                else failure
+            )
             await self._journal(self._seq, request, None, failed_attempt(action, outcome))
             return
         if base.saved is not None:
             saved = base.saved
             self._attempts[request.attempt_id] = CompletedPoll(
-                commit_id=saved.commit_id, attempt=saved.record.attempt, messages=saved.record.messages
+                commit_id=saved.commit_id,
+                attempt=saved.record.attempt,
+                messages=saved.record.messages,
             )
             return
         self._seq += 1
         seq = self._seq
-        lineage = validate_lineage(base.state, action.action) if not isinstance(action, DataDiffRequest) else (
-            None if base.state.has("question") else "Set the study question first"
+        lineage = (
+            validate_lineage(base.state, action.action)
+            if not isinstance(action, (DataDiffRequest, ModelDiffRequest))
+            else (None if base.state.has("question") else "Set the study question first")
         )
-        rejection = Rejected(reason="input_unavailable", detail=lineage) if lineage is not None else None
+        rejection = (
+            Rejected(reason="input_unavailable", detail=lineage) if lineage is not None else None
+        )
         if rejection is not None:
             await self._journal(seq, request, base, failed_attempt(action, rejection))
             return
+        model_checks = None
+        profile = None
         try:
             if isinstance(action, SetQuestionRequest):
                 attempt = await workflow.execute_activity(
@@ -235,11 +256,11 @@ class StudyWorkflow:
                     )
                     self._messages = (
                         *self._messages,
-                        *completion_messages(result, workflow.now(), (profile,)),
+                        *completion_messages(result.result, workflow.now(), (profile,)),
                     )
                 else:
                     assert result.result is None or isinstance(result.result, ModelFitResult)
-                    checks, identification, validation = await workflow.execute_activity(
+                    model_checks = await workflow.execute_activity(
                         evaluate_model_checks_activity,
                         EvaluateChecksInput[ModelFitResult | None](
                             workspace_id=self._workspace_id,
@@ -251,6 +272,7 @@ class StudyWorkflow:
                         start_to_close_timeout=_CHECK_TIMEOUT,
                         retry_policy=_ACTIVITY_RETRY,
                     )
+                    checks, identification, validation = model_checks
                     reports = (
                         (identification, validation)
                         if validation is not None
@@ -258,11 +280,13 @@ class StudyWorkflow:
                     )
                     self._messages = (
                         *self._messages,
-                        *completion_messages(result, workflow.now(), reports, checks=checks),
+                        *completion_messages(result.result, workflow.now(), reports, checks=checks),
                     )
         except (ActivityError, ChildWorkflowError) as exc:
             attempt = failed_attempt(action, temporal_failure(exc))
-        await self._journal(seq, request, base, attempt)
+        await self._journal(
+            seq, request, base, attempt, model_checks=model_checks, data_profile=profile
+        )
 
     async def _prepare_files(
         self, seq: int, request: ActionRequest, preparation: FilePreparationSpec
@@ -328,7 +352,9 @@ class StudyWorkflow:
         return self._attempts.get(attempt_id) if attempt_id is not None else None
 
     def _report_progress(self, request: ActionRequest) -> None:
-        self._attempts[request.attempt_id] = RunningPoll(attempt_id=request.attempt_id, request=request.request, messages=self._messages)
+        self._attempts[request.attempt_id] = RunningPoll(
+            attempt_id=request.attempt_id, request=request.request, messages=self._messages
+        )
         workflow.upsert_memo(
             {
                 RUNNING_ACTION_MEMO: RunningAction(
@@ -341,7 +367,15 @@ class StudyWorkflow:
         )
 
     async def _journal(
-        self, seq: int, request: ActionRequest, base: ActionBase | None, attempt: ActionAttempt
+        self,
+        seq: int,
+        request: ActionRequest,
+        base: ActionBase | None,
+        attempt: ActionAttempt,
+        *,
+        model_checks: tuple[ModelCheckReport, IdentificationReport, ValidationReportArtifact | None]
+        | None = None,
+        data_profile: DataProfileArtifact | None = None,
     ) -> None:
         outcome = attempt.outcome
         label = (
@@ -371,6 +405,8 @@ class StudyWorkflow:
                     attempt=attempt,
                     messages=messages,
                 ),
+                model_checks=model_checks,
+                data_profile=data_profile,
             ),
             result_type=StudyRevision,
             start_to_close_timeout=_JOURNAL_TIMEOUT,

@@ -12,76 +12,12 @@ from __future__ import annotations
 import json
 import time
 import uuid
-from typing import Annotated, Literal
 
-from pydantic import Field, TypeAdapter
+from pydantic import TypeAdapter
 
-from nof1_causal_lab.artifacts.base import Value
+from nof1_causal_lab.actions.progress_contracts import ProgressEvent
 from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
-
-type ProgressStep = Literal["ingestion", "extraction"]
-type StepStatus = Literal["running", "completed", "failed"]
-
-
-class ProgressEventModel(Value):
-    """One attempt's immutable event record, with a cursor added only on reads."""
-
-    attempt_id: uuid.UUID
-    cursor: str = ""
-
-
-class StepError(Value):
-    """The error type and message of a failed step."""
-
-    type: str
-    message: str
-
-
-class StepEvent(ProgressEventModel):
-    """A data-preparation step changed status."""
-
-    event: Literal["nof1-causal-lab.step"] = "nof1-causal-lab.step"
-    step: ProgressStep
-    status: StepStatus
-    error: StepError | None = None
-
-
-class ExtractionPlanEvent(ProgressEventModel):
-    """The extraction fan-out plan."""
-
-    event: Literal["nof1-causal-lab.extraction.plan"] = "nof1-causal-lab.extraction.plan"
-    total_workers: int = Field(ge=0)
-    max_concurrent_workers: int | None = Field(default=None, gt=0)
-
-
-class ExtractionWorkerEvent(ProgressEventModel):
-    """One extraction worker's state; a worker reports its LLM calls when it finishes."""
-
-    event: Literal["nof1-causal-lab.extraction.worker"] = "nof1-causal-lab.extraction.worker"
-    worker_id: int = Field(ge=0)
-    state: Literal["pending", "running", "completed", "failed"]
-    n_windows: int = Field(ge=0)
-    n_extractions: int | None = Field(default=None, ge=0)
-    n_llm_calls: int | None = Field(default=None, ge=0)
-    error: str | None = None
-
-
-class ExtractionSnapshotEvent(ProgressEventModel):
-    """Aggregate extraction worker counts."""
-
-    event: Literal["nof1-causal-lab.extraction.snapshot"] = "nof1-causal-lab.extraction.snapshot"
-    total_workers: int = Field(ge=0)
-    pending_workers: int = Field(ge=0)
-    running_workers: int = Field(ge=0)
-    completed_workers: int = Field(ge=0)
-    failed_workers: int = Field(ge=0)
-
-
-type ProgressEvent = Annotated[
-    StepEvent | ExtractionPlanEvent | ExtractionWorkerEvent | ExtractionSnapshotEvent,
-    Field(discriminator="event"),
-]
 
 _PROGRESS_EVENT_ADAPTER = TypeAdapter(ProgressEvent)
 

@@ -14,10 +14,21 @@ import { DataComparisonEvidence, PreparedObservations } from "./scopes/data-deta
 import { FitDetails } from "./scopes/fit-details";
 import { QuestionChecks, QuestionDetails } from "./scopes/question-details";
 import { SimulationEvidence } from "./simulation-evidence";
+import { ModelComparisonDetails } from "./scopes/edit-details";
 import { PPCWarningsTable } from "@/components/analysis-widgets/posterior/ppc-warnings-table";
 
-function ModelScope({ context, tick }: { context: ScopeContext; tick: TimelineRevision | undefined }) {
-  if (!tick || tick.record.attempt.outcome.status !== "applied" || tick.record.attempt.request === null)
+function ModelScope({
+  context,
+  tick,
+}: {
+  context: ScopeContext;
+  tick: TimelineRevision | undefined;
+}) {
+  if (
+    !tick ||
+    tick.record.attempt.outcome.status !== "applied" ||
+    tick.record.attempt.request === null
+  )
     return <Hint>No new model-wide state was produced.</Hint>;
   if (tick.record.attempt.action === "set_question")
     return context.model.question ? (
@@ -31,12 +42,12 @@ function ModelScope({ context, tick }: { context: ScopeContext; tick: TimelineRe
     return <PreparedObservations context={context} />;
   if (tick.record.attempt.action === "data_diff")
     return context.dataDiff ? (
-      <DataComparisonEvidence
-        context={context}
-        report={context.dataDiff}
-        selection={null}
-      />
-    ) : <Hint>Reading the saved comparison…</Hint>;
+      <DataComparisonEvidence context={context} report={context.dataDiff} selection={null} />
+    ) : (
+      <Hint>Reading the saved comparison…</Hint>
+    );
+  if (tick.record.attempt.action === "model_diff")
+    return <ModelComparisonDetails context={context} />;
   const checks = context.result?.checks;
   const predictive = checks?.predictive;
   const predictivePlots =

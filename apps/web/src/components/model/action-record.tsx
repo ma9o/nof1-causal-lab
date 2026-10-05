@@ -26,6 +26,16 @@ export type ActionTraceState =
   | { status: "absent" };
 export type UseActionTrace = (seq: number, enabled: boolean) => ActionTraceState;
 
+function ActionReasoning({ reasoning }: { reasoning: string | null | undefined }) {
+  if (!reasoning) return null;
+  return (
+    <section aria-label="Reasoning" className="px-4 py-1">
+      <h3 className="mb-1 text-[11px] font-semibold">Reasoning</h3>
+      <p className="whitespace-pre-wrap break-words text-[11.5px] leading-relaxed">{reasoning}</p>
+    </section>
+  );
+}
+
 function ActionLabels({ messages }: { messages: readonly ActionMessage[] }) {
   return (
     <ul className="space-y-1 px-4 py-1 text-[10px] font-mono" aria-label="Action messages">
@@ -53,7 +63,13 @@ function ActionLabels({ messages }: { messages: readonly ActionMessage[] }) {
  * What a running data preparation has reported: each step's latest status and the extraction
  * workers' counts. No other action reports progress, so their running entries show messages alone.
  */
-function AttemptProgress({ workspaceId, running }: { workspaceId: string; running: RunningAction }) {
+function AttemptProgress({
+  workspaceId,
+  running,
+}: {
+  workspaceId: string;
+  running: RunningAction;
+}) {
   const progress = useAttemptProgress(workspaceId, running);
   const view = progress.data;
   // Nothing retained for this attempt: progress is unknown, not zero.
@@ -158,8 +174,10 @@ export function ActionRecord({
   running: RunningAction | null;
   useActionTrace: UseActionTrace;
 }) {
-  const call = tick?.record.attempt.outcome.status === "applied" && tick.record.attempt.request !== null
-    ? context?.result?.attempt : undefined;
+  const call =
+    tick?.record.attempt.outcome.status === "applied" && tick.record.attempt.request !== null
+      ? context?.result?.attempt
+      : undefined;
   const applied = call?.outcome.status === "applied" ? call.outcome : null;
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
@@ -183,6 +201,7 @@ export function ActionRecord({
       >
         {tick ? (
           <>
+            <ActionReasoning reasoning={tick.record.attempt.request?.reasoning} />
             {tick.record.attempt.outcome.status !== "applied" ? (
               <Section
                 title={`${humanize(tick.record.attempt.action).replace(/^./, (letter) => letter.toUpperCase())} failed`}
@@ -201,7 +220,7 @@ export function ActionRecord({
               </section>
             ) : context ? (
               <>
-                {tick.record.attempt.request?.action === "set_question" && (
+                {tick.record.attempt.request.action === "set_question" && (
                   <QuestionDetails
                     context={context}
                     question={tick.record.attempt.request.question}
@@ -219,6 +238,14 @@ export function ActionRecord({
                   context.dataDiff && (
                     <DataComparisonOutcome context={context} report={context.dataDiff} />
                   )}
+                {call?.action === "model_diff" && call.outcome.status === "applied" && (
+                  <Section title="Model comparison">
+                    <Hint>
+                      Compared the selected model definitions, laws, checks and saved evidence.
+                    </Hint>
+                    <ActionLabels messages={tick.record.messages} />
+                  </Section>
+                )}
                 {applied && <ActionFindings context={context} applied={applied} />}
               </>
             ) : null}
@@ -245,6 +272,7 @@ export function ActionRecord({
               <LoaderCircle className="size-3.5 animate-spin" aria-hidden="true" />
               {running.action} · running
             </h3>
+            <ActionReasoning reasoning={running.request.reasoning} />
             <ActionLabels messages={running.messages} />
             {running.action === "prepare_data" && (
               <AttemptProgress workspaceId={workspaceId} running={running} />

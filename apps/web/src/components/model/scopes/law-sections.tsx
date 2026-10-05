@@ -1,8 +1,8 @@
 import { useInferenceReport } from "@/lib/hooks/use-inference-report";
 import { distributionText } from "@/lib/utils/distribution-format";
-import { ChainLegend, TraceSparkline, RankBars } from "./fit-charts";
-import { LawChart } from "@/components/charts/law-density";
-import { PosteriorPairsChart } from "@/components/charts/posterior-pairs-chart";
+import { ChainLegend, RankChart, TraceChart } from "@/components/charts/chain-charts";
+import { JointDrawsChart } from "@/components/charts/joint-draws-chart";
+import { LawChart } from "@/components/charts/law-chart";
 import { useParameterDraws } from "@/lib/hooks/use-visuals";
 import { useState } from "react";
 import type { CoefficientUse } from "@/lib/model-accessors";
@@ -120,10 +120,14 @@ export function LawSections({
                       : "Unavailable",
                   ])}
                 />
-                <div className="flex gap-3">
-                  {trace && <TraceSparkline chains={trace.chains} />}
-                  {ranks && <RankBars histogram={ranks} />}
-                </div>
+                {trace && (
+                  <TraceChart
+                    chains={trace.chains}
+                    label={`${humanize(row.parameter)}: draws by chain`}
+                    height={72}
+                  />
+                )}
+                {ranks && <RankChart histogram={ranks} height={72} />}
               </div>
             );
           })}
@@ -157,7 +161,7 @@ export function SimulatedHistory({
   if (!simulation || !included) return null;
   return (
     <Section title="Simulated history" source={simulation.source} wide>
-      <SimulationHistory model={context.model} id={id} kind={kind} />
+      <SimulationHistory model={context.model} id={id} kind={kind} title="Every saved draw" />
     </Section>
   );
 }
@@ -211,10 +215,11 @@ export function PosteriorPairs({ context }: { context: ScopeContext }) {
           )}
           <EmpiricalPlot points={x.empirical} label={x.label} xLabel={humanize(x.label)} />
           {y && (
-            <PosteriorPairsChart
-              x={x}
-              y={y}
-              divergent={report.data?.value.detail.divergent ?? null}
+            <JointDrawsChart
+              x={{ label: humanize(x.label), values: x.values }}
+              y={{ label: humanize(y.label), values: y.values }}
+              flagged={report.data?.value.detail.divergent ?? null}
+              height={240}
             />
           )}
           <Hint>

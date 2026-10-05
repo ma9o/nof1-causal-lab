@@ -27,7 +27,7 @@ specialization. The facade client reads the same generic metadata to reference
 the canonical declarations. Generic operands come from Python types; generated
 schema names are never parsed to recover them.
 
-`openapi.json` owns the exported component graph. `x-contract-roots` identifies stored payloads and public read contracts; `x-typescript-generics` references component bodies with `x-typescript-parameters`. Components retain `x-python-module`, `x-layer` and `x-concern` for the type diagram. `panel` combines JSON metadata with a Parquet file declared by the machine artifact catalog. The [artifact catalog](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/catalog.py) names durable facts; reports and checks are response types derived through [the shared read cache](../../apps/data-pipeline/src/nof1_causal_lab/study/store.py).
+`openapi.json` owns the exported component graph. `x-contract-roots` identifies stored payloads and public read contracts; `x-typescript-generics` references component bodies with `x-typescript-parameters`. Components retain `x-python-module`, `x-layer` and `x-concern` for the type diagram. `panel` combines JSON metadata with a Parquet file declared by the machine artifact catalog. The [artifact catalog](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/catalog.py) names durable facts; [action outcomes](../../apps/data-pipeline/src/nof1_causal_lab/actions/effects.py) retain computed reports and checks, which [readers load from Git](../../apps/data-pipeline/src/nof1_causal_lab/study/history.py).
 
 ## Documentation Artifacts
 

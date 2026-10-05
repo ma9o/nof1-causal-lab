@@ -5,6 +5,7 @@ export type ActionEffects = components["schemas"]["ActionEffects"];
 export type ActionId = components["schemas"]["ActionId"];
 export type ActionMessage = components["schemas"]["ActionMessage"];
 export type ActionPoll = components["schemas"]["ActionPoll"];
+export type ActionReportName = components["schemas"]["ActionReportName"];
 export type ArtifactId = components["schemas"]["ArtifactId"];
 export type ArtifactRecord = components["schemas"]["ArtifactRecord"];
 export type AttemptRecord = components["schemas"]["AttemptRecord"];

@@ -10,7 +10,6 @@ import numpyro.distributions as dist
 import pytest
 from pydantic import TypeAdapter
 
-from nof1_causal_lab.actions.inference.subjects import parameter_references
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.expressions import (
     Expression,
@@ -28,7 +27,7 @@ from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.model_structure import StructuralSelection, selected_state_ids
 from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
-from tests.inference_fixtures import compile_fit_fixture, compile_model_fixture
+from tests.inference_fixtures import compile_model_fixture
 from tests.model_fixtures import (
     additive_a_b_model,
     construct_named,
@@ -455,11 +454,9 @@ def test_posterior_writer_uses_declared_subject_and_rejects_unknown_coordinate()
     from nof1_causal_lab.artifacts.parameter import ParameterCoordinate
     from nof1_causal_lab.models.ssm.inference.diagnostics_viz import compute_posterior_marginals
 
-    references = parameter_references(compile_fit_fixture(model))
-    reference = references[coordinate]
-    assert reference is not None
-    label, subject = reference
-    assert subject == ParameterRef(parameter_id=binding.parameter_id, element_id=element)
+    label = binding.elements[element]
+    subject = ParameterRef(parameter_id=binding.parameter_id, element_id=element)
+    references = {coordinate: (label, subject)}
     # The numerical producer attaches the reference directly; no serialized row is rebound.
     shape = tuple(i + 1 for i in coordinate.indices)
     samples = jnp.zeros((4, *shape))

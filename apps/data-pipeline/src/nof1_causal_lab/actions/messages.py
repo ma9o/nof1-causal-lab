@@ -13,10 +13,16 @@ from nof1_causal_lab.artifacts.validation_report import (
     ValidationReportArtifact,
 )
 from nof1_causal_lab.models.ssm.inference.convergence import convergence_failures
-from nof1_causal_lab.study.records import ActionMessage, Applied, DataPreparationResult
+from nof1_causal_lab.study.records import (
+    ActionMessage,
+    DataPreparationResult,
+    ModelFitResult,
+    ModelSimulationResult,
+)
 
 if TYPE_CHECKING:
     from datetime import datetime
+
     from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
     from nof1_causal_lab.artifacts.posterior import InferenceReport
     from nof1_causal_lab.artifacts.simulation import SimulationReport
@@ -31,8 +37,8 @@ _QUESTION_LABELS = {
 }
 
 
-def completion_messages[ResultT](
-    applied: Applied[ResultT],
+def completion_messages(
+    result: DataPreparationResult | ModelFitResult | ModelSimulationResult | None,
     timestamp: datetime,
     reports: tuple[IdentificationReport | DataProfileArtifact | ValidationReportArtifact, ...] = (),
     *,
@@ -41,7 +47,6 @@ def completion_messages[ResultT](
     simulation: SimulationReport | None = None,
 ) -> tuple[ActionMessage, ...]:
     """Warnings annotate a completed result; they never decide whether to publish it."""
-    result = applied.result
     labels: dict[str, Literal["debug", "info", "warn"]] = {}
     if checks is not None:
         for finding in checks.specification:

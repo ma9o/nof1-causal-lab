@@ -49,7 +49,7 @@ def evaluate_data_checks(
     state: StudyState,
     applied: Applied[DataPreparationResult],
 ) -> DataProfileArtifact:
-    """Write through the prepared panel's cache; publish no derived artifact."""
+    """Return the prepared panel's report for publication with its action."""
     selected = apply_effects(state, applied.effects.produced, applied.effects.retracted)
     panel = selected.get("panel")
     if panel is None:

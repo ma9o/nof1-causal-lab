@@ -91,7 +91,7 @@ type ArtifactId = Literal["question", "raw_data", "model", "panel"]
 
 # Actions name work; several actions can enrich the same model artifact.
 type ScientificActionId = Literal["set_question", "edit_model", "prepare_data", "fit", "simulate"]
-type ActionId = ScientificActionId | Literal["data_diff"]
+type ActionId = ScientificActionId | Literal["data_diff", "model_diff"]
 
 ARTIFACT_IDS: tuple[ArtifactId, ...] = get_args(ArtifactId.__value__)
 

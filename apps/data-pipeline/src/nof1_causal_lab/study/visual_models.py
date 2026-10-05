@@ -4,10 +4,11 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from pydantic import AwareDatetime, Field, FiniteFloat
+from pydantic import AwareDatetime, Field, FiniteFloat, computed_field
 
 from nof1_causal_lab.artifacts.availability import Availability
 from nof1_causal_lab.artifacts.base import Value
+from nof1_causal_lab.artifacts.display_frames import central_frame
 from nof1_causal_lab.artifacts.effects import EffectSummary
 from nof1_causal_lab.artifacts.identity import ConstructId, IndicatorId, ParameterRef
 from nof1_causal_lab.artifacts.simulation import CategoryProbabilitySummary
@@ -23,6 +24,12 @@ class PathSeries(Value):
     action: tuple[RecordedPath, ...]
     reference: tuple[RecordedPath, ...] = ()
     levels: tuple[str, ...] | None = None
+
+    @computed_field
+    @property
+    def frame(self) -> tuple[float, float] | None:
+        """Value range charts show: the widest per-time central 95% of both arms' draws."""
+        return central_frame(path.values for path in (*self.action, *self.reference))
 
 
 class SimulationPaths(Value):

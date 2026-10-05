@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import logging
+import math
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Literal, TypedDict, cast
 
@@ -431,6 +432,12 @@ def _build_indicator_context(
     )
 
 
+def _float_or_none(value: float | None) -> float | None:
+    if value is None:
+        return None
+    return None if math.isnan(value) else value
+
+
 def _compute_empirical_profile(
     indicator_id: IndicatorId,
     model_data: pl.DataFrame,
@@ -441,7 +448,16 @@ def _compute_empirical_profile(
     if n_obs == 0:
         return None
 
-    return IndicatorEmpiricalProfile(n_obs=n_obs)
+    values = values_df["value"]
+    return IndicatorEmpiricalProfile(
+        n_obs=n_obs,
+        min=_float_or_none(cast("float | None", values.min())),
+        q25=_float_or_none(values.quantile(0.25)),
+        q50=_float_or_none(values.quantile(0.50)),
+        q75=_float_or_none(values.quantile(0.75)),
+        max=_float_or_none(cast("float | None", values.max())),
+        mean=_float_or_none(cast("float | None", values.mean())),
+    )
 
 
 def build_indicator_audits(

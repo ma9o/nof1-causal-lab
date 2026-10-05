@@ -12,6 +12,7 @@ from nof1_causal_lab.actions.edit_model import edit_model
 from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.actions.messages import completion_messages
 from nof1_causal_lab.actions.model_checks import evaluate_model_checks, read_model_checks
+from nof1_causal_lab.artifacts.model_checks import EvaluatedPredictiveChecks
 from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.records import Applied, DataPreparationResult, ModelFitResult
 from nof1_causal_lab.study.state import apply_effects
@@ -62,7 +63,7 @@ def _publish(study, effects, action="edit_model", *, checks=None):
         )
         checks = current if checks is None else checks
         reports = (identification, validation) if validation is not None else (identification,)
-    messages = completion_messages(effects, datetime.now(UTC), reports, checks=checks)
+    messages = completion_messages(effects.result, datetime.now(UTC), reports, checks=checks)
     repository.append(
         applied_record(
             effects,
@@ -141,6 +142,8 @@ def test_automatic_exact_batch_reuse_and_input_invalidation(study, monkeypatch):
     assert compilation_calls == ["model", "fit"]
     state, _ = _publish(study, checked, checks=checked_checks)
     report = read_model_checks(store.workspace_id, state, action="edit_model")[0].predictive
+    assert report is not None
+    assert isinstance(report.evaluation, EvaluatedPredictiveChecks)
     assert len(calls) == 1
     assert report.draws == 4
     assert report.law.interpretation == "prior_predictive"
@@ -173,12 +176,9 @@ def test_automatic_exact_batch_reuse_and_input_invalidation(study, monkeypatch):
     state, messages = _publish(study, unchanged, checks=unchanged_checks)
     assert "PREDICTIVE_CHECKS_REUSED" in {m.label for m in messages}
     assert len(calls) == 1
-    assert (
-        read_model_checks(store.workspace_id, state, action="edit_model")[
-            0
-        ].predictive.model_revision
-        == state.current["model"].revision
-    )
+    reused_report = read_model_checks(store.workspace_id, state, action="edit_model")[0].predictive
+    assert reused_report is not None
+    assert reused_report.model_revision == state.current["model"].revision
     assert state.current["model"].revision != report.model_revision
 
     law_id = next(iter(model.distributions))
@@ -194,7 +194,7 @@ def test_automatic_exact_batch_reuse_and_input_invalidation(study, monkeypatch):
 
     monkeypatch.setattr("nof1_causal_lab.study.store._CODE_DIGEST", "changed-test-policy")
     compilation_calls.clear()
-    policy_edit, policy_edit_checks, _, _ = edit(changed)
+    policy_edit, _, _, _ = edit(changed)
     assert compilation_calls == ["model", "fit"]
     state, _ = _publish(study, policy_edit)
     assert len(calls) == 3
@@ -275,7 +275,7 @@ def test_nonfinite_findings_save_but_generator_errors_do_not_publish(
 
     monkeypatch.setattr(simulation, "simulate_predictive_draws", nonfinite)
     store, repository = study
-    initial, initial_checks, _, _ = _edit(
+    initial, _, _, _ = _edit(
         store.workspace_id,
         EditModelRequest(
             expected_revision=None,
@@ -296,6 +296,8 @@ def test_nonfinite_findings_save_but_generator_errors_do_not_publish(
     )
     state, labels = _publish(study, checked, checks=checked_checks)
     report = read_model_checks(store.workspace_id, state, action="edit_model")[0].predictive
+    assert report is not None
+    assert isinstance(report.evaluation, EvaluatedPredictiveChecks)
     assert report.status == "failed"
     assert any(
         f.kind == "evaluated" and f.outcome == "failed" and f.subject.check == "C1a finiteness"
@@ -351,7 +353,7 @@ def test_joint_laws_can_be_checked_when_refitting_is_unsupported(study, monkeypa
 
     store, _ = study
     model = stress_sleep_model()
-    initial, initial_checks, _, _ = _edit(
+    initial, _, _, _ = _edit(
         store.workspace_id, EditModelRequest(expected_revision=None, model=model), _root(study)
     )
     state, _ = _publish(study, initial)
@@ -394,6 +396,8 @@ def test_joint_laws_can_be_checked_when_refitting_is_unsupported(study, monkeypa
     historical_evidence = fitted_log.record.attempt.outcome.result.evidence.revised(
         time_origin=datetime(2024, 1, 2, tzinfo=UTC)
     )
+    from nof1_causal_lab.actions.fit import read_inference_report
+
     study[1].append(
         applied_record(
             Applied(
@@ -410,7 +414,14 @@ def test_joint_laws_can_be_checked_when_refitting_is_unsupported(study, monkeypa
                     ),
                     evidence=historical_evidence,
                 ),
-                effects=ActionEffects(produced=(panel, fitted)),
+                effects=ActionEffects(
+                    produced=(panel, fitted),
+                    reports={
+                        "inference": store.write_report(
+                            read_inference_report(store, fitted.revision, historical_evidence)
+                        )
+                    },
+                ),
             ),
             seq=len(study[1].attempts()) + 1,
         )

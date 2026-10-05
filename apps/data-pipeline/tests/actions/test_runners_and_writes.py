@@ -255,10 +255,9 @@ def test_model_write_cascades_without_parallel_scientific_catalogs(workspace):
         for info in effects.effects.produced
         if info.artifact_id != "model"
     )
-    assert (
-        next(info for info in effects.effects.produced if info.artifact_id == "model").derived_from
-        == {}
-    )
+    assert next(
+        info for info in effects.effects.produced if info.artifact_id == "model"
+    ).derived_from == {"question": root.current["question"].revision}
 
 
 def test_exact_measurement_preserves_execution_layout(workspace):

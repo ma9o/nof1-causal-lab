@@ -126,7 +126,7 @@ def test_edit_with_missing_panel_variable_saves_compatibility_findings(tmp_path,
     assert "sleep_score" in finding.evidence
     assert checks.predictive.evaluation.reason == "NO_COMPATIBLE_PANEL"
     messages = completion_messages(
-        edited,
+        edited.result,
         datetime.now(UTC),
         (identification, report),
         checks=checks,

@@ -1,18 +1,19 @@
 import type { Applied, DataPreparationResult } from "@nof1-causal-lab/api-types";
 import type { TimelineRevision } from "@nof1-causal-lab/api-types";
 import type { ScopeContext } from "@/lib/model-asset/scope";
-import { ObservationPlots, dataComparisonHistory } from "./recorded-history";
+import { ObservationPlots } from "./recorded-history";
 import { humanize, type EntitySelection } from "@/lib/model-asset/selection";
 import { timelineTickLabel } from "@/lib/model-asset/timeline-presentation";
 import { formatModelDate } from "@/lib/utils/format";
 import { Hint, KeyValue, OwnerLink, Section, StatusIcon } from "../scope-primitives";
 import type { DataDiffReport, DataVariableDiff } from "@nof1-causal-lab/api-types";
-import { HistoryPlot } from "@/components/charts/history-plot";
-import {
-  HistogramPlot,
-  PPCWarningsTable,
-} from "@/components/analysis-widgets/posterior/ppc-warnings-table";
-import { COMPARISON_COLORS } from "@/lib/dag/palette";
+import { PPCWarningsTable } from "@/components/analysis-widgets/posterior/ppc-warnings-table";
+import { ChartFigure } from "@/components/charts/chart-figure";
+import { CHART_COLORS, chainColor, cssColor } from "@/components/charts/chart-tokens";
+import { DistributionChart } from "@/components/charts/distribution-chart";
+import { DrawsChart } from "@/components/charts/draws-chart";
+import { extentOf } from "@/components/charts/plot-geometry";
+import { dataComparisonChart } from "@/components/charts/series-adapters";
 
 function comparisonEvaluation(variable: DataVariableDiff) {
   return variable.predictive.kind === "comparison"
@@ -122,12 +123,18 @@ function VariableComparison({ variable }: { variable: DataVariableDiff }) {
     .at(0);
   const evaluation = comparisonEvaluation(variable);
   const checks = evaluation.kind === "available" ? evaluation.value : null;
+  const chart = dataComparisonChart(variable);
+  const span = extentOf(chart.times);
   return (
     <Section title={humanize(definition?.name ?? variable.indicator_id)} wide>
-      <HistoryPlot
-        {...dataComparisonHistory(variable)}
-        description="Every saved history. Observations are dark; the reference sits above all replicates. Changed points use green (added), red (removed) and amber (revised); left values are hollow."
-      />
+      <ChartFigure
+        title="Every saved history"
+        height={170}
+        note="Observations are dark and sit above every replicate. Changed points use green (added), red (removed) and amber (revised)."
+        {...(span ? { timeline: { domain: span, origin: chart.timeOrigin } } : {})}
+      >
+        {(view) => <DrawsChart {...chart} height={view.height} timeWindow={view.timeWindow} />}
+      </ChartFigure>
       {variable.comparison_issues.map((reason) => (
         <Hint key={reason} issue>
           {reason}
@@ -154,19 +161,33 @@ function VariableComparison({ variable }: { variable: DataVariableDiff }) {
           </tr>
         </thead>
         <tbody>
-          {variable.statistics.map((statistic) => (
-            <tr key={`${statistic.statistic}-${statistic.level}`}>
-              <th className="font-normal">
-                {humanize(statistic.statistic)} {statistic.level}
-              </th>
-              <td>
-                <HistogramPlot histogram={statistic.left_histogram} />
-              </td>
-              <td>
-                <HistogramPlot histogram={statistic.right_histogram} />
-              </td>
-            </tr>
-          ))}
+          {variable.statistics.map((statistic) => {
+            const left = statistic.left.flatMap((value) => (value === null ? [] : [value]));
+            const right = statistic.right.flatMap((value) => (value === null ? [] : [value]));
+            const frame = extentOf([...left, ...right]);
+            const name = `${humanize(statistic.statistic)} ${statistic.level}`;
+            return (
+              <tr key={`${statistic.statistic}-${statistic.level}`}>
+                <th className="font-normal">{name}</th>
+                {(
+                  [
+                    ["left", left, 0],
+                    ["right", right, 1],
+                  ] as const
+                ).map(([side, values, color]) => (
+                  <td key={side} className="min-w-24 py-1">
+                    <DistributionChart
+                      compact
+                      height={26}
+                      label={`${name}: every ${side} history's value`}
+                      dots={[{ key: side, label: side, color: chainColor(color), values }]}
+                      frame={frame}
+                    />
+                  </td>
+                ))}
+              </tr>
+            );
+          })}
         </tbody>
       </table>
       {variable.changes.length > 0 && (
@@ -188,7 +209,7 @@ function VariableComparison({ variable }: { variable: DataVariableDiff }) {
                   change.kind === "removed" ? change.before.anchor_time : change.after.anchor_time
                 }
               >
-                <th className="font-normal" style={{ color: COMPARISON_COLORS[change.kind] }}>
+                <th className="font-normal" style={{ color: cssColor(CHART_COLORS[change.kind]) }}>
                   <time
                     dateTime={
                       change.kind === "removed"

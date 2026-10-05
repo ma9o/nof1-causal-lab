@@ -2,10 +2,18 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
+from typing import Literal
+
 from pydantic import Field
 
 from nof1_causal_lab.artifacts.base import Value
+from nof1_causal_lab.artifacts.identity import GitOid
 from nof1_causal_lab.study.state import ArtifactRecord, RetractedArtifact
+
+type ActionReportName = Literal[
+    "checks", "identification", "validation", "data-profile", "inference", "simulation"
+]
 
 
 class ActionEffects(Value):
@@ -13,3 +21,4 @@ class ActionEffects(Value):
 
     produced: tuple[ArtifactRecord, ...] = Field(default_factory=tuple)
     retracted: tuple[RetractedArtifact, ...] = Field(default_factory=tuple)
+    reports: Mapping[ActionReportName, GitOid] = Field(default_factory=dict)

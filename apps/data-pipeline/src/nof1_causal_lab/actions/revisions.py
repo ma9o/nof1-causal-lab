@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from pydantic import TypeAdapter
+
 from nof1_causal_lab.artifacts.identity import (
     GitOid,
     GitRef,
@@ -64,7 +66,11 @@ def _model_revision(
     fit, simulation = reader.inference_report, reader.simulation()
     return (
         reader.model,
-        GitRef(workspace_id=workspace_id, revision=reader.state.current["model"].revision, path="model.json"),
+        GitRef(
+            workspace_id=workspace_id,
+            revision=reader.state.current["model"].revision,
+            path="model.json",
+        ),
         fit.value.core if fit is not None and fit.source.validity == "fresh" else None,
         simulation.value
         if simulation is not None and simulation.source.validity == "fresh"
@@ -87,7 +93,9 @@ def model_diff(workspace_id: str, before_id: GitOid, after_id: GitOid) -> ModelD
 
     scoped: tuple[StructuralSelection | None, StructuralSelection | None] = (None, None)
     if left is not None or right is not None:
-        question = read_question(ArtifactStore(workspace_id), StudyRepository(workspace_id).question().revision)
+        question = read_question(
+            ArtifactStore(workspace_id), StudyRepository(workspace_id).question().revision
+        )
         scoped = (
             StructuralSelection.for_question(left, question) if left is not None else None,
             StructuralSelection.for_question(right, question) if right is not None else None,
@@ -103,7 +111,10 @@ def model_diff(workspace_id: str, before_id: GitOid, after_id: GitOid) -> ModelD
     before_inputs = input_fingerprints(left) if left is not None else {}
     after_inputs = input_fingerprints(right) if right is not None else {}
     constructs, edges = compare_model_graph(*scoped)
-    graphs = tuple(model_graph_entities(selection) if selection is not None else ((), ()) for selection in scoped)
+    graphs = tuple(
+        model_graph_entities(selection) if selection is not None else ((), ())
+        for selection in scoped
+    )
     return ModelDiffReport(
         before=before,
         after=after,
@@ -113,10 +124,14 @@ def model_diff(workspace_id: str, before_id: GitOid, after_id: GitOid) -> ModelD
         constructs=constructs,
         edges=edges,
         before_dispositions=scoped[0].structural_dispositions
-        if scoped[0] is not None and scoped[0].model.measurement_clock is not None and scoped[0].model.indicators
+        if scoped[0] is not None
+        and scoped[0].model.measurement_clock is not None
+        and scoped[0].model.indicators
         else (),
         after_dispositions=scoped[1].structural_dispositions
-        if scoped[1] is not None and scoped[1].model.measurement_clock is not None and scoped[1].model.indicators
+        if scoped[1] is not None
+        and scoped[1].model.measurement_clock is not None
+        and scoped[1].model.indicators
         else (),
         before_dynamic_construct_ids=tuple(item.id for item in graphs[0][0] if item.is_dynamic),
         after_dynamic_construct_ids=tuple(item.id for item in graphs[1][0] if item.is_dynamic),
@@ -127,7 +142,21 @@ def model_diff(workspace_id: str, before_id: GitOid, after_id: GitOid) -> ModelD
         before_simulation=before_simulation,
         after_simulation=after_simulation,
         changed_inputs=tuple(
-            key for key in sorted(before_inputs.keys() | after_inputs.keys())
+            key
+            for key in sorted(before_inputs.keys() | after_inputs.keys())
             if before_inputs.get(key) != after_inputs.get(key)
         ),
     )
+
+
+def read_model_diff(workspace_id: str, before_id: GitOid, after_id: GitOid) -> ModelDiffReport:
+    """Reuse the same comparison projection for reads and logged comparisons."""
+    from nof1_causal_lab.study.store import cached_value
+
+    report, _ = cached_value(
+        workspace_id,
+        ("model-diff", before_id, after_id),
+        TypeAdapter(ModelDiffReport),
+        lambda: model_diff(workspace_id, before_id, after_id),
+    )
+    return report

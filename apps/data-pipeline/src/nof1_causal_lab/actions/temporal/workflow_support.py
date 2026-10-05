@@ -14,7 +14,7 @@ from nof1_causal_lab.actions.temporal.messages import ProgressEventInput
 from nof1_causal_lab.study.records import Raised
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.actions.progress import ProgressEvent
+    from nof1_causal_lab.actions.progress_contracts import ProgressEvent
 
 EVENT_TIMEOUT = timedelta(seconds=30)
 EVENT_RETRY = RetryPolicy(initial_interval=timedelta(seconds=1), maximum_attempts=5)

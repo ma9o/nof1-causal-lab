@@ -3,7 +3,7 @@ import type { ScopeContext } from "@/lib/model-asset/scope";
 import { formatSignificant } from "@/lib/utils/format";
 import { humanize } from "@/lib/model-asset/selection";
 import { Hint, KeyValue, Section, StatusIcon } from "../scope-primitives";
-import { ChainLegend, LatentStepChart } from "./fit-charts";
+import { ChainLegend, StepSizeChart } from "@/components/charts/chain-charts";
 import { PosteriorPairs } from "./law-sections";
 import { FitCalibration } from "./fit-calibration";
 
@@ -60,7 +60,7 @@ export function FitDetails({ context }: { context: ScopeContext }) {
               .filter((row): row is [string, number] => typeof row[1] === "number")
               .map(([label, value]): [string, string] => [label, formatSignificant(value)])}
           />
-          {plot && <LatentStepChart detail={plot} />}
+          {plot && <StepSizeChart detail={plot} />}
           {typeof mcmc?.num_chains === "number" && <ChainLegend chains={mcmc.num_chains} />}
         </Section>
       )}

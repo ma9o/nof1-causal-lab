@@ -1,6 +1,8 @@
 import type { TimelineRevision } from "@nof1-causal-lab/api-types";
 
-export function attemptError(outcome: TimelineRevision["record"]["attempt"]["outcome"]): string | null {
+export function attemptError(
+  outcome: TimelineRevision["record"]["attempt"]["outcome"],
+): string | null {
   switch (outcome.status) {
     case "applied":
       return null;
@@ -16,7 +18,8 @@ export function latestSeq(attempts: readonly TimelineRevision[]): number {
     (max, revision) =>
       revision.record.attempt.outcome.status === "applied" &&
       revision.record.attempt.request !== null &&
-      revision.record.attempt.action !== "data_diff"
+      revision.record.attempt.action !== "data_diff" &&
+      revision.record.attempt.action !== "model_diff"
         ? Math.max(max, revision.record.seq)
         : max,
     0,

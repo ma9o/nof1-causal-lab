@@ -53,17 +53,36 @@ export function CausalModelAssetView(props: CausalModelAssetViewProps) {
       </div>
     );
   if (!hasSelectedState || !hasCurrentState) {
-    const tick = props.attempts.find((entry) => entry.record.seq === focusSeq) ?? props.attempts.at(-1);
+    const tick =
+      props.attempts.find((entry) => entry.record.seq === focusSeq) ?? props.attempts.at(-1);
     return (
       <div className="flex min-h-screen flex-col gap-4 bg-muted/20">
         <header className="border-b bg-card p-4">
-          <Link href="/" className="text-sm font-semibold">N-of-1 Causal Lab</Link>
+          <Link href="/" className="text-sm font-semibold">
+            N-of-1 Causal Lab
+          </Link>
           <p className="text-sm">{props.question ?? props.workspaceId}</p>
         </header>
-        <VersionScrubber ticks={props.attempts} dependencies={props.dependencies} playhead={tick?.record.seq ?? 0} latest={0}
-          comparedSeq={null} onPlayhead={viewAt} onPreviewComparison={() => {}} onEndPreview={() => {}} onKeepComparison={() => {}} />
+        <VersionScrubber
+          ticks={props.attempts}
+          dependencies={props.dependencies}
+          playhead={tick?.record.seq ?? 0}
+          latest={0}
+          comparedSeq={null}
+          onPlayhead={viewAt}
+          onPreviewComparison={() => {}}
+          onEndPreview={() => {}}
+          onRetainPreview={() => {}}
+          onKeepComparison={() => {}}
+        />
         <section className="mx-4 flex min-h-64 flex-col rounded-2xl border bg-card">
-          <ActionRecord workspaceId={props.workspaceId} context={null} tick={tick} running={props.running} useActionTrace={props.useActionTrace} />
+          <ActionRecord
+            workspaceId={props.workspaceId}
+            context={null}
+            tick={tick}
+            running={props.running}
+            useActionTrace={props.useActionTrace}
+          />
         </section>
       </div>
     );
@@ -140,6 +159,8 @@ function ModelRevision({
         : null
       : null;
   const context = { ...versionContext, dataDiff };
+  const recordedComparison =
+    tick?.record.attempt.action === "model_diff" ? result?.model_comparison : null;
   // Nodes chart what the viewed version's action produced.
   const step = tick?.record.attempt.action ?? null;
   const comparisonPane = useRef<HTMLDivElement>(null);
@@ -178,6 +199,7 @@ function ModelRevision({
         onPlayhead={selectVersion}
         onPreviewComparison={(seq) => previewComparison(seq)}
         onEndPreview={endPreview}
+        onRetainPreview={retainPreview}
         onKeepComparison={(seq) => previewComparison(seq, true)}
       />
       <main
@@ -255,7 +277,7 @@ function ModelRevision({
                   {compared.error ? compared.error.message : "Reading differences…"}
                 </p>
               )}
-              {model.graph.construct_ids.length > 0 || activeComparison ? (
+              {model.graph.construct_ids.length > 0 || activeComparison || recordedComparison ? (
                 <LayeredCausalGraph
                   model={model}
                   entities={context.entities}
@@ -265,7 +287,17 @@ function ModelRevision({
                   step={step}
                   selection={selection}
                   onSelect={select}
-                  comparison={activeComparison ? (compared.data ?? null) : null}
+                  comparison={
+                    activeComparison
+                      ? (compared.data ?? null)
+                      : recordedComparison
+                        ? {
+                            ...recordedComparison,
+                            beforeModel: recordedComparison.before_model,
+                            afterModel: recordedComparison.after_model,
+                          }
+                        : null
+                  }
                   variant="asset"
                 />
               ) : (
@@ -300,9 +332,7 @@ function ModelRevision({
               tick={tick}
               running={
                 // Work still running has no completed timeline node yet.
-                running && focusSeq === latest
-                  ? running
-                  : null
+                running && focusSeq === latest ? running : null
               }
               useActionTrace={useActionTrace}
             />
@@ -335,13 +365,15 @@ export function CausalModelAsset({
       function useWorkspaceActionTrace(seq, enabled): ActionTraceState {
         const record = journal.attempts.find((attempt) => attempt.record.seq === seq);
         const traceIds = record?.record.trace_ids ?? [];
-        const query = useLLMTraceForAction(
-          workspaceId,
-          record,
-          traceIds,
-          enabled,
-        );
-        if (!enabled || record?.record.attempt.outcome.status !== "applied" || record.record.attempt.request === null || traceIds.length === 0 || query.isError) return { status: "absent" };
+        const query = useLLMTraceForAction(workspaceId, record, traceIds, enabled);
+        if (
+          !enabled ||
+          record?.record.attempt.outcome.status !== "applied" ||
+          record.record.attempt.request === null ||
+          traceIds.length === 0 ||
+          query.isError
+        )
+          return { status: "absent" };
         if (query.data) return { status: "ready", trace: query.data };
         return { status: "loading" };
       },

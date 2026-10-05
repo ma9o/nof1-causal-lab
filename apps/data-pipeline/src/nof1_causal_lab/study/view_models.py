@@ -7,6 +7,7 @@ from typing import Annotated, Literal
 
 from pydantic import AwareDatetime, Field, FiniteFloat
 
+from nof1_causal_lab.artifacts.action import ACTION_REASONING_DESCRIPTION
 from nof1_causal_lab.artifacts.availability import Evaluation, NotApplicable, Unavailable
 from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.artifacts.checks import SpecificationAssessment
@@ -21,9 +22,9 @@ from nof1_causal_lab.artifacts.identity import (
     IndicatorId,
 )
 from nof1_causal_lab.artifacts.measurements import ObservationRecord
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.observations import ResolvedObservationSpec
 from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.posterior import InferenceReportCore
 from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorPredictiveChecks
 from nof1_causal_lab.artifacts.simulation import SimulationReport
@@ -121,10 +122,12 @@ class ModelDiffReport(Value):
 
 
 class ModelDiffRequest(Value):
-    """An immutable comparison read; it creates no attempt or journal record."""
+    """Compare two immutable model trees or checkpoints and record a comparison leaf."""
 
+    action: Literal["model_diff"] = "model_diff"
     before: GitOid
     after: GitOid
+    reasoning: str | None = Field(default=None, description=ACTION_REASONING_DESCRIPTION)
 
 
 class PanelRef(Value):
@@ -157,6 +160,7 @@ class DataDiffRequest(Value):
     action: Literal["data_diff"] = "data_diff"
     left: DataSelection
     right: DataSelection
+    reasoning: str | None = Field(default=None, description=ACTION_REASONING_DESCRIPTION)
 
 
 class DataPoint(Value):

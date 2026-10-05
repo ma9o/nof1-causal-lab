@@ -8,7 +8,7 @@ from uuid import uuid4
 import pytest
 from temporalio.exceptions import ApplicationError, FailureError
 
-from nof1_causal_lab.actions.progress import StepError, StepEvent
+from nof1_causal_lab.actions.progress_contracts import StepError, StepEvent
 from nof1_causal_lab.actions.temporal.workflow_support import (
     EVENT_RETRY,
     EVENT_TIMEOUT,

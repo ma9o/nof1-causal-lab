@@ -1,9 +1,5 @@
 """Git publication and commit-local evidence across process restarts."""
 
-
-from nof1_causal_lab.artifacts.simulation import SimulationEvidence
-
-from nof1_causal_lab.artifacts.predictive_provenance import AuthoredLawProvenance
 from datetime import UTC, datetime
 from uuid import uuid4
 
@@ -13,6 +9,8 @@ from nof1_causal_lab.actions.contracts import EditModelRequest, PrepareDataReque
 from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.artifacts.availability import NotApplicable
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.predictive_provenance import AuthoredLawProvenance
+from nof1_causal_lab.artifacts.simulation import SimulationEvidence
 from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.records import (
@@ -28,7 +26,6 @@ from nof1_causal_lab.study.store import ArtifactStore
 from nof1_causal_lab.study.view_models import PanelRef
 from nof1_causal_lab.utils import data as data_module
 from tests.action_fixtures import applied_record
-from tests.model_fixtures import x_y_model
 
 pytestmark = pytest.mark.contract
 
@@ -90,10 +87,11 @@ def test_failed_attempt_and_invalid_publication_do_not_advance_scientific_state(
 
 
 @pytest.mark.parametrize("fails", [False, True])
-def test_data_comparison_is_a_saved_leaf_of_the_journal(study, monkeypatch, fails):
+@pytest.mark.parametrize("comparison_action", ["data_diff", "model_diff"])
+def test_comparison_is_a_saved_leaf_of_the_journal(study, monkeypatch, fails, comparison_action):
     from temporalio.exceptions import ActivityError, ApplicationError
 
-    from nof1_causal_lab.actions import data_diff
+    from nof1_causal_lab.actions import data_diff, revisions
     from nof1_causal_lab.actions.temporal import workflow as study_workflow
     from nof1_causal_lab.actions.temporal.activities import (
         journal_activity,
@@ -101,6 +99,7 @@ def test_data_comparison_is_a_saved_leaf_of_the_journal(study, monkeypatch, fail
         run_action_activity,
     )
     from nof1_causal_lab.actions.temporal.messages import ActionRequest, StudyInit
+    from nof1_causal_lab.study.view_models import ModelDiffReport, ModelDiffRequest
     from tests.helpers import run_async
 
     repository, store = study
@@ -110,11 +109,39 @@ def test_data_comparison_is_a_saved_leaf_of_the_journal(study, monkeypatch, fail
     head = repository.append(_record(2, produced=[_model(store, "2d")])).commit_id
     left = PanelRef(revision=root)
     right = PanelRef(revision=head)
-    request = data_diff.DataDiffRequest(left=left, right=right)
-    report = data_diff.DataDiffReport(left=(left,), right=(right,), variables=())
+    intent = "Compare the candidates before choosing the next fit."
+    request = (
+        data_diff.DataDiffRequest(left=left, right=right, reasoning=intent)
+        if comparison_action == "data_diff"
+        else ModelDiffRequest(before=root, after=head, reasoning=intent)
+    )
+    report = (
+        data_diff.DataDiffReport(left=(left,), right=(right,), variables=())
+        if comparison_action == "data_diff"
+        else ModelDiffReport(
+            before=None,
+            after=None,
+            before_model=None,
+            after_model=None,
+            parameters=(),
+            constructs=(),
+            edges=(),
+            before_dispositions=(),
+            after_dispositions=(),
+            before_dynamic_construct_ids=(),
+            after_dynamic_construct_ids=(),
+            changed_inputs=(),
+            before_checks=(),
+            after_checks=(),
+            before_fit=None,
+            after_fit=None,
+            before_simulation=None,
+            after_simulation=None,
+        )
+    )
     reads = []
 
-    def compare(workspace, selection):
+    def compare(workspace, *selection):
         reads.append((workspace, selection))
         if fails:
             raise StudyLookupError("The selected panel has no saved observations")
@@ -146,7 +173,11 @@ def test_data_comparison_is_a_saved_leaf_of_the_journal(study, monkeypatch, fail
             return None
         raise AssertionError(f"A comparison must not execute scientific actions: {name}")
 
-    monkeypatch.setattr(data_diff, "read_data_diff", compare)
+    monkeypatch.setattr(
+        data_diff if comparison_action == "data_diff" else revisions,
+        "read_data_diff" if comparison_action == "data_diff" else "read_model_diff",
+        compare,
+    )
     monkeypatch.setattr(study_workflow.workflow, "execute_activity", execute)
     monkeypatch.setattr(study_workflow.workflow, "now", lambda: datetime(2026, 9, 30, tzinfo=UTC))
     monkeypatch.setattr(study_workflow.workflow, "upsert_memo", lambda _: None)
@@ -156,7 +187,8 @@ def test_data_comparison_is_a_saved_leaf_of_the_journal(study, monkeypatch, fail
     leaf = repository.read_attempt(3)
     assert leaf is not None
     assert leaf.parent_ids == (head,)
-    assert leaf.record.attempt.action == "data_diff"
+    assert leaf.record.attempt.action == comparison_action
+    assert leaf.record.attempt.request == request
     outcome = leaf.record.attempt.outcome
     assert outcome.status == ("rejected" if fails else "applied")
     assert repository.state(leaf.commit_id) == repository.state(head)
@@ -170,7 +202,14 @@ def test_data_comparison_is_a_saved_leaf_of_the_journal(study, monkeypatch, fail
         assert outcome.result is None
         assert outcome.effects.produced == outcome.effects.retracted == ()
         assert leaf.record.attempt.request == request
-        assert "report" not in leaf.record.model_dump_json(round_trip=True)
+        assert outcome.effects.reports == {}
+        repeated = run_async(
+            study_workflow.StudyWorkflow.execute_action(
+                worker, ActionRequest(request=request.revised(reasoning=None))
+            )
+        )
+        assert repeated.commit_id == leaf.commit_id
+        assert len(reads) == 1
 
 
 def test_timeline_links_named_arguments_and_check_reads():
@@ -183,14 +222,13 @@ def test_timeline_links_named_arguments_and_check_reads():
     from datetime import date
 
     from nof1_causal_lab.actions.contracts import FitRequest, SimulateRequest
-    from nof1_causal_lab.artifacts.data_preparation import SimulationReplicateRef
     from nof1_causal_lab.artifacts.identity import GitRef
     from nof1_causal_lab.artifacts.simulation import SimulationReport, SimulationSpec
     from nof1_causal_lab.study.records import (
         FitAttempt,
         ModelSimulationResult,
     )
-    from nof1_causal_lab.study.view_models import DataDiffReport, DataDiffRequest
+    from nof1_causal_lab.study.view_models import DataDiffRequest
     from tests.inference_fixtures import inference_log
 
     def revision(seq, action, inputs, *produced, status="applied"):
@@ -207,7 +245,13 @@ def test_timeline_links_named_arguments_and_check_reads():
                 result=None,
                 effects=ActionEffects(produced=artifacts),
             )
-            record = applied_record(result, seq=seq, request=EditModelRequest(expected_revision=inputs["expected_revision"], model=ModelSpec()))
+            record = applied_record(
+                result,
+                seq=seq,
+                request=EditModelRequest(
+                    expected_revision=inputs["expected_revision"], model=ModelSpec()
+                ),
+            )
         elif action == "prepare_data":
             record = applied_record(
                 Applied(
@@ -315,8 +359,7 @@ def test_timeline_links_named_arguments_and_check_reads():
             5,
             "edit_model",
             {"expected_revision": oid(5)},
-            ("model", 6, {"model": 5}),
-            ("validation_report", 7, {"model": 6, "panel": 4}),
+            ("model", 6, {"model": 5, "panel": 4}),
             # Carried forward unchanged: its first producer keeps it.
             ("panel", 4, {"raw_data": 3}),
         ),

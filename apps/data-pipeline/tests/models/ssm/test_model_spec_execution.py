@@ -2,7 +2,6 @@
 
 from pathlib import Path
 
-import dynestyx as dsx
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -10,20 +9,10 @@ import pytest
 from pydantic import TypeAdapter
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
-from nof1_causal_lab.artifacts.expressions import (
-    LiteralExpression,
-)
 from nof1_causal_lab.artifacts.likelihood import ObservationLawSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.models.model_structure import (
     StructuralSelection,
-    selected_state_ids,
-    validate_execution_structure,
-)
-from nof1_causal_lab.models.ssm import numerics as numeric
-from nof1_causal_lab.models.ssm.execution.dynamical_model import (
-    HeterogeneousObservation,
-    build_dynamical_model,
 )
 from nof1_causal_lab.models.ssm.inference.persistence import condition_model
 from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
@@ -36,14 +25,6 @@ from tests.inference_fixtures import compile_model_fixture, model_draws, particl
 from tests.model_fixtures import (
     load_model_fixture,
 )
-
-
-def _fixed_quantities_and_interactions_remain_effective_in_edge_off_checks_model_fixture() -> (
-    ModelSpec
-):
-    return load_model_fixture(
-        "model_spec_execution/fixed_quantities_and_interactions_remain_effective_in_edge_off_checks_model_fixture.json"
-    )
 
 
 def _conditioning_revises_the_same_type_and_retains_joint_uncertainty_complete_test_model() -> (

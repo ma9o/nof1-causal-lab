@@ -8,7 +8,10 @@ from pydantic import ValidationError
 from nof1_causal_lab.artifacts.identity import ParameterElementId, ParameterId, ParameterRef
 from nof1_causal_lab.artifacts.parameter import ParameterCoordinate
 from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorMarginal
-from nof1_causal_lab.models.ssm.inference.diagnostics_viz import build_trace_data
+from nof1_causal_lab.models.ssm.inference.diagnostics_viz import (
+    build_trace_data,
+    compute_posterior_marginals,
+)
 from nof1_causal_lab.models.ssm.inference.types import ProductionDiagnostics
 
 
@@ -131,16 +134,14 @@ def test_mcmc_report_preserves_coordinate_metrics_chains_and_sampler_statistics(
         n_bins = len(hist.chains[0])
         assert hist.expected_per_bin == 64 / n_bins
         assert len(hist.chains) == 2
-        assert all(
-            len(row) == n_bins and min(row) >= 0 and sum(row) == 64 for row in hist.chains
-        )
+        assert all(len(row) == n_bins and min(row) >= 0 and sum(row) == 64 for row in hist.chains)
 
 
 @pytest.mark.inference(concern="sampling")
 def test_posterior_marginals_and_traces_preserve_joint_draws_and_divergences(particle_posterior):
     coords = [("alpha", ()), ("beta", (0,)), ("beta", (1,)), ("sigma", ())]
     refs = references(coords)
-    marginals = particle_posterior.get_posterior_marginals(refs, n_bins=8)
+    marginals = compute_posterior_marginals(particle_posterior.draws.parameters, refs, n_bins=8)
     assert len(marginals) == 4
     by_subject = {subject.element_id: coordinate for coordinate, (_, subject) in refs.items()}
     for marginal in marginals:

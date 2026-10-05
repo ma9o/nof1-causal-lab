@@ -22,7 +22,12 @@ from nof1_causal_lab.artifacts.identity import GitOid, GitRef
 from nof1_causal_lab.artifacts.posterior import InferenceEvidence
 from nof1_causal_lab.artifacts.simulation import SimulationEvidence
 from nof1_causal_lab.study.state import StudyState
-from nof1_causal_lab.study.view_models import DataDiffRequest, PanelRef, SimulationRef
+from nof1_causal_lab.study.view_models import (
+    DataDiffRequest,
+    ModelDiffRequest,
+    PanelRef,
+    SimulationRef,
+)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
@@ -118,7 +123,9 @@ class Attempt[ActionT: str, RequestT: Value, ResultT](Value):
     """One action's request and successful result share the same attempt owner."""
 
     action: ActionT
-    request: RequestT | None = Field(description="Parsed arguments, or null for a historical attempt whose arguments were not retained")
+    request: RequestT | None = Field(
+        description="Parsed arguments, or null for a historical attempt whose arguments were not retained"
+    )
     outcome: Annotated[Applied[ResultT] | Rejected | Raised, Field(discriminator="status")]
 
 
@@ -128,6 +135,7 @@ PrepareAttempt = Attempt[Literal["prepare_data"], PrepareDataRequest, DataPrepar
 FitAttempt = Attempt[Literal["fit"], FitRequest, ModelFitResult | None]
 SimulateAttempt = Attempt[Literal["simulate"], SimulateRequest, ModelSimulationResult]
 DataDiffAttempt = Attempt[Literal["data_diff"], DataDiffRequest, None]
+ModelDiffAttempt = Attempt[Literal["model_diff"], ModelDiffRequest, None]
 
 
 type ActionAttempt = Annotated[
@@ -136,7 +144,8 @@ type ActionAttempt = Annotated[
     | PrepareAttempt
     | FitAttempt
     | SimulateAttempt
-    | DataDiffAttempt,
+    | DataDiffAttempt
+    | ModelDiffAttempt,
     Field(discriminator="action"),
 ]
 
@@ -176,7 +185,7 @@ class RecordDependency(Value):
 
 
 def failed_attempt(
-    request: ScientificActionRequest | DataDiffRequest, outcome: FailedOutcome
+    request: ScientificActionRequest | DataDiffRequest | ModelDiffRequest, outcome: FailedOutcome
 ) -> ActionAttempt:
     """Close the action/request relation for a rejection or execution failure."""
     match request:
@@ -192,11 +201,13 @@ def failed_attempt(
             return SimulateAttempt(action="simulate", request=request, outcome=outcome)
         case DataDiffRequest():
             return DataDiffAttempt(action="data_diff", request=request, outcome=outcome)
+        case ModelDiffRequest():
+            return ModelDiffAttempt(action="model_diff", request=request, outcome=outcome)
     raise TypeError("Unknown action request")
 
 
 def applied_attempt[ResultT](
-    request: ScientificActionRequest | DataDiffRequest, applied: Applied[ResultT]
+    request: ScientificActionRequest | DataDiffRequest | ModelDiffRequest, applied: Applied[ResultT]
 ) -> ActionAttempt:
     """The execution transport is closed again before publication; mismatches are bugs."""
     result = applied.result
@@ -237,6 +248,12 @@ def applied_attempt[ResultT](
                 request=request,
                 outcome=Applied(result=result, effects=applied.effects),
             )
+        case ModelDiffRequest(), None:
+            return ModelDiffAttempt(
+                action="model_diff",
+                request=request,
+                outcome=Applied(result=result, effects=applied.effects),
+            )
         case _:
             raise TypeError("Action result does not match its request")
 
@@ -265,6 +282,8 @@ def argument_revisions(attempt: ActionAttempt) -> tuple[tuple[str, GitOid], ...]
                     (selection,) if isinstance(selection, (PanelRef, SimulationRef)) else selection
                 )
             )
+        case ModelDiffRequest(before=before, after=after):
+            return (("before", before), ("after", after))
         case SetQuestionRequest() | PrepareDataRequest() | None:
             return ()
 
@@ -275,12 +294,11 @@ def record_dependencies(revisions: Sequence[StudyRevision]) -> list[RecordDepend
     for revision in revisions:
         record = revision.record
         outcome = record.attempt.outcome
+        producers[revision.commit_id] = record.seq
         if not isinstance(outcome, Applied):
             continue
         for artifact in outcome.effects.produced:
             producers.setdefault(artifact.revision, record.seq)
-        if record.attempt.action == "simulate":
-            producers[revision.commit_id] = record.seq
     dependencies: list[RecordDependency] = []
     for revision in revisions:
         record = revision.record

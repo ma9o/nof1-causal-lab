@@ -31,6 +31,7 @@ def test_simulation_request_is_a_dated_window_with_optional_interventions():
         "start",
         "horizon",
         "interventions",
+        "reasoning",
     }
     with pytest.raises(ValidationError, match="Extra inputs"):
         request.revised(comparison_panel_revision="b" * 40)

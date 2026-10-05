@@ -8,18 +8,26 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from nof1_causal_lab.actions.effects import ActionReportName
+    from nof1_causal_lab.artifacts.base import Value
     from nof1_causal_lab.artifacts.identity import ArtifactId
     from nof1_causal_lab.study.records import AttemptRecord
+    from nof1_causal_lab.study.view_models import DataDiffRequest, ModelDiffRequest
 
 import pygit2
 
+from nof1_causal_lab.actions.contracts import (
+    EditModelRequest,
+    FitRequest,
+    ScientificActionRequest,
+    SimulateRequest,
+    call_identity,
+)
 from nof1_causal_lab.artifacts.identity import GitOid
 from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.git_objects import open_repository, read_file, write_tree
 from nof1_causal_lab.study.records import Applied, StudyRevision
-from nof1_causal_lab.actions.contracts import EditModelRequest, FitRequest, ScientificActionRequest, SimulateRequest, call_identity
 from nof1_causal_lab.study.state import ArtifactRecord, StudyState
-from nof1_causal_lab.study.view_models import DataDiffRequest
 
 
 class StudyRepository:
@@ -44,6 +52,18 @@ class StudyRepository:
 
     def read_file(self, revision: str, name: str) -> bytes:
         return read_file(self.repo, revision, name)
+
+    def read_report[ReportT: Value](
+        self, revision: str, name: ActionReportName, target: type[ReportT]
+    ) -> ReportT | None:
+        """Load an action's saved findings; absent reports remain absent."""
+        outcome = self.record(revision).record.attempt.outcome
+        if not isinstance(outcome, Applied):
+            return None
+        report = outcome.effects.reports.get(name)
+        if report is None:
+            return None
+        return target.model_validate_json(self.repo[pygit2.Oid(hex=report)].peel(pygit2.Blob).data)
 
     def state(self, revision: str) -> StudyState:
         tree = self._commit(revision).tree
@@ -119,24 +139,37 @@ class StudyRepository:
             default=0,
         )
 
-
-    def saved_call(self, request: ScientificActionRequest | DataDiffRequest) -> StudyRevision | None:
+    def saved_call(
+        self, request: ScientificActionRequest | DataDiffRequest | ModelDiffRequest
+    ) -> StudyRevision | None:
         """Only applied calls are reusable; failures are retained attempts, never cached calls."""
         identity = call_identity(request)
-        return next((revision for revision in self.attempts()
-                     if isinstance(revision.record.attempt.outcome, Applied)
-                     and revision.record.attempt.request is not None
-                     and call_identity(revision.record.attempt.request) == identity), None)
+        return next(
+            (
+                revision
+                for revision in self.attempts()
+                if isinstance(revision.record.attempt.outcome, Applied)
+                and revision.record.attempt.request is not None
+                and call_identity(revision.record.attempt.request) == identity
+            ),
+            None,
+        )
 
     def question(self) -> ArtifactRecord:
         """The study's immutable question, independent of its current scientific state."""
         for revision in self.attempts():
             attempt = revision.record.attempt
             if attempt.action == "set_question" and isinstance(attempt.outcome, Applied):
-                return next(item for item in attempt.outcome.effects.produced if item.artifact_id == "question")
+                return next(
+                    item
+                    for item in attempt.outcome.effects.produced
+                    if item.artifact_id == "question"
+                )
         raise StudyLookupError("Set the study question first")
 
-    def input_state(self, request: ScientificActionRequest | DataDiffRequest) -> StudyState:
+    def input_state(
+        self, request: ScientificActionRequest | DataDiffRequest | ModelDiffRequest
+    ) -> StudyState:
         """Select only the question and the revisions actually named by this call."""
         from nof1_causal_lab.study.store import ArtifactStore
 
@@ -172,10 +205,18 @@ class StudyRepository:
             current["model"] = store.read_meta("model", model)
         if panel is not None:
             current["panel"] = store.read_meta("panel", panel)
-            effects = next((outcome.effects for revision in records
-                            if isinstance(outcome := revision.record.attempt.outcome, Applied)
-                            and any(item.artifact_id == "panel" and item.revision == panel
-                                    for item in outcome.effects.produced)), None)
+            effects = next(
+                (
+                    outcome.effects
+                    for revision in records
+                    if isinstance(outcome := revision.record.attempt.outcome, Applied)
+                    and any(
+                        item.artifact_id == "panel" and item.revision == panel
+                        for item in outcome.effects.produced
+                    )
+                ),
+                None,
+            )
             if effects is not None:
                 current.update(
                     {
@@ -195,7 +236,10 @@ class StudyRepository:
     ) -> StudyRevision:
         """Atomically publish the action's tree and advance successful scientific state."""
         outcome = record.attempt.outcome
-        advances = isinstance(outcome, Applied) and record.attempt.action != "data_diff"
+        advances = isinstance(outcome, Applied) and record.attempt.action not in {
+            "data_diff",
+            "model_diff",
+        }
         attempt_ref = f"refs/attempts/{record.seq}"
         head_ref = "refs/heads/main"
         log = record.model_dump(mode="json", round_trip=True)
@@ -246,7 +290,13 @@ class StudyRepository:
                 "attempt.json": json.dumps(log, sort_keys=True).encode(),
                 **(logs or {}),
             }
-            tree.insert("logs", write_tree(self.repo, log_files), pygit2.GIT_FILEMODE_TREE)
+            log_tree = self.repo.TreeBuilder(write_tree(self.repo, log_files))
+            if isinstance(outcome, Applied) and outcome.effects.reports:
+                reports = self.repo.TreeBuilder()
+                for name, report in outcome.effects.reports.items():
+                    reports.insert(f"{name}.json", pygit2.Oid(hex=report), pygit2.GIT_FILEMODE_BLOB)
+                log_tree.insert("reports", reports.write(), pygit2.GIT_FILEMODE_TREE)
+            tree.insert("logs", log_tree.write(), pygit2.GIT_FILEMODE_TREE)
             timestamp = int(datetime.fromisoformat(record.ts).timestamp())
             signature = pygit2.Signature("nof1-causal-lab", "study@local", timestamp, 0)
             action = record.attempt.action

@@ -1,7 +1,7 @@
 import { createModelClient } from "@nof1-causal-lab/api-types";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fixtureValue } from "@/components/__fixtures__/fixture-value";
-import { uploadFile } from "./endpoints";
+import { callAction, uploadFile } from "./endpoints";
 
 const { fetcher } = vi.hoisted(() => ({
   fetcher: vi.fn<(request: Request) => Promise<Response>>(),
@@ -10,6 +10,28 @@ vi.mock("./client", () => ({
   apiClient: createModelClient({ baseUrl: "http://viewer", fetch: fetcher }),
 }));
 beforeEach(() => fetcher.mockReset());
+
+it("submits a model comparison with its reasoning through the action route", async () => {
+  const request = {
+    action: "model_diff" as const,
+    before: "1".repeat(40),
+    after: "2".repeat(40),
+    reasoning: "Compare the revised assumptions before fitting.",
+  };
+  const result = {
+    kind: "running",
+    attempt_id: "0f17a770-5d1e-4c2b-9a3f-6b8e2d4c1a90",
+    request,
+    messages: [],
+    events: [],
+  };
+  fetcher.mockResolvedValue(Response.json(result));
+  expect(await callAction("user-1", request)).toEqual(result);
+  const [call] = fixtureValue(fetcher.mock.calls.at(0));
+  expect(call.url).toBe("http://viewer/api/studies/user-1/model_diff");
+  expect(call.method).toBe("POST");
+  expect(await call.json()).toEqual(request);
+});
 
 describe("uploadFile", () => {
   it("sends a multipart body with its filename and workspace", async () => {
@@ -35,4 +57,3 @@ describe("uploadFile", () => {
     );
   });
 });
-

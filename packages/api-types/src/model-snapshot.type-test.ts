@@ -3,6 +3,7 @@ import type openapi from "../schemas/openapi.json";
 import type { createModelClient } from "./client";
 import type { paths } from "./generated/model-api";
 import type {
+  ActionId,
   ActionPoll,
   Assessment,
   Attempt,
@@ -23,7 +24,6 @@ import type {
   ObservationSpec,
   ParameterSpec,
   Rejected,
-  ScientificActionId,
   Sourced,
   TimelineResponse,
 } from "./generated/models";
@@ -67,9 +67,13 @@ export type NoIndependentIndicatorOwner = IndicatorSpec["construct_id"];
 export type SourceValidityIsScalar = Expect<Extends<FactSource["validity"], "fresh" | "stale">>;
 
 type FitCall = paths["/api/studies/{workspace_id}/fit"]["post"];
-type FetchedCall = MethodResponse<ReturnType<typeof createModelClient>, "post", "/api/studies/{workspace_id}/fit">;
+type FetchedCall = MethodResponse<
+  ReturnType<typeof createModelClient>,
+  "post",
+  "/api/studies/{workspace_id}/fit"
+>;
 export type GeneratedCallRetainsCanonicalSnapshot = Expect<
-  Equal<Extract<FetchedCall, {kind: "completed"}>["snapshot"], ModelSnapshot | null>
+  Equal<Extract<FetchedCall, { kind: "completed" }>["snapshot"], ModelSnapshot | null>
 >;
 export type GeneratedCallRetainsCanonicalOutcome = Expect<Equal<FetchedCall, ActionPoll>>;
 
@@ -95,9 +99,9 @@ type GeneratedOperations = {
   }[Extract<keyof paths[Path], HttpMethod>];
 }[keyof paths];
 export type EveryExportedOperation = Expect<Equal<GeneratedOperations, ExportedOperations>>;
-type CallRoute = `/api/studies/{workspace_id}/${ScientificActionId | "data_diff"}`;
+type CallRoute = `/api/studies/{workspace_id}/${ActionId}`;
 type CallInput = paths[CallRoute]["post"]["requestBody"]["content"]["application/json"];
-export type CanonicalCallAlternatives = Expect<Equal<NonNullable<CallInput["action"]>, ScientificActionId | "data_diff">>;
+export type CanonicalCallAlternatives = Expect<Equal<NonNullable<CallInput["action"]>, ActionId>>;
 export type CanonicalTimeline = Expect<
   Equal<
     MethodResponse<
@@ -121,7 +125,10 @@ export type RequestDefaultsMayBeOmitted = Expect<
   Extends<{ model_revision: string; panel_revision: string }, FitInput>
 >;
 export type DefaultsAreAbsent = Expect<
-  Equal<Extends<{ model_revision: string; panel_revision: string; settings: undefined }, FitInput>, false>
+  Equal<
+    Extends<{ model_revision: string; panel_revision: string; settings: undefined }, FitInput>,
+    false
+  >
 >;
 
 declare const definition: ModelSpec;

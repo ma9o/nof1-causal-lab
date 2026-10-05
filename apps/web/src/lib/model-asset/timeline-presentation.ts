@@ -1,50 +1,108 @@
 import type { ActionId } from "@nof1-causal-lab/api-types";
 import type { TimelineRevision } from "@nof1-causal-lab/api-types";
-import { TIMELINE_LANES, type RevisionTimelineNode } from "./revision-timeline";
+import {
+  TIMELINE_LANES,
+  type RevisionTimeline,
+  type RevisionTimelineLink,
+  type RevisionTimelineNode,
+} from "./revision-timeline";
 
-/** Horizontal pitch between consecutive actions. */
-export const COLUMN = 92;
-/** Room on the left for the lane names. */
-export const GUTTER = 96;
-/** Height of the first lane's centre line from the top of the strip. */
-const TOP = 18;
-/** Vertical pitch between lanes; links run through the gaps. */
-const LANE = 30;
-/** One action per column, so every label shares one row under the last lane. */
-export const LABEL_TOP = TOP + (TIMELINE_LANES.length - 1) * LANE + 18;
+/** Horizontal pitch between consecutive actions; ticks carry no labels, so columns stay narrow. */
+export const PITCH = 18;
+/** Room before the first column and after the last. */
+const PAD = 8;
+/** Height of the first track from the top of the strip. */
+const TOP = 8;
+/** From a track to the corridor beside it, where links between lanes run. */
+const CORRIDOR = 5;
+/** From a lane's track to the side track its failed attempts hang on. */
+const SIDE = 5;
+/** Mark diameters; a failure is a dead end, so its mark is smaller. */
+export const MARK = 10;
+export const FAILED_MARK = 8;
 
 export type ActionGlyph = "dot" | "diamond" | "ring" | "arrow";
 
-/** One mark and colour per scientific action; the tick's label repeats the name. */
+/** One mark and colour per scientific action; the readout names the action. */
 export const ACTION_STYLE: Record<ActionId, { color: string; glyph: ActionGlyph }> = {
   set_question: { color: "#b45309", glyph: "diamond" },
   edit_model: { color: "#475569", glyph: "dot" },
   prepare_data: { color: "#0f766e", glyph: "diamond" },
   fit: { color: "#2563eb", glyph: "ring" },
   data_diff: { color: "#0369a1", glyph: "ring" },
+  model_diff: { color: "#b45309", glyph: "ring" },
   simulate: { color: "#7c3aed", glyph: "arrow" },
 };
 export const FAILED_COLOR = "#dc2626";
 
-export const laneY = (lane: number) => TOP + lane * LANE;
-
-export function timelinePosition(node: RevisionTimelineNode) {
-  return { x: GUTTER + node.column * COLUMN + COLUMN / 2, y: laneY(node.lane) };
+/** Vertical positions in one lane: its track, its failures' side track and the corridors beside it. */
+interface TimelineLanePlacement {
+  name: string;
+  track: number;
+  side: number;
+  above: number;
+  below: number;
 }
 
-export function timelineSize(nodeCount: number) {
-  return { width: GUTTER + Math.max(1, nodeCount) * COLUMN + 12, height: LABEL_TOP + 32 };
+interface TimelineLayout {
+  lanes: TimelineLanePlacement[];
+  width: number;
+  height: number;
 }
 
 /**
- * Leaves the producer's lane vertically, runs along the gap between lanes, and enters the
- * consumer's lane vertically; consumers always sit to the right of their producers.
+ * Stacks the lanes. A lane with a failed attempt gains a side track toward the lane its inputs
+ * come from, so links reach the failure without crossing the track that later actions use.
  */
-export function timelineLinkPath(from: { x: number; y: number }, to: { x: number; y: number }) {
-  if (from.y === to.y) return `M ${from.x} ${from.y} H ${to.x}`;
-  const mid = (from.y + to.y) / 2;
-  const bend = Math.min(18, (to.x - from.x) / 2);
-  return `M ${from.x} ${from.y} C ${from.x} ${mid}, ${from.x} ${mid}, ${from.x + bend} ${mid} H ${to.x - bend} C ${to.x} ${mid}, ${to.x} ${mid}, ${to.x} ${to.y}`;
+export function timelineLayout(timeline: RevisionTimeline): TimelineLayout {
+  const failing = new Set(timeline.nodes.filter((node) => node.failed).map((node) => node.lane));
+  const lanes: TimelineLanePlacement[] = [];
+  let bottom = TOP - 2 * CORRIDOR;
+  TIMELINE_LANES.forEach((lane, index) => {
+    const above = bottom + CORRIDOR;
+    const first = bottom + 2 * CORRIDOR;
+    const failures = failing.has(index) ? lane.failures : null;
+    const track = failures === "above" ? first + SIDE : first;
+    const side = failures === "above" ? first : failures === "below" ? track + SIDE : track;
+    bottom = Math.max(track, side);
+    lanes.push({ name: lane.name, track, side, above, below: bottom + CORRIDOR });
+  });
+  return {
+    lanes,
+    width: 2 * PAD + Math.max(1, timeline.nodes.length) * PITCH,
+    // Room under the lowest track for the latest-action marker.
+    height: bottom + MARK / 2 + 6,
+  };
+}
+
+function placement(layout: TimelineLayout, node: RevisionTimelineNode) {
+  const lane = layout.lanes[node.lane];
+  if (!lane) throw new Error(`${node.tick.record.attempt.action} has no timeline lane`);
+  return lane;
+}
+
+export function timelinePoint(layout: TimelineLayout, node: RevisionTimelineNode) {
+  const lane = placement(layout, node);
+  return { x: PAD + node.column * PITCH + PITCH / 2, y: node.failed ? lane.side : lane.track };
+}
+
+/**
+ * Within a lane, runs along its track and curves off it into a failure. Between lanes, leaves the
+ * producer vertically, runs along the corridor beside the consumer's lane and enters the consumer
+ * vertically. Producers never failed, and consumers always sit to the right of their producers.
+ */
+export function timelineLinkPath(layout: TimelineLayout, link: RevisionTimelineLink) {
+  const from = timelinePoint(layout, link.from);
+  const to = timelinePoint(layout, link.to);
+  if (link.from.lane === link.to.lane) {
+    if (from.y === to.y) return `M ${from.x} ${from.y} H ${to.x}`;
+    const bend = Math.min(10, to.x - from.x);
+    return `M ${from.x} ${from.y} H ${to.x - bend} C ${to.x - bend / 2} ${from.y}, ${to.x - bend / 2} ${to.y}, ${to.x} ${to.y}`;
+  }
+  const lane = placement(layout, link.to);
+  const corridor = link.from.lane > link.to.lane ? lane.below : lane.above;
+  const bend = Math.min(3, (to.x - from.x) / 2);
+  return `M ${from.x} ${from.y} C ${from.x} ${corridor}, ${from.x} ${corridor}, ${from.x + bend} ${corridor} H ${to.x - bend} C ${to.x} ${corridor}, ${to.x} ${corridor}, ${to.x} ${to.y}`;
 }
 
 export function timelineTickLabel(tick: TimelineRevision) {

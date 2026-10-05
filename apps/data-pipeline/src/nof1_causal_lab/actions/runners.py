@@ -29,7 +29,7 @@ from nof1_causal_lab.study.records import (
     ModelSimulationResult,
 )
 from nof1_causal_lab.study.store import ArtifactStore
-from nof1_causal_lab.study.view_models import DataDiffRequest
+from nof1_causal_lab.study.view_models import DataDiffRequest, ModelDiffRequest
 
 if TYPE_CHECKING:
     import polars as pl
@@ -93,7 +93,7 @@ async def _run_fit(
             json_filename("model", "model"): conditioned.model_dump(mode="json", round_trip=True)
         },
     )
-    read_inference_report(store, info.revision, evidence)
+    report = read_inference_report(store, info.revision, evidence)
     return Applied(
         result=ModelFitResult(
             model=GitRef(
@@ -104,7 +104,7 @@ async def _run_fit(
             ),
             evidence=evidence,
         ),
-        effects=ActionEffects(produced=(info,)),
+        effects=ActionEffects(produced=(info,), reports={"inference": store.write_report(report)}),
     )
 
 
@@ -114,7 +114,7 @@ async def _run_simulate(
     pins: dict[ArtifactId, GitOid],
     design: SimulationSpec,
 ) -> Applied[ModelSimulationResult]:
-    from nof1_causal_lab.actions.simulate import simulate, read_simulation_report
+    from nof1_causal_lab.actions.simulate import read_simulation_report, simulate
     from nof1_causal_lab.artifacts.identity import GitRef
     from nof1_causal_lab.study.history import StudyRepository
     from nof1_causal_lab.study.store import read_model
@@ -162,8 +162,11 @@ async def _run_simulate(
 
     if isinstance(report, ObservationPreflightFailure):
         raise ActionExecutionError(report.message)
-    read_simulation_report(store, report, pins["question"])
-    return Applied(result=ModelSimulationResult(evidence=report), effects=ActionEffects())
+    findings = read_simulation_report(store, report, pins["question"])
+    return Applied(
+        result=ModelSimulationResult(evidence=report),
+        effects=ActionEffects(reports={"simulation": store.write_report(findings)}),
+    )
 
 
 async def _run_simulated_data(
@@ -214,7 +217,7 @@ async def _run_simulated_data(
 
 async def run_action_locally(
     workspace_id: str,
-    request: FitRequest | SimulateRequest | PrepareDataRequest | DataDiffRequest,
+    request: FitRequest | SimulateRequest | PrepareDataRequest | DataDiffRequest | ModelDiffRequest,
     pins: dict[ArtifactId, GitOid],
 ) -> (
     Applied[ModelFitResult]
@@ -224,6 +227,11 @@ async def run_action_locally(
 ):
     """Run a fit, simulation or simulated-data preparation on this process."""
     store = ArtifactStore(workspace_id)
+    if isinstance(request, ModelDiffRequest):
+        from nof1_causal_lab.actions.revisions import read_model_diff
+
+        await asyncio.to_thread(read_model_diff, workspace_id, request.before, request.after)
+        return Applied(result=None, effects=ActionEffects())
     if isinstance(request, DataDiffRequest):
         from nof1_causal_lab.actions.data_diff import read_data_diff
 
@@ -250,7 +258,7 @@ def _pinned(store: ArtifactStore, selected: dict[ArtifactId, GitOid]) -> dict[Ar
 
 async def run_action(
     workspace_id: str,
-    request: FitRequest | SimulateRequest | PrepareDataRequest | DataDiffRequest,
+    request: FitRequest | SimulateRequest | PrepareDataRequest | DataDiffRequest | ModelDiffRequest,
     state: StudyState,
 ) -> (
     Applied[ModelFitResult]

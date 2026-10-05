@@ -2,23 +2,14 @@
 
 import type {
   ObservationSpec,
-  HistogramBin,
   PPCOverlay,
   PPCTestStat,
   PosteriorPredictiveChecks,
 } from "@nof1-causal-lab/api-types";
 import { type ColumnDef, createColumnHelper } from "@tanstack/react-table";
-import {
-  Bar,
-  BarChart,
-  CartesianGrid,
-  ComposedChart,
-  Line,
-  ReferenceLine,
-  ResponsiveContainer,
-  XAxis,
-  YAxis,
-} from "recharts";
+import { DrawsChart } from "@/components/charts/draws-chart";
+import { overlayChart } from "@/components/charts/series-adapters";
+import { StatStrip } from "@/components/charts/stat-strip";
 import { HeaderWithTooltip, InfoTable } from "@/components/ui/info-table";
 import { StatusIcon } from "@/components/model/scope-primitives";
 import { formatNumber } from "@/lib/utils/format";
@@ -70,111 +61,26 @@ function buildRows(
   }));
 }
 
-// ── Shared helpers ───────────────────────────────────────
+// ── Overlay: observations over every retained replicate ─
 
-// ── Test stat sparkline (mini histogram + p-value) ──────
-
-export function TestStatSparkline({ stat }: { stat?: PPCTestStat }) {
-  if (!stat) return <span className="text-xs text-muted-foreground">—</span>;
-
-  const pValue = stat.p_value;
-
-  return (
-    <div className="space-y-1">
-      <span className="text-xs font-mono">
-        p = {pValue == null ? "—" : formatNumber(pValue, 2)}
-      </span>
-      <HistogramPlot histogram={stat.histogram} observed={stat.observed_value} />
-    </div>
-  );
-}
-
-export function HistogramPlot({
-  histogram,
-  observed,
-}: {
-  histogram: readonly HistogramBin[];
-  observed?: number;
-}) {
-  return (
-    <div className="h-14 w-28">
-      <ResponsiveContainer width="100%" height="100%">
-        <BarChart data={histogram} margin={{ top: 2, right: 2, left: 0, bottom: 0 }}>
-          <CartesianGrid strokeDasharray="3 3" className="stroke-muted" vertical={false} />
-          <XAxis
-            dataKey="bin_center"
-            type="number"
-            domain={["dataMin", "dataMax"]}
-            tick={false}
-            axisLine={{ stroke: "var(--border)" }}
-            height={2}
-          />
-          <YAxis hide />
-          <Bar dataKey="count" fill="var(--primary)" fillOpacity={0.5} />
-          {observed !== undefined && (
-            <ReferenceLine x={observed} stroke="var(--foreground)" strokeWidth={1.5} />
-          )}
-        </BarChart>
-      </ResponsiveContainer>
-    </div>
-  );
-}
-
-// ── Overlay sparkline (observed series over simulated ones) ─
-
-export function OverlaySparkline({ overlay }: { overlay?: PPCOverlay }) {
+function OverlayCell({ overlay, variable }: { overlay?: PPCOverlay; variable: string }) {
   if (!overlay) return <span className="text-xs text-muted-foreground">—</span>;
-
-  const samples = overlay.spaghetti_draws;
-  const data = overlay.observed.map((obs, i) => ({
-    t: i,
-    observed: obs,
-    median: overlay.median[i],
-    ...Object.fromEntries(samples.map((draw, s) => [`sample${s}`, draw[i]])),
-  }));
-  // Simulated values exist only where the indicator was measured, so lines join
-  // the defined points; sparse observed series also mark each measurement.
-  const measured = overlay.observed.filter((value) => value != null).length;
-  const sparse = measured * 2 < overlay.observed.length;
-
   return (
-    <div className="h-20 w-60">
-      <ResponsiveContainer width="100%" height="100%">
-        <ComposedChart data={data} margin={{ top: 2, right: 2, left: 0, bottom: 0 }}>
-          <YAxis hide />
-          <XAxis dataKey="t" hide />
-          {samples.map((_, s) => (
-            <Line
-              // biome-ignore lint/suspicious/noArrayIndexKey: draws have no identity beyond their position
-              key={s}
-              dataKey={`sample${s}`}
-              stroke="var(--primary)"
-              strokeOpacity={0.35}
-              strokeWidth={0.75}
-              dot={false}
-              connectNulls
-              isAnimationActive={false}
-            />
-          ))}
-          <Line
-            dataKey="median"
-            stroke="var(--primary)"
-            strokeWidth={1}
-            strokeDasharray="3 3"
-            dot={false}
-            connectNulls
-            isAnimationActive={false}
-          />
-          <Line
-            dataKey="observed"
-            stroke="var(--foreground)"
-            strokeWidth={1.5}
-            dot={sparse ? { r: 1.5, strokeWidth: 0, fill: "var(--foreground)" } : false}
-            connectNulls
-            isAnimationActive={false}
-          />
-        </ComposedChart>
-      </ResponsiveContainer>
+    <div className="w-60">
+      <DrawsChart
+        {...overlayChart(overlay, `${variable}: observations over every retained replicate`)}
+        height={72}
+        compact
+      />
+    </div>
+  );
+}
+
+function StatCell({ stat }: { stat?: PPCTestStat }) {
+  if (!stat) return <span className="text-xs text-muted-foreground">—</span>;
+  return (
+    <div className="w-28">
+      <StatStrip stat={stat} height={26} />
     </div>
   );
 }
@@ -214,11 +120,12 @@ const columns: ColumnDef<PPCVariableRow, unknown>[] = [
     header: () => (
       <HeaderWithTooltip
         label="y vs y_rep"
-        tooltip="Observed data (solid), every retained predictive series, and the predictive median (dashed)."
+        tooltip="Observations (dark dots) over every retained predictive replicate, on the time axis."
       />
     ),
     cell: ({ row }) => (
-      <OverlaySparkline
+      <OverlayCell
+        variable={row.original.variable}
         {...(row.original.overlay === undefined ? {} : { overlay: row.original.overlay })}
       />
     ),
@@ -253,7 +160,7 @@ const columns: ColumnDef<PPCVariableRow, unknown>[] = [
       header: () => <HeaderWithTooltip label={`T(${sn})`} tooltip={STAT_TOOLTIPS[sn]} />,
       cell: ({ row }) => {
         const stat = row.original.testStats[sn];
-        return <TestStatSparkline {...(stat === undefined ? {} : { stat })} />;
+        return <StatCell {...(stat === undefined ? {} : { stat })} />;
       },
     }),
   ),

@@ -11,7 +11,7 @@ from nof1_causal_lab.actions.errors import execution_failure_handler
 
 with workflow.unsafe.imports_passed_through():
     # Temporal resolves workflow result annotations when registering the class.
-    from nof1_causal_lab.actions.progress import StepError, StepEvent, StepStatus
+    from nof1_causal_lab.actions.progress_contracts import StepError, StepEvent, StepStatus
     from nof1_causal_lab.actions.temporal.ingestion_activities import (
         finalize_ingestion_activity,
         plan_ingestion_activity,

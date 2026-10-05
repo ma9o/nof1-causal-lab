@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import TypeAdapter
 
+from nof1_causal_lab.actions.contracts import call_identity
 from nof1_causal_lab.models.posterior_predictive import data_diff
 from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.records import Applied
@@ -94,7 +95,7 @@ def read_data_diff(workspace_id: str, request: DataDiffRequest) -> DataDiffRepor
 
     value, _ = cached_value(
         workspace_id,
-        ("data-diff", request.model_dump_json(round_trip=True)),
+        ("data-diff", call_identity(request)),
         TypeAdapter(DataDiffReport),
         lambda: _compute_data_diff(workspace_id, request),
     )

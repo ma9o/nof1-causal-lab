@@ -9,13 +9,11 @@ import { latestSeq } from "./journal";
 import type { ScopeContext } from "./scope";
 import type { EntitySelection } from "./selection";
 
-export type SnapshotReader = (
-  commitId: string | undefined,
-) => {
+export type SnapshotReader = (commitId: string | undefined) => {
   data: ModelSnapshot | undefined;
   error: Error | null;
   isPlaceholderData?: boolean;
-  result?: CompletedPoll;
+  result?: CompletedPoll | undefined;
 };
 
 export function useWorkbenchSnapshots(
@@ -33,10 +31,20 @@ export function useWorkbenchSnapshots(
       : record.parent_ids[0]
     : attempts.find((entry) => entry.record.seq === latest)?.commit_id;
   const selected = useSnapshot(commitId);
-  const hasSelectedState = attempts.some((entry) => entry.commit_id === commitId &&
-    entry.record.attempt.outcome.status === "applied" && entry.record.attempt.request !== null);
-  const hasCurrentState = attempts.some((entry) => entry.record.seq === latest &&
-    entry.record.attempt.outcome.status === "applied" && entry.record.attempt.request !== null && entry.record.attempt.action !== "data_diff");
+  const hasSelectedState = attempts.some(
+    (entry) =>
+      entry.commit_id === commitId &&
+      entry.record.attempt.outcome.status === "applied" &&
+      entry.record.attempt.request !== null,
+  );
+  const hasCurrentState = attempts.some(
+    (entry) =>
+      entry.record.seq === latest &&
+      entry.record.attempt.outcome.status === "applied" &&
+      entry.record.attempt.request !== null &&
+      entry.record.attempt.action !== "data_diff" &&
+      entry.record.attempt.action !== "model_diff",
+  );
   return { selected, viewAt, focusSeq: playhead, hasSelectedState, hasCurrentState };
 }
 
@@ -80,11 +88,17 @@ export function useWorkbench({
   const modelRevision = model.model?.source.ref.revision;
   const activeComparison = comparison?.before === playhead ? comparison : null;
   const comparedCall = attempts.find((record) => record.record.seq === activeComparison?.after);
-  const comparedCommit = comparedCall?.record.attempt.outcome.status === "applied" && comparedCall.record.attempt.request !== null
-    ? comparedCall.commit_id : comparedCall?.parent_ids[0];
+  const comparedCommit =
+    comparedCall?.record.attempt.outcome.status === "applied" &&
+    comparedCall.record.attempt.request !== null
+      ? comparedCall.commit_id
+      : comparedCall?.parent_ids[0];
   const selectedCall = attempts.find((record) => record.record.seq === playhead);
-  const selectedCommit = selectedCall?.record.attempt.outcome.status === "applied" && selectedCall.record.attempt.request !== null
-    ? selectedCall.commit_id : selectedCall?.parent_ids[0];
+  const selectedCommit =
+    selectedCall?.record.attempt.outcome.status === "applied" &&
+    selectedCall.record.attempt.request !== null
+      ? selectedCall.commit_id
+      : selectedCall?.parent_ids[0];
   const compared = useModelDiff(workspaceId, selectedCommit ?? null, comparedCommit ?? null);
   const retainPreview = () => {
     if (previewTimer.current) clearTimeout(previewTimer.current);
