@@ -18,9 +18,7 @@ from .identity import IndicatorId
 
 
 class ValidationIssue(Value):
-    """A validation issue explains a data problem and its severity for an indicator or the
-    dataset.
-    """
+    """A data problem and its severity for one indicator or the complete dataset."""
 
     indicator_id: IndicatorId | None = Field(
         default=None, description="Affected indicator; null for a dataset-wide issue."
@@ -43,9 +41,7 @@ class IndicatorEmpiricalProfile(Value):
 
 
 class IndicatorAudit(Value):
-    """An indicator audit combines its empirical data profile with the results of validation
-    checks.
-    """
+    """Empirical measurements and validation findings for one observation indicator."""
 
     profile: IndicatorEmpiricalProfile | None = None
     issues: tuple[ValidationIssue, ...]
@@ -75,6 +71,7 @@ class DataProfileArtifact(Value):
     dataset_issues: tuple[ValidationIssue, ...]
 
     def for_indicators(self, identities: frozenset[IndicatorId]) -> Self:
+        """Restrict indicator audits to the selected IDs while preserving dataset-wide findings."""
         return self.revised(
             indicators={
                 identity: audit
@@ -112,6 +109,7 @@ class ValidationReportArtifact(Value):
     preflight: tuple[SpecificationAssessment, ...] = Field(default_factory=lambda: ())
 
     def for_indicators(self, identities: frozenset[IndicatorId]) -> Self:
+        """Restrict empirical indicator findings while retaining the model preflight assessments."""
         return self.revised(data=self.data.for_indicators(identities))
 
     @computed_field
@@ -128,6 +126,7 @@ class ValidationReportArtifact(Value):
     def validate_serialized_verdict(
         cls, value: object, handler: ModelWrapValidatorHandler[Self]
     ) -> Self:
+        """Parse a report and reject a serialized verdict that disagrees with its derived findings."""
         return _validate_serialized_verdict(value, handler)
 
 

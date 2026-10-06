@@ -40,6 +40,7 @@ class ActionExecutionError(Exception):
     """
 
     def __init__(self, message: str, *, diagnostics: JsonObject | None = None) -> None:
+        """Retain a failure message and structured diagnostics for the execution boundary."""
         super().__init__(message)
         self.diagnostics = diagnostics or {}
 

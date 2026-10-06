@@ -3,8 +3,8 @@ import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
 import type { SimulationPaths, SimulationReport } from "@nof1-causal-lab/api-types";
-import { demoSnapshotAt } from "@/components/__fixtures__/demo-artifacts";
-import { demoSimulationResult } from "@/components/dag/__fixtures__/simulation-fixture";
+import { treatment as dose, outcome as symptoms } from "@/lib/__fixtures__/model";
+import { fittedSnapshot, modelRef } from "@/lib/__fixtures__/snapshot";
 import { indexModel } from "@/lib/model-asset/entities";
 import { graphEntities } from "@/lib/dag/layered-model";
 import type { DagGraphInput } from "@/lib/utils/dag-graph-layout";
@@ -28,15 +28,9 @@ vi.mock("@/lib/hooks/use-dag-layout", () => ({
   }),
 }));
 
-const base = demoSnapshotAt(8);
-const indexed = indexModel(base.model?.value);
+const base = fittedSnapshot;
+const indexed = indexModel(base.model);
 const entities = graphEntities(base, indexed);
-const dose = fixtureValue(
-  entities.constructs.find((item) => item.name === "escitalopram_dose_taken"),
-);
-const symptoms = fixtureValue(
-  entities.constructs.find((item) => item.name === "internalizing_symptom_burden"),
-);
 const edge = fixtureValue(
   entities.edges.find((item) => item.cause.id === dose.id && item.effect.id === symptoms.id),
 );
@@ -51,9 +45,23 @@ const model = {
 };
 
 const report: SimulationReport = {
-  ...demoSimulationResult,
   evidence: {
-    ...demoSimulationResult.evidence,
+    model: modelRef,
+    draws: 1,
+    seed: 0,
+    origin_data: null,
+    state_ids: [dose.id, symptoms.id],
+    parameter_draws: {},
+    latent_paths: "a".repeat(64),
+    observations: "b".repeat(64),
+    observation_layout: {
+      variables: [],
+      support_start_times: "c".repeat(64),
+      support_end_times: "d".repeat(64),
+      mask: "e".repeat(64),
+    },
+    reference_latent_paths: null,
+    reference_observations: null,
     time_origin: "2026-01-01T00:00:00Z",
     times: [0, 1, 2, 3, 4, 5, 6, 7],
     design: {
@@ -71,6 +79,10 @@ const report: SimulationReport = {
       { target: dose.id, time: 6, value: 0 },
     ],
   },
+  law: { kind: "authored", interpretation: "prior_predictive" },
+  findings: [],
+  fit_reliability: "not_fitted",
+  causal: { kind: "unavailable", reason: "This fixture covers intervention rendering." },
 };
 const paths: SimulationPaths = {
   effect_summary: null,

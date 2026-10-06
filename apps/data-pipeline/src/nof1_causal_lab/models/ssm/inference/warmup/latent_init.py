@@ -33,14 +33,24 @@ def compute_ieks_latent_paths(
     reparam: Strategy | None,
     n_ieks_iters: int,
 ) -> jnp.ndarray:
-    """Return the IEKS smoothed latent path at each flat unconstrained position.
+    """Initialize particle reference paths with data-conditioned IEKS modes.
 
     Args:
-        positions: (num_chains, dim) flat positions in the same site layout and
-            parameterization (``reparam``) the warmup optimized in.
+        priors: Prior laws bound to the compiled model's sampling sites.
+        panel: Model, observations, time grid, and resolved measurement supports.
+        positions: Flat unconstrained parameter positions with shape
+            ``(chain, dimension)``, using the warmup's site layout.
+        trace_key: JAX key used to establish that parameter-site layout.
+        reparam: Reparameterization used by the warmup positions, if any.
+        n_ieks_iters: Number of iterated smoothing passes for each position.
 
     Returns:
-        (num_chains, T, n_latent) smoothed latent paths.
+        Initial latent paths with shape ``(chain, time, state)``. These approximate
+        modes seed the particle sampler and are not posterior trajectory draws.
+
+    Raises:
+        ValueError: The Laplace solver supplies no latent mode or returns a
+            non-finite path for any chain.
     """
     observations, times = panel.observations, panel.times
     from nof1_causal_lab.models.ssm.inference.warmup.map import _build_map_laplace_bundle

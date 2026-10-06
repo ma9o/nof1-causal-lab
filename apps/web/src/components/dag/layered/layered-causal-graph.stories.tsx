@@ -12,7 +12,7 @@ function SelectableLayeredCausalGraph(
   props: Omit<LayeredCausalGraphProps, "selection" | "onSelect" | "entities">,
 ) {
   const [selection, setSelection] = useState<EntitySelection | null>(null);
-  const entities = useMemo(() => indexModel(props.model.model?.value), [props.model]);
+  const entities = useMemo(() => indexModel(props.model.model), [props.model]);
   return (
     <LayeredCausalGraph
       entities={entities}

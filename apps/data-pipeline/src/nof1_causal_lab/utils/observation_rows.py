@@ -162,7 +162,11 @@ def support_window_tick_frame(
     if bounds[0] > bounds[1]:
         return pl.DataFrame(schema={"__tick__": observed_ticks.schema["__tick__"]})
     ticks = pl.DataFrame(
-        {"__tick__": pl.datetime_range(bounds[0], bounds[1], interval=model_clock, eager=True)}
+        {
+            "__tick__": pl.datetime_range(
+                bounds[0], bounds[1], interval=model_clock, eager=True
+            ).cast(observed_ticks.schema["__tick__"])
+        }
     )
     if start is not None:
         ticks = ticks.filter(pl.col("__tick__") >= lower)
@@ -179,17 +183,21 @@ def bucket_by_clock(
     start: date | None = None,
     end: date | None = None,
 ) -> list[tuple[str, pl.DataFrame]]:
-    """Group DataFrame rows by model_clock ticks.
+    """Group rows into complete model-clock support windows.
 
     Args:
-        df: Raw DataFrame with a time column.
-        model_clock: Polars duration string (e.g. "1d", "4h", "1w").
-        time_col: Name of the datetime column to bucket by.
+        df: Source rows containing a date or datetime column.
+        model_clock: Polars duration spelling such as ``1d`` or ``4h``.
+        time_col: Timestamp column used to assign rows to clock ticks.
+        start: Optional lower calendar bound; only windows starting at or after
+            this bound are retained.
+        end: Optional upper calendar bound; only windows ending at or before
+            this bound are retained.
 
     Returns:
-        List of (tick_id, events_df) sorted chronologically, including empty
-        support windows between the first and last observed ticks.
-        tick_id is an ISO-format string of the tick start time.
+        Chronologically ordered pairs of ISO window-start strings and row frames.
+        Empty windows inside the selected span are retained. Without explicit
+        bounds, the span runs from the first observed tick through the last.
     """
     df = ensure_datetime_column(df, time_col)
 
@@ -341,17 +349,20 @@ def annotate_observation_rows(
 
 
 def pivot_to_wide(df: pl.DataFrame, *, time_origin: datetime | None) -> pl.DataFrame:
-    """Pivot long-format observation data to wide-format Polars DataFrame.
-
-    Handles time column detection, Float64 casting, datetime-to-fractional-days
-    conversion, and column renaming.
+    """Pivot recorded observations onto a shared model-day axis.
 
     Args:
-        df: Polars DataFrame with columns: indicator, value, anchor_time.
+        df: Long-format rows with ``indicator_id``, ``value``, and ``anchor_time``.
+        time_origin: Calendar instant of model day zero, or ``None`` to use the
+            calendar-free origin owned by ``ObservationInstant``.
 
     Returns:
-        Wide-format Polars DataFrame with 'time' column and one column per indicator.
-        Returns empty DataFrame if input is empty.
+        A frame with a fractional-day ``time`` column and one numeric column per
+        indicator. Repeated indicator/anchor pairs are averaged; missing cells
+        remain null. Empty input returns an empty frame.
+
+    Raises:
+        ValueError: Nonempty input has no ``anchor_time`` column.
     """
     if df.is_empty():
         return pl.DataFrame()

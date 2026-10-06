@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING
 from pydantic import TypeAdapter
 
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.observation_data import ObservationDataset
 from nof1_causal_lab.artifacts.posterior import InferenceEvidence
 from nof1_causal_lab.utils.arrays import decode_array, encode_array
 
@@ -18,10 +19,10 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     import numpy as np
-    import polars as pl
 
     from nof1_causal_lab.actions.fit import FitResult
     from nof1_causal_lab.artifacts.identity import ConstructId
+    from nof1_causal_lab.artifacts.observations import ResolvedObservationSpec
     from nof1_causal_lab.json_types import JsonValue
     from nof1_causal_lab.models.model_structure import StructuralSelection
     from nof1_causal_lab.numpyro_json import ArrayLoader
@@ -35,6 +36,7 @@ class FitComputeInput:
     model_json: str
     outcome: ConstructId | None
     panel_parquet: bytes
+    variables: tuple[ResolvedObservationSpec, ...]
     time_origin: datetime | None
     arrays: dict[str, bytes]
     sampler: SamplerSpec
@@ -82,7 +84,11 @@ def execute_fit_compute(payload: FitComputeInput) -> FitComputeResult:
     )
     result = fit(
         selection=StructuralSelection(model, payload.outcome),
-        data_for_model=pl.read_parquet(io.BytesIO(payload.panel_parquet)),
+        data_for_model=ObservationDataset.from_frame(
+            pl.read_parquet(io.BytesIO(payload.panel_parquet)),
+            payload.variables,
+            time_origin=payload.time_origin,
+        ),
         time_origin=payload.time_origin,
         sampler=payload.sampler,
         array_writer=write_array,
@@ -145,7 +151,7 @@ def _dispatch_fit(payload: FitComputeInput, *, timeout: int = 10800) -> FitCompu
 def fit_on_modal(
     *,
     selection: StructuralSelection,
-    data_for_model: pl.DataFrame,
+    data_for_model: ObservationDataset,
     time_origin: datetime | None,
     sampler: SamplerSpec,
     array_writer: Callable[[np.ndarray], str],
@@ -160,12 +166,13 @@ def fit_on_modal(
             raise ValueError("Fit input array does not match its content identity")
         inputs[identity] = data
     panel = io.BytesIO()
-    data_for_model.write_parquet(panel)
+    data_for_model.recorded.frame.write_parquet(panel)
     result = _dispatch_fit(
         FitComputeInput(
             model_json=selection.model.model_dump_json(round_trip=True),
             outcome=selection.outcome,
             panel_parquet=panel.getvalue(),
+            variables=data_for_model.variables,
             time_origin=time_origin,
             arrays=inputs,
             sampler=sampler,

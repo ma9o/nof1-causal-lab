@@ -41,7 +41,10 @@ def test_prior_request_round_trips_through_a_cold_workflow_sandbox():
     }
     envelope = {
         "attempt_id": str(uuid4()),
-        "request": {"action": "edit_model", "expected_revision": None, "model": model},
+        "request": {
+            "action": "edit_model",
+            "input": {"parent_ref": "3" * 40, "model": model},
+        },
     }
     # Constructing this law before entering the sandbox warms JAX's lazy imports
     # and masks the rejection, so decode raw JSON in a fresh worker process.
@@ -60,9 +63,12 @@ def test_prior_request_round_trips_through_a_cold_workflow_sandbox():
                 from temporalio.worker.workflow_sandbox._restrictions import RestrictionContext
 
                 from nof1_causal_lab.actions.contracts import FitRequest, SimulateRequest
+                from nof1_causal_lab.actions.io import FitInput, SimulateInput
+                from nof1_causal_lab.artifacts.identity import GitOid
+                from nof1_causal_lab.artifacts.simulation import SimulationSpec
                 from nof1_causal_lab.study.records import AttemptRecord, Applied, EditAttempt
                 from nof1_causal_lab.actions.temporal.messages import (
-                    ActionInput, ActionRequest, EditModelInput, EvaluateChecksInput, AttemptPublication,
+                    ActionInput, ActionRequest, EditModelActivityInput, EvaluateChecksInput, AttemptPublication,
                 )
                 from nof1_causal_lab.study.state import ArtifactRecord, StudyState
                 from nof1_causal_lab.actions.effects import ActionEffects
@@ -78,22 +84,21 @@ def test_prior_request_round_trips_through_a_cold_workflow_sandbox():
                     panel_record = ArtifactRecord(artifact_id="panel", revision="2" * 40)
                     state = StudyState(current={"model": model_record, "panel": panel_record})
                     inputs = [
-                        EditModelInput(workspace_id="test", request=restored.request, state=state),
+                        EditModelActivityInput(workspace_id="test", request=restored.request),
                         # These activities carry revision references, not a ModelSpec.
                         ActionInput(
                             workspace_id="test", state=state,
-                            request=FitRequest(
-                                model_revision=model_record.revision,
-                                panel_revision=panel_record.revision,
-                            ),
+                            request=FitRequest[GitOid](input=FitInput[GitOid](
+                                model_ref=model_record.revision,
+                                data_ref=panel_record.revision, replicate_index=0,
+                            )),
                         ),
                         ActionInput(
                             workspace_id="test", state=state,
-                            request=SimulateRequest(
-                                model_revision=model_record.revision,
-                                start="2026-01-01",
-                                horizon="2d",
-                            ),
+                            request=SimulateRequest[GitOid](input=SimulateInput[GitOid](
+                                model_ref=model_record.revision,
+                                simulation=SimulationSpec(start="2026-01-01", horizon="2d"),
+                            )),
                         ),
                         EvaluateChecksInput[None](
                             workspace_id="test", state=state, request=restored.request,
@@ -120,7 +125,7 @@ def test_prior_request_round_trips_through_a_cold_workflow_sandbox():
                 # Sandbox configuration must not alter the existing wire representation.
                 assert converter.to_payloads(inputs) == activity_payloads
                 assert converter.to_payloads([restored]) == update_payloads
-                law = restored.request.model.distributions["distribution:baseline"]
+                law = restored.request.input.model.distributions["distribution:baseline"]
                 assert type(law).__name__ == "Beta"
                 assert law.batch_shape == law.event_shape == ()
 

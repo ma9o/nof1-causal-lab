@@ -27,12 +27,11 @@ def test_progress_events_roundtrip_per_attempt(monkeypatch, tmp_path):
         workspace_id,
         StepEvent(
             attempt_id=attempt,
-            step="ingestion",
             status="failed",
             error=StepError(type="ValidationError", message="unreadable file"),
         ),
     )
-    emit_event(workspace_id, StepEvent(attempt_id=other, step="extraction", status="running"))
+    emit_event(workspace_id, StepEvent(attempt_id=other, status="running"))
     emit_event(
         workspace_id,
         ExtractionPlanEvent(attempt_id=attempt, total_workers=2, max_concurrent_workers=1),
@@ -69,4 +68,4 @@ def test_progress_events_roundtrip_per_attempt(monkeypatch, tmp_path):
     assert read_events(workspace_id, attempt, after=events[1].cursor) == events[2:]
     (other_step,) = read_events(workspace_id, other)
     assert isinstance(other_step, StepEvent)
-    assert other_step.step == "extraction"
+    assert other_step.status == "running"

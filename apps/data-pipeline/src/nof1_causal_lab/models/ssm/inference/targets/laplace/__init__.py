@@ -108,6 +108,7 @@ class LaplaceLikelihood:
         n_ieks_iters: int = 5,
         observation_support: ObservationSupportRuntime | None = None,
     ) -> None:
+        """Bind state dimensions and support-window structure for initialization-only Laplace solves."""
         object.__setattr__(self, "n_latent", n_latent)
         object.__setattr__(self, "n_manifest", n_manifest)
         object.__setattr__(self, "n_ieks_iters", n_ieks_iters)
@@ -193,7 +194,6 @@ class LaplaceLikelihood:
         latent_mode_init: jnp.ndarray | None = None,
     ) -> tuple[jnp.ndarray, dict[str, jnp.ndarray]]:
         """Shared Laplace likelihood implementation with caller-owned solver initialization."""
-
         if obs_mask is None:
             obs_mask = ~jnp.isnan(observations)
         initial_covariance: jax.Array = initial_state.covariance_matrix  # pyright: ignore[reportAssignmentType] - NumPyro lazy_property returns the covariance array on instances.
@@ -417,10 +417,21 @@ class LaplaceLikelihood:
         observation_laws: ObservationLaws,
         solver_state: LaplaceSolverState = EMPTY_LAPLACE_STATE,
     ) -> jnp.ndarray:
-        """Compute Laplace-approximated log-likelihood.
+        """Compute the Laplace log-likelihood used for sampler initialization.
+
+        Args:
+            dynamics: Continuous-time state evolution to linearize around the mode path.
+            measurement_params: Loadings, observation intercepts, and measurement covariance.
+            initial_state: Gaussian law at the initial latent time.
+            observations: Recorded values with shape ``(time, indicator)``.
+            time_intervals: Model-time increments whose cumulative sum gives the latent grid.
+            obs_mask: Optional observation mask aligned with ``observations``.
+            observation_laws: Bound measurement laws in observation-column order.
+            solver_state: Optional retained latent mode used to initialize the solve.
 
         Returns:
-            (T,) cumulative log-normalizing constants.
+            Scalar approximate log marginal likelihood for the complete observation
+            sequence. This approximation is restricted to particle-sampler initialization.
         """
         log_lik, _aux = self._compute_log_likelihood_impl(
             dynamics,

@@ -7,11 +7,12 @@ import { Hint, OwnerLink, Section, StatusIcon } from "../scope-primitives";
 /** The study question: the user's words, its outcome and each query's dated contrast. */
 export function QuestionDetails({
   context,
-  question,
+  question: output,
 }: {
   context: ScopeContext;
   question: QuestionSpec;
 }) {
+  const question = output;
   const name = (id: ConstructId) => {
     const construct = context.entities.constructs.find((item) => item.id === id);
     return construct ? (
@@ -24,17 +25,9 @@ export function QuestionDetails({
   };
   const queries = presentEntries(question.queries);
   return (
-    <Section
-      title="Question"
-      {...(context.model.question ? { source: context.model.question.source } : {})}
-      wide
-    >
+    <Section title="Question" wide>
       <p className="m-0">{question.text}</p>
-      {question.outcome ? (
-        <Hint>Outcome: {name(question.outcome)}</Hint>
-      ) : (
-        <Hint>No outcome named yet.</Hint>
-      )}
+      <Hint>Outcome: {name(question.outcome)}</Hint>
       {queries.map(([label, query]) => (
         <div key={label} className="border-t pt-2">
           <p className="m-0 font-medium">{label}</p>
@@ -58,8 +51,8 @@ export function QuestionChecks({ context }: { context: ScopeContext }) {
   const checks = context.model.question_checks;
   if (!checks) return null;
   return (
-    <Section title="Question checks" source={checks.source} wide>
-      {checks.value.findings.map((finding) => {
+    <Section title="Question checks" wide>
+      {checks.findings.map((finding) => {
         const subject = finding.subject;
         const label =
           subject.check === "outcome" ? "Outcome" : `${subject.query} · ${humanize(subject.check)}`;

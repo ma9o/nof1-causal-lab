@@ -255,7 +255,7 @@ export function VersionScrubber({
                   fill="none"
                   className={touches ? "stroke-muted-foreground" : "stroke-border"}
                   strokeWidth={touches ? 1.5 : 1}
-                  strokeDasharray={link.check ? "1.5 2.5" : link.to.failed ? "2 3" : undefined}
+                  strokeDasharray={link.to.failed ? "2 3" : undefined}
                 />
               ))}
           </svg>

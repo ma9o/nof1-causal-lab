@@ -306,6 +306,7 @@ class LikelihoodSpec(Value):
 
     @model_validator(mode="after")
     def parse_expression(self) -> Self:
+        """Parse the authored likelihood expression during model construction."""
         _ = self.parsed
         return self
 

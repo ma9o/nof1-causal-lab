@@ -156,10 +156,10 @@ def test_loo_uses_joint_emissions_and_omits_only_completely_missing_rows(monkeyp
     )
     assert measured is not None
     result, points = measured
-    assert [(point.rank, point.timestep, point.k, point.status) for point in points] == [
-        (1, 3, 0.8, "failed"),
-        (2, 4, 0.6, "warning"),
-        (3, 1, 0.2, "passed"),
+    assert [(point.timestep, point.k, point.status) for point in points] == [
+        (3, 0.8, "failed"),
+        (4, 0.6, "warning"),
+        (1, 0.2, "passed"),
     ]
     assert result.elpd_loo == -7.0
     assert result.p_loo == 0.4
@@ -167,9 +167,6 @@ def test_loo_uses_joint_emissions_and_omits_only_completely_missing_rows(monkeyp
     assert result.n_data_points == len(points) == 3
     assert result.n_bad_k == 1
     assert result.n_warn_k == 1
-    assert result.observation_unit == "measurement_row"
-    assert result.prediction_task == "interpolation_given_other_measurements"
-    assert result.likelihood_source == "exact_emission_on_joint_particle_draws"
 
 
 def test_loo_all_missing_rows_have_no_predictive_estimate():

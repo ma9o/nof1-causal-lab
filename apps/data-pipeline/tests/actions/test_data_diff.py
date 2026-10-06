@@ -7,25 +7,29 @@ import polars as pl
 import pytest
 from pydantic import ValidationError
 
+from nof1_causal_lab.actions.contracts import DataDiffRequest
 from nof1_causal_lab.actions.data_diff import read_data_diff
 from nof1_causal_lab.actions.effects import ActionEffects
+from nof1_causal_lab.actions.io import DataDiffInput
 from nof1_causal_lab.artifacts.availability import NotApplicable
-from nof1_causal_lab.artifacts.data_preparation import FilePreparedDataMetadata
-from nof1_causal_lab.artifacts.identity import GitRef
+from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata
+from nof1_causal_lab.artifacts.data_ref import DataRef
+from nof1_causal_lab.artifacts.identity import GitOid, GitRef
+from nof1_causal_lab.artifacts.observation_data import ObservationDataset
 from nof1_causal_lab.artifacts.observations import ResolvedObservationSpec
 from nof1_causal_lab.artifacts.predictive_provenance import AuthoredLawProvenance
 from nof1_causal_lab.artifacts.simulation import (
+    ModelSimulationResult,
     SimulationEvidence,
     SimulationObservationLayout,
     SimulationReport,
     SimulationSpec,
 )
-from nof1_causal_lab.models.posterior_predictive import data_diff
+from nof1_causal_lab.models.posterior_predictive import compare_data_variables
 from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.history import StudyRepository
-from nof1_causal_lab.study.records import Applied, ModelSimulationResult
+from nof1_causal_lab.study.records import Applied
 from nof1_causal_lab.study.store import ArtifactStore, read_dataset
-from nof1_causal_lab.study.view_models import DataDiffRequest, PanelRef, SimulationRef
 from tests.action_fixtures import applied_record
 from tests.git_fixtures import artifact_revisions, git_oid
 
@@ -56,32 +60,37 @@ def _dataset(values, *, number=1, times=None, variable=None):
         },
         schema_overrides={"value": pl.Float64},
     )
-    return read_dataset(PanelRef(revision=git_oid(number)), (variable,), frame, origin)
+    return read_dataset(
+        DataRef[GitOid, int](replicate_index=0, revision=git_oid(number)),
+        ObservationDataset.from_frame(frame, (variable,), time_origin=origin),
+    )
 
 
 @pytest.mark.contract
 def test_selection_contracts_require_nonempty_explicit_sources():
-    source = {"kind": "panel", "revision": git_oid(1)}
-    request = DataDiffRequest(left=source, right=[source])
-    assert DataDiffRequest.model_validate_json(request.model_dump_json()) == request
+    source = {"revision": git_oid(1)}
+    request = DataDiffRequest[GitOid](
+        input=DataDiffInput[GitOid](left_ref=source, right_ref=[source])
+    )
+    assert DataDiffRequest[GitOid].model_validate_json(request.model_dump_json()) == request
     for invalid in (
         [],
         {**source, "replicate": 0},
         {**source, "time_origin": "2026-01-01T00:00:00Z"},
     ):
         with pytest.raises(ValidationError):
-            DataDiffRequest(left=invalid, right=source)
+            DataDiffRequest[GitOid](input=DataDiffInput[GitOid](left_ref=invalid, right_ref=source))
     for invalid in ({"replicate": -1}, {"time_origin": "2026-01-01"}):
         with pytest.raises(ValidationError):
-            SimulationRef.model_validate({"revision": git_oid(1), **invalid})
+            DataRef[GitOid, int | None].model_validate({"revision": git_oid(1), **invalid})
 
 
 @pytest.mark.inference(concern="predictive")
 def test_single_histories_report_values_missingness_and_schedule_changes():
     left = _dataset([1, None, 3], times=[0, 1, 2])
     right = _dataset([1, 4, 8], times=[0, 1, 3], number=2)
-    result = data_diff(left, right)
-    variable = result.variables[0]
+    result = compare_data_variables(left, right)
+    variable = result[0]
     assert [item.kind for item in variable.changes] == ["revised", "removed", "added"]
     revised = variable.changes[0]
     assert revised.kind == "revised"
@@ -91,9 +100,9 @@ def test_single_histories_report_values_missingness_and_schedule_changes():
     assert variable.comparison_issues == ("Observation schedules or measurement windows differ",)
     missing = next(item for item in variable.statistics if item.statistic == "missing_count")
     assert (missing.left, missing.right) == ((1,), (0,))
-    reverse = data_diff(right, left).variables[0]
+    reverse = compare_data_variables(right, left)[0]
     assert [item.kind for item in reverse.changes] == ["revised", "added", "removed"]
-    assert data_diff(left, left).variables[0].changes == ()
+    assert compare_data_variables(left, left)[0].changes == ()
 
 
 @pytest.mark.inference(concern="predictive")
@@ -102,8 +111,8 @@ def test_replica_checks_are_symmetric_and_preserve_whole_history_statistics():
     replicas = [
         _dataset([offset, 1 + offset, 1000, 3 + offset], number=offset + 2) for offset in range(3)
     ]
-    forward = data_diff(replicas, observed).variables[0]
-    backward = data_diff(observed, replicas).variables[0]
+    forward = compare_data_variables(replicas, observed)[0]
+    backward = compare_data_variables(observed, replicas)[0]
     assert forward.predictive.kind == "comparison"
     assert backward.predictive.kind == "comparison"
     assert forward.predictive.reference_side == "right"
@@ -116,7 +125,7 @@ def test_replica_checks_are_symmetric_and_preserve_whole_history_statistics():
     assert forward.predictive.evaluation.value.n_subsample == 3
     assert len(forward.left) == 3
     # Many-to-many retains one summary per history, without implying paired draws.
-    many = data_diff(replicas, [observed, _dataset([0, 1, 2, 3], number=9)]).variables[0]
+    many = compare_data_variables(replicas, [observed, _dataset([0, 1, 2, 3], number=9)])[0]
     assert many.predictive.kind == "unavailable"
     means = next(item for item in many.statistics if item.statistic == "mean")
     assert len(means.left) == 3
@@ -127,12 +136,14 @@ def test_replica_checks_are_symmetric_and_preserve_whole_history_statistics():
 def test_measurement_mismatches_and_uncovered_times_do_not_produce_predictive_checks():
     observed = _dataset([1, 2, 3])
     replicas = [_dataset([1, 2, 3], number=number, times=[0, 1, 2.5]) for number in (2, 3)]
-    mismatch = data_diff(observed, replicas).variables[0]
+    mismatch = compare_data_variables(observed, replicas)[0]
     assert mismatch.predictive.kind == "comparison"
     assert mismatch.predictive.reference_side == "left"
     assert mismatch.predictive.evaluation.kind == "not_applicable"
     assert mismatch.comparison_issues == ("Observation schedules or measurement windows differ",)
-    missing = data_diff(observed, [_dataset([1, None, 3], number=n) for n in (2, 3)]).variables[0]
+    missing = compare_data_variables(observed, [_dataset([1, None, 3], number=n) for n in (2, 3)])[
+        0
+    ]
     assert missing.predictive.kind == "comparison"
     assert missing.predictive.reference_side == "left"
     assert missing.predictive.evaluation.kind == "unavailable"
@@ -145,7 +156,7 @@ def test_measurement_mismatches_and_uncovered_times_do_not_produce_predictive_ch
     assert original_variable is not None
     interval = original_variable.revised(aggregation="mean")
     replicas = [_dataset([1, 2, 3], number=number, variable=interval) for number in (2, 3)]
-    mismatch = data_diff(observed, replicas).variables[0]
+    mismatch = compare_data_variables(observed, replicas)[0]
     assert mismatch.predictive.kind == "comparison"
     assert mismatch.predictive.evaluation.kind == "not_applicable"
     assert (
@@ -158,16 +169,16 @@ def test_measurement_mismatches_and_uncovered_times_do_not_produce_predictive_ch
     assert mismatch.right[0].variable.aggregation == "mean"
     renamed = _dataset(
         [1, 2, 3],
-        variable=original_variable.revised(name="Renamed"),
+        variable=original_variable.revised(name="Renamed", observation_window="24h"),
     )
-    assert not data_diff(observed, renamed).variables[0].comparison_issues
+    assert not compare_data_variables(observed, renamed)[0].comparison_issues
     # A first-in-window observation is anchored at support_start, not support_end.
     first = _dataset(
         [1, 2, 3],
         variable=original_variable.revised(aggregation="first"),
     )
     # Interval coordinates were parsed once by read_dataset; comparisons own no frame.
-    assert data_diff(first, first).variables[0].changes == ()
+    assert compare_data_variables(first, first)[0].changes == ()
     floating = [
         type(item)(
             source=item.source,
@@ -178,7 +189,7 @@ def test_measurement_mismatches_and_uncovered_times_do_not_produce_predictive_ch
         )
         for item in [_dataset([1, 2, 3], number=n) for n in (2, 3)]
     ]
-    mismatch = data_diff(observed, floating).variables[0]
+    mismatch = compare_data_variables(observed, floating)[0]
     assert mismatch.predictive.kind == "comparison"
     assert mismatch.predictive.evaluation.kind == "not_applicable"
     assert mismatch.right[0].time_origin is None
@@ -199,36 +210,38 @@ def test_discrete_codebooks_compare_frequencies_and_keep_absent_variables_explic
     )
     a = _dataset([0, 1, 1], variable=variable)
     b = [_dataset([2, 2, 1], number=n, variable=variable) for n in (2, 3)]
-    result = data_diff(a, b).variables[0]
+    result = compare_data_variables(a, b)[0]
     proportions = {item.level: item for item in result.statistics if item.statistic == "proportion"}
     assert proportions["c"].left == (0,)
     assert proportions["c"].right == pytest.approx((2 / 3, 2 / 3))
     assert not any(item.statistic == "mean" for item in result.statistics)
     assert result.predictive.kind == "comparison"
     assert result.predictive.evaluation.kind == "unavailable"
-    result = data_diff(a, _dataset([1, 2, 3], number=4))
-    assert len(result.variables) == 2
-    assert all("absent" in item.comparison_issues[0] for item in result.variables)
+    result = compare_data_variables(a, _dataset([1, 2, 3], number=4))
+    assert len(result) == 2
+    assert all("absent" in item.comparison_issues[0] for item in result)
 
 
 @pytest.mark.contract
 def test_invalid_histories_and_duplicate_sources_are_rejected_before_comparison():
     data = _dataset([1, 2, 3])
     with pytest.raises(ValueError, match="at least one"):
-        data_diff([], data)
+        compare_data_variables([], data)
     with pytest.raises(ValueError, match="counted twice"):
-        data_diff([data, data], data)
+        compare_data_variables([data, data], data)
     with pytest.raises(ValueError, match="duplicate anchors"):
-        data_diff(_dataset([1, 2], times=[0, 0]), data)
+        compare_data_variables(_dataset([1, 2], times=[0, 0]), data)
     with pytest.raises(ValueError, match="finite"):
-        data_diff(_dataset([1, np.inf]), data)
+        compare_data_variables(_dataset([1, np.inf]), data)
 
 
 @pytest.mark.inference(concern="predictive")
 def test_reads_saved_draws_without_generation_or_writing_models(tmp_path, monkeypatch):
     from nof1_causal_lab.artifacts.data_preparation import (
-        PreparedDataMetadata,
-        SimulationReplicateRef,
+        DataPreparationSpec,
+        DataVariableSpec,
+        FileSourceRef,
+        SemanticExtractionSpec,
     )
     from nof1_causal_lab.utils import data as data_module
     from tests.helpers import make_model
@@ -295,15 +308,28 @@ def test_reads_saved_draws_without_generation_or_writing_models(tmp_path, monkey
         produced_by="prepare_data",
         derived_from={},
         json_files={
-            "metadata.json": FilePreparedDataMetadata(
-                source=SimulationReplicateRef(revision=commit, replicate=1), time_origin=origin
+            "metadata.json": PreparedDataMetadata(
+                source=FileSourceRef(files=("observations.csv",)),
+                preparation=DataPreparationSpec(
+                    default_window="1d",
+                    variables=tuple(
+                        DataVariableSpec(
+                            observation=series.variable,
+                            extraction=SemanticExtractionSpec(how_to_measure="Read Y"),
+                        )
+                        for series in observed.series.values()
+                    ),
+                ),
+                time_origin=origin,
             ).model_dump(mode="json")
         },
         parquet_files={"panel.parquet": shifted},
     )
-    request = DataDiffRequest(
-        left=SimulationRef(revision=commit),
-        right=PanelRef(revision=panel.revision),
+    request = DataDiffRequest[GitOid](
+        input=DataDiffInput[GitOid](
+            left_ref=DataRef[GitOid, int | None](replicate_index=None, revision=commit),
+            right_ref=DataRef[GitOid, int](replicate_index=0, revision=panel.revision),
+        )
     )
     refs_before = sorted(store.repo.references)
     result = read_data_diff("DIFF", request).model_dump(mode="json")
@@ -313,28 +339,38 @@ def test_reads_saved_draws_without_generation_or_writing_models(tmp_path, monkey
     assert history.head() == commit
     assert sorted(store.repo.references) == refs_before
     assert artifact_revisions(store, "model") == [model.revision]
-    assert isinstance(request.left, SimulationRef)
-    one = request.revised(left=request.left.revised(replicate=1))
+    assert isinstance(request.input.left_ref, DataRef)
+    one = request.revised(
+        input=request.input.revised(left_ref=request.input.left_ref.revised(replicate_index=1))
+    )
     assert read_data_diff("DIFF", one).variables[0].changes == ()
-    bad = request.revised(left=SimulationRef(revision=commit, replicate=3))
+    bad = request.revised(
+        input=request.input.revised(
+            left_ref=DataRef[GitOid, int | None](revision=commit, replicate_index=3)
+        )
+    )
     with pytest.raises(StudyLookupError, match="replicate"):
         read_data_diff("DIFF", bad)
-    bad = request.revised(right=PanelRef(revision=git_oid(98)))
+    bad = request.revised(
+        input=request.input.revised(
+            right_ref=DataRef[GitOid, int](replicate_index=0, revision=git_oid(98))
+        )
+    )
     with pytest.raises(StudyLookupError):
         read_data_diff("DIFF", bad)
 
     # Saved histories keep absolute model days, and materialization keeps their dates.
-    from nof1_causal_lab.actions.prepare_data import prepare_simulation_panel
+    from nof1_causal_lab.study.data import read_simulation_observations
 
     origin = datetime(2026, 1, 1, tzinfo=UTC)
     commits = []
     for start in (5, 6):
         times = np.arange(start, start + 3.0)
-        saved = report.revised(
+        saved = report.evidence.revised(
             time_origin=origin,
             design=SimulationSpec(start=date(2026, 1, 1 + start), horizon="2d"),
             times=tuple(times),
-            observation_layout=report.observation_layout.revised(
+            observation_layout=report.evidence.observation_layout.revised(
                 support_start_times=store.write_array(times[:, None]),
                 support_end_times=store.write_array(times[:, None]),
             ),
@@ -343,7 +379,7 @@ def test_reads_saved_draws_without_generation_or_writing_models(tmp_path, monkey
             history.append(
                 applied_record(
                     Applied(
-                        result=ModelSimulationResult(evidence=(saved).evidence),
+                        result=ModelSimulationResult(evidence=saved),
                         effects=ActionEffects(),
                     ),
                     seq=2 + start - 5,
@@ -354,9 +390,11 @@ def test_reads_saved_draws_without_generation_or_writing_models(tmp_path, monkey
         )
     aligned = read_data_diff(
         "DIFF",
-        DataDiffRequest(
-            left=SimulationRef(revision=commits[0], replicate=1),
-            right=SimulationRef(revision=commits[1], replicate=1),
+        DataDiffRequest[GitOid](
+            input=DataDiffInput[GitOid](
+                left_ref=DataRef[GitOid, int | None](revision=commits[0], replicate_index=1),
+                right_ref=DataRef[GitOid, int | None](revision=commits[1], replicate_index=1),
+            )
         ),
     ).variables[0]
     assert [
@@ -372,5 +410,5 @@ def test_reads_saved_draws_without_generation_or_writing_models(tmp_path, monkey
         (origin + timedelta(days=8), "added"),
     ]
     assert aligned.left[0].time_origin == aligned.right[0].time_origin == origin
-    materialized = prepare_simulation_panel(saved, 1, read_array=store.read_array)
+    materialized = read_simulation_observations(saved, 1, read_array=store.read_array)
     assert materialized["anchor_time"][0] == (origin + timedelta(days=6)).replace(tzinfo=None)

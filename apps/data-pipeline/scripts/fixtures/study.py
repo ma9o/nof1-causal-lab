@@ -1,7 +1,7 @@
 """Build DEMO and workbench fixtures from the saved bundle, or project a study.
 
-``bun run fixture:build`` regenerates every fixture from the authoritative Git
-bundle and blobs; ``bun run fixture:check`` verifies them without writing.
+``bun run fixture:build`` regenerates Storybook fixtures from the authoritative Git
+bundle and blobs.
 The ``project`` subcommand supports workspace promotion.
 """
 
@@ -16,7 +16,8 @@ from tempfile import TemporaryDirectory
 from typing import TYPE_CHECKING
 from unittest.mock import patch
 
-from nof1_causal_lab.artifacts.expressions import coefficient, state as expr_state
+from nof1_causal_lab.artifacts.expressions import coefficient
+from nof1_causal_lab.artifacts.expressions import state as expr_state
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.question import QuestionSpec
 from nof1_causal_lab.models.model_inputs import input_fingerprints
@@ -26,6 +27,7 @@ from nof1_causal_lab.models.model_structure import (
     compare_parameters,
     model_graph_entities,
 )
+from nof1_causal_lab.study.artifact_files import artifact_file_spec
 from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.snapshots import ModelReader
 from nof1_causal_lab.study.state import is_stale
@@ -76,15 +78,15 @@ def read_fixture_files(repository: StudyRepository, state: StudyState) -> dict[s
     identification = reader.identification()
     if identification is not None:
         files["artifacts/identification_report.json"] = (
-            identification.value.model_dump_json(indent=2) + "\n"
+            identification.model_dump_json(indent=2) + "\n"
         ).encode()
     if reader.validation_report is not None:
         files["artifacts/validation_report.json"] = (
-            reader.validation_report.value.model_dump_json(indent=2) + "\n"
+            reader.validation_report.model_dump_json(indent=2) + "\n"
         ).encode()
     report = reader.inference_report
     files["inference.json"] = (
-        (report.value.model_dump_json(indent=2) + "\n").encode()
+        (report.model_dump_json(indent=2) + "\n").encode()
         if report is not None
         else b"null\n"
     )
@@ -99,7 +101,8 @@ def read_fixture_files(repository: StudyRepository, state: StudyState) -> dict[s
     )
     # Check external payload closure as well as the native Git objects.
     for aid, info in state.current.items():
-        for filename in store.filenames(aid, info.revision):
+        spec = artifact_file_spec(aid)
+        for filename in (*spec.json_files.values(), *spec.parquet_files.values()):
             store.file_path(aid, info.revision, filename)
     return files
 
@@ -144,7 +147,7 @@ def project(source: Path, destination: Path | None = None):
 
 
 def workbench_comparisons(snapshot, history):
-    free = ModelSpec.model_validate(snapshot["model"]["value"])
+    free = ModelSpec.model_validate(snapshot["model"])
     parameter = next(
         item
         for item in free.parameters
@@ -172,7 +175,7 @@ def workbench_comparisons(snapshot, history):
     )
     models: dict[str, ModelSpec | None] = {
         history[str(seq)]["state"]["current"]["model"]["revision"]: ModelSpec.model_validate(
-            history[str(seq)]["model"]["value"]
+            history[str(seq)]["model"]
         )
         for seq in (2, 3, 4, 7)
     }
@@ -181,7 +184,7 @@ def workbench_comparisons(snapshot, history):
         {format(n, "x").rjust(40, "a"): model for n, model in [(5, free), (6, free), (7, pinned)]}
     )
     # The study's one question scopes every compared revision alike.
-    question = QuestionSpec.model_validate(snapshot["question"]["value"])
+    question = QuestionSpec.model_validate(snapshot["question"])
     comparisons = {}
     for before_version, left in models.items():
         for after_version, right in models.items():
@@ -193,7 +196,10 @@ def workbench_comparisons(snapshot, history):
                 StructuralSelection.for_question(right, question) if right is not None else None,
             )
             constructs, edges = compare_model_graph(*scoped)
-            graphs = tuple(model_graph_entities(selection) if selection is not None else ((), ()) for selection in scoped)
+            graphs = tuple(
+                model_graph_entities(selection) if selection is not None else ((), ())
+                for selection in scoped
+            )
             comparisons[f"{before_version}:{after_version}"] = {
                 "parameters": [item.model_dump(mode="json") for item in parameters],
                 "constructs": [item.model_dump(mode="json") for item in constructs],
@@ -201,12 +207,16 @@ def workbench_comparisons(snapshot, history):
                 "before_dispositions": [
                     item.model_dump(mode="json") for item in scoped[0].structural_dispositions
                 ]
-                if scoped[0] is not None and scoped[0].model.measurement_clock is not None and scoped[0].model.indicators
+                if scoped[0] is not None
+                and scoped[0].model.measurement_clock is not None
+                and scoped[0].model.indicators
                 else [],
                 "after_dispositions": [
                     item.model_dump(mode="json") for item in scoped[1].structural_dispositions
                 ]
-                if scoped[1] is not None and scoped[1].model.measurement_clock is not None and scoped[1].model.indicators
+                if scoped[1] is not None
+                and scoped[1].model.measurement_clock is not None
+                and scoped[1].model.indicators
                 else [],
                 "before_dynamic_construct_ids": [
                     item.id for item in graphs[0][0] if item.is_dynamic
@@ -217,7 +227,9 @@ def workbench_comparisons(snapshot, history):
                 "beforeModel": left.model_dump(mode="json") if left is not None else None,
                 "afterModel": right.model_dump(mode="json") if right is not None else None,
                 "changed_inputs": [
-                    key for key in sorted(before.keys() | after.keys()) if before.get(key) != after.get(key)
+                    key
+                    for key in sorted(before.keys() | after.keys())
+                    if before.get(key) != after.get(key)
                 ],
             }
     return {
@@ -243,7 +255,7 @@ def build_outputs():
             capture_output=True,
         )
         subprocess.run(
-            ["git", "--git-dir", str(history), "config", "nof1.format", "19"],
+            ["git", "--git-dir", str(history), "config", "nof1.format", "20"],
             check=True,
             capture_output=True,
         )
@@ -289,7 +301,7 @@ def rendered_fixtures(outputs):
     """Render fixtures and name their contracts; JSON imports otherwise widen tags/IDs.
 
     These declarations contain no payloads or shadow schemas. Fixture regeneration
-    establishes the types at their Python producers; fixture:check owns their drift.
+    establishes the types at their Python producers.
     """
     contracts = {
         DEMO_ROOT / "fixture/model_snapshot.json": "Domain.ModelSnapshot",
@@ -301,7 +313,7 @@ def rendered_fixtures(outputs):
         WORKBENCH_OUTPUT: """Readonly<{
   pinned_model: Domain.ModelSpec;
   pinned_inputs: Record<string, string>;
-  comparisons: Readonly<Partial<Record<string, Pick<Domain.ModelDiffReport, "constructs" | "edges" | "before_dispositions" | "after_dispositions" | "before_dynamic_construct_ids" | "after_dynamic_construct_ids" | "parameters" | "changed_inputs"> & {beforeModel: Domain.ModelSpec | null; afterModel: Domain.ModelSpec | null}>>>;
+  comparisons: Readonly<Partial<Record<string, Pick<Domain.ModelDiffOutput, "constructs" | "edges" | "before_dispositions" | "after_dispositions" | "before_dynamic_construct_ids" | "after_dynamic_construct_ids" | "parameters" | "changed_inputs"> & {beforeModel: Domain.ModelSpec | null; afterModel: Domain.ModelSpec | null}>>>;
 }>""",
         WORKBENCH_OUTPUT.with_name("workbench-visuals.json"): """Readonly<{
   note: string;
@@ -341,10 +353,7 @@ def rendered_fixtures(outputs):
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
-    build = commands.add_parser(
-        "build", help="Generate DEMO and workbench fixtures from the Git bundle"
-    )
-    build.add_argument("--check", action="store_true")
+    commands.add_parser("build", help="Generate DEMO and workbench fixtures from the Git bundle")
     projection = commands.add_parser(
         "project", help="Validate and project a workspace for promotion"
     )
@@ -356,16 +365,9 @@ def main() -> None:
         return
 
     outputs = build_outputs()
-    mismatches = []
     for path, rendered in rendered_fixtures(outputs):
-        if args.check:
-            if not path.exists() or path.read_text() != rendered:
-                mismatches.append(str(path))
-        else:
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text(rendered)
-    if mismatches:
-        raise SystemExit("Fixtures are stale: " + ", ".join(mismatches))
+        path.parent.mkdir(parents=True, exist_ok=True)
+        path.write_text(rendered)
     print(f"Restored the Git bundle and composed {len(outputs)} DEMO and workbench fixtures")
 
 

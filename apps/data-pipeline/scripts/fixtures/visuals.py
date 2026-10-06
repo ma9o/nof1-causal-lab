@@ -75,7 +75,7 @@ def workbench_visuals(reader: ModelReader, template):
         count=report.evidence.draws,
     )
     observations = {}
-    for variable in reader.data_metadata.value.variables:
+    for variable in reader.data_metadata.variables:
         history = reader.observation_history(variable.id)
         assert history is not None
         observations[variable.id] = history.model_dump(mode="json")

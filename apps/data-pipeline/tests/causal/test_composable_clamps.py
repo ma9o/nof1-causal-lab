@@ -99,6 +99,7 @@ def test_given_inputs_replay_windows_hold_and_override_later_records(monkeypatch
 
     from nof1_causal_lab.artifacts.construct import replace_constructs
     from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec
+    from nof1_causal_lab.artifacts.observation_data import ObservationDataset
     from nof1_causal_lab.models.ssm.counterfactual import orchestration
     from nof1_causal_lab.models.ssm.inference.conditioning import compile_exact_state_constraints
     from nof1_causal_lab.models.ssm.runtime import replay_input_events, replay_input_values
@@ -138,10 +139,21 @@ def test_given_inputs_replay_windows_hold_and_override_later_records(monkeypatch
         {
             "indicator_id": [indicator.observation.id] * 3,
             "value": [20.0, 16.0, 24.0],
+            "support_kind": ["interval"] * 3,
+            "summary_operator": ["sum"] * 3,
+            "anchor_policy": ["support_end"] * 3,
+            "observation_window": ["1d"] * 3,
             "anchor_time": [origin + timedelta(days=day) for day in (0, 4, 6)],
             "support_start": [origin + timedelta(days=day) for day in (-2, 2, 4)],
             "support_end": [origin + timedelta(days=day) for day in (0, 4, 6)],
         }
+    )
+    panel = ObservationDataset.from_frame(
+        panel,
+        tuple(
+            item.observation for item in model.observations if item.id == indicator.observation.id
+        ),
+        time_origin=origin,
     )
     grid = jnp.arange(8.0)
     events = replay_input_events(
@@ -158,6 +170,15 @@ def test_given_inputs_replay_windows_hold_and_override_later_records(monkeypatch
     failure = replay_input_events(model, panel, time_origin=origin, start=-3, end=7)
     assert isinstance(failure, ObservationPreflightFailure)
     assert "no value at the start" in failure.message
+    changed = panel.variables[0].revised(observation_window="2d")
+    wrong_data = ObservationDataset.from_frame(
+        panel.recorded.frame.with_columns(pl.lit("2d").alias("observation_window")),
+        (changed,),
+        time_origin=origin,
+    )
+    mismatch = replay_input_events(model, wrong_data, time_origin=origin, start=0, end=7)
+    assert isinstance(mismatch, ObservationPreflightFailure)
+    assert "incompatible measurement definitions" in mismatch.message
     # Isolate dated assignment control flow; no scientific solver runs in this contract.
     monkeypatch.setattr(
         orchestration,

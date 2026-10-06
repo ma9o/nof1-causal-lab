@@ -45,6 +45,7 @@ class ParticleProblem:
     exact_constraints: ExactStateConstraints | None = None
 
     def __post_init__(self) -> None:
+        """Own immutable collection fields for the compiled particle-sampling problem."""
         freeze_fields(self)
 
 
@@ -101,6 +102,4 @@ def build_particle_problem(
         times,
         tuple(int(index) for index in np.flatnonzero(~numeric.input_mask(model))),
     )
-    return ParticleProblem(
-        runtime, site_info, public_sites, exact_constraints
-    )
+    return ParticleProblem(runtime, site_info, public_sites, exact_constraints)

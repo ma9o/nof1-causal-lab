@@ -35,13 +35,16 @@ class ConstantValueFn(eqx.Module):
     value: Array
 
     def __call__(self, _t: Array) -> Array:
+        """Return the intervention's fixed value at any model time."""
         return self.value
 
 
 class LinearRampValueFn(eqx.Module):
-    """Piecewise-linear ramp between ``(t_start, value_start)`` and
-    ``(t_end, value_end)``. Holds the endpoints outside the window. Useful
-    for dose tapers and other protocol-shaped interventions."""
+    """A linear intervention ramp that holds its endpoint values outside the ramp interval.
+
+    Interpolates between ``(t_start, value_start)`` and ``(t_end, value_end)``
+    for dose tapers and other time-varying intervention protocols.
+    """
 
     t_start: Array
     t_end: Array
@@ -49,6 +52,7 @@ class LinearRampValueFn(eqx.Module):
     value_end: Array
 
     def __call__(self, t: Array) -> Array:
+        """Interpolate linearly within the ramp interval and hold endpoint values outside it."""
         frac = jnp.clip(
             (t - self.t_start) / jnp.maximum(self.t_end - self.t_start, 1e-12), 0.0, 1.0
         )
@@ -60,12 +64,14 @@ class PrecomputedValueFn(eqx.Module):
 
     Holds the endpoints outside ``[times[0], times[-1]]`` (``jnp.interp``
     semantics). Used for ``trajectory`` clamps where the caller supplies an
-    explicit list of values across a window."""
+    explicit list of values across a window.
+    """
 
     times: Array
     values: Array
 
     def __call__(self, t: Array) -> Array:
+        """Interpolate the recorded intervention values onto the requested model time."""
         return jnp.interp(t, self.times, self.values)
 
 
@@ -80,9 +86,11 @@ class VariableOverride(eqx.Module):
 
 
 class EdgeInputOverride(eqx.Module):
-    """Replace ``eta[source]`` with ``value_fn(t)`` only when computing the
-    drift contribution to ``eta[target]``. Other edges from ``source`` see
-    the natural state."""
+    """A replacement source value seen by one target's drift calculation.
+
+    Replaces ``eta[source]`` with ``value_fn(t)`` for contributions to
+    ``eta[target]``. Other edges from the source see the natural state.
+    """
 
     source: int = eqx.field(static=True)
     target: int = eqx.field(static=True)
@@ -104,10 +112,13 @@ class Intervention(eqx.Module):
 
     @classmethod
     def none(cls) -> Intervention:
+        """Construct the natural-course intervention with no state or edge overrides."""
         return cls(overrides=())
 
     def variable_overrides(self) -> tuple[VariableOverride, ...]:
+        """Select whole-state overrides in their authored order."""
         return tuple(o for o in self.overrides if isinstance(o, VariableOverride))
 
     def edge_input_overrides(self) -> tuple[EdgeInputOverride, ...]:
+        """Select overrides affecting a source state's input to a particular edge."""
         return tuple(o for o in self.overrides if isinstance(o, EdgeInputOverride))

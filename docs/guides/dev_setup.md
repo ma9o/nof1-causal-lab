@@ -33,7 +33,7 @@ bun run docs:codegen
 
 Edit `.env` and fill in at minimum:
 
-- `OPENROUTER_API_KEY` — the ambient credential for LLM-backed work such as ingestion and extraction (the only key mechanism; there is no per-user handoff)
+- `OPENROUTER_API_KEY` — the ambient credential for semantic measurement extraction (the only key mechanism; there is no per-user handoff)
 
 Optional keys:
 
@@ -78,6 +78,27 @@ bun run codegen:check # Generated API artifact drift
 bun run docs:check    # Generated documentation drift and markdown
 ```
 
+Python source docstrings use [Google style](https://google.github.io/styleguide/pyguide.html#38-comments-and-docstrings).
+The standard Python lint command checks public docstring presence
+and formatting with Ruff, then checks structured docstrings against signatures,
+returns, yields, exceptions, and attributes with `pydoclint`. The
+[configuration](../../apps/data-pipeline/pyproject.toml) keeps types in annotations
+and property descriptions beside their implementations. Summary-only docstrings
+are allowed for simple operations. Describe behavior, units, shapes, ownership,
+and meaningful absence or failure conditions where relevant; repeating a name
+or type adds no documentation.
+
+Each field has one documentation owner. Prefer Pydantic
+[`Field(description=...)`](https://docs.pydantic.dev/latest/concepts/fields/#customizing-json-schema)
+for model field meanings, so the same prose reaches JSON Schema, OpenAPI, and
+generated clients. The
+[pydoclint adapter](../../apps/data-pipeline/scripts/checks/run_pydoclint.py)
+recognizes these descriptions, including `Annotated` metadata, without duplicate
+`Attributes:` entries. Use `Attributes:` for ordinary classes and dataclasses.
+The class docstring explains the record's purpose and relationships. Add a
+description when it explains semantics, units, alignment, or absence; an empty
+`Field()` or a repetition of the field name adds no documentation.
+
 ### Script organization
 
 Each `package.json` groups scripts by workflow: development, quality checks,
@@ -91,7 +112,7 @@ subcommands. Related commands share a colon namespace; artifact checks end in
 | Quality | `lint`, `lint:fix`, `test`, `test:all`, `test:fixture-promotion`, `knip`, `complexity` |
 | API generation | `codegen`, `codegen:check` |
 | Documentation | `docs:codegen`, `docs:check`; individual tasks under `docs:distribution`, `docs:latex`, `docs:markdown:check`, `docs:spell:check` |
-| Fixtures | `fixture:promote`, `fixture:build`, `fixture:check` |
+| Fixtures | `fixture:promote`, `fixture:build` |
 
 Use `bun run` to list root scripts, or `bun run --cwd <workspace>` to list one
 package's scripts. Run focused tasks in their workspace, for example:

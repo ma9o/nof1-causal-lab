@@ -55,6 +55,8 @@ type LatentGradHessFn = Callable[
 
 @dataclass(frozen=True)
 class ObservationKernel:
+    """Compiled observation density, response transformation, and latent derivative functions."""
+
     log_prob_fn: EmissionLogProbFn
     response_fn: ResponseFn
     latent_grad_hess_fn: LatentGradHessFn
@@ -75,6 +77,7 @@ class LawGroup:
         responses: jax.Array | None = None,
         mask: jax.Array | None = None,
     ) -> Law[jax.Array]:
+        """Evaluate compatible channel laws together, optionally substituting support-aggregated responses."""
         arrays: list[Law[jax.Array]] = []
         for index, law in zip(self.indices, self.laws, strict=True):
             eta = predictors[index]
@@ -101,6 +104,7 @@ def compile_law_groups(
     interval: bool = False,
     roles: Sequence[str] | None = None,
 ) -> tuple[LawGroup, ...]:
+    """Group observation laws by compatible family, event shape, support role, and response link."""
     selected = range(len(laws)) if indices is None else indices
     groups: dict[tuple[type, int, str, LinkFunction], list[int]] = {}
     for index in selected:
@@ -125,6 +129,8 @@ def compile_law_groups(
 
 @dataclass(frozen=True)
 class CompiledObservationModel:
+    """Observation execution functions with point sampling and optional interval-support handling."""
+
     kernel: ObservationKernel
     point_sampler: PointObservationSampler
     mean_log_prob_fn: EmissionLogProbFn | None
@@ -132,6 +138,7 @@ class CompiledObservationModel:
 
     @property
     def requires_interval_summary_handling(self) -> bool:
+        """Whether any compiled observation requires accumulation across an interval."""
         return (
             self.observation_operator is not None
             and self.observation_operator.requires_interval_summary_handling

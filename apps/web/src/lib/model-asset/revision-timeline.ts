@@ -13,7 +13,7 @@ export const TIMELINE_LANES: ReadonlyArray<{
 }> = [
   { name: "Comparisons", actions: ["data_diff", "model_diff"], failures: "below" },
   { name: "Data", actions: ["prepare_data", "simulate"], failures: "below" },
-  { name: "Model", actions: ["set_question", "edit_model", "fit"], failures: "above" },
+  { name: "Model", actions: ["edit_question", "edit_model", "fit"], failures: "above" },
 ];
 
 export interface RevisionTimelineNode {
@@ -27,7 +27,6 @@ export interface RevisionTimelineLink {
   from: RevisionTimelineNode;
   to: RevisionTimelineNode;
   argument: string;
-  check: boolean;
 }
 
 export interface RevisionTimeline {
@@ -50,7 +49,7 @@ export function revisionTimeline(
   const links: RevisionTimelineLink[] = dependencies.flatMap((dependency) => {
     const from = bySeq.get(dependency.source_seq);
     const to = bySeq.get(dependency.seq);
-    return from && to ? [{ from, to, argument: dependency.argument, check: dependency.check }] : [];
+    return from && to ? [{ from, to, argument: dependency.argument }] : [];
   });
   return { nodes, links };
 }

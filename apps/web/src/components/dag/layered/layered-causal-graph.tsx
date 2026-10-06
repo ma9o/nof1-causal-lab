@@ -7,7 +7,7 @@ import type {
   StateAssignment,
   PosteriorMarginal,
   ActionId,
-  DataDiffReport,
+  DataDiffOutput,
   SimulationPaths,
   StructuralItemDisposition,
 } from "@nof1-causal-lab/api-types";
@@ -63,7 +63,7 @@ export type LayeredCausalGraphVariant = "workbench" | "asset";
 
 export interface LayeredCausalGraphProps extends LayeredGraphOptions {
   simulationPaths?: SimulationPaths | null;
-  dataDiff?: DataDiffReport | null;
+  dataDiff?: DataDiffOutput | null;
   onSelect: (selection: EntitySelection | null) => void;
   /** The action whose version is viewed; a data preparation shows each node's prepared data. */
   step?: ActionId | null;
@@ -142,12 +142,7 @@ function lawTitle(curve: LawCurve): string {
     : curve.posteriors.length > 1
       ? `${curve.posteriors.length} posterior elements`
       : `authored ${curve.family ? `${curve.family} ` : ""}prior`;
-  return [
-    lawLabel(curve),
-    humanize(curve.parameter.name),
-    summary,
-    ...(curve.stale ? ["fitted on an earlier panel"] : []),
-  ].join(" · ");
+  return [lawLabel(curve), humanize(curve.parameter.name), summary].join(" · ");
 }
 
 /** One labelled row of a card's chart strip; its chart sits right of the value. */
@@ -297,7 +292,7 @@ function LawStrip({ laws }: { laws: LawCurve[] }) {
                   ? `×${curve.posteriors.length}`
                   : truncate(curve.family ?? "prior", 9)
             }
-            valueTone={posterior && !curve.stale ? DAG_COLORS.ink : DAG_COLORS.muted}
+            valueTone={posterior ? DAG_COLORS.ink : DAG_COLORS.muted}
             {...(domain ? { range: domain } : {})}
           >
             <LawMarks
@@ -510,7 +505,7 @@ function EdgeSlot({
   const law = laws.at(0);
   if (law) {
     const effect = law.posteriors.length === 1 ? law.posteriors[0] : null;
-    const tone = law.stale ? DAG_COLORS.muted : DAG_COLORS.slate;
+    const tone = DAG_COLORS.slate;
     return (
       <g opacity={dimmed ? 0.12 : 1}>
         <title>
@@ -863,8 +858,7 @@ export function LayeredCausalGraph({
               const prepared =
                 step === "prepare_data"
                   ? nodeIndicators.flatMap((indicator) => {
-                      const profile =
-                        model.profile?.value.indicators[indicator.observation.id]?.profile;
+                      const profile = model.profile?.indicators[indicator.observation.id]?.profile;
                       return profile ? [{ indicator, profile }] : [];
                     })
                   : [];
@@ -885,7 +879,7 @@ export function LayeredCausalGraph({
                       construct.id ===
                       (simulation?.causal.kind === "available"
                         ? simulation.causal.value.outcome
-                        : model.question?.value.outcome)
+                        : model.question?.outcome)
                     }
                     failures={dataDiff ? [] : entityFailures(model, construct)}
                     status={nodeStatuses.get(construct.id) ?? undefined}

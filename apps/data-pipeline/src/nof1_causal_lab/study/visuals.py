@@ -18,29 +18,37 @@ from nof1_causal_lab.study.visual_models import (
 from nof1_causal_lab.utils.time_coordinates import ObservationInstant
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata
+    from datetime import datetime
+
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.observations import ResolvedObservationSpec
-    from nof1_causal_lab.artifacts.simulation import SimulationReport
+    from nof1_causal_lab.artifacts.simulation import SimulationEvidence, SimulationReport
+    from nof1_causal_lab.study.visual_models import ObservationData
 
 
 def finite_values(values: np.ndarray) -> tuple[float | None, ...]:
+    """Convert numerical values to JSON-safe scalars, representing non-finite entries as ``None``."""
     return tuple(float(value) if np.isfinite(value) else None for value in values)
 
 
 def empirical_points(values: np.ndarray) -> tuple[EmpiricalPoint, ...]:
+    """Compute the empirical CDF at distinct finite values, retaining duplicate frequencies."""
     unique, counts = np.unique(values[np.isfinite(values)], return_counts=True)
     cumulative = np.cumsum(counts) / counts.sum() if counts.size else []
     return tuple(
-        EmpiricalPoint(value=value, probability=float(probability), )
+        EmpiricalPoint(
+            value=value,
+            probability=float(probability),
+        )
         for value, probability, count in zip(unique, cumulative, counts, strict=True)
     )
 
 
 def observation_history(
-    metadata: PreparedDataMetadata, variable: ResolvedObservationSpec, panel: pl.DataFrame
+    time_origin: datetime | None, variable: ResolvedObservationSpec, panel: pl.DataFrame
 ) -> ObservationHistory:
-    origin = ObservationInstant.origin(metadata.time_origin)
+    """Project recorded rows into model-day coordinates with their support intervals and empirical CDF."""
+    origin = ObservationInstant.origin(time_origin)
 
     def days(column: str) -> tuple[float | None, ...]:
         return tuple(
@@ -57,9 +65,38 @@ def observation_history(
         values=finite_values(values),
         support_start=days("support_start"),
         support_end=days("support_end"),
-        time_origin=metadata.time_origin,
+        time_origin=time_origin,
         levels=variable.ordinal_levels or variable.categorical_levels,
         empirical=empirical_points(values),
+    )
+
+
+def simulation_observation_histories(
+    evidence: SimulationEvidence,
+    observations: np.ndarray,
+    mask: np.ndarray,
+    support_start: np.ndarray,
+    support_end: np.ndarray,
+) -> tuple[ObservationData, ...]:
+    """Project every saved replicate into the same history type as prepared user data."""
+    return tuple(
+        {
+            variable.id: ObservationHistory(
+                label=variable.name,
+                times=evidence.times,
+                values=finite_values(values),
+                support_start=finite_values(support_start[:, column]),
+                support_end=finite_values(support_end[:, column]),
+                time_origin=evidence.time_origin,
+                levels=variable.ordinal_levels or variable.categorical_levels,
+                empirical=empirical_points(values),
+            )
+            for column, variable in enumerate(evidence.observation_layout.variables)
+            for values in (
+                np.where(mask[replicate, :, column], observations[replicate, :, column], np.nan),
+            )
+        }
+        for replicate in range(evidence.draws)
     )
 
 

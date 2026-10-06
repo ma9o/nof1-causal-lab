@@ -1,0 +1,26 @@
+"""A saved data producer and an optional selection within its observation histories."""
+
+from __future__ import annotations
+
+from typing import Annotated
+
+from pydantic import Field
+
+from nof1_causal_lab.artifacts.base import Value
+
+
+class DataRef[RevisionT, IndexT: int | None](Value):
+    """A prepared-data or simulation gitref; an integer selects one recorded history."""
+
+    revision: RevisionT
+    replicate_index: IndexT = Field(ge=0)
+
+
+type DataSelection[RevisionT] = Annotated[
+    DataRef[RevisionT, Annotated[int | None, Field(default=None)]]
+    | Annotated[
+        tuple[DataRef[RevisionT, Annotated[int | None, Field(default=None)]], ...],
+        Field(min_length=1),
+    ],
+    Field(description="A data selection identifies one or more saved observation histories."),
+]

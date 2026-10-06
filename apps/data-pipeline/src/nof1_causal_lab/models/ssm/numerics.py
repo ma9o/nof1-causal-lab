@@ -19,62 +19,77 @@ if TYPE_CHECKING:
 
 
 def state_ids(model: CompiledModel) -> tuple[ConstructId, ...]:
+    """Return construct IDs in the model's compiled state-axis order."""
     return tuple(state.id for state in model.states)
 
 
 def state_names(model: CompiledModel) -> tuple[str, ...]:
+    """Return display labels in the model's compiled state-axis order."""
     return tuple(state.name for state in model.states)
 
 
 def observation_ids(model: CompiledModel) -> tuple[IndicatorId, ...]:
+    """Return observation IDs in the model's compiled channel order."""
     return tuple(observation.id for observation in model.observations)
 
 
 def observation_names(model: CompiledModel) -> tuple[str, ...]:
+    """Return observation display labels in the model's compiled channel order."""
     return tuple(observation.name for observation in model.observations)
 
 
 def observation_families(model: CompiledModel) -> tuple[DistributionFamily, ...]:
+    """Return channel-aligned likelihood families from the compiled observation laws."""
     return tuple(observation.law.family for observation in model.observations)
 
 
 def observation_level_counts(model: CompiledModel) -> tuple[int, ...]:
+    """Return channel-aligned category counts, with zero for observations without declared levels."""
     return tuple(len(observation.levels) for observation in model.observations)
 
 
 def observation_standardized(model: CompiledModel) -> tuple[bool, ...]:
+    """Return channel-aligned flags identifying observations represented on a standardized scale."""
     return tuple(observation.standardized for observation in model.observations)
 
 
 def categorical_anchors(model: CompiledModel) -> tuple[bool, ...]:
+    """Return channel-aligned flags identifying categorical measurement anchors."""
     return tuple(observation.categorical_anchor for observation in model.observations)
 
 
 def time_invariant_mask(model: CompiledModel) -> np.ndarray:
+    """Mark compiled state coordinates with time-invariant dynamics."""
     return np.asarray([state.time_invariant for state in model.states], dtype=bool)
 
 
 def input_mask(model: CompiledModel) -> np.ndarray:
+    """Mark state coordinates supplied by exact exogenous input readings."""
     return np.asarray([state.is_input for state in model.states], dtype=bool)
 
 
 def diffusion_families(model: CompiledModel) -> tuple[DistributionFamily, ...]:
+    """Return compiled innovation families in state-axis order."""
     return tuple(state.innovation_family for state in model.states)
 
 
 def static_factor_ids(model: CompiledModel) -> tuple[ConstructId, ...]:
+    """Return construct IDs in compiled static-factor order."""
     return tuple(state.id for state in model.static_factors)
 
 
 def static_factor_names(model: CompiledModel) -> tuple[str, ...]:
+    """Return display labels in compiled static-factor order."""
     return tuple(state.name for state in model.static_factors)
 
 
 def n_states(model: CompiledModel) -> int:
+    """Count compiled state coordinates, including fixed input coordinates."""
     return len(model.states)
 
 
 def n_observations(model: CompiledModel) -> int:
+    """Count compiled observation channels rather than measured time points."""
     return len(model.observations)
 
 
@@ -89,6 +104,7 @@ def parameter_blocks(
     T0CholBlockSpec,
     SparseBlockSpec[int],
 ]:
+    """Return compiled blocks in diffusion, loading, observation, initial-state, and static order."""
     return (
         model.diffusion_block,
         model.loading_block,

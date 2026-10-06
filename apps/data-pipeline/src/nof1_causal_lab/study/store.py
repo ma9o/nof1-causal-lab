@@ -38,7 +38,7 @@ if TYPE_CHECKING:
 
     from nof1_causal_lab.artifacts.measurements import ObservationRecord
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.artifacts.observations import ResolvedObservationSpec
+    from nof1_causal_lab.artifacts.observation_data import ObservationDataset
     from nof1_causal_lab.artifacts.question import QuestionSpec
     from nof1_causal_lab.json_types import JsonObject
 
@@ -67,11 +67,13 @@ def cached_read[T](
 def cached_value[T](
     workspace_id: str, key: tuple[str, ...], adapter: TypeAdapter[T], render: Callable[[], T]
 ) -> tuple[T, bool]:
+    """Read or render a typed cached value and return it with a cache-reuse flag."""
     body, reused = cached_read(workspace_id, key, adapter, render)
     return adapter.validate_json(body), reused
 
 
 def utc_now_iso() -> str:
+    """Read the current UTC clock as a timezone-qualified ISO timestamp."""
     return datetime.now(tz=UTC).isoformat()
 
 
@@ -103,16 +105,19 @@ class ArtifactStore:
     """Immutable Git trees for payloads and input references; large values live in a blob store."""
 
     def __init__(self, workspace_id: str, *, repository_path: Path | None = None) -> None:
+        """Bind the workspace's blob store and open its local artifact repository."""
         self.workspace_id = workspace_id
         self._root = data_module.store_dir(workspace_id)
         self.repo = open_repository(workspace_id, repository_path)
 
     def write_array(self, values: ArrayLike) -> str:
+        """Persist numerical values in the workspace array store and return their content identity."""
         from nof1_causal_lab.utils.arrays import write_array
 
         return write_array(storage.join(self._root, "arrays"), np.asarray(values))
 
     def read_array(self, identity: str) -> np.ndarray:
+        """Load and verify a numerical array using its retained content identity."""
         from nof1_causal_lab.utils.arrays import read_array
 
         return read_array(storage.join(self._root, "arrays"), identity)
@@ -122,6 +127,7 @@ class ArtifactStore:
         return GitOid(str(self.repo.create_blob(report.model_dump_json(round_trip=True).encode())))
 
     def read_report[ReportT: BaseModel](self, revision: GitOid, target: type[ReportT]) -> ReportT:
+        """Parse a retained Git report blob with the caller's expected report schema."""
         payload = self.repo[pygit2.Oid(hex=revision)].peel(pygit2.Blob).data
         return target.model_validate_json(payload)
 
@@ -170,9 +176,14 @@ class ArtifactStore:
         )
         return ArtifactRecord.model_validate({**metadata, "revision": str(revision)})
 
-    def read_meta(self, artifact_id: ArtifactId, revision: str) -> ArtifactRecord:
+    def read_record(self, revision: str) -> ArtifactRecord:
+        """Read an artifact's identity and provenance without presupposing its kind."""
         metadata = json.loads(read_file(self.repo, revision, "meta.json"))
-        info = ArtifactRecord(**metadata, revision=GitOid(revision))
+        return ArtifactRecord(**metadata, revision=GitOid(revision))
+
+    def read_meta(self, artifact_id: ArtifactId, revision: str) -> ArtifactRecord:
+        """Read artifact metadata and reject revisions belonging to a different artifact kind."""
+        info = self.read_record(revision)
         if info.artifact_id != artifact_id:
             raise StudyLookupError(
                 f"Git object {revision} is {info.artifact_id}, not {artifact_id}"
@@ -182,27 +193,18 @@ class ArtifactStore:
     def read_value[ValueT: BaseModel](
         self, artifact_id: ArtifactId, revision: str, name: str, target: type[ValueT]
     ) -> ValueT:
+        """Check artifact ownership and parse a named JSON payload with its production schema."""
         self.read_meta(artifact_id, revision)
         return target.model_validate_json(read_file(self.repo, revision, name))
 
     def read_json_file(self, artifact_id: ArtifactId, revision: str, name: str) -> JsonObject:
+        """Check artifact ownership and read a named JSON object from the selected revision."""
         self.read_meta(artifact_id, revision)
         value: JsonObject = json.loads(read_file(self.repo, revision, name))
         return value
 
-    def filenames(self, artifact_id: ArtifactId, revision: str) -> list[str]:
-        self.read_meta(artifact_id, revision)
-        tree = object_tree(self.repo, revision)
-        names = [
-            entry.name
-            for entry in tree
-            if entry.name is not None and entry.name not in {"meta.json", "external.json"}
-        ]
-        if "external.json" in tree:
-            names.extend(json.loads(read_file(self.repo, revision, "external.json")))
-        return sorted(names)
-
     def file_path(self, artifact_id: ArtifactId, revision: str, name: str) -> str:
+        """Materialize an artifact file locally, verifying external blob content identities."""
         self.read_meta(artifact_id, revision)
         tree = object_tree(self.repo, revision)
         external = (
@@ -223,11 +225,13 @@ class ArtifactStore:
         return str(path)
 
     def read_parquet_file(self, artifact_id: ArtifactId, revision: str, name: str) -> pl.DataFrame:
+        """Read an artifact's retained Parquet file into a Polars dataframe."""
         import polars as pl
 
         return pl.read_parquet(self.file_path(artifact_id, revision, name))
 
     def read_parquet_table(self, artifact_id: ArtifactId, revision: str, name: str) -> pa.Table:
+        """Read an artifact's retained Parquet file as an Arrow table with its schema metadata."""
         return pq.read_table(self.file_path(artifact_id, revision, name))
 
 
@@ -247,7 +251,7 @@ def trace_log_path(subroutine_id: str) -> str:
 
 
 def collect_run_traces(workspace_id: str, seq: int) -> dict[str, bytes]:
-    """Collect finalized traces before scratch is swept; publication happens in Git."""
+    """Collect the accumulated trace snapshots before scratch is swept."""
     llm_root = storage.join(data_module.scratch_run_dir(workspace_id, f"seq-{seq:06d}"), "llm")
     logs: dict[str, bytes] = {}
     for subroutine_root in sorted(storage.listdir(llm_root)):
@@ -258,17 +262,8 @@ def collect_run_traces(workspace_id: str, seq: int) -> dict[str, bytes]:
     return logs
 
 
-def read_attempt_trace(workspace_id: str, commit_id: str, subroutine_id: str) -> JsonObject:
-    from nof1_causal_lab.study.history import StudyRepository
-
-    repository = StudyRepository(workspace_id)
-    value: JsonObject = json.loads(
-        repository.read_file(commit_id, f"logs/{trace_log_path(subroutine_id)}")
-    )
-    return value
-
-
 def read_payload(store: ArtifactStore, artifact_id: ArtifactId, revision: str) -> BaseModel:
+    """Parse an immutable artifact's primary JSON payload while keeping distribution arrays lazy."""
     from functools import cache
 
     from pydantic import BaseModel, TypeAdapter
@@ -276,7 +271,6 @@ def read_payload(store: ArtifactStore, artifact_id: ArtifactId, revision: str) -
     from nof1_causal_lab.artifacts.catalog import ARTIFACT_CONTRACTS
     from nof1_causal_lab.study.artifact_files import artifact_file_spec
 
-    """Validate one immutable primary JSON payload with its production contract."""
     filename = next(iter(artifact_file_spec(artifact_id).json_files.values()))
     return TypeAdapter[BaseModel](ARTIFACT_CONTRACTS[artifact_id]).validate_python(
         store.read_json_file(artifact_id, revision, filename),
@@ -303,20 +297,17 @@ def observation_sample(panel: pl.DataFrame) -> tuple[ObservationRecord, ...]:
 
 
 def read_dataset(
-    source: DataRef,
-    variables: tuple[ResolvedObservationSpec, ...],
-    observations: pl.DataFrame,
-    time_origin: datetime | None,
+    source: DataRef[GitOid, int],
+    observations: ObservationDataset,
 ) -> Dataset:
-    from nof1_causal_lab.utils.observation_rows import validate_observation_rows
-
-    frame = validate_observation_rows(observations, variables).with_columns(
+    """Project selected observations into per-indicator dated series with their exact source reference."""
+    frame = observations.recorded.frame.with_columns(
         pl.col("anchor_time", "support_start", "support_end").dt.replace_time_zone("UTC")
     )
     series = {
         variable.id: DataSeries(
             variable=variable,
-            time_origin=time_origin,
+            time_origin=observations.time_origin,
             points=tuple(
                 DataPoint.model_validate(row)
                 for row in frame.filter(pl.col("indicator_id") == variable.id)
@@ -324,7 +315,7 @@ def read_dataset(
                 .iter_rows(named=True)
             ),
         )
-        for variable in variables
+        for variable in observations.variables
     }
 
     return Dataset(source=source, series=series)

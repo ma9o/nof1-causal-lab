@@ -7,6 +7,8 @@ from typing import Annotated, Literal
 from pydantic import Field, computed_field
 
 from nof1_causal_lab.artifacts.base import Value
+from nof1_causal_lab.artifacts.data_ref import DataRef
+
 from .checks import (
     Assessment,
     Evaluated,
@@ -53,7 +55,7 @@ class QuestionCheckReport(Value):
     """The study question checked against the model and, once prepared, the record."""
 
     question_revision: GitOid
-    panel_revision: GitOid | None
+    data: DataRef[GitOid, int] | None
     findings: tuple[QuestionAssessment, ...]
 
 
@@ -82,7 +84,7 @@ class ModelPredictiveReport(Value):
     """One automatic, reproducible battery over the full model's current laws."""
 
     model_revision: GitOid
-    panel_revision: GitOid | None
+    data: DataRef[GitOid, int] | None
     draws: int = Field(ge=1)
     seed: int = Field(ge=0)
     law: PredictiveLawProvenance
@@ -91,6 +93,7 @@ class ModelPredictiveReport(Value):
     @computed_field
     @property
     def status(self) -> Literal["passed", "failed", "not_evaluated"]:
+        """Aggregate predictive verdict; unavailable evaluation remains explicitly not evaluated."""
         evaluation = self.evaluation
         if isinstance(evaluation, UnavailablePredictiveChecks):
             return "not_evaluated"

@@ -4,6 +4,7 @@ import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.artifacts.identity import GitOid
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.compilation_errors import IncompleteModelError
 from tests.helpers import graph_constructs, invalid_dict_payload, make_model
@@ -56,7 +57,10 @@ def test_dependent_alternatives_reject_impossible_fields_at_the_schema_boundary(
             TypeAdapter(PredictiveLawProvenance),
             {"kind": "fitted", "interpretation": "posterior_predictive"},
         ),
-        (TypeAdapter(DataRef), {"kind": "panel", "revision": "a" * 40, "replicate": None}),
+        (
+            TypeAdapter(DataRef[GitOid, int | None]),
+            {"kind": "panel", "revision": "a" * 40, "replicate": None},
+        ),
         (
             TypeAdapter(ExtractionChunkResult),
             {"status": "completed", "worker_id": 0, "n_windows": 1, "n_extractions": 1},

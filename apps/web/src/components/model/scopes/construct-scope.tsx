@@ -23,7 +23,7 @@ export function ConstructScope({ context, id }: { context: ScopeContext; id: Con
   const equations = model;
   const predictive = model.predictive;
   const findings = (
-    predictive?.value.evaluation.kind === "evaluated" ? predictive.value.evaluation.findings : []
+    predictive?.evaluation.kind === "evaluated" ? predictive.evaluation.findings : []
   ).filter(
     (finding) =>
       finding.subject.construct_id === id &&
@@ -79,26 +79,17 @@ export function ConstructScope({ context, id }: { context: ScopeContext; id: Con
       <LawSections context={context} uses={ownLawUses(construct)} />
       <SimulatedHistory context={context} id={id} kind="states" />
       {disposition && disposition.disposition !== "retained_state" && (
-        <Section
-          title={dispositionLabel(disposition.disposition)}
-          {...(model.dispositions?.source === undefined
-            ? {}
-            : { source: model.dispositions.source })}
-        >
+        <Section title={dispositionLabel(disposition.disposition)}>
           <Hint issue>{disposition.reason}</Hint>
         </Section>
       )}
-      {model.identification?.value.treatments[id] && (
-        <Section title="Identification" source={model.identification.source}>
+      {model.identification?.treatments[id] && (
+        <Section title="Identification">
           <IdentificationFinding context={context} construct={construct} />
         </Section>
       )}
       {findings.length > 0 && (
-        <Section
-          title="Predictive checks"
-          {...(predictive?.source === undefined ? {} : { source: predictive.source })}
-          wide
-        >
+        <Section title="Predictive checks" wide>
           <PredictiveFindings findings={findings} entities={context.entities} />
         </Section>
       )}
@@ -113,7 +104,7 @@ export function IdentificationFinding({
   context: ScopeContext;
   construct: ConstructSpec;
 }) {
-  const finding = context.model.identification?.value.treatments[construct.id];
+  const finding = context.model.identification?.treatments[construct.id];
   const identified = finding?.status === "identified" ? finding : null;
   const notIdentified = finding?.status === "not_identified" ? finding : null;
   const namesFor = (ids: readonly ConstructId[]) =>

@@ -16,7 +16,7 @@
   - Parse, don't validate: each invariant has one owner, a smart constructor or an edge parser, and nothing downstream re-checks it. Pass the owner, not values derived from it. Projections are total; if one seems to need a check, fix the core type.
   - Return expected failures as typed outcomes instead of raising. Only bugs and infrastructure failures raise, and the shell handles them.
 
-- Run lint for static feedback and before committing: `bun run --cwd apps/<app> lint` when a change touches only one app, otherwise `bun run lint` at the repo root, which adds the cross-package checks (knip and API-type, docs and fixture drift).
+- Run lint for static feedback and before committing: `bun run --cwd apps/<app> lint` when a change touches only one app, otherwise `bun run lint` at the repo root, which adds the cross-package checks (knip, API types, and docs drift).
   Fix findings at the owner named by the checker; rule details live in the checker docstrings.
 
 - Follow the [type naming conventions](docs/guides/codegen.md#type-naming-conventions).

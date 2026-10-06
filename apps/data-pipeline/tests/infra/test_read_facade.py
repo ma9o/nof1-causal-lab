@@ -1,15 +1,19 @@
-"""Read-only facade: same read endpoints as the full facade, scientific actions return 403."""
+"""Read-only facade replays saved calls and rejects new actions and uploads."""
 
 import pytest
 from fastapi.testclient import TestClient
 
+from nof1_causal_lab.actions.contracts import EditModelRequest
 from nof1_causal_lab.actions.effects import ActionEffects
+from nof1_causal_lab.actions.io import EditModelInput
+from nof1_causal_lab.artifacts.identity import ConstructId, GitOid
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.question import QuestionSpec
 from nof1_causal_lab.read_facade import create_read_facade_app
-from nof1_causal_lab.study.records import Applied, DataPreparationResult
+from nof1_causal_lab.study.records import Applied
 from nof1_causal_lab.utils import data as data_module
 from tests.action_fixtures import applied_record, question_root
-from tests.git_fixtures import artifact_revision, commit_id, git_oid
+from tests.git_fixtures import git_oid
 
 pytestmark = pytest.mark.contract
 
@@ -19,20 +23,20 @@ def test_read_facade_serves_reads_and_rejects_actions(monkeypatch, tmp_path):
     monkeypatch.setenv("READ_ONLY_FACADE", "1")
     client = TestClient(create_read_facade_app())
 
-    assert client.get("/api/actions-enabled").json() is False
-
-    status = client.get("/api/studies/WS-READONLY")
+    assert client.get("/api/workspaces").headers["X-Actions-Enabled"] == "false"
+    status = client.get("/api/studies/WS-READONLY/timeline")
     assert status.status_code == 200
-    body = status.json()
-    assert body["seq"] == 0
-    assert set(body["actions"]) == {"set_question", "edit_model", "prepare_data", "fit", "simulate"}
+    assert status.json() == {"attempts": [], "dependencies": [], "running": None}
 
     action = client.post(
-        "/api/studies/WS-READONLY/actions",
+        "/api/studies/WS-READONLY/fit",
         json={
             "action": "fit",
-            "model_revision": str(git_oid(1)),
-            "panel_revision": str(git_oid(2)),
+            "input": {
+                "model_ref": str(git_oid(1)),
+                "data_ref": str(git_oid(2)),
+                "replicate_index": 0,
+            },
         },
     )
     assert action.status_code == 403
@@ -44,50 +48,52 @@ def test_read_facade_serves_reads_and_rejects_actions(monkeypatch, tmp_path):
     assert upload.status_code == 403
 
 
-def test_artifact_endpoint_serves_pinned_versions(monkeypatch, tmp_path):
+def test_saved_call_serves_pinned_artifacts_without_starting_new_actions(monkeypatch, tmp_path):
     from nof1_causal_lab.study.history import StudyRepository
     from nof1_causal_lab.study.store import ArtifactStore
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
     monkeypatch.setenv("READ_ONLY_FACADE", "1")
-    store = ArtifactStore("WS-ART")
-    question = store.write_artifact(
-        "model",
-        derived_from={},
-        produced_by=None,
-        json_files={"model.json": {"measurement_clock": "1d"}},
-    )
+    question_root("WS-ART")
+    store, repository = ArtifactStore("WS-ART"), StudyRepository("WS-ART")
     client = TestClient(create_read_facade_app())
-
-    pinned = client.get(
-        "/api/studies/WS-ART/artifacts/model",
-        params={"revision": artifact_revision("WS-ART", "model", 1)},
-    )
-    assert pinned.status_code == 200
-    body = pinned.json()
-    assert body["payload"]["model.json"] == {"measurement_clock": "1d"}
-    assert "provenance" not in body["meta"]
-    assert body["binary_files"] == []
-
-    # Explicit revision reads can inspect an uncommitted artifact, but it does
-    # not become the current revision until an applied action records the effect.
-    assert client.get("/api/studies/WS-ART/artifacts/model").status_code == 404
-    StudyRepository("WS-ART").append(
-        applied_record(
-            Applied(result=None, effects=ActionEffects(produced=[question])),
-            seq=1,
-            ts="2026-07-09T00:00:00+00:00",
-            trace_ids=[],
+    saved = []
+    for clock in ("1d", "2d"):
+        model = ModelSpec(measurement_clock=clock)
+        request = EditModelRequest[GitOid](
+            input=EditModelInput[GitOid](parent_ref=repository.question().revision, model=model)
         )
-    )
-    current = client.get("/api/studies/WS-ART/artifacts/model")
-    assert current.status_code == 200
-    assert current.json()["payload"]["model.json"] == {"measurement_clock": "1d"}
-    missing = client.get("/api/studies/WS-ART/artifacts/model", params={"revision": git_oid(7)})
-    assert missing.status_code == 404
+        artifact = store.write_artifact(
+            "model",
+            derived_from={},
+            produced_by="edit_model",
+            json_files={"model.json": model.model_dump(mode="json")},
+        )
+        assert (
+            client.post(
+                "/api/studies/WS-ART/edit_model", json=request.model_dump(mode="json")
+            ).status_code
+            == 403
+        )
+        revision = repository.append(
+            applied_record(
+                Applied(result=None, effects=ActionEffects(produced=(artifact,))),
+                seq=repository.latest_seq() + 1,
+                request=request,
+            )
+        )
+        saved.append((request, revision, clock))
+    for request, revision, clock in saved:
+        response = client.post(
+            "/api/studies/WS-ART/edit_model", json=request.model_dump(mode="json")
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["commit_id"] == revision.commit_id
+        assert response.json()["body"]["model"]["measurement_clock"] == clock
+    assert len(repository.attempts()) == 3
 
 
-def test_trace_endpoints_join_artifact_version_to_promoted_trace(monkeypatch, tmp_path):
+def test_saved_call_returns_promoted_traces(monkeypatch, tmp_path):
     from nof1_causal_lab.study.history import StudyRepository
     from nof1_causal_lab.study.store import ArtifactStore, collect_run_traces
     from nof1_causal_lab.utils import storage
@@ -95,12 +101,20 @@ def test_trace_endpoints_join_artifact_version_to_promoted_trace(monkeypatch, tm
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
     monkeypatch.setenv("READ_ONLY_FACADE", "1")
-    raw_data = ArtifactStore("WS-TRACE").write_artifact(
-        "raw_data",
-        derived_from={},
-        produced_by="prepare_data",
+    question_root("WS-TRACE")
+    request = EditModelRequest[GitOid](
+        input=EditModelInput[GitOid](
+            parent_ref=StudyRepository("WS-TRACE").question().revision,
+            model=ModelSpec(),
+        )
     )
-    source = str(tmp_path / "data/WS-TRACE/scratch/runs/seq-000001/llm/raw-data/trace.json")
+    model = ArtifactStore("WS-TRACE").write_artifact(
+        "model",
+        derived_from={},
+        produced_by="edit_model",
+        json_files={"model.json": request.input.model.model_dump(mode="json")},
+    )
+    source = str(tmp_path / "data/WS-TRACE/scratch/runs/seq-000002/llm/raw-data/trace.json")
     storage.write_text(
         source,
         LLMTrace(
@@ -108,11 +122,12 @@ def test_trace_endpoints_join_artifact_version_to_promoted_trace(monkeypatch, tm
             model="test-model",
         ).model_dump_json(),
     )
-    logs = collect_run_traces("WS-TRACE", 1)
+    logs = collect_run_traces("WS-TRACE", 2)
     StudyRepository("WS-TRACE").append(
         applied_record(
-            Applied(result=DataPreparationResult(), effects=ActionEffects(produced=[raw_data])),
-            seq=1,
+            Applied(result=None, effects=ActionEffects(produced=(model,))),
+            seq=2,
+            request=request,
             ts="2026-07-09T00:00:00+00:00",
             trace_ids=["raw-data"],
         ),
@@ -120,12 +135,16 @@ def test_trace_endpoints_join_artifact_version_to_promoted_trace(monkeypatch, tm
     )
     client = TestClient(create_read_facade_app())
 
-    trace_list = client.get("/api/studies/WS-TRACE/artifacts/raw_data/traces")
-    assert trace_list.status_code == 200
-    assert trace_list.json()["trace_ids"] == ["raw-data"]
-    trace = client.get(f"/api/studies/WS-TRACE/traces/{commit_id('WS-TRACE', 1)}/raw-data")
-    assert trace.status_code == 200
-    assert trace.json()["messages"][0]["content"] == "profiled"
+    timeline = client.get("/api/studies/WS-TRACE/timeline")
+    assert timeline.json()["attempts"][-1]["record"]["trace_ids"] == ["raw-data"]
+    result = client.post("/api/studies/WS-TRACE/edit_model", json=request.model_dump(mode="json"))
+    assert result.status_code == 200, result.text
+    assert (
+        next(message for message in result.json()["messages"] if message["kind"] == "trace")[
+            "trace"
+        ]["messages"][0]["content"]
+        == "profiled"
+    )
 
 
 def test_workspaces_endpoint_lists_study_questions(monkeypatch, tmp_path):
@@ -133,7 +152,9 @@ def test_workspaces_endpoint_lists_study_questions(monkeypatch, tmp_path):
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
     monkeypatch.setenv("READ_ONLY_FACADE", "1")
 
-    question_root("WS-LIST", QuestionSpec(text="does X cause Y?"))
+    question_root(
+        "WS-LIST", QuestionSpec(text="does X cause Y?", outcome=ConstructId("construct:y"))
+    )
 
     client = TestClient(create_read_facade_app())
     response = client.get("/api/workspaces")
@@ -162,9 +183,10 @@ def test_upload_endpoint_stages_input_file(monkeypatch, tmp_path):
     )
 
 
-def test_full_facade_advertises_actions(monkeypatch):
+def test_full_facade_advertises_actions(monkeypatch, tmp_path):
+    monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
     monkeypatch.delenv("READ_ONLY_FACADE", raising=False)
     from nof1_causal_lab import tool_server
 
     client = TestClient(tool_server.app)
-    assert client.get("/api/actions-enabled").json() is True
+    assert client.get("/api/workspaces").headers["X-Actions-Enabled"] == "true"

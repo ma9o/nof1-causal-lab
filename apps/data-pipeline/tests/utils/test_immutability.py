@@ -51,7 +51,8 @@ def test_artifact_file_layout_owns_inputs_and_default_collections() -> None:
     json_files.clear()
     parquet_files.clear()
 
-    assert layout.all_filenames() == frozenset({"metadata.json", "panel.parquet"})
+    assert layout.json_files == {"metadata": "metadata.json"}
+    assert layout.parquet_files == {"panel": "panel.parquet"}
     for mapping in (layout.json_files, layout.parquet_files, ArtifactFileSpec().json_files):
         assert isinstance(mapping, MappingProxyType)
     for field_name in ("json_files", "parquet_files"):

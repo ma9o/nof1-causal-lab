@@ -4,7 +4,7 @@ import { attemptError } from "@/lib/model-asset/journal";
 
 import type { ActionMessage, LLMTrace, RunningAction } from "@nof1-causal-lab/api-types";
 import { LoaderCircle, X } from "lucide-react";
-import { Fragment, useMemo } from "react";
+import { useMemo } from "react";
 import { ChatMessages } from "@/components/ui/custom/chat-messages";
 import { useAttemptProgress } from "@/lib/hooks/use-attempt-progress";
 import type { TimelineRevision } from "@nof1-causal-lab/api-types";
@@ -75,7 +75,6 @@ function AttemptProgress({
   // Nothing retained for this attempt: progress is unknown, not zero.
   if (view.cursor === null)
     return <p className="px-4 text-[10px] text-muted-foreground">Progress unavailable.</p>;
-  const steps = (["ingestion", "extraction"] as const).flatMap((step) => view.steps[step] ?? []);
   const finished = Object.values(view.workers).filter(
     (worker) => worker.state === "completed" || worker.state === "failed",
   );
@@ -84,15 +83,18 @@ function AttemptProgress({
       aria-label="Progress"
       className="grid grid-cols-[auto_1fr] gap-x-3 gap-y-0.5 px-4 py-1 font-mono text-[10px] text-muted-foreground"
     >
-      {steps.map((step) => (
-        <Fragment key={step.step}>
-          <dt>{step.step}</dt>
-          <dd className={cn("break-all", step.status === "failed" && "text-destructive")}>
-            {step.status}
-            {step.error && ` · ${step.error.type}: ${step.error.message}`}
+      {view.extraction && (
+        <>
+          <dt>extraction</dt>
+          <dd
+            className={cn("break-all", view.extraction.status === "failed" && "text-destructive")}
+          >
+            {view.extraction.status}
+            {view.extraction.error &&
+              ` · ${view.extraction.error.type}: ${view.extraction.error.message}`}
           </dd>
-        </Fragment>
-      ))}
+        </>
+      )}
       {view.snapshot && (
         <>
           <dt>workers</dt>
@@ -149,7 +151,7 @@ function ActionTrace({
  * What the selected action did and what came of it, stated rather than shown: its verdicts, its
  * warnings with their reasons, and the results that matter. The state the action left belongs to
  * the graph and the details pane.
- * - set_question: the question it set, as the root of every lineage.
+ * - edit_question: the question it set, as the root of every lineage.
  * - edit_model: what changed, in model terms, and what its checks concluded (identification kept
  *   or lost, which predictive checks failed and why).
  * - prepare_data: which data arrived (source, window, variables, volume) and the problems found.
@@ -176,9 +178,8 @@ export function ActionRecord({
 }) {
   const call =
     tick?.record.attempt.outcome.status === "applied" && tick.record.attempt.request !== null
-      ? context?.result?.attempt
+      ? context?.result
       : undefined;
-  const applied = call?.outcome.status === "applied" ? call.outcome : null;
   return (
     <div className="flex min-h-0 min-w-0 flex-1 flex-col">
       <div className="flex flex-none items-center gap-2 border-b px-3 py-2.5">
@@ -220,25 +221,20 @@ export function ActionRecord({
               </section>
             ) : context ? (
               <>
-                {tick.record.attempt.request.action === "set_question" && (
-                  <QuestionDetails
-                    context={context}
-                    question={tick.record.attempt.request.question}
-                  />
+                {call?.action === "edit_question" && (
+                  <QuestionDetails context={context} question={call.body.question} />
                 )}
                 {tick.record.attempt.action === "edit_model" && (
                   <EditDetails context={context} tick={tick} />
                 )}
-                {call?.action === "prepare_data" && call.outcome.status === "applied" && (
-                  <DataDetails context={context} applied={call.outcome} />
+                {call?.action === "prepare_data" && (
+                  <DataDetails context={context} applied={call.body} />
                 )}
                 {tick.record.attempt.action === "fit" && <FitOutcome context={context} />}
-                {call?.action === "data_diff" &&
-                  call.outcome.status === "applied" &&
-                  context.dataDiff && (
-                    <DataComparisonOutcome context={context} report={context.dataDiff} />
-                  )}
-                {call?.action === "model_diff" && call.outcome.status === "applied" && (
+                {call?.action === "data_diff" && context.dataDiff && (
+                  <DataComparisonOutcome context={context} report={context.dataDiff} />
+                )}
+                {call?.action === "model_diff" && (
                   <Section title="Model comparison">
                     <Hint>
                       Compared the selected model definitions, laws, checks and saved evidence.
@@ -246,7 +242,7 @@ export function ActionRecord({
                     <ActionLabels messages={tick.record.messages} />
                   </Section>
                 )}
-                {applied && <ActionFindings context={context} applied={applied} />}
+                {call && <ActionFindings context={context} call={call} />}
               </>
             ) : null}
             {tick.record.attempt.action !== "simulate" && tick.record.trace_ids.length > 0 && (
@@ -273,7 +269,7 @@ export function ActionRecord({
               {running.action} · running
             </h3>
             <ActionReasoning reasoning={running.request.reasoning} />
-            <ActionLabels messages={running.messages} />
+            <ActionLabels messages={running.messages.filter((message) => message.kind === "log")} />
             {running.action === "prepare_data" && (
               <AttemptProgress workspaceId={workspaceId} running={running} />
             )}

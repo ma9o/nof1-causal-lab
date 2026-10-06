@@ -52,6 +52,7 @@ class WorkerMessages:
     n_windows: int
 
     def extraction_messages(self) -> list[dict[str, str]]:
+        """Render the extraction system prompt and user request for this chunk's indicators and windows."""
         indicators_text = _format_indicators(self.measurement_structure)
         return [
             {"role": "system", "content": SYSTEM},

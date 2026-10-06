@@ -114,8 +114,10 @@ class TestModel:
     @pytest.mark.parametrize(
         ("question", "message"),
         [
-            ({"text": "   "}, "at least 1 character"),
-            ({"text": "Why?", "queries": {"q": _QUERY}}, "require the outcome"),
+            ({"text": "   ", "outcome": "construct:y"}, "at least 1 character"),
+            ({"text": "Why?"}, "outcome"),
+            ({"text": "Why?", "outcome": None}, "outcome"),
+            ({"text": "Why?", "queries": {"q": _QUERY}}, "outcome"),
             (
                 {
                     "text": "Why?",
@@ -134,7 +136,7 @@ class TestModel:
     def test_question_names_an_outcome_and_contrasts_interventions(self, question, message):
         with pytest.raises(ValidationError, match=message):
             QuestionSpec.model_validate(question)
-        assert QuestionSpec(text="  Why?  ").text == "Why?"
+        assert QuestionSpec(text="  Why?  ", outcome=ConstructId("construct:y")).text == "Why?"
 
 
 class TestDataVariable:

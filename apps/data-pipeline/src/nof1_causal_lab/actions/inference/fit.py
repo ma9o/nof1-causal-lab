@@ -24,9 +24,9 @@ if TYPE_CHECKING:
     from collections.abc import Sequence
     from datetime import datetime
 
-    import polars as pl
     from jax.stages import Compiled
 
+    from nof1_causal_lab.artifacts.observation_data import ObservationDataset
     from nof1_causal_lab.artifacts.posterior import FitSettingsSpec
     from nof1_causal_lab.models.model_structure import StructuralSelection
 
@@ -137,29 +137,28 @@ def _support_summary(panel: BoundPanel) -> str:
 
 def fit_model(
     selection: StructuralSelection,
-    data_for_model: pl.DataFrame,
+    data_for_model: ObservationDataset,
     *,
     time_origin: datetime | None,
     sampler: SamplerSpec,
 ) -> FittedModelResult | ModelFitFailure:
-    """Fit the SSM model to data.
+    """Fit the selected SSM to one observation history with the production particle sampler.
 
     Args:
-        selection: The pinned model, scoped by the question's outcome
-        data_for_model: Canonical observation rows (indicator, value, anchor_time, support metadata)
-        sampler: Fully resolved numerical controls
+        selection: Pinned scientific model scoped to the study question's outcome.
+        data_for_model: Recorded observations and their measurement definitions.
+        time_origin: Calendar instant of model day zero, or ``None`` for a
+            calendar-free history.
+        sampler: Fully resolved initialization, sampling, and diagnostic controls.
 
     Returns:
-        Fitted model results
-
-    NOTE: Uses NumPyro SSM implementation.
+        Fitted model and retained inference evidence on success, or a fit-failure
+        payload explaining an unsupported compilation or observation preflight.
     """
     logger.info(
         "Fitting model: rows=%d indicators=%d sampler=%s",
-        len(data_for_model),
-        data_for_model["indicator_id"].n_unique()
-        if "indicator_id" in data_for_model.columns
-        else 0,
+        sum(len(series.rows) for series in data_for_model.series.values()),
+        len(data_for_model.series),
         "marginal_particle_gibbs",
     )
     t0 = time.monotonic()

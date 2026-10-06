@@ -8,11 +8,12 @@ import polars as pl
 import pytest
 from pydantic import ValidationError
 
-from nof1_causal_lab.actions.contracts import EditModelRequest, SetQuestionRequest
+from nof1_causal_lab.actions.contracts import EditModelRequest, EditQuestionRequest
 from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.actions.temporal.messages import FailedExtractionChunk
 from nof1_causal_lab.artifacts.construct import replace_constructs
-from nof1_causal_lab.artifacts.identity import ConstructId
+from nof1_causal_lab.artifacts.data_ref import DataRef
+from nof1_causal_lab.artifacts.identity import ConstructId, GitOid
 from nof1_causal_lab.artifacts.likelihood import DeltaLawSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.question import QuestionSpec
@@ -30,7 +31,7 @@ from tests.helpers import make_model
 pytestmark = pytest.mark.contract
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid
+    from nof1_causal_lab.artifacts.identity import ArtifactId
 
 
 @pytest.fixture
@@ -50,7 +51,7 @@ def _outcome():
 
 
 def _rooted(workspace):
-    """The study state after set_question, asking about Perf."""
+    """The study state after edit_question, asking about Perf."""
     root = question_root(
         workspace, QuestionSpec(text="does stress hurt performance?", outcome=_outcome())
     )
@@ -94,11 +95,12 @@ def test_identification_records_positive_and_absent_queries():
     report = identify_model(StructuralSelection(_model(), _outcome()))
     assert report.estimable_treatments == (_model().constructs[0].id,)
     assert report.outcome == _outcome()
-    for outcome in (None, ConstructId("construct:not_defined_yet")):
-        question = QuestionSpec(text="Does stress affect performance?", outcome=outcome)
-        absent = identify_model(StructuralSelection.for_question(_model(), question))
-        assert absent.outcome is None
-        assert absent.estimable_treatments == ()
+    question = QuestionSpec(
+        text="Does stress affect performance?", outcome=ConstructId("construct:not_defined_yet")
+    )
+    absent = identify_model(StructuralSelection.for_question(_model(), question))
+    assert absent.outcome is None
+    assert absent.estimable_treatments == ()
 
 
 def test_identification_preserves_negative_findings(monkeypatch):
@@ -237,8 +239,13 @@ def test_model_write_cascades_without_parallel_scientific_catalogs(workspace):
     root = _rooted(workspace)
     effects = edit_and_check(
         workspace,
-        EditModelRequest.model_validate(
-            {"model": _model().model_dump(mode="json"), "expected_revision": None}
+        EditModelRequest[GitOid].model_validate(
+            {
+                "input": {
+                    "parent_ref": root.current["question"].revision,
+                    "model": _model().model_dump(mode="json"),
+                }
+            }
         ),
         root,
     )
@@ -262,12 +269,18 @@ def test_model_write_cascades_without_parallel_scientific_catalogs(workspace):
 
 def test_exact_measurement_preserves_execution_layout(workspace):
     model = _exact_measurement(_model())
+    root = _rooted(workspace)
     effects = edit_and_check(
         workspace,
-        EditModelRequest.model_validate(
-            {"model": model.model_dump(mode="json"), "expected_revision": None}
+        EditModelRequest[GitOid].model_validate(
+            {
+                "input": {
+                    "parent_ref": root.current["question"].revision,
+                    "model": model.model_dump(mode="json"),
+                }
+            }
         ),
-        _rooted(workspace),
+        root,
     )
     store = ArtifactStore(workspace)
     info = next(info for info in effects.effects.produced if info.artifact_id == "model")
@@ -281,14 +294,19 @@ def test_exact_measurement_preserves_execution_layout(workspace):
     assert plan.indicators[0].likelihood.law.family == "delta"
 
 
-def test_model_edit_reports_stale_extraction(workspace):
+def test_model_edit_is_independent_of_stale_extraction(workspace):
     store = ArtifactStore(workspace)
     model = _model()
     root = _rooted(workspace)
     effects = edit_and_check(
         workspace,
-        EditModelRequest.model_validate(
-            {"model": model.model_dump(mode="json"), "expected_revision": None}
+        EditModelRequest[GitOid].model_validate(
+            {
+                "input": {
+                    "parent_ref": root.current["question"].revision,
+                    "model": model.model_dump(mode="json"),
+                }
+            }
         ),
         root,
     )
@@ -325,14 +343,18 @@ def test_model_edit_reports_stale_extraction(workspace):
         state,
         Applied(result=DataPreparationResult(), effects=ActionEffects(produced=[panel])),
     )
-    state = state.with_artifacts([panel])
+    state = state.with_artifacts([panel]).revised(
+        data=DataRef[GitOid, int](revision=panel.revision, replicate_index=0)
+    )
     changed = model.revised(measurement_clock="2d")
     effects = edit_and_check(
         workspace,
-        EditModelRequest.model_validate(
+        EditModelRequest[GitOid].model_validate(
             {
-                "model": changed.model_dump(mode="json"),
-                "expected_revision": artifact_revision(workspace, "model", 1),
+                "input": {
+                    "parent_ref": artifact_revision(workspace, "model", 1),
+                    "model": changed.model_dump(mode="json"),
+                }
             }
         ),
         state,
@@ -342,10 +364,7 @@ def test_model_edit_reports_stale_extraction(workspace):
     _, _, payload = read_model_checks(
         workspace, state.with_artifacts(effects.effects.produced), action="edit_model"
     )
-    assert payload is not None
-    assert any(
-        issue.issue_type == "measurement_definitions" for issue in payload.data.dataset_issues
-    )
+    assert payload is None
     assert "panel" not in {item.artifact_id for item in effects.effects.produced}
 
 
@@ -360,8 +379,13 @@ def test_failed_check_publishes_no_state(workspace, monkeypatch):
     with pytest.raises(RuntimeError, match="identification failed"):
         edit_and_check(
             workspace,
-            EditModelRequest.model_validate(
-                {"model": _model().model_dump(mode="json"), "expected_revision": None}
+            EditModelRequest[GitOid].model_validate(
+                {
+                    "input": {
+                        "parent_ref": root.current["question"].revision,
+                        "model": _model().model_dump(mode="json"),
+                    }
+                }
             ),
             root,
         )
@@ -372,8 +396,13 @@ def test_invalid_model_rejected_before_any_write(workspace):
     with pytest.raises(ValidationError):
         edit_and_check(
             workspace,
-            EditModelRequest.model_validate(
-                {"model": {"constructs": [{"id": "construct:invalid"}]}, "expected_revision": None}
+            EditModelRequest[GitOid].model_validate(
+                {
+                    "input": {
+                        "parent_ref": GitOid("0" * 40),
+                        "model": {"constructs": [{"id": "construct:invalid"}]},
+                    }
+                }
             ),
             StudyState(),
         )
@@ -394,4 +423,4 @@ def test_failed_tree_write_publishes_no_artifact(workspace, monkeypatch):
 
 def test_question_write_requires_text():
     with pytest.raises(ValidationError):
-        SetQuestionRequest.model_validate({"question": {"text": "   "}})
+        EditQuestionRequest.model_validate({"question": {"text": "   "}})

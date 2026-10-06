@@ -13,19 +13,14 @@ from nof1_causal_lab.artifacts.validation_report import (
     ValidationReportArtifact,
 )
 from nof1_causal_lab.models.ssm.inference.convergence import convergence_failures
-from nof1_causal_lab.study.records import (
-    ActionMessage,
-    DataPreparationResult,
-    ModelFitResult,
-    ModelSimulationResult,
-)
+from nof1_causal_lab.study.records import ActionMessage, DataPreparationResult
 
 if TYPE_CHECKING:
     from datetime import datetime
 
     from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
-    from nof1_causal_lab.artifacts.posterior import InferenceReport
-    from nof1_causal_lab.artifacts.simulation import SimulationReport
+    from nof1_causal_lab.artifacts.posterior import InferenceReport, ModelFitResult
+    from nof1_causal_lab.artifacts.simulation import ModelSimulationResult, SimulationReport
 
 
 _QUESTION_LABELS = {
@@ -104,8 +99,6 @@ def completion_messages(
     if isinstance(result, DataPreparationResult):
         if any(worker.status == "failed" for worker in result.workers):
             labels["EXTRACTION_PARTIAL"] = "warn"
-        if result.ingestion_reused:
-            labels["INGESTION_REUSED"] = "info"
         if result.extraction_reused:
             labels["EXTRACTION_REUSED"] = "info"
     if simulation is not None:

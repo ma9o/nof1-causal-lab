@@ -1,5 +1,4 @@
-import type { FactSource } from "@nof1-causal-lab/api-types";
-import { Check, CircleDashed, ClockAlert, TriangleAlert, X } from "lucide-react";
+import { Check, CircleDashed, TriangleAlert, X } from "lucide-react";
 import type { ReactNode } from "react";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
@@ -10,11 +9,6 @@ const STATUS_PRESENTATION = {
   failed: { icon: X, className: "text-destructive", label: "Failed" },
   warning: { icon: TriangleAlert, className: "text-warning-foreground", label: "Warning" },
   not_evaluated: { icon: CircleDashed, className: "text-muted-foreground", label: "Not evaluated" },
-  stale: {
-    icon: ClockAlert,
-    className: "text-warning-foreground",
-    label: "Stale: these results do not match the selected model.",
-  },
 };
 
 export function StatusIcon({
@@ -41,15 +35,13 @@ export function StatusIcon({
   );
 }
 
-/** A finding owns its freshness cue; source identities stay out of headings. */
+/** A titled group of recorded findings. */
 export function Section({
   title,
-  source,
   wide = false,
   children,
 }: {
   title: string;
-  source?: FactSource;
   wide?: boolean;
   children: ReactNode;
 }) {
@@ -61,7 +53,6 @@ export function Section({
     >
       <div className="flex flex-none items-center justify-between gap-2">
         <span className="text-xs font-semibold">{title}</span>
-        {source?.validity === "stale" && <StatusIcon status="stale" />}
       </div>
       <div className="flex min-h-0 flex-col gap-2 text-[11.5px]">{children}</div>
     </section>

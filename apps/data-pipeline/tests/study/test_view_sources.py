@@ -8,19 +8,19 @@ from pydantic import TypeAdapter
 
 from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.artifacts.construct import replace_constructs
-from nof1_causal_lab.artifacts.data_preparation import FilePreparedDataMetadata
+from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata
+from nof1_causal_lab.artifacts.data_ref import DataRef
+from nof1_causal_lab.artifacts.identity import GitOid
 from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec, ObservationLawSpec
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.posterior import ModelFitResult
 from nof1_causal_lab.study.history import StudyRepository
-from nof1_causal_lab.study.records import Applied, DataPreparationResult, ModelFitResult
+from nof1_causal_lab.study.records import Applied, DataPreparationResult
 from nof1_causal_lab.study.snapshots import ModelReader
 from nof1_causal_lab.study.store import ArtifactStore
 from tests.action_fixtures import applied_record
 from tests.git_fixtures import artifact_revision
 from tests.helpers import make_model, write_question
 from tests.model_fixtures import x_y_model
-
-FIXTURE = Path(__file__).resolve().parents[4] / "data/DEMO/fixture/artifacts"
 
 
 @pytest.mark.contract
@@ -86,7 +86,7 @@ def test_joint_reports_and_raw_draws_use_production_labels_without_compiling(mon
     )
     result = ModelFitResult(
         model=GitRef(workspace_id="LABELS", revision=prior.revision, path="model.json"),
-        panel=GitRef(workspace_id="LABELS", revision=panel.revision, path="panel.parquet"),
+        data=DataRef[GitOid, int](revision=panel.revision, replicate_index=0),
         evidence=InferenceEvidence(
             distribution=identity, engine=None, time_origin=None, duration_seconds=0
         ),
@@ -114,19 +114,17 @@ def test_joint_reports_and_raw_draws_use_production_labels_without_compiling(mon
     reader = ModelReader("LABELS", at=journal.head())
     report = reader.inference_report
     assert report is not None
-    marginals = report.value.core.posterior_marginals
+    marginals = report.core.posterior_marginals
     assert marginals is not None
     assert {row.parameter for row in marginals} == set(labels.values())
-    assert report.value.core.inference_diagnostics is None
-    assert report.value.core.engine.kind == "not_evaluated"
-    assert report.value.core.engine.reason == "ARCHIVED_ENGINE_NOT_RETAINED"
-    assert report.source.pointer == "/attempt/outcome/result/evidence"
+    assert report.core.inference_diagnostics is None
+    assert report.core.engine.kind == "not_evaluated"
+    assert report.core.engine.reason == "ARCHIVED_ENGINE_NOT_RETAINED"
     columns = reader.parameter_draws()
     assert columns.kind == "available"
     assert {column.label for column in columns.value} == set(labels.values())
     assert all(
-        len(column.values) == report.value.core.inference_metadata.n_samples
-        for column in columns.value
+        len(column.values) == report.core.inference_metadata.n_samples for column in columns.value
     )
     assert set(reader.state.current) == {"question", "model", "panel"}
 
@@ -154,11 +152,19 @@ def test_joint_reports_and_raw_draws_use_production_labels_without_compiling(mon
 def test_likelihood_plot_requires_its_pinned_panel(
     monkeypatch, tmp_path, family, link, observed, observation_law_payload
 ):
+    from nof1_causal_lab.actions.contracts import FitRequest
+    from nof1_causal_lab.actions.io import FitInput
     from nof1_causal_lab.artifacts.data_preparation import (
         DataPreparationSpec,
         DataVariableSpec,
         FileSourceRef,
         SemanticExtractionSpec,
+    )
+    from nof1_causal_lab.artifacts.identification import IdentificationReport
+    from nof1_causal_lab.artifacts.model_checks import ModelCheckReport, QuestionCheckReport
+    from nof1_causal_lab.artifacts.validation_report import (
+        DataProfileArtifact,
+        ValidationReportArtifact,
     )
     from nof1_causal_lab.utils import data as data_module
 
@@ -198,9 +204,13 @@ def test_likelihood_plot_requires_its_pinned_panel(
             ),
         ),
     )
-    metadata = FilePreparedDataMetadata(
+    metadata = PreparedDataMetadata(
         source=FileSourceRef(files=("observations.csv",)), preparation=preparation, time_origin=None
     )
+    from datetime import datetime, timedelta
+
+    anchors = [datetime(2024, 1, 2) + timedelta(days=i) for i in range(len(observed))]
+    starts = [anchor - timedelta(days=1) for anchor in anchors]
     panel = store.write_artifact(
         "panel",
         derived_from={},
@@ -211,12 +221,12 @@ def test_likelihood_plot_requires_its_pinned_panel(
                 {
                     "indicator_id": "indicator:8ab0e6245f029d222a9a",
                     "value": observed,
-                    "anchor_time": None,
-                    "support_start": None,
-                    "support_end": None,
-                    "support_kind": "point",
-                    "summary_operator": "last",
-                    "anchor_policy": "support_start",
+                    "anchor_time": anchors,
+                    "support_start": starts,
+                    "support_end": anchors,
+                    "support_kind": metadata.variables[0].support_kind.value,
+                    "summary_operator": metadata.variables[0].summary_operator.value,
+                    "anchor_policy": metadata.variables[0].anchor_policy.value,
                     "observation_window": "1d",
                 }
             )
@@ -228,19 +238,43 @@ def test_likelihood_plot_requires_its_pinned_panel(
         produced_by=None,
         json_files={"model.json": candidate.model_dump(mode="json")},
     )
+    question = write_question(store)
+    selected = DataRef[GitOid, int](revision=panel.revision, replicate_index=0)
     StudyRepository("PLOTS").append(
         applied_record(
             Applied(
                 result=None,
                 effects=ActionEffects(
                     produced=[
-                        write_question(store),
+                        question,
                         model.revised(
                             derived_from={"panel": artifact_revision("PLOTS", "panel", 1)}
                         ),
                         panel,
-                    ]
+                    ],
+                    reports={
+                        "checks": store.write_report(
+                            ModelCheckReport(
+                                specification=(),
+                                question=QuestionCheckReport(
+                                    question_revision=question.revision, data=selected, findings=()
+                                ),
+                            )
+                        ),
+                        "identification": store.write_report(IdentificationReport(outcome=None)),
+                        "validation": store.write_report(
+                            ValidationReportArtifact(
+                                data=DataProfileArtifact(indicators={}, dataset_issues=()),
+                                preflight=(),
+                            )
+                        ),
+                    },
                 ),
+            ),
+            request=FitRequest[GitOid](
+                input=FitInput[GitOid](
+                    model_ref=model.revision, data_ref=panel.revision, replicate_index=0
+                )
             ),
             seq=1,
             ts="2026-09-14T12:00:00Z",
@@ -252,6 +286,7 @@ def test_likelihood_plot_requires_its_pinned_panel(
     assert view is not None
     diagnostic = view.likelihood_diagnostics[indicator.observation.id]
     assert sum(histogram_bin.count for histogram_bin in diagnostic) == len(observed)
+    anchors, starts = anchors[:1], starts[:1]
     current_panel = store.write_artifact(
         "panel",
         derived_from={},
@@ -261,13 +296,13 @@ def test_likelihood_plot_requires_its_pinned_panel(
             "panel.parquet": pl.DataFrame(
                 {
                     "indicator_id": "indicator:8ab0e6245f029d222a9a",
-                    "value": [100.0],
-                    "anchor_time": None,
-                    "support_start": None,
-                    "support_end": None,
-                    "support_kind": "point",
-                    "summary_operator": "last",
-                    "anchor_policy": "support_start",
+                    "value": [1.0 if family == "bernoulli" else 100.0],
+                    "anchor_time": anchors,
+                    "support_start": starts,
+                    "support_end": anchors,
+                    "support_kind": metadata.variables[0].support_kind.value,
+                    "summary_operator": metadata.variables[0].summary_operator.value,
+                    "anchor_policy": metadata.variables[0].anchor_policy.value,
                     "observation_window": "1d",
                 }
             )
@@ -286,7 +321,7 @@ def test_likelihood_plot_requires_its_pinned_panel(
     revised = ModelReader("PLOTS", at=StudyRepository("PLOTS").head()).snapshot()
     assert revised is not None
     assert revised.likelihood_diagnostics != view.likelihood_diagnostics
-    assert sum(item.count for item in revised.likelihood_diagnostics[indicator.observation.id]) == 1
+    assert revised.likelihood_diagnostics == {}
 
 
 @pytest.mark.inference(concern="sampling")
@@ -296,7 +331,7 @@ def test_model_view_reads_canonical_science_without_a_compiled_plan(monkeypatch,
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path))
     store = ArtifactStore("DEFINITION")
-    model = ModelSpec.model_validate_json((FIXTURE / "model.json").read_text())
+    model = x_y_model()
     info = store.write_artifact(
         "model",
         derived_from={},

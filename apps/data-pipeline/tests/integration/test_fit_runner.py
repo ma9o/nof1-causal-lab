@@ -8,7 +8,9 @@ import numpy as np
 import pytest
 
 from nof1_causal_lab.actions.contracts import FitRequest
+from nof1_causal_lab.actions.io import FitInput
 from nof1_causal_lab.actions.runners import run_action_locally
+from nof1_causal_lab.artifacts.identity import GitOid
 from nof1_causal_lab.study.state import apply_effects
 from nof1_causal_lab.study.store import read_model
 from tests.git_fixtures import artifact_revisions
@@ -26,7 +28,7 @@ from tests.model_fixtures import stress_sleep_model
 pytestmark = pytest.mark.contract
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid
+    from nof1_causal_lab.artifacts.identity import ArtifactId
     from nof1_causal_lab.study.store import ArtifactStore
 
 
@@ -71,7 +73,11 @@ def test_inference_advances_model_and_uses_the_selected_input(
     state = fx.state_from(original, panel)
     revisions = [original.revision]
     # Refit the selected authored revision; conditioned joint laws cannot be fit inputs.
-    request = FitRequest(model_revision=original.revision, panel_revision=panel.revision)
+    request = FitRequest[GitOid](
+        input=FitInput[GitOid](
+            replicate_index=0, model_ref=original.revision, data_ref=panel.revision
+        )
+    )
     question = write_question(artifact_store)
     pins: dict[ArtifactId, GitOid] = {
         "model": original.revision,
@@ -87,12 +93,13 @@ def test_inference_advances_model_and_uses_the_selected_input(
         assert info.derived_from == pins
         assert {
             "model": applied.result.model.revision,
-            "panel": applied.result.panel.revision,
+            "panel": applied.result.data.revision,
             "question": question.revision,
         } == info.derived_from
         from nof1_causal_lab.actions.fit import read_inference_report
 
         report = read_inference_report(artifact_store, info.revision, applied.result.evidence)
+        assert report.core.inference_diagnostics is not None
         assert report.core.inference_diagnostics.num_chains == 1
         assert report.core.inference_diagnostics.num_samples == 4
         assert report.core.inference_metadata.n_samples == 4

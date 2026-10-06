@@ -27,7 +27,7 @@ function Swatch({ color, dashed = false }: { color: string; dashed?: boolean }) 
 /** A law's recorded curves on one axis, with the posterior interval under them after a fit. */
 export function LawChart({ curve, caption }: { curve: LawCurve; caption?: ReactNode }) {
   const posterior = curve.posteriors.length === 1 ? curve.posteriors[0] : undefined;
-  const tone = curve.stale ? CHART_COLORS.prior : CHART_COLORS.posterior;
+  const tone = CHART_COLORS.posterior;
   return (
     <figure className="m-0 flex min-w-0 flex-col gap-1">
       <figcaption className="flex items-baseline justify-between gap-2 text-[11px]">
@@ -84,7 +84,7 @@ export function LawChart({ curve, caption }: { curve: LawCurve; caption?: ReactN
         {curve.posteriors.length > 0 && (
           <span className="inline-flex items-center gap-1">
             <Swatch color={cssColor(tone)} />
-            posterior histogram{curve.stale ? " · earlier panel" : ""}
+            posterior histogram
           </span>
         )}
         {posterior && <span>mean · {formatPosteriorIntervalLabel(posterior)}</span>}

@@ -1,4 +1,4 @@
-"""Temporal workflows that extract measurements from ingested raw data."""
+"""Temporal workflows that extract measurements from ready-to-use source tables."""
 
 from __future__ import annotations
 
@@ -59,9 +59,12 @@ _CHUNK_WORKFLOW_RETRY = RetryPolicy(
 
 @workflow.defn
 class ExtractionChunkWorkflow:
+    """Retryable extraction of one measurement chunk, with reusable output checked first."""
+
     @workflow.run
     @execution_failure_handler
     async def run(self, workflow_input: ExtractionChunkWorkflowInput) -> CompletedExtractionChunk:
+        """Reuse or generate a chunk's semantic output, then validate and retain its observations."""
         attempt = workflow.info().attempt
         chunk = workflow_input.chunk
         subroutine_id = f"measurement-chunk-{chunk.worker_id:06d}-attempt-{attempt:03d}"
@@ -76,7 +79,6 @@ class ExtractionChunkWorkflow:
                         workspace_id=workflow_input.workspace_id,
                         run_id=workflow_input.run_id,
                         subroutine_id=subroutine_id,
-                        context_kind="measurement_extraction",
                         context_ref=chunk.spec_ref,
                     ),
                     llm=workflow_input.llm,
@@ -99,7 +101,6 @@ class ExtractionChunkWorkflow:
                     "run_id": workflow_input.run_id,
                     "worker_id": chunk.worker_id,
                     "attempt": attempt,
-                    "context_kind": "measurement_extraction",
                     "subroutine_id": subroutine_id,
                 },
             )
@@ -130,18 +131,24 @@ class ExtractionChunkWorkflow:
 
 @workflow.defn
 class MeasurementsWorkflow:
+    """Coordinate extraction's chunk fan-out, progress, retries, and result aggregation.
+
+    These responsibilities need a dedicated workflow around the generic LLM subroutine.
+    """
+
     @workflow.run
     @execution_failure_handler
     async def run(
         self, workflow_input: MeasurementsWorkflowInput
     ) -> Applied[DataPreparationResult]:
+        """Run extraction chunks with bounded concurrency and publish the assembled panel."""
         chunk_results: list[ExtractionChunkResult] = []
         attempt_id = workflow_input.attempt_id
 
         async def emit(event: ProgressEvent) -> None:
             await emit_progress(workflow_input.workspace_id, event)
 
-        await emit(StepEvent(attempt_id=attempt_id, step="extraction", status="running"))
+        await emit(StepEvent(attempt_id=attempt_id, status="running"))
         try:
             plan: MeasurementsPlan = await workflow.execute_activity(
                 "plan_measurements_activity",
@@ -278,11 +285,10 @@ class MeasurementsWorkflow:
             await emit(
                 StepEvent(
                     attempt_id=attempt_id,
-                    step="extraction",
                     status="failed",
                     error=StepError(type=failure.error_type, message=failure.error_message),
                 )
             )
             raise
-        await emit(StepEvent(attempt_id=attempt_id, step="extraction", status="completed"))
+        await emit(StepEvent(attempt_id=attempt_id, status="completed"))
         return applied

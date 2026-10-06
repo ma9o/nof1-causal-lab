@@ -110,6 +110,27 @@ def stress_sleep_model() -> ModelSpec:
     return load_model_fixture("common/stress_sleep_model.json")
 
 
+def stress_sleep_causal_model() -> ModelSpec:
+    """The two measured states with Sleep as the question's downstream outcome."""
+    from nof1_causal_lab.artifacts.identity import MechanismId
+
+    model = stress_sleep_model()
+    stress = construct_named(model, "Stress")
+    return model.revised(
+        edges=(
+            model.edges[0].revised(
+                effect=construct_named(model, "Sleep"),
+                mechanisms=(
+                    DriftMechanismSpec(
+                        id=MechanismId("mechanism:stress_to_sleep"),
+                        expression=coefficient(0.1, role="weight") * state(stress.id),
+                    ),
+                ),
+            ),
+        )
+    )
+
+
 def one_state_gaussian_model() -> ModelSpec:
     return load_model_fixture("common/one_state_gaussian_model.json")
 

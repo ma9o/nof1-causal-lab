@@ -97,6 +97,7 @@ def test_runner_rejects_invalid_initial_chains_before_any_step(monkeypatch, inva
         target_accept=0.35,
         exact_constraints=None,
         initial_param_step_size=0.01,
+        amala_delta_init=0.1,
         min_scale=1e-6,
         max_scale=1.0,
     )
@@ -112,7 +113,6 @@ def test_runner_rejects_invalid_initial_chains_before_any_step(monkeypatch, inva
             seed=0,
             adaptation_rate=0.1,
             init_scale=0.0,
-            latent_delta=0.2,
             retain_latent_paths=True,
             init_positions=jnp.asarray(positions),
             initial_latent_trajectories=jnp.asarray(paths),

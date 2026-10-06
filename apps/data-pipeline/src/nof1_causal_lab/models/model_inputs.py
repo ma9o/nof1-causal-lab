@@ -5,7 +5,6 @@ from __future__ import annotations
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.json_types import JsonObject, JsonValue
 
@@ -40,6 +39,7 @@ def indicator_rows(model: ModelSpec) -> list[JsonObject]:
 
 
 def observation_input(model: ModelSpec) -> JsonObject:
+    """Project the model clock and observation definitions used to fingerprint measurement inputs."""
     return {
         "model_clock": model.measurement_clock.source
         if model.measurement_clock is not None
@@ -49,6 +49,7 @@ def observation_input(model: ModelSpec) -> JsonObject:
 
 
 def identification_input(model: ModelSpec) -> JsonObject:
+    """Project graph and observation inputs that determine causal identification findings."""
     return {"graph": graph_input(model), "observations": observation_input(model)}
 
 
@@ -95,36 +96,3 @@ def input_fingerprints(model: ModelSpec) -> dict[str, str]:
         purpose: scientific_id("input", ["additive-model-v1", value])
         for purpose, value in values.items()
     }
-
-
-def data_binding_issues(model: ModelSpec, metadata: PreparedDataMetadata) -> list[str]:
-    """Compare scientific observation semantics, independently of generating-model ancestry."""
-    variables = {item.id: item for item in metadata.variables}
-    issues = []
-    for indicator in model.indicators:
-        variable = variables.get(indicator.observation.id)
-        if variable is None:
-            issues.append(f"No prepared variable for model indicator {indicator.observation.id}")
-            continue
-        for field, expected, actual in (
-            (
-                "measurement_dtype",
-                indicator.observation.measurement_dtype,
-                variable.measurement_dtype,
-            ),
-            ("aggregation", indicator.observation.aggregation, variable.aggregation),
-            ("ordinal_levels", indicator.observation.ordinal_levels, variable.ordinal_levels),
-            (
-                "categorical_levels",
-                indicator.observation.categorical_levels,
-                variable.categorical_levels,
-            ),
-        ):
-            if expected != actual:
-                issues.append(f"Observation {indicator.observation.id} has incompatible {field}")
-        window = indicator.observation.observation_window or model.measurement_clock
-        if window is None or window.seconds != variable.observation_window.seconds:
-            issues.append(
-                f"Observation {indicator.observation.id} has an incompatible observation window"
-            )
-    return issues

@@ -80,7 +80,13 @@ collectReferences(schema.paths);
 collectReferences(schema["x-contract-roots"]);
 const outputs = new Map<string, string>();
 for (const name of Object.keys(definitions)) {
-  if (!live.has(name) || templates.has(name) || name.endsWith("-Input")) continue;
+  if (
+    !live.has(name) ||
+    templates.has(name) ||
+    name.endsWith("-Input") ||
+    definitions[name]["x-typescript-mode"] === "validation"
+  )
+    continue;
   const canonical = name.replace(/-Output$/, "");
   if (definitions[name]["x-python-module"] && !definitions[name]["x-typescript-type"]) {
     outputs.set(name, canonical);
@@ -176,6 +182,19 @@ const ast = await openapiTS(schema, {
   inject: 'import type * as Domain from "./models";',
   transform(value) {
     if (typeof value.tsType === "string") return operand(value.tsType);
+    // Named map aliases are schema roots, so transformProperty never sees them.
+    const keyRef = (value.propertyNames as { $ref?: string } | undefined)?.$ref;
+    const valueRef = (value.additionalProperties as { $ref?: string } | undefined)?.$ref;
+    if (keyRef && valueRef) {
+      return ts.factory.createTypeReferenceNode("Readonly", [
+        ts.factory.createTypeReferenceNode("Partial", [
+          ts.factory.createTypeReferenceNode("Record", [
+            component(refTail(keyRef)),
+            component(refTail(valueRef)),
+          ]),
+        ]),
+      ]);
+    }
     if (
       value.type === "string" &&
       (value.format === "binary" || value.contentMediaType === "application/octet-stream")
@@ -338,7 +357,10 @@ const operations = ast.map((node) =>
     }
     const name = referenceName(child);
     if (name && jsonAliases.has(name)) return operand(`Domain.${jsonAliases.get(name)}`);
-    const application = name && !name.endsWith("-Input") && definitions[name]["x-typescript-type"];
+    const application =
+      name &&
+      definitions[name]["x-typescript-mode"] === "serialization" &&
+      definitions[name]["x-typescript-type"];
     return application ? operand(application, true) : child;
   }),
 );

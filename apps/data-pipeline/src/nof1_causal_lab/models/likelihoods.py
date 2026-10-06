@@ -34,6 +34,7 @@ if TYPE_CHECKING:
 
 
 def function(name: ExpressionFunction, *arguments: Expression) -> CallExpression:
+    """Construct a checked symbolic call to one of the supported likelihood expression functions."""
     return CallExpression(function=name, arguments=arguments)
 
 
@@ -67,10 +68,12 @@ class LikelihoodAnalysis:
     auxiliary: tuple[CoefficientExpression, ...]
 
     def __post_init__(self) -> None:
+        """Own immutable copies of collection fields after dataclass construction."""
         freeze_fields(self)
 
     @property
     def operands(self) -> tuple[CoefficientExpression, ...]:
+        """Intercept, loadings, and auxiliary likelihood coefficients in execution order."""
         return (self.intercept, *self.loadings.values(), *self.auxiliary)
 
 
@@ -133,6 +136,7 @@ def _response(
 
 
 def likelihood_terms(law: ObservationLawSpec) -> LikelihoodAnalysis:
+    """Decompose a measurement law into its response link, affine predictor, and auxiliary terms."""
     auxiliary: list[CoefficientExpression] = []
     family = law.family
     match law.distribution:

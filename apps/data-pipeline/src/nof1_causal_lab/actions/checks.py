@@ -9,8 +9,7 @@ from nof1_causal_lab.artifacts.checks import Evaluated, NotEvaluated, Specificat
 if TYPE_CHECKING:
     from datetime import datetime
 
-    import polars as pl
-
+    from nof1_causal_lab.artifacts.observation_data import ObservationDataset
     from nof1_causal_lab.models.ssm.compile.inputs import (
         FitCompilationResult,
         ModelCompilationResult,
@@ -81,7 +80,7 @@ def check_specification(
 
 
 def check_model_data(
-    inputs: FitCompilationResult, panel: pl.DataFrame, *, time_origin: datetime | None
+    inputs: FitCompilationResult, panel: ObservationDataset, *, time_origin: datetime | None
 ) -> tuple[SpecificationAssessment, ...]:
     """Evaluate fitting input compatibility without running a sampler or simulator."""
     from nof1_causal_lab.models.ssm.compile.inputs import IncompleteModel

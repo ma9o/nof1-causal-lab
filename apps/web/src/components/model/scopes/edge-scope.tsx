@@ -8,7 +8,7 @@ import { LawSections } from "./law-sections";
 export function EdgeScope({ context, id }: { context: ScopeContext; id: EdgeId }) {
   const edge = context.entities.edgeById.get(id);
   if (!edge) return null;
-  const disposition = context.model.dispositions?.value.find((item) => item.target.id === id);
+  const disposition = context.model.dispositions?.find((item) => item.target.id === id);
   return (
     <>
       <Section title="Relationship">
@@ -39,12 +39,7 @@ export function EdgeScope({ context, id }: { context: ScopeContext; id: EdgeId }
       </Section>
       <LawSections context={context} uses={ownLawUses(edge)} />
       {disposition && disposition.disposition !== "retained_edge" && (
-        <Section
-          title={dispositionLabel(disposition.disposition)}
-          {...(context.model.dispositions?.source === undefined
-            ? {}
-            : { source: context.model.dispositions.source })}
-        >
+        <Section title={dispositionLabel(disposition.disposition)}>
           <Hint issue>{disposition.reason}</Hint>
         </Section>
       )}

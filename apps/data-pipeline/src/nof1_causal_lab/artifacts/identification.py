@@ -59,6 +59,7 @@ class IdentificationReport(Value):
     )
 
     def validate_model(self, model: ModelSpec) -> None:
+        """Reject identification findings that refer to constructs absent from the supplied model."""
         owners = set(self.treatments)
         if self.outcome is not None:
             owners.add(self.outcome)
@@ -74,6 +75,7 @@ class IdentificationReport(Value):
 
     @property
     def estimable_treatments(self) -> tuple[ConstructId, ...]:
+        """Treatment construct IDs for which the report established identification."""
         return tuple(
             (
                 identity
@@ -84,6 +86,7 @@ class IdentificationReport(Value):
 
     @property
     def non_identifiable(self) -> Mapping[ConstructId, NonIdentifiableTreatmentStatus]:
+        """Unidentified treatment findings keyed by their treatment construct IDs."""
         return {
             identity: finding
             for identity, finding in self.treatments.items()

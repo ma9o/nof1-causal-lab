@@ -7,34 +7,35 @@ polars, or jax.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import Annotated, Literal, TypedDict
 from uuid import UUID, uuid4
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from nof1_causal_lab.actions.contracts import (
+    DataDiffRequest,
     EditModelRequest,
+    EditQuestionRequest,
     FitRequest,
+    ModelDiffRequest,
     PrepareDataRequest,
     ScientificActionRequest,
-    SetQuestionRequest,
     SimulateRequest,
 )
+from nof1_causal_lab.actions.effects import ActionReportName
+from nof1_causal_lab.actions.io import PrepareDataInput
 from nof1_causal_lab.actions.progress_contracts import ProgressEvent
 from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.artifacts.data_preparation import (
+    CompletedExtractionWorker,
+    FailedExtractionChunk,
     FilePreparationSpec,
     FileSourceRef,
 )
-from nof1_causal_lab.artifacts.identification import IdentificationReport
 from nof1_causal_lab.artifacts.identity import (
     ArtifactId,
     GitOid,
-)
-from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
-from nof1_causal_lab.artifacts.validation_report import (
-    DataProfileArtifact,
-    ValidationReportArtifact,
 )
 from nof1_causal_lab.json_types import JsonObject
 from nof1_causal_lab.llm_specs import (
@@ -42,26 +43,17 @@ from nof1_causal_lab.llm_specs import (
     HarnessLLMSpec,
     LLMProfileSpec,
 )
-from nof1_causal_lab.study.records import (
-    Applied,
-    AttemptRecord,
-    CompletedExtractionWorker,
-    FailedExtractionChunk,
-)
+from nof1_causal_lab.study.records import ActionMessage, Applied, AttemptRecord
 from nof1_causal_lab.study.state import (
     StudyState,
 )
-from nof1_causal_lab.study.view_models import DataDiffRequest, ModelDiffRequest
 from nof1_causal_lab.workers.context import MeasurementContext
 from nof1_causal_lab.workers.schemas import ExtractionRow, WorkerOutput
 
-LLMSubroutineContextKind = Literal[
-    "measurement_extraction",
-    "raw_data_ingestion",
-]
-
 
 class StudyInit(BaseModel):
+    """Workspace identity and starting sequence number for a study workflow."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     workspace_id: str
@@ -70,41 +62,54 @@ class StudyInit(BaseModel):
 
 
 class ReadInputsInput(BaseModel):
+    """Pinned action request whose input state or prior saved result must be read."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     workspace_id: str
-    request: ScientificActionRequest | DataDiffRequest | ModelDiffRequest
+    request: ScientificActionRequest | DataDiffRequest[GitOid] | ModelDiffRequest[GitOid]
 
 
 class ActionRequest(BaseModel):
+    """Submitted call arguments paired with the attempt identity used for progress tracking."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
-    request: ScientificActionRequest | DataDiffRequest | ModelDiffRequest
+    request: ScientificActionRequest | DataDiffRequest[GitOid] | ModelDiffRequest[GitOid]
     attempt_id: UUID = Field(default_factory=uuid4)
 
 
 class ActionInput(BaseModel):
+    """Resolved scientific request and input state handed to an execution activity."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     workspace_id: str
     request: Annotated[
-        FitRequest | SimulateRequest | PrepareDataRequest | DataDiffRequest | ModelDiffRequest,
+        FitRequest[GitOid]
+        | SimulateRequest[GitOid]
+        | DataDiffRequest[GitOid]
+        | ModelDiffRequest[GitOid],
         Field(discriminator="action"),
     ]
     state: StudyState
 
 
 class MeasurementsWorkflowInput(BaseModel):
+    """Preparation workflow inputs pinned to a raw table revision and study attempt."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     workspace_id: str
     seq: int
     attempt_id: UUID
     raw_data_revision: GitOid
-    preparation: FilePreparationSpec
+    preparation: PrepareDataInput[GitOid, FileSourceRef]
 
 
 class ProgressEventInput(BaseModel):
+    """Progress event paired with the workspace in which it must be persisted."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     workspace_id: str
@@ -112,19 +117,14 @@ class ProgressEventInput(BaseModel):
 
 
 class LLMToolSpec(BaseModel):
+    """An LLM-visible tool schema and its role in completing a subroutine."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     name: str
     description: str
     parameters: JsonObject
     kind: Literal["read_only", "checkpoint", "terminal"] = "terminal"
-    executor: Literal[
-        "measurement_validation",
-        "raw_data_list_files",
-        "raw_data_read_file_sample",
-        "raw_data_execute_python",
-        "raw_data_submit_table",
-    ] = "measurement_validation"
 
 
 class LLMSubroutineRef(BaseModel):
@@ -135,11 +135,12 @@ class LLMSubroutineRef(BaseModel):
     workspace_id: str
     run_id: str
     subroutine_id: str
-    context_kind: LLMSubroutineContextKind
     context_ref: str
 
 
 class LLMSubroutineInput(BaseModel):
+    """Subroutine context, model profile, and tool-turn budget for an LLM workflow."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     subroutine: LLMSubroutineRef
@@ -148,6 +149,8 @@ class LLMSubroutineInput(BaseModel):
 
 
 class LLMSubroutineStart(BaseModel):
+    """Initial conversation and storage locations allocated for one LLM subroutine."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     conversation_ref: str
@@ -163,6 +166,8 @@ class LLMSubroutineStart(BaseModel):
 
 
 class AppendLLMUserMessageInput(BaseModel):
+    """A context prompt index and the conversation to which it should be appended."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     subroutine: LLMSubroutineRef
@@ -171,12 +176,16 @@ class AppendLLMUserMessageInput(BaseModel):
 
 
 class AppendLLMUserMessageResult(BaseModel):
+    """Reference to the persisted conversation after adding a user prompt."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     conversation_ref: str
 
 
 class AppendLLMRepairMessageInput(BaseModel):
+    """Tool failure feedback and the destination for a repaired conversation."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     subroutine: LLMSubroutineRef
@@ -187,12 +196,16 @@ class AppendLLMRepairMessageInput(BaseModel):
 
 
 class AppendLLMRepairMessageResult(BaseModel):
+    """Reference to the persisted conversation containing repair feedback."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     conversation_ref: str
 
 
 class LLMToolExecutionInput(BaseModel):
+    """Stored assistant response, allowed tools, and destinations for execution results."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     subroutine: LLMSubroutineRef
@@ -204,6 +217,8 @@ class LLMToolExecutionInput(BaseModel):
 
 
 class LLMToolExecutionResult(BaseModel):
+    """Conversation after tool execution and any result accepted by a terminal tool."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     conversation_ref: str
@@ -213,6 +228,8 @@ class LLMToolExecutionResult(BaseModel):
 
 
 class HarnessTurnInput(BaseModel):
+    """Harness session inputs and Temporal routing identities for one model turn."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     workflow_id: str
@@ -228,6 +245,8 @@ class HarnessTurnInput(BaseModel):
 
 
 class HarnessToolRequest(BaseModel):
+    """Harness tool invocation with the request and response paths used for rendezvous."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     request_id: str
@@ -241,6 +260,8 @@ class HarnessToolRequest(BaseModel):
 
 
 class HarnessToolExecutionResult(BaseModel):
+    """Correlated harness tool response and any successfully retained scientific output."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     request_id: str
@@ -251,6 +272,8 @@ class HarnessToolExecutionResult(BaseModel):
 
 
 class HarnessTurnResult(BaseModel):
+    """Saved harness session and trace, with any terminal output produced by the turn."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     harness_state_ref: str
@@ -261,6 +284,8 @@ class HarnessTurnResult(BaseModel):
 
 
 class LLMSubroutineResult(BaseModel):
+    """Completed extraction output and conversation provenance, including model call counts."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     result_ref: str
@@ -271,6 +296,8 @@ class LLMSubroutineResult(BaseModel):
 
 
 class LLMSubroutineTraceInput(BaseModel):
+    """Conversation and call-trace references to assemble into a subroutine trace."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     subroutine: LLMSubroutineRef
@@ -280,40 +307,25 @@ class LLMSubroutineTraceInput(BaseModel):
 
 
 class LLMSubroutineTraceResult(BaseModel):
+    """Reference to the assembled and persisted subroutine trace."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     trace_ref: str
 
 
-class IngestionWorkflowInput(BaseModel):
+class ReadSourceDataInput(BaseModel):
+    """Captured source files to read into a workspace's raw table artifact."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     workspace_id: str
-    seq: int
-    attempt_id: UUID
     source: FileSourceRef
 
 
-class IngestionPlan(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    workspace_id: str
-    run_id: str
-    context_ref: str
-    llm: LLMProfileSpec
-    max_tool_turns: int
-    cached_result_ref: str | None = None
-
-
-class IngestionFinalizeInput(BaseModel):
-    model_config = ConfigDict(frozen=True, extra="forbid")
-
-    workspace_id: str
-    context_ref: str
-    result_ref: str
-
-
 class MeasurementChunkRef(BaseModel):
+    """One extraction chunk's specification and optional reusable worker output."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     worker_id: int
@@ -323,6 +335,8 @@ class MeasurementChunkRef(BaseModel):
 
 
 class MeasurementsPlan(BaseModel):
+    """Pinned measurement plan with extraction chunks and their execution limits."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     workspace_id: str
@@ -337,6 +351,8 @@ class MeasurementsPlan(BaseModel):
 
 
 class ExtractionChunkWorkflowInput(BaseModel):
+    """One planned extraction chunk and the LLM settings used to execute it."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     workspace_id: str
@@ -347,6 +363,8 @@ class ExtractionChunkWorkflowInput(BaseModel):
 
 
 class OpenRouterCallInput(BaseModel):
+    """Persisted conversation, model settings, and output paths for one OpenRouter call."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     conversation_ref: str
@@ -359,6 +377,8 @@ class OpenRouterCallInput(BaseModel):
 
 
 class ToolCallSummary(BaseModel):
+    """Tool call identity and position within an assistant response."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     index: int
@@ -367,6 +387,8 @@ class ToolCallSummary(BaseModel):
 
 
 class OpenRouterCallResult(BaseModel):
+    """Stored provider response references, token usage, duration, and requested tools."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     conversation_ref: str
@@ -379,6 +401,8 @@ class OpenRouterCallResult(BaseModel):
 
 
 class ExtractionChunkFinalizeInput(BaseModel):
+    """Chunk output and execution provenance to validate and retain as measurements."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     workspace_id: str
@@ -407,6 +431,8 @@ type ExtractionChunkResult = Annotated[
 
 
 class MeasurementsFinalizeInput(BaseModel):
+    """Pinned plan and completed or failed chunks to assemble into a prepared panel."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     workspace_id: str
@@ -416,26 +442,40 @@ class MeasurementsFinalizeInput(BaseModel):
     chunk_results: list[ExtractionChunkResult] = Field(default_factory=list)
 
 
-class SetQuestionInput(BaseModel):
+class EditQuestionActivityInput(BaseModel):
+    """Question edit and destination workspace passed across the activity boundary."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     workspace_id: str
-    request: SetQuestionRequest
+    request: EditQuestionRequest
 
 
-class EditModelInput(BaseModel):
+class EditModelActivityInput(BaseModel):
+    """Pinned model edit and destination workspace passed across the activity boundary."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     workspace_id: str
-    request: EditModelRequest
-    state: StudyState
+    request: EditModelRequest[GitOid]
 
 
 class EvaluateChecksInput[ResultT](Value):
+    """Successful scientific result and its input state supplied to post-action checks."""
+
     workspace_id: str
     state: StudyState
     applied: Applied[ResultT]
-    request: EditModelRequest | FitRequest | PrepareDataRequest
+    request: (
+        EditModelRequest[GitOid] | FitRequest[GitOid] | PrepareDataRequest[GitOid, FileSourceRef]
+    )
+
+
+class ChecksResult(Value):
+    """Checks stay in the artifact store; orchestration carries references and labels."""
+
+    reports: Mapping[ActionReportName, GitOid]
+    messages: tuple[ActionMessage, ...]
 
 
 class AttemptPublication(Value):
@@ -444,10 +484,6 @@ class AttemptPublication(Value):
     workspace_id: str
     parent_id: GitOid | None
     record: AttemptRecord
-    model_checks: (
-        tuple[ModelCheckReport, IdentificationReport, ValidationReportArtifact | None] | None
-    ) = None
-    data_profile: DataProfileArtifact | None = None
 
 
 class MeasurementChunkContext(BaseModel):
@@ -471,4 +507,6 @@ class MeasurementsFile(BaseModel):
 
 
 class StoredConversation(TypedDict):
+    """Ordered provider messages persisted between LLM activity calls."""
+
     messages: list[JsonObject]

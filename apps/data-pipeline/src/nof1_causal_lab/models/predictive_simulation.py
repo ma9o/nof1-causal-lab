@@ -44,6 +44,7 @@ class PredictiveObservationMeanOverflow(RuntimeError):
         overflow_threshold: float,
         n_nonfinite: int = 0,
     ) -> None:
+        """Retain affected indicators, draws, and first failing time in a predictive overflow error."""
         self.bad_manifest_names = bad_manifest_names
         self.manifest_indices = manifest_indices
         self.failing_draw_indices = failing_draw_indices
@@ -116,7 +117,6 @@ def _raise_if_log_link_mean_overflow(
     manifest_names: Sequence[str] | None,
 ) -> None:
     """Fail fast when a log-link predictive mean would overflow before sampling."""
-
     log_link_mask = np.asarray(
         [next(iter(law.operands()))[1].link == LinkFunction.LOG for law in laws], dtype=bool
     )

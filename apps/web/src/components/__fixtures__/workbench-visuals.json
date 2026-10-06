@@ -1,20 +1,6 @@
 {
   "note": "Simulation paths are explicitly illustrative, not a production fit or scientific evidence. Summaries are derived from these exact paths.",
   "report": {
-    "law": null,
-    "findings": [],
-    "fit_reliability": "converged",
-    "causal": {
-      "kind": "available",
-      "value": {
-        "outcome": "construct:6ca86c47aaf18b2472ce",
-        "labels": {
-          "construct:6ca86c47aaf18b2472ce": "internalizing_symptom_burden",
-          "construct:27f64faaddd59b2ad491": "escitalopram_dose_taken"
-        },
-        "warnings": []
-      }
-    },
     "evidence": {
       "model": {
         "workspace_id": "STORYBOOK",
@@ -45,7 +31,7 @@
       ],
       "draws": 100,
       "seed": 0,
-      "origin_panel_revision": null,
+      "origin_data": null,
       "state_ids": [
         "construct:27f64faaddd59b2ad491",
         "construct:6ca86c47aaf18b2472ce"
@@ -78,6 +64,23 @@
           "value": 10.0
         }
       ]
+    },
+    "law": {
+      "kind": "unknown",
+      "interpretation": "unknown"
+    },
+    "findings": [],
+    "fit_reliability": "converged",
+    "causal": {
+      "kind": "available",
+      "value": {
+        "outcome": "construct:6ca86c47aaf18b2472ce",
+        "labels": {
+          "construct:6ca86c47aaf18b2472ce": "internalizing_symptom_burden",
+          "construct:27f64faaddd59b2ad491": "escitalopram_dose_taken"
+        },
+        "warnings": []
+      }
     }
   },
   "simulation": {
@@ -2702,7 +2705,11 @@
             ]
           }
         ],
-        "levels": null
+        "levels": null,
+        "frame": [
+          -2.4523188707451227,
+          2.785484949495483
+        ]
       },
       "construct:6ca86c47aaf18b2472ce": {
         "label": "internalizing_symptom_burden",
@@ -5310,7 +5317,11 @@
             ]
           }
         ],
-        "levels": null
+        "levels": null,
+        "frame": [
+          -2.5896381793567884,
+          2.873588902782905
+        ]
       }
     },
     "indicators": {
@@ -7920,7 +7931,11 @@
             ]
           }
         ],
-        "levels": null
+        "levels": null,
+        "frame": [
+          -2.4523188707451227,
+          2.6723786978537816
+        ]
       }
     },
     "effect": {
@@ -9228,7 +9243,11 @@
         }
       ],
       "reference": [],
-      "levels": null
+      "levels": null,
+      "frame": [
+        -0.40000000000000013,
+        0.6909407849733045
+      ]
     },
     "effect_summary": {
       "mean": 0.2909407615661621,

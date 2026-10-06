@@ -7,6 +7,9 @@ from pydantic import TypeAdapter, ValidationError
 
 from nof1_causal_lab.actions.contracts import SimulateRequest
 from nof1_causal_lab.actions.effects import ActionEffects
+from nof1_causal_lab.actions.io import SimulateInput
+from nof1_causal_lab.artifacts.data_ref import DataRef
+from nof1_causal_lab.artifacts.identity import GitOid
 from nof1_causal_lab.artifacts.predictive_provenance import AuthoredLawProvenance
 from nof1_causal_lab.artifacts.scenarios import InterventionSpec
 from nof1_causal_lab.artifacts.simulation import (
@@ -22,17 +25,15 @@ pytestmark = pytest.mark.contract
 
 
 def test_simulation_request_is_a_dated_window_with_optional_interventions():
-    request = SimulateRequest(model_revision="a" * 40, start=date(2026, 1, 1), horizon="12d")
-    assert request.interventions == ()
-    assert set(request.model_dump()) == {
-        "action",
-        "model_revision",
-        "panel_revision",
-        "start",
-        "horizon",
-        "interventions",
-        "reasoning",
-    }
+    request = SimulateRequest[GitOid](
+        input=SimulateInput[GitOid](
+            simulation=SimulationSpec(start=date(2026, 1, 1), horizon="12d"),
+            model_ref="a" * 40,
+        )
+    )
+    assert request.input.simulation.interventions == ()
+    assert set(request.model_dump()) == {"action", "input", "reasoning"}
+    assert set(request.input.model_dump()) == {"model_ref", "panel_ref", "simulation"}
     with pytest.raises(ValidationError, match="Extra inputs"):
         request.revised(comparison_panel_revision="b" * 40)
 
@@ -216,7 +217,7 @@ def test_runner_derives_origin_and_reliability_from_current_panel_or_fit(
     from nof1_causal_lab.utils import data
     from tests.helpers import run_async, write_question
     from tests.inference_fixtures import _report, inference_log, parameter_draws
-    from tests.integration.runner_fixtures import panel_metadata
+    from tests.integration.runner_fixtures import panel_frame, panel_metadata
 
     monkeypatch.setattr(data, "_DATA_URI", str(tmp_path))
     store = ArtifactStore("ORIGIN")
@@ -232,6 +233,7 @@ def test_runner_derives_origin_and_reliability_from_current_panel_or_fit(
         derived_from={},
         produced_by="prepare_data",
         json_files={"metadata.json": panel_metadata().model_dump(mode="json")},
+        parquet_files={"panel.parquet": panel_frame(n_days=2)},
     )
     record = prior
     fit_origin = datetime(2024, 1, 2, tzinfo=UTC)
@@ -254,8 +256,8 @@ def test_runner_derives_origin_and_reliability_from_current_panel_or_fit(
         )
         if kind == "fitted":
             from nof1_causal_lab.artifacts.identity import GitRef
+            from nof1_causal_lab.artifacts.posterior import ModelFitResult
             from nof1_causal_lab.models.ssm.inference.convergence import parameter_convergence
-            from nof1_causal_lab.study.records import ModelFitResult
             from tests.action_fixtures import applied_record
 
             fit = _report(model)
@@ -285,10 +287,8 @@ def test_runner_derives_origin_and_reliability_from_current_panel_or_fit(
                             model=GitRef(
                                 workspace_id="ORIGIN", revision=prior.revision, path="model.json"
                             ),
-                            panel=GitRef(
-                                workspace_id="ORIGIN",
-                                revision=fit_panel.revision,
-                                path="panel.parquet",
+                            data=DataRef[GitOid, int](
+                                revision=fit_panel.revision, replicate_index=0
                             ),
                             evidence=inference_log(
                                 model
@@ -310,6 +310,7 @@ def test_runner_derives_origin_and_reliability_from_current_panel_or_fit(
         json_files={
             "metadata.json": metadata.revised(time_origin=current_origin).model_dump(mode="json")
         },
+        parquet_files={"panel.parquet": panel_frame(n_days=2)},
     )
     question = write_question(store)
     state = StudyState().with_artifacts(
@@ -327,11 +328,15 @@ def test_runner_derives_origin_and_reliability_from_current_panel_or_fit(
         fit_panel.revision if kind == "fitted" else panel.revision if current_panel else None
     )
 
-    def generate(_model, _design, *, revision, time_origin, origin_panel_revision, **_kwargs):
+    def generate(_model, _design, *, revision, time_origin, origin_data, **_kwargs):
         assert time_origin == expected_origin
-        assert origin_panel_revision == expected_panel
+        assert origin_data == (
+            DataRef[GitOid, int](revision=expected_panel, replicate_index=0)
+            if expected_panel is not None
+            else None
+        )
         generated = SimulationEvidence.model_validate(_response(time_origin)["evidence"])
-        return generated.revised(model=revision, origin_panel_revision=origin_panel_revision)
+        return generated.revised(model=revision, origin_data=origin_data)
 
     action = import_module("nof1_causal_lab.actions.simulate")
     monkeypatch.setattr(action, "simulate", generate)
@@ -348,17 +353,25 @@ def test_runner_derives_origin_and_reliability_from_current_panel_or_fit(
     applied = run_async(
         run_action(
             "ORIGIN",
-            SimulateRequest(
-                model_revision=record.revision,
-                panel_revision=panel.revision if current_panel else None,
-                start=response.evidence.design.start,
-                horizon=response.evidence.design.horizon,
-                interventions=response.evidence.design.interventions,
+            SimulateRequest[GitOid](
+                input=SimulateInput[GitOid](
+                    simulation=SimulationSpec(
+                        start=response.evidence.design.start,
+                        horizon=response.evidence.design.horizon,
+                        interventions=response.evidence.design.interventions,
+                    ),
+                    model_ref=record.revision,
+                    panel_ref=panel.revision if current_panel else None,
+                )
             ),
             state,
         )
     )
     saved = applied.result.evidence
     assert saved.time_origin == expected_origin
-    assert saved.origin_panel_revision == expected_panel
+    assert saved.origin_data == (
+        DataRef[GitOid, int](revision=expected_panel, replicate_index=0)
+        if expected_panel is not None
+        else None
+    )
     assert "report" not in applied.result.model_dump()

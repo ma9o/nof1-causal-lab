@@ -877,6 +877,15 @@ wheels = [
 ]
 
 [[package]]
+name = "docstring-parser-fork"
+version = "0.0.16"
+source = { registry = "https://pypi.org/simple" }
+sdist = { url = "https://files.pythonhosted.org/packages/04/ce/48b17c6c24d0af112f73721a90fac245450e548b82b53169260720f60d07/docstring_parser_fork-0.0.16.tar.gz", hash = "sha256:9ecf861ceab8b87d1297a71001c15a1956ad02e87434ee6473643a5988094f7c", size = 36360, upload-time = "2026-07-03T07:27:46.668Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/c1/69/427c34e61827818942b48ececd7c892b8f58ba4ce4cfc89ba9fd8dbe8a8d/docstring_parser_fork-0.0.16-py3-none-any.whl", hash = "sha256:c024c97af582d6acf85a14f0b332b3a2ab08626648d251c25e47191f33064386", size = 25253, upload-time = "2026-07-03T07:27:45.591Z" },
+]
+
+[[package]]
 name = "docutils"
 version = "0.23"
 source = { registry = "https://pypi.org/simple" }
@@ -958,24 +967,6 @@ epath = [
 ]
 epy = [
     { name = "typing-extensions" },
-]
-
-[[package]]
-name = "exa-py"
-version = "2.23.0"
-source = { registry = "https://pypi.org/simple" }
-dependencies = [
-    { name = "httpcore" },
-    { name = "httpx" },
-    { name = "openai" },
-    { name = "pydantic" },
-    { name = "python-dotenv" },
-    { name = "requests" },
-    { name = "typing-extensions" },
-]
-sdist = { url = "https://files.pythonhosted.org/packages/ac/8a/1ede9d373accee7d04437c41ad830b14ecef24715717cbeafc35baf94c6f/exa_py-2.23.0.tar.gz", hash = "sha256:2151cc621ac6631f2f0f25da1084aad3c711f5f049a7d94b20b820de40aa7a16", size = 82037, upload-time = "2026-09-29T18:16:56.604Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/76/d4/ac024f45c5a47a10bbabd3a11134bcb66a7605f069cd6259d1c97e494916/exa_py-2.23.0-py3-none-any.whl", hash = "sha256:baf4034a10cfea83dff7345f49f5444fafe78f5bafd87de5dcba06443fd1eae9", size = 111519, upload-time = "2026-09-29T18:16:55.453Z" },
 ]
 
 [[package]]
@@ -2790,10 +2781,8 @@ dependencies = [
     { name = "diffrax" },
     { name = "dynestyx" },
     { name = "equinox" },
-    { name = "exa-py" },
     { name = "fastapi" },
     { name = "fsspec" },
-    { name = "httpx" },
     { name = "jax" },
     { name = "jaxtyping" },
     { name = "jsonschema" },
@@ -2832,6 +2821,7 @@ dev = [
     { name = "complexipy" },
     { name = "deptry" },
     { name = "grimp" },
+    { name = "httpx" },
     { name = "import-linter" },
     { name = "ipykernel" },
     { name = "ipywidgets" },
@@ -2841,6 +2831,7 @@ dev = [
     { name = "nbconvert" },
     { name = "plotly" },
     { name = "pydantic-ai-slim", extra = ["openai"] },
+    { name = "pydoclint" },
     { name = "pytest" },
     { name = "pytest-instafail" },
     { name = "pytest-timeout" },
@@ -2862,10 +2853,8 @@ requires-dist = [
     { name = "diffrax", specifier = ">=0.7.2" },
     { name = "dynestyx", specifier = ">=0.6.0" },
     { name = "equinox", specifier = ">=0.13.8" },
-    { name = "exa-py", specifier = ">=2.23.0" },
     { name = "fastapi", specifier = ">=0.142.2" },
     { name = "fsspec", specifier = ">=2026.9.0" },
-    { name = "httpx", specifier = ">=0.28.1" },
     { name = "jax", specifier = ">=0.11.2" },
     { name = "jaxtyping", specifier = ">=0.3.11" },
     { name = "jsonschema", specifier = ">=4.26.0" },
@@ -2904,6 +2893,7 @@ dev = [
     { name = "complexipy", specifier = ">=8.0.1" },
     { name = "deptry", specifier = ">=0.25.1" },
     { name = "grimp", specifier = ">=3.17" },
+    { name = "httpx", specifier = ">=0.28.1" },
     { name = "import-linter", specifier = ">=2.15" },
     { name = "ipykernel", specifier = ">=7.4.0" },
     { name = "ipywidgets", specifier = ">=8.1.9" },
@@ -2913,6 +2903,7 @@ dev = [
     { name = "nbconvert", specifier = ">=7.17.1" },
     { name = "plotly", specifier = ">=7.1.0" },
     { name = "pydantic-ai-slim", extras = ["openai"], specifier = ">=2.52.0" },
+    { name = "pydoclint", specifier = "==0.11.0" },
     { name = "pytest", specifier = ">=9.1.1" },
     { name = "pytest-instafail", specifier = ">=0.5.0" },
     { name = "pytest-timeout", specifier = ">=2.4.0" },
@@ -3684,6 +3675,19 @@ dependencies = [
 sdist = { url = "https://files.pythonhosted.org/packages/c5/fa/71b517ad0104d4574b5f04a79f2df3abda4da9ab05eb5bb573d5e0e70ff5/pydantic_graph-2.52.0.tar.gz", hash = "sha256:ee66b35e48671804ef0f72831dd0087efe4bfafc9747f122e6ef9dc1778a7cd0", size = 45272, upload-time = "2026-09-30T01:18:05.795Z" }
 wheels = [
     { url = "https://files.pythonhosted.org/packages/bb/b2/924abf303f259dd52c1e1c461c773b4af14984766947342091e4e2aa2a70/pydantic_graph-2.52.0-py3-none-any.whl", hash = "sha256:55359f5d5cc2b9351f7d1c20b95e588b53f7abacc64745d81eae664420445399", size = 52763, upload-time = "2026-09-30T01:17:55.588Z" },
+]
+
+[[package]]
+name = "pydoclint"
+version = "0.11.0"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "click" },
+    { name = "docstring-parser-fork" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/14/b7/73a2219d61e3a5b9e282390152bde892ae36e877f321bf3bca76c5f769b2/pydoclint-0.11.0.tar.gz", hash = "sha256:cef4278a754fb5ceaad5ebe48f131499b51295f94656c7a3d6df9512cd8de0d2", size = 246859, upload-time = "2026-10-02T06:26:09.901Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ad/74/25b086423debd4d2d81bb5aebb633321ae0b8fbf160ca3bad56215665c02/pydoclint-0.11.0-py3-none-any.whl", hash = "sha256:82168afe86d1dee12224637f7353b441ab716f138353df8b6964a934a41e7e6e", size = 97771, upload-time = "2026-10-02T06:26:08.614Z" },
 ]
 
 [[package]]

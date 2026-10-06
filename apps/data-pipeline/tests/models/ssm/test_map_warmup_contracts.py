@@ -130,7 +130,6 @@ def test_covariance_routes_and_public_draw_extraction(monkeypatch, strategy):
         n_function_evals=5,
         status=0,
         success=True,
-        optimizer="L-BFGS-B",
         init_log_posterior_best=-2.0,
         optimizer_hess_inv=Mock(
             spec=LbfgsInvHessProduct, todense=Mock(return_value=inverse_hessian)

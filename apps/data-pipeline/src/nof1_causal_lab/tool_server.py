@@ -23,63 +23,54 @@ if TYPE_CHECKING:
 
 
 _API_DESCRIPTION = """\
-The public scientific interface has seven calls: `set_question`, `edit_model`,
+The public scientific interface has seven actions: `edit_question`, `edit_model`,
 `prepare_data`, `fit`, `simulate`, `data_diff`, and `model_diff`.
-Call each at `POST /api/studies/{workspace_id}/{action}` with its typed JSON arguments.
+Start a call with `POST /api/studies/{workspace_id}/{action}` using
+`{action, input, reasoning}`. Each action owns its typed `input`; optional top-level
+`reasoning` explains the caller's intent and is excluded from call identity.
 
-A call is identified by its action and parsed scientific arguments. Every call accepts
-an optional `reasoning` string explaining why the caller is taking the action and
-what goal it serves. It is retained with the original request and shown first in the
-action log, including running and failed calls. Reasoning is excluded from call
-identity: changing or omitting it while polling preserves the original explanation
-and never starts another applied or running call. Name model and panel inputs
-by immutable revision OIDs. `prepare_data` names uploaded files and captures their
-call-time SHA-256 hashes in `input.source.hashes`; repeat those retained hashes to
-read a saved call without the upload files. `edit_model` names its base
-`expected_revision` and optional check `panel_revision`. `simulate` names an optional
-`panel_revision` for authored-law calendar binding. There are no branches or public
-head-conflict controls. Every study starts with its immutable `set_question` call.
+POST and polling GET return `{call_id, action, status, commit_id, body, messages}`.
+`status` is `running`, `failed`, or `success`. `commit_id` is null before publication;
+a journaled failure also has a commit. `body` is null while running or failed and
+contains only that action's typed scientific output on success.
+`messages` is the sole execution-log accumulator: lifecycle entries, structured
+progress, full LLM/tool traces, and failure details all remain there.
 
-All seven calls run through the serialized Temporal study workflow.
-The response is `kind: running` with the call's arguments, attempt_id, messages and
-step/extraction events, or `kind: completed` with the correlated attempt and outcome.
-For running calls, repeat the response's `request`; it includes the canonical
-arguments and captured file hashes even when the first request omitted them.
-Repeat exactly the same arguments to read progress or the completed result. An
-identical running call starts no second attempt. Applied calls reuse saved results
-without action execution or another timeline entry. Rejected and raised calls remain in
-the journal with their messages and error; repeating them retries execution.
+Poll `GET /api/studies/{workspace_id}/{action}/{call_id}`. GET only reads an existing
+call; it never starts a workflow, executes an action, or retries a failure. Unknown
+call IDs return 404. Identical resolved inputs reuse running calls and both successful
+and failed completed calls, preserving the first request's reasoning.
 
-Completed applied responses include `snapshot`, `checks`, `inference_report`,
-`observation_histories`, `predictive_overlays`, `simulation_paths`, `parameter_draws`,
-`data_comparison`, `model_comparison`, `artifacts`, `arrays`, and `traces`, alongside the typed `attempt.outcome`.
-All retained simulation paths and large arrays are returned without paging. Tables
-are JSON rows, and `arrays` maps immutable array identities to their complete values.
-Missing numerical values are null. No extra result or artifact read is needed.
-Reports and checks are retained with the action that computed them. Comparisons are
-projections of immutable inputs, cached by the package code digest in the shared read cache.
+Revision selectors accept exact Git hashes or `"latest"`. POST resolves selectors
+once before computing `call_id`; GET keeps that selection when newer revisions appear.
+Missing valid inputs return HTTP 422. `prepare_data` takes `input.source` as one
+folder name under `data/{workspace_id}/`, such as `"input"`. Every file beneath
+that folder, including subfolders, is captured and hashed before call identity.
+Polling saved calls does not require the original source folder.
+`edit_model` selects a question or model parent through `input.parent_ref`;
+a model parent supplies its pinned question, without a head-conflict
+check. Every study starts with `edit_question`.
 
-`model_diff {before, after}` records a comparison leaf like `data_diff` and returns
-the comparison and each present model definition in `model_comparison`. Comparison
-leaves retain their requests and outcomes without advancing scientific state.
-Edit details and hover/pin previews read the same immutable projection through
-`GET /api/studies/{workspace_id}/model-comparison?before=OID&after=OID`.
-Pre-model checkpoints have an empty comparison side; failed attempts compare their
-unchanged execution parent.
+Each action owns its successful `body`; input state is read from its producing calls.
+For `model_diff` and `data_diff`, `body` is the complete saved comparison.
+Fit and simulation outputs include their own retained arrays and paths without paging.
+Missing numerical values are null.
+Reports and checks are retained with their action in Git and never recomputed by GET,
+including after cache deletion or code changes. Comparisons and failures remain
+journal leaves without advancing scientific state.
 
-Read `GET /api/studies/{workspace_id}/timeline` for replayable arguments, status,
-messages, errors, trace ids, input dependency links, and the running call. Scientific
-results and branches are excluded. The viewer repeats applied calls only; failed or
-unknown calls are displayed from the journal without executing them. Input panes
-resolve the earlier calls named by the selected call's dependency links.
+`GET /api/studies/{workspace_id}/timeline` returns call IDs, retained requests,
+outcome summaries, lifecycle messages, trace IDs, input dependencies and the running
+call. The read-only web viewer follows recorded input dependencies and uses their call
+IDs to compose saved results and logs. For example, a simulation reads its model
+from the call named by its model dependency.
+Agents create studies and submit actions directly to the facade.
+`GET /api/workspaces` lists studies and questions; X-Actions-Enabled reports whether
+new actions are enabled. `POST /api/upload` stages a named input file using
+`multipart/form-data` with `workspaceId` and `file`.
 
-`GET /api/workspaces` lists available studies and questions. Its X-Actions-Enabled
-header supplies the landing page capability. `POST /api/upload` stages a named input
-file (`multipart/form-data` with `workspaceId` and `file`).
-
-With READ_ONLY_FACADE=1, saved calls are answered and unsaved recorded calls return
-403. Viewer comparison projections remain available. Scientific checks,
-production fitting and simulations continue using the exact nonlinear engines.
+With READ_ONLY_FACADE=1, existing calls remain readable. POST for an unsaved call
+returns 403; GET for an unknown call returns 404.
 """
 
 

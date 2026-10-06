@@ -48,8 +48,8 @@ class TestBuildObservationKernel:
         expected = jax.scipy.stats.poisson.logpmf(2.0, 3.0)
         assert jnp.isclose(log_prob, expected)
 
-        draws = model.point_sampler.sample_point_trajectory(
-            jax.random.PRNGKey(0),
+        draws = jax.vmap(model.point_sampler.sample_point)(
+            jax.random.split(jax.random.PRNGKey(0), 1),
             eta[None, :],
         )
         assert draws.shape == (1, 1)

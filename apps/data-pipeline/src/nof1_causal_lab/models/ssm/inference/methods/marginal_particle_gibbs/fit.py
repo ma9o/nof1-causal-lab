@@ -10,6 +10,7 @@ if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.autoreparam import Strategy
     from nof1_causal_lab.models.ssm.parameterization import PriorRuntimeBundle
     from nof1_causal_lab.models.ssm.runtime import BoundPanel
+    from nof1_causal_lab.sampler_config import SamplerSpec
 
 import logging
 from typing import TYPE_CHECKING
@@ -21,7 +22,6 @@ import jax.random as random
 from nof1_causal_lab.artifacts.posterior_diagnostics import (
     ParticleSamplerDiagnostics,
 )
-from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.inference.methods._pmcmc_shared import (
     build_pmcmc_mcmc_result,
     extract_grouped_public_samples,
@@ -45,7 +45,6 @@ from nof1_causal_lab.models.ssm.inference.warmup.parameter_warmup import prepare
 from nof1_causal_lab.models.ssm.transition_kinds import (
     LATENT_TRANSITION_EULER_MARUYAMA,
 )
-from nof1_causal_lab.sampler_config import SamplerSpec
 
 logger = logging.getLogger(__name__)
 
@@ -59,8 +58,7 @@ def fit_marginal_particle_gibbs(
     clock: Callable[[], float],
 ) -> ParticleMCMCPosterior:
     """Run exact particle inference with resolved choices and owned warmup outputs."""
-    observations, times = panel.observations, panel.times
-    model = panel.model
+    observations = panel.observations
     options = sampler.marginal_particle_gibbs
     initial_latent_trajectories = None
     overall_t0 = clock()
@@ -115,6 +113,8 @@ def fit_marginal_particle_gibbs(
         n_ieks_iters=options.n_ieks_iters,
         num_chains=sampler.num_chains,
         init_method=options.init_method,
+        initial_positions_override=None,
+        parameter_preconditioner_chol=None,
         auto_preconditioner_method=options.auto_preconditioner_method,
         auto_preconditioner_maxiter=options.auto_preconditioner_maxiter,
         pathfinder_num_elbo_samples=options.pathfinder_num_elbo_samples,

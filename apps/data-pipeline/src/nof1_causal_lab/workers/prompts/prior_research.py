@@ -136,6 +136,3 @@ If no literature evidence is available, use domain reasoning and be explicit abo
 
 Output your prior as JSON.
 """
-
-
-

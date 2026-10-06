@@ -1,7 +1,5 @@
 """Versioned artifact store + transition log."""
 
-from tests.git_fixtures import artifact_revisions
-
 import polars as pl
 import pytest
 
@@ -19,9 +17,8 @@ from nof1_causal_lab.study.records import (
 )
 from nof1_causal_lab.study.state import RetractedArtifact
 from nof1_causal_lab.study.store import ArtifactStore
-from nof1_causal_lab.study.history import StudyRepository
 from tests.action_fixtures import applied_record
-from tests.git_fixtures import git_oid
+from tests.git_fixtures import artifact_revisions, git_oid
 from tests.helpers import make_model
 
 pytestmark = pytest.mark.contract
@@ -224,7 +221,10 @@ class TestDerivedCurrentState:
 
         # Persisting a revision is not the commit boundary. Until an applied
         # transition records it, readers continue to see the prior state.
-        assert StudyRepository(workspace).state(StudyRepository(workspace).head()).get("model") == first
+        assert (
+            StudyRepository(workspace).state(StudyRepository(workspace).head()).get("model")
+            == first
+        )
 
         self._append(
             workspace,
@@ -233,7 +233,10 @@ class TestDerivedCurrentState:
             produced=[second],
         )
 
-        assert StudyRepository(workspace).state(StudyRepository(workspace).head()).get("model") == second
+        assert (
+            StudyRepository(workspace).state(StudyRepository(workspace).head()).get("model")
+            == second
+        )
 
     def test_rejected_and_raised_effects_are_not_current(self, workspace):
         store = ArtifactStore(workspace)

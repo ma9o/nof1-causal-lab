@@ -14,9 +14,7 @@ from .observations import AuthoredObservationSpec
 
 
 class IndicatorPolarity(StrEnum):
-    """Indicator polarity states whether a measurement increases or decreases with its
-    construct.
-    """
+    """Whether the measurement increases or decreases with its owning construct."""
 
     POSITIVE = "positive"
     NEGATIVE = "negative"  # noqa: V107 - native enum value construction
@@ -37,6 +35,7 @@ class IndicatorSpec(Value):
 
     @model_validator(mode="after")
     def validate_likelihood(self) -> IndicatorSpec:
+        """Reject a likelihood family incompatible with the observation's declared measurement kind."""
         if (
             self.likelihood is not None
             and self.likelihood.law.family

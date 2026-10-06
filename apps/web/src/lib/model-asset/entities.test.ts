@@ -1,22 +1,22 @@
 import { fixtureValue } from "@/components/__fixtures__/fixture-value";
 import { describe, expect, it } from "vitest";
-import { demoModel } from "@/components/__fixtures__/demo-artifacts";
+import { modelFixture } from "@/lib/__fixtures__/model";
 import { modelConstructs } from "@/lib/model-accessors";
 import { indexModel, resolveEntity } from "./entities";
 import type { EntitySelection } from "./selection";
 
 /** Put shared definitions at the other end of the same serialized graph. */
 function reversedGraph() {
-  const constructs = new Map(modelConstructs(demoModel).map((item) => [item.id, item]));
+  const constructs = new Map(modelConstructs(modelFixture).map((item) => [item.id, item]));
   const seen = new Set<string>();
-  const endpoint = (id: (typeof demoModel.edges)[number]["cause"]["id"]) => {
+  const endpoint = (id: (typeof modelFixture.edges)[number]["cause"]["id"]) => {
     if (seen.has(id)) return { kind: "construct" as const, id };
     seen.add(id);
     return fixtureValue(constructs.get(id));
   };
   return {
-    ...demoModel,
-    edges: [...demoModel.edges].reverse().map((edge) => ({
+    ...modelFixture,
+    edges: [...modelFixture.edges].reverse().map((edge) => ({
       ...edge,
       cause: endpoint(edge.cause.id),
       effect: endpoint(edge.effect.id),
@@ -27,9 +27,9 @@ function reversedGraph() {
 describe("scoped model inspection", () => {
   it("reads the same entities when shared endpoint definitions move", () => {
     const reversed = reversedGraph();
-    const constructs = modelConstructs(demoModel);
+    const constructs = modelConstructs(modelFixture);
     const selections: EntitySelection[] = [
-      ...demoModel.edges.map((item) => ({ kind: "edge" as const, id: item.id })),
+      ...modelFixture.edges.map((item) => ({ kind: "edge" as const, id: item.id })),
       ...constructs.map((item) => ({ kind: "construct" as const, id: item.id })),
       ...constructs.flatMap((item) =>
         item.indicators.map((indicator) => ({
@@ -40,7 +40,7 @@ describe("scoped model inspection", () => {
     ];
     for (const selection of selections) {
       expect(resolveEntity(indexModel(reversed), selection)).toEqual(
-        resolveEntity(indexModel(demoModel), selection),
+        resolveEntity(indexModel(modelFixture), selection),
       );
     }
   });

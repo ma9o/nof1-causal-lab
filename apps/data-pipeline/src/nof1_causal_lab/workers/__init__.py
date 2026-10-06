@@ -1,3 +1,5 @@
+"""Measurement extraction prompts, worker context, and validated output contracts."""
+
 from .schemas import (
     WindowExtraction,
     WorkerOutput,

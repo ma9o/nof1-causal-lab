@@ -1,11 +1,11 @@
+import { modelResult } from "@/components/__fixtures__/action-results";
 import { fixtureValue } from "@/components/__fixtures__/fixture-value";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { beforeEach, describe, expect, it, vi } from "vitest";
-import { demoModelSnapshot } from "@/components/__fixtures__/demo-artifacts";
-import { workbenchResult } from "@/components/__fixtures__/workbench";
+import { authoredSnapshot } from "@/lib/__fixtures__/snapshot";
 import { indexModel } from "@/lib/model-asset/entities";
-import type { Applied, TimelineRevision } from "@nof1-causal-lab/api-types";
+import type { Applied, ActionSuccess, TimelineRevision } from "@nof1-causal-lab/api-types";
 import type { ScopeContext } from "@/lib/model-asset/scope";
 import { EditDetails } from "./edit-details";
 import { ActionFindings } from "../action-findings";
@@ -18,8 +18,8 @@ const context: ScopeContext = {
   ticks: [],
   dataDiff: null,
   result: undefined,
-  model: demoModelSnapshot,
-  entities: indexModel(demoModelSnapshot.model?.value),
+  model: authoredSnapshot,
+  entities: indexModel(authoredSnapshot.model),
   select: vi.fn(),
 };
 const applied: Applied<null> = {
@@ -40,6 +40,7 @@ const applied: Applied<null> = {
   },
 };
 const tick: TimelineRevision = {
+  call_id: `call:${"2".repeat(64)}`,
   commit_id: "rewritten-edit",
   parent_ids: ["preceding-commit"],
   record: {
@@ -52,9 +53,10 @@ const tick: TimelineRevision = {
       request: {
         action: "edit_model",
         reasoning: null,
-        expected_revision: "archived-authorship-base",
-        panel_revision: null,
-        model: fixtureValue(demoModelSnapshot.model).value,
+        input: {
+          parent_ref: "archived-authorship-base",
+          model: fixtureValue(authoredSnapshot.model),
+        },
       },
       outcome: applied,
     },
@@ -73,22 +75,50 @@ describe("edit change summaries after history compaction", () => {
       context.model.workspace_id,
       "archived-authorship-base",
       "rewritten-edit",
+      context.ticks,
     );
   });
 
-  it("shows an initial summary when the call names no base", () => {
+  it("shows an initial summary when the parent is a question", () => {
     const request = fixtureValue(tick.record.attempt.request);
     if (request.action !== "edit_model") throw new Error("Expected edit fixture");
     const created = {
       ...tick,
       record: {
         ...tick.record,
-        attempt: { ...tick.record.attempt, request: { ...request, expected_revision: null } },
+        attempt: {
+          ...tick.record.attempt,
+          request: {
+            ...request,
+            input: {
+              ...request.input,
+              parent_ref: fixtureValue(authoredSnapshot.state.current.question).revision,
+            },
+          },
+          outcome: {
+            ...applied,
+            effects: {
+              ...applied.effects,
+              produced: applied.effects.produced.map((artifact) => ({
+                ...artifact,
+                derived_from: {
+                  question: fixtureValue(authoredSnapshot.state.current.question).revision,
+                },
+              })),
+            },
+          },
+        },
       },
     };
     const html = renderToStaticMarkup(createElement(EditDetails, { context, tick: created }));
-    expect(hooks.diff).toHaveBeenCalledWith(context.model.workspace_id, null, null);
+    expect(hooks.diff).toHaveBeenCalledWith(context.model.workspace_id, null, null, context.ticks);
     expect(html).toContain("Model created");
+  });
+
+  it("shows when no comparison has been recorded", () => {
+    const html = renderToStaticMarkup(createElement(EditDetails, { context, tick }));
+    expect(html).toContain("No saved comparison for these model versions.");
+    expect(html).not.toContain("Reading model changes");
   });
 
   it("renders served graph and law changes in model terms, without definition paths or IDs", () => {
@@ -105,8 +135,8 @@ describe("edit change summaries after history compaction", () => {
         after_dispositions: [],
         before_dynamic_construct_ids: [],
         after_dynamic_construct_ids: [],
-        before_model: fixtureValue(context.model.model).value,
-        after_model: fixtureValue(context.model.model).value,
+        before_model: fixtureValue(context.model.model),
+        after_model: fixtureValue(context.model.model),
         parameters: [{ kind: "added", after: parameter }],
         changed_inputs: ["compilation", "belief"],
       },
@@ -124,30 +154,40 @@ describe("edit change summaries after history compaction", () => {
 
   it("shows served check reasons unchanged and omits passing checks", () => {
     const indicator = fixtureValue(context.entities.indicators[0]);
-    const served = {
-      ...fixtureValue(workbenchResult(2)),
-      checks: {
-        question: null,
-        predictive: null,
-        reused: ["specification"] as const,
-        specification: [
-          {
-            kind: "evaluated" as const,
-            subject: "model_execution",
-            outcome: "failed" as const,
-            evidence: `${indicator.observation.id} requires a likelihood.`,
-          },
-          {
-            kind: "evaluated" as const,
-            subject: "passed_check",
-            outcome: "passed" as const,
-            evidence: "Do not list passing checks.",
-          },
-        ],
+    const served: ActionSuccess = {
+      status: "success",
+      call_id: `call:${"2".repeat(64)}`,
+      action: "edit_model",
+      commit_id: tick.commit_id,
+      messages: [],
+      body: {
+        ...modelResult(context.model),
+        checks: {
+          question: null,
+          predictive: null,
+          reused: ["specification"],
+          specification: [
+            {
+              kind: "evaluated",
+              subject: "model_execution",
+              outcome: "failed",
+              evidence: `${indicator.observation.id} requires a likelihood.`,
+            },
+            {
+              kind: "evaluated",
+              subject: "passed_check",
+              outcome: "passed",
+              evidence: "Do not list passing checks.",
+            },
+          ],
+        },
       },
     };
     const html = renderToStaticMarkup(
-      createElement(ActionFindings, { context: { ...context, result: served }, applied }),
+      createElement(ActionFindings, {
+        context: { ...context, result: served },
+        call: served,
+      }),
     );
     expect(html).toContain(indicator.observation.id);
     expect(html).toContain("requires a likelihood.");

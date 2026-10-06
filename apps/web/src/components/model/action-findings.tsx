@@ -1,25 +1,18 @@
 import { presentEntries } from "@/lib/model-accessors";
 import type { ScopeContext } from "@/lib/model-asset/scope";
-import type { ActionAttempt } from "@nof1-causal-lab/api-types";
+import type { ActionSuccess } from "@nof1-causal-lab/api-types";
 import { resolveEntity } from "@/lib/model-asset/entities";
+import { callModel } from "@/lib/model-asset/compose-call-view";
 import { humanize, type EntitySelection } from "@/lib/model-asset/selection";
 import { Hint, OwnerLink, Section, StatusIcon } from "./scope-primitives";
 
 /** Current findings for the saved call remain visible when read from cache. */
-export function ActionFindings({
-  context,
-  applied,
-}: {
-  context: ScopeContext;
-  applied: Extract<ActionAttempt["outcome"], { status: "applied" }>;
-}) {
+export function ActionFindings({ context, call }: { context: ScopeContext; call: ActionSuccess }) {
   const { model, entities, select } = context;
-  const { result, effects } = applied;
-  const checks = context.result?.checks;
-  const produced = new Set(effects.produced.map((artifact) => artifact.artifact_id));
-  const identification = checks ? model.identification?.value : null;
-  const validation = checks ? model.validation_report?.value : null;
-  const data = validation?.data ?? (produced.has("panel") ? model.profile?.value : null);
+  const checks = callModel(call)?.checks;
+  const identification = checks ? model.identification : null;
+  const validation = checks ? model.validation_report : null;
+  const data = validation?.data ?? (call.action === "prepare_data" ? call.body.profile : null);
   const predictive = checks?.predictive;
   const findings: Array<{
     label: string;
@@ -45,7 +38,7 @@ export function ActionFindings({
     const indicator = entities.indicators.find(
       (item) => item.observation.id === issue.indicator_id,
     );
-    const variable = model.metadata?.value.variables.find((item) => item.id === issue.indicator_id);
+    const variable = model.metadata?.variables.find((item) => item.id === issue.indicator_id);
     findings.push({
       label: humanize(indicator?.observation.name ?? variable?.name ?? "Dataset"),
       reason: issue.message,
@@ -151,9 +144,8 @@ export function ActionFindings({
       status: "not_evaluated",
     });
   if (
-    result != null &&
-    "workers" in result &&
-    result.workers.some((worker) => worker.status === "failed")
+    call.action === "prepare_data" &&
+    call.body.workers.some((worker) => worker.status === "failed")
   )
     findings.push({
       label: "Extraction incomplete",

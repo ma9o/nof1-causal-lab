@@ -1,7 +1,7 @@
 "use client";
 
 import {
-  type CompletedPoll,
+  type ActionSuccess,
   type ModelSnapshot,
   type RunningAction,
   type TimelineRevision,
@@ -119,7 +119,7 @@ function ModelRevision({
   running,
 }: CausalModelAssetViewProps & {
   model: ModelSnapshot;
-  result: CompletedPoll | undefined;
+  result: ActionSuccess | undefined;
   loadingRevision: boolean;
   viewAt: (seq: number | null) => void;
   focusSeq: number;
@@ -154,13 +154,12 @@ function ModelRevision({
   const tick = ticks.find((item) => item.record.seq === focusSeq);
   const dataDiff =
     tick?.record.attempt.action === "data_diff" && tick.record.attempt.outcome.status === "applied"
-      ? result?.attempt.action === "data_diff" && result.attempt.outcome.status === "applied"
-        ? result.data_comparison
+      ? result?.action === "data_diff"
+        ? result.body
         : null
       : null;
   const context = { ...versionContext, dataDiff };
-  const recordedComparison =
-    tick?.record.attempt.action === "model_diff" ? result?.model_comparison : null;
+  const recordedComparison = result?.action === "model_diff" ? result.body : null;
   // Nodes chart what the viewed version's action produced.
   const step = tick?.record.attempt.action ?? null;
   const comparisonPane = useRef<HTMLDivElement>(null);
@@ -269,12 +268,16 @@ function ModelRevision({
               onPointerEnter={retainPreview}
               onPointerLeave={endPreview}
             >
-              {activeComparison && (compared.isLoading || compared.error) && (
+              {activeComparison && !compared.data && (
                 <p
                   role={compared.error ? "alert" : "status"}
                   className="absolute top-3 left-3 z-20 rounded border bg-card px-3 py-2 text-xs"
                 >
-                  {compared.error ? compared.error.message : "Reading differences…"}
+                  {compared.error
+                    ? compared.error.message
+                    : compared.isLoading
+                      ? "Reading differences…"
+                      : "No saved comparison for these model versions."}
                 </p>
               )}
               {model.graph.construct_ids.length > 0 || activeComparison || recordedComparison ? (

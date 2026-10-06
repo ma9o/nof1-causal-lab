@@ -15,13 +15,13 @@ from nof1_causal_lab.artifacts.predictive_provenance import (
     UnknownLawProvenance,
 )
 from nof1_causal_lab.study.artifact_files import json_filename
-from nof1_causal_lab.study.records import ModelFitResult, StudyRevision, inference_record
-from nof1_causal_lab.study.state import is_stale
+from nof1_causal_lab.study.records import StudyRevision, inference_record
 from nof1_causal_lab.study.store import read_model
 
 if TYPE_CHECKING:
     from collections.abc import Iterable
 
+    from nof1_causal_lab.artifacts.data_ref import DataRef
     from nof1_causal_lab.artifacts.identity import GitOid
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.posterior import InferenceReportCore
@@ -35,15 +35,8 @@ def inference_report_record[T: StudyRevision](records: Iterable[T], state: Study
     return inference_record(records, model.revision) if model is not None else None
 
 
-def inference_report_is_current(result: ModelFitResult, state: StudyState) -> bool:
-    return (
-        state.has("panel")
-        and state.current["panel"].revision == result.panel.revision
-        and not is_stale(state, "panel")
-    )
-
-
 def read_data_metadata(store: ArtifactStore, revision: GitOid) -> PreparedDataMetadata:
+    """Parse the preparation metadata owned by an exact panel artifact revision."""
     return TypeAdapter[PreparedDataMetadata](PreparedDataMetadata).validate_python(
         store.read_json_file("panel", revision, json_filename("panel", "metadata"))
     )
@@ -68,7 +61,10 @@ def fitted_law_report(
 
 
 def law_provenance(
-    store: ArtifactStore, record: ArtifactRecord, model: ModelSpec, panel_revision: GitOid | None
+    store: ArtifactStore,
+    record: ArtifactRecord,
+    model: ModelSpec,
+    data: DataRef[GitOid, int] | None,
 ) -> PredictiveLawProvenance:
     """Follow authored ancestry; a native law family alone never establishes fitting."""
     laws = model.model_dump(mode="json")["distributions"]
@@ -82,18 +78,35 @@ def law_provenance(
                 if key in model.law_layouts and fitted.get(key) == value
             }
             if inherited:
-                fitted_panel = current.derived_from["panel"]
+                from pathlib import Path
+
+                from nof1_causal_lab.study.history import StudyRepository
+                from nof1_causal_lab.study.records import Applied
+
+                fit = inference_record(
+                    StudyRepository(
+                        store.workspace_id, repository_path=Path(store.repo.path)
+                    ).attempts(),
+                    current.revision,
+                )
+                if fit is None:
+                    raise ValueError("Fitted laws require their recorded data selection")
+                assert fit.record.attempt.action == "fit"
+                assert isinstance(fit.record.attempt.outcome, Applied)
+                result = fit.record.attempt.outcome.result
+                assert result is not None
+                fitted_data = result.data
                 if inherited != set(laws):
                     return MixedLawProvenance(
-                        fitted_panel_revision=fitted_panel,
+                        fitted_data=fitted_data,
                         fitted_model_revision=current.revision,
                     )
                 return FittedLawProvenance(
-                    fitted_panel_revision=fitted_panel,
+                    fitted_data=fitted_data,
                     fitted_model_revision=current.revision,
                     interpretation=(
                         "in_sample_posterior_predictive"
-                        if fitted_panel == panel_revision
+                        if fitted_data == data
                         # A different panel revision does not prove held-out observations.
                         else "posterior_predictive"
                     ),

@@ -8,22 +8,24 @@ from pathlib import Path
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
+    from nof1_causal_lab.actions.contracts import DataDiffRequest, ModelDiffRequest
     from nof1_causal_lab.actions.effects import ActionReportName
     from nof1_causal_lab.artifacts.base import Value
     from nof1_causal_lab.artifacts.identity import ArtifactId
     from nof1_causal_lab.study.records import AttemptRecord
-    from nof1_causal_lab.study.view_models import DataDiffRequest, ModelDiffRequest
 
 import pygit2
 
 from nof1_causal_lab.actions.contracts import (
     EditModelRequest,
     FitRequest,
+    PrepareDataRequest,
     ScientificActionRequest,
     SimulateRequest,
     call_identity,
 )
-from nof1_causal_lab.artifacts.identity import GitOid
+from nof1_causal_lab.artifacts.data_ref import DataRef
+from nof1_causal_lab.artifacts.identity import CallId, GitOid
 from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.git_objects import open_repository, read_file, write_tree
 from nof1_causal_lab.study.records import Applied, StudyRevision
@@ -34,11 +36,13 @@ class StudyRepository:
     """One bare repository per local study; Git owns revision identity and topology."""
 
     def __init__(self, workspace_id: str, *, repository_path: Path | None = None) -> None:
+        """Open the workspace's study repository, optionally at an explicitly supplied local path."""
         self.workspace_id = workspace_id
         self.repo = open_repository(workspace_id, repository_path)
         self.path = Path(self.repo.path)
 
     def head(self) -> GitOid:
+        """Return the exact commit currently published as the main study head."""
         return GitOid(str(self.repo.references["refs/heads/main"].target))
 
     def _commit(self, revision: str) -> pygit2.Commit:
@@ -51,6 +55,7 @@ class StudyRepository:
         return obj.peel(pygit2.Commit)
 
     def read_file(self, revision: str, name: str) -> bytes:
+        """Read a named file from an exact Git revision without changing the working selection."""
         return read_file(self.repo, revision, name)
 
     def read_report[ReportT: Value](
@@ -66,6 +71,7 @@ class StudyRepository:
         return target.model_validate_json(self.repo[pygit2.Oid(hex=report)].peel(pygit2.Blob).data)
 
     def state(self, revision: str) -> StudyState:
+        """Reconstruct artifact selections and the most recent selected data history at a checkpoint."""
         tree = self._commit(revision).tree
         if "artifacts" not in tree:
             return StudyState()
@@ -79,9 +85,23 @@ class StudyRepository:
             if info.artifact_id != artifact.name:
                 raise StudyLookupError("Artifact tree does not match its scientific identity")
             current[info.artifact_id] = info
-        return StudyState(current=current)
+        data = None
+        for record in reversed(self.records(revision)):
+            attempt = record.record.attempt
+            if not isinstance(attempt.outcome, Applied):
+                continue
+            if attempt.action == "fit" and attempt.outcome.result is not None:
+                data = attempt.outcome.result.data
+                break
+            if attempt.action == "prepare_data" and any(
+                info.artifact_id == "panel" for info in attempt.outcome.effects.produced
+            ):
+                data = DataRef[GitOid, int](revision=record.commit_id, replicate_index=0)
+                break
+        return StudyState(current=current, data=data)
 
     def resolve(self, *, at: GitOid) -> GitOid:
+        """Require an existing study commit whose retained attempt, if any, was applied successfully."""
         revision = at
         commit = self._commit(revision)
         if "logs" in commit.tree and not isinstance(
@@ -91,6 +111,7 @@ class StudyRepository:
         return revision
 
     def record(self, revision: str) -> StudyRevision:
+        """Parse a retained attempt and pair it with its publication commit and parents."""
         commit = self._commit(revision)
         from nof1_causal_lab.study.records import AttemptRecord
 
@@ -114,6 +135,7 @@ class StudyRepository:
         ]
 
     def attempts(self) -> list[StudyRevision]:
+        """Read all indexed attempts in numerical study-sequence order."""
         refs = (ref for ref in self.repo.references if ref.startswith("refs/attempts/"))
         return [
             self.record(str(self.repo.references[ref].target))
@@ -130,6 +152,7 @@ class StudyRepository:
         )
 
     def latest_seq(self) -> int:
+        """Return the highest indexed attempt sequence, or zero before any attempts are recorded."""
         return max(
             (
                 int(ref.rsplit("/", 1)[1])
@@ -140,26 +163,25 @@ class StudyRepository:
         )
 
     def saved_call(
-        self, request: ScientificActionRequest | DataDiffRequest | ModelDiffRequest
+        self, request: ScientificActionRequest | DataDiffRequest[GitOid] | ModelDiffRequest[GitOid]
     ) -> StudyRevision | None:
-        """Only applied calls are reusable; failures are retained attempts, never cached calls."""
-        identity = call_identity(request)
-        return next(
-            (
-                revision
-                for revision in self.attempts()
-                if isinstance(revision.record.attempt.outcome, Applied)
-                and revision.record.attempt.request is not None
-                and call_identity(revision.record.attempt.request) == identity
-            ),
-            None,
+        """Every published call is reusable, including rejected and raised outcomes."""
+        return self.call(call_identity(request))
+
+    def call(self, identity: CallId) -> StudyRevision | None:
+        """Look up the published revision indexed by a call identity, or ``None`` if unsaved."""
+        ref = f"refs/calls/{identity.removeprefix('call:')}"
+        return (
+            self.record(str(self.repo.references[ref].target))
+            if ref in self.repo.references
+            else None
         )
 
     def question(self) -> ArtifactRecord:
         """The study's immutable question, independent of its current scientific state."""
         for revision in self.attempts():
             attempt = revision.record.attempt
-            if attempt.action == "set_question" and isinstance(attempt.outcome, Applied):
+            if attempt.action == "edit_question" and isinstance(attempt.outcome, Applied):
                 return next(
                     item
                     for item in attempt.outcome.effects.produced
@@ -168,18 +190,22 @@ class StudyRepository:
         raise StudyLookupError("Set the study question first")
 
     def input_state(
-        self, request: ScientificActionRequest | DataDiffRequest | ModelDiffRequest
+        self, request: ScientificActionRequest | DataDiffRequest[GitOid] | ModelDiffRequest[GitOid]
     ) -> StudyState:
         """Select only the question and the revisions actually named by this call."""
         from nof1_causal_lab.study.store import ArtifactStore
 
         store = ArtifactStore(self.workspace_id, repository_path=self.path)
+        if isinstance(request, EditModelRequest):
+            from nof1_causal_lab.study.inputs import model_edit_state
+
+            return model_edit_state(store, request.input.parent_ref)
         records = self.attempts()
         question = next(
             (
                 item
                 for revision in records
-                if revision.record.attempt.action == "set_question"
+                if revision.record.attempt.action == "edit_question"
                 and isinstance(revision.record.attempt.outcome, Applied)
                 for item in revision.record.attempt.outcome.effects.produced
                 if item.artifact_id == "question"
@@ -190,17 +216,17 @@ class StudyRepository:
             {"question": question} if question is not None else {}
         )
         model = (
-            request.expected_revision
-            if isinstance(request, EditModelRequest)
-            else request.model_revision
-            if isinstance(request, (FitRequest, SimulateRequest))
+            request.input.model_ref
+            if isinstance(request, (FitRequest, SimulateRequest, PrepareDataRequest))
             else None
         )
-        panel = (
-            request.panel_revision
-            if isinstance(request, (EditModelRequest, FitRequest, SimulateRequest))
-            else None
-        )
+        panel = request.input.panel_ref if isinstance(request, SimulateRequest) else None
+        if isinstance(request, FitRequest):
+            from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata
+            from nof1_causal_lab.study.data import panel_revision, read_data_source
+
+            if isinstance(read_data_source(store, request.input.data_ref), PreparedDataMetadata):
+                panel = panel_revision(store, request.input.data_ref)
         if model is not None:
             current["model"] = store.read_meta("model", model)
         if panel is not None:
@@ -225,7 +251,20 @@ class StudyRepository:
                         if item.artifact_id == "raw_data"
                     }
                 )
-        return StudyState(current=current)
+        data = (
+            DataRef[GitOid, int](
+                revision=request.input.data_ref, replicate_index=request.input.replicate_index
+            )
+            if isinstance(request, FitRequest)
+            else DataRef[GitOid, int](revision=panel, replicate_index=0)
+            if panel is not None
+            else None
+        )
+        if isinstance(request, PrepareDataRequest):
+            from nof1_causal_lab.actions.prepare_data import resolve_preparation
+
+            resolve_preparation(store, request.input)
+        return StudyState(current=current, data=data)
 
     def append(
         self,
@@ -245,6 +284,14 @@ class StudyRepository:
         log = record.model_dump(mode="json", round_trip=True)
         with self.repo.transaction() as transaction:
             transaction.lock_ref(attempt_ref)
+            call_ref = None
+            if record.attempt.request is not None:
+                identity = call_identity(record.attempt.request)
+                call_ref = f"refs/calls/{identity.removeprefix('call:')}"
+                transaction.lock_ref(call_ref)
+                saved = self.call(identity)
+                if saved is not None and saved.record.seq != record.seq:
+                    return saved
             action_ref = (
                 f"refs/actions/{record.attempt_id}" if record.attempt_id is not None else None
             )
@@ -290,6 +337,18 @@ class StudyRepository:
                 "attempt.json": json.dumps(log, sort_keys=True).encode(),
                 **(logs or {}),
             }
+            from nof1_causal_lab.actions.call_logs import assemble_call_log
+
+            log_files["messages.json"] = (
+                assemble_call_log(
+                    record.messages,
+                    logs or {},
+                    at=datetime.fromisoformat(record.ts),
+                    failure=None if isinstance(outcome, Applied) else outcome,
+                )
+                .model_dump_json(round_trip=True)
+                .encode()
+            )
             log_tree = self.repo.TreeBuilder(write_tree(self.repo, log_files))
             if isinstance(outcome, Applied) and outcome.effects.reports:
                 reports = self.repo.TreeBuilder()
@@ -309,6 +368,8 @@ class StudyRepository:
                 [pygit2.Oid(hex=parent)],
             )
             transaction.set_target(attempt_ref, oid)
+            if call_ref is not None:
+                transaction.set_target(call_ref, oid)
             if action_ref is not None:
                 transaction.set_target(action_ref, oid)
             if advances:

@@ -23,7 +23,9 @@ class UvicornServer(Protocol):
     started: bool
     should_exit: bool
 
-    async def serve(self) -> None: ...
+    async def serve(self) -> None:
+        """Serve the configured HTTP application until the server is asked to shut down."""
+        ...
 
 
 def find_free_port(host: str = "127.0.0.1") -> int:

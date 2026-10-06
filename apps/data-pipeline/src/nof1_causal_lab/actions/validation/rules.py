@@ -42,6 +42,8 @@ logger = logging.getLogger(__name__)
 
 
 class HealthMetrics(TypedDict, total=False):
+    """Optional measurements and per-check verdicts accumulated while auditing an indicator."""
+
     n_obs: int
     data_availability: bool | None
     variance: float | None
@@ -56,6 +58,8 @@ class HealthMetrics(TypedDict, total=False):
 
 @dataclass(frozen=True)
 class Issue:
+    """Validation finding associated with an indicator and the check cell it should affect."""
+
     indicator: IndicatorId | None
     issue_type: str
     severity: Literal["error", "warning", "info"]
@@ -65,12 +69,16 @@ class Issue:
 
 @dataclass
 class ValidationFindings:
+    """Issues and measured quantities emitted by one validation rule."""
+
     issues: list[Issue] = field(default_factory=list)
     metrics: HealthMetrics = field(default_factory=HealthMetrics)
 
 
 @dataclass
 class IndicatorContext:
+    """Parsed values, timestamps, and model context shared by an indicator's validation rules."""
+
     name: IndicatorId
     ind_data: pl.DataFrame
     values: pl.Series
@@ -86,6 +94,8 @@ class IndicatorContext:
 
 @dataclass(frozen=True)
 class IndicatorRuleInput:
+    """One indicator's rows and optional parsed context; empty data has no context."""
+
     name: IndicatorId
     ind_data: pl.DataFrame
     ctx: IndicatorContext | None
@@ -93,6 +103,8 @@ class IndicatorRuleInput:
 
 @dataclass(frozen=True)
 class ValidationContext:
+    """Observation definitions and recorded rows shared across a validation pass."""
+
     combined: pl.DataFrame
     indicators: Sequence[AuthoredObservationSpec | ResolvedObservationSpec]
     indicator_ids: set[IndicatorId]
@@ -103,6 +115,7 @@ class ValidationContext:
     def iter_indicators(
         self,
     ) -> Iterator[tuple[IndicatorId, pl.DataFrame, IndicatorContext | None]]:
+        """Yield each indicator's rows and parsed context in ID order, using ``None`` for empty rows."""
         for indicator_id in sorted(self.indicator_ids):
             ind_data = self.combined.filter(pl.col("indicator_id") == indicator_id)
             if ind_data.is_empty():
@@ -123,11 +136,14 @@ class ValidationContext:
 
 @dataclass(frozen=True)
 class ValidationRule[Input]:
+    """Named validation operation producing issues and health measurements from its input."""
+
     name: str
     check: Callable[[Input], ValidationFindings]
 
 
 def issue_payload(issue: Issue) -> ValidationIssue:
+    """Project an internal finding into the persisted issue schema, omitting its UI check key."""
     return ValidationIssue(
         indicator_id=issue.indicator,
         issue_type=issue.issue_type,
@@ -137,6 +153,7 @@ def issue_payload(issue: Issue) -> ValidationIssue:
 
 
 def issue_from_raw(raw_issue: ValidationIssue, *, cell_key: str) -> Issue:
+    """Attach the check-cell identity used when reducing a persisted issue into verdicts."""
     return Issue(
         raw_issue.indicator_id,
         raw_issue.issue_type,
@@ -151,6 +168,7 @@ def issues_from_raw(
     *,
     cell_key: str | Callable[[ValidationIssue], str],
 ) -> list[Issue]:
+    """Attach a fixed or issue-specific check-cell identity to each supplied issue."""
     issues: list[Issue] = []
     for raw_issue in raw_issues:
         resolved_cell_key = cell_key if isinstance(cell_key, str) else cell_key(raw_issue)
@@ -159,6 +177,7 @@ def issues_from_raw(
 
 
 def no_data_validation_result() -> DataProfileArtifact:
+    """Build a data profile containing the dataset-wide error for an empty extraction."""
     from nof1_causal_lab.artifacts.validation_report import DataProfileArtifact
 
     return DataProfileArtifact(
@@ -358,6 +377,7 @@ CELL_STATUS_KEYS = frozenset(
 def reduce_findings(
     indicator_findings: dict[str, list[ValidationFindings]],
 ) -> tuple[list[ValidationIssue], dict[str, HealthMetrics]]:
+    """Merge rule findings into issues and per-indicator verdicts, preserving error precedence."""
     all_issues: list[ValidationIssue] = []
     indicator_health: dict[str, HealthMetrics] = {}
 
@@ -467,6 +487,7 @@ def build_indicator_audits(
     indicator_issues: list[ValidationIssue],
     indicator_health: dict[str, HealthMetrics],
 ) -> dict[IndicatorId, IndicatorAudit]:
+    """Combine each selected indicator's empirical profile, issues, and check verdicts."""
     issues_by_indicator: dict[str, list[ValidationIssue]] = {name: [] for name in indicator_ids}
     for issue in indicator_issues:
         issue_indicator = issue.indicator_id
@@ -493,6 +514,17 @@ def run_rules(
     indicator_rules: Sequence[ValidationRule[IndicatorRuleInput]] = (),
     dataset_rules: Sequence[ValidationRule[ValidationContext]] = (),
 ) -> tuple[list[ValidationIssue], dict[str, HealthMetrics], list[ValidationIssue]]:
+    """Evaluate indicator and dataset rules without mixing their findings.
+
+    Args:
+        ctx: Recorded observations and definitions supplying the validation pass.
+        indicator_rules: Rules applied independently to every selected indicator.
+        dataset_rules: Rules applied once to the complete dataset context.
+
+    Returns:
+        Indicator issues, per-indicator health metrics, and dataset-wide issues,
+        in that order.
+    """
     indicator_findings: dict[str, list[ValidationFindings]] = {}
     for indicator_id, ind_data, indicator_ctx in ctx.iter_indicators():
         rule_input = IndicatorRuleInput(indicator_id, ind_data, indicator_ctx)

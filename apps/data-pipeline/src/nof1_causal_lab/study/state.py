@@ -12,22 +12,20 @@ cross serialization boundaries verbatim: Temporal update/activity payloads
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from enum import StrEnum
 
 from pydantic import Field
 
 from nof1_causal_lab.artifacts.base import Value
+from nof1_causal_lab.artifacts.data_ref import DataRef
 from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS, ArtifactId, GitOid, ScientificActionId
 
 
 class ArtifactRecord(Value):
-    """Artifact revision metadata records how a stored artifact was produced and which inputs it
-    used.
+    """An immutable artifact revision with its producer and exact input dependencies.
 
-    ``derived_from`` pins the exact input versions the payload was computed
-    from. For initial model revisions it is empty. ``created_at`` is
-    stamped by the activity that produced the revision — never inside workflow
-    code, where wall-clock time is non-deterministic.
+    ``derived_from`` pins the versions used to compute the payload. Initial
+    models pin their question; edits also pin their model parent. The producing
+    activity stamps ``created_at`` outside deterministic workflow execution.
     """
 
     artifact_id: ArtifactId
@@ -46,11 +44,14 @@ class StudyState(Value):
     """
 
     current: Mapping[ArtifactId, ArtifactRecord] = Field(default_factory=dict)
+    data: DataRef[GitOid, int] | None = None
 
     def get(self, artifact_id: ArtifactId) -> ArtifactRecord | None:
+        """Look up the selected artifact revision, or ``None`` if that artifact is absent."""
         return self.current.get(artifact_id)
 
     def has(self, artifact_id: ArtifactId) -> bool:
+        """Check whether the state selects a revision of the requested artifact kind."""
         return artifact_id in self.current
 
     def matches_inputs(self, output: ArtifactId, *inputs: ArtifactId) -> bool:
@@ -92,7 +93,7 @@ class RetractedArtifact(Value):
 
 def validate_lineage(state: StudyState, action: ScientificActionId) -> str | None:
     """The question roots every lineage: it is set first, and only then."""
-    if action == "set_question":
+    if action == "edit_question":
         return "The question is set by the study's first action" if state.current else None
     return None if state.has("question") else "Set the study question first"
 
@@ -126,16 +127,13 @@ def _staleness(state: StudyState, artifact_id: ArtifactId, visiting: frozenset[A
         return False
     marked = visiting.union((artifact_id,))
     for input_id in info.derived_from:
+        # Preparation retains its model as provenance. Model edits do not alter
+        # recorded data; compatibility is assessed against each consuming model.
+        if artifact_id == "panel" and input_id == "model":
+            continue
         current = state.get(input_id)
         if current is None or not state.matches_inputs(artifact_id, input_id):
             return True
         if input_id != "model" and _staleness(state, input_id, marked):
             return True
     return False
-
-
-class SourceValidity(StrEnum):
-    """Whether a selected artifact still matches its pinned inputs."""
-
-    FRESH = "fresh"
-    STALE = "stale"

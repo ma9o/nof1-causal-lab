@@ -65,6 +65,7 @@ class Strategy(ABC):
     """
 
     def __init__(self):
+        """Initialize an empty cache of per-site reparameterization decisions."""
         self.config: dict[str, Reparam | None] = {}
 
     @abstractmethod
@@ -80,6 +81,10 @@ class Strategy(ABC):
 
         Returns:
             A Reparam instance or None.
+
+        Raises:
+            NotImplementedError: The abstract strategy is used without a concrete
+                site-configuration implementation.
         """
         raise NotImplementedError
 
@@ -134,13 +139,19 @@ class AutoReparam(Strategy):
         To inspect or save a given behavior, extract the ``.config`` dict
         after running the model at least once.
 
-    Args:
-        centered: Optional centering parameter for LocScaleReparam.
-            If None (default), centering will be learned. If a float in
-            [0.0, 1.0], uses fixed centering.
     """
 
     def __init__(self, *, centered: float | None = None):
+        """Choose automatic or fixed centering for eligible latent sites.
+
+        Args:
+            centered: Fixed loc-scale centering weight in ``[0, 1]``. ``None`` creates
+                learned per-site, per-element centering parameters and requires an
+                optimization loop; zero is fully decentered and one fully centered.
+
+        Raises:
+            ValueError: A supplied centering weight lies outside ``[0, 1]``.
+        """
         super().__init__()
         if centered is not None and not (0.0 <= centered <= 1.0):
             raise ValueError(f"centered must be in [0, 1], got {centered}")

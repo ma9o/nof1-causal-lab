@@ -13,7 +13,6 @@ from nof1_causal_lab.artifacts.effects import HistogramBin
 from nof1_causal_lab.artifacts.indicator import IndicatorSpec
 from nof1_causal_lab.artifacts.raw_data import column_descriptions
 from nof1_causal_lab.artifacts.validation_report import ValidationReportArtifact
-from nof1_causal_lab.study.state import SourceValidity
 from nof1_causal_lab.study.view_models import (
     MeasurementsData,
     ObservationRecord,
@@ -34,7 +33,7 @@ if TYPE_CHECKING:
         DataProfileArtifact,
     )
     from nof1_causal_lab.models.model_structure import StructuralSelection
-    from nof1_causal_lab.study.snapshot_models import FitSummary, Sourced
+    from nof1_causal_lab.study.snapshot_models import FitSummary
 
 
 def raw_data_view(table: pa.Table, date_range: RawDataDateRange | None) -> RawDataData:
@@ -114,10 +113,10 @@ def likelihood_histograms(
 
 def entity_failures(
     model: ModelSpec | None,
-    fit: Sourced[FitSummary] | None,
-    predictive: Sourced[ModelPredictiveReport] | None,
-    identification: Sourced[IdentificationReport] | None,
-    data: Sourced[ValidationReportArtifact] | Sourced[DataProfileArtifact] | None,
+    fit: FitSummary | None,
+    predictive: ModelPredictiveReport | None,
+    identification: IdentificationReport | None,
+    data: ValidationReportArtifact | DataProfileArtifact | None,
 ) -> dict[ConstructId | EdgeId | IndicatorId, tuple[str, ...]]:
     """Attribute recorded scientific failures before the workbench renders them."""
     if model is None:
@@ -135,8 +134,8 @@ def entity_failures(
             else entity.id
         )
         parameters = {p.id for p in model.parameters_for(identity)}
-        if fit is not None and fit.source.validity == SourceValidity.FRESH:
-            for assessment in fit.value.report.convergence.assessments:
+        if fit is not None:
+            for assessment in fit.report.convergence.assessments:
                 if (
                     isinstance(assessment, Evaluated)
                     and assessment.outcome == "failed"
@@ -144,12 +143,8 @@ def entity_failures(
                     and assessment.subject.parameter.parameter_id in parameters
                 ):
                     messages.append(f"Parameter convergence: {assessment.subject.label}")
-        if (
-            predictive is not None
-            and predictive.source.validity == SourceValidity.FRESH
-            and predictive.value.evaluation.kind == "evaluated"
-        ):
-            for assessment in predictive.value.evaluation.findings:
+        if predictive is not None and predictive.evaluation.kind == "evaluated":
+            for assessment in predictive.evaluation.findings:
                 if not isinstance(assessment, Evaluated) or assessment.outcome not in {
                     "failed",
                     "error",
@@ -165,33 +160,21 @@ def entity_failures(
                     )
                 ):
                     messages.append(f"Predictive checks: {label}")
-            if predictive.value.evaluation.predictive_checks is not None:
-                for (
-                    assessment
-                ) in predictive.value.evaluation.predictive_checks.per_variable_warnings:
+            if predictive.evaluation.predictive_checks is not None:
+                for assessment in predictive.evaluation.predictive_checks.per_variable_warnings:
                     if (
                         isinstance(assessment, Evaluated)
                         and assessment.outcome in {"failed", "warning", "error"}
                         and assessment.subject.target.id == identity
                     ):
                         messages.append(f"Predictive checks: {label}")
-        if (
-            data is not None
-            and data.source.validity == SourceValidity.FRESH
-            and isinstance(entity, IndicatorSpec)
-        ):
-            profile = (
-                data.value.data if isinstance(data.value, ValidationReportArtifact) else data.value
-            )
+        if data is not None and isinstance(entity, IndicatorSpec):
+            profile = data.data if isinstance(data, ValidationReportArtifact) else data
             audit = profile.indicators.get(entity.observation.id)
             if audit is not None and any(issue.severity != "info" for issue in audit.issues):
                 messages.append(f"Data quality: {label}")
-        if (
-            identification is not None
-            and identification.source.validity == SourceValidity.FRESH
-            and isinstance(entity, ConstructSpec)
-        ):
-            treatment = identification.value.treatments.get(entity.id)
+        if identification is not None and isinstance(entity, ConstructSpec):
+            treatment = identification.treatments.get(entity.id)
             if treatment is not None and treatment.status == "not_identified":
                 messages.append(f"Identification against ★: {label}")
         failures[identity] = tuple(dict.fromkeys(messages))

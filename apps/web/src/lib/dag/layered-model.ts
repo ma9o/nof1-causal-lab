@@ -31,15 +31,13 @@ export function availableGraphLayers(
   simulation?: SimulationReport | null,
 ): CausalGraphLayerId[] {
   const available = {
-    structure: modelConstructs(model.model?.value).length > 0,
-    measurement: modelConstructs(model.model?.value).some(
-      (construct) => construct.indicators.length > 0,
-    ),
-    design: (model.dispositions?.value.length ?? 0) > 0,
-    specification: modelConstructs(model.model?.value).some(
+    structure: modelConstructs(model.model).length > 0,
+    measurement: modelConstructs(model.model).some((construct) => construct.indicators.length > 0),
+    design: (model.dispositions?.length ?? 0) > 0,
+    specification: modelConstructs(model.model).some(
       (c) => c.dynamics.length > 0 || c.indicators.some((i) => i.likelihood != null),
     ),
-    fit: model.fit?.source.validity === "fresh",
+    fit: model.fit !== null,
     simulation: simulation != null,
   };
   return CAUSAL_GRAPH_LAYER_ORDER.filter((layer) => available[layer]);

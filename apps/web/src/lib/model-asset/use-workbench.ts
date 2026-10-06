@@ -1,6 +1,6 @@
 "use client";
 
-import type { CompletedPoll, ModelSnapshot, TimelineRevision } from "@nof1-causal-lab/api-types";
+import type { ActionSuccess, ModelSnapshot, TimelineRevision } from "@nof1-causal-lab/api-types";
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useModelDiff } from "@/lib/hooks/use-model-diff";
@@ -13,7 +13,7 @@ export type SnapshotReader = (commitId: string | undefined) => {
   data: ModelSnapshot | undefined;
   error: Error | null;
   isPlaceholderData?: boolean;
-  result?: CompletedPoll | undefined;
+  result?: ActionSuccess | undefined;
 };
 
 export function useWorkbenchSnapshots(
@@ -54,7 +54,7 @@ interface WorkbenchOptions {
   attempts: readonly TimelineRevision[];
   model: ModelSnapshot;
   focusSeq: number;
-  result: CompletedPoll | undefined;
+  result: ActionSuccess | undefined;
   viewAt: (seq: number | null) => void;
 }
 
@@ -81,11 +81,11 @@ export function useWorkbench({
     },
     [],
   );
-  const entities = useMemo(() => indexModel(model.model?.value), [model]);
+  const entities = useMemo(() => indexModel(model.model), [model]);
   const ticks = attempts;
   const latest = latestSeq(attempts);
   const playhead = focusSeq;
-  const modelRevision = model.model?.source.ref.revision;
+  const modelRevision = model.state.current.model?.revision;
   const activeComparison = comparison?.before === playhead ? comparison : null;
   const comparedCall = attempts.find((record) => record.record.seq === activeComparison?.after);
   const comparedCommit =
@@ -99,7 +99,12 @@ export function useWorkbench({
     selectedCall.record.attempt.request !== null
       ? selectedCall.commit_id
       : selectedCall?.parent_ids[0];
-  const compared = useModelDiff(workspaceId, selectedCommit ?? null, comparedCommit ?? null);
+  const compared = useModelDiff(
+    workspaceId,
+    selectedCommit ?? null,
+    comparedCommit ?? null,
+    attempts,
+  );
   const retainPreview = () => {
     if (previewTimer.current) clearTimeout(previewTimer.current);
   };
@@ -126,14 +131,11 @@ export function useWorkbench({
     dismissComparison();
     viewAt(seq === latest ? null : seq);
   };
-  const question = model.question?.value.text ?? initialQuestion;
+  const question = model.question?.text ?? initialQuestion;
   const simulation = model.simulation;
   // Node histories need a simulation of the viewed model revision, certified or not.
   const simulationResult =
-    simulation?.source.validity === "fresh" &&
-    simulation.value.evidence.model.revision === modelRevision
-      ? simulation.value
-      : null;
+    simulation?.evidence.model.revision === modelRevision ? simulation : null;
   const context: ScopeContext = {
     model,
     entities,

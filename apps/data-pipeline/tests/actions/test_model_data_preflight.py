@@ -1,4 +1,4 @@
-"""Model-panel limitations are findings on edits and preflight errors on fits."""
+"""Model-panel limitations are checked when fitting, independently of model edits."""
 
 import time
 from datetime import UTC, datetime
@@ -10,7 +10,12 @@ from nof1_causal_lab.actions.checks import check_model_data, check_specification
 from nof1_causal_lab.actions.contracts import EditModelRequest
 from nof1_causal_lab.actions.data_checks import evaluate_data_checks
 from nof1_causal_lab.actions.effects import ActionEffects
+from nof1_causal_lab.actions.io import EditModelInput
 from nof1_causal_lab.actions.messages import completion_messages
+from nof1_causal_lab.artifacts.data_ref import DataRef
+from nof1_causal_lab.artifacts.identity import GitOid
+from nof1_causal_lab.artifacts.observation_data import ObservationDataset
+from nof1_causal_lab.artifacts.question import QuestionSpec
 from nof1_causal_lab.models.model_structure import StructuralSelection
 from nof1_causal_lab.models.ssm.inference import fit
 from nof1_causal_lab.models.ssm.preflight import ObservationPreflightFailure
@@ -22,7 +27,7 @@ from tests.action_fixtures import edit_and_check
 from tests.helpers import write_question
 from tests.inference_fixtures import compile_fit_fixture
 from tests.integration.runner_fixtures import panel_frame, panel_metadata
-from tests.model_fixtures import stress_sleep_model
+from tests.model_fixtures import construct_named, stress_sleep_causal_model
 
 pytestmark = pytest.mark.contract
 
@@ -38,7 +43,7 @@ def test_specification_reports_each_distinct_fit_law_reason_once(monkeypatch):
 
     monkeypatch.setattr(compilation, "compile_priors", unsupported)
     selection = StructuralSelection(
-        stress_sleep_model(),
+        stress_sleep_causal_model(),
         None,
     )
     compiled = compilation.compile_model(selection)
@@ -52,8 +57,11 @@ def test_specification_reports_each_distinct_fit_law_reason_once(monkeypatch):
 
 def test_interval_summary_fails_shared_preflight_before_particle_dispatch():
     model, panel = (
-        stress_sleep_model(),
+        stress_sleep_causal_model(),
         panel_frame(n_days=4),
+    )
+    panel = ObservationDataset.from_frame(
+        panel, panel_metadata().variables, time_origin=panel_metadata().time_origin
     )
     inputs = compile_fit_fixture(model)
     report = check_model_data(inputs, panel, time_origin=panel_metadata().time_origin)
@@ -79,7 +87,7 @@ def test_interval_summary_fails_shared_preflight_before_particle_dispatch():
     assert "interval summaries" in failure.message
 
 
-def test_edit_with_missing_panel_variable_saves_compatibility_findings(tmp_path, monkeypatch):
+def test_edit_with_missing_panel_variable_has_no_data_findings(tmp_path, monkeypatch):
     from nof1_causal_lab.utils import data as data_module
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path))
@@ -102,12 +110,27 @@ def test_edit_with_missing_panel_variable_saves_compatibility_findings(tmp_path,
         StudyState(),
         Applied(result=DataPreparationResult(), effects=ActionEffects(produced=[record])),
     )
-    state = StudyState().with_artifacts([write_question(store), record])
+    state = StudyState(
+        data=DataRef[GitOid, int](revision=record.revision, replicate_index=0)
+    ).with_artifacts(
+        [
+            write_question(
+                store,
+                QuestionSpec(
+                    text="How does sleep change?",
+                    outcome=construct_named(stress_sleep_causal_model(), "Sleep").id,
+                ),
+            ),
+            record,
+        ]
+    )
     edited = edit_and_check(
         "TEST",
-        EditModelRequest(
-            expected_revision=None,
-            model=stress_sleep_model(),
+        EditModelRequest[GitOid](
+            input=EditModelInput[GitOid](
+                parent_ref=state.current["question"].revision,
+                model=stress_sleep_causal_model(),
+            )
         ),
         state,
     )
@@ -117,18 +140,14 @@ def test_edit_with_missing_panel_variable_saves_compatibility_findings(tmp_path,
     checks, identification, report = read_model_checks(
         "TEST", state.with_artifacts(edited.effects.produced), action="edit_model"
     )
-    assert report is not None
-    finding = report.preflight[0]
-    assert finding.subject == "fit_preflight"
-    assert finding.kind == "evaluated"
-    assert finding.outcome == "failed"
-    assert "missing model indicators" in finding.evidence
-    assert "sleep_score" in finding.evidence
-    assert checks.predictive.evaluation.reason == "NO_COMPATIBLE_PANEL"
+    assert report is None
+    assert checks.predictive is None
+    assert checks.question is not None
+    assert checks.question.data is None
     messages = completion_messages(
         edited.result,
         datetime.now(UTC),
-        (identification, report),
+        (identification,),
         checks=checks,
     )
-    assert "MODEL_DATA_INCOMPATIBLE" in {message.label for message in messages}
+    assert "MODEL_DATA_INCOMPATIBLE" not in {message.label for message in messages}

@@ -15,11 +15,9 @@ dependencies = [
     "diffrax>=0.7.2",
     "dynestyx>=0.6.0",
     "equinox>=0.13.8",
-    "exa-py>=2.23.0",
     "fastapi>=0.142.2",
     "fsspec>=2026.9.0",
     "jax>=0.11.2",
-    "httpx>=0.28.1",
     "jaxtyping>=0.3.11",
     "jsonschema>=4.26.0",
     "mcp>=2.2.0",
@@ -59,6 +57,7 @@ cloud = [
     "s3fs>=2026.9.0",
 ]
 dev = [
+    "httpx>=0.28.1",
     "cloudpickle>=3.1.2",
     "beartype>=0.22.9",
     "deptry>=0.25.1",
@@ -83,6 +82,7 @@ dev = [
     "import-linter>=2.15",
     "xarray>=2026.9.0",
     "complexipy>=8.0.1",
+    "pydoclint==0.11.0", # scripts/checks/run_pydoclint.py extends its Visitor
 ]
 gpu = [
     "jax[cuda12]; sys_platform == 'linux'",
@@ -102,6 +102,7 @@ select = [
     "E",      # pycodestyle errors
     "W",      # pycodestyle warnings
     "F",      # Pyflakes
+    "D",      # Google-style docstrings for the production Python API
     "I",      # isort
     "B",      # flake8-bugbear
     "B909",   # mutation of the collection being iterated
@@ -138,6 +139,8 @@ ignore = [
 ]
 
 [tool.ruff.lint.per-file-ignores]
+# The documentation contract belongs to src; fixtures and analysis cells are callers.
+"!src/**.py" = ["D"]
 "tests/*.py" = [
     "ARG001",  # unused function arguments (pytest fixtures)
     "ARG002",  # unused method arguments (pytest fixtures)
@@ -182,6 +185,33 @@ runtime-evaluated-decorators = [
 
 [tool.ruff.lint.flake8-pytest-style]
 parametrize-names-type = "tuple"
+
+[tool.ruff.lint.pydocstyle]
+convention = "google"
+
+[tool.pydoclint]
+style = "google"
+check-style-mismatch = true
+# Annotations own types; docstrings describe semantics without duplicating them.
+arg-type-hints-in-signature = true
+arg-type-hints-in-docstring = false
+check-return-types = false
+check-yield-types = false
+check-arg-order = true
+# Google style permits a complete one-line description for simple operations.
+# Structured docstrings still receive every contract check configured below.
+skip-checking-short-docstrings = true
+skip-checking-private-functions = false
+skip-checking-raises = false
+should-declare-assert-error-if-assert-statement-exists = true
+should-document-star-arguments = true
+allow-init-docstring = true
+# The local runner counts Field descriptions without duplicating Attributes entries.
+check-class-attributes = true
+ignore-private-class-attributes = false
+ignore-special-dunder-class-attributes = false
+# Properties keep their own docstrings beside their implementations.
+treat-property-methods-as-class-attributes = false
 
 [tool.ruff.lint.flake8-tidy-imports]
 ban-relative-imports = "parents"

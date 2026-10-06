@@ -10,6 +10,8 @@ from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError, ApplicationError
 
 if TYPE_CHECKING:
+    from collections.abc import Awaitable, Callable
+
     from nof1_causal_lab.llm_specs import EmbeddedLLMSpec, HarnessLLMSpec
 
 with workflow.unsafe.imports_passed_through():
@@ -183,6 +185,7 @@ async def _execute_openrouter_call(
     conversation_ref: str,
     turn_label: str,
     llm: EmbeddedLLMSpec,
+    retain_conversation: Callable[[str], Awaitable[None]],
 ) -> tuple[OpenRouterCallResult, int]:
     def _call(label: str, source_conversation_ref: str) -> OpenRouterCallInput:
         return OpenRouterCallInput(
@@ -226,6 +229,7 @@ async def _execute_openrouter_call(
                 f"Append LLM repair message {workflow_input.subroutine.subroutine_id} {turn_label}"
             ),
         )
+        await retain_conversation(repaired.conversation_ref)
         repaired_call: OpenRouterCallResult = await workflow.execute_activity(
             "call_openrouter_activity",
             _call(repair_label, repaired.conversation_ref),
@@ -240,15 +244,30 @@ async def _execute_openrouter_call(
 
 @workflow.defn
 class LLMSubroutineWorkflow:
+    """Durable extraction conversation that coordinates model turns and tool execution."""
+
     def __init__(self) -> None:
+        """Initialize the queue populated by harness tool-request signals."""
         self._pending_harness_tool_requests: list[HarnessToolRequest] = []
 
     @workflow.signal
     async def harness_tool_requested(self, request: HarnessToolRequest) -> None:
+        """Queue a signaled harness tool invocation for execution by the workflow."""
         self._pending_harness_tool_requests.append(request)
 
     @workflow.run
     async def run(self, workflow_input: LLMSubroutineInput) -> LLMSubroutineResult:
+        """Drive the extraction conversation to a validated terminal result.
+
+        Args:
+            workflow_input: Subroutine context, model backend, and allowed tool-turn budget.
+
+        Returns:
+            Stored result and trace references with the number of provider and harness calls.
+
+        Raises:
+            ApplicationError: The conversation ends without a valid terminal result.
+        """
         start: LLMSubroutineStart = await workflow.execute_activity(
             "start_llm_subroutine_activity",
             workflow_input.subroutine,
@@ -265,94 +284,109 @@ class LLMSubroutineWorkflow:
         harness_trace_refs: list[str] = []
         terminal_error: str | None = None
 
-        for user_message_index in range(start.user_message_count):
-            conversation_ref = await _append_user_message(
-                workflow_input, conversation_ref, user_message_index
+        async def retain_trace() -> LLMSubroutineTraceResult:
+            result: LLMSubroutineTraceResult = await workflow.execute_activity(
+                "finalize_llm_subroutine_trace_activity",
+                LLMSubroutineTraceInput(
+                    subroutine=workflow_input.subroutine,
+                    conversation_ref=conversation_ref,
+                    call_ref_base=start.call_ref_base,
+                    harness_trace_refs=harness_trace_refs,
+                ),
+                result_type=LLMSubroutineTraceResult,
+                start_to_close_timeout=_TRACE_TIMEOUT,
+                retry_policy=_LOCAL_RETRY,
+                summary=f"Retain LLM trace {workflow_input.subroutine.subroutine_id}",
             )
-            user_label = f"user-{user_message_index + 1:03d}"
+            return result
 
-            if workflow_input.llm.harness == "none":
-                for turn in range(1, workflow_input.max_tool_turns + 1):
-                    turn_label = f"{user_label}-turn-{turn:03d}"
-                    call, call_count = await _execute_openrouter_call(
-                        workflow_input,
-                        start,
-                        conversation_ref,
-                        turn_label,
-                        workflow_input.llm,
-                    )
-                    n_llm_calls += call_count
-                    conversation_ref = call.conversation_ref
+        async def retain_conversation(reference: str) -> None:
+            nonlocal conversation_ref
+            conversation_ref = reference
+            await retain_trace()
 
-                    if not start.tools:
+        try:
+            for user_message_index in range(start.user_message_count):
+                conversation_ref = await _append_user_message(
+                    workflow_input, conversation_ref, user_message_index
+                )
+                await retain_trace()
+                user_label = f"user-{user_message_index + 1:03d}"
+
+                if workflow_input.llm.harness == "none":
+                    for turn in range(1, workflow_input.max_tool_turns + 1):
+                        turn_label = f"{user_label}-turn-{turn:03d}"
+                        call, call_count = await _execute_openrouter_call(
+                            workflow_input,
+                            start,
+                            conversation_ref,
+                            turn_label,
+                            workflow_input.llm,
+                            retain_conversation,
+                        )
+                        n_llm_calls += call_count
+                        conversation_ref = call.conversation_ref
+                        await retain_trace()
+
+                        if not start.tools:
+                            break
+                        if not call.tool_calls:
+                            break
+
+                        tool_execution: LLMToolExecutionResult = await workflow.execute_activity(
+                            "execute_llm_tool_calls_activity",
+                            LLMToolExecutionInput(
+                                subroutine=workflow_input.subroutine,
+                                conversation_ref=conversation_ref,
+                                assistant_ref=call.assistant_ref,
+                                execution_ref=f"{start.tool_execution_ref_base}/{turn_label}.json",
+                                result_ref=f"{start.result_ref_base}/{turn_label}.json",
+                                tools=start.tools,
+                            ),
+                            result_type=LLMToolExecutionResult,
+                            retry_policy=_LOCAL_RETRY,
+                            summary=(
+                                f"Execute LLM tools {workflow_input.subroutine.subroutine_id} "
+                                f"{turn_label}"
+                            ),
+                            start_to_close_timeout=_LOCAL_TIMEOUT,
+                        )
+                        conversation_ref = tool_execution.conversation_ref
+                        await retain_trace()
+                        if tool_execution.terminal_success:
+                            if tool_execution.result_ref is not None:
+                                last_result_ref = tool_execution.result_ref
+                            else:
+                                terminal_error = (
+                                    f"LLM subroutine {workflow_input.subroutine.subroutine_id} "
+                                    "terminal tool succeeded without a result ref"
+                                )
+                            break
+                    else:
+                        terminal_error = (
+                            f"LLM subroutine {workflow_input.subroutine.subroutine_id} exceeded "
+                            f"{workflow_input.max_tool_turns} turns without validation success."
+                        )
+
+                    if terminal_error is not None:
                         break
-                    if not call.tool_calls:
-                        break
+                    continue
 
-                    tool_execution: LLMToolExecutionResult = await workflow.execute_activity(
-                        "execute_llm_tool_calls_activity",
-                        LLMToolExecutionInput(
-                            subroutine=workflow_input.subroutine,
-                            conversation_ref=conversation_ref,
-                            assistant_ref=call.assistant_ref,
-                            execution_ref=f"{start.tool_execution_ref_base}/{turn_label}.json",
-                            result_ref=f"{start.result_ref_base}/{turn_label}.json",
-                            tools=start.tools,
-                        ),
-                        result_type=LLMToolExecutionResult,
-                        retry_policy=_LOCAL_RETRY,
-                        summary=(
-                            f"Execute LLM tools {workflow_input.subroutine.subroutine_id} "
-                            f"{turn_label}"
-                        ),
-                        start_to_close_timeout=_LOCAL_TIMEOUT,
-                    )
-                    conversation_ref = tool_execution.conversation_ref
-                    if tool_execution.terminal_success:
-                        if tool_execution.result_ref is not None:
-                            last_result_ref = tool_execution.result_ref
-                        else:
-                            terminal_error = (
-                                f"LLM subroutine {workflow_input.subroutine.subroutine_id} "
-                                "terminal tool succeeded without a result ref"
-                            )
-                        break
-                else:
-                    terminal_error = (
-                        f"LLM subroutine {workflow_input.subroutine.subroutine_id} exceeded "
-                        f"{workflow_input.max_tool_turns} turns without validation success."
-                    )
-
-                if terminal_error is not None:
-                    break
-                continue
-
-            harness = await _execute_harness_turn(
-                workflow_input,
-                start,
-                user_message_index,
-                user_label,
-                self._pending_harness_tool_requests,
-                workflow_input.llm,
-            )
-            n_harness_turns += 1
-            harness_trace_refs.append(harness.trace_ref)
-            if harness.result_ref is not None:
-                last_result_ref = harness.result_ref
-
-        trace: LLMSubroutineTraceResult = await workflow.execute_activity(
-            "finalize_llm_subroutine_trace_activity",
-            LLMSubroutineTraceInput(
-                subroutine=workflow_input.subroutine,
-                conversation_ref=conversation_ref,
-                call_ref_base=start.call_ref_base,
-                harness_trace_refs=harness_trace_refs,
-            ),
-            result_type=LLMSubroutineTraceResult,
-            start_to_close_timeout=_TRACE_TIMEOUT,
-            retry_policy=_LOCAL_RETRY,
-            summary=f"Finalize LLM trace {workflow_input.subroutine.subroutine_id}",
-        )
+                harness = await _execute_harness_turn(
+                    workflow_input,
+                    start,
+                    user_message_index,
+                    user_label,
+                    self._pending_harness_tool_requests,
+                    workflow_input.llm,
+                )
+                n_harness_turns += 1
+                harness_trace_refs.append(harness.trace_ref)
+                await retain_trace()
+                if harness.result_ref is not None:
+                    last_result_ref = harness.result_ref
+        finally:
+            trace = await retain_trace()
 
         if terminal_error is not None:
             raise ApplicationError(

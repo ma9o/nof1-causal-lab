@@ -148,6 +148,7 @@ class PiHarnessSession:
         initial_session_jsonl: str | None = None,
         session_id: str | None = None,
     ) -> None:
+        """Create a Pi session directory and restore saved conversation bytes and trace events."""
         self._tools = list(tools)
         self._tool_stop_map = {
             tool.name: tool.success_output for tool in tools if tool.stop_on_success
@@ -175,10 +176,12 @@ class PiHarnessSession:
 
     @property
     def session_id(self) -> str:
+        """Identity of the Pi conversation persisted in this session's scratch directory."""
         return self._session_id
 
     @property
     def session_jsonl(self) -> str:
+        """Serialized Pi conversation for resumption, requiring exactly one retained session file."""
         files = list(self._session_dir.glob("*.jsonl"))
         if len(files) != 1:
             raise RuntimeError(f"expected one Pi session file, found {len(files)}")
@@ -186,10 +189,12 @@ class PiHarnessSession:
 
     @property
     def raw_events(self) -> list[JsonObject]:
+        """A copy of the raw Pi events accumulated across this session's turns."""
         return list(self._state.raw_events)
 
     @execution_failure_handler
     async def turn(self, user_message: str) -> TurnResult:
+        """Run a prompt in the Pi session and retain its events, timing, and terminal-tool outcome."""
         pre_event_count = len(self._state.raw_events)
         started = perf_counter()
         argv = build_pi_argv(
@@ -274,13 +279,15 @@ class PiHarnessSession:
 
     @property
     def result(self) -> AgentResult:
+        """Assemble the complete Pi trace and the last accepted terminal tool name."""
         return AgentResult(
             trace=finalize_trace(self._state),
             terminal_tool_name=self._terminal_tool[0] if self._terminal_tool else None,
         )
 
     async def aclose(self) -> None:
-        return None
+        """Complete the session interface; each turn already owns and closes its subprocess."""
+        return
 
 
 @asynccontextmanager

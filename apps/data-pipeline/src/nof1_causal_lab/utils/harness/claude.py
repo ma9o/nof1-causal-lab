@@ -164,6 +164,7 @@ class ClaudeHarnessSession:
         initial_events: list[JsonObject] | None = None,
         turn_index: int = 0,
     ) -> None:
+        """Bind Claude process settings and restore trace state for a new or resumed harness session."""
         self._tools = list(tools)
         self._tool_stop_map = {t.name: t.success_output for t in tools if t.stop_on_success}
         self._mcp_config_path = mcp_config_path
@@ -186,14 +187,17 @@ class ClaudeHarnessSession:
 
     @property
     def session_id(self) -> str:
+        """Session identity passed to Claude when starting or resuming the conversation."""
         return self._session_id
 
     @property
     def raw_events(self) -> list[JsonObject]:
+        """A copy of the raw Claude events accumulated across this session's turns."""
         return list(self._state.raw_events)
 
     @execution_failure_handler
     async def turn(self, user_message: str) -> TurnResult:
+        """Run the next Claude prompt in this session and return only that turn's trace and outcome."""
         self._turn_index += 1
         pre_event_count = len(self._state.raw_events)
 
@@ -304,6 +308,7 @@ class ClaudeHarnessSession:
 
     @property
     def result(self) -> AgentResult:
+        """Assemble the complete session trace and the last accepted terminal tool name."""
         trace = finalize_trace(self._state)
         return AgentResult(
             trace=trace,
@@ -311,7 +316,8 @@ class ClaudeHarnessSession:
         )
 
     async def aclose(self) -> None:
-        return None
+        """Complete the session interface; each turn already owns and closes its subprocess."""
+        return
 
 
 def _tool_result_text(content: object) -> str:

@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING
 
 from pydantic import TypeAdapter
 
+from nof1_causal_lab.actions.io import ModelDiffOutput
 from nof1_causal_lab.artifacts.identity import (
     GitOid,
     GitRef,
@@ -14,9 +15,6 @@ from nof1_causal_lab.models.model_structure import (
     compare_model_graph,
     compare_parameters,
     model_graph_entities,
-)
-from nof1_causal_lab.study.view_models import (
-    ModelDiffReport,
 )
 
 if TYPE_CHECKING:
@@ -71,14 +69,15 @@ def _model_revision(
             revision=reader.state.current["model"].revision,
             path="model.json",
         ),
-        fit.value.core if fit is not None and fit.source.validity == "fresh" else None,
-        simulation.value
-        if simulation is not None and simulation.source.validity == "fresh"
+        fit.core if fit is not None else None,
+        simulation
+        if simulation is not None
+        and simulation.evidence.model.revision == reader.state.current["model"].revision
         else None,
     )
 
 
-def model_diff(workspace_id: str, before_id: GitOid, after_id: GitOid) -> ModelDiffReport:
+def model_diff(workspace_id: str, before_id: GitOid, after_id: GitOid) -> ModelDiffOutput:
     """Inspect scientific definition changes and evidence without fitting or simulation."""
     from nof1_causal_lab.actions.checks import check_specification
     from nof1_causal_lab.models.model_inputs import input_fingerprints
@@ -115,7 +114,7 @@ def model_diff(workspace_id: str, before_id: GitOid, after_id: GitOid) -> ModelD
         model_graph_entities(selection) if selection is not None else ((), ())
         for selection in scoped
     )
-    return ModelDiffReport(
+    return ModelDiffOutput(
         before=before,
         after=after,
         before_model=left,
@@ -149,14 +148,14 @@ def model_diff(workspace_id: str, before_id: GitOid, after_id: GitOid) -> ModelD
     )
 
 
-def read_model_diff(workspace_id: str, before_id: GitOid, after_id: GitOid) -> ModelDiffReport:
-    """Reuse the same comparison projection for reads and logged comparisons."""
+def read_model_diff(workspace_id: str, before_id: GitOid, after_id: GitOid) -> ModelDiffOutput:
+    """Compute a comparison for publication, reusing the current-code preparation cache."""
     from nof1_causal_lab.study.store import cached_value
 
     report, _ = cached_value(
         workspace_id,
         ("model-diff", before_id, after_id),
-        TypeAdapter(ModelDiffReport),
+        TypeAdapter(ModelDiffOutput),
         lambda: model_diff(workspace_id, before_id, after_id),
     )
     return report

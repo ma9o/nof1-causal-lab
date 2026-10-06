@@ -40,15 +40,15 @@ export function LawSections({
 }) {
   const fit = context.model.fit;
   const detail = useInferenceReport(context.model);
-  const chains = detail.data?.value.detail;
-  const mcmc = fit?.value.report.inference_diagnostics;
+  const chains = detail.data?.detail;
+  const mcmc = fit?.report.inference_diagnostics;
   const rows = mcmc?.per_parameter ?? [];
   const curves = lawCurves(context.model, uses);
   return context.entities.parameters
     .filter((parameter) => uses.some((use) => use.parameterId === parameter.id))
     .map((parameter) => {
       const law = parameter.distribution
-        ? context.model.model?.value.distributions[parameter.distribution]
+        ? context.model.model?.distributions[parameter.distribution]
         : null;
       const curve = curves.find((item) => item.parameter.id === parameter.id);
       const label = curve
@@ -59,11 +59,7 @@ export function LawSections({
             .join(", ");
       const diagnostics = rows.filter((row) => row.subject.parameter_id === parameter.id);
       return (
-        <Section
-          key={parameter.id}
-          title={label.charAt(0).toUpperCase() + label.slice(1)}
-          {...(curve?.kind === "fitted" && fit ? { source: fit.source } : {})}
-        >
+        <Section key={parameter.id} title={label.charAt(0).toUpperCase() + label.slice(1)}>
           <Hint>{humanize(parameter.description)}</Hint>
           {curve ? (
             <LawChart curve={curve} caption={humanize(parameter.name)} />
@@ -80,7 +76,7 @@ export function LawSections({
           {diagnostics.map((row) => {
             const subject = row.subject;
             const assessments =
-              fit?.value.report.convergence.assessments.filter(
+              fit?.report.convergence.assessments.filter(
                 (item) =>
                   typeof item.subject !== "string" &&
                   item.subject.parameter.element_id === subject.element_id,
@@ -154,13 +150,11 @@ export function SimulatedHistory({
   const included =
     simulation &&
     (kind === "states"
-      ? simulation.value.evidence.state_ids.some((state) => state === id)
-      : simulation.value.evidence.observation_layout.variables.some(
-          (variable) => variable.id === id,
-        ));
+      ? simulation.evidence.state_ids.some((state) => state === id)
+      : simulation.evidence.observation_layout.variables.some((variable) => variable.id === id));
   if (!simulation || !included) return null;
   return (
-    <Section title="Simulated history" source={simulation.source} wide>
+    <Section title="Simulated history" wide>
       <SimulationHistory model={context.model} id={id} kind={kind} title="Every saved draw" />
     </Section>
   );
@@ -180,7 +174,7 @@ export function PosteriorPairs({ context }: { context: ScopeContext }) {
     columns.find((column) => column.subject.element_id !== x?.subject.element_id);
   if (!fit) return null;
   return (
-    <Section title="Joint posterior" source={fit.source} wide>
+    <Section title="Joint posterior" wide>
       {draws.error ? (
         <Hint issue>{draws.error.message}</Hint>
       ) : draws.isLoading ? (
@@ -218,7 +212,7 @@ export function PosteriorPairs({ context }: { context: ScopeContext }) {
             <JointDrawsChart
               x={{ label: humanize(x.label), values: x.values }}
               y={{ label: humanize(y.label), values: y.values }}
-              flagged={report.data?.value.detail.divergent ?? null}
+              flagged={report.data?.detail.divergent ?? null}
               height={240}
             />
           )}

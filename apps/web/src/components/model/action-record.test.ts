@@ -1,20 +1,26 @@
-import type { RunningAction, SimulateRequest, TimelineRevision } from "@nof1-causal-lab/api-types";
+import type {
+  GitOid,
+  RunningAction,
+  SimulateRequest,
+  TimelineRevision,
+} from "@nof1-causal-lab/api-types";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
 import { ActionRecord, type ActionTraceState } from "./action-record";
 
 const intent = "Check <revised> assumptions.\nGoal: choose a model to fit.";
-const request: SimulateRequest = {
+const request: SimulateRequest<GitOid> = {
   action: "simulate",
-  model_revision: "1".repeat(40),
-  panel_revision: null,
-  start: "2026-01-01",
-  horizon: "1d",
-  interventions: [],
+  input: {
+    model_ref: "1".repeat(40),
+    panel_ref: null,
+    simulation: { start: "2026-01-01", horizon: "1d", interventions: [] },
+  },
   reasoning: intent,
 };
 const tick: TimelineRevision = {
+  call_id: `call:${"2".repeat(64)}`,
   commit_id: "2".repeat(40),
   parent_ids: ["1".repeat(40)],
   record: {
@@ -64,10 +70,11 @@ describe("action reasoning", () => {
   it("shows intent before a running call's messages", () => {
     const html = render(undefined, {
       action: "simulate",
-      attempt_id: "0f17a770-5d1e-4c2b-9a3f-6b8e2d4c1a90",
+      call_id: `call:${"2".repeat(64)}`,
       request,
-      events: [],
-      messages: [{ timestamp: tick.record.ts, level: "info", label: "SIMULATE_STARTED" }],
+      messages: [
+        { kind: "log", timestamp: tick.record.ts, level: "info", label: "SIMULATE_STARTED" },
+      ],
     });
     expect(html.indexOf('aria-label="Reasoning"')).toBeLessThan(html.indexOf("SIMULATE_STARTED"));
   });

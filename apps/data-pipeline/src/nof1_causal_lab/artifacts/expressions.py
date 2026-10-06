@@ -166,9 +166,11 @@ class CoefficientExpression(_ExpressionValue):
 
     @property
     def meaning(self) -> CoefficientMeaning:
+        """Role-owned coefficient semantics, including its admissible numeric support."""
         return COEFFICIENT_MEANINGS[self.role]
 
     def validate_value(self, value: float) -> None:
+        """Reject a numeric coefficient outside the support declared by its semantic role."""
         meaning = self.meaning
         if meaning.support == SupportClass.POSITIVE and (
             value < 0 if meaning.allows_zero else value <= 0
@@ -178,6 +180,7 @@ class CoefficientExpression(_ExpressionValue):
 
     @model_validator(mode="after")
     def validate_fixed_support(self) -> CoefficientExpression:
+        """Check numeric coefficient literals at construction; symbolic values retain their owner."""
         if isinstance(self.value, (int, float)):
             self.validate_value(self.value)
         return self
@@ -201,6 +204,7 @@ class CallExpression(_ExpressionValue):
 
     @model_validator(mode="after")
     def validate_arity(self) -> CallExpression:
+        """Reject calls whose argument count differs from the expression function's declared arity."""
         expected = {"ordered_cutpoints": 2, "category_logits": 3}.get(self.function, 1)
         if len(self.arguments) != expected:
             raise ValueError(f"{self.function} requires {expected} arguments")
@@ -214,12 +218,14 @@ type Expression = Annotated[
 
 
 def expression(value: Expression | float) -> Expression:
+    """Wrap numeric constants as literal expression nodes and preserve existing expression owners."""
     if isinstance(value, (float, int)):
         return LiteralExpression(value=value)
     return value
 
 
 def state(identity: ConstructId) -> StateExpression:
+    """Build an expression referring to the latent state of the named construct."""
     return StateExpression(construct_id=identity)
 
 
@@ -229,6 +235,7 @@ def coefficient(
     *,
     construct_ids: tuple[ConstructId, ...] = (),
 ) -> CoefficientExpression:
+    """Build a role-bearing coefficient from a fixed value, parameter reference, or unresolved value."""
     return CoefficientExpression(role=role, value=value, construct_ids=construct_ids)
 
 
@@ -330,6 +337,7 @@ def symbolic_expression(value: Expression) -> SymbolicExpression:
 
 
 def walk_expression(value: Expression) -> Iterator[Expression]:
+    """Yield authored expression nodes in symbolic preorder, omitting synthetic algebra nodes."""
     symbolic = symbolic_expression(value)
     yield from (
         symbolic.nodes[node] for node in preorder_traversal(symbolic.root) if node in symbolic.nodes
@@ -337,6 +345,7 @@ def walk_expression(value: Expression) -> Iterator[Expression]:
 
 
 def expression_states(value: Expression) -> frozenset[ConstructId]:
+    """Collect the distinct construct identities referenced by state nodes in an expression."""
     return frozenset(
         node.construct_id for node in walk_expression(value) if isinstance(node, StateExpression)
     )

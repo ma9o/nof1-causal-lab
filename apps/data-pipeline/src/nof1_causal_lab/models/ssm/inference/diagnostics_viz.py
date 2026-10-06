@@ -33,6 +33,7 @@ HIST_PADDING_DEFAULT = 0.5
 def sample_coordinates(
     samples: Mapping[str, jnp.ndarray], *, sample_dims: int
 ) -> Iterator[tuple[ParameterCoordinate, jnp.ndarray]]:
+    """Yield scalar event coordinates while preserving the requested leading sampling dimensions."""
     for name, values in samples.items():
         for indices in np.ndindex(values.shape[sample_dims:]):
             coordinate = ParameterCoordinate(site_name=name, indices=indices)
@@ -60,6 +61,7 @@ def build_trace_data(
 def build_rank_histograms(
     chain_samples: Mapping[str, jnp.ndarray], references: ParameterReferences, n_bins: int = 20
 ) -> tuple[RankHistogram, ...]:
+    """Build per-chain pooled-rank histograms for coordinates with scientific parameter references."""
     histograms = []
     for coordinate, values in sample_coordinates(chain_samples, sample_dims=2):
         reference = references[coordinate]
@@ -102,6 +104,7 @@ def _density_histogram(values: NDArray, n_bins: int) -> DensityCurve:
 def param_marginal(
     parameter: str, subject: ParameterRef, values: jnp.ndarray, n_bins: int = 50
 ) -> PosteriorMarginal:
+    """Summarize scalar posterior draws with a density histogram, moments, and a 94% HDI."""
     draws = np.asarray(values)
     histogram = _density_histogram(draws, n_bins)
     low, high = array_stats.hdi(draws, prob=0.94, axis=-1)
@@ -119,6 +122,7 @@ def param_marginal(
 
 
 def build_energy_diagnostics(energy: jnp.ndarray, n_bins: int = 40) -> EnergyDiagnostics:
+    """Summarize per-chain energy and consecutive energy changes, including each chain's BFMI."""
     chains = np.atleast_2d(np.asarray(energy))
     transitions = np.diff(chains, axis=1)
     return EnergyDiagnostics(
@@ -131,6 +135,7 @@ def build_energy_diagnostics(energy: jnp.ndarray, n_bins: int = 40) -> EnergyDia
 def compute_posterior_marginals(
     samples: Mapping[str, jnp.ndarray], references: ParameterReferences, n_bins: int = 50
 ) -> tuple[PosteriorMarginal, ...]:
+    """Build posterior marginals for the sampled coordinates that have scientific parameter owners."""
     return tuple(
         param_marginal(reference[0], reference[1], values, n_bins)
         for coordinate, values in sample_coordinates(samples, sample_dims=1)
@@ -138,13 +143,10 @@ def compute_posterior_marginals(
     )
 
 
-
-
 def pareto_k_points(values: Sequence[float], timesteps: Sequence[int]) -> tuple[ParetoKPoint, ...]:
-    """PSIS influence classes and rank retain each original observation row."""
+    """PSIS influence classes retain each original row in decreasing influence order."""
     return tuple(
         ParetoKPoint(
-            rank=rank + 1,
             timestep=timesteps[index],
             k=value
             if np.isfinite(value)
@@ -161,11 +163,9 @@ def pareto_k_points(values: Sequence[float], timesteps: Sequence[int]) -> tuple[
             if value > 0.5
             else "passed",
         )
-        for rank, (index, value) in enumerate(
-            sorted(
-                enumerate(values),
-                key=lambda item: (not np.isnan(item[1]), item[1] if not np.isnan(item[1]) else 0),
-                reverse=True,
-            )
+        for index, value in sorted(
+            enumerate(values),
+            key=lambda item: (not np.isnan(item[1]), item[1] if not np.isnan(item[1]) else 0),
+            reverse=True,
         )
     )

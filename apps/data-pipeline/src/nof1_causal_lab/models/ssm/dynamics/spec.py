@@ -30,8 +30,7 @@ class DynamicsSpec:
 
 @dataclass(frozen=True, eq=False)
 class CompiledDynamics:
-    """Output of ``compile_dynamics``: ready-to-fit vector field plus a
-    NumPyro-callable that produces the matching ``args.params`` tuple."""
+    """A vector field with the parameter sampler and site registry compiled for it."""
 
     spec: DynamicsSpec
     vector_field: VectorField
@@ -40,11 +39,16 @@ class CompiledDynamics:
 
 
 def compile_dynamics(spec: DynamicsSpec, *, prefix: str = "vf") -> CompiledDynamics:
-    """Compile a ``DynamicsSpec`` into a ``VectorField`` and a
-    NumPyro-callable parameter sampler.
+    """Compile symbolic dynamics into a vector field and matching parameter sampler.
 
-    The ``prefix`` is prepended to every NumPyro sample site name so
-    nested compositions or multiple SSMs in one model stay disambiguated.
+    Args:
+        spec: State dimension and ordered drift or potential component definitions.
+        prefix: Sampling-site prefix distinguishing this vector field from other
+            models or nested components.
+
+    Returns:
+        The vector field, its ordered sampling-site registry, and a NumPyro
+        callable producing the matching component parameter tuple.
     """
     components = tuple(component_spec.build() for component_spec in spec.components)
     vector_field = VectorField(

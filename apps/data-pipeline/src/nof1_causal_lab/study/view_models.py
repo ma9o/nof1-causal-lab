@@ -7,27 +7,17 @@ from typing import Annotated, Literal
 
 from pydantic import AwareDatetime, Field, FiniteFloat
 
-from nof1_causal_lab.artifacts.action import ACTION_REASONING_DESCRIPTION
 from nof1_causal_lab.artifacts.availability import Evaluation, NotApplicable, Unavailable
 from nof1_causal_lab.artifacts.base import Value
-from nof1_causal_lab.artifacts.checks import SpecificationAssessment
+from nof1_causal_lab.artifacts.data_ref import DataRef
 from nof1_causal_lab.artifacts.effects import HistogramBin
-from nof1_causal_lab.artifacts.execution import StructuralItemDisposition
 from nof1_causal_lab.artifacts.identity import (
-    ConstructId,
-    ConstructRef,
-    EdgeRef,
     GitOid,
-    GitRef,
     IndicatorId,
 )
 from nof1_causal_lab.artifacts.measurements import ObservationRecord
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.observations import ResolvedObservationSpec
-from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
-from nof1_causal_lab.artifacts.posterior import InferenceReportCore
 from nof1_causal_lab.artifacts.posterior_diagnostics import PosteriorPredictiveChecks
-from nof1_causal_lab.artifacts.simulation import SimulationReport
 
 
 class RawDataDateRange(Value):
@@ -42,7 +32,7 @@ class RawDataColumnDescription(Value):
 
     name: str
     dtype: str
-    description: str
+    description: str | None
 
 
 class RawDataData(Value):
@@ -96,71 +86,6 @@ class Unchanged[PayloadT](Value):
 type Change[PayloadT] = Annotated[
     Added[PayloadT] | Removed[PayloadT] | Revised[PayloadT], Field(discriminator="kind")
 ]
-
-
-class ModelDiffReport(Value):
-    """A model diff joins typed entity comparisons and evidence at two model revisions or checkpoints."""
-
-    before: GitRef | None
-    after: GitRef | None
-    before_model: ModelSpec | None
-    after_model: ModelSpec | None
-    parameters: tuple[Change[ParameterSpec], ...]
-    constructs: tuple[Change[ConstructRef] | Unchanged[ConstructRef], ...]
-    edges: tuple[Change[EdgeRef] | Unchanged[EdgeRef], ...]
-    before_dispositions: tuple[StructuralItemDisposition, ...]
-    after_dispositions: tuple[StructuralItemDisposition, ...]
-    before_dynamic_construct_ids: tuple[ConstructId, ...]
-    after_dynamic_construct_ids: tuple[ConstructId, ...]
-    changed_inputs: tuple[str, ...]
-    before_checks: tuple[SpecificationAssessment, ...]
-    after_checks: tuple[SpecificationAssessment, ...]
-    before_fit: InferenceReportCore | None
-    after_fit: InferenceReportCore | None
-    before_simulation: SimulationReport | None
-    after_simulation: SimulationReport | None
-
-
-class ModelDiffRequest(Value):
-    """Compare two immutable model trees or checkpoints and record a comparison leaf."""
-
-    action: Literal["model_diff"] = "model_diff"
-    before: GitOid
-    after: GitOid
-    reasoning: str | None = Field(default=None, description=ACTION_REASONING_DESCRIPTION)
-
-
-class PanelRef(Value):
-    """An immutable observed panel with its own calendar history."""
-
-    kind: Literal["panel"] = "panel"
-    revision: GitOid
-
-
-class SimulationRef(Value):
-    """A saved simulation; a null replicate selects all its recorded draws."""
-
-    kind: Literal["simulation"] = "simulation"
-    revision: GitOid
-    replicate: int | None = Field(default=None, ge=0)
-
-
-type DataRef = Annotated[PanelRef | SimulationRef, Field(discriminator="kind")]
-
-
-type DataSelection = Annotated[
-    DataRef | Annotated[tuple[DataRef, ...], Field(min_length=1)],
-    Field(description="A data selection identifies one or more saved observation histories."),
-]
-
-
-class DataDiffRequest(Value):
-    """Compare two immutable data selections, each containing one or more histories."""
-
-    action: Literal["data_diff"] = "data_diff"
-    left: DataSelection
-    right: DataSelection
-    reasoning: str | None = Field(default=None, description=ACTION_REASONING_DESCRIPTION)
 
 
 class DataPoint(Value):
@@ -223,16 +148,8 @@ class DataVariableDiff(Value):
     predictive: PredictiveComparisonResult
 
 
-class DataDiffReport(Value):
-    """Comparisons of existing data, preserving each history's immutable source reference."""
-
-    left: tuple[DataRef, ...]
-    right: tuple[DataRef, ...]
-    variables: tuple[DataVariableDiff, ...]
-
-
 class Dataset(Value):
     """One parsed observation history, identified by its immutable source."""
 
-    source: DataRef
+    source: DataRef[GitOid, int]
     series: Mapping[IndicatorId, DataSeries]

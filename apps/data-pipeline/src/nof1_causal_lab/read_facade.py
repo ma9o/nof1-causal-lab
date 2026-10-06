@@ -25,6 +25,7 @@ from nof1_causal_lab.study_api import router as study_router
 
 
 def create_read_facade_app() -> FastAPI:
+    """Build the HTTP facade with study, workspace, and upload routes and a shared client provider."""
     app = FastAPI(title="Study Read Facade")
     app.state.study_clients = TemporalClientProvider()
     app.include_router(study_router)

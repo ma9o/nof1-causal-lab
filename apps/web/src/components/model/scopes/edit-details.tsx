@@ -1,17 +1,21 @@
 import { modelConstructs } from "@/lib/model-accessors";
 import { useModelDiff } from "@/lib/hooks/use-model-diff";
 import { parameterOwner } from "@/lib/model-asset/entities";
-import type { ModelDiffReport, TimelineRevision } from "@nof1-causal-lab/api-types";
+import type { ModelDiffOutput, TimelineRevision } from "@nof1-causal-lab/api-types";
 import type { ScopeContext } from "@/lib/model-asset/scope";
 import { humanize } from "@/lib/model-asset/selection";
 import { Hint, OwnerLink, Section } from "../scope-primitives";
 
 export function EditDetails({ context, tick }: { context: ScopeContext; tick: TimelineRevision }) {
   const workspaceId = context.model.workspace_id;
-  const request = tick.record.attempt.request;
-  const base = request?.action === "edit_model" ? request.expected_revision : null;
+  const outcome = tick.record.attempt.outcome;
+  const model =
+    outcome.status === "applied"
+      ? outcome.effects.produced.find((artifact) => artifact.artifact_id === "model")
+      : undefined;
+  const base = model?.derived_from.model ?? null;
   const hasModel = base !== null;
-  const diff = useModelDiff(workspaceId, base, hasModel ? tick.commit_id : null);
+  const diff = useModelDiff(workspaceId, base, hasModel ? tick.commit_id : null, context.ticks);
   const error = diff.error;
   return (
     <Section title="Model changes" wide>
@@ -19,18 +23,20 @@ export function EditDetails({ context, tick }: { context: ScopeContext; tick: Ti
         <p role="alert" className="text-destructive">
           Unable to read model changes: {error.message}
         </p>
-      ) : hasModel && !diff.data ? (
+      ) : hasModel && diff.isLoading ? (
         <p role="status">Reading model changes…</p>
       ) : !hasModel ? (
         <p className="font-medium">Model created</p>
       ) : diff.data ? (
         <ModelChanges context={context} report={diff.data} />
-      ) : null}
+      ) : (
+        <Hint>No saved comparison for these model versions.</Hint>
+      )}
     </Section>
   );
 }
 
-function ModelChanges({ context, report }: { context: ScopeContext; report: ModelDiffReport }) {
+function ModelChanges({ context, report }: { context: ScopeContext; report: ModelDiffOutput }) {
   return (
     <>
       {report.constructs
@@ -89,7 +95,7 @@ function ModelChanges({ context, report }: { context: ScopeContext; report: Mode
 }
 
 export function ModelComparisonDetails({ context }: { context: ScopeContext }) {
-  const report = context.result?.model_comparison;
+  const report = context.result?.action === "model_diff" ? context.result.body : null;
   return (
     <Section title="Model comparison" wide>
       {report ? (

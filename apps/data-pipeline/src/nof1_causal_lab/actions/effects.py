@@ -12,7 +12,14 @@ from nof1_causal_lab.artifacts.identity import GitOid
 from nof1_causal_lab.study.state import ArtifactRecord, RetractedArtifact
 
 type ActionReportName = Literal[
-    "checks", "identification", "validation", "data-profile", "inference", "simulation"
+    "checks",
+    "identification",
+    "validation",
+    "data-profile",
+    "inference",
+    "simulation",
+    "data-diff",
+    "model-diff",
 ]
 
 

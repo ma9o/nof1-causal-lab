@@ -39,6 +39,7 @@ class ObservationSupportRuntime:
     emission_slot_indices: np.ndarray  # shape (T, n_manifest), -1 when not emitted
 
     def __post_init__(self) -> None:
+        """Own immutable collections describing the resolved measurement support schedule."""
         freeze_fields(self)
 
     @classmethod
@@ -129,7 +130,7 @@ def _assign_support_slots(
     anchor_times: np.ndarray,
     support_start_times: np.ndarray,
     support_end_times: np.ndarray,
-    support_kinds: list[str | None],
+    support_kinds: Sequence[str | None],
     manifest_names: Sequence[str],
 ) -> tuple[list[list[tuple[float, float, int, int]]], int] | ObservationPreflightFailure:
     """Assign concurrent interval windows to reusable slots per manifest."""
@@ -202,7 +203,7 @@ def _compile_interval_support_coefficients(
     anchor_times: np.ndarray,
     support_start_times: np.ndarray,
     support_end_times: np.ndarray,
-    support_kinds: list[str | None],
+    support_kinds: Sequence[str | None],
     manifest_names: Sequence[str],
 ) -> tuple[np.ndarray, np.ndarray, np.ndarray, np.ndarray] | ObservationPreflightFailure:
     """Compile per-interval trapezoidal coefficients for concurrent support windows."""
@@ -421,34 +422,6 @@ def extract_numeric_column_values(X: pl.DataFrame, column: str) -> np.ndarray:
     return values[~np.isnan(values)]
 
 
-def validate_discrete_manifest_metadata(
-    spec: CompiledModel, X: pl.DataFrame
-) -> ObservationPreflightFailure | None:
-    """Check encoded observations against the levels declared on their indicators."""
-    from nof1_causal_lab.artifacts.likelihood import CategoricalLawSpec, OrderedLogisticLawSpec
-
-    for observation in spec.observations:
-        if not isinstance(observation.law, (CategoricalLawSpec, OrderedLogisticLawSpec)):
-            continue
-        column, count = observation.name, len(observation.levels)
-        if count < 2:
-            return ObservationPreflightFailure.rejected(
-                f"Indicator {column!r} requires at least two declared levels"
-            )
-        values = extract_numeric_column_values(X, column)
-        rounded = np.rint(values)
-        if not np.allclose(values, rounded, atol=1e-6):
-            return ObservationPreflightFailure.rejected(
-                f"Indicator {column!r} observations are not integer-encoded"
-            )
-        if np.any((rounded < 0) | (rounded >= count)):
-            return ObservationPreflightFailure.rejected(
-                f"Indicator {column!r} observations fall outside declared range 0..{count - 1}"
-            )
-
-    return None
-
-
 def validate_observation_support(
     spec: CompiledModel, X: pl.DataFrame
 ) -> ObservationPreflightFailure | None:
@@ -538,7 +511,6 @@ def simulation_observation_support(
     spec: CompiledModel, times: np.ndarray
 ) -> ObservationSupportRuntime:
     """Schedule declared indicators on a simulation grid, omitting unavailable prehistory."""
-
     ordered = spec.observations
     names = [indicator.name for indicator in ordered]
     kinds: list[str | None] = [indicator.support.support_kind.value for indicator in ordered]

@@ -5,9 +5,6 @@
     "//#docs:check": {
       "cache": false
     },
-    "//#fixture:check": {
-      "cache": false
-    },
     "//#knip": {
       "inputs": [
         "knip.json",

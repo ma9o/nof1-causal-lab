@@ -9,7 +9,7 @@
     "lint:ty": "uv run ty check",
     "lint:basedpyright": "uv run basedpyright --threads 4",
     "lint:fix": "uv run ruff check --fix src/ tests/ evaluation/ notebooks/ && bun run format && uv run python scripts/checks/validate_config.py --fix",
-    "lint:ruff": "uv run ruff check --no-fix src/ tests/ evaluation/ notebooks/",
+    "lint:ruff": "uv run ruff check --no-fix src/ tests/ evaluation/ notebooks/ && uv run python -m scripts.checks.run_pydoclint --quiet src/",
     "lint:deptry": "uv run deptry src",
     "lint:config": "uv run python scripts/checks/validate_config.py",
     "lint:type-boundaries": "uv run python -m scripts.checks.check_type_boundaries",

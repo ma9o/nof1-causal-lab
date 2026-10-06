@@ -276,6 +276,7 @@ class CodexHarnessSession:
         initial_events: list[JsonObject] | None = None,
         turn_index: int = 0,
     ) -> None:
+        """Bind Codex process settings and restore the event history used to resume its thread."""
         self._tools = list(tools)
         self._tool_stop_map = {t.name: t.success_output for t in tools if t.stop_on_success}
         self._codex_home = codex_home
@@ -295,14 +296,17 @@ class CodexHarnessSession:
 
     @property
     def thread_id(self) -> str | None:
+        """Provider thread identity, absent until the session has received a thread-start event."""
         return self._state.thread_id
 
     @property
     def raw_events(self) -> list[JsonObject]:
+        """A copy of the raw Codex events accumulated across this session's turns."""
         return list(self._state.raw_events)
 
     @execution_failure_handler
     async def turn(self, user_message: str) -> TurnResult:
+        """Run the next prompt in the Codex thread and retain the events produced by that turn."""
         self._turn_index += 1
         pre_event_count = len(self._state.raw_events)
 
@@ -408,6 +412,7 @@ class CodexHarnessSession:
 
     @property
     def result(self) -> AgentResult:
+        """Assemble the complete Codex trace and the last accepted terminal tool name."""
         trace = finalize_codex_trace(self._state, self._model)
         return AgentResult(
             trace=trace,
@@ -415,7 +420,8 @@ class CodexHarnessSession:
         )
 
     async def aclose(self) -> None:
-        return None
+        """Complete the session interface; each turn already owns and closes its subprocess."""
+        return
 
 
 def _link_codex_auth(codex_home: Path) -> None:

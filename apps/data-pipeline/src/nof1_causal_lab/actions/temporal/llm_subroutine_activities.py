@@ -19,6 +19,7 @@ from nof1_causal_lab.actions.temporal.llm_subroutine_storage import (
     subroutine_conversation_path,
     subroutine_root,
     write_subroutine_json,
+    write_subroutine_trace,
 )
 from nof1_causal_lab.actions.temporal.llm_tool_adapters import execute_subroutine_tool
 from nof1_causal_lab.actions.temporal.messages import (
@@ -100,6 +101,8 @@ _RECOVERABLE_TOOL_EXECUTION_ERRORS = (
 
 
 class SubroutineToolMessage(TypedDict):
+    """A tool response linked to the assistant call, with any execution error retained."""
+
     role: str
     content: str
     tool_call_id: str  # noqa: V107 -- OpenAI reads this required wire key when the tool message is sent.
@@ -108,6 +111,8 @@ class SubroutineToolMessage(TypedDict):
 
 
 class HarnessState(BaseModel):
+    """Mutable harness session state retained between turns, including raw trace events."""
+
     raw_events: list[JsonObject]
     turn_index: int
     session_id: str | None
@@ -142,9 +147,8 @@ def _tool_execution_failed(exc: BaseException) -> str:
 async def start_llm_subroutine_activity(
     activity_input: LLMSubroutineRef,
 ) -> LLMSubroutineStart:
-    system_prompt, user_messages, tools = subroutine_context_messages(
-        activity_input.context_kind, activity_input.context_ref
-    )
+    """Persist the initial extraction conversation and allocate paths for subsequent turns."""
+    system_prompt, user_messages, tools = subroutine_context_messages(activity_input.context_ref)
     messages = []
     if system_prompt is not None:
         messages.append({"role": "system", "content": system_prompt})
@@ -162,7 +166,6 @@ async def start_llm_subroutine_activity(
         conversation_ref,
         {
             "messages": messages,
-            "context_kind": activity_input.context_kind,
             "context_ref": activity_input.context_ref,
             "user_messages": user_messages,
         },
@@ -186,8 +189,19 @@ async def start_llm_subroutine_activity(
 async def append_llm_user_message_activity(
     activity_input: AppendLLMUserMessageInput,
 ) -> AppendLLMUserMessageResult:
+    """Append the selected context prompt as a new persisted conversation.
+
+    Args:
+        activity_input: Subroutine context, prior conversation, and zero-based prompt index.
+
+    Returns:
+        Reference to the conversation containing the additional user message.
+
+    Raises:
+        IndexError: The requested prompt index is past the context's user messages.
+    """
     system_prompt, user_messages, _tool = subroutine_context_messages(
-        activity_input.subroutine.context_kind, activity_input.subroutine.context_ref
+        activity_input.subroutine.context_ref
     )
     del system_prompt
     if activity_input.user_message_index >= len(user_messages):
@@ -212,6 +226,7 @@ async def append_llm_user_message_activity(
 async def append_llm_repair_message_activity(
     activity_input: AppendLLMRepairMessageInput,
 ) -> AppendLLMRepairMessageResult:
+    """Persist tool-repair feedback, reusing the next conversation if it already exists."""
     if storage.exists(activity_input.next_conversation_ref):
         return AppendLLMRepairMessageResult(conversation_ref=activity_input.next_conversation_ref)
 
@@ -230,6 +245,7 @@ async def append_llm_repair_message_activity(
 async def execute_llm_tool_calls_activity(
     activity_input: LLMToolExecutionInput,
 ) -> LLMToolExecutionResult:
+    """Execute the stored assistant's tool requests and persist responses for retry reuse."""
     if storage.exists(activity_input.execution_ref):
         return LLMToolExecutionResult.model_validate(
             read_subroutine_json(activity_input.execution_ref)["result"]
@@ -265,7 +281,6 @@ async def execute_llm_tool_calls_activity(
                 raise ValueError("Tool arguments must decode to a JSON object")
             result_text, tool_result_ref = await execute_subroutine_tool(
                 activity_input=activity_input,
-                tool=tool,
                 args=args,
                 result_ref=activity_input.result_ref,
             )
@@ -379,6 +394,7 @@ async def _await_harness_turn(turn: Awaitable[TurnResult], subroutine_id: str) -
 async def execute_harness_tool_request_activity(
     activity_input: HarnessToolRequest,
 ) -> HarnessToolExecutionResult:
+    """Execute one harness tool request and persist its correlated response, including failures."""
     if storage.exists(activity_input.response_ref):
         return HarnessToolExecutionResult.model_validate(
             read_subroutine_json(activity_input.response_ref)
@@ -393,7 +409,6 @@ async def execute_harness_tool_request_activity(
         try:
             output, captured_result_ref = await execute_subroutine_tool(
                 activity_input=activity_input,
-                tool=activity_input.tool,
                 args=activity_input.arguments,
                 result_ref=activity_input.result_ref,
             )
@@ -417,12 +432,13 @@ async def execute_harness_tool_request_activity(
 
 @activity.defn
 async def run_harness_turn_activity(activity_input: HarnessTurnInput) -> HarnessTurnResult:
+    """Resume a harness session for the next extraction prompt and retain its turn trace."""
     from nof1_causal_lab.utils.harness.claude import open_claude_harness_session
     from nof1_causal_lab.utils.harness.codex import open_codex_harness_session
     from nof1_causal_lab.utils.harness.pi import open_pi_harness_session
 
     _system_prompt, user_messages, _tools = subroutine_context_messages(
-        activity_input.subroutine.context_kind, activity_input.subroutine.context_ref
+        activity_input.subroutine.context_ref
     )
     if activity_input.user_message_index >= len(user_messages):
         raise IndexError(f"user message index {activity_input.user_message_index} out of range")
@@ -540,6 +556,7 @@ async def run_harness_turn_activity(activity_input: HarnessTurnInput) -> Harness
 async def finalize_llm_subroutine_trace_activity(
     activity_input: LLMSubroutineTraceInput,
 ) -> LLMSubroutineTraceResult:
+    """Combine provider calls or harness traces into the subroutine's retained conversation trace."""
     from nof1_causal_lab.utils.llm import LLMTrace, TraceUsage, _merge_trace
 
     root = subroutine_root(
@@ -555,7 +572,7 @@ async def finalize_llm_subroutine_trace_activity(
             trace = _merge_trace(
                 trace, LLMTrace.model_validate(read_subroutine_json(harness_trace_ref))
             )
-        storage.write_text(trace_path, trace.model_dump_json())
+        write_subroutine_trace(trace_path, trace)
         return LLMSubroutineTraceResult(trace_ref=trace_path)
 
     conversation = read_subroutine_json(activity_input.conversation_ref, StoredConversation)
@@ -589,7 +606,7 @@ async def finalize_llm_subroutine_trace_activity(
             reasoning_tokens=reasoning_tokens if has_reasoning_tokens else None,
         ),
     )
-    storage.write_text(trace_path, trace.model_dump_json())
+    write_subroutine_trace(trace_path, trace)
     return LLMSubroutineTraceResult(trace_ref=trace_path)
 
 

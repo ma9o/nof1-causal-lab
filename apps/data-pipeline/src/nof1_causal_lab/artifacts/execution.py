@@ -12,9 +12,7 @@ from .identity import ConstructRef, EdgeRef, IndicatorRef
 
 
 class StructuralDisposition(StrEnum):
-    """A structural disposition classifies how compilation uses or excludes an authored model
-    entity.
-    """
+    """How compilation retains, marginalizes, or excludes an authored scientific entity."""
 
     RETAINED_STATE = "retained_state"
     MARGINALIZED = "marginalized"
@@ -27,9 +25,7 @@ class StructuralDisposition(StrEnum):
 
 
 class StructuralItemDisposition(Value):
-    """An item disposition explains the compilation decision for one identified authored
-    entity.
-    """
+    """Compilation treatment and supporting explanation for one identified scientific entity."""
 
     target: ConstructRef | EdgeRef | IndicatorRef = Field(discriminator="kind")
     disposition: StructuralDisposition
@@ -37,6 +33,7 @@ class StructuralItemDisposition(Value):
 
     @model_validator(mode="after")
     def validate_owner_kind(self) -> StructuralItemDisposition:
+        """Reject execution dispositions that cannot apply to the referenced entity kind."""
         allowed = {
             "construct": {
                 StructuralDisposition.RETAINED_STATE,

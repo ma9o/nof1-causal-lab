@@ -50,19 +50,19 @@ OPENROUTER_MODEL_PREFIX = "openrouter/"
 
 
 class RpmLimiter:
-    """Thread-safe async sliding-window rate limiter.
+    """Thread-safe request limiter using an asynchronous sliding-window wait.
 
-    Tracks API calls over a rolling window and blocks when the configured
-    maximum would be exceeded.  Uses ``threading.Lock`` for cross-thread
-    safety (Prefect ThreadPoolTaskRunner) and ``asyncio.sleep`` to yield
-    control while waiting.
-
-    Args:
-        max_requests: Maximum number of requests allowed within the window.
-        window_seconds: Length of the sliding window (default 60 for RPM).
+    Each acquired slot records a monotonic timestamp. Callers wait asynchronously
+    while the window is full, and a lock protects shared state across threads.
     """
 
     def __init__(self, max_requests: int, window_seconds: float = 60.0) -> None:
+        """Initialize a request budget over a rolling time window.
+
+        Args:
+            max_requests: Maximum number of acquisitions allowed in one window.
+            window_seconds: Window duration in seconds; sixty implements an RPM limit.
+        """
         self.max_requests = max_requests
         self._window = window_seconds
         self._timestamps: deque[float] = deque()
@@ -108,7 +108,6 @@ def create_openrouter_client() -> AsyncOpenAI:
 
 def normalize_openrouter_model_name(model_name: str) -> str:
     """Translate repo-local model IDs to the upstream OpenRouter format."""
-
     normalized = model_name.strip()
     if normalized.startswith(OPENROUTER_MODEL_PREFIX):
         return normalized[len(OPENROUTER_MODEL_PREFIX) :]
@@ -136,6 +135,7 @@ class Tool:
     success_output: str | None = None
 
     async def __call__(self, *args: object, **kwargs: object) -> str:
+        """Await the underlying tool implementation with the supplied positional and keyword arguments."""
         return await self.execute(*args, **kwargs)
 
 
@@ -199,7 +199,6 @@ class AssistantMessage(TypedDict):
 
 def _parse_arg_descriptions(docstring: str | None) -> dict[str, str]:
     """Extract argument descriptions from a Google-style docstring."""
-
     if not docstring:
         return {}
 
@@ -233,7 +232,6 @@ def _parse_arg_descriptions(docstring: str | None) -> dict[str, str]:
 
 def _parameter_schema(handler: Callable[..., Awaitable[str]], name: str) -> JsonSchemaValue:
     """Build a JSON schema from a tool handler signature."""
-
     signature = inspect.signature(handler)
     descriptions = _parse_arg_descriptions(inspect.getdoc(handler))
     fields: dict[str, Any] = {}  # pyright: ignore[reportExplicitAny] -- create_model types field definitions as Any keyword arguments beside its own __config__/__base__ options.
@@ -265,10 +263,16 @@ def _parameter_schema(handler: Callable[..., Awaitable[str]], name: str) -> Json
 
 
 class ToolFactory[**P](Protocol):
-    @property
-    def __name__(self) -> str: ...
+    """Named factory that binds tool configuration into an asynchronous text-returning callable."""
 
-    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> Callable[..., Awaitable[str]]: ...
+    @property
+    def __name__(self) -> str:
+        """Factory name used when deriving the exposed tool name."""
+        ...
+
+    def __call__(self, *args: P.args, **kwargs: P.kwargs) -> Callable[..., Awaitable[str]]:
+        """Bind factory arguments and return the asynchronous tool implementation."""
+        ...
 
 
 def tool[**P](factory: ToolFactory[P]) -> Callable[P, Tool]:
@@ -293,6 +297,8 @@ class _ReasoningFields(BaseModel):
 
 
 class ReasoningAssistantMessage(ChatCompletionAssistantMessageParam):
+    """Provider assistant message extended with optional reasoning text and structured details."""
+
     reasoning: NotRequired[str]
     reasoning_details: NotRequired[JsonValue]
 
@@ -447,6 +453,8 @@ def _log_response_details(
 
 
 class ModelCallResult(TypedDict):
+    """One provider response with its assistant message, usage, model, timing, and stop reason."""
+
     message: AssistantMessage
     usage: dict[str, int | None] | None
     model: str
@@ -464,7 +472,6 @@ async def call_model(
     log_label: str | None = None,
 ) -> ModelCallResult:
     """Call OpenRouter and normalize the first choice into a plain dict."""
-
     request = config or GenerateConfig()
     normalized_model_name = normalize_openrouter_model_name(model_name)
 

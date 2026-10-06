@@ -30,9 +30,9 @@ function ModelScope({
     tick.record.attempt.request === null
   )
     return <Hint>No new model-wide state was produced.</Hint>;
-  if (tick.record.attempt.action === "set_question")
+  if (tick.record.attempt.action === "edit_question")
     return context.model.question ? (
-      <QuestionDetails context={context} question={context.model.question.value} />
+      <QuestionDetails context={context} question={context.model.question} />
     ) : (
       <Hint>No question recorded at this version.</Hint>
     );
@@ -48,8 +48,7 @@ function ModelScope({
     );
   if (tick.record.attempt.action === "model_diff")
     return <ModelComparisonDetails context={context} />;
-  const checks = context.result?.checks;
-  const predictive = checks?.predictive;
+  const predictive = context.model.predictive;
   const predictivePlots =
     predictive?.evaluation.kind === "evaluated" ? predictive.evaluation.predictive_checks : null;
   const identification = context.model.identification;
@@ -94,17 +93,17 @@ function ModelScope({
       )}
       <QuestionChecks context={context} />
       {identification && (
-        <Section title="Identification" source={identification.source} wide>
-          {Object.keys(identification.value.treatments).length === 0 && (
+        <Section title="Identification" wide>
+          {Object.keys(identification.treatments).length === 0 && (
             <Hint>No treatment findings recorded.</Hint>
           )}
           {context.entities.constructs
-            .filter((construct) => construct.id === identification.value.outcome)
+            .filter((construct) => construct.id === identification.outcome)
             .map((construct) => (
               <Hint key={construct.id}>Outcome: {humanize(construct.name)}</Hint>
             ))}
           {context.entities.constructs.flatMap((construct) => {
-            const finding = identification.value.treatments[construct.id];
+            const finding = identification.treatments[construct.id];
             return finding
               ? [
                   <details key={construct.id}>
@@ -146,7 +145,7 @@ function ModelScope({
 /**
  * The state the selected action left, in depth. With a graph part selected it shows that part.
  * With nothing selected it shows the model-wide state that action produced, and only that:
- * - set_question: the question, meaning its words, its outcome and each query's dated contrast.
+ * - edit_question: the question, meaning its words, its outcome and each query's dated contrast.
  * - edit_model: the model as specified, meaning its checks against the question, how the question
  *   is identified, the equations, and the evidence of its predictive checks for every indicator
  *   under the laws the model holds.

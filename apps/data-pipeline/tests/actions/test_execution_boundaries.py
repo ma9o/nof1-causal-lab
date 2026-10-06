@@ -1,7 +1,5 @@
 """Partial models stay inspectable; numerical operations validate their own inputs."""
 
-from tests.git_fixtures import artifact_revisions
-
 from typing import TYPE_CHECKING
 from unittest.mock import Mock
 
@@ -9,8 +7,10 @@ import polars as pl
 import pytest
 
 from nof1_causal_lab.actions.contracts import EditModelRequest, FitRequest
+from nof1_causal_lab.actions.io import FitInput
 from nof1_causal_lab.actions.runners import run_action
-from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS
+from nof1_causal_lab.artifacts.data_ref import DataRef
+from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS, GitOid
 from nof1_causal_lab.artifacts.posterior import FitSettingsSpec
 from nof1_causal_lab.compilation_errors import IncompleteModelError
 from nof1_causal_lab.study.history import StudyRepository
@@ -19,14 +19,14 @@ from nof1_causal_lab.study.state import StudyState
 from nof1_causal_lab.study.store import ArtifactStore
 from tests.action_fixtures import applied_record, edit_and_check, question_root
 from tests.data_fixtures import metadata_for_model
-from tests.git_fixtures import artifact_revision
-from tests.helpers import make_model, run_async, write_question
+from tests.git_fixtures import artifact_revision, artifact_revisions
+from tests.helpers import fixture_entity_id, make_model, run_async, write_question
 from tests.model_fixtures import x_y_model
 
 pytestmark = pytest.mark.contract
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid
+    from nof1_causal_lab.artifacts.identity import ArtifactId
 
 
 @pytest.fixture
@@ -48,7 +48,10 @@ def test_partial_model_revisions_remain_readable_with_capability_findings(worksp
         parameters=tuple(p.revised(distribution=None) for p in complete.parameters),
     )
     journal = StudyRepository(workspace)
-    state = journal.state(question_root(workspace).commit_id)
+    from nof1_causal_lab.artifacts.question import QuestionSpec
+
+    question = QuestionSpec(text="Does X change Y?", outcome=fixture_entity_id("construct", "Y"))
+    state = journal.state(question_root(workspace, question).commit_id)
     snapshots = []
     for revision, model in (
         (1, partial),
@@ -57,12 +60,14 @@ def test_partial_model_revisions_remain_readable_with_capability_findings(worksp
     ):
         effects = edit_and_check(
             workspace,
-            EditModelRequest.model_validate(
+            EditModelRequest[GitOid].model_validate(
                 {
-                    "model": model.model_dump(mode="json"),
-                    "expected_revision": state.current["model"].revision
-                    if state.has("model")
-                    else None,
+                    "input": {
+                        "parent_ref": state.current["model"].revision
+                        if state.has("model")
+                        else state.current["question"].revision,
+                        "model": model.model_dump(mode="json"),
+                    }
                 }
             ),
             state,
@@ -73,15 +78,15 @@ def test_partial_model_revisions_remain_readable_with_capability_findings(worksp
         )
         snapshot = ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot()
         assert snapshot.model is not None
-        assert snapshot.model.value == model
+        assert snapshot.model == model
         assert snapshot.specification is not None
-        execution = snapshot.specification.value[0]
+        execution = snapshot.specification[0]
         assert execution.kind == ("evaluated" if revision == 2 else "not_evaluated")
         if revision == 2:
             assert execution.kind == "evaluated"
             assert execution.outcome == "passed"
         assert "execution" not in snapshot.model_dump()
-        assert "execution_readiness" not in snapshot.model.value.model_dump()
+        assert "execution_readiness" not in snapshot.model.model_dump()
         assert snapshot.can_simulate == (revision == 2)
         snapshots.append(snapshot)
     assert "compiled_ssm" not in ARTIFACT_IDS
@@ -112,7 +117,13 @@ def test_incomplete_model_is_rejected_before_inference(workspace, monkeypatch):
         run_async(
             run_action(
                 workspace,
-                FitRequest(model_revision=model.revision, panel_revision=panel.revision),
+                FitRequest[GitOid](
+                    input=FitInput[GitOid](
+                        replicate_index=0,
+                        model_ref=model.revision,
+                        data_ref=panel.revision,
+                    )
+                ),
                 state,
             )
         )
@@ -147,14 +158,32 @@ def test_refit_after_an_edit_uses_selected_model_and_preserves_the_edit(workspac
         derived_from={},
         produced_by="prepare_data",
         json_files={"metadata.json": metadata_for_model(edited).model_dump(mode="json")},
-        parquet_files={"panel.parquet": pl.DataFrame({"value": [1.0]})},
+        parquet_files={
+            "panel.parquet": pl.DataFrame(
+                [
+                    {
+                        "indicator_id": variable.id,
+                        "value": 1.0,
+                        "anchor_time": "2024-01-02",
+                        "support_start": "2024-01-01",
+                        "support_end": "2024-01-02",
+                        "support_kind": variable.support_kind.value,
+                        "summary_operator": variable.summary_operator.value,
+                        "anchor_policy": variable.anchor_policy.value,
+                        "observation_window": variable.observation_window.source,
+                    }
+                    for variable in metadata_for_model(edited).variables
+                ]
+            )
+        },
     )
+
+    import jax.numpy as jnp
 
     from nof1_causal_lab.artifacts.posterior import InferenceEvidence
     from nof1_causal_lab.models.ssm.inference.persistence import condition_model
     from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
     from tests.inference_fixtures import compile_model_fixture, parameter_draws, particle_posterior
-    import jax.numpy as jnp
 
     def fit(**kwargs):
         model = kwargs["selection"].model
@@ -186,9 +215,19 @@ def test_refit_after_an_edit_uses_selected_model_and_preserves_the_edit(workspac
         "panel": artifact_revision(workspace, "panel", 1),
         "question": write_question(store).revision,
     }
-    effects = run_async(_run_fit(store, pins, FitSettingsSpec()))
+    effects = run_async(
+        _run_fit(
+            store,
+            pins,
+            FitSettingsSpec(),
+            DataRef[GitOid, int](revision=pins["panel"], replicate_index=0),
+        )
+    )
     assert effects.effects.produced[0].derived_from == pins
-    assert {"model": effects.result.model.revision, "panel": effects.result.panel.revision} == {
+    assert {"model": effects.result.model.revision, "panel": effects.result.data.revision} == {
         key: pins[key] for key in ("model", "panel")
     }
-    assert read_model(store, artifact_revision(workspace, "model", 4)).edges == edited.edges
+    assert (
+        read_model(store, effects.effects.produced[0].revision).edges[0].description
+        == edited.edges[0].description
+    )

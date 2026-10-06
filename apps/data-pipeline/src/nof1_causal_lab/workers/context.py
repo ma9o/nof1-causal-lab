@@ -17,6 +17,7 @@ class MeasurementContext(Value):
     indicators: tuple[DataVariableSpec, ...] = Field(min_length=1)
 
     def window(self, indicator: DataVariableSpec) -> Duration:
+        """Resolve an indicator's authored observation window, using the model clock when omitted."""
         return indicator.observation.observation_window or self.model_clock
 
     def select(self, indicator: DataVariableSpec) -> MeasurementContext:

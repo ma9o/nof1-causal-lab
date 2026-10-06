@@ -212,7 +212,6 @@ def _run_benchmark(
         num_particles=cfg.n_particles,
         num_parameter_particles=num_parameter_particles,
         param_step_size=0.01,
-        latent_smoother=cfg.smoother,
         dsmc_leaf_proposal=cfg.leaf,
         latent_block_coords=cfg.block_coords,
     )
@@ -237,7 +236,6 @@ def _run_benchmark(
             seed=0,
             adaptation_rate=0.0,
             init_scale=0.05,
-            latent_delta=0.2,
             retain_latent_paths=False,
             compute_latent_posterior_summary=False,
             adaptation_scheme="simple",

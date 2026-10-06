@@ -9,7 +9,6 @@ const events: ProgressEvent[] = [
     attempt_id,
     cursor: "01-a.json",
     event: "nof1-causal-lab.step",
-    step: "ingestion",
     status: "completed",
     error: null,
   },
@@ -58,7 +57,7 @@ describe("attempt progress", () => {
   it("keeps the latest value each event carries and pages from the last cursor", () => {
     const view = applyProgressEvents(EMPTY_ATTEMPT_PROGRESS, events);
     expect(view.cursor).toBe("05-e.json");
-    expect(view.steps.ingestion?.status).toBe("completed");
+    expect(view.extraction?.status).toBe("completed");
     expect(fixtureValue(view.workers[0]).state).toBe("completed");
     expect(view.snapshot?.completed_workers).toBe(1);
   });

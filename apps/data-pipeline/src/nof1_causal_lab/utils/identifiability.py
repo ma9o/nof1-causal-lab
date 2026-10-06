@@ -22,7 +22,7 @@ from __future__ import annotations
 import logging
 import re
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, Literal
+from typing import TYPE_CHECKING
 
 import networkx as nx
 from y0.algorithm.identify import identify_outcomes
@@ -46,6 +46,8 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, kw_only=True)
 class IdentifiedQuery:
+    """An identified causal query with its estimand and supporting confounder or instrument findings."""
+
     estimand: str
     marginalized_confounders: tuple[str, ...]
     instruments: tuple[str, ...] = ()
@@ -53,20 +55,21 @@ class IdentifiedQuery:
 
 @dataclass(frozen=True, kw_only=True)
 class UnidentifiedQuery:
+    """A causal query blocked by the reported confounding structure, with optional explanatory notes."""
+
     confounders: tuple[str, ...]
     notes: str | None = None
 
 
-
-
 @dataclass(frozen=True, kw_only=True)
 class IdentificationResult:
-    "y0 query output; names are resolved to canonical IDs by the report producer."
+    """y0 query output; names are resolved to canonical IDs by the report producer."""
 
     identifiable_treatments: Mapping[str, IdentifiedQuery]
     non_identifiable_treatments: Mapping[str, UnidentifiedQuery]
 
     def __post_init__(self) -> None:
+        """Own immutable collections of causal identification findings after construction."""
         freeze_fields(self)
 
 
@@ -106,6 +109,9 @@ def check_identifiability(
             - non_identifiable_treatments: Map of treatment -> confounder context
                 * confounders: Unobserved constructs blocking identification
                 * notes: Optional explanation when confounders cannot be enumerated
+
+    Raises:
+        ValueError: No outcome construct is selected for the identification query.
     """
     outcome = get_outcome_name(constructs, outcome_id)
     if not outcome:

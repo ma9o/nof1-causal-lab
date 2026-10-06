@@ -69,6 +69,8 @@ logger = logging.getLogger(__name__)
 
 @dataclass(frozen=True, kw_only=True)
 class PathfinderRunDiagnostics:
+    """Per-start Pathfinder outcomes and the settings used to compare their Gaussian proposals."""
+
     n_starts: int
     n_starts_finite: int
     per_start: tuple[PathfinderStartDiagnostics, ...]
@@ -86,12 +88,15 @@ class PathfinderRunDiagnostics:
 
 @dataclass(frozen=True)
 class ScipyPathfinderResult:
+    """Selected Gaussian initialization proposal, its ELBO estimate, and optimization diagnostics."""
+
     mean: np.ndarray  # (p,) — best-ELBO iterate
     chol: np.ndarray  # (p, p) lower-triangular — Cholesky of L-BFGS H^{-1} at that iterate
     best_elbo: float
     diagnostics: PathfinderRunDiagnostics
 
     def __post_init__(self) -> None:
+        """Own immutable collection fields for the selected Pathfinder proposal."""
         freeze_fields(self)
 
 
@@ -599,43 +604,38 @@ def scipy_pathfinder(
     parallel_workers: int | None = None,
     clock: Callable[[], float],
 ) -> ScipyPathfinderResult:
-    """Multi-start scipy-driven Pathfinder.
+    """Select a Gaussian initialization proposal from multiple SciPy Pathfinder runs.
 
-    Parameters
-    ----------
-    log_post_batch_fn : callable
-        ``x_batch -> log_posterior_vector``. Used for ELBO candidate scoring.
-    log_post_and_grad_fn : callable
-        ``x -> (log_posterior_scalar, gradient_vector)``. Accepts and returns
-        numpy arrays. Used only for L-BFGS objective evaluations. Caller is
-        responsible for any jit compilation inside.
-    x0_starts : list[np.ndarray]
-        One starting point per L-BFGS run. Length = number of multi-starts.
-    maxiter : int
-        L-BFGS outer-iteration budget per start.
-    elbo_samples : int
-        Monte Carlo samples used to refine ELBO at screened candidate iterates.
-    elbo_screen_samples : int | None
-        Monte Carlo samples used for the cheap first-pass ELBO screen. ``None``
-        uses ``min(8, elbo_samples)``.
-    elbo_refine_candidates : int
-        Number of best screened candidate Gaussians per start to rescore with
-        ``elbo_samples``.
-    elbo_candidate_batch_size : int
-        Number of candidate Gaussians scored in one batched log-posterior call.
-    lbfgs_memory : int
-        L-BFGS curvature-history depth (standard ``m``).
-    jitter : float
-        Added to ``H^{-1}`` diagonal before Cholesky for numerical stability.
-    seed : int
-        RNG seed for ELBO sample draws.
-    parallel_workers : int | None
-        Number of thread workers for independent L-BFGS starts. ``None`` uses
-        one worker per start.
+    Args:
+        log_post_batch_fn: Map a batch of flat parameter positions to log-posterior
+            values for Monte Carlo ELBO scoring.
+        log_post_and_grad_fn: Map one NumPy position vector to its scalar
+            log posterior and gradient. The caller owns any JIT compilation.
+        x0_starts: One initial position vector per independent L-BFGS run.
+        maxiter: L-BFGS iteration budget for each start.
+        elbo_samples: Monte Carlo draws used to refine screened candidate ELBOs.
+        elbo_screen_samples: Draws used by the cheaper initial screen; ``None``
+            selects the smaller of eight and ``elbo_samples``.
+        elbo_refine_candidates: Number of top screened Gaussian candidates to
+            rescore for each start.
+        elbo_candidate_batch_size: Number of candidate Gaussians scored in one
+            batched log-posterior call.
+        lbfgs_memory: Number of curvature-history pairs retained by L-BFGS.
+        jitter: Diagonal stabilization added to the inverse-Hessian approximation
+            before Cholesky factorization.
+        seed: Random seed for ELBO sampling.
+        parallel_workers: Threads running independent starts; ``None`` uses one
+            per start, and larger values are capped at the number of starts.
+        clock: Injected monotonic clock returning seconds for elapsed-time diagnostics.
 
-    Returns
-    -------
-    ScipyPathfinderResult with the best-ELBO Gaussian across all starts.
+    Returns:
+        Mean, Cholesky factor, and ELBO of the best candidate across all starts,
+        together with per-start diagnostics. The Gaussian is an initialization
+        proposal rather than the production posterior.
+
+    Raises:
+        ValueError: No starts are supplied, or a candidate/worker count is invalid.
+        RuntimeError: No start produces a valid Gaussian candidate.
     """
     if not x0_starts:
         raise ValueError("scipy_pathfinder requires at least one start.")

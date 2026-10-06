@@ -22,21 +22,18 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
   const scope = indicatorPresentation(context, id);
   if (!scope) return null;
   const { indicator, disposition, audit, counts, likelihood, predictive, checks, issues } = scope;
-  const metadata = context.model.metadata?.value;
-  const preparation =
-    metadata?.kind === "file"
-      ? metadata.preparation.variables.find((variable) => variable.observation.id === id)
-      : undefined;
+  const metadata = context.model.metadata;
+  const preparation = metadata?.preparation.variables.find(
+    (variable) => variable.observation.id === id,
+  );
   const equation = context.model.observation_equations[id];
-  const empirical = context.model.profile?.value.indicators[id]?.profile;
+  const empirical = context.model.profile?.indicators[id]?.profile;
   const comparison =
-    predictive?.source.validity === "fresh" && predictive.value.evaluation.kind === "evaluated"
-      ? predictive.value.evaluation.predictive_checks
-      : null;
+    predictive?.evaluation.kind === "evaluated" ? predictive.evaluation.predictive_checks : null;
   const overlay = comparison?.overlays.find((item) => item.indicator_id === id);
   const statistics = comparison?.test_stats.filter((item) => item.indicator_id === id) ?? [];
   const findings = (
-    predictive?.value.evaluation.kind === "evaluated" ? predictive.value.evaluation.findings : []
+    predictive?.evaluation.kind === "evaluated" ? predictive.evaluation.findings : []
   ).filter(
     (finding) => typeof finding.subject.target !== "string" && finding.subject.target.id === id,
   );
@@ -53,7 +50,7 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
                 [
                   "Window",
                   indicator.observation.observation_window ??
-                    context.model.model?.value.measurement_clock,
+                    context.model.model?.measurement_clock,
                 ],
                 ["Polarity", indicator.construct_polarity],
                 ...(likelihood
@@ -74,12 +71,7 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
       )}
       <LawSections context={context} uses={ownLawUses(indicator)} />
       {preparation && (
-        <Section
-          title="Data preparation"
-          {...(context.model.metadata?.source === undefined
-            ? {}
-            : { source: context.model.metadata.source })}
-        >
+        <Section title="Data preparation">
           <Hint>{preparation.extraction.how_to_measure}</Hint>
           <KeyValue
             rows={[
@@ -93,23 +85,12 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
         </Section>
       )}
       {disposition && disposition.disposition !== "manifest" && (
-        <Section
-          title={dispositionLabel(disposition.disposition)}
-          {...(context.model.dispositions?.source === undefined
-            ? {}
-            : { source: context.model.dispositions.source })}
-        >
+        <Section title={dispositionLabel(disposition.disposition)}>
           <Hint issue>{disposition.reason}</Hint>
         </Section>
       )}
       {(counts != null || empirical) && (
-        <Section
-          title="Observations"
-          {...(context.model.measurements?.source === undefined
-            ? {}
-            : { source: context.model.measurements.source })}
-          wide
-        >
+        <Section title="Observations" wide>
           {counts != null && <Hint>{counts.toLocaleString()} observations</Hint>}
           <ObservationPlots model={context.model} id={id} />
           {empirical && (
@@ -124,12 +105,7 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
         </Section>
       )}
       {audit && (
-        <Section
-          title="Validation"
-          {...(context.model.validation_report?.source === undefined
-            ? {}
-            : { source: context.model.validation_report.source })}
-        >
+        <Section title="Validation">
           {issues.map((issue) => (
             <div key={`${issue.issue_type}-${issue.message}`} className="flex items-start gap-2">
               <StatusIcon status={issue.severity === "error" ? "failed" : "warning"} />
@@ -150,11 +126,7 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
         </Section>
       )}
       {(checks.length > 0 || findings.length > 0 || overlay) && (
-        <Section
-          title="Predictive checks"
-          {...(predictive?.source === undefined ? {} : { source: predictive.source })}
-          wide
-        >
+        <Section title="Predictive checks" wide>
           <PredictiveFindings findings={findings} entities={context.entities} />
           {checks.map((check) => (
             <div key={check.subject.check} className="flex items-center gap-2">

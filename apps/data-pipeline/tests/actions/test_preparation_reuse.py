@@ -7,14 +7,9 @@ from types import SimpleNamespace
 from uuid import uuid4
 
 import polars as pl
-import pyarrow as pa
 import pytest
 from pydantic import TypeAdapter
 
-from nof1_causal_lab.actions.temporal.ingestion_activities import (
-    finalize_ingestion_activity,
-    plan_ingestion_activity,
-)
 from nof1_causal_lab.actions.temporal.llm_subroutine_storage import read_subroutine_json
 from nof1_causal_lab.actions.temporal.measurement_activities import (
     finalize_extraction_chunk_activity,
@@ -22,8 +17,6 @@ from nof1_causal_lab.actions.temporal.measurement_activities import (
 )
 from nof1_causal_lab.actions.temporal.messages import (
     ExtractionChunkFinalizeInput,
-    IngestionFinalizeInput,
-    IngestionWorkflowInput,
     MeasurementChunkContext,
     MeasurementsWorkflowInput,
 )
@@ -40,6 +33,7 @@ from nof1_causal_lab.study.store import ArtifactStore
 from nof1_causal_lab.utils import data, storage
 from nof1_causal_lab.utils.aggregations import compute_indicators
 from nof1_causal_lab.workers.schemas import ExtractionRow
+from tests.data_fixtures import preparation_input
 from tests.helpers import run_async
 
 pytestmark = pytest.mark.contract
@@ -103,10 +97,13 @@ def test_extraction_cache_is_shared_and_only_changed_effective_requests_miss(tmp
                     seq=1,
                     attempt_id=uuid4(),
                     raw_data_revision=artifact.revision,
-                    preparation=FilePreparationSpec(
-                        source={"files": ["scores.csv"], "start": "2026-01-01", "end": end},
-                        definition=DataPreparationSpec(
-                            default_window="1d", context=context, variables=variables
+                    preparation=preparation_input(
+                        store,
+                        FilePreparationSpec(
+                            source={"files": ["scores.csv"], "start": "2026-01-01", "end": end},
+                            definition=DataPreparationSpec(
+                                default_window="1d", context=context, variables=variables
+                            ),
                         ),
                     ),
                 )
@@ -196,85 +193,6 @@ def test_extraction_cache_is_shared_and_only_changed_effective_requests_miss(tmp
         )
 
 
-def test_ingestion_reuse_preserves_arrow_metadata_and_source_order(tmp_path, monkeypatch):
-    monkeypatch.setattr(data, "_DATA_URI", str(tmp_path))
-    frame = pl.DataFrame({"timestamp": [datetime(2026, 1, 1)], "score": [2.0]}).to_arrow()
-    table = frame.cast(
-        pa.schema(
-            [field.with_metadata({b"description": field.name.encode()}) for field in frame.schema]
-        )
-    )
-
-    def plan(workspace, files=("a.csv", "b.csv")):
-        for filename in files:
-            path = tmp_path / workspace / "input" / filename
-            path.parent.mkdir(parents=True, exist_ok=True)
-            path.write_text("timestamp,score\n2026-01-01,2\n")
-        return run_async(
-            plan_ingestion_activity(
-                IngestionWorkflowInput(
-                    workspace_id=workspace,
-                    seq=1,
-                    attempt_id=uuid4(),
-                    source={"files": files},
-                )
-            )
-        )
-
-    first = plan("first")
-    assert first.cached_result_ref is None
-    result_ref = str(tmp_path / "validated.json")
-    table_ref = str(tmp_path / "validated.arrow")
-    with pa.OSFile(table_ref, "wb") as stream, pa.ipc.new_file(stream, table.schema) as writer:
-        writer.write_table(table)
-    storage.write_text(result_ref, json.dumps({"table_ref": table_ref}))
-    run_async(
-        finalize_ingestion_activity(
-            IngestionFinalizeInput(
-                workspace_id="first",
-                context_ref=first.context_ref,
-                result_ref=result_ref,
-            )
-        )
-    )
-    reused = plan("second")
-    assert reused.cached_result_ref is not None
-    applied = run_async(
-        finalize_ingestion_activity(
-            IngestionFinalizeInput(
-                workspace_id="second",
-                context_ref=reused.context_ref,
-                result_ref=reused.cached_result_ref,
-            )
-        )
-    )
-    assert applied.result.ingestion_reused is True
-    saved = ArtifactStore("second").read_parquet_table(
-        "raw_data", applied.effects.produced[0].revision, "raw.parquet"
-    )
-    assert saved.equals(table, check_metadata=True)
-    assert plan("reordered", ("b.csv", "a.csv")).cached_result_ref is None
-
-    from nof1_causal_lab.actions.temporal import preparation_cache
-
-    with monkeypatch.context() as policy:
-        policy.setattr(preparation_cache, "EXTRACTION_POLICY_VERSION", "changed-extraction")
-        assert plan("other-policy").cached_result_ref is not None
-        policy.setattr(preparation_cache, "INGESTION_POLICY_VERSION", "changed-ingestion")
-        assert plan("ingestion-policy").cached_result_ref is None
-    original_open = storage.open_file
-
-    def evict(path, mode="r", **kwargs):
-        if ".preparation-cache" in str(path) and mode == "rb":
-            from pathlib import Path
-
-            Path(path).unlink()
-        return original_open(path, mode, **kwargs)
-
-    monkeypatch.setattr(storage, "open_file", evict)
-    assert plan("evicted").cached_result_ref is None
-
-
 def test_span_keeps_complete_windows_and_never_fills_from_excluded_history():
     raw = pl.DataFrame({"timestamp": [datetime(2026, 1, 1), datetime(2026, 1, 3)], "x": [9, 2]})
     variable = _variable("x").revised(
@@ -349,7 +267,7 @@ def test_multiday_span_and_empty_semantic_windows_materialize_without_requests(
                 seq=1,
                 attempt_id=uuid4(),
                 raw_data_revision=artifact.revision,
-                preparation=preparation,
+                preparation=preparation_input(store, preparation),
             )
         )
     )

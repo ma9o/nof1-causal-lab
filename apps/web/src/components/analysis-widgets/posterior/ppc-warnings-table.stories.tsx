@@ -1,8 +1,8 @@
 import { fixtureValue } from "@/components/__fixtures__/fixture-value";
 import { modelConstructs } from "@/lib/model-accessors";
 import { demoModelSnapshot } from "@/components/__fixtures__/demo-artifacts";
-const indicators = modelConstructs(fixtureValue(demoModelSnapshot.model).value).flatMap(
-  (construct) => construct.indicators.map((indicator) => indicator.observation),
+const indicators = modelConstructs(fixtureValue(demoModelSnapshot.model)).flatMap((construct) =>
+  construct.indicators.map((indicator) => indicator.observation),
 );
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { withContainer } from "@/components/story-decorators";

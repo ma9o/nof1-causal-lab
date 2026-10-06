@@ -34,10 +34,10 @@ class JointLawLayout(Value):
     constructs: tuple[ConstructId, ...]
     time_points: tuple[FiniteFloat, ...]
     labels: Mapping[ParameterElementId, str]
-    construct_labels: Mapping[ConstructId, str]
 
     @model_validator(mode="after")
     def own_coordinates(self) -> JointLawLayout:
+        """Require unique identity-ordered parameter coordinates and aligned trajectory labels and times."""
         parameters = tuple(identity for identity, _ in self.parameters)
         elements = tuple(element for _, members in self.parameters for element in members)
         if parameters != tuple(sorted(set(parameters))) or any(
@@ -50,8 +50,6 @@ class JointLawLayout(Value):
             raise ValueError(
                 "Joint labels must name every scientific parameter element exactly once"
             )
-        if set(self.construct_labels) != set(self.constructs):
-            raise ValueError("Joint trajectories must retain each construct label exactly once")
         if self.constructs != tuple(sorted(set(self.constructs))):
             raise ValueError("Joint constructs must be uniquely identity-ordered")
         if bool(self.constructs) != bool(self.time_points) or any(
@@ -63,6 +61,7 @@ class JointLawLayout(Value):
 
     @property
     def parameter_columns(self) -> Mapping[ParameterElementId, int]:
+        """Scientific parameter-element IDs mapped to their columns in the flattened joint law."""
         return MappingProxyType(
             {
                 identity: index
@@ -74,6 +73,7 @@ class JointLawLayout(Value):
 
     @property
     def trajectory_slices(self) -> Mapping[ConstructId, slice]:
+        """Contiguous time-series slices for each construct, following the parameter columns."""
         offset = len(self.parameter_columns)
         steps = len(self.time_points)
         return MappingProxyType(
@@ -85,10 +85,12 @@ class JointLawLayout(Value):
 
     @property
     def width(self) -> int:
+        """Total number of scalar parameter and trajectory coordinates in the joint law."""
         return len(self.parameter_columns) + len(self.constructs) * len(self.time_points)
 
     @property
     def distribution_id(self) -> DistributionId:
+        """Content-derived distribution identity determined by scientific coordinates and time points."""
         return scientific_id(
             "distribution",
             [

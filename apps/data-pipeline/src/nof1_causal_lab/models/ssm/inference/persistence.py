@@ -16,8 +16,8 @@ if TYPE_CHECKING:
 
     from jax.typing import ArrayLike
 
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.identity import DistributionId
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
     from nof1_causal_lab.models.ssm.inference.types import ParticleMCMCPosterior
     from nof1_causal_lab.numpyro_json import ArrayLoader
@@ -58,9 +58,6 @@ def condition_model(
         parameters=conditioned_parameters,
         constructs=modeled_ids,
         time_points=grid.tolist(),
-        construct_labels={
-            identity: model_spec.get_construct(identity).name for identity in modeled_ids
-        },
     )
     joint = layout.pack(
         {

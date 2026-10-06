@@ -59,18 +59,22 @@ class ObservationOperator:
 
     @property
     def requires_interval_summary_handling(self) -> bool:
+        """Whether this support plan includes observations summarized over intervals."""
         return bool(self.interval_summary_indices)
 
     def point_like_mask(self, dtype: jnp.dtype) -> jnp.ndarray:
+        """Return a mask selecting point-like observation channels in the requested numeric dtype."""
         return get_point_like_mask(self.support_kind_codes, dtype)
 
     def interval_summary_mask(self, dtype: jnp.dtype) -> jnp.ndarray:
+        """Return a mask selecting interval-summary observation channels in the requested dtype."""
         return get_interval_summary_mask(self.support_kind_codes, dtype)
 
     def project_response_trajectory(
         self,
         response_trajectory: jnp.ndarray,
     ) -> tuple[jnp.ndarray, jnp.ndarray]:
+        """Project response trajectories onto this operator's recorded measurement supports."""
         return _project_response_trajectory_with_operator(response_trajectory, self)
 
     def empty_accumulators(
@@ -78,6 +82,7 @@ class ObservationOperator:
         dtype: jnp.dtype,
         leading_shape: tuple[int, ...] = (),
     ) -> jnp.ndarray:
+        """Allocate zero accumulators for each leading index, indicator, and active interval window."""
         if not self.requires_interval_summary_handling:
             raise ValueError(
                 "empty_accumulators is undefined without interval-summary observation support"
@@ -89,12 +94,16 @@ class ObservationOperator:
 
 
 class SupportObservationSummary(NamedTuple):
+    """Expected responses and emission masks for observations whose support is ready to evaluate."""
+
     expected_mean: jnp.ndarray
     semantic_mask: jnp.ndarray
     emitted_interval_summary_mask: jnp.ndarray
 
 
 class SupportObservationStepResult(NamedTuple):
+    """Completed support statistics and the accumulator state carried into the next solver step."""
+
     obs_sum: jnp.ndarray
     obs_sumsq: jnp.ndarray
     obs_weight: jnp.ndarray
@@ -369,14 +378,17 @@ def _project_response_trajectory_with_operator(
     response_trajectory: jnp.ndarray,
     observation_operator: ObservationOperator,
 ) -> tuple[jnp.ndarray, jnp.ndarray]:
-    """Project response-space trajectories into emitted observation means.
+    """Project response trajectories onto the operator's emitted measurement supports.
+
+    Args:
+        response_trajectory: Expected responses with shape ``(time, indicator)``.
+        observation_operator: Resolved support schedule, integration weights, and
+            summary operators for those time and indicator axes.
 
     Returns:
-        expected_means:
-            Response / aggregated-mean trajectory aligned to model time rows.
-        semantic_emission_mask:
-            Float mask aligned to ``expected_means``. Point-like manifests emit
-            on every row; interval-summary manifests emit only on their anchor rows.
+        Expected observation means and a numeric emission mask, both with shape
+        ``(time, indicator)``. Point-like channels emit on every row; interval
+        summaries emit only at their designated anchor rows.
     """
     dtype = response_trajectory.dtype
     T, n_manifest = response_trajectory.shape

@@ -55,29 +55,35 @@ class DiffusionBlockSpec:
     time_invariant_mask: np.ndarray | None = None
 
     def __post_init__(self) -> None:
+        """Own immutable collection fields describing diffusion sparsity and fixed coefficients."""
         freeze_fields(self)
 
     @property
     def diffusion_diag_positions(self) -> tuple[int, ...]:
+        """Diagonal Cholesky coordinates whose diffusion scales are free parameters."""
         from nof1_causal_lab.models.ssm.structure.assembly import chol_diag_positions
 
         return tuple(chol_diag_positions(self.diffusion_chol_support, self.n_latent))
 
     @property
     def diffusion_lower_positions(self) -> tuple[tuple[int, int], ...]:
+        """Strict-lower Cholesky coordinates with free diffusion coupling coefficients."""
         from nof1_causal_lab.models.ssm.structure.assembly import strict_lower_positions
 
         return tuple(strict_lower_positions(self.diffusion_chol_support, self.n_latent))
 
     @property
     def n_diffusion_diag(self) -> int:
+        """Number of free diagonal diffusion scales."""
         return len(self.diffusion_diag_positions)
 
     @property
     def n_diffusion_lower(self) -> int:
+        """Number of free strict-lower diffusion coefficients."""
         return len(self.diffusion_lower_positions)
 
     def iter_sites(self) -> Iterator[SiteDescriptor]:
+        """Yield separate sampling sites for free diagonal scales and lower-triangular diffusion terms."""
         if self.n_diffusion_diag > 0:
             yield SiteDescriptor(
                 name="diffusion_diag_free",
@@ -104,6 +110,7 @@ class DiffusionBlockSpec:
         diag_free: jnp.ndarray | None = None,
         lower_free: jnp.ndarray | None = None,
     ) -> jnp.ndarray:
+        """Insert free diffusion coefficients into the fixed Cholesky template and zero static states."""
         from nof1_causal_lab.models.ssm.structure.assembly import assemble_diffusion_chol
 
         return assemble_diffusion_chol(
@@ -135,13 +142,16 @@ class SparseBlockSpec[Position: int | tuple[int, int]]:
     prior_field: str
 
     def __post_init__(self) -> None:
+        """Own immutable collections describing the block's fixed template and free positions."""
         freeze_fields(self)
 
     @property
     def n_free(self) -> int:
+        """Number of free scalar coordinates in this sparse parameter block."""
         return len(self.free_positions)
 
     def iter_sites(self) -> Iterator[SiteDescriptor]:
+        """Yield the block's free-vector sampling site, or no site when every coordinate is fixed."""
         if self.n_free > 0:
             yield SiteDescriptor(
                 name=self.free_site_name,
@@ -154,6 +164,7 @@ class SparseBlockSpec[Position: int | tuple[int, int]]:
             )
 
     def assemble(self, free: jnp.ndarray | None = None) -> jnp.ndarray:
+        """Insert free values at the declared positions while preserving the block's fixed entries."""
         from nof1_causal_lab.models.ssm.structure.assembly import assemble_sparse
 
         return assemble_sparse(
@@ -170,9 +181,9 @@ class SparseBlockSpec[Position: int | tuple[int, int]]:
 
 @dataclass(frozen=True, eq=False)
 class ManifestCholBlockSpec:
-    """Manifest-noise Cholesky factor block. Diagonal Cholesky
-    (per-channel variance); off-diagonal correlation is not modelled at
-    this layer.
+    """Diagonal observation-noise Cholesky scales with fixed and free channel coordinates.
+
+    Observation correlations are not parameterized by this block.
     """
 
     n_manifest: int
@@ -180,19 +191,23 @@ class ManifestCholBlockSpec:
     template: jnp.ndarray
 
     def __post_init__(self) -> None:
+        """Own immutable collections describing the observation-noise Cholesky block."""
         freeze_fields(self)
 
     @property
     def free_positions(self) -> tuple[int, ...]:
+        """Observation coordinates whose diagonal noise scales are free parameters."""
         from nof1_causal_lab.models.ssm.structure.assembly import dense_vector_positions
 
         return tuple(dense_vector_positions(self.diag_support, self.n_manifest))
 
     @property
     def n_free(self) -> int:
+        """Number of free observation-noise scales."""
         return len(self.free_positions)
 
     def iter_sites(self) -> Iterator[SiteDescriptor]:
+        """Yield the positive observation-noise scale site when any channels have free scales."""
         if self.n_free > 0:
             yield SiteDescriptor(
                 name="manifest_var_diag_free",
@@ -205,6 +220,7 @@ class ManifestCholBlockSpec:
             )
 
     def assemble(self, free: jnp.ndarray | None = None) -> jnp.ndarray:
+        """Insert free observation scales into the fixed manifest Cholesky template."""
         from nof1_causal_lab.models.ssm.structure.assembly import assemble_manifest_chol
 
         return assemble_manifest_chol(
@@ -241,29 +257,35 @@ class T0CholBlockSpec:
     template: jnp.ndarray  # (n_latent, n_latent) lower-Cholesky factor
 
     def __post_init__(self) -> None:
+        """Own immutable collections describing initial-state scale and correlation support."""
         freeze_fields(self)
 
     @property
     def diag_positions(self) -> tuple[int, ...]:
+        """State coordinates with free initial marginal standard deviations."""
         from nof1_causal_lab.models.ssm.structure.assembly import dense_vector_positions
 
         return tuple(dense_vector_positions(self.diag_support, self.n_latent))
 
     @property
     def correlation_positions(self) -> tuple[tuple[int, int], ...]:
+        """Strict-lower state pairs with free initial correlations."""
         from nof1_causal_lab.models.ssm.structure.assembly import strict_lower_positions
 
         return tuple(strict_lower_positions(self.correlation_support, self.n_latent))
 
     @property
     def n_diag_free(self) -> int:
+        """Number of free initial-state marginal scales."""
         return len(self.diag_positions)
 
     @property
     def n_correlation_free(self) -> int:
+        """Number of free initial-state pairwise correlations."""
         return len(self.correlation_positions)
 
     def iter_sites(self) -> Iterator[SiteDescriptor]:
+        """Yield the initial-state scale and correlation sampling sites that have free coordinates."""
         if self.n_diag_free > 0:
             yield SiteDescriptor(
                 name="t0_var_diag_free",
@@ -287,6 +309,7 @@ class T0CholBlockSpec:
 
     @property
     def base_cov(self) -> jnp.ndarray:
+        """Initial-state covariance implied by the fixed Cholesky template."""
         import jax.numpy as jnp_local
 
         L = jnp_local.asarray(self.template)
@@ -294,12 +317,14 @@ class T0CholBlockSpec:
 
     @property
     def base_std(self) -> jnp.ndarray:
+        """Initial-state marginal standard deviations implied by the fixed template."""
         import jax.numpy as jnp_local
 
         return jnp_local.sqrt(jnp_local.clip(jnp_local.diag(self.base_cov), min=0.0))
 
     @property
     def base_corr(self) -> jnp.ndarray:
+        """Template correlations with unit diagonals, including zero-variance state coordinates."""
         import jax.numpy as jnp_local
 
         std = self.base_std
@@ -318,6 +343,7 @@ class T0CholBlockSpec:
         diag_free: jnp.ndarray | None = None,
         correlation_free: jnp.ndarray | None = None,
     ) -> jnp.ndarray:
+        """Assemble initial-state covariance from template values and supplied free scales and correlations."""
         import jax.numpy as jnp_local
 
         std = self.base_std

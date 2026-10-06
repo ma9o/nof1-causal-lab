@@ -41,12 +41,15 @@ class ParticleTarget:
 
     @property
     def initial_position(self):
+        """Initial unconstrained parameter position supplied by the parameter target."""
         return self.parameters.initial_position
 
     def log_prior(self, position):
+        """Evaluate the parameter prior density at the supplied unconstrained position."""
         return self.parameters.log_prior(position)
 
     def initial_moments(self, context):
+        """Return the exact model's Gaussian initial-state mean and covariance for this context."""
         distribution = self.model(context).initial_condition
         assert isinstance(
             distribution, dist.MultivariateNormal
@@ -54,6 +57,7 @@ class ParticleTarget:
         return jnp.asarray(distribution.mean), jnp.asarray(distribution.covariance_matrix)
 
     def initial_log_prob(self, context, state):
+        """Evaluate initial-state density on the modeled coordinates of the supplied state."""
         return self._modeled_log_prob(self.model(context).initial_condition, state)
 
     def _modeled_log_prob(self, distribution, state):
@@ -73,16 +77,19 @@ class ParticleTarget:
         return evolution(previous, None, times[jnp.maximum(index - 1, 0)], times[index])
 
     def transition_log_prob(self, context, previous, current, index):
+        """Evaluate the current state's modeled transition density from its predecessor."""
         return self._modeled_log_prob(
             self._transition_distribution(context, previous, index), current
         )
 
     def aligned_transition_log_prob(self, context, previous, current, index):
+        """Evaluate transition densities for aligned predecessor and successor particle pairs."""
         return jax.vmap(lambda a, b: self.transition_log_prob(context, a, b, index))(
             previous, current
         )
 
     def pairwise_transition_log_prob(self, context, previous, current, index):
+        """Evaluate every predecessor-to-successor particle transition as a pairwise matrix."""
         return jax.vmap(
             lambda ancestor: jax.vmap(
                 lambda descendant: self.transition_log_prob(context, ancestor, descendant, index)
@@ -90,6 +97,7 @@ class ParticleTarget:
         )(previous)
 
     def initial_path(self, context, *, exact_constraints: ExactStateConstraints | None = None):
+        """Build an initialization path from successive transition means and any exact state constraints."""
         initial = jnp.asarray(self.model(context).initial_condition.mean)
         if exact_constraints is not None:
             initial = jnp.where(
@@ -108,15 +116,18 @@ class ParticleTarget:
         return jnp.concatenate([initial[None], tail])
 
     def observation_increment(self, context, state, index, observations):
+        """Sum observation log probabilities at one time index for the supplied latent state."""
         distribution = self.model(context).observation_model(state, None, context[1][index])
         return jnp.sum(distribution.log_prob(observations[index]))
 
     def observation_log_probs(self, context, path, observations):
+        """Evaluate the observation log likelihood at each time along a latent path."""
         return jax.vmap(
             lambda state, index: self.observation_increment(context, state, index, observations)
         )(path, jnp.arange(path.shape[0]))
 
     def path_log_prob(self, context, path, observations):
+        """Sum initial, transition, and observation log densities for a complete latent path."""
         transitions = jax.vmap(
             lambda previous, current, index: self.transition_log_prob(
                 context, previous, current, index
@@ -129,10 +140,12 @@ class ParticleTarget:
         )
 
     def log_posterior_from_context(self, position, context, path, observations):
+        """Return joint posterior and path log densities using an already bound model context."""
         path_density = self.path_log_prob(context, path, observations)
         return self.log_prior(position) + path_density, path_density
 
     def log_posterior(self, position, path, observations, times):
+        """Bind the parameter context and evaluate the joint parameter-and-path posterior density."""
         return self.log_posterior_from_context(
             position, self.context(position, times), path, observations
         )[0]

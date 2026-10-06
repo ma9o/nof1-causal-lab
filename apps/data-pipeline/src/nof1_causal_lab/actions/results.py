@@ -1,65 +1,79 @@
-"""Running calls and complete, repeatable action results."""
+"""The shared polling envelope and action-specific scientific result bodies."""
 
-from collections.abc import Mapping
 from typing import Annotated, Literal
-from uuid import UUID
 
 from pydantic import Field
 
-from nof1_causal_lab.actions.contracts import ScientificActionRequest
-from nof1_causal_lab.actions.progress_contracts import ProgressEvent
-from nof1_causal_lab.artifacts.base import Value
-from nof1_causal_lab.artifacts.identity import ActionId, GitOid, IndicatorId
-from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
-from nof1_causal_lab.artifacts.posterior import InferenceReport
-from nof1_causal_lab.artifacts.posterior_diagnostics import PPCOverlay
-from nof1_causal_lab.json_types import JsonObject, JsonValue
-from nof1_causal_lab.study.records import ActionAttempt, ActionMessage
-from nof1_causal_lab.study.snapshot_models import ModelSnapshot, Sourced
-from nof1_causal_lab.study.view_models import (
-    DataDiffReport,
+from nof1_causal_lab.actions.contracts import (
     DataDiffRequest,
-    ModelDiffReport,
     ModelDiffRequest,
+    ScientificActionRequest,
 )
-from nof1_causal_lab.study.visual_models import ObservationHistory, ParameterDraws, SimulationPaths
-from nof1_causal_lab.utils.llm import LLMTrace
+from nof1_causal_lab.actions.io import (
+    DataDiffOutput,
+    EditModelOutput,
+    EditQuestionOutput,
+    FitOutput,
+    ModelDiffOutput,
+    PrepareDataOutput,
+    SimulateOutput,
+)
+from nof1_causal_lab.actions.logs import ExecutionMessage
+from nof1_causal_lab.artifacts.base import Value
+from nof1_causal_lab.artifacts.identity import ActionId, CallId, GitOid
 
 
 class RunningPoll(Value):
-    kind: Literal["running"] = "running"
-    attempt_id: UUID
-    request: ScientificActionRequest | DataDiffRequest | ModelDiffRequest  # noqa: FIELD003 -- External HTTP clients repeat these canonical arguments, including call-time file hashes, to poll this exact call.
-    messages: tuple[ActionMessage, ...] = ()
-    events: tuple[ProgressEvent, ...] = ()  # noqa: FIELD003 -- The public action response must include extraction progress for external HTTP clients.
+    """An accepted call that can be polled by an external action client."""
+
+    call_id: CallId  # noqa: FIELD003 -- External action clients use this ID for GET polling.
+    action: ActionId  # noqa: FIELD003 -- External action clients use this name for GET polling.
+    status: Literal["running"] = "running"
+    commit_id: None = None  # noqa: FIELD003 -- The shared action wire envelope requires null before publication.
+    body: None = None  # noqa: FIELD003 -- The shared action wire envelope requires null while running.
+    messages: tuple[ExecutionMessage, ...] = ()
 
 
-class CompletedPoll(Value):
-    kind: Literal["completed"] = "completed"
-    # Failure before publication is still a completed typed outcome.
-    commit_id: GitOid | None
-    attempt: ActionAttempt
-    messages: tuple[ActionMessage, ...] = ()
-    snapshot: ModelSnapshot | None = None
-    inference_report: Sourced[InferenceReport] | None = None
-    data_comparison: DataDiffReport | None = None
-    model_comparison: ModelDiffReport | None = None
-    checks: ModelCheckReport | None = None
-    observation_histories: Mapping[IndicatorId, ObservationHistory] = Field(default_factory=dict)
-    predictive_overlays: Mapping[IndicatorId, PPCOverlay] = Field(default_factory=dict)
-    simulation_paths: SimulationPaths | None = None
-    parameter_draws: ParameterDraws | None = None
-    traces: Mapping[str, LLMTrace] = Field(default_factory=dict)
-    artifacts: Mapping[str, JsonObject] = Field(default_factory=dict)  # noqa: FIELD003 -- External HTTP clients need the retained artifact payloads now that artifact read routes are removed.
-    arrays: Mapping[str, JsonValue] = Field(default_factory=dict)  # noqa: FIELD003 -- The action API contract returns complete numerical arrays to external HTTP clients without another read route.
+class FailedPoll(Value):
+    """A terminal failure with its full details in the accumulated messages."""
+
+    call_id: CallId  # noqa: FIELD003 -- External action clients correlate cached failures by call ID.
+    action: ActionId  # noqa: FIELD003 -- The shared action wire envelope identifies the failed action.
+    status: Literal["failed"] = "failed"
+    commit_id: GitOid | None  # noqa: FIELD003 -- External action clients retain the recorded failure's Git reference.
+    body: None = None  # noqa: FIELD003 -- The shared action wire envelope requires null on failure.
+    messages: tuple[ExecutionMessage, ...]
 
 
-type ActionPoll = Annotated[RunningPoll | CompletedPoll, Field(discriminator="kind")]
+class SuccessfulPoll[ActionT: str, BodyT](Value):
+    """A published scientific result and the complete execution log of its call."""
+
+    call_id: CallId  # noqa: FIELD003 -- External action clients correlate cached results by call ID.
+    action: ActionT
+    status: Literal["success"] = "success"  # noqa: FIELD002 -- Discriminates ActionPoll through the nested generic ActionSuccess union.
+    commit_id: GitOid  # noqa: FIELD003 -- External action clients use this revision as a subsequent action input.
+    body: BodyT
+    messages: tuple[ExecutionMessage, ...]
+
+
+type ActionSuccess = Annotated[
+    SuccessfulPoll[Literal["edit_question"], EditQuestionOutput]
+    | SuccessfulPoll[Literal["edit_model"], EditModelOutput]
+    | SuccessfulPoll[Literal["prepare_data"], PrepareDataOutput]
+    | SuccessfulPoll[Literal["fit"], FitOutput]
+    | SuccessfulPoll[Literal["simulate"], SimulateOutput]
+    | SuccessfulPoll[Literal["data_diff"], DataDiffOutput]
+    | SuccessfulPoll[Literal["model_diff"], ModelDiffOutput],
+    Field(discriminator="action"),
+]
+
+type ActionPoll = Annotated[RunningPoll | FailedPoll | ActionSuccess, Field(discriminator="status")]
 
 
 class RunningAction(Value):
-    attempt_id: UUID
+    """Timeline discovery of the active call and its accumulated messages."""
+
+    call_id: CallId  # noqa: FIELD003 -- External clients discover the active call here before GET polling.
     action: ActionId
-    request: ScientificActionRequest | DataDiffRequest | ModelDiffRequest  # noqa: FIELD003 -- External HTTP clients obtain the running call's canonical arguments from the timeline to repeat it.
-    messages: tuple[ActionMessage, ...]
-    events: tuple[ProgressEvent, ...] = ()
+    request: ScientificActionRequest | DataDiffRequest[GitOid] | ModelDiffRequest[GitOid]
+    messages: tuple[ExecutionMessage, ...]

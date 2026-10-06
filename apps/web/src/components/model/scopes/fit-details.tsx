@@ -10,11 +10,11 @@ import { FitCalibration } from "./fit-calibration";
 export function FitOutcome({ context }: { context: ScopeContext }) {
   const fit = context.model.fit;
   if (!fit) return <Hint>No inference report recorded.</Hint>;
-  const { report } = fit.value;
+  const { report } = fit;
   const { convergence } = report;
   const mcmc = report.inference_diagnostics;
   return (
-    <Section title="Parameter convergence" source={fit.source}>
+    <Section title="Parameter convergence">
       <Hint>
         Marginal particle Gibbs · {mcmc?.num_chains ?? "Unavailable"} chains ×{" "}
         {mcmc?.num_samples ?? "Unavailable"} draws ·{" "}
@@ -41,15 +41,15 @@ export function FitDetails({ context }: { context: ScopeContext }) {
         <Hint>No inference report recorded at this version.</Hint>
       </Section>
     );
-  const { report } = fit.value;
-  const plot = detail.data?.value.detail;
+  const { report } = fit;
+  const plot = detail.data?.detail;
   const mcmc = report.inference_diagnostics;
   const gibbs = report.sampler_diagnostics;
   return (
     <>
       <FitCalibration context={context} />
       {(gibbs || plot?.final_latent_delta) && (
-        <Section title="Latent mixing" source={fit.source} wide>
+        <Section title="Latent mixing" wide>
           <Hint>Parameter convergence does not assess latent-path mixing.</Hint>
           <KeyValue
             rows={[

@@ -41,7 +41,7 @@ if TYPE_CHECKING:
 
 @dataclass(frozen=True, kw_only=True)
 class ParticleChainResult:
-    "Retained particle draws, warmup evidence, and sampler diagnostics."
+    """Retained particle draws, warmup evidence, and sampler diagnostics."""
 
     grouped_positions: jnp.ndarray
     observation_log_probs: jnp.ndarray
@@ -65,6 +65,7 @@ class ParticleChainResult:
     post_warmup_complete_log_posterior_mean: jnp.ndarray
 
     def __post_init__(self) -> None:
+        """Freeze retained, warmup, and combined chain diagnostics and any latent summary mapping."""
         object.__setattr__(
             self, "chain_extra_fields", MappingProxyType(dict(self.chain_extra_fields))
         )

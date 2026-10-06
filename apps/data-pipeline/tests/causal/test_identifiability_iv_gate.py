@@ -39,7 +39,6 @@ class TestIVAllowedDefault:
         )
         assert "X" not in result.identifiable_treatments
         assert "X" in result.non_identifiable_treatments
-        assert result.graph_info.iv_allowed is False
 
 
 class TestIVAllowedFalse:
@@ -59,8 +58,6 @@ class TestIVAllowedFalse:
             iv_allowed=False,
         )
 
-        assert result_no_iv.graph_info.iv_allowed is False
-        assert result_with_iv.identifiable_treatments["X"].method == "instrumental_variable"
         assert result_with_iv.identifiable_treatments["X"].instruments == ("Z",)
         assert "X" not in result_no_iv.identifiable_treatments
         assert "X" in result_no_iv.non_identifiable_treatments
@@ -87,8 +84,8 @@ class TestIVAllowedFalse:
         assert "X" in result_with_iv.identifiable_treatments
         assert "X" in result_no_iv.identifiable_treatments
         assert (
-            result_with_iv.identifiable_treatments["X"].method
-            == result_no_iv.identifiable_treatments["X"].method
+            result_with_iv.identifiable_treatments["X"].estimand
+            == result_no_iv.identifiable_treatments["X"].estimand
         )
 
 
@@ -120,4 +117,5 @@ def test_model_reporting_keeps_nonparametric_findings_without_linear_iv_assumpti
     identified = identify_model(StructuralSelection(unconfounded, y_id))
     finding = identified.treatments[x_id]
     assert finding.status == "identified"
-    assert finding.method == "do_calculus"
+    assert finding.estimand
+    assert finding.instruments == ()

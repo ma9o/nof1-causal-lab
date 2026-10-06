@@ -10,6 +10,7 @@ from typing import Literal, Self
 from pydantic import AwareDatetime, Field, FiniteFloat, computed_field, model_validator
 
 from nof1_causal_lab.artifacts.base import Value
+from nof1_causal_lab.artifacts.data_ref import DataRef
 
 from .availability import Available, Evaluation, NotApplicable, Unavailable
 from .checks import PredictiveAssessment
@@ -33,6 +34,7 @@ class SimulationSpec(Value):
 
     @model_validator(mode="after")
     def validate_window(self) -> Self:
+        """Require interventions within the horizon and at most one assignment per state and time."""
         if any(
             event.after is not None and event.after.seconds >= self.horizon.seconds
             for event in self.interventions
@@ -48,6 +50,7 @@ class SimulationSpec(Value):
 
     @property
     def start_instant(self) -> datetime:
+        """Requested simulation start at midnight UTC."""
         return datetime.combine(self.start, time(), tzinfo=UTC)
 
     def start_day(self, origin: datetime) -> float:
@@ -57,6 +60,7 @@ class SimulationSpec(Value):
         return ObservationInstant(self.start_instant).relative_to(ObservationInstant(origin)).days
 
     def end_day(self, origin: datetime) -> float:
+        """Express the simulation horizon's endpoint as model days after the supplied origin."""
         return self.start_day(origin) + self.horizon.days
 
     def assignments(self, origin: datetime) -> tuple[StateAssignment, ...]:
@@ -87,6 +91,7 @@ class SimulationObservationLayout(Value):
 
     @model_validator(mode="after")
     def resolved_variables(self) -> Self:
+        """Reject simulation layouts with repeated observation identities."""
         if len({item.id for item in self.variables}) != len(self.variables):
             raise ValueError("Simulation variables must have unique IDs")
         return self
@@ -111,7 +116,7 @@ class SimulationEvidence(Value):
     times: tuple[FiniteFloat, ...] = Field(min_length=2)
     draws: int = Field(ge=1)
     seed: int = Field(ge=0)
-    origin_panel_revision: GitOid | None = Field(
+    origin_data: DataRef[GitOid, int] | None = Field(
         default=None,
         description="Panel that supplied the time origin: the fit's panel for fitted laws, otherwise the explicitly named panel when present.",
     )
@@ -126,10 +131,12 @@ class SimulationEvidence(Value):
     @computed_field
     @property
     def assignments(self) -> tuple[StateAssignment, ...]:
+        """Intervention assignments positioned on the evidence's retained model-time origin."""
         return self.design.assignments(self.time_origin)
 
     @model_validator(mode="after")
     def validate_histories(self) -> Self:
+        """Require the requested time span and paired reference histories exactly for interventions."""
         if (
             any(right <= left for left, right in pairwise(self.times))
             or self.times[0] != self.design.start_day(self.time_origin)
@@ -144,6 +151,12 @@ class SimulationEvidence(Value):
         return self
 
 
+class ModelSimulationResult(Value):
+    """The exact generated histories and provenance retained by one simulation."""
+
+    evidence: SimulationEvidence
+
+
 class SimulationReport(Value):
     """Current-code measurements of immutable simulation evidence."""
 
@@ -154,13 +167,16 @@ class SimulationReport(Value):
     causal: Evaluation[CausalEffectResult]
 
     def with_causal_result(self, result: CausalEffectResult) -> Self:
+        """Return a report containing the available causal-effect result."""
         return self.revised(causal=Available(value=result))
 
     def without_causal_result(self, reason: str) -> Self:
+        """Return a report explaining why the requested causal-effect result is unavailable."""
         return self.revised(causal=Unavailable(reason=reason))
 
     @model_validator(mode="after")
     def own_causal_scope(self) -> Self:
+        """Require causal findings to match intervention scope and retain all involved state trajectories."""
         if isinstance(self.causal, NotApplicable) != (not self.evidence.design.interventions):
             raise ValueError("Causal evaluation applies exactly when interventions are requested")
         if isinstance(self.causal, Available) and not {

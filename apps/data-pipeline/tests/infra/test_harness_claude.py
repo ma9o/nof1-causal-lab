@@ -140,7 +140,7 @@ class TestBuildClaudeArgv:
 
 
 class TestSessionTurn:
-    def test_single_turn_accumulates_trace_and_returns_completion(self, monkeypatch, tmp_path):
+    def test_single_turn_accumulates_trace_and_returns_tool_outcome(self, monkeypatch, tmp_path):
         events = [
             {
                 "type": "system",
@@ -179,7 +179,6 @@ class TestSessionTurn:
 
         result = _run(session.turn("Prompt"))
 
-        assert result.completion == "All good"
         assert result.tool_calls_fired == []
         assert result.terminal_tool_name is None
         assert len(captured["invocations"]) == 1
@@ -188,7 +187,7 @@ class TestSessionTurn:
         assert session.session_id == first_argv[first_argv.index("--session-id") + 1]
 
         agent_result = session.result
-        assert agent_result.completion == "All good"
+        assert agent_result.trace.messages[-1].content == "All good"
         assert [m.role for m in agent_result.trace.messages] == ["user", "assistant"]
         assert agent_result.trace.usage.input_tokens == 9
 

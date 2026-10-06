@@ -2,47 +2,25 @@
 
 from nof1_causal_lab.actions.contracts import EditModelRequest
 from nof1_causal_lab.actions.effects import ActionEffects
-from nof1_causal_lab.artifacts.construct import Role
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.artifacts.question import QuestionSpec
-from nof1_causal_lab.models.model_structure import StructuralSelection, StructuralSelectionError
+from nof1_causal_lab.artifacts.identity import GitOid
+from nof1_causal_lab.models.model_checks import question_edit_reason
+from nof1_causal_lab.study.inputs import model_edit_state
 from nof1_causal_lab.study.records import Applied, Rejected
-from nof1_causal_lab.study.state import StudyState
-from nof1_causal_lab.study.store import ArtifactStore
+from nof1_causal_lab.study.store import ArtifactStore, read_question
 from nof1_causal_lab.study.writes import write_model_revision
 
 
-def question_edit_reason(model: ModelSpec, question: QuestionSpec) -> str | None:
-    """Why an edited model doesn't fit the question: it lacks the question's nodes, its outcome
-    is not endogenous, or a check the outcome scopes (anchors, fitted joint laws) fails."""
-    outcome = () if question.outcome is None else (question.outcome,)
-    if missing := sorted(
-        identity for identity in {*outcome, *question.targets} if identity not in model._constructs
-    ):
-        return "The model must define the question's constructs: " + ", ".join(missing)
-    if (
-        question.outcome is not None
-        and model.get_construct(question.outcome).role != Role.ENDOGENOUS
-    ):
-        return "The question's outcome must reference an endogenous construct"
-    try:
-        StructuralSelection(model, question.outcome)
-    except StructuralSelectionError as exc:
-        return str(exc)
-    return None
-
-
-def edit_model(workspace_id: str, request: EditModelRequest, state: StudyState) -> Applied[None] | Rejected:
+def edit_model(workspace_id: str, request: EditModelRequest[GitOid]) -> Applied[None] | Rejected:
+    """Save a replacement model, rejecting definitions inconsistent with its study question."""
     store = ArtifactStore(workspace_id)
-    from nof1_causal_lab.study.store import read_question
-
+    state = model_edit_state(store, request.input.parent_ref)
     question = read_question(store, state.current["question"].revision)
-    if (reason := question_edit_reason(request.model, question)) is not None:
+    if (reason := question_edit_reason(request.input.model, question)) is not None:
         return Rejected(reason="scientific_inputs", detail=reason)
     info = write_model_revision(
         store,
-        request.model,
-        derived_from={"question": state.current["question"].revision, **({"model": request.expected_revision} if request.expected_revision is not None else {})},
+        request.input.model,
+        derived_from={kind: record.revision for kind, record in state.current.items()},
         produced_by="edit_model",
     )
     return Applied(

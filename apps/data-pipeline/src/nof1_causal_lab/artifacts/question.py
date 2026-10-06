@@ -25,9 +25,7 @@ class QuestionSpec(Value):
     text: Annotated[str, StringConstraints(strip_whitespace=True, min_length=1)] = Field(
         description="The user's question in their own words."
     )
-    outcome: ConstructId | None = Field(
-        default=None, description="The construct whose course answers the question."
-    )
+    outcome: ConstructId = Field(description="The construct whose course answers the question.")
     queries: Mapping[QueryName, SimulationSpec] = Field(
         default_factory=dict,
         description="Named contrasts against the recorded course, each with at least one intervention.",
@@ -35,8 +33,7 @@ class QuestionSpec(Value):
 
     @model_validator(mode="after")
     def validate_queries(self) -> Self:
-        if self.queries and self.outcome is None:
-            raise ValueError("Queries require the outcome they contrast")
+        """Require an intervention contrast for every query and prohibit intervening on the outcome."""
         for name, query in self.queries.items():
             if not query.interventions:
                 raise ValueError(f"Query {name!r} needs an intervention to contrast")
@@ -46,6 +43,7 @@ class QuestionSpec(Value):
 
     @property
     def targets(self) -> frozenset[ConstructId]:
+        """Distinct construct IDs targeted by the question's intervention queries."""
         return frozenset(
             event.target for query in self.queries.values() for event in query.interventions
         )

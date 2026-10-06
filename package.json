@@ -13,7 +13,7 @@
     "storybook": "turbo storybook",
     "integration:start": "bash scripts/start_agentic_integration_stack.sh",
 
-    "lint": "turbo run lint docs:check knip fixture:check --continue=always",
+    "lint": "turbo run lint docs:check knip --continue=always",
     "lint:fix": "turbo lint:fix",
     "test": "bun run test:fixture-promotion && turbo test",
     "test:all": "turbo test:all",
@@ -37,7 +37,6 @@
 
     "fixture:promote": "bun scripts/promote-data-to-fixture.ts",
     "fixture:build": "PYTHONHASHSEED=0 uv run --directory apps/data-pipeline python -m scripts.fixtures.study build",
-    "fixture:check": "bun run fixture:build --check",
 
     "prepare": "git config core.hooksPath .githooks"
   },

@@ -4,7 +4,7 @@ import { humanize, type EntitySelection } from "./selection";
 import { ownLawUses } from "./laws";
 
 /** Index the authored graph; these maps are derived, never a second model definition. */
-export function indexModel(model: ModelSpec | undefined) {
+export function indexModel(model: ModelSpec | null | undefined) {
   const constructs = modelConstructs(model);
   const edges = model?.edges ?? [];
   const indicators = constructs.flatMap((construct) => construct.indicators);

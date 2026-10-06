@@ -7,8 +7,8 @@ import { useActionResult } from "./use-model-snapshot";
 export function useInferenceReport(model: ModelSnapshot) {
   const query = useActionResult(
     model.workspace_id,
-    model.fit?.source.ref.revision ?? model.commit_id,
+    model.state.current.model?.revision,
     model.fit != null,
   );
-  return { ...query, data: query.data?.inference_report ?? null };
+  return { ...query, data: query.data?.action === "fit" ? query.data.body.inference_report : null };
 }

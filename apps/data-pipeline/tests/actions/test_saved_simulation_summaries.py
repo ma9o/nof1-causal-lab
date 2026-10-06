@@ -12,6 +12,7 @@ from nof1_causal_lab.artifacts.identity import GitRef
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.predictive_provenance import AuthoredLawProvenance
 from nof1_causal_lab.artifacts.simulation import (
+    ModelSimulationResult,
     SimulationEvidence,
     SimulationObservationLayout,
     SimulationReport,
@@ -20,7 +21,7 @@ from nof1_causal_lab.artifacts.simulation import (
 from nof1_causal_lab.models.model_structure import StructuralSelection, selected_state_ids
 from nof1_causal_lab.models.ssm.predictive.simulation import generate_simulation_batch
 from nof1_causal_lab.study.history import StudyRepository
-from nof1_causal_lab.study.records import Applied, ModelSimulationResult
+from nof1_causal_lab.study.records import Applied
 from nof1_causal_lab.study.snapshots import ModelReader
 from nof1_causal_lab.study.store import ArtifactStore
 from tests.action_fixtures import applied_record
@@ -173,7 +174,7 @@ def test_full_categories_and_paired_paths_are_derived_on_read_and_cached(tmp_pat
 
     first = reader.simulation()
     assert first is not None
-    assert first.value.evidence == report.evidence
+    assert first.evidence == report.evidence
 
     def no_generation(*_args, **_kwargs):
         pytest.fail("A saved simulation read must not generate histories")

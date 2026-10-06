@@ -16,6 +16,8 @@ DEFAULT_CACHE_MAX_BYTES = 5 * 1024**3
 
 
 class SweepResult(BaseModel):
+    """Counts of scratch entries and cache bytes removed by a workspace sweep."""
+
     model_config = ConfigDict(frozen=True, extra="forbid")
 
     removed_runs: int = 0
@@ -110,6 +112,7 @@ def sweep_workspace(
 
 
 def sweep_cli() -> None:
+    """Parse workspace retention limits, perform the requested sweep, and print its removal counts."""
     parser = argparse.ArgumentParser(description="Collect workspace scratch state and caches.")
     parser.add_argument("workspace_id")
     parser.add_argument("--event-retention-hours", type=int, default=24)

@@ -49,40 +49,71 @@ class _IdentityString(str):
 
 
 class GitOid(_IdentityString):
+    """A full Git object identity spelled as forty lowercase hexadecimal characters."""
+
     _pattern = r"^[0-9a-f]{40}$"
 
 
+class CallId(_IdentityString):
+    """Content-derived identity of a pinned action request, prefixed with ``call:``."""
+
+    _prefix = "call"
+    _pattern = r"^call:[0-9a-f]{64}$"
+
+
+type RevisionSelector = Annotated[
+    GitOid | Literal["latest"],
+    Field(
+        description="An exact Git hash, or 'latest': the current non-stale model/panel or most recent applied simulation, according to the input type. Resolved once before cache lookup and execution; repeat the returned hashes to poll the same call."
+    ),
+]
+
+
 class ConstructId(_IdentityString):
+    """Namespaced identity of a scientific construct, independent of its display label."""
+
     _prefix = "construct"
     _pattern = r"^construct:[A-Za-z0-9_.-]+$"
 
 
 class EdgeId(_IdentityString):
+    """Namespaced identity of a directed causal edge, independent of endpoint labels."""
+
     _prefix = "edge"
     _pattern = r"^edge:[A-Za-z0-9_.-]+$"
 
 
 class IndicatorId(_IdentityString):
+    """Namespaced observation identity shared by model definitions and recorded measurements."""
+
     _prefix = "indicator"
     _pattern = r"^indicator:[A-Za-z0-9_.-]+$"
 
 
 class MechanismId(_IdentityString):
+    """Namespaced identity of an authored dynamics mechanism."""
+
     _prefix = "mechanism"
     _pattern = r"^mechanism:[A-Za-z0-9_.-]+$"
 
 
 class DistributionId(_IdentityString):
+    """Namespaced identity used to refer to a distribution owned by a model."""
+
     _prefix = "distribution"
     _pattern = r"^distribution:[A-Za-z0-9_.-]+$"
 
 
 class ParameterId(_IdentityString):
+    """Content-derived identity of a parameter's scientific definition."""
+
     _prefix = "parameter"
     _pattern = r"^parameter:[0-9a-f]{64}$"
 
 
 class ParameterElementId(_IdentityString):
+    """Content-derived identity of one coordinate within a parameter value."""
+
     _prefix = "element"
     _pattern = r"^element:[0-9a-f]{64}$"
 
@@ -90,7 +121,7 @@ class ParameterElementId(_IdentityString):
 type ArtifactId = Literal["question", "raw_data", "model", "panel"]
 
 # Actions name work; several actions can enrich the same model artifact.
-type ScientificActionId = Literal["set_question", "edit_model", "prepare_data", "fit", "simulate"]
+type ScientificActionId = Literal["edit_question", "edit_model", "prepare_data", "fit", "simulate"]
 type ActionId = ScientificActionId | Literal["data_diff", "model_diff"]
 
 ARTIFACT_IDS: tuple[ArtifactId, ...] = get_args(ArtifactId.__value__)
@@ -105,27 +136,21 @@ class GitRef(Value):
 
 
 class ConstructRef(Value):
-    """A construct reference identifies a construct independently of its current name or
-    revision.
-    """
+    """A construct identity independent of its current display name or model revision."""
 
     kind: Literal["construct"] = "construct"
     id: ConstructId
 
 
 class EdgeRef(Value):
-    """An edge reference identifies a causal relationship independently of edits to its
-    definition.
-    """
+    """A causal-edge identity independent of edits to its scientific definition."""
 
     kind: Literal["edge"] = "edge"
     id: EdgeId
 
 
 class IndicatorRef(Value):
-    """An indicator reference identifies a measurement definition independently of its name or
-    revision.
-    """
+    """An observation identity independent of its current display name or model revision."""
 
     kind: Literal["indicator"] = "indicator"
     id: IndicatorId
@@ -179,13 +204,20 @@ def scientific_id(prefix: Literal["element"], payload: object) -> ParameterEleme
 
 
 @overload
+def scientific_id(prefix: Literal["call"], payload: object) -> CallId: ...
+
+
+@overload
 def scientific_id(prefix: str, payload: object) -> str: ...
 
 
 def scientific_id(prefix: str, payload: object) -> str:
+    """Hash canonical JSON into a namespaced identity and parse recognized identity kinds."""
     encoded = json.dumps(payload, sort_keys=True, separators=(",", ":"), ensure_ascii=False)
     value = f"{prefix}:{hashlib.sha256(encoded.encode()).hexdigest()}"
     match prefix:
+        case "call":
+            return CallId(value)
         case "construct":
             return ConstructId(value)
         case "edge":

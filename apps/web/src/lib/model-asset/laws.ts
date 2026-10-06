@@ -24,8 +24,6 @@ export interface LawCurve {
   kind: "fitted" | "authored";
   prior: DensityCurve;
   posteriors: readonly PosteriorMarginal[];
-  /** The fit was conditioned on another panel than the one selected at this version. */
-  stale: boolean;
   /** The authored law's family; a fitted law is known by its posteriors. */
   family: string | null;
 }
@@ -71,13 +69,13 @@ function observationOperands(law: ObservationLawSpec): readonly Expression[] {
 /** A fit's posteriors supersede the laws authored at its version; unplotted laws are omitted. */
 export function lawCurves(model: ModelSnapshot, uses: readonly CoefficientUse[]): LawCurve[] {
   const parameters = new Map(
-    (model.model?.value.parameters ?? []).map((parameter) => [parameter.id, parameter]),
+    (model.model?.parameters ?? []).map((parameter) => [parameter.id, parameter]),
   );
   const fit = model.fit;
   return uses.flatMap((use): LawCurve[] => {
     const parameter = parameters.get(use.parameterId);
     if (!parameter) return [];
-    const posteriors = (fit?.value.report.posterior_marginals ?? []).filter(
+    const posteriors = (fit?.report.posterior_marginals ?? []).filter(
       (marginal) => marginal.subject.parameter_id === use.parameterId,
     );
     if (fit && posteriors.length > 0)
@@ -86,9 +84,8 @@ export function lawCurves(model: ModelSnapshot, uses: readonly CoefficientUse[])
           use,
           parameter,
           kind: "fitted",
-          prior: fit.value.prior_densities[use.parameterId] ?? { x: [], density: [] },
+          prior: fit.prior_densities[use.parameterId] ?? { x: [], density: [] },
           posteriors,
-          stale: fit.source.validity === "stale",
           family: null,
         },
       ];
@@ -96,9 +93,7 @@ export function lawCurves(model: ModelSnapshot, uses: readonly CoefficientUse[])
       x: [],
       density: [],
     };
-    const law = parameter.distribution
-      ? model.model?.value.distributions[parameter.distribution]
-      : null;
+    const law = parameter.distribution ? model.model?.distributions[parameter.distribution] : null;
     return prior.x.length > 0
       ? [
           {
@@ -107,7 +102,6 @@ export function lawCurves(model: ModelSnapshot, uses: readonly CoefficientUse[])
             kind: "authored",
             prior,
             posteriors: [],
-            stale: false,
             family: law?.distribution ?? null,
           },
         ]

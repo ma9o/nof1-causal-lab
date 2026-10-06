@@ -2,6 +2,7 @@
 
 import asyncio
 import shutil
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from pathlib import Path
 
@@ -9,19 +10,29 @@ import numpy as np
 import polars as pl
 import pytest
 
-from nof1_causal_lab.actions.contracts import EditModelRequest, FitRequest, SimulateRequest
+from nof1_causal_lab.actions.contracts import (
+    EditModelRequest,
+    FitRequest,
+    PrepareDataRequest,
+    SimulateRequest,
+)
 from nof1_causal_lab.actions.effects import ActionEffects
-from nof1_causal_lab.actions.temporal.activities import journal_activity
-from nof1_causal_lab.actions.temporal.messages import AttemptPublication
+from nof1_causal_lab.actions.io import EditModelInput, FitInput, PrepareDataInput, SimulateInput
+from nof1_causal_lab.actions.temporal.activities import (
+    evaluate_data_checks_activity,
+    evaluate_model_checks_activity,
+    journal_activity,
+)
+from nof1_causal_lab.actions.temporal.messages import AttemptPublication, EvaluateChecksInput
 from nof1_causal_lab.artifacts.availability import NotApplicable
 from nof1_causal_lab.artifacts.checks import Evaluated, NotEvaluated
+from nof1_causal_lab.artifacts.data_preparation import FileSourceRef
+from nof1_causal_lab.artifacts.data_ref import DataRef
 from nof1_causal_lab.artifacts.identification import IdentificationReport
-from nof1_causal_lab.artifacts.identity import DistributionId, GitRef
+from nof1_causal_lab.artifacts.identity import DistributionId, GitOid, GitRef
 from nof1_causal_lab.artifacts.model_checks import (
     ModelCheckReport,
-    ModelPredictiveReport,
     QuestionCheckReport,
-    UnavailablePredictiveChecks,
 )
 from nof1_causal_lab.artifacts.posterior import (
     InferenceEvidence,
@@ -29,10 +40,12 @@ from nof1_causal_lab.artifacts.posterior import (
     InferenceReport,
     InferenceReportCore,
     InferenceReportDetail,
+    ModelFitResult,
 )
 from nof1_causal_lab.artifacts.posterior_diagnostics import ParameterConvergenceReport
 from nof1_causal_lab.artifacts.predictive_provenance import AuthoredLawProvenance
 from nof1_causal_lab.artifacts.simulation import (
+    ModelSimulationResult,
     SimulationEvidence,
     SimulationReport,
     SimulationSpec,
@@ -43,17 +56,12 @@ from nof1_causal_lab.artifacts.validation_report import (
 )
 from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.lineage import fitted_law_report
-from nof1_causal_lab.study.records import (
-    Applied,
-    DataPreparationResult,
-    ModelFitResult,
-    ModelSimulationResult,
-)
+from nof1_causal_lab.study.records import Applied, DataPreparationResult
 from nof1_causal_lab.study.snapshots import ModelReader
 from nof1_causal_lab.study.store import ArtifactStore
 from nof1_causal_lab.utils import data
 from tests.action_fixtures import applied_record, question_root
-from tests.integration.runner_fixtures import panel_frame, panel_metadata
+from tests.integration.runner_fixtures import panel_frame, panel_metadata, seed_model
 from tests.model_fixtures import x_y_model
 
 pytestmark = pytest.mark.contract
@@ -80,17 +88,71 @@ def test_action_reports_are_published_once_and_loaded_without_checks(tmp_path, m
     profile = DataProfileArtifact(indicators={}, dataset_issues=())
 
     def publish(applied, *, request=None, model_checks=None, data_profile=None):
+        record = applied_record(applied, seq=repository.latest_seq() + 1, request=request)
+        evaluated = None
+        if model_checks is not None:
+            monkeypatch.setattr(
+                "nof1_causal_lab.actions.model_checks.evaluate_model_checks",
+                lambda *_args, **_kwargs: model_checks,
+            )
+            evaluated = asyncio.run(
+                evaluate_model_checks_activity(
+                    EvaluateChecksInput(
+                        workspace_id=workspace,
+                        state=repository.state(repository.head()),
+                        applied=applied,
+                        request=record.attempt.request,
+                    )
+                )
+            )
+        if data_profile is not None:
+            monkeypatch.setattr(
+                "nof1_causal_lab.actions.data_checks.evaluate_data_checks",
+                lambda *_args: data_profile,
+            )
+            evaluated = asyncio.run(
+                evaluate_data_checks_activity(
+                    EvaluateChecksInput(
+                        workspace_id=workspace,
+                        state=repository.state(repository.head()),
+                        applied=applied,
+                        request=record.attempt.request,
+                    )
+                )
+            )
+        if evaluated is not None:
+            # Even a multi-megabyte report crosses Temporal only by immutable reference.
+            assert len(evaluated.model_dump_json().encode()) < 10_000
+            record = record.revised(
+                attempt=record.attempt.revised(
+                    outcome=applied.revised(
+                        effects=applied.effects.revised(
+                            reports={**applied.effects.reports, **evaluated.reports}
+                        )
+                    )
+                ),
+                messages=evaluated.messages,
+            )
         publication = AttemptPublication(
             workspace_id=workspace,
             parent_id=repository.head(),
-            record=applied_record(applied, seq=repository.latest_seq() + 1, request=request),
-            model_checks=model_checks,
-            data_profile=data_profile,
+            record=record,
         )
+        assert len(publication.model_dump_json().encode()) < 20_000
         return publication, asyncio.run(journal_activity(publication))
 
     _, prepared = publish(
         Applied(result=DataPreparationResult(), effects=ActionEffects(produced=(panel,))),
+        request=PrepareDataRequest[GitOid, FileSourceRef](
+            input=PrepareDataInput[GitOid, FileSourceRef](
+                model_ref=seed_model(store).revision,
+                source=panel_metadata().source,
+                extraction={
+                    variable.observation.id: variable.extraction
+                    for variable in panel_metadata().preparation.variables
+                },
+            )
+        ),
         data_profile=profile,
     )
     model = x_y_model()
@@ -101,23 +163,18 @@ def test_action_reports_are_published_once_and_loaded_without_checks(tmp_path, m
         json_files={"model.json": model.model_dump(mode="json", round_trip=True)},
     )
     checks = ModelCheckReport(
-        specification=(Evaluated(subject="model_execution", outcome="passed", evidence="Saved"),),
+        specification=(
+            Evaluated(subject="model_execution", outcome="passed", evidence="Saved" * 500_000),
+        ),
         question=QuestionCheckReport(
             question_revision=repository.question().revision,
-            panel_revision=panel.revision,
+            data=DataRef[GitOid, int](revision=panel.revision, replicate_index=0),
             findings=(),
         ),
-        predictive=ModelPredictiveReport(
-            model_revision=authored.revision,
-            panel_revision=panel.revision,
-            draws=200,
-            seed=0,
-            law=AuthoredLawProvenance(),
-            evaluation=UnavailablePredictiveChecks(
-                reason="SIMULATION_UNSUPPORTED", detail="Saved execution finding"
-            ),
-        ),
     )
+    assert checks.question is not None
+    edit_checks = checks.revised(question=checks.question.revised(data=None))
+
     identification = IdentificationReport(outcome=None)
     validation = ValidationReportArtifact(
         data=profile,
@@ -125,10 +182,13 @@ def test_action_reports_are_published_once_and_loaded_without_checks(tmp_path, m
     )
     _, edited = publish(
         Applied(result=None, effects=ActionEffects(produced=(authored,))),
-        request=EditModelRequest(
-            expected_revision=None, model=model, panel_revision=panel.revision
+        request=EditModelRequest[GitOid](
+            input=EditModelInput[GitOid](
+                parent_ref=repository.question().revision,
+                model=model,
+            )
         ),
-        model_checks=(checks, identification, validation),
+        model_checks=(edit_checks, identification, None),
     )
     fitted = store.write_artifact(
         "model",
@@ -156,7 +216,7 @@ def test_action_reports_are_published_once_and_loaded_without_checks(tmp_path, m
         Applied(
             result=ModelFitResult(
                 model=GitRef(workspace_id=workspace, revision=authored.revision, path="model.json"),
-                panel=GitRef(workspace_id=workspace, revision=panel.revision, path="panel.parquet"),
+                data=DataRef[GitOid, int](revision=panel.revision, replicate_index=0),
                 evidence=InferenceEvidence(
                     distribution=DistributionId("distribution:retained"),
                     engine=None,
@@ -168,26 +228,40 @@ def test_action_reports_are_published_once_and_loaded_without_checks(tmp_path, m
                 produced=(fitted,), reports={"inference": store.write_report(inference)}
             ),
         ),
-        request=FitRequest(model_revision=authored.revision, panel_revision=panel.revision),
-        model_checks=(checks.revised(predictive=None), identification, validation),
+        request=FitRequest[GitOid](
+            input=FitInput[GitOid](
+                replicate_index=0, model_ref=authored.revision, data_ref=panel.revision
+            )
+        ),
+        model_checks=(checks, identification, validation),
     )
-    zeroes = store.write_array(np.zeros((1, 2, 0)))
+    zeroes = store.write_array(np.zeros((2, 2, 0)))
+    assert model.measurement_clock is not None
+    variables = tuple(
+        item.observation.resolved(model.measurement_clock) for item in model.indicators
+    )
+    support_ends = np.broadcast_to(np.array([[0.0], [1.0]]), (2, len(variables)))
+    observations = np.zeros((2, 2, len(variables)))
+    observations[1] = 7
+    observations[1, 0, 0] = np.inf
+    mask = np.ones_like(observations, dtype=bool)
+    mask[1, 1, 0] = False
     evidence = SimulationEvidence(
         model=GitRef(workspace_id=workspace, revision=fitted.revision, path="model.json"),
         design=SimulationSpec(start="2026-01-01", horizon="1d"),
         time_origin=datetime(2026, 1, 1, tzinfo=UTC),
         times=(0, 1),
-        draws=1,
+        draws=2,
         seed=0,
         state_ids=(),
         parameter_draws={},
         latent_paths=zeroes,
-        observations=zeroes,
+        observations=store.write_array(observations),
         observation_layout={
-            "variables": [],
-            "support_start_times": zeroes,
-            "support_end_times": zeroes,
-            "mask": zeroes,
+            "variables": variables,
+            "support_start_times": store.write_array(support_ends - 1),
+            "support_end_times": store.write_array(support_ends),
+            "mask": store.write_array(mask),
         },
     )
     simulation = SimulationReport(
@@ -204,7 +278,12 @@ def test_action_reports_are_published_once_and_loaded_without_checks(tmp_path, m
             result=ModelSimulationResult(evidence=evidence),
             effects=ActionEffects(reports={"simulation": store.write_report(simulation)}),
         ),
-        request=SimulateRequest(model_revision=fitted.revision, start="2026-01-01", horizon="1d"),
+        request=SimulateRequest[GitOid](
+            input=SimulateInput[GitOid](
+                simulation=SimulationSpec(start="2026-01-01", horizon="1d"),
+                model_ref=fitted.revision,
+            )
+        ),
     )
     cache = Path(data.cache_dir(workspace))
     cache.mkdir(parents=True, exist_ok=True)
@@ -216,7 +295,6 @@ def test_action_reports_are_published_once_and_loaded_without_checks(tmp_path, m
         "data_checks.read_data_profile",
         "fit.read_inference_report",
         "simulate.read_simulation_report",
-        "predictive_checks.check_model_predictive",
     ):
         monkeypatch.setattr(f"nof1_causal_lab.actions.{owner}", unexpected_evaluation)
     assert asyncio.run(journal_activity(fit_publication)) == fit_revision
@@ -224,40 +302,65 @@ def test_action_reports_are_published_once_and_loaded_without_checks(tmp_path, m
     prepared_reader = ModelReader(workspace, at=prepared.commit_id)
     saved_profile = prepared_reader.data_profile
     assert saved_profile is not None
-    assert saved_profile.value == profile
+    assert saved_profile == profile
     edited_reader = ModelReader(workspace, at=edited.commit_id)
-    assert edited_reader.checks == (checks, identification, validation)
+    assert edited_reader.checks == (edit_checks, identification, None)
     saved_identification = edited_reader.identification()
     assert saved_identification is not None
-    assert saved_identification.value == identification
+    assert saved_identification == identification
     saved_validation = edited_reader.validation_report
-    assert saved_validation is not None
-    assert saved_validation.value == validation
+    assert saved_validation is None
     assert edited_reader.predictive_history(model.indicators[0].observation.id) is None
     reader = ModelReader(workspace, at=simulated.commit_id)
-    assert reader.checks == (checks.revised(predictive=None), identification, validation)
+    assert reader.checks == (checks, identification, validation)
     saved_inference = reader.inference_report
     assert saved_inference is not None
-    assert saved_inference.value == inference
+    assert saved_inference == inference
     saved_simulation = reader.simulation()
     assert saved_simulation is not None
-    assert saved_simulation.value == simulation
+    assert saved_simulation == simulation
     assert fitted_law_report(store, reader.records, fitted.revision) == inference.core
-    from nof1_causal_lab.study_api import _completed_call
+    from nof1_causal_lab.study.action_outputs import completed_call
 
-    response = _completed_call(workspace, simulated)
-    assert response.checks == checks.revised(predictive=None)
-    assert response.inference_report is not None
-    assert response.inference_report.value == inference
-    assert response.snapshot is not None
-    assert response.snapshot.simulation is not None
-    assert response.snapshot.simulation.value == simulation
+    fitted_response = completed_call(workspace, fit_revision)
+    assert fitted_response.status == "success"
+    assert fitted_response.action == "fit"
+    assert fitted_response.body.model.checks == checks
+    assert fitted_response.body.inference_report is not None
+    assert fitted_response.body.inference_report == inference
+    with monkeypatch.context() as isolated:
+        isolated.setattr(ModelReader, "snapshot", unexpected_evaluation)
+        isolated.setattr(ModelReader, "model_output", unexpected_evaluation)
+        isolated.setattr(ModelReader, "fit", unexpected_evaluation)
+        response = completed_call(workspace, simulated)
+        prepared_response = completed_call(workspace, prepared)
+    assert response.status == "success"
+    assert response.action == "simulate"
+    assert response.body.report is not None
+    assert response.body.report == simulation
+    assert set(response.body.model_dump()) == {"simulation", "report", "data", "paths", "arrays"}
+    assert prepared_response.status == "success"
+    assert prepared_response.action == "prepare_data"
+    assert isinstance(prepared_response.body.data, Mapping)
+    prepared_history = prepared_response.body.data[panel_metadata().variables[0].id]
+    assert isinstance(response.body.data, tuple)
+    assert len(response.body.data) == 2
+    first, second = response.body.data
+    assert type(first[variables[0].id]) is type(prepared_history)
+    assert first[variables[0].id].values == (0.0, 0.0)
+    assert first[variables[0].id].times == (0.0, 1.0)
+    assert first[variables[0].id].support_start == (-1.0, 0.0)
+    assert second[variables[0].id].values == (None, None)
+    assert second[variables[1].id].values == (7.0, 7.0)
     np.testing.assert_array_equal(
-        store.read_array(saved_simulation.value.evidence.latent_paths), np.zeros((1, 2, 0))
+        store.read_array(saved_simulation.evidence.latent_paths), np.zeros((2, 2, 0))
     )
-    assert ModelCheckReport.model_validate_json(
-        repository.read_file(fit_revision.commit_id, "logs/reports/checks.json")
-    ) == checks.revised(predictive=None)
+    assert (
+        ModelCheckReport.model_validate_json(
+            repository.read_file(fit_revision.commit_id, "logs/reports/checks.json")
+        )
+        == checks
+    )
     assert all(record.record.trace_ids == () for record in repository.attempts())
 
 

@@ -106,11 +106,7 @@ def _diagnostic_summary(result: ParticleMCMCPosterior) -> BenchmarkRecord:
     diagnostics = result.diagnostics.marginal_particle_gibbs
     assert diagnostics is not None
     return {
-        "latent_kernel": _json_ready(diagnostics.latent_kernel),
-        "latent_smoother": _json_ready(diagnostics.latent_smoother),
-        "latent_smoother_selection": _json_ready(diagnostics.latent_smoother_selection),
         "dsmc_leaf_proposal": _json_ready(diagnostics.dsmc_leaf_proposal),
-        "latent_transition_kind": _json_ready(diagnostics.latent_transition_kind),
         "parameter_kernel": _json_ready(diagnostics.parameter_kernel),
         "parameter_preconditioned": _json_ready(diagnostics.parameter_preconditioned),
         "parameter_accept_rate": _json_ready(diagnostics.parameter_accept_rate),
@@ -154,7 +150,6 @@ def _run_one(
             retain_latent_paths=args.retain_latent_paths,
             marginal_particle_gibbs=MarginalParticleGibbsSpec(
                 n_parameter_particles=args.n_parameter_particles,
-                latent_smoother="dsmc",
                 dsmc_leaf_proposal=proposal,
                 latent_block_coords=args.latent_block_coords,
                 diagnostic_metrics=args.diagnostic_metrics,

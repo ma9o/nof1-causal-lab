@@ -217,9 +217,10 @@ def _make_raw_df() -> pl.DataFrame:
 
 
 class TestComputeIndicators:
-    def test_single_mean(self):
+    @pytest.mark.parametrize("time_unit", ["ms", "us", "ns"])
+    def test_single_mean(self, time_unit):
         """Mean of heart_rate across 3 daily ticks."""
-        df = _make_raw_df()
+        df = _make_raw_df().with_columns(pl.col("timestamp").cast(pl.Datetime(time_unit)))
         indicators = [
             {
                 "observation": {

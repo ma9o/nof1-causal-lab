@@ -18,26 +18,22 @@ from fastapi import routing
 from fastapi.openapi.utils import get_fields_from_routes, get_openapi_path
 from pydantic import TypeAdapter
 
+from nof1_causal_lab.actions.contracts import DataDiffRequest, ModelDiffRequest
+
+# Import all artifact contracts — this pulls in every nested domain model
+from nof1_causal_lab.actions.io import DataDiffOutput, ModelDiffOutput
 from nof1_causal_lab.actions.progress_contracts import ProgressEvent
 from nof1_causal_lab.actions.results import ActionPoll
 from nof1_causal_lab.artifacts.catalog import ARTIFACT_CONTRACTS
 from nof1_causal_lab.artifacts.effects import EffectSummary
 from nof1_causal_lab.artifacts.expressions import COEFFICIENT_MEANINGS
-from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS
+from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS, GitOid
 from nof1_causal_lab.artifacts.likelihood import OBSERVATION_FAMILY_SPECS
 from nof1_causal_lab.artifacts.scenarios import (
     CausalEffectResult,
 )
 from nof1_causal_lab.study.records import StudyRevision
 from nof1_causal_lab.study.snapshot_models import ModelSnapshot
-
-# Import all artifact contracts — this pulls in every nested domain model
-from nof1_causal_lab.study.view_models import (
-    DataDiffReport,
-    DataDiffRequest,
-    ModelDiffReport,
-    ModelDiffRequest,
-)
 from nof1_causal_lab.study.visual_models import (
     ObservationHistory,
     ParameterDraws,
@@ -69,10 +65,10 @@ EXPORTED_API_MODELS: tuple[type[BaseModel] | TypeAliasType, ...] = (
     TimelineResponse,
     TimelineRevision,
     StudyRevision,
-    ModelDiffReport,
-    ModelDiffRequest,
-    DataDiffReport,
-    DataDiffRequest,
+    ModelDiffOutput,
+    ModelDiffRequest[GitOid],
+    DataDiffOutput,
+    DataDiffRequest[GitOid],
     LLMTrace,
     ModelSnapshot,
     ObservationHistory,

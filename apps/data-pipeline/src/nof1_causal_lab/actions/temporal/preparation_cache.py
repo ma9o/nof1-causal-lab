@@ -8,29 +8,23 @@ from nof1_causal_lab.actions.temporal.llm_context_adapters import subroutine_con
 from nof1_causal_lab.utils.content_cache import cache_path, content_key
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.actions.temporal.messages import LLMSubroutineContextKind
     from nof1_causal_lab.llm_specs import LLMProfileSpec
 
-# Bump the corresponding version when prompts, tools, schemas, or validation change.
-INGESTION_POLICY_VERSION = "ingestion-v1"
+# Bump the version when extraction prompts, tools, schemas, or validation change.
 EXTRACTION_POLICY_VERSION = "extraction-v4"
 
 
 def preparation_cache_path(
-    kind: LLMSubroutineContextKind,
     context_ref: str,
     llm: LLMProfileSpec,
     max_tool_turns: int,
     inputs: object,
 ) -> str:
-    system, users, tools = subroutine_context_messages(kind, context_ref)
-    policy = {
-        "raw_data_ingestion": INGESTION_POLICY_VERSION,
-        "measurement_extraction": EXTRACTION_POLICY_VERSION,
-    }[kind]
+    """Derive an extraction cache path from prompts, tools, model settings, and input content."""
+    system, users, tools = subroutine_context_messages(context_ref)
     key = content_key(
         {
-            "policy": policy,
+            "policy": EXTRACTION_POLICY_VERSION,
             "system": system,
             "users": users,
             "tools": [tool.model_dump(mode="json") for tool in tools],
@@ -39,4 +33,4 @@ def preparation_cache_path(
             "inputs": inputs,
         }
     )
-    return cache_path(kind, key)
+    return cache_path("measurement_extraction", key)

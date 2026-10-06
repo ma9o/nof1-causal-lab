@@ -20,6 +20,7 @@ from nof1_causal_lab.artifacts.indicator import IndicatorPolarity, IndicatorSpec
 from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec, NormalLawSpec
 from nof1_causal_lab.artifacts.mechanism import DriftMechanismSpec
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
+from nof1_causal_lab.artifacts.observation_data import ObservationDataset
 from nof1_causal_lab.artifacts.observations import AuthoredObservationSpec
 from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.artifacts.parameter_spec import (
@@ -231,7 +232,7 @@ def _manifest_standardization_of_constant_column_centers_without_scaling__make_s
     )
 
 
-def _stress_interval_model() -> ModelSpec:
+def _stress_interval_model(window="31d") -> ModelSpec:
     _STRESS_SCORE_INDICATOR_ID = IndicatorId("indicator:3696aef3ff6f446744e5")
     _LATENT_0_STRESS_SCORE_MANIFEST_VAR_DIAG_PARAMETER_ID = ParameterId(
         "parameter:cfa73aad8f98fefa2c03e109a6c5619b67bc4f1ab79bcaf100e70f7cfe7abc80"
@@ -251,8 +252,8 @@ def _stress_interval_model() -> ModelSpec:
                     id=_STRESS_SCORE_INDICATOR_ID,
                     name="stress_score",
                     measurement_dtype="continuous",
-                    aggregation=SummaryOperator.LAST,
-                    observation_window=None,
+                    aggregation=SummaryOperator.MEAN,
+                    observation_window=window,
                 ),
                 likelihood=LikelihoodSpec(
                     law=NormalLawSpec[Expression](
@@ -400,7 +401,11 @@ class TestBuilderPriorConversion:
                 assert binding.site is sites[binding.site.name]
                 target = binding.target
                 assert isinstance(target, (CompiledNodeTarget, CompiledEdgeTarget))
-                component = compiled.dynamics.spec.components[target.component_index]
+                component = next(
+                    item
+                    for item in compiled.dynamics.spec.components
+                    if parameter.id in item.coefficients.values()
+                )
                 assert target.target_index == component.target
                 if component.source is None:
                     assert isinstance(target, CompiledNodeTarget)
@@ -536,7 +541,7 @@ class TestPrepareModelRuntime:
                 "support_kind": ["interval"],
                 "summary_operator": ["mean"],
                 "anchor_policy": ["support_end"],
-                "observation_window": ["1mo"],
+                "observation_window": ["31d"],
                 "support_start": ["2024-01-01T00:00:00"],
                 "support_end": ["2024-02-01T00:00:00"],
             }
@@ -546,16 +551,20 @@ class TestPrepareModelRuntime:
 
         with caplog.at_level("INFO"):
             runtime = bind_panel(
-                data_for_model,
+                ObservationDataset.from_frame(
+                    data_for_model,
+                    tuple(item.observation for item in inputs.compiled.observations),
+                    time_origin=datetime(2024, 1, 1, tzinfo=UTC),
+                ),
                 time_origin=datetime(2024, 1, 1, tzinfo=UTC),
                 model=inputs.compiled,
             )
 
         assert isinstance(runtime, BoundPanel)
         assert runtime.rows.column_names == data_for_model.columns
-        assert pl.DataFrame(runtime.rows)["observation_window"][0] == "1mo"
-        assert pl.DataFrame(runtime.rows)["support_end"][0] == "2024-02-01T00:00:00"
-        assert pl.DataFrame(runtime.rows)["anchor_time"][0] == "2024-02-01T00:00:00"
+        assert pl.DataFrame(runtime.rows)["observation_window"][0] == "31d"
+        assert pl.DataFrame(runtime.rows)["support_end"][0] == datetime(2024, 2, 1)
+        assert pl.DataFrame(runtime.rows)["anchor_time"][0] == datetime(2024, 2, 1)
         assert isinstance(runtime, BoundPanel)
         assert runtime.times.tolist() == [0.0, 31.0]
         assert runtime.observation_support is not None
@@ -563,7 +572,7 @@ class TestPrepareModelRuntime:
         assert runtime.observation_support.support_kinds == ("interval",)
         assert runtime.observation_support.summary_operators == ("mean",)
         assert runtime.observation_support.anchor_policies == ("support_end",)
-        assert runtime.observation_support.observation_windows == ("1mo",)
+        assert runtime.observation_support.observation_windows == ("31d",)
         assert runtime.observation_support.requires_interval_summary_handling is True
         assert runtime.observation_support.interval_summary_manifest_names == ("stress_score",)
         assert runtime.observation_support.support_start_times.shape == (2, 1)
@@ -598,10 +607,14 @@ class TestPrepareModelRuntime:
             }
         )
 
-        inputs = compile_fit_fixture(_stress_interval_model())
+        inputs = compile_fit_fixture(_stress_interval_model("2d"))
 
         runtime = bind_panel(
-            data_for_model,
+            ObservationDataset.from_frame(
+                data_for_model,
+                tuple(item.observation for item in inputs.compiled.observations),
+                time_origin=datetime(2024, 1, 1, tzinfo=UTC),
+            ),
             time_origin=datetime(2024, 1, 1, tzinfo=UTC),
             model=inputs.compiled,
         )
@@ -627,14 +640,18 @@ class TestPrepareModelRuntime:
                 "support_kind": ["interval"],
                 "summary_operator": ["mean"],
                 "anchor_policy": ["support_end"],
-                "observation_window": ["1mo"],
+                "observation_window": ["31d"],
                 "support_start": ["2024-01-01T00:00:00"],
                 "support_end": ["2024-02-01T00:00:00"],
             }
         )
         model = compile_fit_fixture(_stress_interval_model())
         runtime = bind_panel(
-            data_for_model,
+            ObservationDataset.from_frame(
+                data_for_model,
+                tuple(item.observation for item in model.compiled.observations),
+                time_origin=datetime(2024, 1, 1, tzinfo=UTC),
+            ),
             time_origin=datetime(2024, 1, 1, tzinfo=UTC),
             model=model.compiled,
         )
@@ -711,7 +728,7 @@ def test_fit_resolves_incomplete_model_before_panel_preparation(monkeypatch):
     monkeypatch.setattr(runtime, "bind_panel", unexpected_panel)
     result = fitting.fit_model(
         StructuralSelection(ModelSpec(), None),
-        pl.DataFrame(),
+        ObservationDataset(series={}, time_origin=None),
         time_origin=None,
         sampler=SamplerSpec(),
     )

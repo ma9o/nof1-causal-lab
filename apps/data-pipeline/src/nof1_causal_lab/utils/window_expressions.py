@@ -21,6 +21,8 @@ type WindowScalar = str | int | float | bool | None
 
 
 class WindowOperator(StrEnum):
+    """Permitted scalar, comparison, and aggregation operators in computed measurement expressions."""
+
     ADD = "+"
     SUBTRACT = "-"
     MULTIPLY = "*"
@@ -126,21 +128,29 @@ _AST_OPERATORS: Mapping[type[ast.AST], WindowOperator] = {
 
 @dataclass(frozen=True)
 class WindowLiteral:
+    """A fixed scalar, including a missing value, within a parsed measurement expression."""
+
     value: WindowScalar
 
 
 @dataclass(frozen=True)
 class WindowColumn:
+    """A named source-column reference within a parsed measurement expression."""
+
     name: str
 
 
 @dataclass(frozen=True)
 class WindowCollection:
+    """A literal collection used by membership and helper operations in a measurement expression."""
+
     values: tuple[WindowScalar, ...]
 
 
 @dataclass(frozen=True)
 class WindowOperation:
+    """A permitted measurement operator applied to its ordered child expressions."""
+
     operator: WindowOperator
     arguments: tuple[WindowTerm, ...]
 
@@ -318,6 +328,7 @@ class WindowExpression:
     summary_operator: SummaryOperator
 
     def __init__(self, source: str) -> None:
+        """Parse a computed rule into the restricted expression tree and record its column dependencies."""
         try:
             parsed = ast.parse(source, mode="eval")
         except SyntaxError as exc:
@@ -340,6 +351,7 @@ class WindowExpression:
     def __get_pydantic_core_schema__(
         cls, _source_type: object, _handler: GetCoreSchemaHandler
     ) -> CoreSchema:
+        """Accept parsed window expressions or source strings and serialize the original rule text."""
         parsed = core_schema.no_info_after_validator_function(cls, core_schema.str_schema())
         return core_schema.json_or_python_schema(
             ref=f"{cls.__module__}.{cls.__qualname__}",
@@ -369,6 +381,19 @@ class WindowExpression:
         collection: Callable[[tuple[WindowScalar, ...]], T],
         operation: Callable[[WindowOperator, tuple[T, ...]], T],
     ) -> T:
+        """Interpret the parsed expression by supplying one operation for each node kind.
+
+        Args:
+            literal: Interpreter for scalar constants, including missing values.
+            column: Interpreter for a named source-column reference.
+            collection: Interpreter for a tuple of literal values.
+            operation: Interpreter receiving an operator and its already interpreted
+                arguments in expression order.
+
+        Returns:
+            The root result after recursively interpreting its children.
+        """
+
         def _visit(term: WindowTerm) -> T:
             match term:
                 case WindowLiteral(value):

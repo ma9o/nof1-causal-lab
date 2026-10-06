@@ -26,6 +26,15 @@ class Duration:
     unit: DurationUnit
 
     def __init__(self, source: str) -> None:
+        """Parse a positive integer duration with a seconds, minutes, hours, days, or weeks suffix.
+
+        Args:
+            source: Compact duration such as ``30m`` or ``7d``.
+
+        Raises:
+            ValueError: The spelling does not match a supported integer duration or
+                the duration is zero.
+        """
         match = _DURATION_RE.fullmatch(source)
         if match is None:
             raise ValueError(
@@ -41,6 +50,7 @@ class Duration:
 
     @property
     def seconds(self) -> int:
+        """Duration expressed as an integer number of seconds."""
         return self.count * _UNIT_SECONDS[self.unit]
 
     @property
@@ -56,6 +66,7 @@ class Duration:
     def __get_pydantic_core_schema__(
         cls, _source_type: object, _handler: GetCoreSchemaHandler
     ) -> CoreSchema:
+        """Accept parsed durations or duration strings and serialize them with their original spelling."""
         parsed = core_schema.no_info_after_validator_function(cls, core_schema.str_schema())
         return core_schema.json_or_python_schema(
             json_schema=parsed,

@@ -85,8 +85,7 @@ def assemble_manifest_chol(
     free_positions: Sequence[int],
     free: jnp.ndarray | None,
 ) -> jnp.ndarray:
-    """Manifest-noise diagonal-Cholesky assembler. Inserts free diagonal
-    values at marked positions; off-diagonal is fixed at template."""
+    """Insert free diagonal observation-noise scales while retaining fixed template entries."""
     chol = jnp.asarray(template)
     if free is not None and len(free_positions) > 0:
         free = jnp.asarray(free, dtype=chol.dtype)

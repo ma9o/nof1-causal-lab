@@ -42,6 +42,7 @@ class CheckResult:
     evidence: Mapping[str, np.ndarray | float] | None = None
 
     def __post_init__(self) -> None:
+        """Own immutable collection fields containing predictive-check evidence."""
         freeze_fields(self)
 
     @classmethod
@@ -58,6 +59,7 @@ class CheckResult:
         outcome: Literal["passed", "failed"],
         measurements: tuple[NumericCriterionEvidence, ...],
     ) -> CheckResult:
+        """Build an evaluated check from measurements, deriving its verdict from their accepted bands."""
         return cls(
             target,
             Evaluated(
@@ -86,14 +88,17 @@ class CheckResult:
     def unevaluated(
         cls, check: str, target: str, reason: NotEvaluatedReason, note: str
     ) -> CheckResult:
+        """Record why a predictive check could not be evaluated without assigning a pass/fail verdict."""
         return cls(target, NotEvaluated(subject=check, reason=reason, detail=note))
 
     @property
     def check(self) -> str:
+        """Name of the predictive criterion represented by this assessment."""
         return self.assessment.subject
 
     @property
     def value(self) -> str:
+        """Display value from measured evidence, or ``not_evaluated`` when no measurement exists."""
         return (
             self.assessment.evidence[0].display_value
             if self.assessment.kind == "evaluated"
@@ -102,14 +107,17 @@ class CheckResult:
 
     @property
     def band(self) -> str:
+        """Accepted-band label from measured evidence, or an empty string without evaluation."""
         return self.assessment.evidence[0].band_label if self.assessment.kind == "evaluated" else ""
 
     @property
     def passed(self) -> bool | None:
+        """Pass/fail verdict for an evaluated check, or ``None`` when evaluation was unavailable."""
         return self.assessment.outcome == "passed" if self.assessment.kind == "evaluated" else None
 
     @property
     def note(self) -> str:
+        """Evidence note for a measured check or the reason evaluation was unavailable."""
         return (
             self.assessment.evidence[0].note
             if self.assessment.kind == "evaluated"
@@ -117,6 +125,7 @@ class CheckResult:
         )
 
     def finding(self, construct_id: ConstructId, target: EntityRef) -> PredictiveAssessment:
+        """Attach construct and entity identities to the existing predictive assessment."""
         subject = PredictiveSubject(check=self.check, construct_id=construct_id, target=target)
         match self.assessment:
             case Evaluated(outcome=outcome, evidence=evidence):

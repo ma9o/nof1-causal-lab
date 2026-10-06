@@ -1,16 +1,15 @@
 import polars as pl
 import pytest
 
+from nof1_causal_lab.artifacts.observation_data import ObservationDataset, SelectedObservations
 from nof1_causal_lab.models.ssm import numerics as numeric
-from nof1_causal_lab.models.ssm.observation_support import validate_discrete_manifest_metadata
-from nof1_causal_lab.models.ssm.preflight import ObservationPreflightFailure
 from tests.inference_fixtures import compile_model_fixture
 from tests.model_fixtures import mixed_family_model
 
 pytestmark = pytest.mark.contract
 
 
-def _single_row_panel(**overrides: float) -> pl.DataFrame:
+def _single_row_panel(spec, **overrides: float) -> ObservationDataset:
     values = {
         "stress_cont": 0.0,
         "adherence_flag": 1.0,
@@ -24,16 +23,34 @@ def _single_row_panel(**overrides: float) -> pl.DataFrame:
         "focus_cont": 0.0,
     }
     values.update(overrides)
-    return pl.DataFrame(values)
+    variables = tuple(item.observation for item in compile_model_fixture(spec).observations)
+    return ObservationDataset.from_frame(
+        pl.DataFrame(
+            [
+                {
+                    "indicator_id": variable.id,
+                    "value": values[variable.name],
+                    "anchor_time": "2024-01-02",
+                    "support_start": "2024-01-01",
+                    "support_end": "2024-01-02",
+                    "support_kind": variable.support_kind.value,
+                    "summary_operator": variable.summary_operator.value,
+                    "anchor_policy": variable.anchor_policy.value,
+                    "observation_window": variable.observation_window.source,
+                }
+                for variable in variables
+            ]
+        ),
+        variables,
+        time_origin=None,
+    )
 
 
 def test_declared_discrete_levels_allow_one_observed_level():
     spec = mixed_family_model()
 
-    assert (
-        validate_discrete_manifest_metadata(compile_model_fixture(spec), _single_row_panel())
-        is None
-    )
+    dataset = _single_row_panel(spec)
+    assert isinstance(dataset.select(dataset.variables), SelectedObservations)
 
     counts = dict(
         zip(
@@ -48,11 +65,8 @@ def test_declared_discrete_levels_allow_one_observed_level():
 def test_declared_discrete_levels_reject_out_of_range_code():
     spec = mixed_family_model()
 
-    failure = validate_discrete_manifest_metadata(
-        compile_model_fixture(spec), _single_row_panel(symptom_severity=4.0)
-    )
-    assert isinstance(failure, ObservationPreflightFailure)
-    assert "outside declared range 0..3" in failure.message
+    with pytest.raises(ValueError, match="outside its codebook"):
+        _single_row_panel(spec, symptom_severity=4.0)
 
 
 def test_missing_declared_levels_are_rejected_in_the_scientific_definition():

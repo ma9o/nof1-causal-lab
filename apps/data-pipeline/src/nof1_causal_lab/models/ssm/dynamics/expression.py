@@ -45,9 +45,11 @@ class ExpressionComponent(eqx.Module):
     evaluate_fn: Callable[[Array, Mapping[str, Array]], Array] = eqx.field(static=True)
 
     def evaluate(self, values: Array, params: Mapping[str, Array]) -> Array:
+        """Evaluate the compiled expression at supplied state values and component coefficients."""
         return self.evaluate_fn(values, params)
 
     def contribute(self, accumulator, eta, eta_per_edge, _t, params: Mapping[str, Array]):
+        """Add the expression to its target derivative, using edge-adjusted states for edge owners."""
         values = eta_per_edge[self.target] if self.edge_owned else eta
         return accumulator.at[self.target].add(self.evaluate(values, params))
 
@@ -66,6 +68,7 @@ class ExpressionComponentSpec:
     coefficients: Mapping[CoefficientExpression, float | ParameterId] = field(init=False)
 
     def __post_init__(self) -> None:
+        """Resolve state and coefficient ownership and prohibit cross-state node potentials."""
         from nof1_causal_lab.compilation_errors import IncompleteModelError
 
         object.__setattr__(
@@ -85,14 +88,17 @@ class ExpressionComponentSpec:
 
     @property
     def edge_owned(self) -> bool:
+        """Whether the expression belongs to an edge and requires edge-adjusted state values."""
         return self.source is not None
 
     @property
     def sources(self) -> frozenset[int]:
+        """Compiled state positions referenced by this expression."""
         return frozenset(self.state_index[key] for key in expression_states(self.expression))
 
     @property
     def parameters(self) -> tuple[tuple[ParameterId, CoefficientExpression], ...]:
+        """Symbolic coefficient references paired with their expression operands in traversal order."""
         return tuple(
             (operand.value, operand)
             for operand in expression_coefficients(self.expression)
@@ -100,6 +106,7 @@ class ExpressionComponentSpec:
         )
 
     def build(self) -> ExpressionComponent:
+        """Bind expression evaluation to the compiled state indices and coefficient owners."""
         operands, numerical = compile_expression(self.expression)
 
         def evaluate(values: Array, params: Mapping[str, Array]) -> Array:
@@ -125,6 +132,7 @@ class ExpressionComponentSpec:
         )
 
     def parameter_sites(self, prefix: str) -> Iterator[tuple[ParameterId, SiteDescriptor]]:
+        """Yield parameter identities and scalar sampling-site descriptors under the supplied prefix."""
         positions = (
             ((self.target, self.source, *sorted(self.sources - {self.source})),)
             if self.source is not None
@@ -151,18 +159,21 @@ class ExpressionComponentSpec:
             )
 
     def iter_sites(self, prefix: str, *, n_latent: int) -> Iterator[SiteDescriptor]:
+        """Yield component sites after requiring every referenced state to fit the vector-field axes."""
         if not 0 <= self.target < n_latent or any(i >= n_latent for i in self.sources):
             raise ValueError("Expression state axes must fit the vector field")
         for _, site in self.parameter_sites(prefix):
             yield site
 
     def sample_params(self, prefix: str, prior_fn: PriorFn) -> dict[str, Array]:
+        """Sample each component parameter from its site prior and key the values by parameter identity."""
         return {
             identity: jnp.asarray(numpyro.sample(site.name, prior_fn(site.name)))
             for identity, site in self.parameter_sites(prefix)
         }
 
     def pack_params(self, prefix: str, samples: Mapping[str, Array]) -> dict[str, Array]:
+        """Project named sampling-site values into the parameter identities used by this expression."""
         return {
             identity: jnp.asarray(samples[site.name])
             for identity, site in self.parameter_sites(prefix)
@@ -186,6 +197,7 @@ class BoundExpression(eqx.Module):
     link: LinkFunction = eqx.field(static=True)
 
     def bind(self, samples: Mapping[str, Array]) -> BoundExpression:
+        """Return an expression with coefficient values selected from the supplied sampling coordinates."""
         values = tuple(
             jnp.asarray(samples[coordinate.site_name])[coordinate.indices]
             for coordinate in self.coordinates
@@ -202,6 +214,7 @@ class BoundExpression(eqx.Module):
         )
 
     def evaluate(self, predictor: Array, scale: Array, observed: Array | None = None) -> Array:
+        """Evaluate the bound expression, replacing unobserved operands before undefined arithmetic."""
         values = self.values
         if observed is not None:
             # Missing channels never differentiate undefined expression arithmetic.

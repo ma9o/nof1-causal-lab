@@ -91,7 +91,7 @@ export function useLayeredGraph({
     entities.edges.map((entity) => [
       entity.id,
       designVisible
-        ? model.dispositions?.value.find((item) => item.target.id === entity.id)?.disposition
+        ? model.dispositions?.find((item) => item.target.id === entity.id)?.disposition
         : undefined,
     ]),
   );
@@ -126,13 +126,13 @@ export function useLayeredGraph({
     [model, entities.edges],
   );
   const marginal = (ref: ParameterRef) =>
-    model.fit?.value.report.posterior_marginals?.find(
+    model.fit?.report.posterior_marginals?.find(
       (row) =>
         row.subject.parameter_id === ref.parameter_id && row.subject.element_id === ref.element_id,
     );
   const edgePosteriors: Partial<Record<EdgeId, PosteriorMarginal | undefined>> = fitVisible
     ? Object.fromEntries(
-        Object.entries(model.fit?.value.edge_estimates ?? {}).flatMap(([id, ref]) =>
+        Object.entries(model.fit?.edge_estimates ?? {}).flatMap(([id, ref]) =>
           ref ? [[id, marginal(ref)]] : [],
         ),
       )
@@ -140,7 +140,7 @@ export function useLayeredGraph({
   const persistencePosteriors: Partial<Record<ConstructId, PosteriorMarginal | undefined>> =
     fitVisible
       ? Object.fromEntries(
-          Object.entries(model.fit?.value.decay_estimates ?? {}).flatMap(([id, ref]) =>
+          Object.entries(model.fit?.decay_estimates ?? {}).flatMap(([id, ref]) =>
             ref ? [[id, marginal(ref)]] : [],
           ),
         )

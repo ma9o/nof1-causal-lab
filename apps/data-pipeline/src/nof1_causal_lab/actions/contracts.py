@@ -1,4 +1,4 @@
-"""Content-named inputs to scientific calls."""
+"""Request envelopes and call identity for the bodies in ``actions.io``."""
 
 from __future__ import annotations
 
@@ -6,80 +6,120 @@ from typing import Annotated, Literal
 
 from pydantic import Field
 
+from nof1_causal_lab.actions.io import (
+    DataDiffInput,
+    EditModelInput,
+    EditQuestionInput,
+    FitInput,
+    ModelDiffInput,
+    PrepareDataInput,
+    SimulateInput,
+)
 from nof1_causal_lab.artifacts.action import ACTION_REASONING_DESCRIPTION
 from nof1_causal_lab.artifacts.base import Value
-from nof1_causal_lab.artifacts.data_preparation import (
-    FilePreparationSpec,
-    SimulationReplicateRef,
-)
-from nof1_causal_lab.artifacts.identity import GitOid, scientific_id
-from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.artifacts.posterior import FitSettingsSpec
-from nof1_causal_lab.artifacts.question import QuestionSpec
-from nof1_causal_lab.artifacts.simulation import SimulationSpec
+from nof1_causal_lab.artifacts.data_preparation import FileSourceRef, SourceFolder
+from nof1_causal_lab.artifacts.identity import CallId, GitOid, RevisionSelector, scientific_id
 
 
-class SetQuestionRequest(Value):
-    """Set the study question; it is the first action of every study."""
+class EditQuestionRequest(Value):
+    """Save the supplied question; the successful body is ``EditQuestionOutput``."""
 
-    action: Literal["set_question"] = "set_question"
-    question: QuestionSpec
+    action: Literal["edit_question"] = Field(
+        default="edit_question", description="Scientific action that owns this request or result."
+    )
+    input: EditQuestionInput = Field(description="Typed arguments of the scientific action.")
     reasoning: str | None = Field(default=None, description=ACTION_REASONING_DESCRIPTION)
 
 
-class EditModelRequest(Value):
-    """Replace one named base revision with a validated scientific definition."""
+class EditModelRequest[RevisionT](Value):
+    """Create or revise a model from its selected parent; return ``EditModelOutput``."""
 
-    action: Literal["edit_model"] = "edit_model"
-    expected_revision: GitOid | None
-    panel_revision: GitOid | None = Field(
-        default=None,
-        description="Exact observations used by this edit's checks; omitted runs no predictive check.",
+    action: Literal["edit_model"] = Field(
+        default="edit_model", description="Scientific action that owns this request or result."
     )
-    model: ModelSpec = Field(
-        description="Endogenous constructs are modeled, with or without parents, and include every latent construct. Exogenous constructs are given by direct exact Delta readings and have no dynamics, diffusion, initial coefficients or trajectory law."
+    input: EditModelInput[RevisionT] = Field(
+        description="Typed arguments of the scientific action."
     )
     reasoning: str | None = Field(default=None, description=ACTION_REASONING_DESCRIPTION)
 
 
-class PrepareDataRequest(Value):
-    """Prepare uploaded sources or a simulation replicate without a model."""
+class PrepareDataRequest[RevisionT, SourceT](Value):
+    """Prepare the selected source data; return ``PrepareDataOutput``."""
 
-    action: Literal["prepare_data"] = "prepare_data"
-    input: FilePreparationSpec | SimulationReplicateRef
+    action: Literal["prepare_data"] = Field(
+        default="prepare_data", description="Scientific action that owns this request or result."
+    )
+    input: PrepareDataInput[RevisionT, SourceT] = Field(
+        description="Typed arguments of the scientific action."
+    )
     reasoning: str | None = Field(default=None, description=ACTION_REASONING_DESCRIPTION)
 
 
-class FitRequest(Value):
-    """Condition explicitly selected model and observation revisions."""
+class FitRequest[RevisionT](Value):
+    """Fit the selected model to the selected history; return ``FitOutput``."""
 
-    action: Literal["fit"] = "fit"
-    model_revision: GitOid = Field()
-    panel_revision: GitOid = Field()
-    settings: FitSettingsSpec = Field(default_factory=FitSettingsSpec)
+    action: Literal["fit"] = Field(
+        default="fit", description="Scientific action that owns this request or result."
+    )
+    input: FitInput[RevisionT] = Field(description="Typed arguments of the scientific action.")
     reasoning: str | None = Field(default=None, description=ACTION_REASONING_DESCRIPTION)
 
 
-class SimulateRequest(SimulationSpec):
-    """Generate a dated window with optional interventions; compare saved data with data_diff."""
+class SimulateRequest[RevisionT](Value):
+    """Generate the requested histories and paths; return ``SimulateOutput``."""
 
-    action: Literal["simulate"] = "simulate"
-    model_revision: GitOid = Field()
-    panel_revision: GitOid | None = Field(
-        default=None,
-        description="Exact panel dating authored-law simulations; fitted laws retain their own origin.",
+    action: Literal["simulate"] = Field(
+        default="simulate", description="Scientific action that owns this request or result."
+    )
+    input: SimulateInput[RevisionT] = Field(description="Typed arguments of the scientific action.")
+    reasoning: str | None = Field(default=None, description=ACTION_REASONING_DESCRIPTION)
+
+
+class DataDiffRequest[RevisionT](Value):
+    """Compare the saved observation histories; return ``DataDiffOutput``."""
+
+    action: Literal["data_diff"] = Field(
+        default="data_diff", description="Scientific action that owns this request or result."
+    )
+    input: DataDiffInput[RevisionT] = Field(description="Typed arguments of the scientific action.")
+    reasoning: str | None = Field(default=None, description=ACTION_REASONING_DESCRIPTION)
+
+
+class ModelDiffRequest[RevisionT](Value):
+    """Compare two saved models and their evidence; return ``ModelDiffOutput``."""
+
+    action: Literal["model_diff"] = Field(
+        default="model_diff", description="Scientific action that owns this request or result."
+    )
+    input: ModelDiffInput[RevisionT] = Field(
+        description="Typed arguments of the scientific action."
     )
     reasoning: str | None = Field(default=None, description=ACTION_REASONING_DESCRIPTION)
 
 
 type ScientificActionRequest = Annotated[
-    SetQuestionRequest | EditModelRequest | PrepareDataRequest | FitRequest | SimulateRequest,
+    EditQuestionRequest
+    | EditModelRequest[GitOid]
+    | PrepareDataRequest[GitOid, FileSourceRef]
+    | FitRequest[GitOid]
+    | SimulateRequest[GitOid],
+    Field(discriminator="action"),
+]
+
+type ActionInput = Annotated[
+    EditQuestionRequest
+    | EditModelRequest[RevisionSelector]
+    | PrepareDataRequest[RevisionSelector, SourceFolder]
+    | FitRequest[RevisionSelector]
+    | SimulateRequest[RevisionSelector]
+    | DataDiffRequest[RevisionSelector]
+    | ModelDiffRequest[RevisionSelector],
     Field(discriminator="action"),
 ]
 
 
-def call_identity(request: Value) -> str:
-    """Scientific arguments, including file hashes but excluding intent, name the call."""
+def call_identity(request: Value) -> CallId:
+    """Canonical scientific arguments name a call independently of authored reasoning."""
     return scientific_id(
         "call", request.model_dump(mode="json", round_trip=True, exclude={"reasoning"})
     )

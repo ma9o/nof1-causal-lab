@@ -53,6 +53,7 @@ class BinaryProbabilityDistribution(dist.CategoricalLogits):
     }
 
     def __init__(self, probs: jax.Array) -> None:
+        """Construct binary log masses directly from the probability, preserving exact zero and one."""
         self.probability = probs
         super().__init__(logits=jnp.stack((_log_mass(1.0 - probs), _log_mass(probs)), axis=-1))
 
@@ -84,6 +85,7 @@ class ZeroMeanNegativeBinomial(dist.MixtureGeneral):
     }
 
     def __init__(self, mean: jax.Array, concentration: jax.Array) -> None:
+        """Represent zero response means as point masses and positive means as negative binomials."""
         self.response_mean = mean
         self.concentration = concentration
         zero = mean == 0.0
@@ -191,6 +193,7 @@ def feasible_law(law: Law[jax.Array]) -> tuple[Law[jax.Array], jax.Array]:
 
 
 def safe_native(law: Law[jax.Array]) -> tuple[dist.Distribution, jax.Array]:
+    """Build a numerically feasible native law and separately return the original validity mask."""
     feasible, valid = feasible_law(law)
     return to_native(feasible), valid
 
@@ -220,6 +223,8 @@ def evaluate_law(
     scale: jax.Array,
     observed: jax.Array | None = None,
 ) -> Law[jax.Array]:
+    """Evaluate each symbolic law operand at the supplied predictor, scale, and observation mask."""
+
     def evaluate(operand: BoundExpression) -> jax.Array:
         return operand.evaluate(predictor, scale, observed)
 
@@ -279,6 +284,7 @@ def with_response(law: Law[jax.Array], response: jax.Array) -> Law[jax.Array]:
 
 
 def gaussian_distribution(mean: jax.Array, covariance: jax.Array) -> dist.Distribution:
+    """Construct a multivariate Gaussian after symmetrizing and jittering its covariance."""
     return dist.MultivariateNormal(mean, covariance_matrix=symmetrize_with_jitter(covariance))
 
 

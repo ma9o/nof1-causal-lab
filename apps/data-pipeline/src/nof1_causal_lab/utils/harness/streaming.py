@@ -21,7 +21,9 @@ if TYPE_CHECKING:
 class AsyncByteReader(Protocol):
     """Minimal subprocess stdout surface used by the framing loop."""
 
-    async def read(self, n: int = -1) -> bytes: ...
+    async def read(self, n: int = -1) -> bytes:
+        """Read up to ``n`` bytes asynchronously, or read to EOF when ``n`` is negative."""
+        ...
 
 
 async def drain_newline_delimited_stream(

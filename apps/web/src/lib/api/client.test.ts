@@ -22,8 +22,11 @@ describe("generated facade client", () => {
     const fetch = vi.fn<(request: Request) => Promise<Response>>(async () =>
       Response.json({ attempt_id: "new-attempt" }, { status: 202 }),
     );
-    const body = { action: "set_question", question: { text: "Why?" } } as const;
-    const result = await apiClient.POST("/api/studies/{workspace_id}/set_question", {
+    const body = {
+      action: "edit_question",
+      input: { question: { text: "Why?", outcome: "construct:y" } },
+    } as const;
+    const result = await apiClient.POST("/api/studies/{workspace_id}/edit_question", {
       baseUrl: "http://viewer",
       fetch,
       params: { path: { workspace_id: "DEMO" } },
@@ -31,6 +34,7 @@ describe("generated facade client", () => {
     });
     const [request] = fixtureValue(fetch.mock.calls.at(0));
     expect(request.method).toBe("POST");
+    expect(request.url).toBe("http://viewer/api/studies/DEMO/edit_question");
     expect(request.headers.get("Content-Type")).toBe("application/json");
     expect(await request.json()).toEqual(body);
     expect(result.data).toEqual({ attempt_id: "new-attempt" });

@@ -58,6 +58,7 @@ class ConstructSimulationTarget:
 
     @property
     def name(self) -> str:
+        """Display label of the construct whose simulated behavior is being assessed."""
         return self.construct.name
 
 
@@ -111,6 +112,7 @@ class DesignInfo:
     observation_support: ObservationSupportRuntime | None = None
 
     def __post_init__(self) -> None:
+        """Own immutable collection fields describing the simulation-check design."""
         freeze_fields(self)
 
     @property

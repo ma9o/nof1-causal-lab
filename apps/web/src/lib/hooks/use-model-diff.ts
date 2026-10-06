@@ -1,37 +1,39 @@
-import {
-  createModelClient,
-  type ModelDiffReport,
-  type ModelSpec,
-} from "@nof1-causal-lab/api-types";
+import type { ModelDiffOutput, ModelSpec, TimelineRevision } from "@nof1-causal-lab/api-types";
 import { skipToken, useQuery } from "@tanstack/react-query";
+import { readActionResult } from "@/lib/api/endpoints";
 
-export type ResolvedModelDiff = ModelDiffReport & {
+export type ResolvedModelDiff = ModelDiffOutput & {
   beforeModel: ModelSpec | null;
   afterModel: ModelSpec | null;
 };
 
-const client = createModelClient();
-
-export function useModelDiff(workspaceId: string, before: string | null, after: string | null) {
+export function useModelDiff(
+  workspaceId: string,
+  before: string | null,
+  after: string | null,
+  attempts: readonly TimelineRevision[],
+) {
+  const call = attempts.find((entry) => {
+    const { request, outcome } = entry.record.attempt;
+    return (
+      outcome.status === "applied" &&
+      request?.action === "model_diff" &&
+      request.input.before_ref === before &&
+      request.input.after_ref === after
+    );
+  });
   return useQuery({
-    queryKey: ["model-diff", workspaceId, before, after],
-    enabled: before != null && after != null,
-    queryFn:
-      after !== null && before !== null
-        ? async ({ signal }) => {
-            const response = await client.GET("/api/studies/{workspace_id}/model-comparison", {
-              params: { path: { workspace_id: workspaceId }, query: { before, after } },
-              signal,
-            });
-            if (response.error) throw new Error(JSON.stringify(response.error));
-            return {
-              ...response.data,
-              beforeModel: response.data.before_model,
-              afterModel: response.data.after_model,
-            } satisfies ResolvedModelDiff;
+    queryKey: ["action-result", workspaceId, call?.call_id],
+    queryFn: call ? ({ signal }) => readActionResult(workspaceId, call, signal) : skipToken,
+    select: (result): ResolvedModelDiff | null =>
+      result.action === "model_diff"
+        ? {
+            ...result.body,
+            beforeModel: result.body.before_model,
+            afterModel: result.body.after_model,
           }
-        : skipToken,
-    // Both sides are immutable commits or revisions, so a diff never changes.
+        : null,
     staleTime: Number.POSITIVE_INFINITY,
+    retry: false,
   });
 }

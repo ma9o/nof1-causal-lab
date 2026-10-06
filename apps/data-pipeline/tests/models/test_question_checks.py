@@ -5,10 +5,13 @@ from datetime import UTC, datetime, timedelta
 import polars as pl
 import pytest
 
+from nof1_causal_lab.actions.io import EditModelInput
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.expressions import state
+from nof1_causal_lab.artifacts.identity import GitOid
 from nof1_causal_lab.artifacts.likelihood import DeltaLawSpec, LikelihoodSpec
 from nof1_causal_lab.artifacts.question import QuestionSpec
+from nof1_causal_lab.models.model_checks import question_edit_reason
 from nof1_causal_lab.models.model_structure import StructuralSelection
 from nof1_causal_lab.models.question_checks import question_findings
 from tests.helpers import make_model
@@ -76,7 +79,7 @@ def _findings(question, model, panel):
     }
 
 
-def test_undefined_constructs_and_a_missing_record_are_not_evaluated():
+def test_model_only_checks_undefined_constructs_without_data_findings():
     model = make_model(["Stress"])
     question = _question(_model())
     findings = question_findings(
@@ -89,12 +92,9 @@ def test_undefined_constructs_and_a_missing_record_are_not_evaluated():
         ("outcome", "not_evaluated"),
         ("target", "not_evaluated"),
         ("identification", "not_evaluated"),
-        ("window", "not_evaluated"),
-        ("range", "not_evaluated"),
     }
     reasons = {item.subject.check: item.reason for item in findings if item.kind == "not_evaluated"}
-    assert reasons["outcome"] == reasons["range"] == "CONSTRUCT_UNDEFINED"
-    assert reasons["window"] == "NO_PANEL"
+    assert reasons["outcome"] == "CONSTRUCT_UNDEFINED"
 
 
 def test_queries_are_checked_against_the_model_and_the_record():
@@ -118,8 +118,6 @@ def test_queries_are_checked_against_the_model_and_the_record():
 
 
 def test_an_edit_defines_the_question_and_models_its_outcome():
-    from nof1_causal_lab.actions.edit_model import question_edit_reason
-
     model = _model()
     dose, _ = model.constructs
     assert question_edit_reason(model, _question(model)) is None
@@ -131,3 +129,76 @@ def test_an_edit_defines_the_question_and_models_its_outcome():
         question_edit_reason(model, given)
         == "The question's outcome must reference an endogenous construct"
     )
+
+
+@pytest.mark.parametrize(
+    ("extra_edges", "outside"),
+    [
+        ([("Dose", "Side")], ("Side",)),
+        ([("Mood", "Side")], ("Side",)),
+        ([("Dose", "Side"), ("Side", "Loop"), ("Loop", "Side")], ("Loop", "Side")),
+    ],
+)
+def test_an_edit_rejects_connected_branches_without_a_path_to_the_outcome(extra_edges, outside):
+    model = make_model(["Dose", "Mood", *outside], [("Dose", "Mood"), *extra_edges])
+    draft = model.revised(
+        measurement_clock=None,
+        edges=replace_constructs(
+            model.edges, tuple(construct.revised(indicators=()) for construct in model.constructs)
+        ),
+    )
+    reason = question_edit_reason(draft, _question(_model()))
+    assert reason is not None
+    assert "directed path to the question's outcome 'Mood'" in reason
+    assert reason.split("No directed path: ")[1] == ", ".join(
+        sorted(
+            f"{construct.name!r} ({construct.id})"
+            for construct in draft.constructs
+            if construct.name in outside
+        )
+    )
+
+
+def test_an_edit_allows_upstream_causes_confounders_and_feedback_that_reaches_the_outcome():
+    model = make_model(
+        ["U", "Dose", "Mediator", "Mood", "Moderator"],
+        [
+            ("U", "Dose"),
+            ("U", "Mood"),
+            ("Dose", "Mediator"),
+            ("Mediator", "Mood"),
+            ("Mood", "Mediator"),
+            ("Moderator", "Mood"),
+        ],
+    ).revised(measurement_clock=None)
+    confounder = next(construct for construct in model.constructs if construct.name == "U")
+    model = model.revised(
+        edges=replace_constructs(model.edges, (confounder.revised(indicators=()),))
+    )
+    assert question_edit_reason(model, _question(_model())) is None
+
+
+def test_an_off_path_model_edit_is_rejected_before_writing_a_revision(tmp_path, monkeypatch):
+    from nof1_causal_lab.actions.contracts import EditModelRequest
+    from nof1_causal_lab.actions.edit_model import edit_model
+    from nof1_causal_lab.study.records import Rejected
+    from nof1_causal_lab.study.state import StudyState
+    from nof1_causal_lab.study.store import ArtifactStore
+    from nof1_causal_lab.utils import data
+    from tests.helpers import write_question
+
+    monkeypatch.setattr(data, "_DATA_URI", str(tmp_path))
+    store = ArtifactStore("question-path")
+    state = StudyState().with_artifacts([write_question(store, _question(_model()))])
+    before = frozenset(path.relative_to(tmp_path) for path in tmp_path.rglob("*"))
+    model = make_model(["Dose", "Mood", "Side"], [("Dose", "Mood"), ("Dose", "Side")])
+    result = edit_model(
+        store.workspace_id,
+        EditModelRequest[GitOid](
+            input=EditModelInput[GitOid](parent_ref=state.current["question"].revision, model=model)
+        ),
+    )
+    assert isinstance(result, Rejected)
+    assert result.reason == "scientific_inputs"
+    assert "'Side'" in result.detail
+    assert frozenset(path.relative_to(tmp_path) for path in tmp_path.rglob("*")) == before

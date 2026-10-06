@@ -64,6 +64,11 @@ TypeScript exports use the same names.
 | Structured reference | `...Ref` | `ConstructRef`, `GitRef`, `ParameterRef` |
 | Exact study version | `...Revision` | `StudyRevision` |
 | API request and its input values | `...Request` or `...Input` | `SimulateRequest`, `SimulationSpec` |
+| Public action input and output bodies | `<Action>Input` and `<Action>Output` | `SimulateInput`, `SimulateOutput`, `ModelDiffInput`, `ModelDiffOutput` |
+
+Public action input and output types are paired in
+[`actions/io.py`](../../apps/data-pipeline/src/nof1_causal_lab/actions/io.py),
+with request and polling envelopes defined separately.
 
 The scientific definition types are `ModelSpec`, `ConstructSpec`, `CausalEdgeSpec`,
 `IndicatorSpec`, `DriftMechanismSpec`, `PotentialMechanismSpec`, `LikelihoodSpec`,
@@ -102,8 +107,9 @@ Entity identity survives renames and revisions. Exact provenance remains separat
 `GitRef` records a workspace, a Git object ID and a path within that object;
 `StudyRevision` records one commit of the study history with its action log. A
 commit is not a model artifact version.
-Snapshots carry `workspace_id` and `selected_seq`, and pin
-each sourced value to its supporting version.
+Snapshots carry `workspace_id`, `selected_seq`, and the artifact selections from
+recorded action dependencies. Scientific values are returned directly; action
+records own their input references and produced artifact revisions.
 
 ## Changing the schema
 
@@ -161,7 +167,7 @@ options stay absent rather than being assigned `undefined`.
 [Fixture generation](../../apps/data-pipeline/scripts/fixtures/study.py) emits
 `.d.json.ts` declarations alongside canonical JSON projections. They reference
 the production domain types without copying payloads or declaring another
-schema. `fixture:build` and `fixture:check` own both outputs. Stored trace and
+schema. `fixture:build` owns both outputs. Stored trace and
 predictive-check bytes pass through their Python contract owners before export;
 the declarations preserve discriminators and scientific IDs in JSON imports.
 

@@ -7,7 +7,7 @@ import type { Domain } from "./plot-geometry";
 export function lawLayers(curve: LawCurve): DensityLayer[] {
   const fitted = curve.posteriors.length > 0;
   const single = curve.posteriors.length === 1;
-  const posterior = curve.stale ? CHART_COLORS.prior : CHART_COLORS.posterior;
+  const posterior = CHART_COLORS.posterior;
   const prior: DensityLayer[] =
     curve.prior.x.length > 0
       ? [
@@ -27,7 +27,7 @@ export function lawLayers(curve: LawCurve): DensityLayer[] {
     ...curve.posteriors.map(
       (marginal): DensityLayer => ({
         key: `posterior-${marginal.subject.element_id}`,
-        label: curve.stale ? "posterior on an earlier panel" : "posterior",
+        label: "posterior",
         color: posterior,
         curve: marginal.density_curve,
         histogram: true,

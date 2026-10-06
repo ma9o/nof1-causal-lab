@@ -20,6 +20,7 @@ ESS_PER_CHAIN = 100
 
 
 def parameter_convergence(chains: ChainDiagnostics | None) -> ParameterConvergenceReport:
+    """Assess retained chain convergence or report explicitly that chain evidence is unavailable."""
     if chains is None:
         return ParameterConvergenceReport(
             assessments=(

@@ -38,6 +38,7 @@ Oura
 parameterizations
 promptable
 Psychometrika
+pydoclint
 Pyro
 recentered
 reopenable

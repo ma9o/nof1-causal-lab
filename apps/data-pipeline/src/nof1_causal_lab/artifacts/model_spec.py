@@ -22,6 +22,7 @@ from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.compilation_errors import IncompleteModelError
 from nof1_causal_lab.models.ssm.joint_layout import JointLawLayout
 from nof1_causal_lab.numpyro_json import NumPyroDistribution
+
 from .construct import (
     CausalEdgeSpec,
     ConstructSpec,
@@ -80,6 +81,7 @@ class ModelSpec(Value):
     def resolve_endpoints(
         cls, value: object, handler: ValidatorFunctionWrapHandler
     ) -> tuple[CausalEdgeSpec, ...]:
+        """Resolve edge endpoints within a shared construction scope so edges retain their owners."""
         with endpoint_validation_scope(value):
             edges: tuple[CausalEdgeSpec, ...] = handler(value)
             return edges
@@ -88,6 +90,7 @@ class ModelSpec(Value):
     def serialize_edges(  # noqa: ANN201 -- Pydantic wrap serialization must retain the edge field schema; a return annotation replaces it.
         self, value: tuple[CausalEdgeSpec, ...], handler: SerializerFunctionWrapHandler
     ):
+        """Serialize edges within the endpoint scope while preserving their declared field schema."""
         with endpoint_serialization_scope():
             edges: tuple[CausalEdgeSpec, ...] = handler(value)
             return edges
@@ -139,9 +142,11 @@ class ModelSpec(Value):
         return MappingProxyType(dict(parameter_contexts(self)))
 
     def parameter_context(self, identity: ParameterId) -> ParameterContext:
+        """Look up a parameter's quantity context and scientific owners by its model-local identity."""
         return self._parameter_contexts[identity]
 
     def get_construct(self, identity: ConstructId) -> ConstructSpec:
+        """Look up the construct owned by this model; an unknown identity raises ``KeyError``."""
         return self._constructs[identity]
 
     def distribution_for(self, identity: ParameterId | ConstructId) -> NumPyroDistribution | None:
@@ -156,26 +161,33 @@ class ModelSpec(Value):
         )
 
     def edge(self, identity: EdgeId) -> CausalEdgeSpec:
+        """Look up the causal edge owned by this model; an unknown identity raises ``KeyError``."""
         return self._edges[identity]
 
     def indicator(self, identity: IndicatorId) -> IndicatorSpec:
+        """Look up the measurement indicator by observation ID; unknown IDs raise ``KeyError``."""
         return self._indicators[identity]
 
     def indicator_owner(self, identity: IndicatorId) -> ConstructSpec:
+        """Look up the construct that owns the named observation indicator."""
         return self._indicator_owners[identity]
 
     def parameter(self, identity: ParameterId) -> ParameterSpec:
+        """Look up the parameter definition by its scientific identity."""
         return self._parameters[identity]
 
     def mechanism(self, identity: MechanismId) -> DynamicsMechanismSpec:
+        """Look up the dynamics mechanism owned by this model using its mechanism identity."""
         return self._mechanisms[identity]
 
     def iter_indicators(self) -> Iterator[tuple[ConstructSpec, IndicatorSpec]]:
+        """Yield each indicator paired with its owning construct in authored order."""
         for construct in self.constructs:
             for indicator in construct.indicators:
                 yield construct, indicator
 
     def iter_likelihoods(self) -> Iterator[tuple[IndicatorSpec, LikelihoodSpec]]:
+        """Yield indicators with declared likelihoods, paired with their likelihood definitions."""
         for _, indicator in self.iter_indicators():
             if indicator.likelihood is not None:
                 yield indicator, indicator.likelihood
@@ -183,6 +195,7 @@ class ModelSpec(Value):
     def iter_mechanisms(
         self,
     ) -> Iterator[tuple[ConstructSpec | CausalEdgeSpec, DynamicsMechanismSpec]]:
+        """Yield construct dynamics followed by edge mechanisms, each paired with its owner."""
         for construct in self.constructs:
             for mechanism in construct.dynamics:
                 yield construct, mechanism
@@ -193,6 +206,7 @@ class ModelSpec(Value):
     def parameters_for(
         self, identity: ConstructId | EdgeId | IndicatorId | MechanismId
     ) -> tuple[ParameterSpec, ...]:
+        """Select parameters whose recorded ownership includes the named scientific entity."""
         return tuple(
             parameter
             for parameter in self.parameters
@@ -201,10 +215,12 @@ class ModelSpec(Value):
 
     @property
     def indicators(self) -> tuple[IndicatorSpec, ...]:
+        """All observation indicators in construct order and each construct's authored order."""
         return tuple(indicator for _, indicator in self.iter_indicators())
 
     @model_validator(mode="after")
     def validate_references(self) -> ModelSpec:
+        """Enforce model-wide reference, distribution-membership, and coefficient invariants."""
         references = {
             entity.distribution
             for entity in (*self.parameters, *self.constructs)
@@ -304,5 +320,6 @@ class ModelSpec(Value):
         return self
 
     def require_measurements(self) -> None:
+        """Require both a measurement clock and indicators before preparing or binding observations."""
         if self.measurement_clock is None or not self.indicators:
             raise IncompleteModelError("Measurements require a measurement clock and indicators")

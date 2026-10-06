@@ -6,40 +6,36 @@ from typing import TYPE_CHECKING
 
 from pydantic import TypeAdapter
 
+from nof1_causal_lab.artifacts.data_ref import DataRef
+from nof1_causal_lab.artifacts.identity import GitOid
 from nof1_causal_lab.artifacts.validation_report import DataProfileArtifact
-from nof1_causal_lab.compilation_errors import AggregatedCompileError, IncompleteModelError
-from nof1_causal_lab.models.model_inputs import data_binding_issues
-from nof1_causal_lab.study.lineage import read_data_metadata
+from nof1_causal_lab.compilation_errors import IncompleteModelError
+from nof1_causal_lab.study.data import read_data_history
 from nof1_causal_lab.study.state import apply_effects
 from nof1_causal_lab.study.store import ArtifactStore, cached_value
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.identity import GitOid
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.study.records import Applied, DataPreparationResult
     from nof1_causal_lab.study.state import StudyState
 
 
-def require_data_binding(store: ArtifactStore, model: ModelSpec, revision: GitOid) -> None:
-    issues = data_binding_issues(model, read_data_metadata(store, revision))
-    if issues:
-        raise AggregatedCompileError(
-            ["Selected model and observations are incompatible: " + "; ".join(issues)]
-        )
-
-
-def read_data_profile(store: ArtifactStore, revision: GitOid) -> DataProfileArtifact:
+def read_data_profile(store: ArtifactStore, source: DataRef[GitOid, int]) -> DataProfileArtifact:
+    """Read or compute the empirical data profile for one exact replicate selection."""
     from nof1_causal_lab.actions.validation.flow import profile_data
-    from nof1_causal_lab.study.artifact_files import parquet_filename
 
     def render() -> DataProfileArtifact:
+        history = read_data_history(store, source)
         return profile_data(
-            store.read_parquet_file("panel", revision, parquet_filename("panel", "panel")),
-            metadata=read_data_metadata(store, revision),
+            history.observations.recorded.frame,
+            definitions=history.variables,
+            metadata=history.metadata,
         )
 
     value, _ = cached_value(
-        store.workspace_id, ("data-profile", revision), TypeAdapter(DataProfileArtifact), render
+        store.workspace_id,
+        ("data-profile", source.revision, str(source.replicate_index)),
+        TypeAdapter(DataProfileArtifact),
+        render,
     )
     return value
 
@@ -54,4 +50,7 @@ def evaluate_data_checks(
     panel = selected.get("panel")
     if panel is None:
         raise IncompleteModelError("Data preparation produced no usable observations")
-    return read_data_profile(ArtifactStore(workspace_id), panel.revision)
+    return read_data_profile(
+        ArtifactStore(workspace_id),
+        DataRef[GitOid, int](revision=panel.revision, replicate_index=0),
+    )

@@ -43,12 +43,14 @@ class Value(BaseModel):
     @field_validator("*", mode="after")
     @classmethod
     def own_collections(cls, value: object) -> object:
+        """Freeze incoming collections before Pydantic assigns them to the immutable value."""
         return freeze(value)
 
     @field_serializer("*", mode="wrap")
     def serialize_collections(  # noqa: ANN201 -- A wrap serializer return annotation replaces every owned field's schema.
         self, value: object, handler: SerializerFunctionWrapHandler
     ):
+        """Convert frozen collections to serialization containers before invoking Pydantic's handler."""
         return handler(_serialization_collections(value))
 
     def revised(self, **changes: object) -> Self:

@@ -9,13 +9,14 @@ from typing import TYPE_CHECKING, Literal, cast
 import numpy as np
 import polars as pl
 
+from nof1_causal_lab.actions.io import EditModelOutput
 from nof1_causal_lab.artifacts.availability import Available, Unavailable
-from nof1_causal_lab.artifacts.identity import GitOid, GitRef, ParameterRef
+from nof1_causal_lab.artifacts.identity import GitOid, ParameterRef
 from nof1_causal_lab.artifacts.parameter import SiteKind
 from nof1_causal_lab.models.model_parameters import execution_parameters
 from nof1_causal_lab.models.model_structure import StructuralSelection
 from nof1_causal_lab.numpyro_json import distribution_shape
-from nof1_causal_lab.study.artifact_files import artifact_file_spec, parquet_filename
+from nof1_causal_lab.study.artifact_files import parquet_filename
 from nof1_causal_lab.study.equations import (
     confounder_equations,
     observation_equations,
@@ -25,8 +26,7 @@ from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.prior_views import prior_density
 from nof1_causal_lab.study.records import Applied, StudyRevision
-from nof1_causal_lab.study.snapshot_models import FactSource, FitSummary, ModelSnapshot, Sourced
-from nof1_causal_lab.study.state import SourceValidity, StudyState, is_stale
+from nof1_causal_lab.study.snapshot_models import FitSummary, ModelSnapshot
 from nof1_causal_lab.study.store import ArtifactStore, observation_sample, read_payload
 from nof1_causal_lab.study.views import (
     entity_failures,
@@ -69,6 +69,8 @@ if TYPE_CHECKING:
         DataProfileArtifact,
         ValidationReportArtifact,
     )
+    from nof1_causal_lab.study.data import DataHistory
+    from nof1_causal_lab.study.state import StudyState
     from nof1_causal_lab.study.view_models import (
         MeasurementsData,
         RawDataData,
@@ -83,17 +85,22 @@ class ModelReader:
     Lookup indexes are private to this reader; they are not a second public domain model.
     """
 
-    def __init__(self, workspace_id: str, *, at: GitOid) -> None:
+    def __init__(self, workspace_id: str, *, at: GitOid, state: StudyState | None = None) -> None:
+        """Pin reads to a successful study commit and optionally an explicitly composed input state."""
         self.repository = StudyRepository(workspace_id)
         self.commit_id = self.repository.resolve(at=at)
         self.store = ArtifactStore(workspace_id)
         self.workspace_id = workspace_id
+        self._state = state
         self.selected = cache(self._selected)
 
     @cached_property
     def state(self) -> StudyState:
+        """Artifact and data selections reconstructed for the pinned action, including its input context."""
         from nof1_causal_lab.study.state import apply_effects
 
+        if self._state is not None:
+            return self._state
         checkpoint = self.repository.state(self.commit_id)
         if not self.records:
             return checkpoint
@@ -102,6 +109,8 @@ class ModelReader:
             return checkpoint
         inputs = self.repository.input_state(attempt.request)
         context = checkpoint.with_artifacts(tuple(inputs.current.values()))
+        if attempt.action in {"fit", "edit_model"}:
+            context = context.revised(data=inputs.data)
         if not isinstance(attempt.outcome, Applied):
             raise RuntimeError("A result reader requires an applied call")
         return apply_effects(
@@ -110,10 +119,12 @@ class ModelReader:
 
     @cached_property
     def records(self) -> list[StudyRevision]:
+        """Retained journal records reachable from the pinned study commit."""
         return self.repository.records(self.commit_id)
 
     @cached_property
     def seq(self) -> int:
+        """Sequence number at the selected checkpoint, or zero at the study root."""
         return self.records[-1].record.seq if self.records else 0
 
     def _selected(self, artifact_id: ArtifactId) -> object:
@@ -123,61 +134,42 @@ class ModelReader:
             self.state.current[artifact_id].revision,
         )
 
-    def source(
-        self, artifact_id: ArtifactId, pointer: str, *, filename: str | None = None
-    ) -> FactSource:
-        return FactSource(
-            ref=GitRef(
-                workspace_id=self.workspace_id,
-                revision=self.state.current[artifact_id].revision,
-                path=filename
-                or next(
-                    iter(
-                        {
-                            **artifact_file_spec(artifact_id).parquet_files,
-                            **artifact_file_spec(artifact_id).json_files,
-                        }.values()
-                    )
-                ),
-            ),
-            pointer=pointer,
-            validity=SourceValidity.STALE
-            if is_stale(self.state, artifact_id)
-            else SourceValidity.FRESH,
-        )
-
-    def fact[T](self, value: T, artifact_id: ArtifactId, pointer: str) -> Sourced[T]:
-        return Sourced(value=value, source=self.source(artifact_id, pointer))
-
     @cached_property
     def question(self) -> QuestionSpec | None:
+        """Selected authored study question, or ``None`` before a question is available."""
         return (
             cast("QuestionSpec", self.selected("question")) if self.state.has("question") else None
         )
 
     @cached_property
     def model(self) -> ModelSpec | None:
+        """Selected scientific model definition, or ``None`` before a model is available."""
         return cast("ModelSpec", self.selected("model")) if self.state.has("model") else None
 
     def scoped(self, model: ModelSpec) -> StructuralSelection:
         """The study question's outcome scopes any of its models' execution."""
-        assert self.question is not None, "set_question roots every lineage"
+        assert self.question is not None, "edit_question roots every lineage"
         return StructuralSelection.for_question(model, self.question)
 
     @cached_property
     def selection(self) -> StructuralSelection | None:
+        """Selected model scoped to the study question's outcome, when a model is available."""
         return self.scoped(self.model) if self.model is not None else None
 
     def constructs(self) -> tuple[ConstructSpec, ...]:
+        """Return the selected model's constructs, or an empty tuple without a model."""
         return self.model.constructs if self.model else ()
 
     def edges(self) -> tuple[CausalEdgeSpec, ...]:
+        """Return the selected model's causal edges, or an empty tuple without a model."""
         return self.model.edges if self.model else ()
 
     def indicators(self) -> tuple[IndicatorSpec, ...]:
+        """Return the selected model's observation indicators, or an empty tuple without a model."""
         return self.model.indicators if self.model else ()
 
     def parameters(self, owner: EntityRef | None = None) -> tuple[ParameterSpec, ...]:
+        """Return model parameters, optionally restricted to those owned by a scientific entity."""
         if self.model is None:
             return ()
         return self.model.parameters if owner is None else self.model.parameters_for(owner.id)
@@ -191,16 +183,24 @@ class ModelReader:
         return frozenset(item.observation.id for item in self.indicators())
 
     @cached_property
-    def _panel(self) -> pl.DataFrame | None:
-        if not self.state.has("panel"):
-            return None
-        return self.store.read_parquet_file(
-            "panel", self.state.current["panel"].revision, parquet_filename("panel", "panel")
+    def data_history(self) -> DataHistory | None:
+        """Exact observation history selected for this read, or ``None`` without a data selection."""
+        from nof1_causal_lab.study.data import read_data_history
+
+        return (
+            read_data_history(self.store, self.state.data) if self.state.data is not None else None
         )
 
     @cached_property
-    def raw_data(self) -> Sourced[RawDataData] | None:
-        if not self.state.has("raw_data"):
+    def _panel(self) -> pl.DataFrame | None:
+        return (
+            self.data_history.observations.recorded.frame if self.data_history is not None else None
+        )
+
+    @cached_property
+    def raw_data(self) -> RawDataData | None:
+        """Source table dimensions, sample rows, and available date bounds from the selected artifact."""
+        if not self.state.has("raw_data") or self.data_metadata is None:
             return None
         table = self.store.read_parquet_table(
             "raw_data", self.state.current["raw_data"].revision, parquet_filename("raw_data", "raw")
@@ -220,39 +220,29 @@ class ModelReader:
                 break
         from nof1_causal_lab.study.view_models import RawDataDateRange
 
-        return self.fact(
-            raw_data_view(
-                table,
-                RawDataDateRange(start=min(dates), end=max(dates)) if dates else None,
-            ),
-            "raw_data",
-            "",
+        return raw_data_view(
+            table,
+            RawDataDateRange(start=min(dates), end=max(dates)) if dates else None,
         )
 
     @cached_property
-    def measurements(self) -> Sourced[MeasurementsData] | None:
+    def measurements(self) -> MeasurementsData | None:
+        """Selected panel's observation counts and sample rows, or ``None`` without a panel."""
         if self._panel is None:
             return None
-        return self.fact(
-            measurements_view(
-                self._panel,
-                set(self._panel["indicator_id"].to_list()),
-                observation_sample(self._panel),
-            ),
-            "panel",
-            "",
+        return measurements_view(
+            self._panel,
+            set(self._panel["indicator_id"].to_list()),
+            observation_sample(self._panel),
         )
 
     @cached_property
-    def data_metadata(self) -> Sourced[PreparedDataMetadata] | None:
-        if not self.state.has("panel"):
+    def data_metadata(self) -> PreparedDataMetadata | None:
+        """Preparation recipe and provenance for uploaded data, absent for histories without metadata."""
+        history = self.data_history
+        if history is None or history.metadata is None:
             return None
-        from nof1_causal_lab.study.lineage import read_data_metadata
-
-        return Sourced(
-            value=read_data_metadata(self.store, self.state.current["panel"].revision),
-            source=self.source("panel", "", filename="metadata.json"),
-        )
+        return history.metadata
 
     @cached_property
     def _model_check_record(self) -> StudyRevision | None:
@@ -279,6 +269,7 @@ class ModelReader:
     def checks(
         self,
     ) -> tuple[ModelCheckReport, IdentificationReport, ValidationReportArtifact | None] | None:
+        """Retained model, identification, and optional data-validation reports for the model producer."""
         from nof1_causal_lab.artifacts.identification import IdentificationReport
         from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
         from nof1_causal_lab.artifacts.validation_report import ValidationReportArtifact
@@ -299,31 +290,57 @@ class ModelReader:
         return checks, identification, validation
 
     @cached_property
-    def data_profile(self) -> Sourced[DataProfileArtifact] | None:
-        record = self._report_record("panel")
-        if record is None:
+    def data_profile(self) -> DataProfileArtifact | None:
+        """Newest retained empirical profile matching the exact selected observation history."""
+        if self.data_history is None:
             return None
         from nof1_causal_lab.artifacts.validation_report import DataProfileArtifact
 
-        profile = self.repository.read_report(record.commit_id, "data-profile", DataProfileArtifact)
-        return self.fact(profile, "panel", "") if profile is not None else None
+        for record in reversed(self.records):
+            profile = self.repository.read_report(
+                record.commit_id, "data-profile", DataProfileArtifact
+            )
+            if profile is None:
+                continue
+            attempt = record.record.attempt
+            if (
+                attempt.action == "fit"
+                and isinstance(attempt.outcome, Applied)
+                and attempt.outcome.result is not None
+            ):
+                matches = attempt.outcome.result.data == self.state.data
+            elif attempt.action == "prepare_data" and isinstance(attempt.outcome, Applied):
+                from nof1_causal_lab.study.data import panel_revision
+
+                matches = self.data_history.metadata is not None and any(
+                    info.artifact_id == "panel"
+                    and info.revision
+                    == panel_revision(self.store, self.data_history.source.revision)
+                    for info in attempt.outcome.effects.produced
+                )
+            else:
+                matches = False
+            if matches:
+                return profile
+        return None
 
     @cached_property
-    def validation_report(self) -> Sourced[ValidationReportArtifact] | None:
+    def validation_report(self) -> ValidationReportArtifact | None:
+        """Model-data validation for the selected history, restricted to the model's indicators."""
         if (
             self.checks is None
             or self.checks[2] is None
             or self.checks[0].question is None
-            or not self.state.has("panel")
-            or self.checks[0].question.panel_revision != self.state.current["panel"].revision
+            or self.state.data is None
+            or self.checks[0].question.data != self.state.data
         ):
             return None
-        return self.fact(self.checks[2].for_indicators(frozenset(self._indicator_ids)), "panel", "")
+        return self.checks[2].for_indicators(frozenset(self._indicator_ids))
 
     @cached_property
-    def inference_report(self) -> Sourced[InferenceReport] | None:
+    def inference_report(self) -> InferenceReport | None:
+        """Retained inference report for the model owned by its recorded fit."""
         from nof1_causal_lab.study.lineage import (
-            inference_report_is_current,
             inference_report_record,
         )
 
@@ -344,26 +361,16 @@ class ModelReader:
         report = self.repository.read_report(record.commit_id, "inference", InferenceReport)
         if report is None:
             return None
-        current = inference_report_is_current(result, self.state)
-        return Sourced(
-            value=report,
-            source=FactSource(
-                ref=GitRef(
-                    workspace_id=self.workspace_id,
-                    revision=record.commit_id,
-                    path="logs/attempt.json",
-                ),
-                pointer="/attempt/outcome/result/evidence",
-                validity=SourceValidity.FRESH if current else SourceValidity.STALE,
-            ),
-        )
+        return report
 
-    def identification(self) -> Sourced[IdentificationReport] | None:
+    def identification(self) -> IdentificationReport | None:
+        """Return model identification findings, or ``None`` without retained checks."""
         if self.checks is None:
             return None
-        return self.fact(self.checks[1], "model", "")
+        return self.checks[1]
 
-    def dispositions(self) -> Sourced[tuple[StructuralItemDisposition, ...]] | None:
+    def dispositions(self) -> tuple[StructuralItemDisposition, ...] | None:
+        """Return execution dispositions for model-owned entities when measurement structure is available."""
         selection = self.selection
         if (
             selection is None
@@ -372,18 +379,14 @@ class ModelReader:
         ):
             return None
         owners = self._construct_ids | self._indicator_ids | {item.id for item in self.edges()}
-        return self.fact(
-            tuple(item for item in selection.structural_dispositions if item.target.id in owners),
-            "model",
-            "",
-        )
+        return tuple(item for item in selection.structural_dispositions if item.target.id in owners)
 
-    def fit(self) -> Sourced[FitSummary] | None:
-
+    def fit(self) -> FitSummary | None:
+        """Compose fit summaries and quantity-scale prior curves from the retained inference report."""
         read = self.inference_report
         if read is None:
             return None
-        posterior = read.value.core
+        posterior = read.core
         marginals = {}
         for item in posterior.posterior_marginals or []:
             marginals.setdefault(item.subject.parameter_id, []).append(item)
@@ -406,14 +409,11 @@ class ModelReader:
                     and owner.kind == "construct"
                 ):
                     decay_estimates[owner.id] = estimate.subject
-        return Sourced(
-            value=FitSummary(
-                report=posterior,
-                edge_estimates=edge_estimates,
-                decay_estimates=decay_estimates,
-                prior_densities=self.fit_prior_densities(marginals.keys()),
-            ),
-            source=read.source,
+        return FitSummary(
+            report=posterior,
+            edge_estimates=edge_estimates,
+            decay_estimates=decay_estimates,
+            prior_densities=self.fit_prior_densities(marginals.keys()),
         )
 
     def fit_prior_densities(self, fitted: Iterable[ParameterId]) -> dict[ParameterId, DensityCurve]:
@@ -436,9 +436,8 @@ class ModelReader:
             if (curve := curves.get(identity)) is not None and curve.x
         }
 
-    def simulation(self) -> Sourced[SimulationReport] | None:
+    def simulation(self) -> SimulationReport | None:
         """Return the most recent explicit simulation with its own input revisions."""
-
         for record in reversed(self.records):
             if record.record.attempt.action != "simulate" or not isinstance(
                 record.record.attempt.outcome, Applied
@@ -449,46 +448,25 @@ class ModelReader:
             report = self.repository.read_report(record.commit_id, "simulation", SimulationReport)
             if report is None:
                 return None
-            pins: dict[ArtifactId, GitOid] = {"model": report.evidence.model.revision}
-            current = all(
-                self.state.has(aid) and self.state.current[aid].revision == revision
-                for aid, revision in pins.items()
-            )
-            return Sourced(
-                value=report,
-                source=FactSource(
-                    ref=GitRef(
-                        workspace_id=self.workspace_id,
-                        revision=record.commit_id,
-                        path="logs/attempt.json",
-                    ),
-                    pointer="/attempt/outcome/result/evidence",
-                    validity=SourceValidity.FRESH if current else SourceValidity.STALE,
-                ),
-            )
+            return report
         return None
 
-    def check_finding[T](self, value: T | None) -> Sourced[T] | None:
-        """Point derived findings at their supporting scientific input."""
-        return self.fact(value, "model", "") if value is not None else None
-
-    def snapshot(self) -> ModelSnapshot:
-        """Batch the aggregate reads and server-composed table facts at this revision."""
+    def model_output(self, fit: FitSummary | None = None) -> EditModelOutput:
+        """Project only the produced model and its own checks, without loading other actions."""
         from nof1_causal_lab.models.model_structure import model_graph_entities
         from nof1_causal_lab.study.snapshot_models import ModelGraphView
 
         identification, dispositions = self.identification(), self.dispositions()
-        fit = self.fit()
+        model = self.model
+        assert model is not None, "A model producer must retain its model"
         graph_constructs, graph_edges = (
             model_graph_entities(self.selection) if self.selection else ((), ())
         )
         blocking = set()
         if identification:
-            for cid, finding in identification.value.non_identifiable.items():
+            for cid, finding in identification.non_identifiable.items():
                 blocking.update([cid, *finding.confounders])
-        disposition_by_id = (
-            {item.target.id: item for item in dispositions.value} if dispositions else {}
-        )
+        disposition_by_id = {item.target.id: item for item in dispositions} if dispositions else {}
         graph_status: dict[ConstructId, Literal["observed", "marginalized", "blocking"]] = {
             cid: "blocking"
             if cid in blocking or disposition_by_id[cid].disposition == "unsupported"
@@ -510,25 +488,22 @@ class ModelReader:
                 compiled
             )
         checks = self.checks[0] if self.checks is not None else None
-        predictive = self.check_finding(checks.predictive if checks else None)
-        return ModelSnapshot(
-            question=self.fact(self.question, "question", "") if self.question else None,
-            model=self.fact(self.model, "model", "") if self.model else None,
-            workspace_id=self.workspace_id,
-            commit_id=self.commit_id,
-            selected_seq=self.seq,
-            state=self.state,
+        predictive = checks.predictive if checks else None
+        return EditModelOutput(
+            model=model,
+            checks=checks,
+            predictive_overlays={
+                indicator.observation.id: overlay
+                for indicator in self.indicators()
+                if (overlay := self.predictive_history(indicator.observation.id)) is not None
+            },
             can_simulate=can_simulate,
-            raw_data=self.raw_data,
-            measurements=self.measurements,
-            metadata=self.data_metadata,
-            profile=self.data_profile,
             entity_failures=entity_failures(
                 self.model,
                 fit,
                 predictive,
                 identification,
-                self.validation_report or self.data_profile,
+                self.validation_report,
             ),
             identification=identification,
             dispositions=dispositions,
@@ -565,30 +540,60 @@ class ModelReader:
                 and (law := self.model.distribution_for(parameter.id)) is not None
                 and distribution_shape(law) == ((), ())
             },
-            fit=fit,
-            simulation=self.simulation(),
-            specification=self.check_finding(checks.specification if checks else None),
-            question_checks=self.check_finding(checks.question if checks else None),
+            specification=checks.specification if checks else None,
+            question_checks=checks.question if checks else None,
             predictive=predictive,
         )
 
+    def snapshot(self) -> ModelSnapshot:
+        """Compose the retained aggregate for local readers and fixture exports."""
+        from nof1_causal_lab.study.snapshot_models import ModelGraphView
+
+        fit = self.fit()
+        model = self.model_output(fit) if self.model is not None else None
+        return ModelSnapshot(
+            question=self.question if self.question else None,
+            model=model.model if model is not None else None,
+            workspace_id=self.workspace_id,
+            commit_id=self.commit_id,
+            selected_seq=self.seq,
+            state=self.state,
+            raw_data=self.raw_data,
+            measurements=self.measurements,
+            metadata=self.data_metadata,
+            profile=self.data_profile,
+            fit=fit,
+            simulation=self.simulation(),
+            can_simulate=model.can_simulate if model is not None else False,
+            identification=model.identification if model is not None else None,
+            dispositions=model.dispositions if model is not None else None,
+            graph=model.graph if model is not None else ModelGraphView(),
+            entity_failures=model.entity_failures if model is not None else {},
+            validation_report=model.validation_report if model is not None else None,
+            confounder_equations=model.confounder_equations if model is not None else {},
+            state_equations=model.state_equations if model is not None else {},
+            observation_equations=model.observation_equations if model is not None else {},
+            likelihood_diagnostics=model.likelihood_diagnostics if model is not None else {},
+            authoring_prior_densities=model.authoring_prior_densities if model is not None else {},
+            specification=model.specification if model is not None else None,
+            question_checks=model.question_checks if model is not None else None,
+            predictive=model.predictive if model is not None else None,
+        )
+
     def observation_history(self, indicator_id: IndicatorId) -> ObservationHistory | None:
-        metadata = self.data_metadata
-        if metadata is None:
+        """Read one indicator's complete, time-ordered observations and measurement supports."""
+        history = self.data_history
+        if history is None:
             return None
-        variable = next((v for v in metadata.value.variables if v.id == indicator_id), None)
+        variable = next((v for v in history.variables if v.id == indicator_id), None)
         if variable is None:
             return None
-        panel = (
-            self.store.read_parquet_file(
-                "panel", self.state.current["panel"].revision, "panel.parquet"
-            )
-            .filter(pl.col("indicator_id") == indicator_id)
-            .sort("anchor_time")
-        )
+        panel = history.observations.recorded.frame.filter(
+            pl.col("indicator_id") == indicator_id
+        ).sort("anchor_time")
         from nof1_causal_lab.study.visuals import observation_history
 
-        return observation_history(metadata.value, variable, panel)
+        return observation_history(history.time_origin, variable, panel)
 
     def predictive_history(self, indicator_id: IndicatorId) -> PPCOverlay | None:
         """Return the saved overlay with its producer-owned schedule and scale."""
@@ -615,7 +620,7 @@ class ModelReader:
         saved = self.simulation()
         if saved is None:
             return None
-        report = saved.value
+        report = saved
         if start >= report.evidence.draws:
             raise StudyLookupError("Draw page starts past the saved simulation")
         from nof1_causal_lab.study.store import read_model

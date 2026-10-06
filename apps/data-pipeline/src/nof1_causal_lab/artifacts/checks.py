@@ -70,6 +70,8 @@ type Assessment[Subject, Evidence] = Annotated[
 
 
 class ConvergenceCriterion(StrEnum):
+    """Convergence statistics assessed for each retained parameter coordinate."""
+
     R_HAT = "r_hat"
     ESS_BULK = "ess_bulk"
     ESS_TAIL = "ess_tail"

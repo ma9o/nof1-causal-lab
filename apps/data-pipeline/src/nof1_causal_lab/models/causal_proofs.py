@@ -43,6 +43,7 @@ class CertifiedCausalAnalysis:
     report: InferenceReportCore
 
     def __post_init__(self) -> None:
+        """Certify the retained model, fit, and identification evidence for a common causal outcome."""
         if not self.estimands:
             raise CausalCertificationError("at least one identified estimand is required")
         certify_conditioned_model(
@@ -76,10 +77,12 @@ class CertifiedCausalAnalysis:
 
     @property
     def treatments(self) -> list[str]:
+        """Treatment identities in the order of the certified estimands."""
         return [estimand.treatment for estimand in self.estimands]
 
     @property
     def outcome(self) -> str:
+        """The outcome shared by every certified estimand."""
         return self.estimands[0].outcome
 
 

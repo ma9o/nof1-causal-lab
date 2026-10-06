@@ -31,7 +31,7 @@ export function WorkspacesRail({
 
       {!isLoading && !error && workspaces.length === 0 && (
         <p className="text-sm text-muted-foreground text-center py-8">
-          No workspaces yet. Start an analysis to create one.
+          No studies yet. Studies created by your agent will appear here.
         </p>
       )}
 

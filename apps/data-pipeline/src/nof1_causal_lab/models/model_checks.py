@@ -1,17 +1,52 @@
-"""Check execution requirements directly on the current scientific model."""
+"""Check question admission and execution requirements on the scientific model."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
 from nof1_causal_lab.models.model_structure import (
+    StructuralSelection,
     StructuralSelectionError,
     reference_indicators,
     selected_state_ids,
 )
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.models.model_structure import StructuralSelection
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.question import QuestionSpec
+
+
+def question_edit_reason(model: ModelSpec, question: QuestionSpec) -> str | None:
+    """Reject edits that cannot answer the question or violate scoped parameter anchors."""
+    from nof1_causal_lab.artifacts.construct import Role
+    from nof1_causal_lab.utils.causal_design import get_all_treatments
+
+    if missing := sorted(
+        identity
+        for identity in {question.outcome, *question.targets}
+        if identity not in model._constructs
+    ):
+        return "The model must define the question's constructs: " + ", ".join(missing)
+    outcome_construct = model.get_construct(question.outcome)
+    if outcome_construct.role != Role.ENDOGENOUS:
+        return "The question's outcome must reference an endogenous construct"
+    ancestors = frozenset(get_all_treatments(model.constructs, model.edges, question.outcome))
+    outside = sorted(
+        f"{construct.name!r} ({construct.id})"
+        for construct in model.constructs
+        if construct.id != question.outcome and construct.name not in ancestors
+    )
+    if outside:
+        return (
+            "Every construct must have a directed path to the question's outcome "
+            f"{outcome_construct.name!r} ({outcome_construct.id}). "
+            "No directed path: " + ", ".join(outside)
+        )
+    try:
+        StructuralSelection(model, question.outcome)
+    except StructuralSelectionError as exc:
+        return str(exc)
+    return None
 
 
 def validate_parameter_anchors(selection: StructuralSelection) -> None:

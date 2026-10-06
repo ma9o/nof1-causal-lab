@@ -75,7 +75,6 @@ def get_base_uri() -> str:
 @lru_cache(maxsize=1)
 def get_fs() -> fsspec.AbstractFileSystem:
     """Return an fsspec filesystem for the active backend (cached)."""
-
     import fsspec as _fsspec
 
     if is_remote():
@@ -123,6 +122,7 @@ def join(*parts: str) -> str:
 
 
 def exists(path: str) -> bool:
+    """Check path existence through the configured local or remote storage backend."""
     if is_remote():
         present: bool = get_fs().exists(path)
         return present
@@ -227,6 +227,7 @@ def open_file(path: str, mode: str = "rb") -> Iterator[IO[bytes] | IO[str] | Abs
 
 
 def read_text(path: str) -> str:
+    """Read text from the configured storage backend, decoding remote byte responses when needed."""
     if is_remote():
         with get_fs().open(path, "r") as f:
             payload: str | bytes = f.read()
@@ -235,6 +236,7 @@ def read_text(path: str) -> str:
 
 
 def write_text(path: str, content: str) -> None:
+    """Write text through the configured backend, creating parent directories for local files."""
     if is_remote():
         with get_fs().open(path, "w") as f:
             f.write(content)
@@ -245,6 +247,7 @@ def write_text(path: str, content: str) -> None:
 
 
 def read_json(path: str) -> JsonObject:
+    """Read stored text and parse it as a JSON object."""
     return TypeAdapter[JsonObject](JsonObject).validate_json(read_text(path))
 
 

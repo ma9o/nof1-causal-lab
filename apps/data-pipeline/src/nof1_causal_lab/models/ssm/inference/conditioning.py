@@ -24,6 +24,7 @@ class ExactStateConstraints:
 
     @property
     def free_mask(self) -> jnp.ndarray:
+        """State coordinates not fixed by exact observations, identified by NaN constraint values."""
         return jnp.isnan(self.values)
 
     def project(self, path: jnp.ndarray) -> jnp.ndarray:

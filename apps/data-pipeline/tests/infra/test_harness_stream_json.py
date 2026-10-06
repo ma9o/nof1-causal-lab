@@ -390,7 +390,7 @@ class TestCodexParser:
 
     def test_finalize_produces_llm_trace(self):
         state = parse_codex_stream([json.dumps(e) for e in _codex_events_simple()])
-        trace = finalize_codex_trace(state)
+        trace = finalize_codex_trace(state, model="codex-fixture")
         assert trace.total_time_seconds == 0.8
         assert trace.usage.input_tokens == 7
 

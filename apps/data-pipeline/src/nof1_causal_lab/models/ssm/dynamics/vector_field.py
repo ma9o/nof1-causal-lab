@@ -61,8 +61,7 @@ def _apply_variable_overrides_to_derivative(
     t: Array,
     intervention: Intervention,
 ) -> Float[Array, " D"]:
-    """Replace ``d_eta[index]`` with ``d(value_fn)/dt`` for each variable
-    override so the integrated trajectory matches ``value_fn``."""
+    """Replace clamped state derivatives with the time derivatives of their prescribed values."""
     for ov in intervention.variable_overrides():
         du_dt = jax.grad(lambda tt, fn=ov.value_fn: jnp.sum(fn(tt)))(t)
         d_eta = d_eta.at[ov.index].set(du_dt)
@@ -113,11 +112,13 @@ class VectorField(eqx.Module):
     def __call__(
         self, t: Array, eta: Float[Array, " D"], args: VectorFieldArgs
     ) -> Float[Array, " D"]:
+        """Evaluate total drift at the supplied state and time using the bound intervention."""
         return self.evolution(args).total_drift(x=eta, u=None, t=t)
 
     def initial_condition(
         self, eta0: Float[Array, " D"], args: VectorFieldArgs, t0: Array | float = 0.0
     ) -> Float[Array, " D"]:
+        """Apply whole-state interventions to the initial state at the requested start time."""
         return apply_variable_overrides_to_state(eta0, jnp.asarray(t0), args.intervention)
 
     def _natural_derivative(
@@ -142,6 +143,7 @@ class StructuralDrift(eqx.Module):
     args: VectorFieldArgs
 
     def __call__(self, x: Array, u: Array | None, t: float | int | Array) -> Array:
+        """Evaluate structural drift and replace derivatives of intervention-clamped states."""
         del u
         t = jnp.asarray(t)
         value = self.vector_field._natural_derivative(t, x, self.args)
@@ -155,6 +157,7 @@ class StructuralPotential(eqx.Module):
     args: VectorFieldArgs
 
     def __call__(self, x: Array, u: Array | None, t: float | int | Array) -> Array:
+        """Sum node-potential energies, excluding states fixed by whole-state interventions."""
         del u, t
         clamped = {override.index for override in self.args.intervention.variable_overrides()}
         energy = jnp.zeros((), dtype=x.dtype)

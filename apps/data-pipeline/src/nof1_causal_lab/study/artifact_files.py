@@ -27,6 +27,7 @@ class ArtifactFileSpec(Value):
     json_files: Mapping[str, str] = Field(default_factory=dict)
     parquet_files: Mapping[str, str] = Field(default_factory=dict)
 
+
 ARTIFACT_FILE_SPECS: Mapping[ArtifactId, ArtifactFileSpec] = MappingProxyType(
     {
         "question": ArtifactFileSpec(json_files={"question": "question.json"}),
@@ -40,13 +41,15 @@ ARTIFACT_FILE_SPECS: Mapping[ArtifactId, ArtifactFileSpec] = MappingProxyType(
 
 
 def artifact_file_spec(artifact_id: ArtifactId) -> ArtifactFileSpec:
+    """Look up the canonical JSON and Parquet filenames owned by an artifact kind."""
     return ARTIFACT_FILE_SPECS[artifact_id]
 
 
 def json_filename(artifact_id: ArtifactId, key: str) -> str:
+    """Resolve a logical JSON payload name to its canonical filename within the artifact."""
     return artifact_file_spec(artifact_id).json_files[key]
 
 
 def parquet_filename(artifact_id: ArtifactId, key: str) -> str:
+    """Resolve a logical table name to its canonical Parquet filename within the artifact."""
     return artifact_file_spec(artifact_id).parquet_files[key]
-

@@ -129,14 +129,23 @@ New studies initialize their local bare repository on first use. On a fresh chec
 
 ```bash
 git clone --mirror data/DEMO/study/history.bundle data/DEMO/study/history.git
-git --git-dir=data/DEMO/study/history.git config nof1.format 19
+git --git-dir=data/DEMO/study/history.git config nof1.format 20
 ```
 
 #### Migrating a local study
 
 The migration tools and their tests live in the gitignored `scratchpad/migrations/` directory. Run the commands below from the repository root with those local tools present.
 
-The current runtime requires format 19. Restore only a bundle exported after the offline conversion. Convert a format-16 study through formats 17 and 18, then format 19:
+The current runtime requires format 20. Restore only a bundle exported after the offline conversion. Stop the study and close its workflow before converting. The destination must be new and outside the source; the source remains untouched. Convert a format-19 study with the [format-20 converter](../../scratchpad/migrations/migrate_format_20.py):
+
+```bash
+uv run --project apps/data-pipeline python -m scratchpad.migrations.migrate_format_20 \
+  data/STUDY /tmp/format20/STUDY
+```
+
+It wraps retained requests, rebuilds call IDs, and retains the accumulated execution log without scientific execution. Both successful and failed calls are indexed; duplicate historical calls use their first recorded outcome. Unknown original requests remain unknown. If an action's scientific input schema also changed, `--requests` accepts verified current requests keyed by source attempt commit. Retired model-independent preparation calls require that explicit mapping.
+
+Older studies must first reach format 19 using the matching historical contracts and converters. Convert a format-16 study through formats 17 and 18, then format 19:
 
 1. Stop work on the study and close its workflow:
 
@@ -175,7 +184,7 @@ The current runtime requires format 19. Restore only a bundle exported after the
 
 3. Review the migrated snapshots and ref mapping before a live cutover. Then, while offline, back up each whole original under `.local/format-backup-<date>/STUDY`, including `store/`, and replace `data/STUDY` with the migrated repository, keeping one study per ID. Keep backups outside `data/` in durable storage; temporary directories are only converter destinations.
 
-4. Restart the workers with the new code and start a fresh `study-STUDY` workflow from the migrated Git state; don't replay the previous workflow. Export any fixture bundle from the migrated repository, then run `bun run fixture:build` and `bun run fixture:check`.
+4. Restart the workers with the new code and start a fresh `study-STUDY` workflow from the migrated Git state; don't replay the previous workflow. Export any fixture bundle from the migrated repository, then run `bun run fixture:build`.
 
 Formats before 11 have no route to the current runtime.
 
@@ -254,7 +263,7 @@ rather than orphaning them. To start genuinely fresh, delete that
 ```text
 data/
 ├── <WORKSPACE_ID>/        # User-facing workspace
-│   ├── input/             # Raw uploaded files for prepare_data
+│   ├── input/             # Ready-to-use CSV or Parquet tables for prepare_data
 │   ├── store/             # Content-addressed arrays and external table blobs
 │   ├── study/             # Local Git history with logs and traces in each commit
 │   ├── cache/             # Evictable compilation and artifact-read reuse
@@ -275,20 +284,19 @@ bun run fixture:promote --from <WORKSPACE_ID>
 
 The command validates the selected Git snapshot, copies the durable workspace into
 `data/DEMO`, and rebuilds stable JSON and trace copies under `data/DEMO/fixture/`
-for Storybook and tests. It replaces `data/DEMO` as a unit rather than merging,
+for Storybook. It replaces `data/DEMO` as a unit rather than merging,
 and excludes `cache/` and `scratch/`. It exports all Git refs and objects to
 `study/history.bundle` so the tracked fixture retains the main history, attempts and
 artifact trees while its local bare repository remains gitignored. The files in
 `store/` retain the external numerical payloads.
 
-The tracked `data/DEMO/study/history.bundle` and `data/DEMO/store/` are the fixture's authoritative inputs. Files under `data/DEMO/fixture/` are generated projections for Storybook and tests. Regenerate or check them with:
+The tracked `data/DEMO/study/history.bundle` and `data/DEMO/store/` are the fixture's authoritative inputs. Files under `data/DEMO/fixture/` are generated projections for Storybook. General behavior tests use small, test-owned fixtures independent of DEMO. Regenerate Storybook fixtures with:
 
 ```bash
 bun run fixture:build
-bun run fixture:check
 ```
 
-Both commands restore the bundle into an isolated temporary repository and use the production readers to project artifacts, logs, traces, historical snapshots and workbench comparisons in one pass. They do not read the local `history.git` or the generated projections as inputs. DEMO has no numbered artifact directories or separate journal and trace directories.
+The command restores the bundle into an isolated temporary repository and uses the production readers to project artifacts, logs, traces, historical snapshots and workbench comparisons in one pass. It does not read the local `history.git` or the generated projections as inputs. DEMO has no numbered artifact directories or separate journal and trace directories.
 
 The bundle preserves the illustrative action history and authored and extracted facts. DEMO retained no posterior samples, so its fit has no numerical evidence or posterior summaries. Reports and checks load the findings retained with [action outcomes](../../apps/data-pipeline/src/nof1_causal_lab/actions/effects.py); missing historical reports remain absent. Regeneration does not fit, simulate, or invent missing scientific artifacts. Prior plot viewports use a small deterministic draw from the retained prior laws.
 
@@ -310,16 +318,16 @@ uv run --project apps/data-pipeline nof1-publish SYNTHETIC_WORKSPACE --exclude i
 WORKSPACE_ID="T3ST42"
 QUESTION="How does screen time affect sleep?"
 
-curl -s -X POST http://localhost:3000/api/upload \
+curl -s -X POST http://localhost:8100/api/upload \
   -F "workspaceId=$WORKSPACE_ID" \
-  -F "file=@data/DEMO/input/dsar_bundle.zip"
+  -F "file=@data/DEMO/input/observations.csv"
 
-curl -s -X POST http://localhost:3000/api/studies/$WORKSPACE_ID/set_question \
+curl -s -X POST http://localhost:8100/api/studies/$WORKSPACE_ID/edit_question \
   -H 'Content-Type: application/json' \
-  -d "{\"action\":\"set_question\",\"question\":{\"text\":\"$QUESTION\"}}"
+  -d "{\"action\":\"edit_question\",\"input\":{\"question\":{\"text\":\"$QUESTION\"}}}"
 ```
 
-`GET /api/workspaces` includes the `X-Actions-Enabled` capability header. Setting the question returns `kind: running` with progress or `kind: completed` with the full outcome. Repeat the same parsed arguments to read progress or the saved result. On a read-only facade, saved calls and model comparisons work; unsaved writing calls return 403. Submit further actions as the [`nof1-study-api` skill](../../.agents/skills/nof1-study-api/SKILL.md) describes; the [action charts](../../README.md#documentation) show what each one does.
+`GET /api/workspaces` includes the `X-Actions-Enabled` capability header. Poll the returned `call_id` using the [action API contract](../../.agents/skills/nof1-study-api/SKILL.md). A read-only facade serves saved calls, including failures and comparisons; unsaved POST calls return 403. The [action charts](../../README.md#documentation) show what each action does.
 
 ### 2. Observe the study
 
@@ -330,22 +338,21 @@ The study facade (tool server, port `8100`) is the source of truth:
 curl -s http://localhost:8100/api/studies/$WORKSPACE_ID/timeline \
   | jq '.attempts[] | {commit_id, seq: .record.seq, attempt: .record.attempt}'
 
-# Read the running call's arguments, then repeat that action for progress
+# Read the running call without submitting work
 curl -s http://localhost:8100/api/studies/$WORKSPACE_ID/timeline > /tmp/study-timeline.json
-jq '.running.request' /tmp/study-timeline.json > /tmp/running-call.json
 ACTION=$(jq -r '.running.action' /tmp/study-timeline.json)
-curl -s -X POST "http://localhost:8100/api/studies/$WORKSPACE_ID/$ACTION" \
-  -H 'Content-Type: application/json' -d @/tmp/running-call.json \
-  | jq '{kind, messages, events}'
+CALL_ID=$(jq -r '.running.call_id' /tmp/study-timeline.json)
+curl -s "http://localhost:8100/api/studies/$WORKSPACE_ID/$ACTION/$CALL_ID" \
+  | jq '{call_id, action, status, commit_id, messages}'
 
-# The viewer repeats only applied calls with known arguments to obtain full results.
+# The viewer uses the same GET route for saved results and execution logs.
 ```
 
 ### 3. Verify via browser automation
 
 - `http://localhost:3000/v2/{WORKSPACE_ID}` is the model workbench, the default destination from the workspace list.
 - After each backend action, check that the workbench shows the question, graph, entity details, data, findings, history and action log. The workbench is read-only: the agent submits every change through the backend API.
-- Storybook's **V2 / Model / Workbench / Complete** story covers the workbench with mocked responses. Extend it rather than adding separate stories. Its pinned responses are included in the [fixture build and check](#promoting-a-workspace-to-the-demo-fixture).
+- Storybook's **V2 / Model / Workbench / Complete** story covers the workbench with mocked responses. Extend it rather than adding separate stories. Its pinned responses are included in the [fixture build](#promoting-a-workspace-to-the-demo-fixture).
 
 If the UI behaves unexpectedly, check Next.js devtools MCP errors before debugging the browser script.
 
@@ -358,4 +365,4 @@ curl -s http://localhost:8100/api/studies/$WORKSPACE_ID/timeline \
   | jq '.attempts[] | select(.record.attempt.outcome.status=="raised") | {seq: .record.seq, attempt: .record.attempt}'
 ```
 
-Correct the cause and repeat its named action route, selecting fresh revisions if its inputs changed. There is no automatic-resume endpoint.
+Correct the scientific inputs and submit the changed call through its named action route. An identical resolved call returns its saved failure; changing only `reasoning` does not create another call. See the [action API contract](../../.agents/skills/nof1-study-api/SKILL.md).

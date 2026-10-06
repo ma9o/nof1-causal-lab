@@ -3,35 +3,55 @@
 from __future__ import annotations
 
 import asyncio
-import hashlib
-import json
 import os
 import pathlib
 import re
 from collections.abc import Callable, Mapping
+from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Annotated, cast
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, File, Form, HTTPException, Request, Response, UploadFile
+from fastapi import (
+    APIRouter,
+    Body,
+    Depends,
+    File,
+    Form,
+    HTTPException,
+    Request,
+    Response,
+    UploadFile,
+)
 from pydantic import TypeAdapter
 
+from nof1_causal_lab.actions.call_logs import collect_call_log
+from nof1_causal_lab.actions.call_state import CallProgress, CompletedCall, PendingCall, RunningCall
 from nof1_causal_lab.actions.contracts import (
+    ActionInput,
+    DataDiffRequest,
     EditModelRequest,
+    EditQuestionRequest,
     FitRequest,
+    ModelDiffRequest,
     PrepareDataRequest,
     ScientificActionRequest,
-    SetQuestionRequest,
     SimulateRequest,
     call_identity,
 )
 from nof1_causal_lab.actions.effects import ActionEffects
-from nof1_causal_lab.actions.progress import read_events
-from nof1_causal_lab.actions.results import ActionPoll, CompletedPoll, RunningAction, RunningPoll
+from nof1_causal_lab.actions.results import (
+    ActionPoll,
+    FailedPoll,
+    RunningAction,
+    RunningPoll,
+)
 from nof1_causal_lab.artifacts.base import Value
-from nof1_causal_lab.artifacts.data_preparation import FilePreparationSpec
-from nof1_causal_lab.artifacts.identity import ActionId, GitOid
+from nof1_causal_lab.artifacts.data_preparation import SourceFolder
+from nof1_causal_lab.artifacts.identity import ActionId, CallId, GitOid, RevisionSelector
+from nof1_causal_lab.study.action_outputs import completed_call
 from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.history import StudyRepository
+from nof1_causal_lab.study.inputs import resolve_action_inputs
 from nof1_causal_lab.study.records import (
     ActionMessage,
     Applied,
@@ -40,32 +60,26 @@ from nof1_causal_lab.study.records import (
     StudyRevision,
     record_dependencies,
 )
-from nof1_causal_lab.study.snapshots import ModelReader
 from nof1_causal_lab.study.store import (
     ArtifactStore,
     cached_read,
-    read_attempt_trace,
     read_question,
 )
-from nof1_causal_lab.study.view_models import DataDiffRequest, ModelDiffReport, ModelDiffRequest
 from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
-from nof1_causal_lab.utils.llm import LLMTrace
 
 if TYPE_CHECKING:
     from temporalio.client import Client, WorkflowHandle
 
     from nof1_causal_lab.actions.temporal.workflow import StudyWorkflow
-    from nof1_causal_lab.json_types import JsonObject, JsonValue
 
 router = APIRouter(prefix="/api/studies")
 workspaces_router = APIRouter(prefix="/api")
 uploads_router = APIRouter(prefix="/api")
 
-_COMPLETED_JSON = TypeAdapter(CompletedPoll)
-_MODEL_DIFF_JSON = TypeAdapter(ModelDiffReport)
-_ACTION_POLL_TYPE = cast("type[ActionPoll]", ActionPoll)
-_CALL_PROGRESS_TYPE = cast("type[ActionPoll | None]", ActionPoll | None)
+_ACTION_JSON = TypeAdapter(ActionPoll)
+_CALL_PROGRESS_TYPE = cast("type[CallProgress | None]", CallProgress | None)
+_CALL_STATE_TYPE = cast("type[CallProgress]", CallProgress)
 
 
 def _cached_read[T](
@@ -76,6 +90,7 @@ def _cached_read[T](
 
 
 def actions_enabled() -> bool:
+    """Check whether the process permits action execution rather than serving saved calls only."""
     return os.environ.get("READ_ONLY_FACADE") != "1"
 
 
@@ -99,7 +114,7 @@ def _safe_workspace_id(value: str) -> str:
 def list_workspaces(response: Response) -> Mapping[str, str | None]:
     """Available workspaces and their immutable study questions.
 
-    X-Actions-Enabled preserves the landing page's deployment capability without a separate endpoint.
+    X-Actions-Enabled reports whether the facade accepts new calls.
     """
     response.headers["X-Actions-Enabled"] = "true" if actions_enabled() else "false"
     workspaces = {}
@@ -113,7 +128,7 @@ def list_workspaces(response: Response) -> Mapping[str, str | None]:
             (
                 item
                 for revision in records
-                if revision.record.attempt.action == "set_question"
+                if revision.record.attempt.action == "edit_question"
                 and isinstance(revision.record.attempt.outcome, Applied)
                 for item in revision.record.attempt.outcome.effects.produced
                 if item.artifact_id == "question"
@@ -149,10 +164,12 @@ class TemporalClientProvider:
     """One lazily connected Temporal client owned by the facade."""
 
     def __init__(self) -> None:
+        """Initialize lazy Temporal connection state protected by an asynchronous lock."""
         self._lock = asyncio.Lock()
         self._client: Client | None = None
 
     async def get(self) -> Client:
+        """Connect to Temporal once and share the resulting client across concurrent requests."""
         async with self._lock:
             if self._client is None:
                 from nof1_causal_lab.actions.temporal.client import connect_client
@@ -162,6 +179,7 @@ class TemporalClientProvider:
 
 
 def study_clients(request: Request) -> TemporalClientProvider:
+    """Retrieve the application's shared Temporal client provider for request dependency injection."""
     return cast("TemporalClientProvider", request.app.state.study_clients)
 
 
@@ -205,45 +223,31 @@ async def _running_action(
         raise
     if description.status != WorkflowExecutionStatus.RUNNING:
         return None
-    running = await description.memo_value(RUNNING_ACTION_MEMO, None, type_hint=RunningAction)
+    running = await description.memo_value(RUNNING_ACTION_MEMO, None, type_hint=RunningCall)
     if running is None:
         return None
-    return running.revised(
-        events=tuple(await asyncio.to_thread(read_events, workspace_id, running.attempt_id))
+    log = await asyncio.to_thread(
+        collect_call_log,
+        workspace_id,
+        seq=running.seq,
+        attempt_id=running.attempt_id,
+        messages=running.messages,
+        at=datetime.now(UTC),
     )
-
-
-def _file_arguments(
-    workspace_id: str, request: ScientificActionRequest | DataDiffRequest | ModelDiffRequest
-) -> tuple[ScientificActionRequest | DataDiffRequest | ModelDiffRequest, Mapping[str, bytes]]:
-    contents: dict[str, bytes] = {}
-    if (
-        not isinstance(request, PrepareDataRequest)
-        or not isinstance(request.input, FilePreparationSpec)
-        or request.input.source.hashes
-    ):
-        return request, contents
-    for filename in request.input.source.files:
-        path = storage.join(data_module.input_dir(workspace_id), filename)
-        if not storage.exists(path):
-            _require_actions_enabled()
-            raise HTTPException(422, f"Upload the named file before prepare_data: {filename}")
-        with storage.open_file(path, "rb") as handle:
-            contents[filename] = handle.read()
-    hashes = {name: hashlib.sha256(body).hexdigest() for name, body in contents.items()}
-    return request.revised(
-        input=request.input.revised(source=request.input.source.revised(hashes=hashes))
-    ), contents
+    return RunningAction(
+        call_id=call_identity(running.request),
+        action=running.request.action,
+        request=running.request,
+        messages=log.messages,
+    )
 
 
 def _stage_sources(
     workspace_id: str,
-    request: ScientificActionRequest | DataDiffRequest | ModelDiffRequest,
+    request: ScientificActionRequest | DataDiffRequest[GitOid] | ModelDiffRequest[GitOid],
     contents: Mapping[str, bytes],
 ) -> None:
-    if not isinstance(request, PrepareDataRequest) or not isinstance(
-        request.input, FilePreparationSpec
-    ):
+    if not isinstance(request, PrepareDataRequest):
         return
     for filename, identity in request.input.source.hashes.items():
         path = (
@@ -254,166 +258,27 @@ def _stage_sources(
         )
         if path.exists():
             continue
-        if filename in contents:
-            body = contents[filename]
-        else:
-            upload = storage.join(data_module.input_dir(workspace_id), filename)
-            if not storage.exists(upload):
-                raise HTTPException(422, f"No retained or uploaded bytes for {filename}")
-            with storage.open_file(upload, "rb") as handle:
-                body = handle.read()
-        if hashlib.sha256(body).hexdigest() != identity:
-            raise HTTPException(422, f"Uploaded file differs from the call's SHA-256: {filename}")
         path.parent.mkdir(parents=True, exist_ok=True)
-        partial = path.with_name(f"{filename}.{uuid4().hex}.partial")
-        partial.write_bytes(body)
+        partial = path.with_name(f"{path.name}.{uuid4().hex}.partial")
+        partial.write_bytes(contents[filename])
         partial.replace(path)
-
-
-def _array_references(value: JsonValue) -> frozenset[str]:
-    if isinstance(value, dict):
-        own = (
-            frozenset((cast("str", value["array_ref"]),))
-            if "array_ref" in value
-            else frozenset[str]()
-        )
-        return own.union(*(_array_references(item) for item in value.values()))
-    if isinstance(value, list):
-        return frozenset[str]().union(*(_array_references(item) for item in value))
-    return frozenset[str]()
-
-
-def _completed_call(workspace_id: str, revision: StudyRevision) -> CompletedPoll:
-    """Materialize every retained result at the storage edge, never in a Temporal payload."""
-    import numpy as np
-
-    attempt = revision.record.attempt
-    traces = {
-        identity: LLMTrace.model_validate(
-            read_attempt_trace(workspace_id, revision.commit_id, identity)
-        )
-        for identity in revision.record.trace_ids
-    }
-    if not isinstance(attempt.outcome, Applied):
-        return CompletedPoll(
-            commit_id=revision.commit_id,
-            attempt=attempt,
-            messages=revision.record.messages,
-            traces=traces,
-        )
-    reader = ModelReader(workspace_id, at=revision.commit_id)
-    snapshot = reader.snapshot()
-    metadata = reader.data_metadata
-    observation_histories = (
-        {
-            variable.id: history
-            for variable in metadata.value.variables
-            if (history := reader.observation_history(variable.id)) is not None
-        }
-        if metadata is not None
-        else {}
-    )
-    predictive_overlays = {
-        indicator.observation.id: overlay
-        for indicator in reader.indicators()
-        if (overlay := reader.predictive_history(indicator.observation.id)) is not None
-    }
-    simulation = reader.simulation()
-    paths = (
-        reader.simulation_paths(start=0, count=simulation.value.evidence.draws)
-        if simulation is not None
-        else None
-    )
-    artifacts: dict[str, JsonObject] = {}
-    for info in reader.state.current.values():
-        payload: dict[str, JsonValue] = {}
-        for name in reader.store.filenames(info.artifact_id, info.revision):
-            payload[name] = (
-                reader.store.read_json_file(info.artifact_id, info.revision, name)
-                if name.endswith(".json")
-                else json.loads(
-                    reader.store.read_parquet_file(
-                        info.artifact_id, info.revision, name
-                    ).write_json()
-                )
-            )
-        artifacts[info.artifact_id] = payload
-    references = _array_references(artifacts)
-    if simulation is not None:
-        report = simulation.value.evidence
-        references = references.union(
-            report.parameter_draws.values(),
-            (
-                report.latent_paths,
-                report.observations,
-                report.observation_layout.mask,
-                report.observation_layout.support_start_times,
-                report.observation_layout.support_end_times,
-            ),
-            (report.reference_latent_paths,) if report.reference_latent_paths is not None else (),
-            (report.reference_observations,) if report.reference_observations is not None else (),
-        )
-    for record in reader.records:
-        if (
-            record.record.attempt.action != "fit"
-            or not isinstance(record.record.attempt.outcome, Applied)
-            or record.record.attempt.outcome.result is None
-        ):
-            continue
-        evidence = record.record.attempt.outcome.result.evidence
-        references = references.union(evidence.array_references)
-    comparison = None
-    if attempt.action == "data_diff" and attempt.request is not None:
-        from nof1_causal_lab.actions.data_diff import read_data_diff
-
-        comparison = read_data_diff(workspace_id, attempt.request)
-    model_comparison = None
-    if attempt.action == "model_diff" and attempt.request is not None:
-        from nof1_causal_lab.actions.revisions import read_model_diff
-
-        model_comparison = read_model_diff(
-            workspace_id, attempt.request.before, attempt.request.after
-        )
-    arrays: dict[str, JsonValue] = {}
-    for identity in sorted(references):
-        values = reader.store.read_array(identity)
-        arrays[identity] = np.where(
-            np.isfinite(values), values, np.asarray(None, dtype=object)
-        ).tolist()
-    return CompletedPoll(
-        commit_id=revision.commit_id,
-        attempt=attempt,
-        messages=revision.record.messages,
-        snapshot=snapshot,
-        inference_report=reader.inference_report,
-        data_comparison=comparison,
-        model_comparison=model_comparison,
-        checks=reader.checks[0] if reader.checks is not None else None,
-        observation_histories=observation_histories,
-        predictive_overlays=predictive_overlays,
-        simulation_paths=paths,
-        parameter_draws=reader.parameter_draws(),
-        traces=traces,
-        artifacts=artifacts,
-        arrays=arrays,
-    )
 
 
 def _saved_response(workspace_id: str, revision: StudyRevision) -> Response:
     return _cached_read(
         workspace_id,
         ("call-result", revision.commit_id),
-        _COMPLETED_JSON,
-        lambda: _completed_call(workspace_id, revision),
+        _ACTION_JSON,
+        lambda: completed_call(workspace_id, revision),
     )
 
 
 async def _dispatch_action(
     workspace_id: str,
-    body: ScientificActionRequest | DataDiffRequest | ModelDiffRequest,
+    body: ActionInput,
     clients: TemporalClientProvider,
 ) -> ActionPoll | Response:
-    """Applied calls reuse saved results; the serialized workflow deduplicates running calls."""
+    """Resolve and deduplicate a call; saved failures and successes share the same identity."""
     from temporalio.client import WorkflowUpdateStage
 
     from nof1_causal_lab.actions.temporal.messages import ActionRequest
@@ -423,134 +288,215 @@ async def _dispatch_action(
         storage.join(data_module.study_dir(workspace_id), "history.git")
     ):
         raise HTTPException(403, "This read-only facade answers saved calls only")
-    body, contents = await asyncio.to_thread(_file_arguments, workspace_id, body)
     repository = StudyRepository(workspace_id)
-    saved = await asyncio.to_thread(repository.saved_call, body)
+    try:
+        request, contents = await asyncio.to_thread(resolve_action_inputs, repository, body)
+    except StudyLookupError as exc:
+        raise HTTPException(422, str(exc)) from exc
+    saved = await asyncio.to_thread(repository.saved_call, request)
     if saved is not None:
         return await asyncio.to_thread(_saved_response, workspace_id, saved)
     _require_actions_enabled()
-    identity = call_identity(body)
+    identity = call_identity(request)
     handle = await _study_handle(workspace_id, clients)
     progress = cast(
-        "ActionPoll | None",
+        "CallProgress | None",
         await handle.query("call_progress", identity, result_type=_CALL_PROGRESS_TYPE),
     )
-    if not isinstance(progress, RunningPoll) and not (
-        isinstance(progress, CompletedPoll) and isinstance(progress.attempt.outcome, Applied)
-    ):
-        await asyncio.to_thread(_stage_sources, workspace_id, body, contents)
+    if progress is None:
+        await asyncio.to_thread(_stage_sources, workspace_id, request, contents)
         attempt_id = uuid4()
         await handle.start_update(
             "execute_action",
-            ActionRequest(request=body, attempt_id=attempt_id),
+            ActionRequest(request=request, attempt_id=attempt_id),
             id=str(attempt_id),
-            result_type=_ACTION_POLL_TYPE,
+            result_type=_CALL_STATE_TYPE,
             wait_for_stage=WorkflowUpdateStage.ACCEPTED,
         )
         progress = cast(
-            "ActionPoll | None",
+            "CallProgress | None",
             await handle.query("call_progress", identity, result_type=_CALL_PROGRESS_TYPE),
         )
     if progress is None:
         raise RuntimeError("Accepted call has no workflow progress")
-    if isinstance(progress, RunningPoll):
-        return progress.revised(
-            events=tuple(await asyncio.to_thread(read_events, workspace_id, progress.attempt_id))
+    return await _progress_response(workspace_id, progress)
+
+
+async def _progress_response(workspace_id: str, progress: CallProgress) -> ActionPoll | Response:
+    if isinstance(progress, PendingCall):
+        return RunningPoll(call_id=call_identity(progress.request), action=progress.request.action)
+    if isinstance(progress, RunningCall):
+        log = await asyncio.to_thread(
+            collect_call_log,
+            workspace_id,
+            seq=progress.seq,
+            attempt_id=progress.attempt_id,
+            messages=progress.messages,
+            at=datetime.now(UTC),
+        )
+        return RunningPoll(
+            call_id=call_identity(progress.request),
+            action=progress.request.action,
+            messages=log.messages,
         )
     if progress.commit_id is not None:
         return await asyncio.to_thread(
-            _saved_response, workspace_id, repository.record(progress.commit_id)
+            _saved_response, workspace_id, StudyRepository(workspace_id).record(progress.commit_id)
         )
-    return progress
+    attempt = progress.attempt
+    if attempt.request is None or isinstance(attempt.outcome, Applied):
+        raise RuntimeError("An unpublished completion must own a failed call")
+    log = await asyncio.to_thread(
+        collect_call_log,
+        workspace_id,
+        seq=progress.seq,
+        attempt_id=progress.attempt_id,
+        messages=progress.messages,
+        at=datetime.now(UTC),
+        failure=attempt.outcome,
+    )
+    return FailedPoll(
+        call_id=call_identity(attempt.request),
+        action=attempt.action,
+        commit_id=None,
+        messages=log.messages,
+    )
 
 
-@router.post("/{workspace_id}/set_question", response_model=ActionPoll, operation_id="set_question")
-async def set_question(
+@router.get(
+    "/{workspace_id}/{action}/{call_id}", response_model=ActionPoll, operation_id="poll_action"
+)
+async def poll_action(
     workspace_id: str,
-    body: SetQuestionRequest,
+    action: ActionId,
+    call_id: CallId,
     clients: Annotated[TemporalClientProvider, Depends(study_clients)],
 ) -> ActionPoll | Response:
-    """Set the immutable study question first. Repeat parsed arguments to read saved results or running progress; failed calls may be retried."""
+    """Read an existing call by ID. Never resolve inputs, start a workflow, execute, or retry. The envelope and accumulated messages match POST, including cached failures."""
+    from temporalio.service import RPCError, RPCStatusCode
+
+    from nof1_causal_lab.actions.temporal.client import study_workflow_id
+
+    workspace_id = _safe_workspace_id(workspace_id)
+    if storage.exists(storage.join(data_module.study_dir(workspace_id), "history.git")):
+        saved = await asyncio.to_thread(StudyRepository(workspace_id).call, call_id)
+        if saved is not None:
+            if saved.record.attempt.action != action:
+                raise HTTPException(404, "Unknown action call")
+            return await asyncio.to_thread(_saved_response, workspace_id, saved)
+    if not actions_enabled():
+        raise HTTPException(404, "Unknown action call")
+    try:
+        handle = (await clients.get()).get_workflow_handle(study_workflow_id(workspace_id))
+        progress = cast(
+            "CallProgress | None",
+            await handle.query("call_progress", call_id, result_type=_CALL_PROGRESS_TYPE),
+        )
+    except RPCError as exc:
+        if exc.status == RPCStatusCode.NOT_FOUND:
+            raise HTTPException(404, "Unknown action call") from exc
+        raise
+    if progress is None:
+        raise HTTPException(404, "Unknown action call")
+    actual_action = (
+        progress.attempt.action if isinstance(progress, CompletedCall) else progress.request.action
+    )
+    if actual_action != action:
+        raise HTTPException(404, "Unknown action call")
+    return await _progress_response(workspace_id, progress)
+
+
+@router.post(
+    "/{workspace_id}/edit_question", response_model=ActionPoll, operation_id="edit_question"
+)
+async def edit_question(
+    workspace_id: str,
+    body: Annotated[EditQuestionRequest, Body(discriminator="action")],
+    clients: Annotated[TemporalClientProvider, Depends(study_clients)],
+) -> ActionPoll | Response:
+    """Set the study question from input.question. POST returns a call_id; GET polls it. Identical resolved calls reuse both successes and failures."""
     return await _dispatch_action(workspace_id, body, clients)
 
 
 @router.post("/{workspace_id}/edit_model", response_model=ActionPoll, operation_id="edit_model")
 async def edit_model(
     workspace_id: str,
-    body: EditModelRequest,
+    body: Annotated[EditModelRequest[RevisionSelector], Body(discriminator="action")],
     clients: Annotated[TemporalClientProvider, Depends(study_clients)],
 ) -> ActionPoll | Response:
-    """Save a model naming its base expected_revision and optional panel_revision. No head conflict check. The complete result includes findings, draws, histories, artifacts and traces; use model_diff separately for changes."""
+    """Save input.model from input.parent_ref, a question or model revision, and evaluate data-independent model checks. A model parent supplies its pinned question. The body contains the produced model and its findings; messages retain all execution logging. GET polls the returned call_id."""
     return await _dispatch_action(workspace_id, body, clients)
 
 
 @router.post("/{workspace_id}/prepare_data", response_model=ActionPoll, operation_id="prepare_data")
 async def prepare_data(
     workspace_id: str,
-    body: PrepareDataRequest,
+    body: Annotated[
+        PrepareDataRequest[RevisionSelector, SourceFolder], Body(discriminator="action")
+    ],
     clients: Annotated[TemporalClientProvider, Depends(study_clients)],
 ) -> ActionPoll | Response:
-    """Prepare named uploaded files or a saved simulation replicate. Capture each named file's SHA-256 at call time. Repeat the retained source.hashes to read saved results without uploaded bytes. Running results include step/extraction events; completed results include all observations, profiles and traces."""
+    """Prepare observations from uploaded tables using the selected model's definitions.
+
+    The source is a folder under ``data/{workspace_id}/``, including subfolders.
+    CSV and Parquet tables must supply a date or datetime timestamp column and
+    are concatenated in captured file order. Source bytes and revision selectors
+    are pinned before computing call identity.
+
+    Args:
+        workspace_id: Study workspace containing the source folder and revision
+            history.
+        body: Preparation request selecting a model, source folder, and computed
+            rules or semantic extraction instructions for its observation IDs.
+        clients: Provider of the shared Temporal connection used to dispatch
+            or retrieve the preparation workflow.
+
+    Returns:
+        Current call status or a cached HTTP response for the same call. Polling
+        by call ID exposes progress messages and, on success, the prepared
+        observations and available profiles.
+    """
     return await _dispatch_action(workspace_id, body, clients)
 
 
 @router.post("/{workspace_id}/fit", response_model=ActionPoll, operation_id="fit")
 async def fit(
     workspace_id: str,
-    body: FitRequest,
+    body: Annotated[FitRequest[RevisionSelector], Body(discriminator="action")],
     clients: Annotated[TemporalClientProvider, Depends(study_clients)],
 ) -> ActionPoll | Response:
-    """Condition the named model_revision on panel_revision. Returns the saved complete inference result, including joint posterior arrays, diagnostics and every observation history. Repeat the same arguments to read progress or the saved completion."""
+    """Condition input.model_ref on the history selected by input.data_ref and required input.replicate_index. Zero selects prepared user data; a simulation index selects one recorded draw. GET polls call_id. The body retains the complete inference result and arrays."""
     return await _dispatch_action(workspace_id, body, clients)
 
 
 @router.post("/{workspace_id}/simulate", response_model=ActionPoll, operation_id="simulate")
 async def simulate(
     workspace_id: str,
-    body: SimulateRequest,
+    body: Annotated[SimulateRequest[RevisionSelector], Body(discriminator="action")],
     clients: Annotated[TemporalClientProvider, Depends(study_clients)],
 ) -> ActionPoll | Response:
-    """Simulate the named model_revision and optional panel_revision. Fitted laws retain their fit origin. Returns all paths and arrays without paging, their summaries, causal evidence and traces. Repeat the same arguments to read progress or saved completion."""
+    """Simulate input.model_ref using input.simulation and optional input.panel_ref. Fitted laws retain their fit origin. body.data contains an array of observation histories of the same type returned by prepare_data. The successful body also includes all paths, arrays and causal evidence; messages retain traces. GET polls call_id."""
     return await _dispatch_action(workspace_id, body, clients)
 
 
 @router.post("/{workspace_id}/data_diff", response_model=ActionPoll, operation_id="data_diff")
 async def data_diff(
     workspace_id: str,
-    body: DataDiffRequest,
+    body: Annotated[DataDiffRequest[RevisionSelector], Body(discriminator="action")],
     clients: Annotated[TemporalClientProvider, Depends(study_clients)],
 ) -> ActionPoll | Response:
-    """Compare immutable left/right data selections and retain a comparison leaf. Identical applied calls reuse the complete comparison without another attempt; identical running calls return that attempt's progress. Failures stay in the timeline and can be retried."""
+    """Compare input.left_ref and input.right_ref, each a gitref with an optional replicate_index or a list of those references. Omit the index to compare all recorded histories. Data latest selects prepared user data; simulations require explicit gitrefs. Retain the complete comparison in Git. GET polls call_id. Identical resolved calls reuse successes and failures; the comparison is the body."""
     return await _dispatch_action(workspace_id, body, clients)
 
 
 @router.post("/{workspace_id}/model_diff", response_model=ActionPoll, operation_id="model_diff")
 async def model_diff(
     workspace_id: str,
-    body: ModelDiffRequest,
+    body: Annotated[ModelDiffRequest[RevisionSelector], Body(discriminator="action")],
     clients: Annotated[TemporalClientProvider, Depends(study_clients)],
 ) -> ActionPoll | Response:
-    """Compare named before/after model trees or checkpoints and retain a comparison leaf, including definitions and evidence in model_comparison. Identical applied calls reuse the comparison; running calls return progress. Failures stay in the timeline and can be retried."""
+    """Compare input.before_ref and input.after_ref and retain definitions and evidence in Git. GET polls call_id. Identical resolved calls reuse successes and failures; the comparison is the body."""
     return await _dispatch_action(workspace_id, body, clients)
-
-
-@router.get("/{workspace_id}/model-comparison", response_model=ModelDiffReport)
-def preview_model_comparison(workspace_id: str, before: GitOid, after: GitOid) -> Response:
-    """Read the immutable comparison projection for viewer previews without submitting an action."""
-    from nof1_causal_lab.actions.revisions import model_diff as compare
-
-    workspace_id = _safe_workspace_id(workspace_id)
-    if not storage.exists(storage.join(data_module.study_dir(workspace_id), "history.git")):
-        raise HTTPException(404, "Unknown study workspace")
-    try:
-        return _cached_read(
-            workspace_id,
-            ("model-diff", before, after),
-            _MODEL_DIFF_JSON,
-            lambda: compare(workspace_id, before, after),
-        )
-    except StudyLookupError as exc:
-        raise HTTPException(404, str(exc)) from exc
 
 
 class TimelineRecord(Value):
@@ -560,16 +506,23 @@ class TimelineRecord(Value):
     ts: str
     messages: tuple[ActionMessage, ...]
     trace_ids: tuple[str, ...]
-    attempt: Attempt[ActionId, ScientificActionRequest | DataDiffRequest | ModelDiffRequest, None]
+    attempt: Attempt[
+        ActionId, ScientificActionRequest | DataDiffRequest[GitOid] | ModelDiffRequest[GitOid], None
+    ]
 
 
 class TimelineRevision(Value):
+    """A lightweight attempt record linked to its call identity and Git publication."""
+
+    call_id: CallId | None
     commit_id: GitOid
     parent_ids: tuple[GitOid, ...]
     record: TimelineRecord
 
 
 class TimelineResponse(Value):
+    """Journal attempts, declared input dependencies, and the currently running action."""
+
     attempts: tuple[TimelineRevision, ...]
     dependencies: tuple[RecordDependency, ...]
     running: RunningAction | None
@@ -579,7 +532,7 @@ class TimelineResponse(Value):
 async def get_timeline(
     workspace_id: str, clients: Annotated[TemporalClientProvider, Depends(study_clients)]
 ) -> TimelineResponse:
-    """Slim call log: replayable arguments, status, messages, errors, trace ids and dependencies. No inline results and no branches. Selecting an applied node repeats its action; never repeat failed or unknown nodes from the viewer."""
+    """Slim call log: call IDs, retained arguments, outcome summaries and dependencies. The viewer reads complete results and messages with GET using each call_id."""
     workspace_id = _safe_workspace_id(workspace_id)
     records = await asyncio.to_thread(StudyRepository(workspace_id).attempts)
     attempts = []
@@ -598,6 +551,9 @@ async def get_timeline(
         )
         attempts.append(
             TimelineRevision(
+                call_id=call_identity(record.attempt.request)
+                if record.attempt.request is not None
+                else None,
                 commit_id=revision.commit_id,
                 parent_ids=revision.parent_ids,
                 record=TimelineRecord(
@@ -606,7 +562,11 @@ async def get_timeline(
                     messages=record.messages,
                     trace_ids=record.trace_ids,
                     attempt=Attempt[
-                        ActionId, ScientificActionRequest | DataDiffRequest | ModelDiffRequest, None
+                        ActionId,
+                        ScientificActionRequest
+                        | DataDiffRequest[GitOid]
+                        | ModelDiffRequest[GitOid],
+                        None,
                     ](
                         action=record.attempt.action,
                         request=record.attempt.request,

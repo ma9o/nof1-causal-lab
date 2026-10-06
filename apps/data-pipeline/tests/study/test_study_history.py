@@ -1,13 +1,26 @@
 """Git publication and commit-local evidence across process restarts."""
 
+import shutil
 from datetime import UTC, datetime
+from pathlib import Path
 from uuid import uuid4
 
 import pytest
+from fastapi.testclient import TestClient
 
 from nof1_causal_lab.actions.contracts import EditModelRequest, PrepareDataRequest
 from nof1_causal_lab.actions.effects import ActionEffects
+from nof1_causal_lab.actions.io import (
+    DataDiffInput,
+    EditModelInput,
+    FitInput,
+    ModelDiffInput,
+    SimulateInput,
+)
 from nof1_causal_lab.artifacts.availability import NotApplicable
+from nof1_causal_lab.artifacts.data_preparation import FileSourceRef
+from nof1_causal_lab.artifacts.data_ref import DataRef
+from nof1_causal_lab.artifacts.identity import GitOid
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.predictive_provenance import AuthoredLawProvenance
 from nof1_causal_lab.artifacts.simulation import SimulationEvidence
@@ -23,7 +36,6 @@ from nof1_causal_lab.study.records import (
 )
 from nof1_causal_lab.study.snapshots import ModelReader
 from nof1_causal_lab.study.store import ArtifactStore
-from nof1_causal_lab.study.view_models import PanelRef
 from nof1_causal_lab.utils import data as data_module
 from tests.action_fixtures import applied_record
 
@@ -92,6 +104,8 @@ def test_comparison_is_a_saved_leaf_of_the_journal(study, monkeypatch, fails, co
     from temporalio.exceptions import ActivityError, ApplicationError
 
     from nof1_causal_lab.actions import data_diff, revisions
+    from nof1_causal_lab.actions.contracts import DataDiffRequest, ModelDiffRequest
+    from nof1_causal_lab.actions.io import DataDiffOutput, ModelDiffOutput
     from nof1_causal_lab.actions.temporal import workflow as study_workflow
     from nof1_causal_lab.actions.temporal.activities import (
         journal_activity,
@@ -99,26 +113,33 @@ def test_comparison_is_a_saved_leaf_of_the_journal(study, monkeypatch, fails, co
         run_action_activity,
     )
     from nof1_causal_lab.actions.temporal.messages import ActionRequest, StudyInit
-    from nof1_causal_lab.study.view_models import ModelDiffReport, ModelDiffRequest
     from tests.helpers import run_async
 
     repository, store = study
     from tests.action_fixtures import question_root
 
     root = question_root("STUDY").commit_id
-    head = repository.append(_record(2, produced=[_model(store, "2d")])).commit_id
-    left = PanelRef(revision=root)
-    right = PanelRef(revision=head)
+    head = repository.append(
+        applied_record(
+            Applied(result=None, effects=ActionEffects(produced=(_model(store, "2d"),))), seq=2
+        )
+    ).commit_id
+    left = DataRef[GitOid, int](replicate_index=0, revision=root)
+    right = DataRef[GitOid, int](replicate_index=0, revision=head)
     intent = "Compare the candidates before choosing the next fit."
     request = (
-        data_diff.DataDiffRequest(left=left, right=right, reasoning=intent)
+        DataDiffRequest[GitOid](
+            input=DataDiffInput[GitOid](left_ref=left, right_ref=right), reasoning=intent
+        )
         if comparison_action == "data_diff"
-        else ModelDiffRequest(before=root, after=head, reasoning=intent)
+        else ModelDiffRequest[GitOid](
+            reasoning=intent, input=ModelDiffInput[GitOid](before_ref=root, after_ref=head)
+        )
     )
     report = (
-        data_diff.DataDiffReport(left=(left,), right=(right,), variables=())
+        DataDiffOutput(left=(left,), right=(right,), variables=())
         if comparison_action == "data_diff"
-        else ModelDiffReport(
+        else ModelDiffOutput(
             before=None,
             after=None,
             before_model=None,
@@ -202,7 +223,39 @@ def test_comparison_is_a_saved_leaf_of_the_journal(study, monkeypatch, fails, co
         assert outcome.result is None
         assert outcome.effects.produced == outcome.effects.retracted == ()
         assert leaf.record.attempt.request == request
-        assert outcome.effects.reports == {}
+        report_name = comparison_action.replace("_", "-")
+        assert tuple(outcome.effects.reports) == (report_name,)
+        assert (
+            type(report).model_validate_json(
+                repository.read_file(leaf.commit_id, f"logs/reports/{report_name}.json")
+            )
+            == report
+        )
+
+        # Replaying the call after cache loss and a code change reads its Git blob.
+        cache = Path(data_module.cache_dir("STUDY"))
+        cache.mkdir(parents=True, exist_ok=True)
+        shutil.rmtree(cache)
+        monkeypatch.setattr("nof1_causal_lab.study.store._CODE_DIGEST", "new-comparison-code")
+
+        def unexpected_comparison(*_args, **_kwargs):
+            pytest.fail("A saved comparison must not recompute")
+
+        monkeypatch.setattr(data_diff, "read_data_diff", unexpected_comparison)
+        monkeypatch.setattr(revisions, "read_model_diff", unexpected_comparison)
+        restarted = StudyRepository("STUDY")
+        assert restarted.read_report(leaf.commit_id, report_name, type(report)) == report
+        from nof1_causal_lab.tool_server import app
+
+        monkeypatch.setenv("READ_ONLY_FACADE", "1")
+        with TestClient(app) as client:
+            response = client.post(
+                f"/api/studies/STUDY/{comparison_action}",
+                json=request.model_dump(mode="json"),
+            )
+        assert response.status_code == 200, response.text
+        assert response.json()["body"] == report.model_dump(mode="json")
+        assert len(restarted.attempts()) == 3
         repeated = run_async(
             study_workflow.StudyWorkflow.execute_action(
                 worker, ActionRequest(request=request.revised(reasoning=None))
@@ -212,7 +265,7 @@ def test_comparison_is_a_saved_leaf_of_the_journal(study, monkeypatch, fails, co
         assert len(reads) == 1
 
 
-def test_timeline_links_named_arguments_and_check_reads():
+def test_timeline_links_only_declared_refs_to_published_outputs():
     from nof1_causal_lab.study.records import StudyRevision, record_dependencies
     from nof1_causal_lab.study.state import ArtifactRecord
 
@@ -221,14 +274,19 @@ def test_timeline_links_named_arguments_and_check_reads():
 
     from datetime import date
 
-    from nof1_causal_lab.actions.contracts import FitRequest, SimulateRequest
-    from nof1_causal_lab.artifacts.identity import GitRef
-    from nof1_causal_lab.artifacts.simulation import SimulationReport, SimulationSpec
-    from nof1_causal_lab.study.records import (
-        FitAttempt,
-        ModelSimulationResult,
+    from nof1_causal_lab.actions.contracts import (
+        DataDiffRequest,
+        FitRequest,
+        ModelDiffRequest,
+        SimulateRequest,
     )
-    from nof1_causal_lab.study.view_models import DataDiffRequest
+    from nof1_causal_lab.artifacts.identity import GitRef
+    from nof1_causal_lab.artifacts.simulation import (
+        ModelSimulationResult,
+        SimulationReport,
+        SimulationSpec,
+    )
+    from nof1_causal_lab.study.records import FitAttempt
     from tests.inference_fixtures import inference_log
 
     def revision(seq, action, inputs, *produced, status="applied"):
@@ -248,8 +306,11 @@ def test_timeline_links_named_arguments_and_check_reads():
             record = applied_record(
                 result,
                 seq=seq,
-                request=EditModelRequest(
-                    expected_revision=inputs["expected_revision"], model=ModelSpec()
+                request=EditModelRequest[GitOid](
+                    input=EditModelInput[GitOid](
+                        parent_ref=inputs["parent_ref"],
+                        model=ModelSpec(),
+                    )
                 ),
             )
         elif action == "prepare_data":
@@ -259,10 +320,10 @@ def test_timeline_links_named_arguments_and_check_reads():
                     effects=ActionEffects(produced=artifacts),
                 ),
                 seq=seq,
-                request=PrepareDataRequest(input=inputs["input"]),
+                request=PrepareDataRequest[GitOid, FileSourceRef](input=inputs["input"]),
             )
         elif action == "simulate":
-            ref = GitRef(workspace_id="STUDY", revision=inputs["model_revision"], path="model.json")
+            ref = GitRef(workspace_id="STUDY", revision=inputs["model_ref"], path="model.json")
             report = SimulationReport(
                 causal=NotApplicable(reason="No intervention was requested."),
                 fit_reliability="not_fitted",
@@ -292,12 +353,15 @@ def test_timeline_links_named_arguments_and_check_reads():
                     effects=ActionEffects(),
                 ),
                 seq=seq,
-                request=SimulateRequest(
-                    model_revision=ref.revision, start=date(2026, 1, 1), horizon="10d"
+                request=SimulateRequest[GitOid](
+                    input=SimulateInput[GitOid](
+                        simulation=SimulationSpec(start=date(2026, 1, 1), horizon="10d"),
+                        model_ref=ref.revision,
+                    )
                 ),
             )
         elif action == "fit":
-            request = FitRequest(**inputs)
+            request = FitRequest[GitOid](input=FitInput[GitOid](replicate_index=0, **inputs))
             if status == "raised":
                 record = AttemptRecord(
                     seq=seq,
@@ -313,14 +377,10 @@ def test_timeline_links_named_arguments_and_check_reads():
 
                 model = load_model_fixture("causal_proofs/conditioned_treatment_outcome.json")
                 result = inference_log(
-                    model, prior_revision=inputs["model_revision"], seq=seq
+                    model, prior_revision=inputs["model_ref"], seq=seq
                 ).record.attempt.outcome.result
                 result = result.revised(
-                    panel=GitRef(
-                        workspace_id="STUDY",
-                        revision=inputs["panel_revision"],
-                        path="panel.parquet",
-                    )
+                    data=DataRef[GitOid, int](revision=inputs["data_ref"], replicate_index=0)
                 )
                 record = applied_record(
                     Applied(result=result, effects=ActionEffects(produced=artifacts)),
@@ -328,7 +388,11 @@ def test_timeline_links_named_arguments_and_check_reads():
                     request=request,
                 )
         else:
-            request = DataDiffRequest(**inputs)
+            request = (
+                ModelDiffRequest[GitOid](input=ModelDiffInput[GitOid](**inputs))
+                if action == "model_diff"
+                else DataDiffRequest[GitOid](input=DataDiffInput[GitOid](**inputs))
+            )
             record = applied_record(
                 Applied(
                     result=None,
@@ -340,53 +404,76 @@ def test_timeline_links_named_arguments_and_check_reads():
         return StudyRevision(record=record, commit_id=oid(100 + seq), parent_ids=(oid(99 + seq),))
 
     records = [
-        revision(1, "edit_model", {"expected_revision": None}, ("model", 1, {})),
-        revision(2, "simulate", {"model_revision": oid(1)}),
+        revision(1, "edit_model", {"parent_ref": oid(0)}, ("model", 1, {})),
+        revision(2, "simulate", {"model_ref": oid(1)}),
         revision(
             3,
             "prepare_data",
-            {"input": {"revision": oid(102), "replicate": 0}},
+            {
+                "input": {
+                    "model_ref": oid(1),
+                    "source": {"files": ["data.csv"]},
+                    "extraction": {
+                        "indicator:00000000000000000000": {
+                            "kind": "semantic",
+                            "how_to_measure": "Read observations",
+                        }
+                    },
+                }
+            },
             ("raw_data", 3, {}),
             ("panel", 4, {"raw_data": 3}),
         ),
         revision(
             4,
             "fit",
-            {"model_revision": oid(1), "panel_revision": oid(4)},
+            {"model_ref": oid(1), "data_ref": oid(4)},
             ("model", 5, {"model": 1, "panel": 4}),
         ),
         revision(
             5,
             "edit_model",
-            {"expected_revision": oid(5)},
+            {"parent_ref": oid(5)},
             ("model", 6, {"model": 5, "panel": 4}),
             # Carried forward unchanged: its first producer keeps it.
             ("panel", 4, {"raw_data": 3}),
         ),
-        revision(6, "fit", {"model_revision": oid(6), "panel_revision": oid(4)}, status="raised"),
-        revision(8, "edit_model", {"expected_revision": oid(6)}, ("model", 8, {"model": 6})),
+        revision(6, "fit", {"model_ref": oid(6), "data_ref": oid(4)}, status="raised"),
+        revision(8, "edit_model", {"parent_ref": oid(6)}, ("model", 8, {"model": 6})),
         revision(
             7,
             "data_diff",
             {
-                "left": {"kind": "panel", "revision": oid(4)},
-                "right": {"kind": "simulation", "revision": oid(102)},
+                "left_ref": [
+                    {"revision": oid(4), "replicate_index": 0},
+                    {"revision": oid(4), "replicate_index": 0},
+                    {"revision": oid(102), "replicate_index": 0},
+                ],
+                "right_ref": {"revision": oid(102), "replicate_index": None},
             },
         ),
     ]
+    records.extend(
+        [
+            # Failed commits and unknown revisions are never output producers.
+            revision(9, "fit", {"model_ref": oid(106), "data_ref": oid(999)}, status="raised"),
+            revision(10, "model_diff", {"before_ref": oid(5), "after_ref": oid(6)}),
+        ]
+    )
     assert [
-        (item.seq, item.source_seq, item.argument, item.check)
-        for item in record_dependencies(records)
+        (item.seq, item.source_seq, item.argument) for item in record_dependencies(records)
     ] == [
-        (2, 1, "model", False),
-        (3, 2, "simulation", False),
-        (4, 1, "model", False),
-        (4, 3, "panel", False),
-        (5, 4, "model", False),
-        (5, 3, "panel", True),
-        (6, 5, "model", False),
-        (6, 3, "panel", False),
-        (8, 5, "model", False),
-        (7, 3, "left", False),
-        (7, 2, "right", False),
+        (2, 1, "model"),
+        (3, 1, "model"),
+        (4, 1, "model"),
+        (4, 3, "data"),
+        (5, 4, "parent"),
+        (6, 5, "model"),
+        (6, 3, "data"),
+        (8, 5, "parent"),
+        (7, 3, "left"),
+        (7, 2, "left"),
+        (7, 2, "right"),
+        (10, 4, "before"),
+        (10, 5, "after"),
     ]

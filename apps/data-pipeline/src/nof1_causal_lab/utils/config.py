@@ -94,15 +94,6 @@ class LLMDefaults:
 
 @with_config(ConfigDict(extra="forbid"))
 @dataclass(frozen=True)
-class IngestionConfig:
-    """ingestion: Agentic Data Ingestion."""
-
-    llm: LLMProfileSpec
-    max_tool_turns: int = 40
-
-
-@with_config(ConfigDict(extra="forbid"))
-@dataclass(frozen=True)
 class ExtractionWorkersConfig:
     """extraction: Support-Window Extraction (Workers).
 
@@ -144,7 +135,6 @@ class InferenceConfig:
 class PipelineConfig:
     """Full pipeline configuration."""
 
-    ingestion: IngestionConfig
     extraction_workers: ExtractionWorkersConfig
     inference: InferenceConfig = field(default_factory=InferenceConfig)
     llm: LLMDefaults = field(default_factory=LLMDefaults)
@@ -204,7 +194,6 @@ def get_config() -> PipelineConfig:
 
 def _iter_profile_llms(config: PipelineConfig) -> list[tuple[str, LLMProfileSpec]]:
     return [
-        ("ingestion", config.ingestion.llm),
         ("extraction_workers", config.extraction_workers.llm),
     ]
 

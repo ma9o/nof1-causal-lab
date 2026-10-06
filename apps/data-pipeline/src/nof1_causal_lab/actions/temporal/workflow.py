@@ -15,23 +15,25 @@ from temporalio.exceptions import ActivityError, ChildWorkflowError
 from nof1_causal_lab.actions.effects import ActionEffects
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.identification import IdentificationReport
-    from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
+    from nof1_causal_lab.actions.io import PrepareDataInput
+    from nof1_causal_lab.artifacts.data_preparation import FileSourceRef
+    from nof1_causal_lab.artifacts.identity import GitOid
 
 with workflow.unsafe.imports_passed_through():
-    from nof1_causal_lab.actions.contracts import (
-        EditModelRequest,
-        FitRequest,
-        PrepareDataRequest,
-        SetQuestionRequest,
-        call_identity,
+    from nof1_causal_lab.actions.call_state import (
+        CallProgress,
+        CompletedCall,
+        PendingCall,
+        RunningCall,
     )
-    from nof1_causal_lab.actions.messages import completion_messages
-    from nof1_causal_lab.actions.results import (
-        ActionPoll,
-        CompletedPoll,
-        RunningAction,
-        RunningPoll,
+    from nof1_causal_lab.actions.contracts import (
+        DataDiffRequest,
+        EditModelRequest,
+        EditQuestionRequest,
+        FitRequest,
+        ModelDiffRequest,
+        PrepareDataRequest,
+        call_identity,
     )
     from nof1_causal_lab.actions.temporal.activities import (
         evaluate_model_checks_activity,
@@ -42,20 +44,18 @@ with workflow.unsafe.imports_passed_through():
         ActionInput,
         ActionRequest,
         AttemptPublication,
-        EditModelInput,
+        ChecksResult,
+        EditModelActivityInput,
+        EditQuestionActivityInput,
         EvaluateChecksInput,
-        IngestionWorkflowInput,
         MeasurementsWorkflowInput,
         ReadInputsInput,
-        SetQuestionInput,
+        ReadSourceDataInput,
         StudyInit,
     )
+    from nof1_causal_lab.actions.temporal.source_data_activity import read_source_data_activity
     from nof1_causal_lab.actions.temporal.workflow_support import temporal_failure
-    from nof1_causal_lab.artifacts.data_preparation import FilePreparationSpec
-    from nof1_causal_lab.artifacts.validation_report import (
-        DataProfileArtifact,
-        ValidationReportArtifact,
-    )
+    from nof1_causal_lab.artifacts.posterior import ModelFitResult
     from nof1_causal_lab.study.records import (
         ActionAttempt,
         ActionBase,
@@ -64,15 +64,13 @@ with workflow.unsafe.imports_passed_through():
         AttemptRecord,
         DataPreparationResult,
         EditAttempt,
-        ModelFitResult,
+        EditQuestionAttempt,
         PrepareAttempt,
         Rejected,
-        SetQuestionAttempt,
         StudyRevision,
         failed_attempt,
     )
     from nof1_causal_lab.study.state import validate_lineage
-    from nof1_causal_lab.study.view_models import DataDiffRequest, ModelDiffRequest
 _RUN_ACTION_TIMEOUT = timedelta(hours=4)
 _WRITE_TIMEOUT = timedelta(minutes=5)
 _CHECK_TIMEOUT = timedelta(hours=1)
@@ -87,7 +85,6 @@ _ACTIVITY_RETRY = RetryPolicy(
         "ActionExecutionError",
         "IncompleteModelError",
         "ModelFitError",
-        "ArtifactWriteRejected",
         "StudyLookupError",
     ],
 )
@@ -96,31 +93,34 @@ _JOURNAL_RETRY = RetryPolicy(initial_interval=timedelta(seconds=1), maximum_atte
 
 @workflow.defn
 class StudyWorkflow:
+    """Workspace-scoped workflow serializing scientific calls and tracking their progress."""
+
     @workflow.init
     def __init__(self, init: StudyInit) -> None:
+        """Bind the workspace and starting sequence, then initialize call tracking and serialization."""
         self._workspace_id = init.workspace_id
         self._seq = init.initial_seq
         self._closed = False
         self._lock = asyncio.Lock()
-        self._attempts: dict[UUID, ActionPoll] = {}
+        self._attempts: dict[UUID, CallProgress] = {}
         self._calls: dict[str, UUID] = {}
         self._messages: tuple[ActionMessage, ...] = ()
 
     @workflow.run
     async def run(self, init: StudyInit) -> None:
+        """Keep the initialized study workflow alive until its close signal arrives."""
         del init
         await workflow.wait_condition(lambda: self._closed)
 
     @workflow.update
-    async def execute_action(self, request: ActionRequest) -> ActionPoll:
+    async def execute_action(self, request: ActionRequest) -> CallProgress:
+        """Deduplicate identical calls and execute each new attempt under the workspace lock."""
         identity = call_identity(request.request)
         existing = self.call_progress(identity)
-        if isinstance(existing, RunningPoll) or (
-            isinstance(existing, CompletedPoll) and isinstance(existing.attempt.outcome, Applied)
-        ):
+        if existing is not None:
             return existing
         self._calls[identity] = request.attempt_id
-        self._attempts[request.attempt_id] = RunningPoll(
+        self._attempts[request.attempt_id] = PendingCall(
             attempt_id=request.attempt_id, request=request.request
         )
         async with self._lock:
@@ -128,12 +128,13 @@ class StudyWorkflow:
                 await self._execute_action(request)
             except (ActivityError, ChildWorkflowError) as exc:
                 failure = temporal_failure(exc)
-                progress = self._attempts[request.attempt_id]
-                self._attempts[request.attempt_id] = CompletedPoll(
+                self._attempts[request.attempt_id] = CompletedCall(
+                    attempt_id=request.attempt_id,
+                    seq=self._seq,
                     commit_id=None,
                     attempt=failed_attempt(request.request, failure),
                     messages=(
-                        *progress.messages,
+                        *self._messages,
                         ActionMessage(
                             timestamp=workflow.now(),
                             level="error",
@@ -147,6 +148,7 @@ class StudyWorkflow:
 
     async def _execute_action(self, request: ActionRequest) -> None:
         action = request.request
+        self._seq += 1
         self._messages = (
             ActionMessage(
                 timestamp=workflow.now(), level="info", label=f"{action.action.upper()}_STARTED"
@@ -162,7 +164,6 @@ class StudyWorkflow:
                 retry_policy=_ACTIVITY_RETRY,
             )
         except ActivityError as exc:
-            self._seq += 1
             failure = temporal_failure(exc)
             outcome = (
                 Rejected(reason="input_unavailable", detail=failure.error_message)
@@ -173,13 +174,14 @@ class StudyWorkflow:
             return
         if base.saved is not None:
             saved = base.saved
-            self._attempts[request.attempt_id] = CompletedPoll(
+            self._attempts[request.attempt_id] = CompletedCall(
+                attempt_id=request.attempt_id,
+                seq=saved.record.seq,
                 commit_id=saved.commit_id,
                 attempt=saved.record.attempt,
                 messages=saved.record.messages,
             )
             return
-        self._seq += 1
         seq = self._seq
         lineage = (
             validate_lineage(base.state, action.action)
@@ -192,30 +194,24 @@ class StudyWorkflow:
         if rejection is not None:
             await self._journal(seq, request, base, failed_attempt(action, rejection))
             return
-        model_checks = None
-        profile = None
         try:
-            if isinstance(action, SetQuestionRequest):
+            if isinstance(action, EditQuestionRequest):
                 attempt = await workflow.execute_activity(
-                    "set_question_activity",
-                    SetQuestionInput(workspace_id=self._workspace_id, request=action),
-                    result_type=SetQuestionAttempt,
+                    "edit_question_activity",
+                    EditQuestionActivityInput(workspace_id=self._workspace_id, request=action),
+                    result_type=EditQuestionAttempt,
                     start_to_close_timeout=_WRITE_TIMEOUT,
                     retry_policy=_ACTIVITY_RETRY,
                 )
             elif isinstance(action, EditModelRequest):
                 attempt = await workflow.execute_activity(
                     "edit_model_activity",
-                    EditModelInput(
-                        workspace_id=self._workspace_id, request=action, state=base.state
-                    ),
+                    EditModelActivityInput(workspace_id=self._workspace_id, request=action),
                     result_type=EditAttempt,
                     start_to_close_timeout=_WRITE_TIMEOUT,
                     retry_policy=_ACTIVITY_RETRY,
                 )
-            elif isinstance(action, PrepareDataRequest) and isinstance(
-                action.input, FilePreparationSpec
-            ):
+            elif isinstance(action, PrepareDataRequest):
                 attempt = await self._prepare_files(seq, request, action.input)
             else:
                 attempt = await workflow.execute_activity(
@@ -241,7 +237,7 @@ class StudyWorkflow:
                 self._report_progress(request)
                 if isinstance(action, PrepareDataRequest):
                     assert isinstance(result.result, DataPreparationResult)
-                    profile = await workflow.execute_activity(
+                    evaluated = await workflow.execute_activity(
                         "evaluate_data_checks_activity",
                         EvaluateChecksInput[DataPreparationResult](
                             workspace_id=self._workspace_id,
@@ -249,18 +245,14 @@ class StudyWorkflow:
                             applied=Applied(result=result.result, effects=result.effects),
                             request=action,
                         ),
-                        result_type=DataProfileArtifact,
+                        result_type=ChecksResult,
                         task_queue=MODEL_CHECKS_TASK_QUEUE,
                         start_to_close_timeout=_CHECK_TIMEOUT,
                         retry_policy=_ACTIVITY_RETRY,
                     )
-                    self._messages = (
-                        *self._messages,
-                        *completion_messages(result.result, workflow.now(), (profile,)),
-                    )
                 else:
                     assert result.result is None or isinstance(result.result, ModelFitResult)
-                    model_checks = await workflow.execute_activity(
+                    evaluated = await workflow.execute_activity(
                         evaluate_model_checks_activity,
                         EvaluateChecksInput[ModelFitResult | None](
                             workspace_id=self._workspace_id,
@@ -272,42 +264,32 @@ class StudyWorkflow:
                         start_to_close_timeout=_CHECK_TIMEOUT,
                         retry_policy=_ACTIVITY_RETRY,
                     )
-                    checks, identification, validation = model_checks
-                    reports = (
-                        (identification, validation)
-                        if validation is not None
-                        else (identification,)
+                self._messages = (*self._messages, *evaluated.messages)
+                attempt = attempt.revised(
+                    outcome=result.revised(
+                        effects=result.effects.revised(
+                            reports={**result.effects.reports, **evaluated.reports}
+                        )
                     )
-                    self._messages = (
-                        *self._messages,
-                        *completion_messages(result.result, workflow.now(), reports, checks=checks),
-                    )
+                )
         except (ActivityError, ChildWorkflowError) as exc:
             attempt = failed_attempt(action, temporal_failure(exc))
-        await self._journal(
-            seq, request, base, attempt, model_checks=model_checks, data_profile=profile
-        )
+        await self._journal(seq, request, base, attempt)
 
     async def _prepare_files(
-        self, seq: int, request: ActionRequest, preparation: FilePreparationSpec
+        self, seq: int, request: ActionRequest, preparation: PrepareDataInput[GitOid, FileSourceRef]
     ) -> PrepareAttempt:
         assert isinstance(request.request, PrepareDataRequest)
         memo = {"workspace_id": self._workspace_id, "seq": seq, "action": "prepare_data"}
-        ingested = await workflow.execute_child_workflow(
-            "IngestionWorkflow",
-            IngestionWorkflowInput(
-                workspace_id=self._workspace_id,
-                seq=seq,
-                attempt_id=request.attempt_id,
-                source=preparation.source,
-            ),
-            id=f"raw-data-{self._workspace_id}-{seq:06d}",
-            result_type=Applied[DataPreparationResult],
-            execution_timeout=_RUN_ACTION_TIMEOUT,
-            static_summary="Prepare source data",
-            memo=memo,
+        raw_data = await workflow.execute_activity(
+            read_source_data_activity,
+            ReadSourceDataInput(workspace_id=self._workspace_id, source=preparation.source),
+            start_to_close_timeout=_WRITE_TIMEOUT,
+            retry_policy=_ACTIVITY_RETRY,
+            summary="Read source tables",
         )
-        (raw_data,) = ingested.effects.produced
+        if isinstance(raw_data, Rejected):
+            return PrepareAttempt(action="prepare_data", request=request.request, outcome=raw_data)
         extracted = await workflow.execute_child_workflow(
             "MeasurementsWorkflow",
             MeasurementsWorkflowInput(
@@ -327,39 +309,39 @@ class StudyWorkflow:
             action="prepare_data",
             request=request.request,
             outcome=Applied(
-                result=DataPreparationResult(
-                    workers=extracted.result.workers,
-                    ingestion_reused=ingested.result.ingestion_reused,
-                    extraction_reused=extracted.result.extraction_reused,
-                ),
-                effects=ActionEffects(
-                    produced=(*ingested.effects.produced, *extracted.effects.produced)
-                ),
+                result=extracted.result,
+                effects=ActionEffects(produced=(raw_data, *extracted.effects.produced)),
             ),
         )
 
     @workflow.signal
     def close(self) -> None:
+        """Signal that the study workflow may finish waiting and close."""
         self._closed = True
 
     @workflow.query
-    def action_progress(self, attempt_id: UUID) -> ActionPoll | None:
+    def action_progress(self, attempt_id: UUID) -> CallProgress | None:
+        """Return the latest state for an attempt, or ``None`` if this workflow has not seen it."""
         return self._attempts.get(attempt_id)
 
     @workflow.query
-    def call_progress(self, identity: str) -> ActionPoll | None:
+    def call_progress(self, identity: str) -> CallProgress | None:
+        """Resolve a call identity to its latest attempt state, or ``None`` for an unknown call."""
         attempt_id = self._calls.get(identity)
         return self._attempts.get(attempt_id) if attempt_id is not None else None
 
     def _report_progress(self, request: ActionRequest) -> None:
-        self._attempts[request.attempt_id] = RunningPoll(
-            attempt_id=request.attempt_id, request=request.request, messages=self._messages
+        self._attempts[request.attempt_id] = RunningCall(
+            attempt_id=request.attempt_id,
+            seq=self._seq,
+            request=request.request,
+            messages=self._messages,
         )
         workflow.upsert_memo(
             {
-                RUNNING_ACTION_MEMO: RunningAction(
+                RUNNING_ACTION_MEMO: RunningCall(
                     attempt_id=request.attempt_id,
-                    action=request.request.action,
+                    seq=self._seq,
                     request=request.request,
                     messages=self._messages,
                 )
@@ -372,10 +354,6 @@ class StudyWorkflow:
         request: ActionRequest,
         base: ActionBase | None,
         attempt: ActionAttempt,
-        *,
-        model_checks: tuple[ModelCheckReport, IdentificationReport, ValidationReportArtifact | None]
-        | None = None,
-        data_profile: DataProfileArtifact | None = None,
     ) -> None:
         outcome = attempt.outcome
         label = (
@@ -405,14 +383,14 @@ class StudyWorkflow:
                     attempt=attempt,
                     messages=messages,
                 ),
-                model_checks=model_checks,
-                data_profile=data_profile,
             ),
             result_type=StudyRevision,
             start_to_close_timeout=_JOURNAL_TIMEOUT,
             retry_policy=_JOURNAL_RETRY,
         )
-        self._attempts[request.attempt_id] = CompletedPoll(
+        self._attempts[request.attempt_id] = CompletedCall(
+            attempt_id=request.attempt_id,
+            seq=revision.record.seq,
             commit_id=revision.commit_id,
             attempt=revision.record.attempt,
             messages=revision.record.messages,

@@ -8,6 +8,7 @@ import subprocess
 from typing import override
 
 import pytest
+
 from scripts.checks import check_fields as checker
 
 pytestmark = pytest.mark.contract
@@ -189,18 +190,16 @@ TypeAdapter(Record).validate_python(external_input)
     producers, open_fields = checker.producer_inventory(fields, (source,), server)
     by_name = {field.identity: field for field in fields}
     assert "domain.Closed.count" not in open_fields
-    assert (
-        checker.constructor_constants(
-            by_name["domain.Closed.count"], producers["domain.Closed.count"], server
-        )[0]
-        == "0"
+    count = checker.constructor_constants(
+        by_name["domain.Closed.count"], producers["domain.Closed.count"], server
     )
-    assert (
-        checker.constructor_constants(
-            by_name["domain.Closed.method"], producers["domain.Closed.method"], server
-        )[0]
-        == "'exact'"
+    method = checker.constructor_constants(
+        by_name["domain.Closed.method"], producers["domain.Closed.method"], server
     )
+    assert count is not None
+    assert count[0] == "0"
+    assert method is not None
+    assert method[0] == "'exact'"
     assert {
         "domain.Record.method",
         "domain.Record.count",

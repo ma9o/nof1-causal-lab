@@ -53,6 +53,8 @@ def _typescript_type(value: Any) -> str:
         if len(args) == 2 and args[1] is Ellipsis:
             return f"readonly ({_typescript_type(args[0])})[]"
         return f"readonly [{', '.join(map(_typescript_type, args))}]"
+    if isinstance(value, type) and issubclass(value, str) and value is not str:
+        return value.__name__
     return {
         str: "string",
         int: "number",
@@ -141,6 +143,8 @@ class ContractJsonSchema(GenerateJsonSchema):
             )
             assert target is not None
             target["x-typescript-type"] = reference
+            # Validation-only specializations need not receive an "-Input" suffix.
+            target["x-typescript-mode"] = self.mode
         return result
 
 
@@ -167,6 +171,7 @@ CONCERNS = {
             "artifacts.evidence",
             "artifacts.indicator",
             "artifacts.data_preparation",
+            "artifacts.data_ref",
             "artifacts.observations",
             "artifacts.predictive_provenance",
             "artifacts.likelihood",
@@ -206,6 +211,7 @@ CONCERNS = {
             "study.store",
             "study.records",
             "actions.progress_contracts",
+            "actions.logs",
         ),
     ),
     "read_models": (
@@ -218,6 +224,7 @@ CONCERNS = {
             "study_api",
             "actions.contracts",
             "actions.results",
+            "actions.io",
             "actions.revisions",
             "actions.data_diff",
             "tool_server",
@@ -235,7 +242,9 @@ ROLE_SENTENCES = {
     "Evaluation": "An evaluation produces an available result, an unavailable reason, or an explicit non-applicable state.",
     "ParameterDraws": "Every retained parameter coordinate is available without thinning or pair selection, or has an explicit unavailable reason.",
     "PredictiveComparisonResult": "A predictive comparison selects one reference history or records why no reference comparison applies.",
-    "ActionPoll": "A call returns running arguments, messages and progress, or its complete saved outcome and scientific views.",
+    "ActionPoll": "A call returns its identity, publication status, scientific body, and accumulated execution messages.",
+    "ActionSuccess": "A successful call pairs its action with that action's scientific result body.",
+    "ExecutionMessage": "An execution message retains a lifecycle entry, structured progress, an LLM trace, or failure details.",
     "ActionAttempt": "A closed action attempt pairs its request with only that action's successful result or failure outcome.",
     "ActionBody": "An action result carries its owned scientific payload before Git publication.",
     "FailedOutcome": "A failed outcome is an expected rejection or an opaque execution failure.",
@@ -269,7 +278,6 @@ ROLE_SENTENCES = {
     "QuestionSubject": "A question check subject names the outcome, one query's window, or one query's intervention target.",
     "QuestionAssessment": "A question assessment records one check of the question against the model or the record.",
     "SimulationReport": "A simulation report records forward histories, resolved execution settings, and certified effects when supported.",
-    "Sourced": "A sourced value pairs one model finding with its supporting artifact revision.",
 }
 
 ALIAS_MODULES = {
@@ -389,6 +397,3 @@ def annotate_definitions(definitions: dict[str, dict[str, JsonValue]]) -> None:
         definition["x-concern"] = _concern_for(canonical, module)
         if canonical in ROLE_SENTENCES:
             definition["description"] = ROLE_SENTENCES[canonical]
-        # Pydantic's specialized Sourced[T] definitions do not carry its docstring.
-        if module.endswith("study.snapshot_models") and name.startswith("Sourced_"):
-            definition["description"] = ROLE_SENTENCES["Sourced"]

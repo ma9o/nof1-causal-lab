@@ -8,7 +8,7 @@ declare const value: Readonly<{
       Record<
         string,
         Pick<
-          Domain.ModelDiffReport,
+          Domain.ModelDiffOutput,
           | "constructs"
           | "edges"
           | "before_dispositions"

@@ -1,7 +1,7 @@
-import { createModelClient } from "@nof1-causal-lab/api-types";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createModelClient, type TimelineRevision } from "@nof1-causal-lab/api-types";
+import { beforeEach, expect, it, vi } from "vitest";
 import { fixtureValue } from "@/components/__fixtures__/fixture-value";
-import { callAction, uploadFile } from "./endpoints";
+import { getLLMTraceForAction, readActionResult } from "./endpoints";
 
 const { fetcher } = vi.hoisted(() => ({
   fetcher: vi.fn<(request: Request) => Promise<Response>>(),
@@ -11,49 +11,82 @@ vi.mock("./client", () => ({
 }));
 beforeEach(() => fetcher.mockReset());
 
-it("submits a model comparison with its reasoning through the action route", async () => {
-  const request = {
-    action: "model_diff" as const,
-    before: "1".repeat(40),
-    after: "2".repeat(40),
-    reasoning: "Compare the revised assumptions before fitting.",
-  };
-  const result = {
-    kind: "running",
-    attempt_id: "0f17a770-5d1e-4c2b-9a3f-6b8e2d4c1a90",
-    request,
+const comparison: TimelineRevision = {
+  call_id: `call:${"3".repeat(64)}`,
+  commit_id: "3".repeat(40),
+  parent_ids: [],
+  record: {
+    seq: 1,
+    ts: "2026-10-06T12:00:00Z",
     messages: [],
-    events: [],
+    trace_ids: [],
+    attempt: {
+      action: "model_diff",
+      request: {
+        action: "model_diff",
+        input: { before_ref: "1".repeat(40), after_ref: "2".repeat(40) },
+        reasoning: "Compare the revised assumptions before fitting.",
+      },
+      outcome: {
+        status: "applied",
+        result: null,
+        effects: { produced: [], retracted: [], reports: { "model-diff": "4".repeat(40) } },
+      },
+    },
+  },
+};
+
+it("reads a recorded comparison by call ID without submitting inputs", async () => {
+  const result = {
+    call_id: comparison.call_id,
+    action: "model_diff",
+    status: "success",
+    commit_id: comparison.commit_id,
+    body: {},
+    messages: [],
   };
   fetcher.mockResolvedValue(Response.json(result));
-  expect(await callAction("user-1", request)).toEqual(result);
+  expect(await readActionResult("user-1", comparison)).toEqual(result);
   const [call] = fixtureValue(fetcher.mock.calls.at(0));
-  expect(call.url).toBe("http://viewer/api/studies/user-1/model_diff");
-  expect(call.method).toBe("POST");
-  expect(await call.json()).toEqual(request);
+  expect(decodeURIComponent(call.url)).toBe(
+    `http://viewer/api/studies/user-1/model_diff/${comparison.call_id}`,
+  );
+  expect(call.method).toBe("GET");
+  expect(await call.text()).toBe("");
 });
 
-describe("uploadFile", () => {
-  it("sends a multipart body with its filename and workspace", async () => {
-    fetcher.mockResolvedValue(Response.json("user-1/input/test.json"));
-    const file = new File(["content"], "test.json", { type: "application/json" });
-    expect(await uploadFile(file, "user-1")).toEqual("user-1/input/test.json");
-    const [request] = fixtureValue(fetcher.mock.calls.at(0));
-    expect(request.url).toBe("http://viewer/api/upload");
-    expect(request.method).toBe("POST");
-    expect(request.headers.get("Content-Type")).toContain("multipart/form-data; boundary=");
-    const form = await request.formData();
-    expect(form.get("workspaceId")).toBe("user-1");
-    const uploaded = form.get("file");
-    if (!(uploaded instanceof File)) throw new Error("Missing uploaded file");
-    expect(uploaded.name).toBe(file.name);
-    expect(await uploaded.text()).toBe("content");
-  });
+it("rejects a historical entry without a call ID before reading", async () => {
+  await expect(readActionResult("user-1", { ...comparison, call_id: null })).rejects.toThrow(
+    "This historical attempt has no retained call identity",
+  );
+  expect(fetcher).not.toHaveBeenCalled();
+});
 
-  it("throws on upload failure", async () => {
-    fetcher.mockResolvedValue(Response.json({ detail: "Too large" }, { status: 413 }));
-    await expect(uploadFile(new File(["x"], "big.json"), "user-1")).rejects.toThrow(
-      "Upload failed: 413",
-    );
-  });
+it("reports unavailable saved results without retrying execution", async () => {
+  fetcher.mockResolvedValue(Response.json({ status: "running" }));
+  await expect(readActionResult("user-1", comparison)).rejects.toThrow(
+    "The saved successful call is unavailable",
+  );
+  expect(fetcher).toHaveBeenCalledTimes(1);
+});
+
+it("reads retained traces from a failed call's messages", async () => {
+  const trace = {
+    messages: [{ role: "assistant", content: "Inspecting the observations." }],
+    model: "test",
+    total_time_seconds: 1,
+    usage: { input_tokens: 3, output_tokens: 5, reasoning_tokens: null },
+  };
+  fetcher.mockResolvedValue(
+    Response.json({
+      call_id: comparison.call_id,
+      action: "model_diff",
+      status: "failed",
+      commit_id: comparison.commit_id,
+      body: null,
+      messages: [{ kind: "trace", timestamp: comparison.record.ts, trace_id: "worker", trace }],
+    }),
+  );
+  expect(await getLLMTraceForAction("user-1", comparison, ["worker"])).toEqual(trace);
+  expect(fixtureValue(fetcher.mock.calls[0])[0].method).toBe("GET");
 });

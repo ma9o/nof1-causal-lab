@@ -254,7 +254,13 @@ def test_exact_window_mean_constrains_the_summary_without_pinning_the_path():
     )
     assert compiled.observation_operator is not None
     assert compiled.mean_log_prob_fn is not None
-    assert compiled.interval_summary_sampler is not None
+    from nof1_causal_lab.models.ssm.execution.observation_dispatch import (
+        build_interval_summary_sampler,
+    )
+
+    sampler = build_interval_summary_sampler(
+        observation_laws([DistributionFamily.DELTA], None, None), covariance, (0,)
+    )
     for path in ([[0.0], [4.0]], [[4.0], [0.0]], [[2.0], [2.0]]):
         means, mask = compiled.observation_operator.project_response_trajectory(jnp.array(path))
         np.testing.assert_array_equal(mask, [[0.0], [1.0]])
@@ -263,7 +269,7 @@ def test_exact_window_mean_constrains_the_summary_without_pinning_the_path():
         assert jnp.isneginf(
             compiled.mean_log_prob_fn(jnp.array([3.0]), means[-1], covariance, mask[-1])
         )
-        draws = compiled.interval_summary_sampler.sample_mean_trajectory(jax.random.key(0), means)
+        draws = sampler.sample_mean_trajectory(jax.random.key(0), means)
         np.testing.assert_array_equal(draws, means)
 
 

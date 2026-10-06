@@ -103,7 +103,6 @@ def joint_law_layout(
     parameters: Collection[ParameterId],
     constructs: Collection[ConstructId],
     time_points: Sequence[float],
-    construct_labels: Mapping[ConstructId, str],
 ) -> JointLawLayout:
     """Establish scientific coordinates and display labels once at production."""
     by_id = {binding.parameter_id: binding for binding in bindings}
@@ -113,7 +112,6 @@ def joint_law_layout(
             (identity, tuple(sorted(by_id[identity].coordinates))) for identity in members
         ),
         constructs=tuple(sorted(constructs)),
-        construct_labels=construct_labels,
         time_points=tuple(float(value) for value in time_points),
         labels={
             element: label

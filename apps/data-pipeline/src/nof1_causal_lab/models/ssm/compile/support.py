@@ -145,19 +145,23 @@ def _build_static_factor_structure(
 
 
 def state_ids(selection: StructuralSelection) -> tuple[ConstructId, ...]:
+    """Return retained construct IDs in the selection's execution-state order."""
     return selected_state_ids(selection)
 
 
 def state_names(selection: StructuralSelection) -> tuple[str, ...]:
+    """Return state display labels in the same order as the compiled state axis."""
     model = selection.model
     return tuple(model.get_construct(identity).name for identity in state_ids(selection))
 
 
 def n_states(selection: StructuralSelection) -> int:
+    """Count the construct coordinates retained on the compiled state axis."""
     return len(state_ids(selection))
 
 
 def observed_indicators(selection: StructuralSelection) -> tuple[IndicatorSpec, ...]:
+    """Return model-owned indicators in the selection's compiled observation order."""
     model = selection.model
     return tuple(
         model.indicator(identity)
@@ -168,14 +172,17 @@ def observed_indicators(selection: StructuralSelection) -> tuple[IndicatorSpec, 
 
 
 def observation_ids(selection: StructuralSelection) -> tuple[IndicatorId, ...]:
+    """Return stable observation IDs in compiled indicator order."""
     return tuple(indicator.observation.id for indicator in observed_indicators(selection))
 
 
 def observation_names(selection: StructuralSelection) -> tuple[str, ...]:
+    """Return observation display labels in compiled indicator order."""
     return tuple(indicator.observation.name for indicator in observed_indicators(selection))
 
 
 def n_observations(selection: StructuralSelection) -> int:
+    """Count observation channels in the compiled selection, not recorded rows."""
     return len(observed_indicators(selection))
 
 
@@ -189,10 +196,12 @@ def _likelihoods(selection: StructuralSelection) -> Iterator[LikelihoodSpec]:
 
 
 def observation_families(selection: StructuralSelection) -> tuple[DistributionFamily, ...]:
+    """Return each selected observation's likelihood family in compiled indicator order."""
     return tuple(likelihood.law.family for likelihood in _likelihoods(selection))
 
 
 def observation_level_counts(selection: StructuralSelection) -> tuple[int, ...]:
+    """Count declared levels for ordinal and categorical observations, using zero otherwise."""
     return tuple(
         len(indicator.observation.ordinal_levels or indicator.observation.categorical_levels or ())
         if indicator.likelihood is not None
@@ -314,6 +323,7 @@ def _quantity_values(
 
 
 def loading_block(selection: StructuralSelection) -> SparseBlockSpec[tuple[int, int]]:
+    """Compile the observation-by-state loading template and its free coefficient positions."""
     shape = (n_observations(selection), n_states(selection))
     template, support = _quantity_values(
         selection, SiteKind.LOADING, np.zeros(shape), np.zeros(shape, dtype=bool)
@@ -331,6 +341,7 @@ def loading_block(selection: StructuralSelection) -> SparseBlockSpec[tuple[int, 
 
 
 def observation_mean_block(selection: StructuralSelection) -> SparseBlockSpec[int]:
+    """Compile active observation intercepts, rejecting free intercepts unused by their laws."""
     inactive = [
         indicator.observation.name
         for indicator in observed_indicators(selection)
@@ -369,6 +380,7 @@ def observation_mean_block(selection: StructuralSelection) -> SparseBlockSpec[in
 
 
 def observation_noise_block(selection: StructuralSelection) -> ManifestCholBlockSpec:
+    """Compile the observation-noise template and free diagonal scale positions."""
     n = n_observations(selection)
     template, support = _quantity_values(
         selection,
@@ -383,6 +395,7 @@ def observation_noise_block(selection: StructuralSelection) -> ManifestCholBlock
 
 
 def time_invariant_mask(selection: StructuralSelection) -> np.ndarray:
+    """Mark compiled state coordinates whose constructs are time-invariant."""
     model = selection.model
     return np.asarray(
         [
@@ -403,6 +416,7 @@ def input_mask(selection: StructuralSelection) -> np.ndarray:
 
 
 def diffusion_families(selection: StructuralSelection) -> tuple[DistributionFamily, ...]:
+    """Resolve innovation families, requiring diffusion scales for dynamic endogenous states."""
     from nof1_causal_lab.distributions import DistributionFamily
 
     model = selection.model
@@ -419,6 +433,7 @@ def diffusion_families(selection: StructuralSelection) -> tuple[DistributionFami
 
 
 def diffusion_block(selection: StructuralSelection) -> DiffusionBlockSpec:
+    """Compile diffusion Cholesky support, including induced correlations and zero static rows."""
     count = n_states(selection)
     support = np.eye(count, dtype=bool)
     axis = {identity: index for index, identity in enumerate(state_ids(selection))}
@@ -446,6 +461,7 @@ def diffusion_block(selection: StructuralSelection) -> DiffusionBlockSpec:
 
 
 def initial_mean_block(selection: StructuralSelection) -> SparseBlockSpec[int]:
+    """Compile fixed and free initial-state mean coordinates in state-axis order."""
     support = np.zeros(n_states(selection), dtype=bool)
     template, support = _quantity_values(
         selection, SiteKind.T0_MEANS, np.zeros(n_states(selection)), support
@@ -463,6 +479,7 @@ def initial_mean_block(selection: StructuralSelection) -> SparseBlockSpec[int]:
 
 
 def initial_covariance_block(selection: StructuralSelection) -> T0CholBlockSpec:
+    """Compile initial-state scales and correlations into a Cholesky template with fixed inputs."""
     count = n_states(selection)
     support = np.zeros(count, dtype=bool)
     std, support = _quantity_values(selection, SiteKind.T0_VAR_DIAG, np.ones(count), support)
@@ -482,12 +499,14 @@ def initial_covariance_block(selection: StructuralSelection) -> T0CholBlockSpec:
 
 
 def static_factor_ids(selection: StructuralSelection) -> tuple[ConstructId, ...]:
+    """Return the representative construct identity for each compiled baseline-factor group."""
     from nof1_causal_lab.models.model_parameters import baseline_factor_groups
 
     return tuple(group[0].id for group in baseline_factor_groups(selection))
 
 
 def static_factor_names(selection: StructuralSelection) -> tuple[str, ...]:
+    """Label baseline factors from their initial-scale parameters or owning constructs."""
     model = selection.model
     names = []
     for identity in static_factor_ids(selection):
@@ -501,10 +520,12 @@ def static_factor_names(selection: StructuralSelection) -> tuple[str, ...]:
 
 
 def static_factor_loadings(selection: StructuralSelection) -> jnp.ndarray:
+    """Build the state-by-factor loadings used to represent marginalized static effects."""
     return jnp.asarray(_build_static_factor_structure(selection, state_names(selection))[2])
 
 
 def static_scale_block(selection: StructuralSelection) -> SparseBlockSpec[int]:
+    """Compile positive baseline-factor scales and their free parameter positions."""
     n = len(static_factor_ids(selection))
     values, support = _quantity_values(
         selection, SiteKind.STATIC_STATE_SD, np.zeros(n), np.ones(n, dtype=bool)
@@ -522,12 +543,14 @@ def static_scale_block(selection: StructuralSelection) -> SparseBlockSpec[int]:
 
 
 def dynamics_expressions(selection: StructuralSelection) -> tuple[ExpressionComponentSpec, ...]:
+    """Lower authored dynamics mechanisms into executable symbolic component specifications."""
     from nof1_causal_lab.models.ssm.compile.mechanisms import lower_mechanisms
 
     return lower_mechanisms(selection)
 
 
 def dynamics_components(selection: StructuralSelection) -> DynamicsSpec:
+    """Pair lowered dynamics components with their shared compiled state dimension."""
     return DynamicsSpec(n_latent=n_states(selection), components=dynamics_expressions(selection))
 
 
@@ -542,6 +565,15 @@ def parameter_blocks(
     T0CholBlockSpec,
     SparseBlockSpec[int],
 ]:
+    """Compile all parameter blocks in the order expected by SSM assembly.
+
+    Args:
+        selection: Scientific model and outcome determining the execution structure.
+
+    Returns:
+        Diffusion, loadings, observation means, observation noise, initial means,
+        initial covariance, and static-factor scale blocks, in that order.
+    """
     return (
         diffusion_block(selection),
         loading_block(selection),

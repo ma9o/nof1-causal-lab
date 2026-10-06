@@ -21,6 +21,15 @@ from .duration import Duration
 from .identity import IndicatorId
 
 
+class ObservationDefinitionSpec(Value):
+    """Measurement meaning, independent of variable identity and display spelling."""
+
+    measurement_dtype: MeasurementDtype
+    aggregation: SummaryOperator
+    levels: tuple[str, ...]
+    window_seconds: int
+
+
 class ObservationSpec[WindowT: Duration | None](Value):
     """A stable observed variable, reusable across scientific model definitions."""
 
@@ -74,9 +83,34 @@ class ObservationSpec[WindowT: Duration | None](Value):
             categorical_levels=self.categorical_levels,
         )
 
+    @property
+    def definition(self: ObservationSpec[Duration]) -> ObservationDefinitionSpec:
+        """Resolved measurement equality; codebook order remains scientifically meaningful."""
+        codebooks = (
+            ("ordinal", self.ordinal_levels),
+            ("categorical", self.categorical_levels),
+        )
+        return ObservationDefinitionSpec(
+            measurement_dtype=self.measurement_dtype,
+            aggregation=self.aggregation,
+            levels=tuple(
+                level
+                for dtype, levels in codebooks
+                if dtype == self.measurement_dtype and levels is not None
+                for level in levels
+            ),
+            window_seconds=self.observation_window.seconds,
+        )
+
     @model_validator(mode="after")
     def validate_discrete_levels(self) -> Self:
         """Require at least two unique labels for ordinal and categorical indicators."""
+        for dtype, levels in (
+            ("ordinal", self.ordinal_levels),
+            ("categorical", self.categorical_levels),
+        ):
+            if levels is not None and self.measurement_dtype != dtype:
+                raise ValueError(f"{dtype}_levels requires measurement_dtype={dtype!r}")
         if self.measurement_dtype not in {"ordinal", "categorical"}:
             return self
 

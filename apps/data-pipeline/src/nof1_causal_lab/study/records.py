@@ -2,99 +2,65 @@
 
 from __future__ import annotations
 
-from typing import TYPE_CHECKING, Annotated, Literal, Self
+from typing import TYPE_CHECKING, Annotated, Literal, Self, cast
 from uuid import UUID
 
 from pydantic import AwareDatetime, Field
 
 from nof1_causal_lab.actions.contracts import (
+    DataDiffRequest,
     EditModelRequest,
+    EditQuestionRequest,
     FitRequest,
+    ModelDiffRequest,
     PrepareDataRequest,
     ScientificActionRequest,
-    SetQuestionRequest,
     SimulateRequest,
 )
 from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.artifacts.base import Value
-from nof1_causal_lab.artifacts.data_preparation import SimulationReplicateRef
-from nof1_causal_lab.artifacts.identity import GitOid, GitRef
-from nof1_causal_lab.artifacts.posterior import InferenceEvidence
-from nof1_causal_lab.artifacts.simulation import SimulationEvidence
+from nof1_causal_lab.artifacts.data_preparation import ExtractionWorkerResult, FileSourceRef
+from nof1_causal_lab.artifacts.identity import GitOid
+from nof1_causal_lab.artifacts.posterior import ModelFitResult
+from nof1_causal_lab.artifacts.simulation import ModelSimulationResult
 from nof1_causal_lab.study.state import StudyState
-from nof1_causal_lab.study.view_models import (
-    DataDiffRequest,
-    ModelDiffRequest,
-    PanelRef,
-    SimulationRef,
-)
 
 if TYPE_CHECKING:
     from collections.abc import Iterable, Sequence
+
+    from nof1_causal_lab.artifacts.data_ref import DataRef
 
 
 class ActionMessage(Value):
     """A label emitted by an attempt; measurements belong in its scientific result."""
 
+    kind: Literal["log"] = "log"
     timestamp: AwareDatetime
     level: Literal["debug", "info", "warn", "error"]
     label: str = Field(pattern=r"^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$")
-
-
-class _ExtractionWorkerMeasurements(Value):
-    """Retained extraction measurements, independent of a transient result-file path."""
-
-    worker_id: int
-    n_extractions: int
-    n_windows: int
-
-
-class CompletedExtractionWorker(_ExtractionWorkerMeasurements):
-    """Retained measurements from a completed worker; no failure field exists."""
-
-    status: Literal["completed"] = "completed"
-
-
-class FailedExtractionChunk(_ExtractionWorkerMeasurements):
-    """An extraction failure with its error and no usable result-file reference."""
-
-    status: Literal["failed"] = "failed"
-    error: str
-    n_llm_calls: int | None = 0
-    reused: bool | None = False
-
-
-type ExtractionWorkerResult = Annotated[
-    CompletedExtractionWorker | FailedExtractionChunk, Field(discriminator="status")
-]
 
 
 class DataPreparationResult(Value):
     """Preparation artifacts and the measurements actually retained by extraction."""
 
     workers: tuple[ExtractionWorkerResult, ...] = ()
-    ingestion_reused: bool | None = None
     extraction_reused: int | None = None
 
 
-class ModelFitResult(Value):
-    """Fit inputs and native telemetry; current reports are derived from its atoms."""
-
-    model: GitRef
-    panel: GitRef
-    evidence: InferenceEvidence
-
-
-class ModelSimulationResult(Value):
-    """The exact generated histories retained by one simulation."""
-
-    evidence: SimulationEvidence
-
-
 class Applied[ResultT](Value):
-    status: Literal["applied"] = "applied"
-    result: ResultT
-    effects: ActionEffects
+    """A successful action result and the artifact changes it proposes to publish."""
+
+    status: Literal["applied"] = Field(
+        default="applied", description="Discriminator identifying an applied outcome."
+    )
+    result: ResultT = Field(
+        description=(
+            "Action-specific retained result; some actions publish only effects and use null here."
+        )
+    )
+    effects: ActionEffects = Field(
+        description="Produced and retracted artifacts and retained report references."
+    )
 
 
 type RejectionReason = Literal[
@@ -103,17 +69,36 @@ type RejectionReason = Literal[
 
 
 class Rejected(Value):
-    status: Literal["rejected"] = "rejected"
-    reason: RejectionReason
-    detail: str
+    """An expected refusal to execute or publish a scientific request."""
+
+    status: Literal["rejected"] = Field(
+        default="rejected", description="Discriminator identifying a rejected outcome."
+    )
+    reason: RejectionReason = Field(
+        description=(
+            "Machine-readable category used to distinguish input, science, and "
+            "revision-conflict rejections."
+        )
+    )
+    detail: str = Field(
+        description="Explanation of the specific condition that prevented application."
+    )
 
 
 class Raised(Value):
-    status: Literal["raised"] = "raised"
-    error_type: str
-    error_message: str
+    """An unexpected execution failure retained as part of an attempt."""
+
+    status: Literal["raised"] = Field(
+        default="raised", description="Discriminator identifying an exception outcome."
+    )
+    error_type: str = Field(
+        description="Exception or external failure type reported by the execution boundary."
+    )
+    error_message: str = Field(description="Human-readable failure explanation.")
     # Foreign failure payloads are retained as opaque text, never scientific inputs.
-    details: tuple[str, ...] = ()
+    details: tuple[str, ...] = Field(
+        default=(), description="Opaque external failure details retained for diagnosis."
+    )
 
 
 type FailedOutcome = Rejected | Raised
@@ -124,22 +109,26 @@ class Attempt[ActionT: str, RequestT: Value, ResultT](Value):
 
     action: ActionT
     request: RequestT | None = Field(
-        description="Parsed arguments, or null for a historical attempt whose arguments were not retained"
+        description=(
+            "Parsed arguments, or null for a historical attempt whose arguments were not retained"
+        )
     )
     outcome: Annotated[Applied[ResultT] | Rejected | Raised, Field(discriminator="status")]
 
 
-SetQuestionAttempt = Attempt[Literal["set_question"], SetQuestionRequest, None]
-EditAttempt = Attempt[Literal["edit_model"], EditModelRequest, None]
-PrepareAttempt = Attempt[Literal["prepare_data"], PrepareDataRequest, DataPreparationResult]
-FitAttempt = Attempt[Literal["fit"], FitRequest, ModelFitResult | None]
-SimulateAttempt = Attempt[Literal["simulate"], SimulateRequest, ModelSimulationResult]
-DataDiffAttempt = Attempt[Literal["data_diff"], DataDiffRequest, None]
-ModelDiffAttempt = Attempt[Literal["model_diff"], ModelDiffRequest, None]
+EditQuestionAttempt = Attempt[Literal["edit_question"], EditQuestionRequest, None]
+EditAttempt = Attempt[Literal["edit_model"], EditModelRequest[GitOid], None]
+PrepareAttempt = Attempt[
+    Literal["prepare_data"], PrepareDataRequest[GitOid, FileSourceRef], DataPreparationResult
+]
+FitAttempt = Attempt[Literal["fit"], FitRequest[GitOid], ModelFitResult | None]
+SimulateAttempt = Attempt[Literal["simulate"], SimulateRequest[GitOid], ModelSimulationResult]
+DataDiffAttempt = Attempt[Literal["data_diff"], DataDiffRequest[GitOid], None]
+ModelDiffAttempt = Attempt[Literal["model_diff"], ModelDiffRequest[GitOid], None]
 
 
 type ActionAttempt = Annotated[
-    SetQuestionAttempt
+    EditQuestionAttempt
     | EditAttempt
     | PrepareAttempt
     | FitAttempt
@@ -151,11 +140,19 @@ type ActionAttempt = Annotated[
 
 
 class AttemptMetadata(Value):
-    seq: int
-    attempt_id: UUID | None = None
-    ts: str
-    messages: tuple[ActionMessage, ...] = ()
-    trace_ids: tuple[str, ...] = ()
+    """Sequence, timing, and log references attached to a published attempt."""
+
+    seq: int = Field(description="Attempt's position in the study journal.")
+    attempt_id: UUID | None = Field(
+        default=None, description="Execution identity used for progress tracking, when retained."
+    )
+    ts: str = Field(description="Recorded attempt timestamp.")
+    messages: tuple[ActionMessage, ...] = Field(
+        default=(), description="Structured action messages emitted during execution."
+    )
+    trace_ids: tuple[str, ...] = Field(
+        default=(), description="References identifying the retained execution traces."
+    )
 
 
 class AttemptRecord(AttemptMetadata):
@@ -164,6 +161,7 @@ class AttemptRecord(AttemptMetadata):
     attempt: ActionAttempt
 
     def with_logs(self, *, messages: tuple[ActionMessage, ...], trace_ids: tuple[str, ...]) -> Self:
+        """Return a record with replacement messages and trace references, preserving the attempt."""
         return self.revised(messages=messages, trace_ids=trace_ids)
 
 
@@ -176,21 +174,23 @@ class StudyRevision(Value):
 
 
 class RecordDependency(Value):
-    seq: int
-    source_seq: int
-    argument: str
-    check: bool = Field(
-        description="Only the action's checks read the output; its request did not name it."
+    """A journal dependency linking a call argument to the attempt that first published its input."""
+
+    seq: int = Field(description="Sequence number of the consuming attempt.")
+    source_seq: int = Field(
+        description="Earlier sequence number that published the selected input."
     )
+    argument: str = Field(description="Input reference field name with its `_ref` suffix removed.")
 
 
 def failed_attempt(
-    request: ScientificActionRequest | DataDiffRequest | ModelDiffRequest, outcome: FailedOutcome
+    request: ScientificActionRequest | DataDiffRequest[GitOid] | ModelDiffRequest[GitOid],
+    outcome: FailedOutcome,
 ) -> ActionAttempt:
     """Close the action/request relation for a rejection or execution failure."""
     match request:
-        case SetQuestionRequest():
-            return SetQuestionAttempt(action="set_question", request=request, outcome=outcome)
+        case EditQuestionRequest():
+            return EditQuestionAttempt(action="edit_question", request=request, outcome=outcome)
         case EditModelRequest():
             return EditAttempt(action="edit_model", request=request, outcome=outcome)
         case PrepareDataRequest():
@@ -207,14 +207,15 @@ def failed_attempt(
 
 
 def applied_attempt[ResultT](
-    request: ScientificActionRequest | DataDiffRequest | ModelDiffRequest, applied: Applied[ResultT]
+    request: ScientificActionRequest | DataDiffRequest[GitOid] | ModelDiffRequest[GitOid],
+    applied: Applied[ResultT],
 ) -> ActionAttempt:
     """The execution transport is closed again before publication; mismatches are bugs."""
     result = applied.result
     match request, result:
-        case SetQuestionRequest(), None:
-            return SetQuestionAttempt(
-                action="set_question",
+        case EditQuestionRequest(), None:
+            return EditQuestionAttempt(
+                action="edit_question",
                 request=request,
                 outcome=Applied(result=result, effects=applied.effects),
             )
@@ -259,80 +260,54 @@ def applied_attempt[ResultT](
 
 
 def argument_revisions(attempt: ActionAttempt) -> tuple[tuple[str, GitOid], ...]:
-    """Explicit request fields and retained input refs replace suffix scanning."""
+    """Action input fields ending in ``_ref`` name exact scalar or structured references.
+
+    Their input schemas own the reference types: GitOid, DataRef, an optional
+    reference, or a tuple of references. Inline scientific payloads are not scanned.
+    """
     request = attempt.request
-    match request:
-        case EditModelRequest(expected_revision=revision, panel_revision=panel):
-            return tuple(
-                (name, oid)
-                for name, oid in (("model", revision), ("panel", panel))
-                if oid is not None
+    if request is None:
+        return ()
+    references: list[tuple[str, GitOid]] = []
+    for name in type(request.input).model_fields:
+        if not name.endswith("_ref"):
+            continue
+        value = cast(
+            "GitOid | DataRef[GitOid, int | None] | tuple[GitOid | DataRef[GitOid, int | None], ...] | None",
+            getattr(request.input, name),
+        )
+        if value is not None:
+            references.extend(
+                (name.removesuffix("_ref"), ref if isinstance(ref, GitOid) else ref.revision)
+                for ref in (value if isinstance(value, tuple) else (value,))
             )
-        case FitRequest(model_revision=model, panel_revision=panel):
-            return (("model", model), ("panel", panel))
-        case SimulateRequest(model_revision=model, panel_revision=panel):
-            return (("model", model),) + ((("panel", panel),) if panel is not None else ())
-        case PrepareDataRequest(input=SimulationReplicateRef(revision=revision)):
-            return (("simulation", revision),)
-        case DataDiffRequest():
-            return tuple(
-                (name, ref.revision)
-                for name, selection in (("left", request.left), ("right", request.right))
-                for ref in (
-                    (selection,) if isinstance(selection, (PanelRef, SimulationRef)) else selection
-                )
-            )
-        case ModelDiffRequest(before=before, after=after):
-            return (("before", before), ("after", after))
-        case SetQuestionRequest() | PrepareDataRequest() | None:
-            return ()
+    return tuple(references)
 
 
 def record_dependencies(revisions: Sequence[StudyRevision]) -> list[RecordDependency]:
-    """Link explicit inputs and derived artifact pins to their first producer."""
+    """Join declared input references to their first successful publication."""
     producers: dict[GitOid, int] = {}
     for revision in revisions:
         record = revision.record
         outcome = record.attempt.outcome
-        producers[revision.commit_id] = record.seq
         if not isinstance(outcome, Applied):
             continue
+        producers[revision.commit_id] = record.seq
         for artifact in outcome.effects.produced:
             producers.setdefault(artifact.revision, record.seq)
+        for report in outcome.effects.reports.values():
+            producers.setdefault(report, record.seq)
     dependencies: list[RecordDependency] = []
     for revision in revisions:
         record = revision.record
-        arguments: dict[int, str] = {}
+        arguments: dict[tuple[int, str], None] = {}
         for name, identity in argument_revisions(record.attempt):
             source = producers.get(identity)
             if source is not None and source < record.seq:
-                arguments.setdefault(source, name)
-        outcome = record.attempt.outcome
-        pins = (
-            [
-                (artifact.artifact_id, artifact_id, source)
-                for artifact in outcome.effects.produced
-                if producers.get(artifact.revision) == record.seq
-                for artifact_id, identity in artifact.derived_from.items()
-                if (source := producers.get(identity)) is not None and source < record.seq
-            ]
-            if isinstance(outcome, Applied)
-            else []
-        )
-        for produced, artifact_id, source in pins:
-            if artifact_id == produced:
-                arguments.setdefault(source, artifact_id)
-        checks: dict[int, str] = {}
-        for _, artifact_id, source in pins:
-            if source not in arguments:
-                checks.setdefault(source, artifact_id)
+                arguments[source, name] = None
         dependencies.extend(
-            RecordDependency(seq=record.seq, source_seq=source, argument=name, check=False)
-            for source, name in arguments.items()
-        )
-        dependencies.extend(
-            RecordDependency(seq=record.seq, source_seq=source, argument=name, check=True)
-            for source, name in checks.items()
+            RecordDependency(seq=record.seq, source_seq=source, argument=name)
+            for source, name in arguments
         )
     return dependencies
 

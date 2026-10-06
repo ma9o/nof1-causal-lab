@@ -75,7 +75,7 @@ def _arviz_idata_from_posterior(
 
 @dataclass(frozen=True, kw_only=True)
 class WarmupDiagnostics:
-    "Initialization-only MAP measurements and native proposal inputs."
+    """Initialization-only MAP measurements and native proposal inputs."""
 
     likelihood_backend: object
     success: bool
@@ -100,12 +100,13 @@ class WarmupDiagnostics:
     hessian_jitter: float
 
     def __post_init__(self) -> None:
+        """Own immutable collection fields containing initialization diagnostics."""
         freeze_fields(self)
 
 
 @dataclass(frozen=True, kw_only=True)
 class ProductionDiagnostics:
-    "The exact producer's native buffers, separate from serialized report values."
+    """The exact producer's native buffers, separate from serialized report values."""
 
     mcmc: TrajectoryMCMCResult
     observation_log_probs: jnp.ndarray
@@ -123,6 +124,7 @@ class ProductionDiagnostics:
     all_complete_log_posterior_history: jnp.ndarray | None = None
 
     def __post_init__(self) -> None:
+        """Freeze posterior summaries and phase-specific diagnostic mappings after construction."""
         if self.latent_posterior_summary is not None:
             object.__setattr__(
                 self,
@@ -155,6 +157,7 @@ class WarmupProposal:
         return self._samples
 
     def __post_init__(self) -> None:
+        """Own an immutable mapping of proposal samples and freeze the remaining collection fields."""
         object.__setattr__(self, "_samples", MappingProxyType(dict(self._samples)))
         freeze_fields(self)
 
@@ -168,6 +171,7 @@ class JointPosteriorDraws:
     state_ids: tuple[ConstructId, ...] = ()
 
     def __post_init__(self) -> None:
+        """Require aligned parameter and latent-path draws with uniquely labeled state coordinates."""
         object.__setattr__(self, "parameters", MappingProxyType(dict(self.parameters)))
         counts = set()
         for values in self.parameters.values():
@@ -188,6 +192,7 @@ class JointPosteriorDraws:
         freeze_fields(self)
 
     def describe(self) -> PosteriorDrawsInfo:
+        """Describe the retained draw count and state IDs, rejecting an entirely empty posterior."""
         counts = [values.shape[0] for values in self.parameters.values()]
         if self.latent_paths is not None:
             counts.append(self.latent_paths.shape[0])
@@ -236,6 +241,7 @@ class ParticleMCMCPosterior:
         return self.draws.parameters
 
     def get_inference_diagnostics(self, references: ParameterReferences) -> ChainDiagnostics:
+        """Compute chain diagnostics with scientific identities supplied for sampled coordinates."""
         return self.get_mcmc_diagnostics(references)
 
     def get_mcmc_diagnostics(self, references: ParameterReferences) -> ChainDiagnostics:
@@ -301,6 +307,7 @@ class ParticleMCMCPosterior:
     def get_chain_detail(
         self, references: ParameterReferences
     ) -> tuple[tuple[TraceSeries, ...], tuple[RankHistogram, ...]]:
+        """Build trace series and rank histograms for retained public parameter sites."""
         samples = self.diagnostics.mcmc.get_samples(group_by_chain=True)
         if (sites := self.diagnostics.public_sites) is not None:
             samples = _filter_public_samples(samples, set(sites))

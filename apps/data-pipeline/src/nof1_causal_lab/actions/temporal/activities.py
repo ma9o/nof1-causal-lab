@@ -3,37 +3,33 @@
 from __future__ import annotations
 
 import asyncio
+from datetime import UTC, datetime
 
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from nof1_causal_lab.actions.contracts import PrepareDataRequest
 from nof1_causal_lab.actions.edit_model import edit_model
+from nof1_causal_lab.actions.edit_question import edit_question
 from nof1_causal_lab.actions.effects import ActionReportName
 from nof1_causal_lab.actions.errors import ActionExecutionError
 from nof1_causal_lab.actions.messages import completion_messages
 from nof1_causal_lab.actions.runners import run_action
-from nof1_causal_lab.actions.set_question import set_question
-from nof1_causal_lab.actions.temporal.ingestion_activities import INGESTION_ACTIVITIES
 from nof1_causal_lab.actions.temporal.llm_subroutine_activities import LLM_SUBROUTINE_ACTIVITIES
 from nof1_causal_lab.actions.temporal.measurement_activities import MEASUREMENT_ACTIVITIES
 from nof1_causal_lab.actions.temporal.messages import (
     ActionInput,
     AttemptPublication,
-    EditModelInput,
+    ChecksResult,
+    EditModelActivityInput,
+    EditQuestionActivityInput,
     EvaluateChecksInput,
     ReadInputsInput,
-    SetQuestionInput,
 )
-from nof1_causal_lab.artifacts.identification import IdentificationReport
+from nof1_causal_lab.actions.temporal.source_data_activity import read_source_data_activity
 from nof1_causal_lab.artifacts.identity import GitOid
-from nof1_causal_lab.artifacts.model_checks import ModelCheckReport
-from nof1_causal_lab.artifacts.posterior import InferenceReport
-from nof1_causal_lab.artifacts.simulation import SimulationReport
-from nof1_causal_lab.artifacts.validation_report import (
-    DataProfileArtifact,
-    ValidationReportArtifact,
-)
+from nof1_causal_lab.artifacts.posterior import InferenceReport, ModelFitResult
+from nof1_causal_lab.artifacts.simulation import ModelSimulationResult, SimulationReport
 from nof1_causal_lab.compilation_errors import AggregatedCompileError, IncompleteModelError
 from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.history import StudyRepository
@@ -43,10 +39,8 @@ from nof1_causal_lab.study.records import (
     Applied,
     DataPreparationResult,
     EditAttempt,
-    ModelFitResult,
-    ModelSimulationResult,
+    EditQuestionAttempt,
     Rejected,
-    SetQuestionAttempt,
     StudyRevision,
     applied_attempt,
     failed_attempt,
@@ -58,6 +52,18 @@ from nof1_causal_lab.study.sweep import collect_completed_runs
 
 @activity.defn
 async def run_action_activity(activity_input: ActionInput) -> ActionAttempt:
+    """Run a scientific action and translate expected input failures into rejected attempts.
+
+    Args:
+        activity_input: Pinned request, selected study state, and destination workspace.
+
+    Returns:
+        An applied attempt or an input/scientific rejection suitable for publication.
+
+    Raises:
+        ApplicationError: Execution failed with retained diagnostics; Temporal must
+            not retry this scientific failure.
+    """
     try:
         result = await run_action(
             activity_input.workspace_id, activity_input.request, activity_input.state
@@ -80,27 +86,42 @@ async def run_action_activity(activity_input: ActionInput) -> ActionAttempt:
 
 
 @activity.defn
-async def edit_model_activity(activity_input: EditModelInput) -> EditAttempt:
-    result = edit_model(activity_input.workspace_id, activity_input.request, activity_input.state)
+async def edit_model_activity(activity_input: EditModelActivityInput) -> EditAttempt:
+    """Execute a model edit and wrap its applied or rejected outcome as an edit attempt."""
+    result = edit_model(activity_input.workspace_id, activity_input.request)
     return EditAttempt(request=activity_input.request, outcome=result, action="edit_model")
 
 
 @activity.defn
-async def set_question_activity(activity_input: SetQuestionInput) -> SetQuestionAttempt:
-    result = set_question(activity_input.workspace_id, activity_input.request)
-    return SetQuestionAttempt(request=activity_input.request, outcome=result, action="set_question")
+async def edit_question_activity(activity_input: EditQuestionActivityInput) -> EditQuestionAttempt:
+    """Save the question and return the attempt that owns its publication effect."""
+    result = edit_question(activity_input.workspace_id, activity_input.request)
+    return EditQuestionAttempt(
+        request=activity_input.request, outcome=result, action="edit_question"
+    )
 
 
 @activity.defn
 async def evaluate_model_checks_activity(
     activity_input: EvaluateChecksInput[ModelFitResult | None],
-) -> tuple[ModelCheckReport, IdentificationReport, ValidationReportArtifact | None]:
+) -> ChecksResult:
+    """Run model checks off the event loop and persist their reports.
+
+    Args:
+        activity_input: Successful edit or fit, its request, and selected input state.
+
+    Returns:
+        References to the retained check reports and their completion messages.
+
+    Raises:
+        TypeError: A preparation request is incorrectly routed to model checks.
+    """
     from nof1_causal_lab.actions.model_checks import evaluate_model_checks
 
     if isinstance(activity_input.request, PrepareDataRequest):
         raise TypeError("Model checks require an edit or fit request")
     action = activity_input.request.action
-    return await asyncio.to_thread(
+    checks, identification, validation = await asyncio.to_thread(
         lambda: evaluate_model_checks(
             activity_input.workspace_id,
             activity_input.state,
@@ -108,24 +129,52 @@ async def evaluate_model_checks_activity(
             action=action,
         )
     )
+    store = ArtifactStore(activity_input.workspace_id)
+    reports: dict[ActionReportName, GitOid] = {
+        "checks": store.write_report(checks),
+        "identification": store.write_report(identification),
+    }
+    if validation is not None:
+        reports["validation"] = store.write_report(validation)
+    if action == "fit" and activity_input.state.data is not None:
+        from nof1_causal_lab.actions.data_checks import read_data_profile
+
+        reports["data-profile"] = store.write_report(
+            read_data_profile(store, activity_input.state.data)
+        )
+    return ChecksResult(
+        reports=reports,
+        messages=completion_messages(
+            activity_input.applied.result,
+            datetime.now(UTC),
+            (identification, validation) if validation is not None else (identification,),
+            checks=checks,
+        ),
+    )
 
 
 @activity.defn
 async def evaluate_data_checks_activity(
     activity_input: EvaluateChecksInput[DataPreparationResult],
-) -> DataProfileArtifact:
+) -> ChecksResult:
+    """Persist the prepared panel's data profile and produce its completion messages."""
     from nof1_causal_lab.actions.data_checks import evaluate_data_checks
 
-    return await asyncio.to_thread(
+    profile = await asyncio.to_thread(
         evaluate_data_checks,
         activity_input.workspace_id,
         activity_input.state,
         activity_input.applied,
     )
+    return ChecksResult(
+        reports={"data-profile": ArtifactStore(activity_input.workspace_id).write_report(profile)},
+        messages=completion_messages(activity_input.applied.result, datetime.now(UTC), (profile,)),
+    )
 
 
 @activity.defn
 async def read_inputs_activity(activity_input: ReadInputsInput) -> ActionBase:
+    """Capture the publication head and input state, or locate an already saved identical call."""
     repository = StudyRepository(activity_input.workspace_id)
     saved = repository.saved_call(activity_input.request)
     return ActionBase(
@@ -144,18 +193,7 @@ async def journal_activity(activity_input: AttemptPublication) -> StudyRevision:
         return journal.append(existing.record, parent_id=activity_input.parent_id)
     record = activity_input.record
     messages = record.messages
-    reports: dict[ActionReportName, bytes] = {}
     if isinstance(record.attempt.outcome, Applied):
-        if activity_input.model_checks is not None:
-            checks, identification, validation = activity_input.model_checks
-            reports["checks"] = checks.model_dump_json(round_trip=True).encode()
-            reports["identification"] = identification.model_dump_json(round_trip=True).encode()
-            if validation is not None:
-                reports["validation"] = validation.model_dump_json(round_trip=True).encode()
-        if activity_input.data_profile is not None:
-            reports["data-profile"] = activity_input.data_profile.model_dump_json(
-                round_trip=True
-            ).encode()
         store = ArtifactStore(activity_input.workspace_id)
         inference, simulation = None, None
         result = record.attempt.outcome.result
@@ -178,43 +216,37 @@ async def journal_activity(activity_input: AttemptPublication) -> StudyRevision:
                 )
                 + messages[-1:]
             )
-        outcome = record.attempt.outcome
-        record = record.revised(
-            attempt=record.attempt.revised(
-                outcome=outcome.revised(
-                    effects=outcome.effects.revised(
-                        reports={
-                            **outcome.effects.reports,
-                            **{
-                                name: GitOid(str(journal.repo.create_blob(body)))
-                                for name, body in reports.items()
-                            },
-                        }
-                    )
-                )
-            )
-        )
     logs = collect_run_traces(activity_input.workspace_id, record.seq)
     record = record.with_logs(
         messages=messages,
         trace_ids=tuple(path.removeprefix("traces/").removesuffix(".json") for path in logs),
     )
+    from pydantic import TypeAdapter
+
+    from nof1_causal_lab.actions.progress import read_events
+    from nof1_causal_lab.actions.progress_contracts import ProgressEvent
+
+    if record.attempt_id is not None:
+        logs["progress.json"] = TypeAdapter(tuple[ProgressEvent, ...]).dump_json(
+            tuple(read_events(activity_input.workspace_id, record.attempt_id))
+        )
     return journal.append(record, parent_id=activity_input.parent_id, logs=logs)
 
 
 @activity.defn
 async def collect_completed_runs_activity(workspace_id: str) -> None:
+    """Remove scratch run directories whose completed attempts have been retained in history."""
     collect_completed_runs(workspace_id)
 
 
 ALL_ACTIVITIES = [
     run_action_activity,
-    set_question_activity,
+    edit_question_activity,
     edit_model_activity,
     journal_activity,
     read_inputs_activity,
     collect_completed_runs_activity,
-    *INGESTION_ACTIVITIES,
+    read_source_data_activity,
     *MEASUREMENT_ACTIVITIES,
     *LLM_SUBROUTINE_ACTIVITIES,
 ]

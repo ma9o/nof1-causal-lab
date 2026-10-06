@@ -47,6 +47,7 @@ def _is_excluded(rel: str, excludes: list[str]) -> bool:
 
 
 def publish_workspace(workspace_id: str, excludes: list[str]) -> dict[str, int]:
+    """Copy missing local workspace files to hosted storage, honoring the selected exclusions."""
     from nof1_causal_lab.utils import data as data_module
     from nof1_causal_lab.utils import storage
 
@@ -80,6 +81,7 @@ def publish_workspace(workspace_id: str, excludes: list[str]) -> dict[str, int]:
 
 
 def main() -> None:
+    """Parse workspace publication options and report uploaded, existing, and excluded file counts."""
     parser = argparse.ArgumentParser(
         description="Publish a local workspace to the hosted (R2) store."
     )

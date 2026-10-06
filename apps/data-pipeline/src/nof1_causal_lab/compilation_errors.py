@@ -14,6 +14,7 @@ class AggregatedCompileError(ValueError):
     header = "Compilation failed"
 
     def __init__(self, errors: Sequence[str]) -> None:
+        """Deduplicate compilation errors in first-seen order and format them as one exception."""
         self.errors = list(dict.fromkeys(errors))
         if len(self.errors) == 1:
             message = self.errors[0]

@@ -110,10 +110,17 @@ def write_question(store, question=None):
     """Write the study question that roots a test lineage and return its artifact record."""
     from nof1_causal_lab.artifacts.question import QuestionSpec
 
-    value = question if question is not None else QuestionSpec(text="What does the model answer?")
+    value = (
+        question
+        if question is not None
+        else QuestionSpec(
+            text="What does the model answer?",
+            outcome=fixture_entity_id("construct", "unmeasured_outcome"),
+        )
+    )
     return store.write_artifact(
         "question",
         derived_from={},
-        produced_by="set_question",
+        produced_by="edit_question",
         json_files={"question.json": value.model_dump(mode="json")},
     )

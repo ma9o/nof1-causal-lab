@@ -48,8 +48,8 @@ def test_observations_keep_irregular_anchors_support_missingness_and_empirical_m
     )
     reader = Mock(
         spec=ModelReader,
-        data_metadata=SimpleNamespace(
-            value=SimpleNamespace(variables=[variable], time_origin=origin.replace(tzinfo=UTC))
+        data_history=SimpleNamespace(
+            variables=[variable], time_origin=origin.replace(tzinfo=UTC), frame=table
         ),
         state=SimpleNamespace(current={"panel": SimpleNamespace(revision="pinned")}),
         store=SimpleNamespace(read_parquet_file=lambda *_args: table),
@@ -131,8 +131,7 @@ def test_paging_original_paths_preserves_opposite_modes_and_paired_effects(monke
 
 @pytest.mark.inference(concern="sampling")
 def test_every_parameter_coordinate_and_joint_draw_survives_the_read(monkeypatch):
-    from nof1_causal_lab.models.ssm.compile.bindings import parameter_bindings
-    from nof1_causal_lab.models.ssm.compile.bindings import joint_law_layout
+    from nof1_causal_lab.models.ssm.compile.bindings import joint_law_layout, parameter_bindings
     from nof1_causal_lab.numpyro_json import empirical_distribution
 
     model = _x_y_z_model()
@@ -142,7 +141,6 @@ def test_every_parameter_coordinate_and_joint_draw_survives_the_read(monkeypatch
         parameters=[b.parameter_id for b in bindings],
         constructs=selected_state_ids(StructuralSelection(model, None)),
         time_points=(0, 10),
-        construct_labels={item.id: item.name for item in model.constructs},
     )
     atoms = np.arange(503 * layout.width, dtype=float).reshape(503, layout.width)
     model = model.revised(

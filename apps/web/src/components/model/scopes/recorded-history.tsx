@@ -92,7 +92,7 @@ export function SimulationHistory({
     kind === "indicators"
       ? presentEntries(data.reference_category_probabilities).find(([key]) => key === id)?.[1]
       : undefined;
-  const assignments = model.simulation?.value.evidence.assignments ?? [];
+  const assignments = model.simulation?.evidence.assignments ?? [];
   const markers = assignments
     .filter((event) => kind === "effect" || event.target === id)
     .map((event) => ({ time: event.time, label: `set ${event.value}` }));

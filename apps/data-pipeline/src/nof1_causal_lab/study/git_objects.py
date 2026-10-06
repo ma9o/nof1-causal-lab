@@ -8,19 +8,20 @@ from nof1_causal_lab.utils import data as data_module
 
 
 def open_repository(workspace_id: str, path: Path | None = None) -> pygit2.Repository:
+    """Open or initialize local study history, rejecting incompatible repository formats."""
     if path is None and "://" in data_module.study_dir(workspace_id):
         raise ValueError("Study history requires local storage")
     destination = path or Path(data_module.study_dir(workspace_id)) / "history.git"
     if destination.exists():
         repository = pygit2.Repository(str(destination))
-        if "nof1.format" not in repository.config or repository.config.get_int("nof1.format") != 19:
+        if "nof1.format" not in repository.config or repository.config.get_int("nof1.format") != 20:
             raise ValueError(
-                "Migrate this study with scratchpad.migrations.migrate_format_19 (requires format 18)"
+                "Migrate this study with scratchpad.migrations.migrate_format_20 (requires format 19)"
             )
         return repository
     destination.parent.mkdir(parents=True, exist_ok=True)
     repository = pygit2.init_repository(str(destination), bare=True, initial_head="main")
-    repository.config["nof1.format"] = 19
+    repository.config["nof1.format"] = 20
     repository.config["user.name"] = "nof1-causal-lab"
     repository.config["user.email"] = "study@local"
     signature = pygit2.Signature("nof1-causal-lab", "study@local", 0, 0)
@@ -35,6 +36,7 @@ def open_repository(workspace_id: str, path: Path | None = None) -> pygit2.Repos
 
 
 def write_tree(repository: pygit2.Repository, files: dict[str, bytes]) -> pygit2.Oid:
+    """Write path-keyed bytes as nested Git trees and return the root tree identity."""
     builder = repository.TreeBuilder()
     directories: dict[str, dict[str, bytes]] = {}
     for name, content in files.items():
@@ -50,6 +52,7 @@ def write_tree(repository: pygit2.Repository, files: dict[str, bytes]) -> pygit2
 
 
 def object_tree(repository: pygit2.Repository, revision: str) -> pygit2.Tree:
+    """Resolve an exact commit or tree identity, rejecting missing objects and non-tree content."""
     from nof1_causal_lab.study.errors import StudyLookupError
 
     oid = pygit2.Oid(hex=revision)
@@ -62,6 +65,7 @@ def object_tree(repository: pygit2.Repository, revision: str) -> pygit2.Tree:
 
 
 def read_file(repository: pygit2.Repository, revision: str, path: str) -> bytes:
+    """Read blob bytes at an exact revision and path, rejecting unavailable stored files."""
     from nof1_causal_lab.study.errors import StudyLookupError
 
     tree = object_tree(repository, revision)

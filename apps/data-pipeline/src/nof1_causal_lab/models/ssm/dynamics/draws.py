@@ -33,6 +33,7 @@ class DynamicsDraws:
     n_draws: int
 
     def __post_init__(self) -> None:
+        """Freeze component parameter mappings and require a common leading draw axis."""
         object.__setattr__(
             self,
             "parameters",

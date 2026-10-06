@@ -28,7 +28,6 @@ from nof1_causal_lab.actions.temporal.client import (
     STUDY_TASK_QUEUE,
     connect_client,
 )
-from nof1_causal_lab.actions.temporal.ingestion_workflow import IngestionWorkflow
 from nof1_causal_lab.actions.temporal.llm_subroutine_activities import (
     run_harness_turn_activity,
 )
@@ -68,12 +67,12 @@ def study_workflow_runner() -> SandboxedWorkflowRunner:
 
 
 def build_worker(client: Client, task_queue: str = STUDY_TASK_QUEUE) -> Worker:
+    """Build the study worker with scientific workflows and their orchestration activities."""
     return Worker(
         client,
         task_queue=task_queue,
         workflows=[
             StudyWorkflow,
-            IngestionWorkflow,
             MeasurementsWorkflow,
             ExtractionChunkWorkflow,
             LLMSubroutineWorkflow,
@@ -88,6 +87,7 @@ def build_openrouter_worker(
     openrouter_client: AsyncOpenAI,
     task_queue: str = OPENROUTER_TASK_QUEUE,
 ) -> Worker:
+    """Build the provider worker with the configured request-per-minute queue limit."""
     from nof1_causal_lab.utils.config import get_config
 
     max_rpm = get_config().extraction_workers.max_rpm
@@ -103,6 +103,7 @@ def build_harness_worker(
     client: Client,
     task_queue: str,
 ) -> Worker:
+    """Build a worker dedicated to harness model turns on the supplied task queue."""
     return Worker(
         client,
         task_queue=task_queue,
@@ -114,7 +115,7 @@ def build_model_checks_worker(
     client: Client,
     task_queue: str = MODEL_CHECKS_TASK_QUEUE,
 ) -> Worker:
-    """Serialize automatic exact check batches independently of ingestion workers."""
+    """Serialize automatic exact check batches independently of extraction workers."""
     return Worker(
         client,
         task_queue=task_queue,
@@ -124,6 +125,7 @@ def build_model_checks_worker(
 
 
 async def run_worker() -> None:
+    """Run study, provider, harness, and model-check workers until shutdown or worker failure."""
     from nof1_causal_lab.utils.config import configure_jax_persistent_cache
     from nof1_causal_lab.utils.openrouter_client import create_openrouter_client
 

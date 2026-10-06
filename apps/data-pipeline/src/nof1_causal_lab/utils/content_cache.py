@@ -15,12 +15,14 @@ from nof1_causal_lab.utils.data import data_root
 
 
 def content_key(request: object) -> str:
+    """Hash canonical finite JSON to identify an exact content-cache request."""
     return hashlib.sha256(
         json.dumps(request, sort_keys=True, separators=(",", ":"), allow_nan=False).encode()
     ).hexdigest()
 
 
 def cache_path(kind: str, key: str) -> str:
+    """Locate a content-keyed entry in the shared preparation cache for the requested cache kind."""
     return storage.join(data_root(), ".preparation-cache", kind, key)
 
 

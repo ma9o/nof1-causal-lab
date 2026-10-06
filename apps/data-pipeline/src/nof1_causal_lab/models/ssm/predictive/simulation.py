@@ -275,12 +275,20 @@ def measure_simulation_batch(
             for component in components
             if component.target == state_index and component.edge_owned
         ]
-        parents = sorted({source for component in incoming for source in component.sources})
+        parents = sorted(
+            {
+                source
+                for component in incoming
+                for source in component.sources
+                if source != state_index
+            }
+        )
         hills = {
             source
             for component in incoming
             if any(hill_applications(component.expression))
             for source in component.sources
+            if source != state_index
         }
         target = ConstructSimulationTarget(
             construct=model.states[state_index],

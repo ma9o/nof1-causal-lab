@@ -1,12 +1,10 @@
 """Content-named calls, atomic outcomes, and recovery from Git.
 
-Only ingestion's LLM is stubbed. Model edits supply their definition directly;
+Computed CSV preparation makes no model calls. Model edits supply their definition directly;
 fit and simulation readiness failures exercise the real execution boundary.
 """
 
 import asyncio
-import dataclasses
-import json
 import uuid
 from pathlib import Path
 from typing import Any, cast
@@ -16,19 +14,30 @@ import pytest
 from fastapi import Response
 from pydantic import TypeAdapter
 
+from nof1_causal_lab.actions.call_state import CallProgress, RunningCall
 from nof1_causal_lab.actions.contracts import (
     EditModelRequest,
+    EditQuestionRequest,
     FitRequest,
     PrepareDataRequest,
-    SetQuestionRequest,
     SimulateRequest,
 )
-from nof1_causal_lab.actions.results import ActionPoll, CompletedPoll, RunningPoll
+from nof1_causal_lab.actions.io import (
+    EditModelInput,
+    EditQuestionInput,
+    FitInput,
+    ModelDiffInput,
+    SimulateInput,
+)
+from nof1_causal_lab.actions.results import ActionPoll, RunningPoll
 from nof1_causal_lab.actions.temporal.workflow import StudyWorkflow
+from nof1_causal_lab.artifacts.data_preparation import SourceFolder
+from nof1_causal_lab.artifacts.identity import GitOid, RevisionSelector
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.question import QuestionSpec
+from nof1_causal_lab.artifacts.simulation import SimulationSpec
 from nof1_causal_lab.study.history import StudyRepository
-from nof1_causal_lab.study.records import Rejected
+from nof1_causal_lab.study.records import ActionMessage, Rejected
 from nof1_causal_lab.study.store import ArtifactStore, read_model
 from nof1_causal_lab.utils.openrouter_client import create_openrouter_client
 from tests.helpers import graph_constructs
@@ -36,24 +45,14 @@ from tests.helpers import graph_constructs
 pytestmark = [pytest.mark.workflow, pytest.mark.timeout(60, method="thread")]
 _QUESTION = "does exercise improve sleep?"
 _PREPARATION: dict[str, Any] = {
-    "source": {"files": ["observations.csv"]},
-    "definition": {
-        "default_window": "1d",
-        "variables": [
-            {
-                "observation": {
-                    "id": "indicator:sleep",
-                    "name": "sleep_steps_proxy",
-                    "measurement_dtype": "continuous",
-                    "aggregation": "mean",
-                },
-                "extraction": {
-                    "kind": "computed",
-                    "how_to_measure": "Read the steps column",
-                    "source_columns": ["steps"],
-                },
-            }
-        ],
+    "model_ref": "latest",
+    "source": "input",
+    "extraction": {
+        "indicator:sleep": {
+            "kind": "computed",
+            "how_to_measure": "Read the steps column",
+            "source_columns": ["steps"],
+        }
     },
 }
 
@@ -103,8 +102,6 @@ def _measured_model() -> dict[str, Any]:
 @pytest.fixture
 def machine_env(monkeypatch, tmp_path):
     import nof1_causal_lab.utils.openrouter_client as openrouter_client
-    from nof1_causal_lab.llm_specs import EmbeddedLLMSpec
-    from nof1_causal_lab.utils import config as config_module
     from nof1_causal_lab.utils import data as data_module
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
@@ -115,92 +112,10 @@ def machine_env(monkeypatch, tmp_path):
         "timestamp,steps\n2026-01-01T08:00:00,1000\n2026-01-02T08:00:00,2000\n"
     )
 
-    config = config_module.get_config()
-    monkeypatch.setattr(
-        config_module,
-        "get_config",
-        lambda: dataclasses.replace(
-            config,
-            ingestion=dataclasses.replace(
-                config.ingestion,
-                llm=EmbeddedLLMSpec(harness="none", model="openrouter/mock-raw"),
-            ),
-        ),
-    )
+    async def unexpected_model_call(*_args, **_kwargs):
+        raise AssertionError("Computed CSV preparation must not call an LLM")
 
-    async def fake_call_model(
-        model_name, messages, *, client, tools=None, config=None, log_label=None
-    ):
-        del config, log_label
-        tool_names = {tool.name for tool in tools or []}
-        if "execute_python" in tool_names:
-            if not any(
-                message.get("role") == "tool" and message.get("name") == "execute_python"
-                for message in messages
-            ):
-                return {
-                    "message": {
-                        "role": "assistant",
-                        "content": "",
-                        "tool_calls": [
-                            {
-                                "id": "call-python",
-                                "type": "function",
-                                "function": {
-                                    "name": "execute_python",
-                                    "arguments": json.dumps(
-                                        {
-                                            "code": (
-                                                "result_df = pl.read_csv(Path(DATA_DIR) / "
-                                                "'0/observations.csv')\n"
-                                                "result_df = result_df.with_columns("
-                                                "pl.col('timestamp').str.strptime(pl.Datetime))"
-                                            )
-                                        }
-                                    ),
-                                },
-                            }
-                        ],
-                    },
-                    "completion": "",
-                    "usage": {"input_tokens": 3, "output_tokens": 5, "reasoning_tokens": None},
-                    "model": model_name,
-                    "time": 0.25,
-                    "stop_reason": "tool_calls",
-                }
-            return {
-                "message": {
-                    "role": "assistant",
-                    "content": "",
-                    "tool_calls": [
-                        {
-                            "id": "call-submit-table",
-                            "type": "function",
-                            "function": {
-                                "name": "submit_table",
-                                "arguments": json.dumps(
-                                    {
-                                        "column_descriptions_json": json.dumps(
-                                            {
-                                                "timestamp": "observation time",
-                                                "steps": "step count",
-                                            }
-                                        )
-                                    }
-                                ),
-                            },
-                        }
-                    ],
-                },
-                "completion": "",
-                "usage": {"input_tokens": 3, "output_tokens": 5, "reasoning_tokens": None},
-                "model": model_name,
-                "time": 0.25,
-                "stop_reason": "tool_calls",
-            }
-        raise AssertionError(f"Unexpected authoring call: {tool_names}")
-
-    monkeypatch.setattr(openrouter_client, "call_model", fake_call_model)
+    monkeypatch.setattr(openrouter_client, "call_model", unexpected_model_call)
     return workspace_id
 
 
@@ -235,21 +150,32 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                 async def execute(request):
                     response = await study_api._dispatch_action(workspace_id, request, clients)
                     if isinstance(response, RunningPoll):
-                        polled = await handle.get_update_handle(
-                            str(response.attempt_id),
-                            result_type=cast("type[ActionPoll]", ActionPoll),
-                        ).result()
-                    elif isinstance(response, Response):
-                        polled = TypeAdapter(ActionPoll).validate_json(bytes(response.body))
-                    else:
-                        polled = response
-                    assert isinstance(polled, CompletedPoll)
+                        progress = await handle.query(
+                            "call_progress",
+                            response.call_id,
+                            result_type=cast("type[CallProgress]", CallProgress),
+                        )
+                        await handle.get_update_handle(str(progress.attempt_id)).result()
+                        response = await study_api.poll_action(
+                            workspace_id, response.action, response.call_id, clients
+                        )
+                    polled = (
+                        TypeAdapter(ActionPoll).validate_json(bytes(response.body))
+                        if isinstance(response, Response)
+                        else response
+                    )
+                    assert polled.status != "running"
                     assert polled.commit_id is not None
                     record = StudyRepository(workspace_id).record(polled.commit_id)
-                    assert polled.attempt == record.record.attempt
-                    assert polled.messages[0].label == f"{request.action.upper()}_STARTED"
-                    assert polled.messages[-1].level == (
-                        "info" if record.record.attempt.outcome.status == "applied" else "error"
+                    assert polled.status == (
+                        "success" if record.record.attempt.outcome.status == "applied" else "failed"
+                    )
+                    lifecycle = [
+                        message for message in polled.messages if isinstance(message, ActionMessage)
+                    ]
+                    assert lifecycle[0].label == f"{request.action.upper()}_STARTED"
+                    assert lifecycle[-1].level == (
+                        "info" if polled.status == "success" else "error"
                     )
                     return record
 
@@ -260,37 +186,54 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                     )
 
                 rejected = await execute(
-                    EditModelRequest(expected_revision=None, model=ModelSpec())
+                    EditModelRequest[GitOid](
+                        input=EditModelInput[GitOid](parent_ref=GitOid("0" * 40), model=ModelSpec())
+                    )
                 )
                 assert isinstance(rejected.record.attempt.outcome, Rejected)
                 assert rejected.record.attempt.outcome.reason == "input_unavailable"
-                assert rejected.record.attempt.outcome.detail == "Set the study question first"
+                assert "0" * 40 in rejected.record.attempt.outcome.detail
 
-                question = QuestionSpec(text=_QUESTION, outcome="construct:sleep")
-                root = await execute(SetQuestionRequest(question=question))
+                question = QuestionSpec(text=_QUESTION, outcome="construct:unmeasured_outcome")
+                root = await execute(
+                    EditQuestionRequest(input=EditQuestionInput(question=question))
+                )
                 assert root.record.attempt.outcome.status == "applied"
                 assert state(root).has("question")
-                again = await execute(SetQuestionRequest(question=question))
+                again = await execute(
+                    EditQuestionRequest(input=EditQuestionInput(question=question))
+                )
                 assert again == root
 
                 # Every edit defines the question's nodes; without them it is an invalid request.
-                invalid = await execute(EditModelRequest(expected_revision=None, model=ModelSpec()))
+                invalid = await execute(
+                    EditModelRequest[GitOid](
+                        input=EditModelInput[GitOid](
+                            parent_ref=StudyRepository(workspace_id).question().revision,
+                            model=ModelSpec(),
+                        )
+                    )
+                )
                 assert invalid.record.attempt.outcome.status == "rejected"
                 assert invalid.record.attempt.outcome.reason == "scientific_inputs"
-                prepared = await execute(PrepareDataRequest(input=_PREPARATION))
-                assert prepared.record.attempt.outcome.status == "applied", prepared
-                assert state(prepared).has("panel")
-                assert set(state(prepared).current) == {"question", "raw_data", "panel"}
-                from nof1_causal_lab.study.snapshots import ModelReader
-
-                assert ModelReader(workspace_id, at=prepared.commit_id).data_profile is not None
                 edited = await execute(
-                    EditModelRequest(
-                        expected_revision=None,
-                        model=ModelSpec.model_validate(_measured_model()),
+                    EditModelRequest[GitOid](
+                        input=EditModelInput[GitOid](
+                            parent_ref=StudyRepository(workspace_id).question().revision,
+                            model=ModelSpec.model_validate(_measured_model()),
+                        )
                     )
                 )
                 assert edited.record.attempt.outcome.status == "applied", edited
+                prepared = await execute(
+                    PrepareDataRequest[RevisionSelector, SourceFolder](input=_PREPARATION)
+                )
+                assert prepared.record.attempt.outcome.status == "applied", prepared
+                assert state(prepared).has("panel")
+                assert set(state(prepared).current) == {"question", "model", "raw_data", "panel"}
+                from nof1_causal_lab.study.snapshots import ModelReader
+
+                assert ModelReader(workspace_id, at=prepared.commit_id).data_profile is not None
                 saved_checks = ModelReader(workspace_id, at=edited.commit_id).checks
                 assert saved_checks is not None
                 model_revision = state(edited).current["model"].revision
@@ -298,11 +241,18 @@ def test_study_workflow_journey(machine_env, monkeypatch):
 
                 # Both numerical actions reject incomplete definitions before any numerical work.
                 for request in (
-                    FitRequest(
-                        model_revision=model_revision, panel_revision=before["panel"].revision
+                    FitRequest[GitOid](
+                        input=FitInput[GitOid](
+                            replicate_index=0,
+                            model_ref=model_revision,
+                            data_ref=before["panel"].revision,
+                        )
                     ),
-                    SimulateRequest(
-                        model_revision=model_revision, start="2026-01-01", horizon="1d"
+                    SimulateRequest[GitOid](
+                        input=SimulateInput[GitOid](
+                            simulation=SimulationSpec(start="2026-01-01", horizon="1d"),
+                            model_ref=model_revision,
+                        )
                     ),
                 ):
                     raised = await execute(request)
@@ -326,7 +276,12 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                     edges=(measured.edges[0].revised(description="Sleep shapes the response"),)
                 )
                 rewritten = await execute(
-                    EditModelRequest(expected_revision=model_revision, model=revised)
+                    EditModelRequest[GitOid](
+                        input=EditModelInput[GitOid](
+                            parent_ref=model_revision,
+                            model=revised,
+                        )
+                    )
                 )
                 assert rewritten.record.attempt.outcome.status == "applied", rewritten
                 assert (
@@ -345,49 +300,62 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                 ]
                 assert [record.record.attempt.action for record in records] == [
                     "edit_model",
-                    "set_question",
+                    "edit_question",
+                    "edit_model",
                     "edit_model",
                     "prepare_data",
-                    "edit_model",
                     "fit",
                     "simulate",
                     "edit_model",
                 ]
-                assert records[4].record.attempt.action == "edit_model"
-                assert records[4].record.attempt.request is not None
-                assert records[4].record.attempt.request.model == ModelSpec.model_validate(
+                assert records[3].record.attempt.action == "edit_model"
+                assert records[3].record.attempt.request is not None
+                assert records[3].record.attempt.request.input.model == ModelSpec.model_validate(
                     _measured_model()
                 )
                 assert records[5].record.attempt.action == "fit"
                 assert records[5].record.attempt.request is not None
-                assert records[5].record.attempt.request.model_revision == model_revision
+                assert records[5].record.attempt.request.input.model_ref == model_revision
                 assert all("move" not in record.model_dump() for record in records)
                 assert read_model(store, state(rewritten).current["model"].revision) == revised
                 assert state(rewritten).current["question"] == state(root).current["question"]
                 assert ModelReader(workspace_id, at=edited.commit_id).checks == saved_checks
-                from nof1_causal_lab.study.view_models import ModelDiffRequest
+                from nof1_causal_lab.actions.contracts import ModelDiffRequest
 
                 head = StudyRepository(workspace_id).head()
-                comparison_request = ModelDiffRequest(
-                    before=edited.commit_id,
-                    after=rewritten.commit_id,
+                comparison_request = ModelDiffRequest[GitOid](
                     reasoning="Check the revised edge before deciding which model to fit.",
+                    input=ModelDiffInput[GitOid](
+                        before_ref=edited.commit_id, after_ref=rewritten.commit_id
+                    ),
                 )
                 compared = await execute(comparison_request)
                 assert compared.record.attempt.action == "model_diff"
                 assert compared.record.attempt.outcome.status == "applied"
                 assert StudyRepository(workspace_id).head() == head
                 saved = await study_api.model_diff(
-                    workspace_id, comparison_request.revised(reasoning=None), clients
+                    workspace_id,
+                    ModelDiffRequest[RevisionSelector](
+                        input=ModelDiffInput[RevisionSelector](
+                            before_ref=comparison_request.input.before_ref,
+                            after_ref=comparison_request.input.after_ref,
+                        )
+                    ),
+                    clients,
                 )
                 assert isinstance(saved, Response)
-                completion = CompletedPoll.model_validate_json(bytes(saved.body))
-                assert completion.model_comparison is not None
-                assert completion.model_comparison.before_model == measured
-                assert completion.model_comparison.after_model == revised
-                assert completion.attempt.request == comparison_request
+                completion = TypeAdapter(ActionPoll).validate_json(bytes(saved.body))
+                assert completion.status == "success"
+                assert completion.action == "model_diff"
+                assert completion.body.before_model == measured
+                assert completion.body.after_model == revised
+                assert compared.record.attempt.request == comparison_request
                 reverse = await execute(
-                    ModelDiffRequest(before=rewritten.commit_id, after=edited.commit_id)
+                    ModelDiffRequest[GitOid](
+                        input=ModelDiffInput[GitOid](
+                            before_ref=rewritten.commit_id, after_ref=edited.commit_id
+                        )
+                    )
                 )
                 assert reverse.record.attempt.outcome.status == "applied"
                 assert reverse.record.attempt.request.reasoning is None
@@ -407,16 +375,15 @@ def test_study_workflow_journey(machine_env, monkeypatch):
 
 
 def test_timeline_reports_only_attempts_a_live_workflow_executes(machine_env, monkeypatch):
-    import nof1_causal_lab.utils.openrouter_client as openrouter_client
+    from nof1_causal_lab.actions.temporal import source_data_activity
 
     workspace_id = machine_env
-    ingest = openrouter_client.call_model
+    read_sources = source_data_activity.read_source_data_activity
 
     async def scenario():
         from temporalio.testing import WorkflowEnvironment
 
         from nof1_causal_lab import study_api
-        from nof1_causal_lab.actions.results import RunningAction
         from nof1_causal_lab.actions.temporal.client import (
             RUNNING_ACTION_MEMO,
             pydantic_data_converter,
@@ -427,14 +394,31 @@ def test_timeline_reports_only_attempts_a_live_workflow_executes(machine_env, mo
             build_worker,
         )
 
-        # Ingestion waits here, so data preparation stays in flight until released.
+        # Source reading waits here, so preparation stays in flight until released.
         release = asyncio.Event()
 
-        async def held_call_model(*args, **kwargs):
-            await release.wait()
-            return await ingest(*args, **kwargs)
+        from temporalio import activity
 
-        monkeypatch.setattr(openrouter_client, "call_model", held_call_model)
+        from nof1_causal_lab.actions.temporal import activities
+        from nof1_causal_lab.actions.temporal.messages import ReadSourceDataInput
+        from nof1_causal_lab.study.state import ArtifactRecord
+
+        @activity.defn(name="read_source_data_activity")
+        async def held_read_sources(payload: ReadSourceDataInput) -> ArtifactRecord | Rejected:
+            await release.wait()
+            return await read_sources(payload)
+
+        monkeypatch.setattr(
+            activities,
+            "ALL_ACTIVITIES",
+            [
+                held_read_sources if item is read_sources else item
+                for item in activities.ALL_ACTIVITIES
+            ],
+        )
+        from nof1_causal_lab.actions.temporal import worker
+
+        monkeypatch.setattr(worker, "ALL_ACTIVITIES", activities.ALL_ACTIVITIES)
         env = await WorkflowEnvironment.start_local(data_converter=pydantic_data_converter)
         try:
             async with (
@@ -450,29 +434,63 @@ def test_timeline_reports_only_attempts_a_live_workflow_executes(machine_env, mo
                 handle = await study_api._study_handle(workspace_id, clients)
                 created = await study_api._dispatch_action(
                     workspace_id,
-                    SetQuestionRequest(question=QuestionSpec(text=_QUESTION)),
+                    EditQuestionRequest(
+                        input=EditQuestionInput(
+                            question=QuestionSpec(
+                                text=_QUESTION, outcome="construct:unmeasured_outcome"
+                            )
+                        )
+                    ),
                     clients,
                 )
                 if isinstance(created, RunningPoll):
-                    await handle.get_update_handle(str(created.attempt_id)).result()
+                    progress = await handle.query(
+                        "call_progress",
+                        created.call_id,
+                        result_type=cast("type[CallProgress]", CallProgress),
+                    )
+                    await handle.get_update_handle(str(progress.attempt_id)).result()
                 assert (await study_api.get_timeline(workspace_id, clients)).running is None
+                model = await study_api._dispatch_action(
+                    workspace_id,
+                    EditModelRequest[RevisionSelector](
+                        input=EditModelInput[RevisionSelector](
+                            parent_ref=StudyRepository(workspace_id).question().revision,
+                            model=ModelSpec.model_validate(_measured_model()),
+                        )
+                    ),
+                    clients,
+                )
+                if isinstance(model, RunningPoll):
+                    progress = await handle.query(
+                        "call_progress",
+                        model.call_id,
+                        result_type=cast("type[CallProgress]", CallProgress),
+                    )
+                    await handle.get_update_handle(str(progress.attempt_id)).result()
 
                 preparing = await study_api._dispatch_action(
-                    workspace_id, PrepareDataRequest(input=_PREPARATION), clients
+                    workspace_id,
+                    PrepareDataRequest[RevisionSelector, SourceFolder](input=_PREPARATION),
+                    clients,
                 )
                 while (running := await study_api._running_action(workspace_id, clients)) is None:
                     await asyncio.sleep(0.05)
                 assert isinstance(preparing, RunningPoll)
-                assert running.attempt_id == preparing.attempt_id
+                assert running.call_id == preparing.call_id
                 assert running.action == "prepare_data"
-                assert [message.label for message in running.messages] == ["PREPARE_DATA_STARTED"]
+                assert [
+                    message.label
+                    for message in running.messages
+                    if isinstance(message, ActionMessage)
+                ] == ["PREPARE_DATA_STARTED"]
 
                 # A terminated workflow can never finish the attempt its memo still names.
                 await handle.terminate()
                 memo = await (await handle.describe()).memo_value(
-                    RUNNING_ACTION_MEMO, type_hint=RunningAction
+                    RUNNING_ACTION_MEMO, type_hint=RunningCall
                 )
-                assert memo == running
+                assert memo.request == running.request
                 assert (await study_api.get_timeline(workspace_id, clients)).running is None
         finally:
             release.set()

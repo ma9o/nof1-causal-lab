@@ -64,6 +64,7 @@ class StructuralSelection:
     outcome: ConstructId | None
 
     def __post_init__(self) -> None:
+        """Require a model-owned outcome and valid parameter anchors for the structural selection."""
         from nof1_causal_lab.models.model_checks import validate_parameter_anchors
 
         if self.outcome is not None and self.outcome not in self.model._constructs:
@@ -73,29 +74,34 @@ class StructuralSelection:
     @classmethod
     def for_question(cls, model: ModelSpec, question: QuestionSpec) -> StructuralSelection:
         """The question's outcome scopes the model once the model defines it."""
-        defined = question.outcome is not None and question.outcome in model._constructs
+        defined = question.outcome in model._constructs
         return cls(model, question.outcome if defined else None)
 
     @cached_property
     def identification(self) -> IdentificationReport:
+        """Causal identification findings for this model and selected outcome."""
         from nof1_causal_lab.models.identification import identify_model
 
         return identify_model(self)
 
     @cached_property
     def marginalized_construct_ids(self) -> frozenset[ConstructId]:
+        """Construct identities removed from the execution state by marginalization."""
         return marginalized_construct_ids(self)
 
     @cached_property
     def retained_construct_ids(self) -> frozenset[ConstructId]:
+        """Construct identities retained in the execution representation."""
         return retained_construct_ids(self)
 
     @cached_property
     def induced_dependencies(self) -> Mapping[DependencyKey, tuple[ConstructId, ...]]:
+        """Dependencies induced by marginalization, paired with the constructs that induce them."""
         return induced_dependencies(self)
 
     @cached_property
     def structural_dispositions(self) -> tuple[StructuralItemDisposition, ...]:
+        """Execution treatment of the selection's constructs, edges, and observation indicators."""
         return structural_dispositions(self)
 
 
@@ -129,6 +135,7 @@ def selected_state_ids(selection: StructuralSelection) -> tuple[ConstructId, ...
 
 
 def selected_edges(selection: StructuralSelection) -> tuple[CausalEdgeSpec, ...]:
+    """Select authored edges whose cause and effect both belong to the retained state set."""
     states = set(selected_state_ids(selection))
     return tuple(
         edge
@@ -138,6 +145,7 @@ def selected_edges(selection: StructuralSelection) -> tuple[CausalEdgeSpec, ...]
 
 
 def selected_indicators(selection: StructuralSelection) -> tuple[IndicatorSpec, ...]:
+    """Select indicators owned by retained states, preserving authored model order."""
     states = set(selected_state_ids(selection))
     return tuple(
         indicator for owner, indicator in selection.model.iter_indicators() if owner.id in states
@@ -145,6 +153,7 @@ def selected_indicators(selection: StructuralSelection) -> tuple[IndicatorSpec, 
 
 
 def reference_indicators(selection: StructuralSelection) -> Mapping[ConstructId, IndicatorId]:
+    """Choose the measurement anchor for each selected state and return its observation ID."""
     from types import MappingProxyType
 
     from nof1_causal_lab.utils.causal_design import choose_reference_indicator
@@ -396,7 +405,9 @@ def model_graph_entities(
     )
 
 
-def compare_parameters(left: ModelSpec | None, right: ModelSpec | None) -> tuple[Change[ParameterSpec], ...]:
+def compare_parameters(
+    left: ModelSpec | None, right: ModelSpec | None
+) -> tuple[Change[ParameterSpec], ...]:
     """Compare native parameter decisions and law contents by persistent identity."""
     old = {p.id: p for p in left.parameters} if left is not None else {}
     new = {p.id: p for p in right.parameters} if right is not None else {}

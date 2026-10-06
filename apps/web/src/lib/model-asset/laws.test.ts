@@ -1,18 +1,13 @@
 import { fixtureValue } from "@/components/__fixtures__/fixture-value";
 import { describe, expect, it } from "vitest";
-import { demoSnapshotAt } from "@/components/__fixtures__/demo-artifacts";
-import { modelConstructs } from "@/lib/model-accessors";
+import { outcome as construct } from "@/lib/__fixtures__/model";
+import {
+  authoredSnapshot as authored,
+  fittedSnapshot as fitted,
+} from "@/lib/__fixtures__/snapshot";
 import { lawCurves, lawLabel, ownLawUses } from "./laws";
 
 describe("law curves", () => {
-  const authored = demoSnapshotAt(7);
-  const fitted = demoSnapshotAt(8);
-  const construct = fixtureValue(
-    modelConstructs(fixtureValue(authored.model).value).find(
-      (item) => item.name === "internalizing_symptom_burden",
-    ),
-  );
-
   it("follows a construct's own dynamics and noise laws by their authored roles", () => {
     expect(ownLawUses(construct).map((use) => use.role)).toEqual(["decay", "diffusion_scale"]);
   });
@@ -24,25 +19,20 @@ describe("law curves", () => {
     expect(lawLabel(persistence)).toBe("persistence");
 
     const decay = fixtureValue(lawCurves(fitted, ownLawUses(construct)).at(0));
-    expect(decay).toMatchObject({ kind: "fitted", family: null, stale: false });
+    expect(decay).toMatchObject({ kind: "fitted", family: null });
     expect(decay.posteriors.map((marginal) => marginal.subject.parameter_id)).toEqual([
       persistence.parameter.id,
     ]);
     expect(lawLabel(decay)).toBe("decay");
   });
 
-  it("marks posteriors conditioned on another panel", () => {
-    const base = fitted;
+  it("keeps a model's recorded posterior when another data history is selected", () => {
     const revised = {
-      ...base,
-      fit: {
-        ...fixtureValue(base.fit),
-        source: { ...fixtureValue(base.fit).source, validity: "stale" as const },
-      },
+      ...fitted,
+      state: { ...fitted.state, data: { revision: "9".repeat(40), replicate_index: 0 } },
     };
-    expect(lawCurves(revised, ownLawUses(construct)).map((curve) => curve.stale)).toEqual([
-      true,
-      true,
-    ]);
+    expect(lawCurves(revised, ownLawUses(construct))).toEqual(
+      lawCurves(fitted, ownLawUses(construct)),
+    );
   });
 });

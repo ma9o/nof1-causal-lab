@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING, Annotated, Literal, Self
 
 from polars._typing import FillNullStrategy
 from pydantic import (
+    AfterValidator,
     AwareDatetime,
     Field,
     FiniteFloat,
@@ -25,7 +26,6 @@ from nof1_causal_lab.utils.observation_semantics import (
 from nof1_causal_lab.utils.window_expressions import WindowExpression
 
 from .duration import Duration
-from .identity import GitOid
 from .observations import AuthoredObservationSpec, ResolvedObservationSpec
 
 if TYPE_CHECKING:
@@ -128,6 +128,7 @@ class ComputedExtractionSpec(Value):
 
     @model_validator(mode="after")
     def validate_computation(self) -> Self:
+        """Require declared input columns and a fill limit compatible with the chosen extraction rule."""
         if self.fill_null_limit is not None and self.fill_null not in {"forward", "backward"}:
             raise ValueError("fill_null_limit requires fill_null='forward' or 'backward'")
         if self.computed_rule is None:
@@ -155,6 +156,7 @@ class DataVariableSpec(Value):
 
     @model_validator(mode="after")
     def validate_computed_summary(self) -> Self:
+        """Require the computed rule to admit the observation's aggregation and measurement kind."""
         if isinstance(self.extraction, ComputedExtractionSpec):
             derive_indicator_observation_semantics(
                 self.observation.aggregation,
@@ -164,19 +166,37 @@ class DataVariableSpec(Value):
         return self
 
 
-def _validate_uploaded_filename(value: str) -> str:
-    if not value or value in {".", ".."} or "/" in value or "\\" in value:
-        raise ValueError("Use uploaded filenames, without directory components")
+def _validate_source_folder(value: str) -> str:
+    if not value or value in {".", ".."} or any(char in value for char in ("/", "\\", "\0")):
+        raise ValueError("Use one folder name under the workspace data directory")
+    return value
+
+
+type SourceFolder = Annotated[
+    str,
+    Field(
+        min_length=1,
+        description="Folder of ready-to-use CSV or Parquet tables under data/{workspace_id}/, such as input. Every table must have a date or datetime timestamp column.",
+    ),
+    AfterValidator(_validate_source_folder),
+]
+
+
+def _validate_source_path(value: str) -> str:
+    if any(part in {"", ".", ".."} for part in value.split("/")) or any(
+        char in value for char in ("\\", "\0")
+    ):
+        raise ValueError("Source files must have relative paths within the workspace")
     return value
 
 
 class FileSourceRef(Value):
-    """Explicit uploaded filenames, relative to this study's input directory."""
+    """Captured source files with workspace-relative paths and their content hashes."""
 
     files: tuple[str, ...] = Field(min_length=1)
     hashes: Mapping[str, Annotated[str, Field(pattern=r"^[a-f0-9]{64}$")]] = Field(
         default_factory=dict,
-        description="Call-time SHA-256 of every named file. The edge fills these for new calls; saved calls can be repeated from these hashes without uploaded bytes."
+        description="Call-time SHA-256 of every captured source file, retained with the resolved call.",
     )
     start: date | None = Field(default=None, description="Inclusive UTC source-coverage date.")
     end: date | None = Field(default=None, description="Exclusive UTC source-coverage date.")
@@ -184,28 +204,23 @@ class FileSourceRef(Value):
     @field_validator("files")
     @classmethod
     def validate_filenames(cls, values: tuple[str, ...]) -> tuple[str, ...]:
+        """Reject duplicate source filenames and parse each as a permitted relative source path."""
         if len(set(values)) != len(values):
             raise ValueError("Source filenames must be unique")
-        return tuple(_validate_uploaded_filename(value) for value in values)
+        return tuple(_validate_source_path(value) for value in values)
 
     @model_validator(mode="after")
     def ordered_bounds(self) -> Self:
-        if self.hashes and self.hashes.keys() != set(self.files):
+        """Require complete file-hash coverage when supplied and a strictly ordered source window."""
+        if self.hashes and set(self.hashes) != set(self.files):
             raise ValueError("File hashes must name every source file exactly once")
         if self.start is not None and self.end is not None and self.start >= self.end:
             raise ValueError("Source coverage start must precede end")
         return self
 
 
-class SimulationReplicateRef(Value):
-    """One replicate from a recorded, applied simulation in this study."""
-
-    revision: GitOid
-    replicate: int = Field(ge=0)
-
-
 class DataPreparationSpec(Value):
-    """A versioned data definition supplied directly to prepare_data."""
+    """The model-owned observation definitions resolved for extraction."""
 
     default_window: Duration
     variables: tuple[DataVariableSpec, ...] = Field(min_length=1)
@@ -215,11 +230,13 @@ class DataPreparationSpec(Value):
 
     @model_validator(mode="after")
     def unique_variables(self) -> Self:
+        """Reject preparation recipes that assign the same observation ID more than once."""
         if len({item.observation.id for item in self.variables}) != len(self.variables):
             raise ValueError("Prepared variables must have unique IDs")
         return self
 
     def observation_schema(self) -> tuple[ResolvedObservationSpec, ...]:
+        """Resolve each observation's window, using the recipe's default where none was authored."""
         return tuple(
             item.observation.resolved(item.observation.observation_window or self.default_window)
             for item in self.variables
@@ -227,12 +244,13 @@ class DataPreparationSpec(Value):
 
 
 class FilePreparationSpec(Value):
-    """Uploaded sources and the complete recipe for preparing their observations."""
+    """Ready-to-use source tables and the recipe for preparing their observations."""
 
     source: FileSourceRef
     definition: DataPreparationSpec
 
     def extraction_context(self) -> MeasurementContext:
+        """Project the captured source, model clock, and variable definitions into worker context."""
         from nof1_causal_lab.workers.context import MeasurementContext
 
         return MeasurementContext(
@@ -242,10 +260,9 @@ class FilePreparationSpec(Value):
         )
 
 
-class FilePreparedDataMetadata(Value):
+class PreparedDataMetadata(Value):
     """An uploaded panel's recipe owns its resolved observation schema."""
 
-    kind: Literal["file"] = "file"
     source: FileSourceRef
     preparation: DataPreparationSpec
     time_origin: AwareDatetime | None = Field(
@@ -255,26 +272,31 @@ class FilePreparedDataMetadata(Value):
     @computed_field
     @property
     def variables(self) -> tuple[ResolvedObservationSpec, ...]:
+        """Observation definitions resolved against the clock retained in the preparation recipe."""
         return self.preparation.observation_schema()
 
 
-class SimulationPreparedDataMetadata(Value):
-    """A simulation panel retains the schema of its recorded observation history."""
+class CompletedExtractionWorker(Value):
+    """Counts of extracted observations and windows retained from a completed worker."""
 
-    kind: Literal["simulation"] = "simulation"
-    source: SimulationReplicateRef
-    variables: tuple[ResolvedObservationSpec, ...] = Field(min_length=1)
-    time_origin: AwareDatetime | None = Field(
-        description="Calendar instant of model day zero; null denotes a calendar-free history."
-    )
-
-    @model_validator(mode="after")
-    def resolved_variables(self) -> Self:
-        if len({item.id for item in self.variables}) != len(self.variables):
-            raise ValueError("Prepared variables must have unique IDs")
-        return self
+    worker_id: int
+    n_extractions: int
+    n_windows: int
+    status: Literal["completed"] = "completed"
 
 
-type PreparedDataMetadata = Annotated[
-    FilePreparedDataMetadata | SimulationPreparedDataMetadata, Field(discriminator="kind")
+class FailedExtractionChunk(Value):
+    """A failed extraction chunk with its error, retained counts, and execution details."""
+
+    worker_id: int
+    n_extractions: int
+    n_windows: int
+    status: Literal["failed"] = "failed"
+    error: str
+    n_llm_calls: int | None = 0
+    reused: bool | None = False
+
+
+type ExtractionWorkerResult = Annotated[
+    CompletedExtractionWorker | FailedExtractionChunk, Field(discriminator="status")
 ]

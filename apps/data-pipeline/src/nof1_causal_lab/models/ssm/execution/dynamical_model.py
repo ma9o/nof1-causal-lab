@@ -73,6 +73,7 @@ class HeterogeneousObservation(dsx.ObservationModel):
         return self.at_predictor(self.linear_predictor(x))
 
     def linear_predictor(self, state: jax.Array) -> jax.Array:
+        """Map latent states to observation predictors through loadings and manifest intercepts."""
         return self.measurement.lambda_mat @ state + self.measurement.manifest_means
 
     def at_predictor(self, predictor: jax.Array) -> _ObservationDistribution:

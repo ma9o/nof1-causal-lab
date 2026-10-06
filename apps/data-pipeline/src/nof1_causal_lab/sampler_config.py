@@ -66,10 +66,12 @@ class MarginalParticleGibbsSpec(Value):
     @field_validator("amala_grad_clip", mode="before")
     @classmethod
     def parse_gradient_clip(cls, value: float | Literal["infinity"]) -> float:
+        """Decode the JSON string ``infinity`` as an unbounded gradient-clipping threshold."""
         return math.inf if value == "infinity" else value
 
     @field_serializer("amala_grad_clip")
     def serialize_gradient_clip(self, value: float) -> FiniteFloat | Literal["infinity"]:
+        """Encode an infinite gradient-clipping threshold as the JSON-safe string ``infinity``."""
         return "infinity" if math.isinf(value) else value
 
 
@@ -85,4 +87,3 @@ class SamplerSpec(Value):
     marginal_particle_gibbs: MarginalParticleGibbsSpec = Field(
         default_factory=MarginalParticleGibbsSpec
     )
-

@@ -45,8 +45,8 @@ def question_findings(
     model, identification = selection.model, selection.identification
     constructs = {construct.id: construct for construct in model.constructs}
     states = frozenset(selected_state_ids(selection))
-    outcome = _outcome_finding(question, constructs) if question.outcome is not None else None
-    findings: list[QuestionAssessment] = [] if outcome is None else [outcome]
+    outcome = _outcome_finding(question, constructs)
+    findings: list[QuestionAssessment] = [outcome]
     for name, query in question.queries.items():
         targets = sorted({event.target for event in query.interventions})
         findings.extend(
@@ -58,17 +58,18 @@ def question_findings(
             )
             for target in targets
         )
-        findings.append(_window_finding(name, query, panel, time_origin))
-        findings.extend(
-            _range_finding(name, target, query, constructs.get(target), panel) for target in targets
-        )
+        if panel is not None:
+            findings.append(_window_finding(name, query, panel, time_origin))
+            findings.extend(
+                _range_finding(name, target, query, constructs.get(target), panel)
+                for target in targets
+            )
     return tuple(findings)
 
 
 def _outcome_finding(
     question: QuestionSpec, constructs: dict[ConstructId, ConstructSpec]
 ) -> QuestionAssessment:
-    assert question.outcome is not None
     subject = OutcomeSubject(outcome=ConstructRef(id=question.outcome))
     construct = constructs.get(question.outcome)
     if construct is None:
@@ -124,7 +125,7 @@ def _target_finding(
 def _identification_finding(
     query: str,
     target: ConstructId,
-    outcome: QuestionAssessment | None,
+    outcome: QuestionAssessment,
     constructs: dict[ConstructId, ConstructSpec],
     model: ModelSpec,
     identification: IdentificationReport,
@@ -172,15 +173,9 @@ def _identification_finding(
 
 
 def _window_finding(
-    query: str, design: SimulationSpec, panel: pl.DataFrame | None, time_origin: datetime | None
+    query: str, design: SimulationSpec, panel: pl.DataFrame, time_origin: datetime | None
 ) -> QuestionAssessment:
     subject = QueryWindowSubject(query=query)
-    if panel is None:
-        return NotEvaluated(
-            subject=subject,
-            reason="NO_PANEL",
-            detail="Prepare data to check this window against the record.",
-        )
     if time_origin is None:
         return Evaluated(
             subject=subject,
@@ -214,7 +209,7 @@ def _range_finding(
     target: ConstructId,
     design: SimulationSpec,
     construct: ConstructSpec | None,
-    panel: pl.DataFrame | None,
+    panel: pl.DataFrame,
 ) -> QuestionAssessment:
     subject = QueryTargetSubject(check="range", query=query, target=ConstructRef(id=target))
     if construct is None:
@@ -222,12 +217,6 @@ def _range_finding(
             subject=subject,
             reason="CONSTRUCT_UNDEFINED",
             detail="The model does not define this intervention target yet.",
-        )
-    if panel is None:
-        return NotEvaluated(
-            subject=subject,
-            reason="NO_PANEL",
-            detail="Prepare data to compare the intervention with the record.",
         )
     if construct.role != Role.EXOGENOUS:
         return NotEvaluated(

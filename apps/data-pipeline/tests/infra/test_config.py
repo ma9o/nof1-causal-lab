@@ -6,10 +6,9 @@ import pytest
 from pydantic import TypeAdapter, ValidationError
 
 from nof1_causal_lab.actions.inference.fit import resolve_sampler_spec
-from nof1_causal_lab.actions.temporal.backend_config import llm_backend_config
 from nof1_causal_lab.actions.temporal.messages import LLMSubroutineInput, LLMSubroutineRef
 from nof1_causal_lab.artifacts.posterior import FitSettingsSpec
-from nof1_causal_lab.llm_specs import CodexLLMSpec, EmbeddedLLMSpec, LLMProfileSpec, PiLLMSpec
+from nof1_causal_lab.llm_specs import CodexLLMSpec, EmbeddedLLMSpec, LLMProfileSpec
 from nof1_causal_lab.sampler_config import MarginalParticleGibbsSpec, SamplerSpec
 from nof1_causal_lab.utils.config import (
     ClaudeCodeDefaults,
@@ -17,16 +16,13 @@ from nof1_causal_lab.utils.config import (
     EmbeddedLLMDefaults,
     ExtractionWorkersConfig,
     InferenceConfig,
-    IngestionConfig,
     LLMDefaults,
     PiDefaults,
     PipelineConfig,
     get_secret,
-    get_secret_async,
     load_config,
     validate_config,
 )
-from tests.helpers import run_async
 
 pytestmark = pytest.mark.contract
 
@@ -72,7 +68,6 @@ class TestSamplerSpec:
             config_module,
             "get_config",
             lambda: PipelineConfig(
-                ingestion=config.ingestion,
                 extraction_workers=config.extraction_workers,
                 inference=InferenceConfig(sampler=configured),
             ),
@@ -118,12 +113,7 @@ class TestSamplerSpec:
 
 
 MINIMAL_CONFIG = textwrap.dedent("""\
-    ingestion:
-      llm:
-        harness: none
-        model: openrouter/gpt-4
     extraction_workers:
-      chunk_size: 300
       llm:
         harness: none
         model: openrouter/gpt-4
@@ -145,15 +135,7 @@ FULL_CONFIG = textwrap.dedent("""\
         provider: openai-codex
         thinking: high
 
-    ingestion:
-      max_tool_turns: 30
-      llm:
-        harness: none
-        model: openrouter/claude-3
-
-
     extraction_workers:
-      chunk_size: 400
       max_concurrent_workers: 6
       max_tool_turns: 45
       llm:
@@ -219,7 +201,6 @@ class TestLoadConfig:
         monkeypatch.setattr(config_mod, "_find_config_path", lambda: config_file)
 
         cfg = load_config()
-        assert cfg.extraction_workers.chunk_size == 300
         assert cfg.extraction_workers.max_concurrent_workers == 4
         assert cfg.extraction_workers.max_tool_turns == 40
         # Defaults for optional sections
@@ -242,7 +223,6 @@ class TestLoadConfig:
         monkeypatch.setattr(config_mod, "_find_config_path", lambda: config_file)
 
         cfg = load_config()
-        assert cfg.ingestion.max_tool_turns == 30
         assert cfg.extraction_workers.max_concurrent_workers == 6
         assert cfg.extraction_workers.max_tool_turns == 45
         assert cfg.inference.sampler.num_warmup == 500
@@ -303,12 +283,10 @@ class TestLoadConfig:
 def _make_pipeline_config(**profile_llm_overrides) -> PipelineConfig:
     """Build a valid PipelineConfig with optional per-context llm overrides."""
     defaults = {
-        "ingestion": EmbeddedLLMSpec(harness="none", model="openrouter/x"),
         "extraction_workers": EmbeddedLLMSpec(harness="none", model="openrouter/x"),
     }
     defaults.update(profile_llm_overrides)
     return PipelineConfig(
-        ingestion=IngestionConfig(llm=defaults["ingestion"]),
         extraction_workers=ExtractionWorkersConfig(llm=defaults["extraction_workers"]),
         inference=InferenceConfig(),
         llm=LLMDefaults(
@@ -333,7 +311,7 @@ class TestValidateConfig:
 
     def test_embedded_model_must_be_openrouter_prefix(self):
         config = _make_pipeline_config(
-            ingestion=EmbeddedLLMSpec(model="gpt-5.4"),
+            extraction_workers=EmbeddedLLMSpec(model="gpt-5.4"),
         )
         assert any("openrouter/" in error for error in validate_config(config))
 
@@ -356,29 +334,13 @@ class TestValidateConfig:
         with pytest.raises(ValidationError):
             TypeAdapter(LLMProfileSpec).validate_python({"model": "openrouter/x", **payload})
 
-    def test_pi_accepts_provider_model_and_thinking(self):
-        config = _make_pipeline_config(
-            ingestion=PiLLMSpec(
-                provider="openai-codex",
-                model="gpt-5.4-mini",
-                thinking="high",
-                timeout=3600,
-            ),
-        )
-        assert validate_config(config) == []
-
     def test_codex_max_effort_survives_default_resolution_and_transport(self):
-        llm = llm_backend_config(
-            CodexLLMSpec(model="codex-test", reasoning_effort="max"),
-            LLMDefaults(codex=CodexDefaults(bin="custom-codex")),
-            max_tool_turns=None,
-        )
+        llm = CodexLLMSpec(model="codex-test", bin="custom-codex", reasoning_effort="max")
         request = LLMSubroutineInput(
             subroutine=LLMSubroutineRef(
                 workspace_id="test",
                 run_id="run",
                 subroutine_id="raw_data",
-                context_kind="raw_data_ingestion",
                 context_ref="context.json",
             ),
             llm=llm,
@@ -390,17 +352,11 @@ class TestValidateConfig:
             model="codex-test",
             bin="custom-codex",
             reasoning_effort="max",
-            service_tier="fast",
         )
 
     def test_load_config_raises_on_stage2_harness_violation(self, tmp_path, monkeypatch):
         bad_config = textwrap.dedent("""\
-            ingestion:
-              llm:
-                harness: none
-                model: openrouter/gpt-4
             extraction_workers:
-              chunk_size: 300
               llm:
                 harness: claude-code
                 model: sonnet
@@ -433,10 +389,6 @@ class TestGetSecret:
     def test_returns_none_when_missing(self, monkeypatch):
         monkeypatch.delenv("DEFINITELY_NOT_SET_XYZ_789", raising=False)
         assert get_secret("DEFINITELY_NOT_SET_XYZ_789") is None
-
-    def test_async_reads_env_var(self, monkeypatch):
-        monkeypatch.setenv("TEST_SECRET_ABC", "from-env")
-        assert run_async(get_secret_async("TEST_SECRET_ABC")) == "from-env"
 
 
 # =============================================================================

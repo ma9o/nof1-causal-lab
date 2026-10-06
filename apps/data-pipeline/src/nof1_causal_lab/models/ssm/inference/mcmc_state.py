@@ -63,6 +63,7 @@ class TrajectoryMCMCResult:
     backend: str = "marginal_particle_gibbs"
 
     def get_samples(self, *, group_by_chain: bool = False) -> Mapping[str, jnp.ndarray]:
+        """Return parameter draws, preserving chain axes when requested and flattening them otherwise."""
         if group_by_chain:
             return self.chain_samples
         return {
@@ -71,6 +72,7 @@ class TrajectoryMCMCResult:
         }
 
     def get_extra_fields(self, *, group_by_chain: bool = False) -> Mapping[str, jnp.ndarray]:
+        """Return sampler diagnostics with separate or flattened chain and draw axes."""
         if group_by_chain:
             return self.chain_extra_fields
         return {
@@ -79,6 +81,7 @@ class TrajectoryMCMCResult:
         }
 
     def __post_init__(self) -> None:
+        """Own immutable copies of sample and diagnostic collections after construction."""
         freeze_fields(self)
 
 

@@ -22,6 +22,7 @@ def get_reference_indicator_lookup(selection: StructuralSelection) -> dict[str, 
 
 
 def get_model_clock(model: ModelSpec) -> Duration:
+    """Require a measurement-ready model and return its authored clock duration."""
     model.require_measurements()
     assert model.measurement_clock is not None
     return model.measurement_clock

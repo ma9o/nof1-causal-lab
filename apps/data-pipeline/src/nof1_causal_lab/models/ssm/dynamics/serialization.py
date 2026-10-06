@@ -11,6 +11,8 @@ if TYPE_CHECKING:
 
 
 class ComponentDescription(TypedDict):
+    """Serialized drift or potential expression with its target and compiled state-axis identities."""
+
     kind: Literal["drift", "potential"]
     expression: JsonObject
     target: int
@@ -19,6 +21,8 @@ class ComponentDescription(TypedDict):
 
 
 class DynamicsDescription(TypedDict):
+    """Serialized vector-field dimension and ordered component descriptions."""
+
     n_latent: int
     components: list[ComponentDescription]
 

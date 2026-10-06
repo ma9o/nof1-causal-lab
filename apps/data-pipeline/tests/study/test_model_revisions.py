@@ -1,16 +1,16 @@
 """Whole scientific values commit atomically and findings retain exact source revisions."""
 
-from tests.git_fixtures import artifact_revisions
-
 import pytest
 
 from nof1_causal_lab.actions.contracts import EditModelRequest
+from nof1_causal_lab.artifacts.identity import GitOid
+from nof1_causal_lab.artifacts.question import QuestionSpec
 from nof1_causal_lab.models.model_inputs import input_fingerprints
 from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.state import ArtifactRecord, StudyState, is_stale
 from tests.action_fixtures import edit_and_check, question_root
-from tests.git_fixtures import artifact_revision, git_oid
-from tests.helpers import make_model
+from tests.git_fixtures import artifact_revision, artifact_revisions, git_oid
+from tests.helpers import fixture_entity_id, make_model
 from tests.model_fixtures import x_y_model
 
 pytestmark = pytest.mark.contract
@@ -25,13 +25,16 @@ def workspace(monkeypatch, tmp_path):
 
 
 def test_full_model_write_keeps_the_named_base_without_a_head_gate(workspace):
-    root = StudyRepository(workspace).state(question_root(workspace).commit_id)
+    question = QuestionSpec(text="Does X change Y?", outcome=fixture_entity_id("construct", "Y"))
+    root = StudyRepository(workspace).state(question_root(workspace, question).commit_id)
     effects = edit_and_check(
         workspace,
-        EditModelRequest.model_validate(
+        EditModelRequest[GitOid].model_validate(
             {
-                "model": make_model(["X", "Y"], [("X", "Y")]).model_dump(mode="json"),
-                "expected_revision": None,
+                "input": {
+                    "parent_ref": root.current["question"].revision,
+                    "model": make_model(["X", "Y"], [("X", "Y")]).model_dump(mode="json"),
+                }
             }
         ),
         root,
@@ -46,10 +49,12 @@ def test_full_model_write_keeps_the_named_base_without_a_head_gate(workspace):
     ]
     second = edit_and_check(
         workspace,
-        EditModelRequest.model_validate(
+        EditModelRequest[GitOid].model_validate(
             {
-                "model": make_model(["X", "Y"], [("X", "Y")]).model_dump(mode="json"),
-                "expected_revision": artifact_revision(workspace, "model", 1),
+                "input": {
+                    "parent_ref": artifact_revision(workspace, "model", 1),
+                    "model": make_model(["X", "Y"], [("X", "Y")]).model_dump(mode="json"),
+                }
             }
         ),
         state,
@@ -61,7 +66,10 @@ def test_full_model_write_keeps_the_named_base_without_a_head_gate(workspace):
     )
     assert "identification" in checks.reused
     assert second.effects.produced[0].revision != effects.effects.produced[0].revision
-    assert second.effects.produced[0].derived_from == {"model": state.current["model"].revision}
+    assert second.effects.produced[0].derived_from == {
+        "question": root.current["question"].revision,
+        "model": state.current["model"].revision,
+    }
 
 
 def test_model_input_identity_preserves_findings_and_original_pins():

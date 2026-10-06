@@ -12,6 +12,7 @@ import numpy as np
 from dynestyx.inference.configs.discretizer import ExactAffineConfig
 
 from nof1_causal_lab.actions.effects import ActionEffects
+from nof1_causal_lab.artifacts.data_ref import DataRef
 from nof1_causal_lab.artifacts.posterior import InferenceReportCore
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.autoreparam import Strategy, _minimal_reparam
@@ -43,19 +44,17 @@ def inference_log(
     workspace_id="workspace",
 ):
     pins: dict[ArtifactId, GitOid] = {"model": prior_revision, "panel": git_oid(1)}
-    from nof1_causal_lab.artifacts.posterior import InferenceEvidence
+    from nof1_causal_lab.artifacts.identity import GitOid, GitRef
+    from nof1_causal_lab.artifacts.posterior import InferenceEvidence, ModelFitResult
     from nof1_causal_lab.artifacts.posterior_diagnostics import ParticleMCMCEvidence
-    from nof1_causal_lab.artifacts.identity import GitRef
-    from nof1_causal_lab.study.records import ModelFitResult, StudyRevision
+    from nof1_causal_lab.study.records import StudyRevision
     from tests.action_fixtures import applied_record
 
     record = applied_record(
         Applied(
             result=ModelFitResult(
                 model=GitRef(workspace_id=workspace_id, revision=prior_revision, path="model.json"),
-                panel=GitRef(
-                    workspace_id=workspace_id, revision=pins["panel"], path="panel.parquet"
-                ),
+                data=DataRef[GitOid, int](revision=pins["panel"], replicate_index=0),
                 evidence=InferenceEvidence(
                     distribution=next(iter(model.law_layouts)),
                     engine=ParticleMCMCEvidence(),
@@ -295,6 +294,7 @@ def bind_panel_fixture(model, observations, times, *, support=None):
 
     import polars as pl
 
+    from nof1_causal_lab.artifacts.observation_data import ObservationDataset
     from nof1_causal_lab.models.ssm.observation_support import simulation_observation_support
     from nof1_causal_lab.models.ssm.runtime import BoundPanel, bind_panel
 
@@ -310,7 +310,7 @@ def bind_panel_fixture(model, observations, times, *, support=None):
             rows.append(
                 {
                     "indicator_id": str(observation.id),
-                    "value": float(observations[t, i]),
+                    "value": None if np.isnan(observations[t, i]) else float(observations[t, i]),
                     "anchor_time": origin + timedelta(days=float(at)),
                     "support_start": origin + timedelta(days=float(start))
                     if np.isfinite(start)
@@ -324,7 +324,12 @@ def bind_panel_fixture(model, observations, times, *, support=None):
                     "observation_window": support.observation_windows[i],
                 }
             )
-    panel = bind_panel(pl.DataFrame(rows), model=model, time_origin=origin)
+    dataset = ObservationDataset.from_frame(
+        pl.DataFrame(rows),
+        tuple(item.observation for item in model.observations),
+        time_origin=origin,
+    )
+    panel = bind_panel(dataset, model=model, time_origin=origin)
     assert isinstance(panel, BoundPanel), panel
     return panel
 

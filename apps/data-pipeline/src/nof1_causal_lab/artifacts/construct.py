@@ -42,9 +42,7 @@ if TYPE_CHECKING:
 
 
 class Role(StrEnum):
-    """A construct role states whether the variable is modeled as endogenous or treated as
-    exogenous.
-    """
+    """Whether a construct is modeled as endogenous or supplied as an exogenous input."""
 
     ENDOGENOUS = "endogenous"
     EXOGENOUS = "exogenous"
@@ -83,6 +81,7 @@ class ConstructSpec(Value):
     )
 
     def with_distribution(self, identity: DistributionId | None) -> ConstructSpec:
+        """Return a new construct selecting the supplied trajectory distribution, or none."""
         return self.revised(distribution=identity)
 
     @property
@@ -105,6 +104,7 @@ class ConstructSpec(Value):
 
     @model_validator(mode="after")
     def validate_coefficients(self) -> ConstructSpec:
+        """Reject coefficients and dynamics that conflict with the construct's role or innovation law."""
         if self.role == Role.EXOGENOUS:
             if not self.indicators:
                 raise ValueError(
@@ -224,6 +224,7 @@ class CausalEdgeSpec(Value):
     )
 
     def with_endpoints(self, cause: ConstructSpec, effect: ConstructSpec) -> Self:
+        """Rebuild the edge with new endpoint owners while retaining its mechanisms and identity."""
         return type(self)(
             id=self.id,
             mechanisms=self.mechanisms,

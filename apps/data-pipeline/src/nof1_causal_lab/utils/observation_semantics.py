@@ -15,9 +15,7 @@ if TYPE_CHECKING:
 
 
 class SupportKind(StrEnum):
-    """Support kind states whether an observation represents a point in time or a summary over
-    an interval.
-    """
+    """Whether an observation describes a point in time or summarizes an interval."""
 
     POINT = "point"
     INTERVAL = "interval"
@@ -31,9 +29,7 @@ class AnchorPolicy(StrEnum):
 
 
 class SummaryOperator(StrEnum):
-    """A summary operator specifies how values within a measurement window produce one
-    observation.
-    """
+    """How measurements within a support window are reduced to one observation."""
 
     FIRST = "first"
     LAST = "last"

@@ -38,7 +38,21 @@ class VectorFieldComponent(Protocol):
         t: Array,
         params: Mapping[str, Array],
         /,
-    ) -> Array: ...
+    ) -> Array:
+        """Add this component's drift contribution to the accumulated state derivative.
+
+        Args:
+            accumulator: Derivative contributions already accumulated for each state.
+            eta: Current state vector.
+            eta_per_edge: Source states presented to each target after edge-specific
+                intervention handling.
+            t: Current model time.
+            params: Numerical coefficients bound to this component.
+
+        Returns:
+            A new derivative vector with this component's contribution included.
+        """
+        ...
 
 
 # ---------------------------------------------------------------------------
@@ -66,6 +80,7 @@ class DenseLinear(eqx.Module):
         _t: Array,
         params: Mapping[str, Array],
     ) -> Array:
+        """Add dense linear drift and its intercept using the edge-adjusted source states."""
         A = params["drift"]
         cint = params.get("cint", jnp.zeros(A.shape[0], dtype=accumulator.dtype))
         return accumulator + (A * eta_per_edge).sum(axis=1) + cint
@@ -89,6 +104,7 @@ class DiagonalDecay(eqx.Module):
         _t: Array,
         params: Mapping[str, Array],
     ) -> Array:
+        """Add independent negative decay terms for every state coordinate."""
         return accumulator + (-params["decay"] * eta)
 
 
@@ -105,6 +121,7 @@ class StateDecay(eqx.Module):
         _t: Array,
         params: Mapping[str, Array],
     ) -> Array:
+        """Add negative decay to this component's target state only."""
         return accumulator.at[self.target].add(-params["decay"] * eta[self.target])
 
 
@@ -119,6 +136,7 @@ class Intercept(eqx.Module):
         _t: Array,
         params: Mapping[str, Array],
     ) -> Array:
+        """Add the constant drift vector to the accumulated derivative."""
         return accumulator + params["cint"]
 
 
@@ -135,6 +153,7 @@ class StateIntercept(eqx.Module):
         _t: Array,
         params: Mapping[str, Array],
     ) -> Array:
+        """Add a constant drift contribution to this component's target state only."""
         return accumulator.at[self.target].add(params["cint"])
 
 
@@ -162,5 +181,6 @@ class LinearEdge(eqx.Module):
         _t: Array,
         params: Mapping[str, Array],
     ) -> Array:
+        """Add the weighted edge-adjusted source state to the target derivative."""
         contribution = params["weight"] * eta_per_edge[self.target, self.source]
         return accumulator.at[self.target].add(contribution)

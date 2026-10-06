@@ -12,10 +12,11 @@ import polars as pl
 import pytest
 
 from nof1_causal_lab.actions.inference import fit as stage5_inference
+from nof1_causal_lab.artifacts.construct import replace_constructs
+from nof1_causal_lab.artifacts.observation_data import ObservationDataset
 from nof1_causal_lab.models.model_structure import StructuralSelection
 from nof1_causal_lab.models.ssm import runtime as runtime_module
 from nof1_causal_lab.models.ssm.compile import inputs as compilation
-from nof1_causal_lab.models.ssm.inference import ParticleMCMCPosterior
 from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
 from nof1_causal_lab.sampler_config import SamplerSpec
@@ -24,7 +25,24 @@ from tests.model_fixtures import load_model_fixture
 
 
 def _sleep_state_model() -> ModelSpec:
-    return load_model_fixture("inference/sleep_state_model.json")
+    model = load_model_fixture("inference/sleep_state_model.json")
+    first = model.constructs[0]
+    indicator = first.indicators[0]
+    return model.revised(
+        edges=replace_constructs(
+            model.edges,
+            (
+                first.revised(
+                    indicators=(
+                        indicator.revised(
+                            observation=indicator.observation.revised(aggregation="mean")
+                        ),
+                        *first.indicators[1:],
+                    )
+                ),
+            ),
+        )
+    )
 
 
 if TYPE_CHECKING:
@@ -44,14 +62,14 @@ def _fake_result():
 
 def _make_observation_support_runtime() -> ObservationSupportRuntime:
     return ObservationSupportRuntime.assembled(
-        manifest_names=("sleep_avg", "energy"),
+        manifest_names=("manifest_0", "manifest_1"),
         anchor_times=np.array([0.0, 1.5]),
         support_kinds=("interval", "point"),
-        summary_operators=("mean", None),
-        anchor_policies=("end", "end"),
-        observation_windows=("1d", None),
-        support_start_times=np.array([[np.nan, np.nan], [0.0, np.nan]]),
-        support_end_times=np.array([[np.nan, np.nan], [1.5, np.nan]]),
+        summary_operators=("mean", "last"),
+        anchor_policies=("support_end", "support_end"),
+        observation_windows=("1d", "1d"),
+        support_start_times=np.array([[np.nan, 0.0], [0.0, 1.5]]),
+        support_end_times=np.array([[np.nan, 0.0], [1.5, 1.5]]),
         interval_prev_coeffs=np.array(
             [
                 [[0.0, 0.0], [0.0, 0.0]],
@@ -77,7 +95,7 @@ def _make_observation_support_runtime() -> ObservationSupportRuntime:
 def _make_panel(inputs: CompiledFitInputs) -> BoundPanel:
     return bind_panel_fixture(
         inputs.compiled,
-        jnp.array([[0.2, 0.8], [jnp.nan, 0.5]], dtype=jnp.float32),
+        jnp.array([[jnp.nan, 0.8], [0.2, 0.5]], dtype=jnp.float32),
         jnp.array([0.0, 1.5], dtype=jnp.float32),
         support=_make_observation_support_runtime(),
     )
@@ -95,16 +113,10 @@ def test_fit_model_logs_runtime_summary_and_diagnostic_boundaries(monkeypatch, c
         stage5_inference, "fit_prepared_model", lambda _prepared, **_kwargs: fake_result
     )
 
-    data_for_model = pl.DataFrame(
-        {
-            "indicator_id": ["indicator:sleep_avg", "indicator:energy", "indicator:energy"],
-            "value": [0.2, 0.8, 0.5],
-            "anchor_time": [
-                "2024-01-01T00:00:00",
-                "2024-01-01T00:00:00",
-                "2024-01-02T12:00:00",
-            ],
-        }
+    data_for_model = ObservationDataset.from_frame(
+        pl.DataFrame(runtime.rows),
+        tuple(item.observation for item in runtime.model.observations),
+        time_origin=runtime.time_origin,
     )
 
     with caplog.at_level(logging.INFO, logger=stage5_inference.logger.name):
@@ -124,7 +136,6 @@ def test_fit_model_logs_runtime_summary_and_diagnostic_boundaries(monkeypatch, c
     assert "Starting inference kernel..." in caplog.text
     assert "Retaining native posterior and sampler telemetry" in caplog.text
     assert "inference_diagnostics" not in result
-
 
 
 if TYPE_CHECKING:

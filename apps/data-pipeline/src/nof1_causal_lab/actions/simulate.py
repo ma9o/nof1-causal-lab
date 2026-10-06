@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import time
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 from pydantic import TypeAdapter
@@ -26,13 +26,16 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from datetime import datetime
 
-    import polars as pl
+    import dynestyx as dsx
+    from jax import Array
 
-    from nof1_causal_lab.artifacts.identity import GitRef
-    from nof1_causal_lab.artifacts.identity import GitOid
+    from nof1_causal_lab.artifacts.data_ref import DataRef
+    from nof1_causal_lab.artifacts.identity import GitOid, GitRef
+    from nof1_causal_lab.artifacts.observation_data import ObservationDataset
     from nof1_causal_lab.artifacts.simulation import SimulationSpec
-    from nof1_causal_lab.study.store import ArtifactStore
     from nof1_causal_lab.models.model_structure import StructuralSelection
+    from nof1_causal_lab.models.ssm.execution.dynamical_model import HeterogeneousObservation
+    from nof1_causal_lab.study.store import ArtifactStore
 
 
 def simulate(
@@ -42,13 +45,12 @@ def simulate(
     revision: GitRef,
     write_array: Callable[[np.ndarray], str],
     time_origin: datetime,
-    origin_panel_revision: GitOid | None = None,
-    input_data: pl.DataFrame | None = None,
+    origin_data: DataRef[GitOid, int] | None = None,
+    input_data: ObservationDataset | None = None,
 ) -> SimulationEvidence | ObservationPreflightFailure:
     """Generate current model histories; data_diff compares the saved observations separately."""
     from nof1_causal_lab.models.ssm.compile.inputs import compile_executable_model
 
-    model = selection.model
     compiled = compile_executable_model(selection)
     from nof1_causal_lab.models.ssm.runtime import replay_input_events
 
@@ -84,10 +86,7 @@ def simulate(
         raise ValueError("Simulation must retain its observation support")
     prediction = batch.prediction
     state_ids = tuple(numeric.state_ids(compiled))
-    variables = tuple(
-        model.indicator(observation.id).observation.resolved(observation.observation_window)
-        for observation in compiled.observations
-    )
+    variables = tuple(observation.observation for observation in compiled.observations)
     return SimulationEvidence(
         model=revision,
         design=design,
@@ -95,7 +94,7 @@ def simulate(
         times=batch.times,
         draws=prediction.n_draws,
         seed=batch.measurement_design.seed,
-        origin_panel_revision=origin_panel_revision,
+        origin_data=origin_data,
         state_ids=state_ids,
         parameter_draws={
             name: write_array(np.asarray(value)) for name, value in prediction.parameters.items()
@@ -121,6 +120,10 @@ def read_simulation_report(
     store: ArtifactStore, evidence: SimulationEvidence, question_revision: GitOid
 ) -> SimulationReport:
     """Measure saved histories with current code; never sample parameters, paths or emissions."""
+    import equinox as eqx
+    import jax
+    import jax.numpy as jnp
+
     from nof1_causal_lab.actions.scenarios import summarize_causal_simulation
     from nof1_causal_lab.artifacts.predictive_provenance import (
         FittedLawProvenance,
@@ -131,17 +134,14 @@ def read_simulation_report(
     from nof1_causal_lab.models.ssm.compile.inputs import compile_executable_model
     from nof1_causal_lab.models.ssm.inference.convergence import convergence_failures
     from nof1_causal_lab.models.ssm.observation_support import recorded_observation_support
-    from nof1_causal_lab.models.ssm.predictive.simulation import SimulationBatch
     from nof1_causal_lab.models.ssm.predictive.registry_runtime import _predictive_models
+    from nof1_causal_lab.models.ssm.predictive.simulation import SimulationBatch
     from nof1_causal_lab.models.ssm.predictive.types import PredictiveDraws, PredictiveTrajectory
     from nof1_causal_lab.models.ssm.simulation_checks import DesignInfo
     from nof1_causal_lab.study.history import StudyRepository
     from nof1_causal_lab.study.lineage import fitted_law_report, law_provenance
     from nof1_causal_lab.study.records import inference_record
     from nof1_causal_lab.study.store import cached_value, read_model, read_question
-    import equinox as eqx
-    import jax
-    import jax.numpy as jnp
 
     def render() -> SimulationReport:
         model = read_model(store, evidence.model.revision)
@@ -195,12 +195,11 @@ def read_simulation_report(
         operator = compile_observation_operator(support)
         native = _predictive_models(compiled, parameters, times)
 
-        def responses(native_model, path):
-            observation = native_model.observation_model
+        def responses(native_model: dsx.DynamicalModel, path: Array) -> tuple[Array, Array]:
+            observation = cast("HeterogeneousObservation", native_model.observation_model)
             predictors = jax.vmap(observation.linear_predictor)(path)
             response = jax.vmap(lambda value: observation.at_predictor(value).response)(predictors)
-            if operator is not None:
-                response, _ = operator.project_response_trajectory(response)
+            response, _ = operator.project_response_trajectory(response)
             return predictors, response
 
         predictors, means = eqx.filter_vmap(responses)(native, latents)

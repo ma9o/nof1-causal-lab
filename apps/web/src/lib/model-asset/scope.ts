@@ -1,4 +1,4 @@
-import type { CompletedPoll, DataDiffReport, ModelSnapshot } from "@nof1-causal-lab/api-types";
+import type { ActionSuccess, DataDiffOutput, ModelSnapshot } from "@nof1-causal-lab/api-types";
 import type { ModelEntities } from "./entities";
 import type { EntitySelection } from "@/lib/model-asset/selection";
 import type { TimelineRevision } from "@nof1-causal-lab/api-types";
@@ -9,6 +9,6 @@ export interface ScopeContext {
   entities: ModelEntities;
   select: (selection: EntitySelection | null) => void;
   ticks: readonly TimelineRevision[];
-  dataDiff: DataDiffReport | null;
-  result: CompletedPoll | undefined;
+  dataDiff: DataDiffOutput | null;
+  result: ActionSuccess | undefined;
 }

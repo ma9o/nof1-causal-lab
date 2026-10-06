@@ -32,13 +32,6 @@ llm:
 
 # --- Agentic contexts ------------------------------------------------------
 
-# ingestion: Agentic Data Ingestion
-ingestion:
-  max_tool_turns: 40
-  llm:
-    harness: codex
-    model: gpt-5.5
-
 # extraction: Support-Window Extraction (Workers)
 # extraction fans out across thousands of workers; harness cold-start per worker
 # is untenable, so `harness` is locked to `none` (enforced by config validator).

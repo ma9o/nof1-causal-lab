@@ -1,4 +1,4 @@
-"""validation validation entrypoint."""
+"""Empirical data profiles and model-dependent measurement compatibility checks."""
 
 from __future__ import annotations
 
@@ -7,12 +7,11 @@ from typing import TYPE_CHECKING
 
 import polars as pl
 
+from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata
 from nof1_causal_lab.artifacts.identity import IndicatorId
-from nof1_causal_lab.artifacts.data_preparation import FilePreparedDataMetadata
 
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.construct import ConstructSpec
-    from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.observations import (
         AuthoredObservationSpec,
@@ -40,20 +39,19 @@ def validate_extraction(
     *,
     data_profile: DataProfileArtifact | None = None,
 ) -> DataProfileArtifact:
-    """Validate semantic properties of extracted data.
-
-    Runs the model compatibility rules against the extracted data and reduces findings
-    into a keyed indicator audit map plus dataset-level issues.
+    """Combine empirical data findings with the selected model's compatibility checks.
 
     Args:
-        causal_design: The full causal design with measurement structure
-        dataframes: List of DataFrames with columns (indicator, value, anchor_time)
+        model: Scientific definition supplying observation identities, construct
+            ownership, and the measurement clock.
+        dataframes: Long-format frames with ``indicator_id``, ``value``, and
+            ``anchor_time`` columns; rows outside the model's indicators are excluded.
+        data_profile: Previously computed empirical findings for these observations.
+            When omitted, compute them from the combined selected rows.
 
     Returns:
-        Dict with:
-            - is_valid: bool
-            - indicators: per-indicator profile + validation
-            - dataset_issues: cross-indicator validation findings
+        Per-indicator audits and dataset-wide findings. An empty selection produces
+        a data profile containing a dataset-wide no-data error.
     """
     dataframes = [df for df in dataframes if not df.is_empty()]
     if not dataframes:
@@ -115,12 +113,15 @@ def validate_extraction(
 
 
 def profile_data(
-    data: pl.DataFrame, *, metadata: PreparedDataMetadata | None = None
+    data: pl.DataFrame,
+    *,
+    definitions: tuple[ResolvedObservationSpec, ...] = (),
+    metadata: PreparedDataMetadata | None = None,
 ) -> DataProfileArtifact:
     """Measure observed data without consulting any model or authoring state."""
     if data.is_empty():
         return no_data_validation_result()
-    definitions = metadata.variables if metadata is not None else ()
+    definitions = metadata.variables if metadata is not None else definitions
     lookup: dict[IndicatorId, ResolvedObservationSpec] = {item.id: item for item in definitions}
     identities = {IndicatorId(value) for value in data["indicator_id"].unique()} | set(lookup)
     context = ValidationContext(data, definitions, identities, lookup, {}, None)
@@ -131,7 +132,7 @@ def profile_data(
         indicator_issues=issues,
         indicator_health=health,
     )
-    if metadata is not None:
+    if definitions:
         unknown = set(data["indicator_id"].unique()) - set(lookup)
         if unknown:
             dataset_issues.append(
@@ -142,7 +143,7 @@ def profile_data(
                     message=f"{len(unknown)} observed variables have no definitions in the prepared-data metadata.",
                 )
             )
-        for variable in metadata.variables:
+        for variable in definitions:
             levels = (
                 variable.ordinal_levels
                 if variable.measurement_dtype == "ordinal"
@@ -171,7 +172,7 @@ def profile_data(
                         message="Observed numeric values must be finite",
                     )
                 )
-    if isinstance(metadata, FilePreparedDataMetadata):
+    if isinstance(metadata, PreparedDataMetadata):
         from nof1_causal_lab.artifacts.data_preparation import check_semantic_collisions
 
         for variable in metadata.preparation.variables:

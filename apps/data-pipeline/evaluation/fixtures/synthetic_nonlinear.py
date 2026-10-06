@@ -264,6 +264,7 @@ def bind_synthetic_nonlinear_panel(inputs: CompiledFitInputs, data: SyntheticNon
 
     import polars as pl
 
+    from nof1_causal_lab.artifacts.observation_data import ObservationDataset
     from nof1_causal_lab.models.ssm.runtime import BoundPanel, bind_panel
     from nof1_causal_lab.utils.time_coordinates import SYNTHETIC_EPOCH
 
@@ -281,10 +282,15 @@ def bind_synthetic_nonlinear_panel(inputs: CompiledFitInputs, data: SyntheticNon
                     "support_kind": observation.support.support_kind.value,
                     "summary_operator": observation.support.summary_operator.value,
                     "anchor_policy": observation.support.anchor_policy.value,
-                    "observation_window": observation.observation_window,
+                    "observation_window": observation.observation_window.source,
                 }
             )
-    panel = bind_panel(pl.DataFrame(rows), model=inputs.compiled, time_origin=None)
+    observations = ObservationDataset.from_frame(
+        pl.DataFrame(rows),
+        tuple(item.observation for item in inputs.compiled.observations),
+        time_origin=None,
+    )
+    panel = bind_panel(observations, model=inputs.compiled, time_origin=None)
     assert isinstance(panel, BoundPanel), panel
     return panel
 

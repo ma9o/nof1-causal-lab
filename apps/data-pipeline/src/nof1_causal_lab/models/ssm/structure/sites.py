@@ -35,10 +35,14 @@ class SiteDescriptor(Value):
 
 
 class ScalarSiteSelection(Value):
+    """Selection of one coordinate by its flat index within a sampling site."""
+
     flat_index: int
 
 
 class RowSiteSelection(Value):
+    """Selection of an entire leading-axis row within a sampling site."""
+
     row: int
 
 

@@ -33,8 +33,8 @@ from nof1_causal_lab.actions.temporal.messages import (
     ProgressEventInput,
     ToolCallSummary,
 )
-from nof1_causal_lab.artifacts.data_preparation import FilePreparedDataMetadata
-from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid, GitRef
+from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata
+from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid
 from nof1_causal_lab.artifacts.measurements import ObservationRecord
 from nof1_causal_lab.json_types import JsonObject
 from nof1_causal_lab.llm_specs import EmbeddedLLMSpec
@@ -63,6 +63,7 @@ def _read_json(path: str) -> JsonObject:
 
 @activity.defn
 async def emit_progress_event_activity(activity_input: ProgressEventInput) -> None:
+    """Persist a workflow progress event in the designated workspace."""
     from nof1_causal_lab.actions.progress import emit_event
 
     emit_event(activity_input.workspace_id, activity_input.event)
@@ -70,6 +71,7 @@ async def emit_progress_event_activity(activity_input: ProgressEventInput) -> No
 
 @activity.defn
 async def plan_measurements_activity(activity_input: MeasurementsWorkflowInput) -> MeasurementsPlan:
+    """Compute deterministic measurements and plan cached or LLM-backed extraction chunks."""
     import polars as pl
 
     from nof1_causal_lab.actions.extraction.planning import prepare_semantic_chunks
@@ -79,7 +81,10 @@ async def plan_measurements_activity(activity_input: MeasurementsWorkflowInput) 
 
     store = ArtifactStore(activity_input.workspace_id)
     store.read_meta("raw_data", activity_input.raw_data_revision)
-    pins: dict[ArtifactId, GitOid] = {"raw_data": activity_input.raw_data_revision}
+    pins: dict[ArtifactId, GitOid] = {
+        "raw_data": activity_input.raw_data_revision,
+        "model": activity_input.preparation.model_ref,
+    }
     run_id = f"seq-{activity_input.seq:06d}"
     root = _run_root(activity_input.workspace_id, run_id)
 
@@ -89,9 +94,11 @@ async def plan_measurements_activity(activity_input: MeasurementsWorkflowInput) 
         parquet_filename("raw_data", "raw"),
     )
     raw_df = pl.DataFrame(raw_table)
-    preparation = activity_input.preparation.definition
-    question = preparation.context
-    measurement_structure = activity_input.preparation.extraction_context()
+    from nof1_causal_lab.actions.prepare_data import resolve_preparation
+
+    resolved = resolve_preparation(store, activity_input.preparation)
+    question = resolved.definition.context
+    measurement_structure = resolved.extraction_context()
 
     config = get_config()
     extraction_workers = config.extraction_workers
@@ -147,7 +154,6 @@ async def plan_measurements_activity(activity_input: MeasurementsWorkflowInput) 
 
             chunk_spec = dict(_read_json(spec_ref))
             cache_ref = preparation_cache_path(
-                "measurement_extraction",
                 spec_ref,
                 llm,
                 extraction_workers.max_tool_turns,
@@ -178,7 +184,7 @@ async def plan_measurements_activity(activity_input: MeasurementsWorkflowInput) 
             "pins": pins,
             "question": question,
             "measurement_structure": measurement_structure.model_dump(mode="json"),
-            "preparation": activity_input.preparation.model_dump(mode="json"),
+            "preparation": resolved.model_dump(mode="json"),
             "computed_dicts": computed_dicts,
             "empty_output": empty_output.model_dump(mode="json"),
             "chunks": [chunk.model_dump(mode="json") for chunk in chunks],
@@ -202,12 +208,14 @@ class OpenRouterActivities:
     """Bind OpenRouter activities to their worker-owned transport client."""
 
     def __init__(self, client: AsyncOpenAI) -> None:
+        """Bind the provider client shared by this worker's model-call activities."""
         self._client = client
 
     @activity.defn
     async def call_openrouter_activity(
         self, activity_input: OpenRouterCallInput
     ) -> OpenRouterCallResult:
+        """Persist one provider response, reusing the recorded result on activity retries."""
         if storage.exists(activity_input.call_ref):
             return OpenRouterCallResult.model_validate(
                 _read_json(activity_input.call_ref)["result"]
@@ -277,6 +285,7 @@ class OpenRouterActivities:
 async def finalize_extraction_chunk_activity(
     activity_input: ExtractionChunkFinalizeInput,
 ) -> CompletedExtractionChunk:
+    """Validate a chunk's worker output, publish its cache entry, and retain observation rows."""
     from nof1_causal_lab.utils.content_cache import publish
     from nof1_causal_lab.workers.schemas import WorkerOutput, validate_worker_output
 
@@ -324,6 +333,7 @@ async def finalize_extraction_chunk_activity(
 async def finalize_measurements_activity(
     activity_input: MeasurementsFinalizeInput,
 ) -> Applied[DataPreparationResult]:
+    """Assemble computed and extracted rows into a validated panel with preparation metadata."""
     import polars as pl
 
     from nof1_causal_lab.actions.extraction.materialization import (
@@ -359,7 +369,9 @@ async def finalize_measurements_activity(
         variables = preparation.definition.observation_schema()
         all_dicts = computed_dicts + semantic_dicts
         observation_rows = TypeAdapter(list[ObservationRecord]).validate_python(
-            annotate_observation_rows(pl.DataFrame(all_dicts, schema=EXTRACTION_ROW_SCHEMA), variables).to_dicts()
+            annotate_observation_rows(
+                pl.DataFrame(all_dicts, schema=EXTRACTION_ROW_SCHEMA), variables
+            ).to_dicts()
             if all_dicts
             else [],
         )
@@ -367,7 +379,7 @@ async def finalize_measurements_activity(
         if len(panel) == 0:
             raise ValueError("Extraction produced no observations")
         panel = validate_observation_rows(panel, variables)
-        metadata = FilePreparedDataMetadata(
+        metadata = PreparedDataMetadata(
             source=preparation.source,
             preparation=preparation.definition,
             time_origin=prepared_time_origin(panel, preparation.source.start),

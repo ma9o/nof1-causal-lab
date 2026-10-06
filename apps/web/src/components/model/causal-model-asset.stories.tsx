@@ -1,4 +1,3 @@
-import { fixtureValue } from "@/components/__fixtures__/fixture-value";
 import type { Meta, StoryObj } from "@storybook/nextjs-vite";
 import { QueryClient, QueryClientProvider, useQuery } from "@tanstack/react-query";
 import { setupWorker } from "msw/browser";
@@ -76,7 +75,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "A harness-driven model viewer: exact API action names and short commit hashes above the graph, model or selected-entity state below, and the selected action’s outcome and reasons on the right. Failed actions keep their cross marker and attempt commit hash. The story walks from a question through structure, measurement and laws, a table import, a convergence warning, individual paired outcome paths with optional summaries, an edited-model simulation whose causal effect is unavailable, and a fit still running after it. Links follow each action's arguments, including explicitly selected prior model revisions; inspect any action. All data is illustrative; statistics and differences are read from backend-shaped fixtures, and the viewer offers no write controls.",
+          "A harness-driven model viewer: exact API action names and short commit hashes above the graph, model or selected-entity state below, and the selected action’s outcome and reasons on the right. Failed actions keep their cross marker and attempt commit hash. The story walks from a question through structure, measurement and laws, a table import, a fit without retained inference evidence, individual paired outcome paths with optional summaries, an edited-model simulation whose causal effect is unavailable, and a fit still running after it. Links follow each action's arguments, including explicitly selected prior model revisions; inspect any action. All data is illustrative; statistics and differences are read from backend-shaped fixtures, and the viewer offers no write controls.",
       },
     },
   },
@@ -108,19 +107,19 @@ export const Complete: Story = {
     const canvas = within(canvasElement);
     // The data_diff links to the panel and the simulation it compared, not to the head.
     await canvas.findByRole("button", { name: "data_diff · c00000d" });
-    await expect(canvasElement.querySelectorAll("path[data-argument]")).toHaveLength(16);
+    await expect(canvasElement.querySelectorAll("path[data-argument]")).toHaveLength(20);
     for (const [label, section, state] of [
       ["edit_model · c000002", "Model changes", null],
       ["prepare_data · c000005", "Prepared data", "gad7 screening score"],
       ["edit_model · c000006 · failed", "Edit model failed", null],
-      ["fit · c000008", "Parameter convergence", "Joint posterior"],
+      ["fit · c000008", null, "Fit"],
       ["simulate · c000009", null, "Simulation design"],
     ] as const) {
       await userEvent.click(canvas.getByRole("button", { name: label }));
       await expect(
-        await within(canvas.getByRole("complementary", { name: "Action record" })).findByText(
-          label.replace(" · failed", ""),
-        ),
+        await within(
+          await canvas.findByRole("complementary", { name: "Action record" }),
+        ).findByText(label.replace(" · failed", "")),
       ).toBeVisible();
       const record = within(canvas.getByRole("complementary", { name: "Action record" }));
       const details = within(canvas.getByRole("region", { name: "Model details" }));
@@ -138,8 +137,8 @@ export const Complete: Story = {
         ).toBeInTheDocument();
         await expect(details.queryByText("Time coverage")).not.toBeInTheDocument();
       }
-      if (section === "Parameter convergence") {
-        await expect(record.getByText(/R-hat fails for .+: 1.08/)).toBeVisible();
+      if (state === "Fit") {
+        await expect(record.getByText("No inference report recorded.")).toBeVisible();
         await expect(
           details.queryByRole("region", { name: "Posterior predictive checks" }),
         ).not.toBeInTheDocument();
@@ -169,13 +168,7 @@ export const Complete: Story = {
         await expect(
           (await canvas.findAllByRole("img", { name: /recorded draws/ }))[0],
         ).toBeInTheDocument();
-        const firstDraw = fixtureValue(
-          (await canvas.findAllByRole("spinbutton", { name: "First draw" }))[0],
-        );
-        await userEvent.clear(firstDraw);
-        await userEvent.type(firstDraw, "25");
-        await userEvent.tab();
-        await expect(await canvas.findByText(/25–48 of 100/)).toBeInTheDocument();
+        await expect(await canvas.findByText("Every saved draw")).toBeInTheDocument();
       }
     }
     await expect(canvas.queryByRole("combobox", { name: "Details scope" })).not.toBeInTheDocument();
@@ -193,11 +186,11 @@ export const Complete: Story = {
         "This edited model has no committed production fit at this revision.",
       ),
     ).toBeVisible();
-    const record = within(canvas.getByRole("complementary", { name: "Action record" }));
-    const details = within(canvas.getByRole("region", { name: "Model details" }));
     await userEvent.click(canvas.getByRole("button", { name: "data_diff · c00000d" }));
     // Replaying the applied comparison serves its full evidence.
-    await expect(await record.findByRole("region", { name: "Data comparison" })).toBeVisible();
+    await expect(await canvas.findByRole("region", { name: "Data comparison" })).toBeVisible();
+    const record = within(canvas.getByRole("complementary", { name: "Action record" }));
+    const details = within(canvas.getByRole("region", { name: "Model details" }));
     await expect(record.getByText(/Panel from prepare_data · c000005/)).toBeVisible();
     await expect(record.getByText(/Observed values fall outside/)).toBeVisible();
     await expect(

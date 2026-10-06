@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { use, useEffect } from "react";
+import { use } from "react";
 import { CausalModelAsset } from "@/components/model/causal-model-asset";
 import { useStudyJournal } from "@/lib/hooks/use-study-journal";
 
@@ -10,10 +10,6 @@ export default function ModelPage({ params }: { params: Promise<{ workspaceId: s
   const { workspaceId } = use(params);
   const journalQuery = useStudyJournal(workspaceId);
   const journal = journalQuery.data;
-
-  useEffect(() => {
-    document.title = `${workspaceId} | Model workbench | nof1-causal-lab`;
-  }, [workspaceId]);
 
   if (journalQuery.error && !journal) {
     return (

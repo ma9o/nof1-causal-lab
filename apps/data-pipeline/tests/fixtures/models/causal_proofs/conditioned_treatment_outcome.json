@@ -537,10 +537,6 @@
         "element:1186fcbe0c71d3f4b7328151a0b8867927ad6a6ce1571c9235897d6a91937357": "beta_treatment_outcome",
         "element:67504e3e93a1423ba45b91be19783e09ceb56acbde2126e17d725a3de690249e": "sigma_treatment",
         "element:3cfc5ce717170d7546e07573efcdbb2541dc7a8c450423d8d7f61a39b294d0d3": "rho_treatment"
-      },
-      "construct_labels": {
-        "construct:c270c8ac9df81ed2ec60": "treatment",
-        "construct:a1cddfa8657e4a8cb3ae": "outcome"
       }
     }
   }

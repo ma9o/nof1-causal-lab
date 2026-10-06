@@ -37,13 +37,15 @@ import re
 import subprocess
 import sys
 import time
-from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass
 from pathlib import Path
 from queue import Empty, Queue
 from threading import Thread
-from typing import Any
+from typing import TYPE_CHECKING, Any
 from urllib.parse import unquote, urlparse
+
+if TYPE_CHECKING:
+    from collections.abc import Iterable, Mapping, Sequence
 
 ROOT = Path(__file__).resolve().parents[4]
 PIPELINE = ROOT / "apps/data-pipeline"
@@ -139,12 +141,14 @@ def _ancestors(source: SourceFile, node: ast.AST) -> Iterable[ast.AST]:
 
 
 def _lsp_position(source: SourceFile, node: ast.AST) -> tuple[int, int]:
-    line = node.end_lineno - 1 if isinstance(node, ast.Attribute) else node.lineno - 1
-    column = (
-        node.end_col_offset - len(node.attr.encode("utf-8"))
-        if isinstance(node, ast.Attribute)
-        else node.col_offset
-    )
+    assert isinstance(node, (ast.expr, ast.stmt, ast.arg, ast.keyword, ast.alias, ast.pattern))
+    if isinstance(node, ast.Attribute):
+        assert node.end_lineno is not None
+        assert node.end_col_offset is not None
+        line = node.end_lineno - 1
+        column = node.end_col_offset - len(node.attr.encode("utf-8"))
+    else:
+        line, column = node.lineno - 1, node.col_offset
     prefix = source.text.splitlines()[line].encode("utf-8")[:column].decode("utf-8")
     return line, len(prefix.encode("utf-16-le")) // 2
 
@@ -306,9 +310,12 @@ def collect_fields(sources: Sequence[SourceFile]) -> tuple[Field, ...]:
 
 
 def _owned_access(node: ast.AST) -> str | None:
-    if isinstance(node, ast.Attribute) and isinstance(node.value, ast.Name):
-        if node.value.id in {"self", "cls"}:
-            return node.attr
+    if (
+        isinstance(node, ast.Attribute)
+        and isinstance(node.value, ast.Name)
+        and node.value.id in {"self", "cls"}
+    ):
+        return node.attr
     return None
 
 
@@ -420,13 +427,19 @@ def _literal(
         if identity in aliases and identity not in seen:
             origin, expression = aliases[identity]
             return _literal(expression, origin, aliases, seen | {identity})
-    if isinstance(annotation, ast.Subscript) and _name(annotation.value) == "Annotated":
-        if isinstance(annotation.slice, ast.Tuple):
-            return _literal(annotation.slice.elts[0], source, aliases, seen)
+    if (
+        isinstance(annotation, ast.Subscript)
+        and _name(annotation.value) == "Annotated"
+        and isinstance(annotation.slice, ast.Tuple)
+    ):
+        return _literal(annotation.slice.elts[0], source, aliases, seen)
     if not isinstance(annotation, ast.Subscript) or not (
         _name(annotation.value) == "Literal"
-        or source is not None
-        and _resolve(source, annotation.value) in {"typing.Literal", "typing_extensions.Literal"}
+        or (
+            source is not None
+            and _resolve(source, annotation.value)
+            in {"typing.Literal", "typing_extensions.Literal"}
+        )
     ):
         return None
     values = (
@@ -444,7 +457,7 @@ def discriminators(
     for source in sources:
         for node in ast.walk(source.tree):
             if isinstance(node, ast.BinOp) and isinstance(node.op, ast.BitOr):
-                pending = [node]
+                pending: list[ast.expr] = [node]
             elif (
                 isinstance(node, ast.Subscript)
                 and _name(node.value) == "Union"
@@ -522,13 +535,12 @@ def exported_fields(
 def _field_aliases(field: Field) -> frozenset[str]:
     aliases = {field.name}
     nodes = [field.default]
-    if field.computed:
+    if isinstance(field.node, (ast.FunctionDef, ast.AsyncFunctionDef)):
         nodes.extend(field.node.decorator_list)
     elif (
         isinstance(field.annotation, ast.Subscript) and _name(field.annotation.value) == "Annotated"
-    ):
-        if isinstance(field.annotation.slice, ast.Tuple):
-            nodes.extend(field.annotation.slice.elts[1:])
+    ) and isinstance(field.annotation.slice, ast.Tuple):
+        nodes.extend(field.annotation.slice.elts[1:])
     for node in nodes:
         if isinstance(node, ast.Call):
             aliases.update(
@@ -554,7 +566,7 @@ class PythonReferences:
         )
         self.messages: Queue[dict[str, Any]] = Queue()
         self.sequence = 0
-        self.finished_analysis = False
+        self.finished_analysis: bool = False
         self.opened: set[Path] = set()
         self.type_cache: dict[tuple[Path, int, int], Sequence[dict[str, Any]]] = {}
         Thread(target=self._read, daemon=True).start()
@@ -573,13 +585,15 @@ class PythonReferences:
                 },
             )
             self.send({"method": "initialized", "params": {}})
-            deadline = time.monotonic() + 180
-            while not self.finished_analysis:
-                self._receive(deadline)
+            self._wait_for_analysis(time.monotonic() + 180)
         except BaseException:
             self.process.terminate()
             self.process.wait(timeout=10)
             raise
+
+    def _wait_for_analysis(self, deadline: float) -> None:
+        while not self.finished_analysis:
+            self._receive(deadline)
 
     def _read(self) -> None:
         assert self.process.stdout is not None
@@ -732,18 +746,21 @@ class PythonReferences:
 def _at_position(source: SourceFile, line: int, column: int) -> ast.AST | None:
     text = source.text.splitlines()[line]
     column = len(text.encode("utf-16-le")[: column * 2].decode("utf-16-le").encode("utf-8"))
-    matches = [
-        node
-        for node in ast.walk(source.tree)
-        if hasattr(node, "lineno")
-        and (node.lineno, node.col_offset) <= (line + 1, column)
-        and (line + 1, column) < (node.end_lineno, node.end_col_offset)
-    ]
-    return min(
-        matches,
-        key=lambda node: (node.end_lineno - node.lineno, node.end_col_offset - node.col_offset),
-        default=None,
-    )
+    matches: list[tuple[tuple[int, int], ast.AST]] = []
+    for node in ast.walk(source.tree):
+        if not isinstance(node, (ast.expr, ast.stmt, ast.arg, ast.keyword, ast.alias, ast.pattern)):
+            continue
+        if node.end_lineno is None or node.end_col_offset is None:
+            continue
+        if (
+            (node.lineno, node.col_offset)
+            <= (line + 1, column)
+            < (node.end_lineno, node.end_col_offset)
+        ):
+            matches.append(
+                ((node.end_lineno - node.lineno, node.end_col_offset - node.col_offset), node)
+            )
+    return min(matches, key=lambda match: match[0])[1] if matches else None
 
 
 def classify_reference(field: Field, source: SourceFile, node: ast.AST) -> str:
@@ -921,8 +938,9 @@ def _receiver_owners(
         node = _at_position(origin, position["line"], position["character"])
         if isinstance(node, ast.arg) and node.annotation is not None:
             result.update(_type_owners(origin, node.annotation, aliases))
-        if node is not None and isinstance(origin.parents.get(node), ast.AnnAssign):
-            result.update(_type_owners(origin, origin.parents[node].annotation, aliases))
+        parent = origin.parents.get(node) if node is not None else None
+        if isinstance(parent, ast.AnnAssign):
+            result.update(_type_owners(origin, parent.annotation, aliases))
     return frozenset(result)
 
 
@@ -940,20 +958,16 @@ def producer_inventory(
         for node in ast.walk(source.tree):
             if isinstance(node, ast.Assign | ast.AnnAssign | ast.Return) and node.value is not None:
                 declared_alias = (
-                    (
-                        isinstance(node, ast.Assign)
-                        and len(node.targets) == 1
-                        and isinstance(node.targets[0], ast.Name)
-                        and f"{source.module}.{node.targets[0].id}" in aliases
-                    )
-                    or isinstance(node, ast.AnnAssign)
-                    and _name(node.annotation) == "TypeAlias"
-                )
+                    isinstance(node, ast.Assign)
+                    and len(node.targets) == 1
+                    and isinstance(node.targets[0], ast.Name)
+                    and f"{source.module}.{node.targets[0].id}" in aliases
+                ) or (isinstance(node, ast.AnnAssign) and _name(node.annotation) == "TypeAlias")
                 if not declared_alias:
                     for value in ast.walk(node.value):
+                        parent = source.parents.get(value)
                         if isinstance(value, ast.Name | ast.Attribute) and not (
-                            isinstance(source.parents.get(value), ast.Call)
-                            and source.parents[value].func is value
+                            isinstance(parent, ast.Call) and parent.func is value
                         ):
                             owner = _constructor_owner(source, value, aliases)
                             if owner in by_owner:
@@ -1007,9 +1021,9 @@ def producer_inventory(
                 "setdefault",
             }:
                 receiver = node.func.value
-            elif _resolve(source, node.func) == "dataclasses.replace" and node.args:
-                receiver = node.args[0]
-            elif _name(node.func) in {"setattr", "__setattr__"} and node.args:
+            elif (_resolve(source, node.func) == "dataclasses.replace" and node.args) or (
+                _name(node.func) in {"setattr", "__setattr__"} and node.args
+            ):
                 receiver = node.args[0]
             if receiver is not None:
                 for owner in _receiver_owners(source, receiver, by_path, server):
@@ -1017,11 +1031,13 @@ def producer_inventory(
                         if (
                             any(keyword.arg in {name, None, "update"} for keyword in node.keywords)
                             or _name(node.func) in {"update", "setdefault"}
-                            or _name(node.func) in {"setattr", "__setattr__"}
-                            and len(node.args) > 1
-                            and (
-                                not isinstance(node.args[1], ast.Constant)
-                                or node.args[1].value == name
+                            or (
+                                _name(node.func) in {"setattr", "__setattr__"}
+                                and len(node.args) > 1
+                                and (
+                                    not isinstance(node.args[1], ast.Constant)
+                                    or node.args[1].value == name
+                                )
                             )
                         ):
                             open_fields.add(field.identity)
@@ -1070,9 +1086,7 @@ def _opaque_reads(
                     "dataclasses.asdict",
                 }
                 and node.args
-            ):
-                receiver = node.args[0]
-            elif (
+            ) or (
                 isinstance(node.func, ast.Attribute)
                 and node.func.attr in {"dump_python", "dump_json"}
                 and node.args
@@ -1208,12 +1222,14 @@ def check(selected: frozenset[str]) -> CheckResult:
                     if constant is not None and field.identity in open_producers:
                         constant = None
                     if constant is not None and any(
-                        isinstance(node, ast.Attribute)
-                        and isinstance(node.ctx, ast.Store)
-                        or isinstance(node, ast.Constant)
-                        and any(
-                            isinstance(parent, ast.Subscript) and isinstance(parent.ctx, ast.Store)
-                            for parent in _ancestors(source, node)
+                        (isinstance(node, ast.Attribute) and isinstance(node.ctx, ast.Store))
+                        or (
+                            isinstance(node, ast.Constant)
+                            and any(
+                                isinstance(parent, ast.Subscript)
+                                and isinstance(parent.ctx, ast.Store)
+                                for parent in _ancestors(source, node)
+                            )
                         )
                         for source, node in locations(field)
                     ):
@@ -1245,7 +1261,7 @@ def check(selected: frozenset[str]) -> CheckResult:
                     outcomes[field.identity] = FieldOutcome(
                         field,
                         "consumed",
-                        f"Python reader {source.path.relative_to(ROOT)}:{node.lineno}",
+                        f"Python reader {source.path.relative_to(ROOT)}:{_lsp_position(source, node)[0] + 1}",
                     )
                     break
             if consumed:

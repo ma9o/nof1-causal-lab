@@ -7,6 +7,7 @@ from typing import Annotated, Literal
 from pydantic import Field, computed_field
 
 from nof1_causal_lab.artifacts.base import Value
+from nof1_causal_lab.artifacts.data_ref import DataRef
 
 from .identity import GitOid
 
@@ -19,6 +20,7 @@ class AuthoredLawProvenance(Value):
     @computed_field
     @property
     def interpretation(self) -> Literal["prior_predictive"]:
+        """Prior-predictive interpretation of draws made entirely from authored parameter laws."""
         return "prior_predictive"
 
 
@@ -26,7 +28,7 @@ class FittedLawProvenance(Value):
     """All current laws retain one committed fit's model and observation panel."""
 
     kind: Literal["fitted"] = "fitted"
-    fitted_panel_revision: GitOid
+    fitted_data: DataRef[GitOid, int]
     fitted_model_revision: GitOid
     interpretation: Literal[
         "in_sample_posterior_predictive",
@@ -38,12 +40,13 @@ class MixedLawProvenance(Value):
     """Some laws retain a committed fit and others have different ancestry."""
 
     kind: Literal["mixed"] = "mixed"
-    fitted_panel_revision: GitOid
+    fitted_data: DataRef[GitOid, int]
     fitted_model_revision: GitOid
 
     @computed_field
     @property
     def interpretation(self) -> Literal["mixed"]:
+        """Mixed interpretation of draws whose parameter laws combine different provenance."""
         return "mixed"
 
 
@@ -55,6 +58,7 @@ class UnknownLawProvenance(Value):
     @computed_field
     @property
     def interpretation(self) -> Literal["unknown"]:
+        """Unknown predictive interpretation when parameter-law provenance is unavailable."""
         return "unknown"
 
 

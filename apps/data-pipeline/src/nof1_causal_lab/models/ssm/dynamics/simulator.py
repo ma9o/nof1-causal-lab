@@ -49,11 +49,12 @@ class IndexedBrownianSpec(eqx.Module):
 
 
 class SimulationConfig(eqx.Module):
-    """Solver configuration. An ``eqx.Module`` (pytree) rather than a plain
-    dataclass so a *traced* step-size array can flow through ``filter_jit``
-    as a leaf: per-draw CFL-capped step sizes then reuse one compiled
-    program instead of baking each value in as a constant (one XLA compile
-    per prior draw)."""
+    """Solver settings whose numerical step size can remain a traced array.
+
+    This Equinox pytree lets per-draw CFL-capped step sizes pass through
+    ``filter_jit`` as leaves, so changing a step size does not require a
+    separate compiled program for each prior draw.
+    """
 
     rtol: float = 1e-4
     atol: float = 1e-6

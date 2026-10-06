@@ -2,8 +2,6 @@ import json
 import uuid
 from typing import Any, cast
 
-import polars as pl
-import pyarrow as pa
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
@@ -50,8 +48,8 @@ def isolated_measurement_store(monkeypatch, tmp_path):
     ("payload", "required_fields"),
     [
         (
-            {"event": "nof1-causal-lab.step", "step": "extraction", "status": "running"},
-            ("step", "status"),
+            {"event": "nof1-causal-lab.step", "status": "running"},
+            ("status",),
         ),
         ({"event": "nof1-causal-lab.extraction.plan", "total_workers": 2}, ("total_workers",)),
         (
@@ -240,7 +238,6 @@ def test_execute_llm_tool_calls_activity_dispatches_by_tool_name(tmp_path):
                     workspace_id="ws-test",
                     run_id="seq-000001",
                     subroutine_id="measurement-extraction",
-                    context_kind="measurement_extraction",
                     context_ref=context_ref,
                 ),
                 conversation_ref=conversation_ref,
@@ -295,253 +292,6 @@ def test_execute_llm_tool_calls_activity_dispatches_by_tool_name(tmp_path):
 
 
 @pytest.mark.contract
-@pytest.mark.parametrize("descriptions", ["[]", '{"timestamp": 42}', '{"timestamp": null}', "{"])
-def test_raw_table_rejects_untyped_column_descriptions(tmp_path, descriptions):
-    from nof1_causal_lab.actions.ingestion.contracts import SubmitTableInput
-    from nof1_causal_lab.actions.temporal.llm_tool_adapters import (
-        _execute_raw_data_submit_table,
-    )
-
-    dataframe_ref = str(tmp_path / "frame.ipc")
-    pl.DataFrame({"timestamp": [1]}).write_ipc(dataframe_ref)
-    context_ref = str(tmp_path / "context.json")
-    storage.write_text(
-        context_ref, json.dumps({"dataframe_ref": dataframe_ref, "extract_dir": str(tmp_path)})
-    )
-    result_ref = str(tmp_path / "result.json")
-
-    output, result = _execute_raw_data_submit_table(
-        context_ref, result_ref, SubmitTableInput(column_descriptions_json=descriptions)
-    )
-
-    assert "mapping column names to string descriptions" in output
-    assert result is None
-    assert not storage.exists(result_ref)
-
-
-@pytest.mark.contract
-@pytest.mark.parametrize("remote", [False, True])
-def test_execute_llm_tool_calls_activity_persists_raw_data_submit_table(
-    tmp_path, monkeypatch, remote
-):
-    from nof1_causal_lab.actions.temporal.ingestion_activities import finalize_ingestion_activity
-    from nof1_causal_lab.actions.temporal.messages import IngestionFinalizeInput
-    from nof1_causal_lab.artifacts.raw_data import column_descriptions
-    from nof1_causal_lab.study.store import ArtifactStore
-    from nof1_causal_lab.study.views import raw_data_view
-    from nof1_causal_lab.utils import data as data_module
-
-    monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path / "data"))
-    if remote:
-        import fsspec
-
-        monkeypatch.setattr(storage, "is_remote", lambda: True)
-        filesystem = fsspec.filesystem("memory")
-        monkeypatch.setattr(storage, "get_fs", lambda: filesystem)
-    context_ref = str(tmp_path / "context.json")
-    assistant_ref = str(tmp_path / "assistant.json")
-    conversation_ref = str(tmp_path / "conversation.json")
-    execution_ref = str(tmp_path / "tool-execution.json")
-    result_ref = str(tmp_path / "result.json")
-    dataframe_ref = str(tmp_path / "latest-dataframe.ipc")
-
-    dataframe = pl.DataFrame(
-        {
-            "timestamp": ["2026-01-01T08:00:00", "2026-01-02T08:00:00"],
-            "steps": [1000, 2000],
-        }
-    ).with_columns(pl.col("timestamp").str.strptime(pl.Datetime))
-    with storage.open_file(dataframe_ref, "wb") as file:
-        dataframe.write_ipc(file)
-
-    descriptions = {"timestamp": "observation time", "steps": "step count — daily"}
-    output_json = json.dumps(descriptions)
-    tool_call = {
-        "id": "call-raw-submit",
-        "type": "function",
-        "function": {
-            "name": "submit_table",
-            "arguments": json.dumps({"column_descriptions_json": output_json}),
-        },
-    }
-    storage.write_text(
-        context_ref,
-        json.dumps({"extract_dir": str(tmp_path), "dataframe_ref": dataframe_ref}),
-    )
-    storage.write_text(
-        assistant_ref,
-        json.dumps({"message": {"role": "assistant", "content": "", "tool_calls": [tool_call]}}),
-    )
-    storage.write_text(
-        conversation_ref,
-        json.dumps(
-            {
-                "messages": [
-                    {"role": "user", "content": "ingest"},
-                    {"role": "assistant", "content": "", "tool_calls": [tool_call]},
-                ]
-            }
-        ),
-    )
-
-    result = run_async(
-        execute_llm_tool_calls_activity(
-            LLMToolExecutionInput(
-                subroutine=LLMSubroutineRef(
-                    workspace_id="ws-test",
-                    run_id="seq-000001",
-                    subroutine_id="raw-data",
-                    context_kind="raw_data_ingestion",
-                    context_ref=context_ref,
-                ),
-                conversation_ref=conversation_ref,
-                assistant_ref=assistant_ref,
-                execution_ref=execution_ref,
-                result_ref=result_ref,
-                tools=[
-                    LLMToolSpec(
-                        name="submit_table",
-                        description="Validate and finalize the ingested DataFrame.",
-                        parameters={
-                            "type": "object",
-                            "properties": {
-                                "column_descriptions_json": {
-                                    "type": "string",
-                                    "description": "JSON object mapping column names to descriptions.",
-                                }
-                            },
-                            "required": ["column_descriptions_json"],
-                            "additionalProperties": False,
-                        },
-                        executor="raw_data_submit_table",
-                    )
-                ],
-            )
-        )
-    )
-
-    assert result.terminal_success is True
-    assert result.result_ref == result_ref
-    persisted = storage.read_json(result_ref)
-    assert set(persisted) == {"table_ref"}
-    table_ref = persisted["table_ref"]
-    assert isinstance(table_ref, str)
-    with storage.open_file(table_ref, "rb") as file:
-        table = pa.ipc.open_file(file).read_all()
-    assert column_descriptions(table) == descriptions
-    assert pl.DataFrame(table).equals(dataframe)
-
-    context = dict(storage.read_json(context_ref))
-    context.update(cache_ref=str(tmp_path / "cache.arrow"), reused=False)
-    storage.write_text(context_ref, json.dumps(context))
-    effects = run_async(
-        finalize_ingestion_activity(
-            IngestionFinalizeInput(
-                workspace_id="ws-test",
-                context_ref=context_ref,
-                result_ref=result_ref,
-            )
-        )
-    )
-    store = ArtifactStore("ws-test")
-    raw = effects.effects.produced[0]
-    reloaded = store.read_parquet_table("raw_data", raw.revision, "raw.parquet")
-    assert reloaded.equals(table, check_metadata=True)
-    assert "profile.json" not in store.filenames("raw_data", raw.revision)
-    view = raw_data_view(reloaded, None)
-    assert view is not None
-    assert view.n_records == 2
-    assert {column.name: column.description for column in view.column_descriptions} == descriptions
-
-
-@pytest.mark.contract
-def test_execute_llm_tool_calls_activity_executes_raw_python_locally(tmp_path):
-    context_ref = str(tmp_path / "context.json")
-    assistant_ref = str(tmp_path / "assistant.json")
-    conversation_ref = str(tmp_path / "conversation.json")
-    execution_ref = str(tmp_path / "tool-execution.json")
-    result_ref = str(tmp_path / "result.json")
-    dataframe_ref = str(tmp_path / "latest-dataframe.ipc")
-    (tmp_path / "observations.csv").write_text("timestamp,steps\n2026-01-01T08:00:00,1000\n")
-
-    tool_call = {
-        "id": "call-python",
-        "type": "function",
-        "function": {
-            "name": "execute_python",
-            "arguments": json.dumps(
-                {
-                    "code": (
-                        "result_df = pl.read_csv(Path(DATA_DIR) / 'observations.csv')\n"
-                        "result_df = result_df.with_columns("
-                        "pl.col('timestamp').str.strptime(pl.Datetime))"
-                    )
-                }
-            ),
-        },
-    }
-    storage.write_text(
-        context_ref,
-        json.dumps({"extract_dir": str(tmp_path), "dataframe_ref": dataframe_ref}),
-    )
-    storage.write_text(
-        assistant_ref,
-        json.dumps({"message": {"role": "assistant", "content": "", "tool_calls": [tool_call]}}),
-    )
-    storage.write_text(
-        conversation_ref,
-        json.dumps(
-            {
-                "messages": [
-                    {"role": "user", "content": "ingest"},
-                    {"role": "assistant", "content": "", "tool_calls": [tool_call]},
-                ]
-            }
-        ),
-    )
-
-    result = run_async(
-        execute_llm_tool_calls_activity(
-            LLMToolExecutionInput(
-                subroutine=LLMSubroutineRef(
-                    workspace_id="ws-test",
-                    run_id="seq-000001",
-                    subroutine_id="raw-data",
-                    context_kind="raw_data_ingestion",
-                    context_ref=context_ref,
-                ),
-                conversation_ref=conversation_ref,
-                assistant_ref=assistant_ref,
-                execution_ref=execution_ref,
-                result_ref=result_ref,
-                tools=[
-                    LLMToolSpec(
-                        name="execute_python",
-                        description="Execute Python.",
-                        kind="checkpoint",
-                        executor="raw_data_execute_python",
-                        parameters={
-                            "type": "object",
-                            "properties": {"code": {"type": "string"}},
-                            "required": ["code"],
-                            "additionalProperties": False,
-                        },
-                    )
-                ],
-            )
-        )
-    )
-
-    assert result.terminal_success is False
-    assert "Success!" in json.dumps(
-        read_subroutine_json(result.conversation_ref, StoredConversation)["messages"][-1]
-    )
-    with storage.open_file(dataframe_ref, "rb") as file:
-        dataframe = pl.read_ipc(file)
-    assert dataframe["steps"].to_list() == [1000]
-
-
-@pytest.mark.contract
 def test_execute_llm_tool_calls_activity_returns_recoverable_tool_exception(tmp_path):
     context_ref = str(tmp_path / "context.json")
     assistant_ref = str(tmp_path / "assistant.json")
@@ -552,8 +302,8 @@ def test_execute_llm_tool_calls_activity_returns_recoverable_tool_exception(tmp_
         "id": "call-submit",
         "type": "function",
         "function": {
-            "name": "submit_table",
-            "arguments": json.dumps({"column_descriptions_json": "{}"}),
+            "name": "validate_extractions",
+            "arguments": json.dumps({"output_json": "{}"}),
         },
     }
     storage.write_text(context_ref, json.dumps({"extract_dir": str(tmp_path)}))
@@ -566,7 +316,7 @@ def test_execute_llm_tool_calls_activity_returns_recoverable_tool_exception(tmp_
         json.dumps(
             {
                 "messages": [
-                    {"role": "user", "content": "ingest"},
+                    {"role": "user", "content": "extract"},
                     {"role": "assistant", "content": "", "tool_calls": [tool_call]},
                 ]
             }
@@ -580,7 +330,6 @@ def test_execute_llm_tool_calls_activity_returns_recoverable_tool_exception(tmp_
                     workspace_id="ws-test",
                     run_id="seq-000001",
                     subroutine_id="raw-data",
-                    context_kind="raw_data_ingestion",
                     context_ref=context_ref,
                 ),
                 conversation_ref=conversation_ref,
@@ -589,15 +338,14 @@ def test_execute_llm_tool_calls_activity_returns_recoverable_tool_exception(tmp_
                 result_ref=result_ref,
                 tools=[
                     LLMToolSpec(
-                        name="submit_table",
+                        name="validate_extractions",
                         description="Submit table.",
                         parameters={
                             "type": "object",
-                            "properties": {"column_descriptions_json": {"type": "string"}},
-                            "required": ["column_descriptions_json"],
+                            "properties": {"output_json": {"type": "string"}},
+                            "required": ["output_json"],
                             "additionalProperties": False,
                         },
-                        executor="raw_data_submit_table",
                     )
                 ],
             )
@@ -627,7 +375,6 @@ def test_append_llm_repair_message_activity_persists_repair_turn(tmp_path):
                     workspace_id="ws-test",
                     run_id="seq-000001",
                     subroutine_id="repair",
-                    context_kind="raw_data_ingestion",
                     context_ref=str(tmp_path / "context.json"),
                 ),
                 conversation_ref=conversation_ref,
@@ -635,15 +382,14 @@ def test_append_llm_repair_message_activity_persists_repair_turn(tmp_path):
                 error_text="provider rejected malformed tool context",
                 tools=[
                     LLMToolSpec(
-                        name="submit_table",
+                        name="validate_extractions",
                         description="Submit table.",
                         parameters={
                             "type": "object",
-                            "properties": {"column_descriptions_json": {"type": "string"}},
-                            "required": ["column_descriptions_json"],
+                            "properties": {"output_json": {"type": "string"}},
+                            "required": ["output_json"],
                             "additionalProperties": False,
                         },
-                        executor="raw_data_submit_table",
                     )
                 ],
             )
@@ -656,11 +402,17 @@ def test_append_llm_repair_message_activity_persists_repair_turn(tmp_path):
     content = messages[-1]["content"]
     assert isinstance(content, str)
     assert "Your previous response could not be processed" in content
-    assert "submit_table" in content
+    assert "validate_extractions" in content
 
 
 @pytest.mark.contract
-def test_execute_llm_tool_calls_activity_terminal_without_result_ref(tmp_path):
+def test_execute_llm_tool_calls_activity_requires_terminal_acknowledgement(tmp_path, monkeypatch):
+    from nof1_causal_lab.actions.temporal import llm_subroutine_activities
+
+    async def incomplete_validation(**_kwargs):
+        return "Validation still pending", None
+
+    monkeypatch.setattr(llm_subroutine_activities, "execute_subroutine_tool", incomplete_validation)
     context_ref = str(tmp_path / "context.json")
     assistant_ref = str(tmp_path / "assistant.json")
     conversation_ref = str(tmp_path / "conversation.json")
@@ -672,7 +424,7 @@ def test_execute_llm_tool_calls_activity_terminal_without_result_ref(tmp_path):
         "id": "call-list",
         "type": "function",
         "function": {
-            "name": "list_files",
+            "name": "validate_extractions",
             "arguments": json.dumps({"path": "."}),
         },
     }
@@ -694,7 +446,7 @@ def test_execute_llm_tool_calls_activity_terminal_without_result_ref(tmp_path):
         json.dumps(
             {
                 "messages": [
-                    {"role": "user", "content": "ingest"},
+                    {"role": "user", "content": "extract"},
                     {"role": "assistant", "content": "", "tool_calls": [tool_call]},
                 ]
             }
@@ -708,7 +460,6 @@ def test_execute_llm_tool_calls_activity_terminal_without_result_ref(tmp_path):
                     workspace_id="ws-test",
                     run_id="seq-000001",
                     subroutine_id="raw-data",
-                    context_kind="raw_data_ingestion",
                     context_ref=context_ref,
                 ),
                 conversation_ref=conversation_ref,
@@ -717,11 +468,9 @@ def test_execute_llm_tool_calls_activity_terminal_without_result_ref(tmp_path):
                 result_ref=result_ref,
                 tools=[
                     LLMToolSpec(
-                        name="list_files",
-                        description="List files.",
+                        name="validate_extractions",
+                        description="Validate extraction.",
                         kind="terminal",
-                        executor="raw_data_list_files",
-                        success_output=None,
                         parameters={
                             "type": "object",
                             "properties": {"path": {"type": "string"}},
@@ -734,7 +483,7 @@ def test_execute_llm_tool_calls_activity_terminal_without_result_ref(tmp_path):
         )
     )
 
-    assert result.terminal_success is True
+    assert result.terminal_success is False
     assert result.result_ref is None
     assert storage.exists(result_ref) is False
 
@@ -843,7 +592,6 @@ def test_extraction_chunk_workflow_runs_shared_llm_subroutine(monkeypatch, tmp_p
                             spec_ref=spec_ref,
                             cached_result_ref=cached_result_ref,
                         ),
-                        attempt=1,
                         llm=EmbeddedLLMSpec(
                             harness="none",
                             model="openrouter/mock-extraction",
@@ -1085,7 +833,6 @@ def test_llm_subroutine_workflow_delegates_harness_tool_to_temporal_activity(
                             workspace_id=workspace_id,
                             run_id="seq-000001",
                             subroutine_id="measurement-extraction",
-                            context_kind="measurement_extraction",
                             context_ref=context_ref,
                         ),
                         llm=TypeAdapter(HarnessLLMSpec).validate_python(

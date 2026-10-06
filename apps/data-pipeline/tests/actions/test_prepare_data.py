@@ -1,4 +1,4 @@
-"""One model-free preparation action retains extraction semantics and data findings."""
+"""One model-driven preparation action retains extraction semantics and data findings."""
 
 import json
 from datetime import UTC, datetime
@@ -9,6 +9,7 @@ import pytest
 
 from nof1_causal_lab.actions.contracts import PrepareDataRequest
 from nof1_causal_lab.actions.data_checks import evaluate_data_checks
+from nof1_causal_lab.actions.io import PrepareDataInput
 from nof1_causal_lab.actions.messages import completion_messages
 from nof1_causal_lab.actions.temporal.measurement_activities import (
     finalize_measurements_activity,
@@ -27,6 +28,7 @@ from nof1_causal_lab.artifacts.data_preparation import (
     FileSourceRef,
     SemanticExtractionSpec,
 )
+from nof1_causal_lab.artifacts.identity import GitOid
 from nof1_causal_lab.artifacts.observations import AuthoredObservationSpec
 from nof1_causal_lab.study.lineage import read_data_metadata
 from nof1_causal_lab.study.state import StudyState
@@ -37,16 +39,11 @@ from tests.helpers import run_async
 pytestmark = pytest.mark.contract
 
 
-def test_preparation_without_model_combines_computed_and_semantic_workers(monkeypatch, tmp_path):
-    from nof1_causal_lab.study import store as store_module
+def test_preparation_from_model_combines_computed_and_semantic_workers(monkeypatch, tmp_path):
     from nof1_causal_lab.utils import data
 
     monkeypatch.setattr(data, "_DATA_URI", str(tmp_path))
 
-    def no_model(*_args, **_kwargs):
-        raise AssertionError("Preparation must not read a model")
-
-    monkeypatch.setattr(store_module, "read_model", no_model)
     store = ArtifactStore("data-only")
     preparation = DataPreparationSpec(
         default_window="1d",
@@ -80,10 +77,14 @@ def test_preparation_without_model_combines_computed_and_semantic_workers(monkey
             ),
         ),
     )
-    request = PrepareDataRequest(
-        input=FilePreparationSpec(source={"files": ["diary.csv"]}, definition=preparation)
+    from tests.data_fixtures import preparation_input
+
+    prepared_input = preparation_input(
+        store, FilePreparationSpec(source={"files": ["diary.csv"]}, definition=preparation)
     )
-    assert isinstance(request.input, FilePreparationSpec)
+    request = PrepareDataRequest[GitOid, FileSourceRef](input=prepared_input)
+    assert isinstance(request.input, PrepareDataInput)
+    assert "definition" not in request.input.model_dump()
     raw = store.write_artifact(
         "raw_data",
         derived_from={},
@@ -110,7 +111,7 @@ def test_preparation_without_model_combines_computed_and_semantic_workers(monkey
             )
         )
     )
-    assert plan.pins == {"raw_data": raw.revision}
+    assert plan.pins == {"raw_data": raw.revision, "model": request.input.model_ref}
     scores = {"2026-01-01T00:00:00": "0", "2026-01-03T00:00:00": "2"}
     assert len(plan.chunks) == len(scores)
     results = []
@@ -158,7 +159,10 @@ def test_preparation_without_model_combines_computed_and_semantic_workers(monkey
     profile = evaluate_data_checks("data-only", state, effects)
     assert {item.artifact_id for item in effects.effects.produced} == {"panel"}
     panel = next(item for item in effects.effects.produced if item.artifact_id == "panel")
-    assert panel.derived_from == {"raw_data": raw.revision}
+    assert panel.derived_from == {
+        "raw_data": raw.revision,
+        "model": prepared_input.model_ref,
+    }
     observations = store.read_parquet_file("panel", panel.revision, "panel.parquet")
     assert observations.select("indicator_id", "value").rows() == [
         ("indicator:steps", 4),
@@ -178,7 +182,9 @@ def test_preparation_without_model_combines_computed_and_semantic_workers(monkey
     assert set(profile.indicators) == {"indicator:steps", "indicator:stress"}
     labels = completion_messages(effects.result, datetime.now(UTC), (profile,))
     assert "DATA_QUALITY_FINDINGS" in {label.label for label in labels}
-    assert all(set(label.model_dump()) == {"timestamp", "level", "label"} for label in labels)
+    assert all(
+        set(label.model_dump()) == {"kind", "timestamp", "level", "label"} for label in labels
+    )
 
 
 @pytest.mark.parametrize(

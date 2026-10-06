@@ -58,9 +58,7 @@ class DistributionFamily(StrEnum):
 
 
 class PriorDistributionFamily(StrEnum):
-    """This enumeration identifies the probability families permitted in authored prior
-    proposals.
-    """
+    """Probability families permitted in authored prior proposals."""
 
     NORMAL = "Normal"
     HALF_NORMAL = "HalfNormal"

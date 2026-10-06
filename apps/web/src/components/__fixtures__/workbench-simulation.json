@@ -1,7 +1,9 @@
 {
   "note": "Illustrative saved-draw projections for the comprehensive workbench story; not an estimate from DEMO.",
   "report": {
-    "law": null,
+    "law": {
+      "kind": "unknown"
+    },
     "findings": [],
     "fit_reliability": "converged",
     "causal": {
@@ -33,23 +35,10 @@
         ]
       },
       "time_origin": "2026-09-01T00:00:00Z",
-      "times": [
-        0.0,
-        1.0,
-        2.0,
-        3.0,
-        4.0,
-        5.0,
-        6.0,
-        7.0
-      ],
+      "times": [0.0, 1.0, 2.0, 3.0, 4.0, 5.0, 6.0, 7.0],
       "draws": 100,
       "seed": 0,
-      "origin_panel_revision": null,
-      "state_ids": [
-        "construct:27f64faaddd59b2ad491",
-        "construct:6ca86c47aaf18b2472ce"
-      ],
+      "state_ids": ["construct:27f64faaddd59b2ad491", "construct:6ca86c47aaf18b2472ce"],
       "parameter_draws": {},
       "latent_paths": "action",
       "observations": "observations",
@@ -77,7 +66,8 @@
           "time": 0.0,
           "value": 10.0
         }
-      ]
+      ],
+      "origin_data": null
     }
   }
 }

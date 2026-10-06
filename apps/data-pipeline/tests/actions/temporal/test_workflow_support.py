@@ -123,7 +123,6 @@ def test_emit_progress_uses_shared_activity_policy(monkeypatch) -> None:
     monkeypatch.setattr(workflow_support.workflow, "execute_activity", execute_activity)
     step = StepEvent(
         attempt_id=uuid4(),
-        step="extraction",
         status="failed",
         error=StepError(type="ValueError", message="bad input"),
     )

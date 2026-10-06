@@ -54,6 +54,7 @@ class DensityCurve(Value):
 
     @model_validator(mode="after")
     def aligned(self) -> "DensityCurve":
+        """Require one density ordinate for every evaluation coordinate."""
         if len(self.x) != len(self.density):
             raise ValueError("Density coordinates and ordinates must align")
         return self
@@ -94,6 +95,7 @@ class ParameterConvergenceReport(Value):
     @computed_field
     @property
     def checked(self) -> int:
+        """Number of distinct parameter references represented by convergence assessments."""
         return len(
             frozenset(
                 item.subject.parameter
@@ -105,6 +107,7 @@ class ParameterConvergenceReport(Value):
     @computed_field
     @property
     def status(self) -> Literal["passed", "failed", "not_evaluated"]:
+        """Convergence verdict with failed checks taking precedence over unevaluated checks."""
         if any(
             isinstance(item, Evaluated) and item.outcome == "failed" for item in self.assessments
         ):
@@ -116,6 +119,7 @@ class ParameterConvergenceReport(Value):
     @computed_field
     @property
     def messages(self) -> tuple[str, ...]:
+        """Explanations for convergence checks that failed or could not be evaluated."""
         return tuple(
             item.detail
             if isinstance(item, NotEvaluated)
@@ -128,18 +132,16 @@ class ParameterConvergenceReport(Value):
 class ParetoKPoint(Value):
     """One PSIS influence measurement with its original row and scientific class."""
 
-    rank: int
     timestep: int
     k: float | Literal["infinity", "-infinity", "undefined"]
     status: Literal["passed", "warning", "failed", "not_evaluated"]
 
 
 class LOOPITPoint(Value):
-    """A retained PIT value and its empirical and reference cumulative probabilities."""
+    """A retained PIT value and its empirical cumulative probability."""
 
     pit: float
     ecdf: float
-    uniform: float
 
 
 class LOODiagnostics(Value):
@@ -175,6 +177,7 @@ class PosteriorMarginal(Value):
 
     @model_validator(mode="after")
     def validate_bounds(self) -> "PosteriorMarginal":
+        """Reject posterior intervals whose lower bound exceeds their upper bound."""
         if self.lower > self.upper:
             raise ValueError("Posterior interval lower bound must not exceed its upper bound")
         return self
@@ -198,13 +201,12 @@ class PPCOverlay(Value):
     @computed_field
     @property
     def frame(self) -> tuple[float, float] | None:
-        """Value range charts show: the replicates' widest per-time central 95%, covering every
-        observation.
-        """
+        """Plot range spanning the widest per-time central 95% of draws and every observed value."""
         return central_frame(self.spaghetti_draws, self.observed)
 
     @model_validator(mode="after")
     def aligned_schedule(self) -> "PPCOverlay":
+        """Require predictive series to share a strictly increasing evaluation schedule."""
         if (
             len(self.times) != len(self.observed)
             or len(self.times) != len(self.median)
@@ -217,10 +219,9 @@ class PPCOverlay(Value):
 
 
 class PPCTestStat(Value):
-    """A predictive test statistic compares an observed summary with its distribution under
-    replicated data.
+    """An observed summary compared with the same statistic across predictive replicates.
 
-    Provides the data for Gabry's ppc_stat plots: histogram of T(y_rep)
+    Provides the data for Gabry's ppc_stat plots: a histogram of T(y_rep)
     with a vertical line at T(y_observed).
     """
 

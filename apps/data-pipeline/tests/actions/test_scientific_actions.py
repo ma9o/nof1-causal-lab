@@ -8,8 +8,11 @@ import jax.numpy as jnp
 import numpy as np
 import pytest
 
-from nof1_causal_lab.actions.contracts import PrepareDataRequest, SimulateRequest
+from nof1_causal_lab.actions.contracts import SimulateRequest
 from nof1_causal_lab.actions.effects import ActionEffects
+from nof1_causal_lab.actions.io import SimulateInput
+from nof1_causal_lab.artifacts.data_ref import DataRef
+from nof1_causal_lab.artifacts.identity import GitOid
 from nof1_causal_lab.artifacts.simulation import SimulationSpec
 from nof1_causal_lab.models.model_structure import StructuralSelection
 from nof1_causal_lab.models.ssm.inference.persistence import condition_model
@@ -23,10 +26,10 @@ from tests.git_fixtures import artifact_revision, commit_id, git_oid
 from tests.helpers import write_question
 from tests.inference_fixtures import compile_model_fixture, parameter_draws, particle_posterior
 from tests.integration.runner_fixtures import panel_metadata
-from tests.model_fixtures import stress_sleep_model, x_model, x_y_model
+from tests.model_fixtures import stress_sleep_causal_model, stress_sleep_model, x_model, x_y_model
 
 if TYPE_CHECKING:
-    from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid
+    from nof1_causal_lab.artifacts.identity import ArtifactId
 
 
 @pytest.mark.inference(concern="predictive")
@@ -71,12 +74,12 @@ def test_current_law_sampling_preserves_joint_parameter_atoms():
     [
         pytest.param(
             False,
-            stress_sleep_model,
+            stress_sleep_causal_model,
             id="False",
         ),
         pytest.param(
             True,
-            stress_sleep_model,
+            stress_sleep_causal_model,
             id="True",
         ),
     ],
@@ -86,8 +89,8 @@ def test_durable_replication_preserves_current_laws_without_comparison(
 ):
     from nof1_causal_lab.actions.runners import run_action_locally
     from nof1_causal_lab.artifacts.identity import GitRef
+    from nof1_causal_lab.artifacts.posterior import ModelFitResult
     from nof1_causal_lab.study.history import StudyRepository
-    from nof1_causal_lab.study.records import ModelFitResult
     from nof1_causal_lab.study.snapshots import ModelReader
     from nof1_causal_lab.study.store import ArtifactStore
     from nof1_causal_lab.utils import data as data_module
@@ -104,7 +107,13 @@ def test_durable_replication_preserves_current_laws_without_comparison(
         derived_from={},
         json_files={"model.json": model.model_dump(mode="json")},
     )
-    question = write_question(store)
+    from nof1_causal_lab.artifacts.question import QuestionSpec
+    from tests.model_fixtures import construct_named
+
+    question = write_question(
+        store,
+        QuestionSpec(text="How does sleep change?", outcome=construct_named(model, "Sleep").id),
+    )
     produced = [definition, question]
     pins: dict[ArtifactId, GitOid] = {
         "model": artifact_revision("TEST", "model", 1),
@@ -145,38 +154,34 @@ def test_durable_replication_preserves_current_laws_without_comparison(
         from nof1_causal_lab.actions.fit import read_inference_report
 
         evidence = inference_log(model).record.attempt.outcome.result.evidence
-        reports = {
-            "inference": store.write_report(read_inference_report(store, fitted.revision, evidence))
-        }
-    state = StudyState().with_artifacts(produced)
-    journal.append(
-        applied_record(
-            Applied(
-                result=ModelFitResult(
-                    model=GitRef(
-                        workspace_id="TEST", revision=definition.revision, path="model.json"
-                    ),
-                    panel=GitRef(
-                        workspace_id="TEST", revision=produced[2].revision, path="panel.parquet"
-                    ),
-                    evidence=evidence,
-                ),
-                effects=ActionEffects(produced=tuple(produced), reports=reports),
-            )
-            if fitted_laws
-            else Applied(result=None, effects=ActionEffects(produced=tuple(produced))),
-            seq=1,
-            ts="2026-09-15T12:00:00Z",
+        prepared = Applied(
+            result=ModelFitResult(
+                model=GitRef(workspace_id="TEST", revision=definition.revision, path="model.json"),
+                data=DataRef[GitOid, int](revision=produced[2].revision, replicate_index=0),
+                evidence=evidence,
+            ),
+            effects=ActionEffects(
+                produced=tuple(produced),
+                reports={
+                    "inference": store.write_report(
+                        read_inference_report(store, fitted.revision, evidence)
+                    )
+                },
+            ),
         )
-    )
+    else:
+        prepared = Applied(result=None, effects=ActionEffects(produced=tuple(produced)))
+    journal.append(applied_record(prepared, seq=1, ts="2026-09-15T12:00:00Z"))
     applied = run_async(
         run_action_locally(
             "TEST",
-            SimulateRequest(
-                model_revision=pins["model"],
-                # The fit retains states from model day -1; its origin is 2024-01-01.
-                start=date(2023, 12, 31) if fitted_laws else date(2026, 1, 1),
-                horizon="4d",
+            SimulateRequest[GitOid](
+                input=SimulateInput[GitOid](
+                    simulation=SimulationSpec(
+                        start=date(2023, 12, 31) if fitted_laws else date(2026, 1, 1), horizon="4d"
+                    ),
+                    model_ref=pins["model"],
+                )
             ),
             pins,
         )
@@ -195,15 +200,14 @@ def test_durable_replication_preserves_current_laws_without_comparison(
     assert report.law.kind == ("fitted" if fitted_laws else "authored")
     if fitted_laws:
         assert report.law.interpretation == "posterior_predictive"
-        assert report.law.fitted_panel_revision == produced[2].revision
+        assert report.law.fitted_data.revision == produced[2].revision
     assert not applied.effects.produced
     assert any(finding.subject.check.startswith("C5c") for finding in report.findings)
     assert not any(finding.subject.check.startswith("C5d") for finding in report.findings)
     journal.append(applied_record(applied, seq=2, ts="2026-09-15T12:01:00Z"))
     current = ModelReader("TEST", at=StudyRepository("TEST").head()).simulation()
     assert current is not None
-    assert current.value == report
-    assert current.source.validity == "fresh"
+    assert current == report
     edited = store.write_artifact(
         "model",
         produced_by=None,
@@ -229,23 +233,21 @@ def test_durable_replication_preserves_current_laws_without_comparison(
     retained = ModelReader("TEST", at=commit_id("TEST", 2)).simulation()
     assert revised is not None
     assert retained is not None
-    assert revised.source.validity == "stale"
-    assert retained.source.validity == "fresh"
+    assert revised == retained == report
+    assert retained.evidence.model.revision == pins["model"]
+    assert revised.evidence.model.revision != edited.revision
 
-    # A retained generator result can be prepared without running it again.
-    from nof1_causal_lab.actions.runners import run_action
-    from nof1_causal_lab.artifacts.data_preparation import SimulationReplicateRef
+    # A retained generator result is read directly without running it again.
+    from nof1_causal_lab.study.data import read_data_history
 
-    preparation = PrepareDataRequest(
-        input=SimulationReplicateRef(revision=commit_id("TEST", 2), replicate=1),
+    selected = read_data_history(
+        store, DataRef[GitOid, int](revision=commit_id("TEST", 2), replicate_index=1)
     )
-    prepared = run_async(run_action("TEST", preparation, state))
-    panel_info = next(info for info in prepared.effects.produced if info.artifact_id == "panel")
-    panel = store.read_parquet_file("panel", panel_info.revision, "panel.parquet")
+    panel = selected.observations.recorded.frame
     from nof1_causal_lab.models.ssm.runtime import project_observation_data
 
     projected = project_observation_data(
-        panel, model_spec=compile_model_fixture(model), time_origin=report.time_origin
+        panel, model_spec=compile_model_fixture(model), time_origin=report.evidence.time_origin
     )
     assert not isinstance(projected, ObservationPreflightFailure)
     (wide, _) = projected
@@ -375,11 +377,11 @@ def test_causal_action_uses_common_generator_and_requires_matching_engine_eviden
     assert result.causal.kind == "available"
     assert result.evidence.reference_latent_paths is not None
     assert result.evidence.model.revision == git_oid(2)
-    from nof1_causal_lab.actions.prepare_data import prepare_simulation_panel
     from nof1_causal_lab.models.ssm.runtime import project_observation_data
+    from nof1_causal_lab.study.data import read_simulation_observations
 
     store = ArtifactStore("TEST")
-    panel = prepare_simulation_panel(result.evidence, 0, read_array=store.read_array)
+    panel = read_simulation_observations(result.evidence, 0, read_array=store.read_array)
     projected = project_observation_data(
         panel, model_spec=compile_model_fixture(model), time_origin=panel_metadata().time_origin
     )
@@ -418,7 +420,7 @@ def test_causal_action_uses_common_generator_and_requires_matching_engine_eviden
 
 @pytest.mark.contract
 def test_data_profile_survives_model_edits(tmp_path, monkeypatch):
-    from nof1_causal_lab.actions.data_checks import evaluate_data_checks, require_data_binding
+    from nof1_causal_lab.actions.data_checks import evaluate_data_checks
     from nof1_causal_lab.study.records import DataPreparationResult
     from nof1_causal_lab.study.store import ArtifactStore
     from nof1_causal_lab.utils import data as data_module
@@ -448,11 +450,27 @@ def test_data_profile_survives_model_edits(tmp_path, monkeypatch):
         derived_from={},
         json_files={"model.json": revised_model.model_dump(mode="json")},
     )
-    require_data_binding(store, revised_model, panel.revision)
+    from nof1_causal_lab.artifacts.observation_data import SelectedObservations
+    from nof1_causal_lab.study.data import read_data_history
+    from tests.data_fixtures import metadata_for_model
+
+    history = read_data_history(
+        store, DataRef[GitOid, int](revision=panel.revision, replicate_index=0)
+    )
+    assert isinstance(
+        history.observations.select(metadata_for_model(revised_model).variables),
+        SelectedObservations,
+    )
     current = state.with_artifacts([revised])
     from nof1_causal_lab.actions.data_checks import read_data_profile
 
-    assert read_data_profile(store, current.current["panel"].revision) == profile
+    assert (
+        read_data_profile(
+            store,
+            DataRef[GitOid, int](revision=current.current["panel"].revision, replicate_index=0),
+        )
+        == profile
+    )
 
 
 @pytest.mark.inference(concern="predictive")

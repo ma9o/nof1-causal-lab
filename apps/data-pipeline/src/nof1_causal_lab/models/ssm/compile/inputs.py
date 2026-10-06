@@ -35,6 +35,7 @@ if TYPE_CHECKING:
         IndicatorId,
     )
     from nof1_causal_lab.artifacts.likelihood import Law
+    from nof1_causal_lab.artifacts.observations import ResolvedObservationSpec
     from nof1_causal_lab.artifacts.parameter import ParameterCoordinate
     from nof1_causal_lab.artifacts.prior import PriorValidationResult
     from nof1_causal_lab.models.model_structure import StructuralSelection
@@ -68,18 +69,45 @@ class CompiledState:
 class CompiledObservation:
     """One emission coordinate, with its state binding and support semantics."""
 
-    id: IndicatorId
-    name: str
+    observation: ResolvedObservationSpec
     state_index: int
     law: Law[BoundExpression]
-    levels: tuple[str, ...]
     standardized: bool
     categorical_anchor: bool
-    support: IndicatorObservationSemantics
-    observation_window: Duration
+
+    @property
+    def id(self) -> IndicatorId:
+        """Stable observation identity retained from the authored measurement definition."""
+        return self.observation.id
+
+    @property
+    def name(self) -> str:
+        """Human-readable observation label retained from the measurement definition."""
+        return self.observation.name
+
+    @property
+    def levels(self) -> tuple[str, ...]:
+        """Declared levels for categorical or ordinal likelihoods; empty for other families."""
+        return (
+            self.observation.definition.levels
+            if self.law.family
+            in {DistributionFamily.ORDERED_LOGISTIC, DistributionFamily.CATEGORICAL}
+            else ()
+        )
+
+    @property
+    def support(self) -> IndicatorObservationSemantics:
+        """Measurement support semantics derived from the resolved observation definition."""
+        return self.observation._observation_semantics()
+
+    @property
+    def observation_window(self) -> Duration:
+        """Resolved duration over which this indicator's observation is defined."""
+        return self.observation.observation_window
 
     @property
     def window_days(self) -> float:
+        """Observation window duration expressed in model days."""
         return self.observation_window.days
 
 
@@ -116,10 +144,12 @@ class CompiledModel:
 
     @property
     def state_index(self) -> Mapping[ConstructId, int]:
+        """Construct IDs mapped to their positions on the compiled state axis."""
         return MappingProxyType({state.id: index for index, state in enumerate(self.states)})
 
     @property
     def indicator_index(self) -> Mapping[IndicatorId, int]:
+        """Observation IDs mapped to their positions on the compiled indicator axis."""
         return MappingProxyType(
             {observation.id: index for index, observation in enumerate(self.observations)}
         )
@@ -149,6 +179,7 @@ class UnsupportedFit:
 
     @property
     def message(self) -> str:
+        """Compilation findings joined into a readable explanation of why fitting is unsupported."""
         return "\n".join(self.errors)
 
 
@@ -250,8 +281,9 @@ def compile_model(
         max_levels = max(numeric.observation_level_counts(selection), default=0)
         observations = tuple(
             CompiledObservation(
-                indicator.observation.id,
-                indicator.observation.name,
+                indicator.observation.resolved(
+                    indicator.observation.observation_window or model.measurement_clock
+                ),
                 state_index[model.indicator_owner(indicator.observation.id).id],
                 bind_observation_law(
                     indicator.likelihood.law,
@@ -266,21 +298,8 @@ def compile_model(
                     sampling_count=max_levels,
                     categorical_anchor=anchor,
                 ),
-                (
-                    indicator.observation.ordinal_levels
-                    or indicator.observation.categorical_levels
-                    or ()
-                )
-                if indicator.likelihood.law.family
-                in {
-                    DistributionFamily.ORDERED_LOGISTIC,
-                    DistributionFamily.CATEGORICAL,
-                }
-                else (),
                 indicator.likelihood.standardized,
                 anchor,
-                indicator.observation._observation_semantics(),
-                indicator.observation.observation_window or model.measurement_clock,
             )
             for channel, (indicator, anchor) in enumerate(zip(indicators, anchors, strict=True))
             if indicator.likelihood is not None
@@ -321,8 +340,8 @@ def _compile_laws(
     states: tuple[CompiledState, ...],
 ) -> tuple[CompiledLaw, ...]:
     from nof1_causal_lab.artifacts.parameter import PriorAuthoringTransform
-    from nof1_causal_lab.models.ssm.compile.prior_compilation import quantity_parameter_law
     from nof1_causal_lab.models.ssm.compile.bindings import joint_law_layout
+    from nof1_causal_lab.models.ssm.compile.prior_compilation import quantity_parameter_law
     from nof1_causal_lab.numpyro_json import distribution_shape
 
     model = selection.model
@@ -348,9 +367,6 @@ def _compile_laws(
             parameters=tuple(parameter.id for parameter in members),
             constructs=trajectories,
             time_points=model.time_points if trajectories else (),
-            construct_labels={
-                identity: model.get_construct(identity).name for identity in trajectories
-            },
         )
         batch_shape, event_shape = distribution_shape(law)
         if not batch_shape and not event_shape:

@@ -81,4 +81,5 @@ class ParameterSpec(Value):
     )
 
     def conditioned(self, identity: DistributionId) -> ParameterSpec:
+        """Select a conditioned parameter distribution and reset its transform to the quantity scale."""
         return self.revised(distribution=identity, transform=IdentityTransformSpec())

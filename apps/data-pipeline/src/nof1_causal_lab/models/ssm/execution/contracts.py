@@ -69,7 +69,9 @@ class InitializationLikelihoodBackend(Protocol):
         /,
         *,
         observation_laws: ObservationLaws,
-    ) -> jnp.ndarray: ...
+    ) -> jnp.ndarray:
+        """Evaluate an approximate observation likelihood solely for sampler initialization."""
+        ...
 
 
 @jax.tree_util.register_dataclass
@@ -101,6 +103,7 @@ class LaplaceEvaluationResult:
     diagnostics: Mapping[str, jax.Array]
 
     def __post_init__(self) -> None:
+        """Own an immutable copy of the diagnostic mapping returned by the initialization solver."""
         object.__setattr__(self, "diagnostics", MappingProxyType(dict(self.diagnostics)))
 
 

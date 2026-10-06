@@ -25,7 +25,7 @@ export type ActionGlyph = "dot" | "diamond" | "ring" | "arrow";
 
 /** One mark and colour per scientific action; the readout names the action. */
 export const ACTION_STYLE: Record<ActionId, { color: string; glyph: ActionGlyph }> = {
-  set_question: { color: "#b45309", glyph: "diamond" },
+  edit_question: { color: "#b45309", glyph: "diamond" },
   edit_model: { color: "#475569", glyph: "dot" },
   prepare_data: { color: "#0f766e", glyph: "diamond" },
   fit: { color: "#2563eb", glyph: "ring" },

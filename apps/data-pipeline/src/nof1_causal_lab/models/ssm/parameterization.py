@@ -39,6 +39,7 @@ class PriorRuntimeBundle:
     priors: Mapping[str, dist.Distribution]
 
     def __post_init__(self) -> None:
+        """Own immutable collections binding prior distributions to compiled execution sites."""
         freeze_fields(self)
 
 
@@ -48,14 +49,17 @@ class PriorRuntimeBundle:
 
 
 def build_site_registry(spec: CompiledModel) -> tuple[SiteDescriptor, ...]:
+    """Return the site registry already owned by the compiled model."""
     return spec.site_registry
 
 
 def likelihood_sites(spec: CompiledModel) -> tuple[SiteDescriptor, ...]:
+    """Select sampling-site descriptors belonging to likelihood-specific auxiliary coefficients."""
     return tuple(site for site in spec.site_registry if site.assembly_group == "likelihood")
 
 
 def process_sites(spec: CompiledModel) -> tuple[SiteDescriptor, ...]:
+    """Select sampling-site descriptors belonging to process-innovation coefficients."""
     return tuple(site for site in spec.site_registry if site.assembly_group == "process")
 
 

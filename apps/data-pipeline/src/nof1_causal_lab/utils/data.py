@@ -25,10 +25,12 @@ _DATA_URI = get_base_uri()
 
 
 def data_root() -> str:
+    """Return the configured root URI containing study workspaces."""
     return _DATA_URI
 
 
 def workspace_dir(workspace_id: str) -> str:
+    """Resolve a workspace directory beneath the configured local or remote data root."""
     return join(_DATA_URI, workspace_id)
 
 

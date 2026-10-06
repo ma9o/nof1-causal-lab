@@ -27,7 +27,6 @@ from nof1_causal_lab.artifacts.posterior_diagnostics import (
 )
 from nof1_causal_lab.study.view_models import (
     Added,
-    DataDiffReport,
     DataSeries,
     Dataset,
     DataStatistic,
@@ -46,7 +45,6 @@ if TYPE_CHECKING:
     from datetime import datetime
 
     from nof1_causal_lab.artifacts.checks import IndicatorCheck
-    from nof1_causal_lab.artifacts.observations import ResolvedObservationSpec
 
 
 import jax.numpy as jnp
@@ -107,12 +105,21 @@ def _check_calibration(
     low_threshold: float = 0.70,
     high_threshold: float = 0.98,
 ) -> tuple[Assessment[IndicatorCheckSubject, NumericCriterionEvidence], ...]:
-    """Check calibration: % of timepoints where obs falls in [2.5th, 97.5th].
+    """Measure coverage of observations by pointwise 95% predictive intervals.
 
     Args:
-        y_sim: (n_subsample, T, n_manifest)
-        observations: (T, n_manifest)
-        indicator_ids: scientific indicator IDs in observation-column order
+        y_sim: Replicated observations with shape ``(draw, time, indicator)``.
+        observations: Recorded values with shape ``(time, indicator)``; NaN marks
+            missing observations.
+        indicator_ids: Scientific identities in observation-column order.
+        low_threshold: Smallest accepted fraction of observed values inside the
+            predictive interval.
+        high_threshold: Largest accepted fraction; higher coverage warns that the
+            predictive distribution may be too diffuse.
+
+    Returns:
+        One assessment per indicator, including an explicit unevaluated result
+        when fewer than two observations are available.
     """
     warnings: list[Assessment[IndicatorCheckSubject, NumericCriterionEvidence]] = []
 
@@ -165,12 +172,19 @@ def _check_residual_autocorrelation(
     indicator_ids: Sequence[IndicatorId],
     threshold: float = 0.3,
 ) -> tuple[Assessment[IndicatorCheckSubject, NumericCriterionEvidence], ...]:
-    """Check lag-1 autocorrelation of residuals (obs - posterior predictive mean).
+    """Assess lag-one correlation after subtracting the predictive mean.
 
     Args:
-        y_sim: (n_subsample, T, n_manifest)
-        observations: (T, n_manifest)
-        indicator_ids: scientific indicator IDs in observation-column order
+        y_sim: Replicated observations with shape ``(draw, time, indicator)``.
+        observations: Recorded values with shape ``(time, indicator)``; NaN marks
+            missing observations.
+        indicator_ids: Scientific identities in observation-column order.
+        threshold: Largest accepted absolute residual correlation.
+
+    Returns:
+        Per-indicator assessments using consecutive available residuals. Fewer
+        than five observations or negligible residual variance yields an
+        unevaluated assessment.
     """
     warnings: list[Assessment[IndicatorCheckSubject, NumericCriterionEvidence]] = []
 
@@ -237,12 +251,20 @@ def _check_variance_ratio(
     high_ratio: float = 3.0,
     low_ratio: float = 1.0 / 3.0,
 ) -> tuple[Assessment[IndicatorCheckSubject, NumericCriterionEvidence], ...]:
-    """Check posterior predictive std / observed std ratio.
+    """Compare replicated temporal standard deviations with the observed standard deviation.
 
     Args:
-        y_sim: (n_subsample, T, n_manifest)
-        observations: (T, n_manifest)
-        indicator_ids: scientific indicator IDs in observation-column order
+        y_sim: Replicated observations with shape ``(draw, time, indicator)``.
+        observations: Recorded values with shape ``(time, indicator)``; NaN marks
+            missing observations.
+        indicator_ids: Scientific identities in observation-column order.
+        high_ratio: Largest accepted predicted-to-observed standard-deviation ratio.
+        low_ratio: Smallest accepted predicted-to-observed standard-deviation ratio.
+
+    Returns:
+        Per-indicator assessments of the mean replicated standard deviation divided
+        by the observed standard deviation, using the same observed time points.
+        Insufficient observations or negligible observed variance is unevaluated.
     """
     warnings: list[Assessment[IndicatorCheckSubject, NumericCriterionEvidence]] = []
 
@@ -315,12 +337,22 @@ def _compute_overlays(
     time_origin: datetime | None,
     standardized: tuple[bool, ...],
 ) -> list[PPCOverlay]:
-    """Compute per-variable medians and spaghetti draws for PPC plots.
+    """Compose observed values, predictive medians, and retained trajectories for plotting.
 
     Args:
-        y_sim: (n_subsample, T, n_manifest)
-        observations: (T, n_manifest)
-        indicator_ids: scientific indicator IDs in observation-column order
+        y_sim: Replicated observations with shape ``(draw, time, indicator)``.
+        observations: Recorded values with shape ``(time, indicator)``; NaN marks
+            missing observations.
+        indicator_ids: Scientific identities in observation-column order.
+        times: Model-day coordinates aligned with the time axis.
+        time_origin: Calendar instant of model day zero, or ``None`` for an undated
+            model-time axis.
+        standardized: Per-indicator flags describing the scale already used by
+            both arrays; this function does not transform their values.
+
+    Returns:
+        One overlay per indicator, retaining every supplied predictive trajectory
+        and representing missing plot values as ``None``.
     """
     overlays = []
     n_manifest = observations.shape[1]
@@ -367,6 +399,11 @@ def _compute_test_stats(
         y_sim: (n_subsample, T, n_manifest)
         observations: (T, n_manifest)
         indicator_ids: scientific indicator IDs in observation-column order
+
+    Returns:
+        Observed and per-replicate mean, standard deviation, minimum, and maximum
+        for indicators with at least three observations. Each replicate is reduced
+        on exactly the observed schedule.
     """
     test_stats = []
     n_manifest = observations.shape[1]
@@ -460,19 +497,6 @@ def measure_predictive_checks(
     )
 
 
-def _semantics(variable: ResolvedObservationSpec) -> tuple[object, ...]:
-    return (
-        variable.measurement_dtype,
-        variable.aggregation,
-        variable.support_kind,
-        variable.summary_operator,
-        variable.anchor_policy,
-        variable.ordinal_levels,
-        variable.categorical_levels,
-        variable.observation_window.seconds,
-    )
-
-
 def _statistics(
     left: tuple[DataSeries, ...], right: tuple[DataSeries, ...]
 ) -> tuple[DataStatisticComparison, ...]:
@@ -546,7 +570,7 @@ def _predictive_comparison(
     if variable is None or any(item.variable is None for item in replicas):
         return _comparison(NotApplicable(reason="Comparison inputs are incompatible."))
     if any(
-        _semantics(item.variable) != _semantics(variable)
+        item.variable.definition != variable.definition
         for item in replicas
         if item.variable is not None
     ):
@@ -598,12 +622,12 @@ def _predictive_comparison(
     return _comparison(Available(value=checks))
 
 
-def data_diff(
+def compare_data_variables(
     left: Dataset | Sequence[Dataset],
     right: Dataset | Sequence[Dataset],
     *,
     input_indicators: set[IndicatorId] | frozenset[IndicatorId] = frozenset(),
-) -> DataDiffReport:
+) -> tuple[DataVariableDiff, ...]:
     """Compare one or many saved histories on each side without pooling or resimulation."""
     sides = tuple(
         (value,) if isinstance(value, Dataset) else tuple(value) for value in (left, right)
@@ -614,9 +638,8 @@ def data_diff(
         if len(
             {
                 (
-                    dataset.source.kind,
                     dataset.source.revision,
-                    dataset.source.replicate if dataset.source.kind == "simulation" else None,
+                    dataset.source.replicate_index,
                 )
                 for dataset in side
             }
@@ -624,11 +647,10 @@ def data_diff(
             raise ValueError("A dataset cannot be counted twice within a comparison side")
     left_series, right_series = (tuple(dataset.series for dataset in side) for side in sides)
     variables = sorted(set().union(*(item.keys() for item in (*left_series, *right_series))))
-    has_simulation = any(dataset.source.kind == "simulation" for side in sides for dataset in side)
     comparisons = []
     absent = DataSeries(variable=None, time_origin=None, points=())
     for identity in variables:
-        if has_simulation and identity in input_indicators:
+        if identity in input_indicators:
             continue
         a, b = (
             tuple(item.get(identity, absent) for item in side)
@@ -644,7 +666,7 @@ def data_diff(
             issues.append("Calendar-free histories cannot be aligned to calendar-bound histories")
         if len(definitions) != len(series):
             issues.append("Variable is absent from one or more histories")
-        if len({_semantics(item) for item in definitions}) > 1:
+        if any(item.definition != definitions[0].definition for item in definitions[1:]):
             issues.append(
                 "Measurement definitions differ; statistics describe each side separately"
             )
@@ -680,8 +702,4 @@ def data_diff(
                 predictive=_predictive_comparison(identity, a, b),
             )
         )
-    return DataDiffReport(
-        left=tuple(item.source for item in sides[0]),
-        right=tuple(item.source for item in sides[1]),
-        variables=tuple(comparisons),
-    )
+    return tuple(comparisons)

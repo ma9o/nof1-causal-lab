@@ -20,7 +20,9 @@ class NamedTool(Protocol):
     """Minimal tool surface needed when constructing retry guidance."""
 
     @property
-    def name(self) -> str: ...
+    def name(self) -> str:
+        """Name exposed to the model for selecting this tool."""
+        ...
 
 
 class TraceToolCall(TypedDict):
@@ -32,9 +34,7 @@ class TraceToolCall(TypedDict):
 
 
 class TraceMessage(Value):
-    """A trace message records one conversational step, including any reasoning or tool
-    interaction.
-    """
+    """One retained conversation step, including any reasoning or tool interaction."""
 
     role: str
     content: str

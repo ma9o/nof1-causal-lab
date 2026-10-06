@@ -4,10 +4,12 @@ from datetime import date
 
 import pytest
 
-from nof1_causal_lab.actions.contracts import FitRequest, PrepareDataRequest, SimulateRequest
+from nof1_causal_lab.actions.contracts import FitRequest, SimulateRequest
+from nof1_causal_lab.actions.io import FitInput, SimulateInput
 from nof1_causal_lab.actions.temporal.client import pydantic_data_converter
 from nof1_causal_lab.actions.temporal.messages import ActionInput
-from nof1_causal_lab.artifacts.data_preparation import SimulationReplicateRef
+from nof1_causal_lab.artifacts.identity import GitOid
+from nof1_causal_lab.artifacts.simulation import SimulationSpec
 from nof1_causal_lab.study.state import StudyState
 from tests.git_fixtures import git_oid
 from tests.helpers import run_async
@@ -18,14 +20,19 @@ pytestmark = pytest.mark.contract
 @pytest.mark.parametrize(
     "action",
     [
-        FitRequest(model_revision=git_oid(1), panel_revision=git_oid(2)),
-        SimulateRequest(
-            model_revision=git_oid(1),
-            start=date(2026, 1, 1),
-            horizon="1w",
-            interventions=({"target": "construct:x", "after": "2d", "value": 1},),
+        FitRequest[GitOid](
+            input=FitInput[GitOid](replicate_index=0, model_ref=git_oid(1), data_ref=git_oid(2))
         ),
-        PrepareDataRequest(input=SimulationReplicateRef(revision=git_oid(3), replicate=0)),
+        SimulateRequest[GitOid](
+            input=SimulateInput[GitOid](
+                simulation=SimulationSpec(
+                    start=date(2026, 1, 1),
+                    horizon="1w",
+                    interventions=({"target": "construct:x", "after": "2d", "value": 1},),
+                ),
+                model_ref=git_oid(1),
+            )
+        ),
     ],
 )
 def test_action_inputs_keep_their_request_through_temporal(action):

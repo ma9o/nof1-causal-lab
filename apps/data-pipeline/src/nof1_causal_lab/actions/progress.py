@@ -1,4 +1,4 @@
-"""Live progress of a running attempt: ingestion and extraction step events.
+"""Live progress of a running attempt: extraction step events.
 
 Events land as one JSON file each under ``data/{workspace_id}/scratch/events/`` (neither
 local fs nor R2 supports atomic append); readers list the directory and sort by
@@ -23,10 +23,12 @@ _PROGRESS_EVENT_ADAPTER = TypeAdapter(ProgressEvent)
 
 
 def events_dir(workspace_id: str) -> str:
+    """Locate the workspace's scratch directory for append-only progress event files."""
     return data_module.scratch_events_dir(workspace_id)
 
 
 def emit_event(workspace_id: str, event: ProgressEvent) -> None:
+    """Persist a progress event under a unique time-ordered filename without its read cursor."""
     directory = events_dir(workspace_id)
     storage.makedirs(directory)
     name = f"{time.time_ns():020d}-{uuid.uuid4().hex[:8]}.json"

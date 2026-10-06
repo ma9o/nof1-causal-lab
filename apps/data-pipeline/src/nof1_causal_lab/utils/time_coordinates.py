@@ -17,6 +17,7 @@ class ObservationInstant:
     value: datetime
 
     def __post_init__(self) -> None:
+        """Normalize observation instants to UTC, interpreting timezone-naive values as UTC."""
         utc = (
             self.value.replace(tzinfo=UTC)
             if self.value.tzinfo is None
@@ -30,6 +31,7 @@ class ObservationInstant:
         return cls(SYNTHETIC_EPOCH if time_origin is None else time_origin)
 
     def relative_to(self, origin: ObservationInstant) -> ModelTime:
+        """Express this observation instant as fractional model days after the supplied origin."""
         return ModelTime((self.value - origin.value).total_seconds() / 86400)
 
 
@@ -40,6 +42,7 @@ class ModelTime:
     days: float
 
     def at(self, origin: ObservationInstant) -> ObservationInstant:
+        """Convert relative model days to an observation instant using the supplied calendar origin."""
         return ObservationInstant(origin.value + timedelta(days=self.days))
 
     @staticmethod

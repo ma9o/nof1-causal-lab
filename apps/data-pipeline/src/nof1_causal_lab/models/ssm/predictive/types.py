@@ -26,6 +26,7 @@ class PredictiveTrajectory:
     expected_observations: jax.Array
 
     def __post_init__(self) -> None:
+        """Require aligned draw/time axes and a boolean observation mask matching the generated values."""
         if self.latents.ndim != 3 or self.observations.ndim != 3:
             raise ValueError("Predictive trajectories require draw, time, and state/channel axes")
         if self.latents.shape[:2] != self.observations.shape[:2]:
@@ -55,6 +56,7 @@ class PredictiveDraws:
     reference: PredictiveTrajectory | None = None
 
     def __post_init__(self) -> None:
+        """Freeze parameter draws and require reference trajectories to share the predictive axes."""
         object.__setattr__(self, "parameters", MappingProxyType(dict(self.parameters)))
         for name, values in self.parameters.items():
             if values.ndim < 1 or values.shape[0] != self.n_draws:
@@ -68,4 +70,5 @@ class PredictiveDraws:
 
     @property
     def n_draws(self) -> int:
+        """Number of generated trajectories on the leading predictive draw axis."""
         return self.trajectory.latents.shape[0]

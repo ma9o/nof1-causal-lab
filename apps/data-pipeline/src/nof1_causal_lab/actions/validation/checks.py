@@ -40,6 +40,7 @@ TIMESTAMP_FORMATS: tuple[tuple[str | None, bool], ...] = (
 
 
 def parsed_timestamp_expr(column: str) -> pl.Expr:
+    """Parse a timestamp column using the supported formats, leaving unmatched values null."""
     text = pl.col(column).cast(pl.Utf8, strict=False)
     candidates: list[pl.Expr] = []
     for fmt, has_tz in TIMESTAMP_FORMATS:
@@ -51,6 +52,7 @@ def parsed_timestamp_expr(column: str) -> pl.Expr:
 
 
 def parse_timestamp_series(timestamps: pl.Series) -> pl.Series:
+    """Parse a timestamp series through the same format rules used by validation expressions."""
     return pl.DataFrame({"timestamp": timestamps}).select(parsed_timestamp_expr("timestamp"))[
         "timestamp"
     ]
@@ -60,6 +62,7 @@ def timestamp_issue_specs(
     n_total: int,
     n_unparseable: int,
 ) -> list[tuple[Literal["error", "warning"], str]]:
+    """Report all-unparseable timestamps as an error and a majority as a warning."""
     if n_total == 0:
         return []
     if n_unparseable == n_total:
@@ -74,6 +77,16 @@ def check_dtype_range(
     dtype: str,
     ind_name: IndicatorId,
 ) -> tuple[list[ValidationIssue], int]:
+    """Check recorded values against their declared data kind.
+
+    Args:
+        values: Usable numeric measurements for one indicator.
+        dtype: Declared data kind selecting range, discreteness, or outlier checks.
+        ind_name: Indicator identity to attach to reported issues.
+
+    Returns:
+        The issues and number of values violating the selected check.
+    """
     issues: list[ValidationIssue] = []
     violation_count = 0
 
@@ -142,6 +155,17 @@ def check_time_coverage(
     model_clock_hours: float,
     ind_name: IndicatorId,
 ) -> tuple[list[ValidationIssue], float | None]:
+    """Assess whether recorded times span enough model-clock periods.
+
+    Args:
+        parsed_ts: Parsed measurement timestamps.
+        model_clock_hours: Duration of one model-clock period in hours.
+        ind_name: Indicator identity for any coverage warning.
+
+    Returns:
+        Coverage issues and the fraction of the required span covered, capped at
+        one; the fraction is ``None`` when coverage cannot be assessed.
+    """
     issues: list[ValidationIssue] = []
     if len(parsed_ts) < 2:
         return issues, None
@@ -171,6 +195,17 @@ def check_timestamp_gaps(
     model_clock_hours: float,
     ind_name: IndicatorId,
 ) -> tuple[list[ValidationIssue], float | None]:
+    """Assess the largest consecutive gap relative to the model clock.
+
+    Args:
+        parsed_ts: Parsed measurement timestamps, sorted internally.
+        model_clock_hours: Duration of one model-clock period in hours.
+        ind_name: Indicator identity for any gap warning.
+
+    Returns:
+        Gap issues and the largest gap divided by the allowed gap threshold, or
+        ``None`` for the ratio when there are too few timestamps.
+    """
     issues: list[ValidationIssue] = []
     if len(parsed_ts) < 3:
         return issues, None
@@ -198,6 +233,18 @@ def check_timestamp_gaps(
 def check_hallucination_signals(
     values: pl.Series, dtype: str, ind_name: IndicatorId
 ) -> tuple[list[ValidationIssue], float, bool]:
+    """Flag suspicious repetition and arithmetic patterns in extracted values.
+
+    Args:
+        values: Usable measurements from one indicator.
+        dtype: Declared data kind used to interpret repeated values.
+        ind_name: Indicator identity to attach to warnings.
+
+    Returns:
+        Issues, the fraction occupied by the most frequent value, and whether
+        distinct sorted values form a nonconstant arithmetic sequence. These are
+        heuristic signals, not proof of fabricated measurements.
+    """
     issues: list[ValidationIssue] = []
     n = len(values)
     duplicate_pct = 0.0
@@ -246,6 +293,7 @@ def check_construct_correlations(
     combined: pl.DataFrame,
     construct_lookup: Mapping[str, ConstructSpec],
 ) -> list[ValidationIssue]:
+    """Warn when sufficiently aligned indicators of the same construct correlate negatively."""
     issues: list[ValidationIssue] = []
 
     construct_indicators: dict[str, list[str]] = {}

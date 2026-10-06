@@ -2,7 +2,6 @@ import type {
   ExtractionSnapshotEvent,
   ExtractionWorkerEvent,
   ProgressEvent,
-  ProgressStep,
   StepEvent,
 } from "@nof1-causal-lab/api-types";
 
@@ -12,7 +11,7 @@ import type {
  */
 export interface AttemptProgressView {
   cursor: string | null;
-  steps: Partial<Record<ProgressStep, StepEvent>>;
+  extraction: StepEvent | null;
   /** The latest absolute worker counts; a later snapshot restores them after older events expire. */
   snapshot: ExtractionSnapshotEvent | null;
   workers: Record<number, ExtractionWorkerEvent>;
@@ -20,7 +19,7 @@ export interface AttemptProgressView {
 
 export const EMPTY_ATTEMPT_PROGRESS: AttemptProgressView = {
   cursor: null,
-  steps: {},
+  extraction: null,
   snapshot: null,
   workers: {},
 };
@@ -34,7 +33,7 @@ export function applyProgressEvents(
     const { cursor } = event;
     switch (event.event) {
       case "nof1-causal-lab.step":
-        return { ...next, cursor, steps: { ...next.steps, [event.step]: event } };
+        return { ...next, cursor, extraction: event };
       case "nof1-causal-lab.extraction.snapshot":
         return { ...next, cursor, snapshot: event };
       case "nof1-causal-lab.extraction.worker":

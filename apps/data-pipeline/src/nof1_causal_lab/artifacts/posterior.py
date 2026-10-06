@@ -5,8 +5,10 @@ from collections.abc import Mapping
 from pydantic import AwareDatetime, Field
 
 from nof1_causal_lab.artifacts.base import Value
+
 from .checks import Assessment
-from .identity import ConstructId, DistributionId
+from .data_ref import DataRef
+from .identity import ConstructId, DistributionId, GitOid, GitRef
 from .posterior_diagnostics import (
     ChainDiagnostics,
     LOODiagnostics,
@@ -86,6 +88,14 @@ class InferenceEvidence(Value):
                 ),
             )
         )
+
+
+class ModelFitResult(Value):
+    """Exact model and data references paired with the fit's retained numerical evidence."""
+
+    model: GitRef
+    data: DataRef[GitOid, int]
+    evidence: InferenceEvidence
 
 
 class InferenceReportCore(Value):

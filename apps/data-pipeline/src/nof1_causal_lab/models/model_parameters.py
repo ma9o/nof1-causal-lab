@@ -48,6 +48,7 @@ class ParameterContext:
 
     @property
     def quantity(self) -> SiteKind:
+        """Shared coefficient quantity, rejecting uses with incompatible scientific meanings."""
         kinds = {use.quantity for use in self.uses}
         if len(kinds) != 1:
             raise ValueError("A shared parameter must have compatible coefficient meanings")
@@ -55,10 +56,12 @@ class ParameterContext:
 
     @property
     def owners(self) -> tuple[EntityRef, ...]:
+        """Distinct scientific owners of all coefficient uses, preserving first occurrence."""
         return tuple({owner.id: owner for use in self.uses for owner in use.owners}.values())
 
 
 def iter_coefficient_uses(model: ModelSpec) -> Iterator[CoefficientUse]:
+    """Yield model coefficient uses with their quantity meanings, owners, and authored locations."""
     for owner, mechanism in model.iter_mechanisms():
         refs: list[EntityRef] = [MechanismRef(id=mechanism.id)]
         target = owner.effect.id if isinstance(owner, CausalEdgeSpec) else owner.id
@@ -118,6 +121,7 @@ def iter_coefficient_uses(model: ModelSpec) -> Iterator[CoefficientUse]:
 
 
 def parameter_contexts(model: ModelSpec) -> dict[ParameterId, ParameterContext]:
+    """Group symbolic coefficient uses by parameter identity to establish each parameter's context."""
     grouped: dict[ParameterId, list[CoefficientUse]] = {}
     for use in iter_coefficient_uses(model):
         if isinstance(use.value, str):

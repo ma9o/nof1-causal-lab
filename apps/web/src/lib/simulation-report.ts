@@ -15,8 +15,7 @@ export function hasCausalEffects(report: SimulationReport): report is Simulation
 /** The simulation of the viewed model revision, certified or not; an older model's run is none. */
 export function viewedSimulation(model: ModelSnapshot) {
   const simulation = model.simulation;
-  return simulation?.source.validity === "fresh" &&
-    simulation.value.evidence.model.revision === model.model?.source.ref.revision
+  return simulation?.evidence.model.revision === model.state.current.model?.revision
     ? simulation
     : null;
 }

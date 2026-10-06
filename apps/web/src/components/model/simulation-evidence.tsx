@@ -141,11 +141,11 @@ export function SimulationEvidence({ context }: { context: ScopeContext }) {
         <Hint>No simulation recorded at this version.</Hint>
       </Section>
     );
-  const report = simulation.value;
+  const report = simulation;
   const names = new Map(entities.constructs.map((item) => [item.id, humanize(item.name)]));
   const outcome = hasCausalEffects(report)
     ? report.causal.value.outcome
-    : (model.question?.value.outcome ?? null);
+    : (model.question?.outcome ?? null);
   const simulatedOutcome =
     outcome !== null && report.evidence.state_ids.some((id) => id === outcome) ? outcome : null;
   const timeLabel = (day: number) =>
@@ -153,7 +153,7 @@ export function SimulationEvidence({ context }: { context: ScopeContext }) {
   const chart = { model, selection, arms: view.arms };
   return (
     <>
-      <Section title="The question's outcome" source={simulation.source} wide>
+      <Section title="The question's outcome" wide>
         <SimulationControls
           view={view}
           onChange={setView}
@@ -211,7 +211,7 @@ export function SimulationEvidence({ context }: { context: ScopeContext }) {
           <Hint>{report.causal.kind !== "available" && report.causal.reason}</Hint>
         )}
       </Section>
-      <Section title="Simulation design" source={simulation.source}>
+      <Section title="Simulation design">
         <KeyValue
           rows={[
             ["Start", timeLabel(report.evidence.times[0])],
@@ -234,7 +234,7 @@ export function SimulationEvidence({ context }: { context: ScopeContext }) {
           ))
         )}
       </Section>
-      <Section title="States" source={simulation.source} wide>
+      <Section title="States" wide>
         <div className="grid grid-cols-2 gap-3">
           {report.evidence.state_ids
             .filter((id) => id !== simulatedOutcome)
@@ -250,7 +250,7 @@ export function SimulationEvidence({ context }: { context: ScopeContext }) {
             ))}
         </div>
       </Section>
-      <Section title="Simulated observations" source={simulation.source} wide>
+      <Section title="Simulated observations" wide>
         <div className="grid grid-cols-2 gap-3">
           {report.evidence.observation_layout.variables.map((variable) => (
             <SimulationHistory
@@ -265,7 +265,7 @@ export function SimulationEvidence({ context }: { context: ScopeContext }) {
         </div>
       </Section>
       {report.findings.length > 0 && (
-        <Section title="Simulation checks" source={simulation.source} wide>
+        <Section title="Simulation checks" wide>
           <PredictiveFindings findings={report.findings} entities={entities} />
         </Section>
       )}

@@ -28,8 +28,8 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from datetime import datetime
 
-    import polars as pl
     from nof1_causal_lab.artifacts.identity import GitOid
+    from nof1_causal_lab.artifacts.observation_data import ObservationDataset
     from nof1_causal_lab.models.model_structure import StructuralSelection
     from nof1_causal_lab.numpyro_json import ArrayLoader
     from nof1_causal_lab.sampler_config import SamplerSpec
@@ -37,6 +37,8 @@ if TYPE_CHECKING:
 
 
 class FitResult(TypedDict):
+    """The fitted model definition paired with its retained numerical inference evidence."""
+
     _model: ModelSpec
     evidence: InferenceEvidence
 
@@ -44,7 +46,7 @@ class FitResult(TypedDict):
 def fit(
     *,
     selection: StructuralSelection,
-    data_for_model: pl.DataFrame,
+    data_for_model: ObservationDataset,
     time_origin: datetime | None,
     sampler: SamplerSpec,
     array_writer: Callable[[np.ndarray], str],
@@ -55,7 +57,7 @@ def fit(
     from nof1_causal_lab.actions.inference.fit import fit_model
 
     fitted = fit_model(selection, data_for_model, time_origin=time_origin, sampler=sampler)
-    if not fitted["fitted"]:
+    if "error" in fitted:
         raise ModelFitError(
             fitted["error"], diagnostics={"duration_seconds": fitted["duration_seconds"]}
         )
@@ -113,6 +115,7 @@ def read_inference_report(
 
     def render() -> InferenceReport:
         import jax.numpy as jnp
+
         from nof1_causal_lab.models.ssm.inference.diagnostics_viz import compute_posterior_marginals
         from nof1_causal_lab.models.ssm.inference.mcmc_state import TrajectoryMCMCResult
         from nof1_causal_lab.models.ssm.inference.types import (
@@ -126,7 +129,7 @@ def read_inference_report(
         layouts = {evidence.distribution: model.law_layouts[evidence.distribution]}
         atoms = {identity: empirical_atoms(model.distributions[identity]) for identity in layouts}
         count = next(iter(atoms.values())).shape[0]
-        samples = {
+        samples: dict[str, jnp.ndarray] = {
             element: jnp.asarray(atoms[identity][:, layout.parameter_columns[element]])
             for identity, layout in layouts.items()
             for _, elements in layout.parameters

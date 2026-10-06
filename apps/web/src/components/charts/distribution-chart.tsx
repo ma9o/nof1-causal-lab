@@ -1,6 +1,6 @@
 "use client";
 
-import type { DensityCurve } from "@nof1-causal-lab/api-types";
+import type { DensityCurve, EmpiricalPoint } from "@nof1-causal-lab/api-types";
 import { area, curveLinear, curveStep, curveStepAfter, line } from "d3-shape";
 import { useEffect, useMemo, useRef } from "react";
 import { formatSignificant } from "@/lib/utils/format";
@@ -60,7 +60,7 @@ export interface CumulativeLayer {
   readonly key: string;
   readonly label: string;
   readonly color: ChartColor;
-  readonly points: readonly { readonly value: number; readonly probability: number }[];
+  readonly points: readonly EmpiricalPoint[];
 }
 
 type Point = readonly [number, number];

@@ -9,7 +9,6 @@ from pydantic import Field
 
 from nof1_causal_lab.artifacts.base import Value
 
-type ProgressStep = Literal["ingestion", "extraction"]
 type StepStatus = Literal["running", "completed", "failed"]
 
 
@@ -21,12 +20,11 @@ class StepError(Value):
 
 
 class StepEvent(Value):
-    """A data-preparation step changed status."""
+    """Measurement extraction changed status."""
 
     attempt_id: UUID
     cursor: str = ""
     event: Literal["nof1-causal-lab.step"] = "nof1-causal-lab.step"
-    step: ProgressStep
     status: StepStatus
     error: StepError | None = None
 

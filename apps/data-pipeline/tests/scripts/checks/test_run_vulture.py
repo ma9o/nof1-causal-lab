@@ -9,8 +9,9 @@ from pathlib import Path
 
 import pytest
 import vulture.core as vulture_core
-from scripts.checks import run_vulture
 from scripts.checks.run_vulture import _scan_string_type_node, _write_phantom
+
+from scripts.checks import run_vulture
 
 pytestmark = pytest.mark.contract
 

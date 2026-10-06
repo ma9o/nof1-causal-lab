@@ -1,12 +1,10 @@
 """Small canonical artifacts for fixture-backed runner contract tests."""
 
-from nof1_causal_lab.artifacts.data_preparation import FilePreparedDataMetadata
-
 from datetime import UTC, datetime, timedelta
 
 import polars as pl
 
-from nof1_causal_lab.artifacts.data_preparation import SemanticExtractionSpec
+from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata, SemanticExtractionSpec
 from nof1_causal_lab.artifacts.observations import AuthoredObservationSpec
 from nof1_causal_lab.study.state import StudyState
 from tests.helpers import fixture_entity_id
@@ -83,7 +81,7 @@ def panel_metadata():
             for name in ("stress_score", "sleep_score")
         ),
     )
-    return FilePreparedDataMetadata(
+    return PreparedDataMetadata(
         time_origin=datetime(2024, 1, 1, tzinfo=UTC),
         source=FileSourceRef(files=("observations.csv",)),
         preparation=preparation,

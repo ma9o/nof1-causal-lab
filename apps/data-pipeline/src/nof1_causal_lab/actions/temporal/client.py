@@ -1,4 +1,8 @@
-"""Temporal client wiring shared by the facade and the worker."""
+"""Temporal client wiring shared by the facade and the worker.
+
+Workflow metadata uses memos so local and CI namespaces need no preregistered
+custom Search Attribute schema.
+"""
 
 from __future__ import annotations
 
@@ -38,6 +42,7 @@ RUNNING_ACTION_MEMO = "running_action"
 
 
 async def connect_client() -> Client:
+    """Connect to the configured Temporal address and namespace using Pydantic payloads."""
     return await Client.connect(
         os.environ.get("TEMPORAL_ADDRESS", "localhost:7233"),
         namespace=os.environ.get("TEMPORAL_NAMESPACE", "default"),

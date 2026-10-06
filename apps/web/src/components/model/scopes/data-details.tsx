@@ -1,4 +1,4 @@
-import type { Applied, DataPreparationResult } from "@nof1-causal-lab/api-types";
+import type { PrepareDataOutput } from "@nof1-causal-lab/api-types";
 import type { TimelineRevision } from "@nof1-causal-lab/api-types";
 import type { ScopeContext } from "@/lib/model-asset/scope";
 import { ObservationPlots } from "./recorded-history";
@@ -6,7 +6,7 @@ import { humanize, type EntitySelection } from "@/lib/model-asset/selection";
 import { timelineTickLabel } from "@/lib/model-asset/timeline-presentation";
 import { formatModelDate } from "@/lib/utils/format";
 import { Hint, KeyValue, OwnerLink, Section, StatusIcon } from "../scope-primitives";
-import type { DataDiffReport, DataVariableDiff } from "@nof1-causal-lab/api-types";
+import type { DataDiffOutput, DataVariableDiff } from "@nof1-causal-lab/api-types";
 import { PPCWarningsTable } from "@/components/analysis-widgets/posterior/ppc-warnings-table";
 import { ChartFigure } from "@/components/charts/chart-figure";
 import { CHART_COLORS, chainColor, cssColor } from "@/components/charts/chart-tokens";
@@ -26,7 +26,7 @@ export function DataComparisonOutcome({
   report,
 }: {
   context: ScopeContext;
-  report: DataDiffReport;
+  report: DataDiffOutput;
 }) {
   return (
     <Section title="Data comparison">
@@ -66,14 +66,18 @@ export function DataComparisonOutcome({
 }
 
 function dataSelectionLabel(
-  report: DataDiffReport,
+  report: DataDiffOutput,
   side: "left" | "right",
   ticks: readonly TimelineRevision[],
 ) {
   const sources = report[side];
   return [...new Map(sources.map((source) => [source.revision, source])).values()]
     .map((source) => {
-      if (source.kind === "simulation") {
+      if (
+        ticks.some(
+          (tick) => tick.commit_id === source.revision && tick.record.attempt.action === "simulate",
+        )
+      ) {
         const count = sources.filter((item) => item.revision === source.revision).length;
         return `${count} replicates from simulate ${source.revision.slice(0, 7)}`;
       }
@@ -101,7 +105,7 @@ export function DataComparisonEvidence({
   selection,
 }: {
   context: ScopeContext;
-  report: DataDiffReport;
+  report: DataDiffOutput;
   selection: EntitySelection | null;
 }) {
   const variables = report.variables.filter(
@@ -269,14 +273,14 @@ export function PreparedObservations({ context }: { context: ScopeContext }) {
   if (!metadata) return <Hint>No observation panel recorded.</Hint>;
   return (
     <>
-      {metadata.value.variables.map((variable) => (
-        <Section key={variable.id} title={humanize(variable.name)} source={metadata.source} wide>
+      {metadata.variables.map((variable) => (
+        <Section key={variable.id} title={humanize(variable.name)} wide>
           <ObservationPlots model={context.model} id={variable.id} />
         </Section>
       ))}
-      {profile && profile.value.dataset_issues.length > 0 && (
-        <Section title="Dataset issues" source={profile.source}>
-          {profile.value.dataset_issues.map((issue) => (
+      {profile && profile.dataset_issues.length > 0 && (
+        <Section title="Dataset issues">
+          {profile.dataset_issues.map((issue) => (
             <div key={issue.issue_type + issue.message} className="flex gap-2">
               {issue.severity !== "info" && (
                 <StatusIcon status={issue.severity === "error" ? "failed" : "warning"} />
@@ -295,20 +299,20 @@ export function DataDetails({
   applied,
 }: {
   context: ScopeContext;
-  applied: Applied<DataPreparationResult>;
+  applied: PrepareDataOutput;
 }) {
-  const metadata = context.model.metadata;
-  const raw = context.model.raw_data;
+  const metadata = applied.metadata;
+  const raw = applied.raw_data;
   if (!metadata)
     return (
-      <Section title="Prepared data" {...(raw?.source === undefined ? {} : { source: raw.source })}>
-        {raw && applied.effects.produced.some((artifact) => artifact.artifact_id === "raw_data") ? (
+      <Section title="Prepared data">
+        {raw ? (
           <KeyValue
             rows={[
-              ["Imported records", raw.value.n_records.toLocaleString()],
-              ["Columns", String(raw.value.n_columns)],
-              ["First observation", raw.value.date_range?.start ?? "Not recorded"],
-              ["Last observation", raw.value.date_range?.end ?? "Not recorded"],
+              ["Imported records", raw.n_records.toLocaleString()],
+              ["Columns", String(raw.n_columns)],
+              ["First observation", raw.date_range?.start ?? "Not recorded"],
+              ["Last observation", raw.date_range?.end ?? "Not recorded"],
             ]}
           />
         ) : (
@@ -316,23 +320,18 @@ export function DataDetails({
         )}
       </Section>
     );
-  const { source, variables } = metadata.value;
+  const { source, variables } = metadata;
   return (
-    <Section title="Prepared data" source={metadata.source}>
+    <Section title="Prepared data">
       <KeyValue
         rows={[
-          ...("files" in source
-            ? ([
-                ["Files", source.files.join(", ")],
-                ["Start (inclusive)", source.start ?? "Unbounded"],
-                ["End (exclusive)", source.end ?? "Unbounded"],
-              ] as Array<[string, string]>)
-            : ([
-                ["Source", "Saved simulation"],
-                ["Replicate", String(source.replicate)],
-              ] as Array<[string, string]>)),
+          ...([
+            ["Files", source.files.join(", ")],
+            ["Start (inclusive)", source.start ?? "Unbounded"],
+            ["End (exclusive)", source.end ?? "Unbounded"],
+          ] as Array<[string, string]>),
           ["Variables", String(variables.length)],
-          ["Observations", context.model.measurements?.value.n_observations.toLocaleString()],
+          ["Observations", context.model.measurements?.n_observations.toLocaleString()],
         ]}
       />
     </Section>

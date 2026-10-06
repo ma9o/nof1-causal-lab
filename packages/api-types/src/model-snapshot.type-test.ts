@@ -14,17 +14,19 @@ import type {
   DistributionId,
   EditModelRequest,
   Evaluation,
-  FactSource,
+  FitOutput,
+  GitOid,
   IndicatorId,
   IndicatorSpec,
   InferenceReportCore,
   ModelSnapshot,
   ModelSpec,
   NumPyroDistribution,
+  ObservationData,
+  ObservationHistory,
   ObservationSpec,
   ParameterSpec,
   Rejected,
-  Sourced,
   TimelineResponse,
 } from "./generated/models";
 
@@ -33,9 +35,11 @@ type Extends<A, B> = A extends B ? true : false;
 type Equal<A, B> = [A, B] extends [B, A] ? true : false;
 
 export type GenericAttemptCorrelatesRequest = Expect<
-  Equal<Attempt<"edit_model", EditModelRequest, null>["request"], EditModelRequest | null>
+  Equal<
+    Attempt<"edit_model", EditModelRequest<GitOid>, null>["request"],
+    EditModelRequest<GitOid> | null
+  >
 >;
-export type GenericSourceRetainsValue = Expect<Equal<Sourced<ModelSpec>["value"], ModelSpec>>;
 export type GenericAssessmentRetainsSubject = Expect<
   Equal<Assessment<string, number>["subject"], string>
 >;
@@ -51,11 +55,9 @@ export type GenericObservationRetainsWindow = Expect<
 // @ts-expect-error Rejection reasons are the closed domain reason type.
 export type RejectionHasNoUnrelatedReason = Rejected<number>;
 
-export type CanonicalDefinition = Expect<
-  Equal<NonNullable<ModelSnapshot["model"]>["value"], ModelSpec>
->;
+export type CanonicalDefinition = Expect<Equal<NonNullable<ModelSnapshot["model"]>, ModelSpec>>;
 export type CanonicalInferenceCore = Expect<
-  Equal<NonNullable<ModelSnapshot["fit"]>["value"]["report"], InferenceReportCore>
+  Equal<NonNullable<ModelSnapshot["fit"]>["report"], InferenceReportCore>
 >;
 export type CanonicalParameter = Expect<Equal<ModelSpec["parameters"][number], ParameterSpec>>;
 export type CanonicalConstruct = Expect<
@@ -64,7 +66,6 @@ export type CanonicalConstruct = Expect<
 export type OwnedIndicator = Expect<Equal<ConstructSpec["indicators"][number], IndicatorSpec>>;
 // @ts-expect-error Indicator ownership is declared by containment.
 export type NoIndependentIndicatorOwner = IndicatorSpec["construct_id"];
-export type SourceValidityIsScalar = Expect<Extends<FactSource["validity"], "fresh" | "stale">>;
 
 type FitCall = paths["/api/studies/{workspace_id}/fit"]["post"];
 type FetchedCall = MethodResponse<
@@ -72,13 +73,16 @@ type FetchedCall = MethodResponse<
   "post",
   "/api/studies/{workspace_id}/fit"
 >;
-export type GeneratedCallRetainsCanonicalSnapshot = Expect<
-  Equal<Extract<FetchedCall, { kind: "completed" }>["snapshot"], ModelSnapshot | null>
+export type GeneratedCallRetainsOwnedFitResult = Expect<
+  Equal<Extract<FetchedCall, { status: "success"; action: "fit" }>["body"], FitOutput>
 >;
 export type GeneratedCallRetainsCanonicalOutcome = Expect<Equal<FetchedCall, ActionPoll>>;
 
 export type SparseLawLookup = Expect<
   Equal<ModelSpec["distributions"][DistributionId], NumPyroDistribution | undefined>
+>;
+export type SparseObservationLookup = Expect<
+  Equal<ObservationData[IndicatorId], ObservationHistory | undefined>
 >;
 export type DistinctScientificIds = Expect<Equal<Extends<IndicatorId, ConstructId>, false>>;
 export type RequiredNullableResponse = Expect<
@@ -122,11 +126,28 @@ type Upload = paths["/api/upload"]["post"]["requestBody"]["content"]["multipart/
 export type NativeUploadFile = Expect<Equal<Upload["file"], Blob>>;
 type FitInput = FitCall["requestBody"]["content"]["application/json"];
 export type RequestDefaultsMayBeOmitted = Expect<
-  Extends<{ model_revision: string; panel_revision: string }, FitInput>
+  Extends<
+    {
+      action: "fit";
+      input: { model_ref: string; data_ref: string; replicate_index: number };
+    },
+    FitInput
+  >
 >;
 export type DefaultsAreAbsent = Expect<
   Equal<
-    Extends<{ model_revision: string; panel_revision: string; settings: undefined }, FitInput>,
+    Extends<
+      {
+        action: "fit";
+        input: {
+          model_ref: string;
+          data_ref: string;
+          replicate_index: number;
+          settings: undefined;
+        };
+      },
+      FitInput
+    >,
     false
   >
 >;

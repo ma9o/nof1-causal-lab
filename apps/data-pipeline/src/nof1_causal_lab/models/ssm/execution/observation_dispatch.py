@@ -38,11 +38,15 @@ type ObservationSampleFn = Callable[[jax.Array, jax.Array], jax.Array]
 
 @dataclass(frozen=True)
 class PointObservationSampler:
+    """Point-observation sampling callable compiled for a particular ordered set of laws."""
+
     sample_point: ObservationSampleFn
 
 
 @dataclass(frozen=True)
 class MeanObservationSampler:
+    """Sampling callable operating on response-mean trajectories over measurement support."""
+
     sample_mean_trajectory: ObservationSampleFn
 
 
@@ -87,6 +91,7 @@ def _sample_native(key: jax.Array, law: Law[jax.Array], sampling_size: int) -> j
 def build_point_observation_sampler(
     laws: ObservationLaws, manifest_cov: jax.Array, *, groups: tuple[LawGroup, ...] | None = None
 ) -> PointObservationSampler:
+    """Compile point sampling with joint Gaussian covariance or grouped heterogeneous laws."""
     n_channels = len(laws)
     if all(isinstance(law, NormalLawSpec) for law in laws):
         factor = jnp.linalg.cholesky(symmetrize_with_jitter(manifest_cov))
