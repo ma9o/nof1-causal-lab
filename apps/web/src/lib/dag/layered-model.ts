@@ -1,5 +1,6 @@
-import type { ModelSnapshot, SimulationReport } from "@nof1-causal-lab/api-types";
-import { modelConstructs } from "@/lib/model-accessors";
+import type { ConstructId, ModelSnapshot, SimulationReport } from "@nof1-causal-lab/api-types";
+import { modelConstructs, presentEntries } from "@/lib/model-accessors";
+import type { ConstructStatus } from "./construct-statuses";
 import type { ModelEntities } from "@/lib/model-asset/entities";
 
 export const CAUSAL_GRAPH_LAYER_ORDER = [
@@ -12,17 +13,27 @@ export const CAUSAL_GRAPH_LAYER_ORDER = [
 ] as const;
 export type CausalGraphLayerId = (typeof CAUSAL_GRAPH_LAYER_ORDER)[number];
 
-/** Resolve the backend's graph selection without changing the scientific definition. */
-export function graphEntities(model: ModelSnapshot, indexed: ModelEntities) {
-  const selectedConstructs = new Set(model.graph.construct_ids);
-  const selectedEdges = new Set(model.graph.edge_ids);
-  const constructs = indexed.constructs.filter((construct) => selectedConstructs.has(construct.id));
+/** Display every construct and directed edge in the saved scientific model. */
+export function graphEntities(indexed: ModelEntities) {
   return {
-    constructs,
-    dynamicConstructIds: model.graph.dynamic_construct_ids,
-    edges: indexed.edges.filter((edge) => selectedEdges.has(edge.id)),
-    indicators: constructs.flatMap((construct) => construct.indicators),
+    constructs: indexed.constructs,
+    dynamicConstructIds: indexed.constructs
+      .filter((construct) => construct.temporal_status === "time_varying")
+      .map((construct) => construct.id),
+    edges: indexed.edges,
+    indicators: indexed.indicators,
   };
+}
+
+/** Overlay saved identification findings on explicitly observed or latent constructs. */
+export function graphStatus(model: ModelSnapshot, id: ConstructId): ConstructStatus | null {
+  const construct = modelConstructs(model.model).find((item) => item.id === id);
+  if (!construct) return null;
+  const blocking = presentEntries(model.identification?.treatments ?? {}).some(
+    ([target, finding]) =>
+      finding.status === "not_identified" && (target === id || finding.confounders.includes(id)),
+  );
+  return blocking ? "blocking" : construct.indicators.length > 0 || construct.role === "exogenous" ? "observed" : "latent";
 }
 
 /** Layer visibility reflects facts in the selected revision, including partial models. */
@@ -33,7 +44,7 @@ export function availableGraphLayers(
   const available = {
     structure: modelConstructs(model.model).length > 0,
     measurement: modelConstructs(model.model).some((construct) => construct.indicators.length > 0),
-    design: (model.dispositions?.length ?? 0) > 0,
+    design: model.identification !== null,
     specification: modelConstructs(model.model).some(
       (c) => c.dynamics.length > 0 || c.indicators.some((i) => i.likelihood != null),
     ),

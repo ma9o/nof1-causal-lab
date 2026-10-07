@@ -7,6 +7,7 @@ from typing import TYPE_CHECKING, Literal
 from nof1_causal_lab.artifacts.availability import Unavailable
 from nof1_causal_lab.artifacts.checks import Evaluated, NotEvaluated
 from nof1_causal_lab.artifacts.identification import IdentificationReport
+from nof1_causal_lab.artifacts.model_spec import ModelEditResult
 from nof1_causal_lab.artifacts.validation_report import (
     DataProfileArtifact,
     ValidationReportArtifact,
@@ -32,7 +33,7 @@ _QUESTION_LABELS = {
 
 
 def completion_messages(
-    result: DataPreparationResult | ModelFitResult | ModelSimulationResult | None,
+    result: DataPreparationResult | ModelFitResult | ModelSimulationResult | ModelEditResult | None,
     timestamp: datetime,
     reports: tuple[IdentificationReport | DataProfileArtifact | ValidationReportArtifact, ...] = (),
     *,
@@ -112,8 +113,22 @@ def completion_messages(
         if isinstance(result, DataPreparationResult)
         else ()
     )
+    pruning = (
+        (
+            ActionMessage(
+                timestamp=timestamp,
+                level="warn",
+                label="MODEL_COMPONENTS_PRUNED",
+                details=result.model_dump(mode="json"),
+            ),
+        )
+        if isinstance(result, ModelEditResult)
+        and any((result.constructs, result.edges, result.parameters, result.distributions))
+        else ()
+    )
     return (
         *execution,
+        *pruning,
         *tuple(
             ActionMessage(timestamp=timestamp, level=level, label=label)
             for label, level in labels.items()

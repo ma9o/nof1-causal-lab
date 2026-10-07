@@ -7,6 +7,5 @@ export function isMockMode(): boolean {
 export function getMockFixture(): string {
   const v = process.env.NEXT_PUBLIC_MOCK_DATA;
   if (!v || v === "true") return "DEFAULT";
-  const fixture = v.toUpperCase();
-  return fixture === "DEMO_HEALTH" ? "DEMO" : fixture;
+  return v.toUpperCase();
 }

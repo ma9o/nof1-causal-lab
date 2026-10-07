@@ -11,7 +11,8 @@ import { EditDetails } from "./edit-details";
 import { ActionFindings } from "../action-findings";
 import { humanize } from "@/lib/model-asset/selection";
 
-const hooks = vi.hoisted(() => ({ diff: vi.fn() }));
+const hooks = vi.hoisted(() => ({ diff: vi.fn(), snapshot: vi.fn() }));
+vi.mock("@/lib/hooks/use-model-snapshot", () => ({ useModelSnapshot: hooks.snapshot }));
 vi.mock("@/lib/hooks/use-model-diff", () => ({ useModelDiff: hooks.diff }));
 
 const context: ScopeContext = {
@@ -68,6 +69,7 @@ describe("edit change summaries after history compaction", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     hooks.diff.mockReturnValue({ data: undefined, error: null });
+    hooks.snapshot.mockReturnValue({ data: authoredSnapshot, error: null });
   });
 
   it("compares the exact authored base named by the call", () => {
@@ -122,24 +124,21 @@ describe("edit change summaries after history compaction", () => {
     expect(html).not.toContain("Reading model changes");
   });
 
-  it("renders served graph and law changes in model terms, without definition paths or IDs", () => {
+  it("renders the saved spec patch and its changed values using model-owned labels", () => {
     const edge = fixtureValue(context.entities.edges[0]);
     const parameter = fixtureValue(context.entities.parameters[0]);
     hooks.diff.mockReturnValue({
       data: {
-        constructs: [edge.cause, edge.effect].map((construct) => ({
-          kind: "added",
-          after: { kind: "construct", id: construct.id },
-        })),
-        edges: [{ kind: "added", after: { kind: "edge", id: edge.id } }],
-        before_dispositions: [],
-        after_dispositions: [],
-        before_dynamic_construct_ids: [],
-        after_dynamic_construct_ids: [],
-        before_model: fixtureValue(context.model.model),
-        after_model: fixtureValue(context.model.model),
-        parameters: [{ kind: "added", after: parameter }],
-        changed_inputs: ["compilation", "belief"],
+        changes: {
+          constructs: {
+            [edge.cause.id]: {
+              name: fixtureValue(context.entities.constructById.get(edge.cause.id)).name,
+            },
+          },
+          edges: { [edge.id]: { description: "Changed causal assumption" } },
+          parameters: { [parameter.id]: { reasoning: "Changed prior justification" } },
+          measurement_clock: null,
+        },
       },
       error: null,
     });
@@ -148,9 +147,16 @@ describe("edit change summaries after history compaction", () => {
       humanize(fixtureValue(context.entities.constructById.get(edge.cause.id)).name),
     );
     expect(html).toContain(humanize(parameter.name));
-    expect(html).toContain("compilation, belief");
-    expect(html).not.toContain("/internal/definition/path");
-    expect(html).not.toMatch(/(?:construct|edge|parameter):/);
+    expect(html).toContain("Changed causal assumption");
+    expect(html).toContain("Changed prior justification");
+    expect(html).toContain("Measurement clock");
+    expect(html).not.toContain("compilation, belief");
+  });
+
+  it("renders an empty patch as no spec changes", () => {
+    hooks.diff.mockReturnValue({ data: { changes: {} }, error: null });
+    const html = renderToStaticMarkup(createElement(EditDetails, { context, tick }));
+    expect(html).toContain("No spec changes.");
   });
 
   it("shows served check reasons unchanged and omits passing checks", () => {

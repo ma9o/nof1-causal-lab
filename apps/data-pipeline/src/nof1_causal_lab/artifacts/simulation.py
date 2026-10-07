@@ -5,17 +5,17 @@ from __future__ import annotations
 from collections.abc import Mapping
 from datetime import UTC, date, datetime, time
 from itertools import pairwise
-from typing import Literal, Self
+from typing import Annotated, Literal, Self
 
 from pydantic import AwareDatetime, Field, FiniteFloat, computed_field, model_validator
 
 from nof1_causal_lab.artifacts.base import Value
-from nof1_causal_lab.artifacts.data_ref import DataRef
 
+from .arrays import NumericalArray
 from .availability import Available, Evaluation, NotApplicable, Unavailable
 from .checks import PredictiveAssessment
 from .duration import Duration
-from .identity import ConstructId, GitOid, GitRef, IndicatorId
+from .identity import ConstructId, GitRef, IndicatorId
 from .observations import ResolvedObservationSpec
 from .predictive_provenance import PredictiveLawProvenance
 from .scenarios import CausalEffectResult, InterventionSpec, StateAssignment
@@ -24,8 +24,8 @@ from .scenarios import CausalEffectResult, InterventionSpec, StateAssignment
 class SimulationSpec(Value):
     """Generate from a calendar day over a horizon, with interventions placed after the start.
 
-    The start is the only absolute time. A record's origin places it in model days;
-    without a record, the start is model day zero.
+    Authored initial states apply at the start. A retained trajectory law with a
+    calendar origin places the start on that law's model-day axis.
     """
 
     start: date = Field(description="Calendar day the window starts, at 00:00 UTC.")
@@ -54,7 +54,7 @@ class SimulationSpec(Value):
         return datetime.combine(self.start, time(), tzinfo=UTC)
 
     def start_day(self, origin: datetime) -> float:
-        """The start in model days after a record's origin."""
+        """The start in model days after the law's bound origin."""
         from nof1_causal_lab.utils.time_coordinates import ObservationInstant
 
         return ObservationInstant(self.start_instant).relative_to(ObservationInstant(origin)).days
@@ -64,7 +64,7 @@ class SimulationSpec(Value):
         return self.start_day(origin) + self.horizon.days
 
     def assignments(self, origin: datetime) -> tuple[StateAssignment, ...]:
-        """Place every intervention in model days after a record's origin."""
+        """Place every intervention in model days after the law's bound origin."""
         start = self.start_day(origin)
         return tuple(
             StateAssignment(
@@ -80,9 +80,9 @@ class SimulationObservationLayout(Value):
     """Saved observation semantics and coordinates; generation truths remain separate."""
 
     variables: tuple[ResolvedObservationSpec, ...]
-    support_start_times: str
-    support_end_times: str
-    mask: str
+    support_start_times: NumericalArray
+    support_end_times: NumericalArray
+    mask: NumericalArray
 
     @property
     def indicator_ids(self) -> tuple[IndicatorId, ...]:
@@ -107,6 +107,42 @@ class CategoryProbabilitySummary(Value):
 type FitReliability = Literal["not_fitted", "converged", "unconverged", "unknown"]
 
 
+class SimulationArm(Value):
+    """One arm's exact state and observation draws."""
+
+    latent_paths: NumericalArray
+    observations: NumericalArray
+
+
+class SingleArmSimulation(Value):
+    """Natural-course generation without an intervention comparison."""
+
+    kind: Literal["single"] = "single"
+    action: SimulationArm
+
+
+class PairedArmSimulation(Value):
+    """Intervention and natural-course histories with matched draw indices."""
+
+    kind: Literal["paired"] = "paired"
+    action: SimulationArm
+    reference: SimulationArm
+
+
+type SimulationArms = Annotated[
+    SingleArmSimulation | PairedArmSimulation, Field(discriminator="kind")
+]
+
+
+class SimulationSummary(Value):
+    """Full-draw reductions retained once, independently of a viewer's draw selection."""
+
+    state_frames: Mapping[ConstructId, tuple[FiniteFloat, FiniteFloat]]
+    indicator_frames: Mapping[IndicatorId, tuple[FiniteFloat, FiniteFloat]]
+    action_category_probabilities: Mapping[IndicatorId, CategoryProbabilitySummary]
+    reference_category_probabilities: Mapping[IndicatorId, CategoryProbabilitySummary]
+
+
 class SimulationEvidence(Value):
     """Exact generated histories with their production coordinates and input provenance."""
 
@@ -116,17 +152,10 @@ class SimulationEvidence(Value):
     times: tuple[FiniteFloat, ...] = Field(min_length=2)
     draws: int = Field(ge=1)
     seed: int = Field(ge=0)
-    origin_data: DataRef[GitOid, int] | None = Field(
-        default=None,
-        description="Panel that supplied the time origin: the fit's panel for fitted laws, otherwise the explicitly named panel when present.",
-    )
     state_ids: tuple[ConstructId, ...]
-    parameter_draws: Mapping[str, str]
-    latent_paths: str
-    observations: str
+    parameter_draws: Mapping[str, NumericalArray]
+    arms: SimulationArms
     observation_layout: SimulationObservationLayout
-    reference_latent_paths: str | None = None
-    reference_observations: str | None = None
 
     @computed_field
     @property
@@ -143,10 +172,7 @@ class SimulationEvidence(Value):
             or self.times[-1] != self.design.end_day(self.time_origin)
         ):
             raise ValueError("Simulation times must increase from the requested start to its end")
-        paired = self.reference_latent_paths is not None and self.reference_observations is not None
-        if bool(self.design.interventions) != paired or (
-            (self.reference_latent_paths is None) != (self.reference_observations is None)
-        ):
+        if bool(self.design.interventions) != isinstance(self.arms, PairedArmSimulation):
             raise ValueError("Interventions require paired reference histories")
         return self
 
@@ -161,6 +187,7 @@ class SimulationReport(Value):
     """Findings evaluated during simulation and retained with its exact evidence."""
 
     evidence: SimulationEvidence
+    summary: SimulationSummary
     law: PredictiveLawProvenance
     findings: tuple[PredictiveAssessment, ...] = ()
     fit_reliability: FitReliability

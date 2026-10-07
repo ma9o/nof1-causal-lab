@@ -4,7 +4,7 @@ import { apiClient } from "./client";
 
 describe("generated facade client", () => {
   it("returns the endpoint's response and accepts custom headers", async () => {
-    const body = { DEMO: "Why?" };
+    const body = { HEALTHDEMO: "Why?" };
     const fetch = vi.fn<(request: Request) => Promise<Response>>(async () => Response.json(body));
     const result = await apiClient.GET("/api/workspaces", {
       baseUrl: "http://viewer",
@@ -29,12 +29,12 @@ describe("generated facade client", () => {
     const result = await apiClient.POST("/api/studies/{workspace_id}/edit_question", {
       baseUrl: "http://viewer",
       fetch,
-      params: { path: { workspace_id: "DEMO" } },
+      params: { path: { workspace_id: "HEALTHDEMO" } },
       body,
     });
     const [request] = fixtureValue(fetch.mock.calls.at(0));
     expect(request.method).toBe("POST");
-    expect(request.url).toBe("http://viewer/api/studies/DEMO/edit_question");
+    expect(request.url).toBe("http://viewer/api/studies/HEALTHDEMO/edit_question");
     expect(request.headers.get("Content-Type")).toBe("application/json");
     expect(await request.json()).toEqual(body);
     expect(result.data).toEqual({ attempt_id: "new-attempt" });

@@ -44,4 +44,4 @@ export const DAG_COLORS = {
 
 export const COMPARISON_COLORS = { added: "#059669", removed: "#e11d48", revised: "#d97706" };
 export const BLOCKING = "#dc2626";
-export const MARGINALIZED = "#d97706";
+export const LATENT = "#d97706";

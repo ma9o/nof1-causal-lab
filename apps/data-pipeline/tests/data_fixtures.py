@@ -61,8 +61,7 @@ def preparation_input(store, preparation):
 
     variables = preparation.definition.variables
     model = make_model([item.observation.name for item in variables])
-    model = model.revised(
-        measurement_clock=preparation.definition.default_window,
+    model = model.revised(measurement_clock=preparation.definition.default_window).with_entities(
         edges=replace_constructs(
             model.edges,
             tuple(

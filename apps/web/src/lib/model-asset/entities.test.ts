@@ -1,35 +1,27 @@
-import { fixtureValue } from "@/components/__fixtures__/fixture-value";
 import { describe, expect, it } from "vitest";
-import { modelFixture } from "@/lib/__fixtures__/model";
-import { modelConstructs } from "@/lib/model-accessors";
+import { modelFixture, outcome, treatment } from "@/lib/__fixtures__/model";
+import { authoredSnapshot } from "@/lib/__fixtures__/snapshot";
+import { fixtureValue } from "@/components/__fixtures__/fixture-value";
+import { entityFailures } from "./inspector";
+import { modelConstructs, modelEdges } from "@/lib/model-accessors";
 import { indexModel, resolveEntity } from "./entities";
 import type { EntitySelection } from "./selection";
 
-/** Put shared definitions at the other end of the same serialized graph. */
+/** Reorder the same document without changing entity identity or ownership. */
 function reversedGraph() {
-  const constructs = new Map(modelConstructs(modelFixture).map((item) => [item.id, item]));
-  const seen = new Set<string>();
-  const endpoint = (id: (typeof modelFixture.edges)[number]["cause"]["id"]) => {
-    if (seen.has(id)) return { kind: "construct" as const, id };
-    seen.add(id);
-    return fixtureValue(constructs.get(id));
-  };
   return {
     ...modelFixture,
-    edges: [...modelFixture.edges].reverse().map((edge) => ({
-      ...edge,
-      cause: endpoint(edge.cause.id),
-      effect: endpoint(edge.effect.id),
-    })),
+    constructs: Object.fromEntries(Object.entries(modelFixture.constructs).reverse()),
+    edges: Object.fromEntries(Object.entries(modelFixture.edges).reverse()),
   };
 }
 
 describe("scoped model inspection", () => {
-  it("reads the same entities when shared endpoint definitions move", () => {
+  it("reads the same entities when document entries move", () => {
     const reversed = reversedGraph();
     const constructs = modelConstructs(modelFixture);
     const selections: EntitySelection[] = [
-      ...modelFixture.edges.map((item) => ({ kind: "edge" as const, id: item.id })),
+      ...modelEdges(modelFixture).map((item) => ({ kind: "edge" as const, id: item.id })),
       ...constructs.map((item) => ({ kind: "construct" as const, id: item.id })),
       ...constructs.flatMap((item) =>
         item.indicators.map((indicator) => ({
@@ -43,5 +35,40 @@ describe("scoped model inspection", () => {
         resolveEntity(indexModel(modelFixture), selection),
       );
     }
+  });
+
+  it("attributes recorded data and identification issues without requiring a fit", () => {
+    const indicator = fixtureValue(outcome.indicators[0]);
+    const model = {
+      ...authoredSnapshot,
+      profile: {
+        indicators: {
+          [indicator.observation.id]: {
+            profile: null,
+            checks: {},
+            issues: [
+              {
+                indicator_id: indicator.observation.id,
+                issue_type: "missing",
+                severity: "warning" as const,
+                message: "Missing observations.",
+              },
+            ],
+          },
+        },
+        dataset_issues: [],
+        is_valid: true,
+      },
+      identification: {
+        outcome: outcome.id,
+        treatments: {
+          [treatment.id]: { status: "not_identified" as const, confounders: [], notes: null },
+        },
+      },
+    };
+    expect(entityFailures(model, indicator)).toEqual(["Data quality: outcome_reading"]);
+    expect(entityFailures(model, outcome)).toEqual(["Data quality: outcome_reading"]);
+    expect(entityFailures(model, treatment)).toEqual(["Identification against ★: treatment"]);
+    expect(entityFailures(authoredSnapshot, outcome)).toEqual([]);
   });
 });

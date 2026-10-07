@@ -218,8 +218,12 @@ def _is_time_varying(constructs: Sequence[ConstructSpec], construct_name: str) -
 
 
 def get_observed_constructs(constructs: Sequence[ConstructSpec]) -> set[str]:
-    """Return the names of constructs that own measurements."""
-    return {construct.name for construct in constructs if construct.indicators}
+    """Return constructs known through measurements or supplied deterministic inputs."""
+    return {
+        construct.name
+        for construct in constructs
+        if construct.indicators or construct.role == "exogenous"
+    }
 
 
 def _node_name(construct: str, timestep: str) -> str:

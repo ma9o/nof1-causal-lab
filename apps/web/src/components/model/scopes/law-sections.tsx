@@ -41,7 +41,7 @@ export function LawSections({
   const fit = context.model.fit;
   const detail = useInferenceReport(context.model);
   const chains = detail.data?.detail;
-  const mcmc = fit?.report.inference_diagnostics;
+  const mcmc = fit?.inference_diagnostics;
   const rows = mcmc?.per_parameter ?? [];
   const curves = lawCurves(context.model, uses);
   return context.entities.parameters
@@ -76,7 +76,7 @@ export function LawSections({
           {diagnostics.map((row) => {
             const subject = row.subject;
             const assessments =
-              fit?.report.convergence.assessments.filter(
+              fit?.convergence.assessments.filter(
                 (item) =>
                   typeof item.subject !== "string" &&
                   item.subject.parameter.element_id === subject.element_id,
@@ -167,7 +167,7 @@ export function PosteriorPairs({ context }: { context: ScopeContext }) {
   const report = useInferenceReport(context.model);
   const [xId, setX] = useState<string | null>(null);
   const [yId, setY] = useState<string | null>(null);
-  const columns = draws.data?.kind === "available" ? draws.data.value : [];
+  const columns = draws.data ?? [];
   const x = columns.find((column) => column.subject.element_id === xId) ?? columns.at(0);
   const y =
     columns.find((column) => column.subject.element_id === yId) ??
@@ -179,8 +179,6 @@ export function PosteriorPairs({ context }: { context: ScopeContext }) {
         <Hint issue>{draws.error.message}</Hint>
       ) : draws.isLoading ? (
         <Hint>Loading retained draws…</Hint>
-      ) : draws.data?.kind === "unavailable" ? (
-        <Hint>{draws.data.reason}</Hint>
       ) : x ? (
         <>
           {(

@@ -55,93 +55,52 @@ def reading_level(
     return value
 
 
-def replay_input_events(
+def input_trajectory_events(
     spec: CompiledModel,
-    observations: ObservationDataset | None,
     *,
     time_origin: datetime | None,
     start: float,
     end: float,
 ) -> tuple[ResolvedIntervention, ...] | ObservationPreflightFailure:
-    """Read constant input levels over their windows, then hold to the next reading."""
-    required = tuple(
-        indicator.observation
-        for indicator in spec.observations
-        if spec.states[indicator.state_index].is_input
-    )
-    if not required:
-        return ()
-    if observations is None:
-        return ObservationPreflightFailure.rejected(
-            "Exogenous inputs require recorded observations"
-        )
-    selected = observations.select(required)
-    if not isinstance(selected, SelectedObservations):
-        return ObservationPreflightFailure.rejected(selected.message)
-    return _replay_selected_inputs(spec, selected, time_origin=time_origin, start=start, end=end)
-
-
-def _replay_selected_inputs(
-    spec: CompiledModel,
-    selected: SelectedObservations,
-    *,
-    time_origin: datetime | None,
-    start: float,
-    end: float,
-) -> tuple[ResolvedIntervention, ...] | ObservationPreflightFailure:
-    panel = selected.frame
+    """Resolve model-owned step functions on the execution clock, holding their final value."""
     events = []
-    for index in np.flatnonzero(numeric.input_mask(spec)):
-        construct = spec.states[index]
-        origin = ObservationInstant.origin(time_origin)
-        readings: dict[float, float] = {}
-        for indicator in spec.observations:
-            if indicator.state_index != index:
-                continue
-            rows = panel.filter(pl.col("indicator_id") == indicator.id).drop_nulls("value")
-            for row in rows.iter_rows(named=True):
-                time = ObservationInstant(row["support_start"]).relative_to(origin).days
-                value = reading_level(
-                    float(row["value"]),
-                    row["support_start"],
-                    row["support_end"],
-                    indicator.support.summary_operator,
-                )
-                if not np.isfinite(value):
-                    return ObservationPreflightFailure.rejected(
-                        f"Input {construct.name!r} requires finite readings"
-                    )
-                if time in readings and readings[time] != value:
-                    return ObservationPreflightFailure.rejected(
-                        f"Input {construct.name!r} has conflicting readings at {time}"
-                    )
-                readings[time] = value
-        eligible = sorted(time for time in readings if time <= start)
-        if not eligible:
+    for trajectory in spec.input_trajectories:
+        origin = trajectory.layout.time_origin
+        offset = (
+            ObservationInstant(origin).relative_to(ObservationInstant.origin(time_origin)).days
+            if not isinstance(origin, str)
+            else 0.0
+        )
+        times = tuple(time + offset for time in trajectory.layout.time_points)
+        index = int(np.searchsorted(times, start, side="right")) - 1
+        if index < 0:
             return ObservationPreflightFailure.rejected(
-                f"Input {construct.name!r} has no value at the start of the requested history"
+                f"Input {spec.states[trajectory.index].name!r} has no value at the start of the requested history"
             )
-        record = [(start, readings[eligible[-1]])]
-        record.extend((time, readings[time]) for time in sorted(readings) if start < time <= end)
-        if construct.time_invariant and len({value for _, value in record}) != 1:
-            return ObservationPreflightFailure.rejected(
-                f"Time-invariant input {construct.name!r} has varying readings"
-            )
+        points = (
+            (start, trajectory.values[index]),
+            *(
+                (time, value)
+                for time, value in zip(times, trajectory.values, strict=True)
+                if start < time <= end
+            ),
+        )
         events.extend(
             ResolvedIntervention(
-                int(index), StateAssignment(target=construct.id, time=time, value=value)
+                trajectory.index,
+                StateAssignment(target=trajectory.construct_id, time=time, value=value),
             )
-            for time, value in record
+            for time, value in points
         )
     return tuple(sorted(events, key=lambda event: (event.spec.time, event.index)))
 
 
-def replay_input_values(
+def input_trajectory_values(
     spec: CompiledModel,
     times: np.ndarray | jax.Array | Sequence[float],
     events: tuple[ResolvedIntervention, ...],
 ) -> jnp.ndarray:
-    """Expand dated readings on every fit grid point; modeled coordinates stay unknown."""
+    """Expand deterministic input paths on the execution grid; endogenous states stay unknown."""
     grid = np.asarray(times)
     values = np.full((len(grid), numeric.n_states(spec)), np.nan, dtype=grid.dtype)
     for event in events:
@@ -292,22 +251,43 @@ def bind_panel(
     support_failure = validate_observation_support(model, wide)
     if support_failure is not None:
         return PanelPreparationFailure(support_failure.message)
+    events = input_trajectory_events(
+        model, time_origin=time_origin, start=float(wide["time"][0]), end=float(wide["time"][-1])
+    )
+    if isinstance(events, ObservationPreflightFailure):
+        return PanelPreparationFailure(events.message)
+    if events:
+        boundaries = pl.DataFrame({"time": sorted({event.spec.time for event in events})})
+        wide = wide.join(boundaries, on="time", how="full", coalesce=True).sort("time")
     values, times, names, wide = prepare_fit_inputs(model, wide)
     support = compile_observation_support_runtime(
         support_rows, wide, names, time_origin=time_origin
     )
     if isinstance(support, ObservationPreflightFailure):
         return PanelPreparationFailure(support.message)
-    events = _replay_selected_inputs(
-        model,
-        observation_selection,
-        time_origin=time_origin,
-        start=float(times[0]),
-        end=float(times[-1]),
+    input_values = input_trajectory_values(model, times, events)
+    channels = tuple(
+        index
+        for index, observation in enumerate(model.observations)
+        if model.states[observation.state_index].is_input
     )
-    if isinstance(events, ObservationPreflightFailure):
-        return PanelPreparationFailure(events.message)
-    input_values = replay_input_values(model, times, events)
+    if channels:
+        from nof1_causal_lab.models.ssm.execution.observation_operator import (
+            compile_observation_operator,
+        )
+
+        operator = compile_observation_operator(support, held_channels=channels)
+        response = input_values[:, jnp.asarray([item.state_index for item in model.observations])]
+        expected, _ = operator.project_response_trajectory(response)
+        for channel in channels:
+            recorded = np.asarray(values[:, channel])
+            consistent = np.isnan(recorded) | np.isclose(
+                recorded, np.asarray(expected[:, channel]), rtol=1e-6, atol=1e-6
+            )
+            if not consistent.all():
+                return PanelPreparationFailure(
+                    f"Exact readings for {model.observations[channel].name!r} conflict with its deterministic trajectory law"
+                )
     return BoundPanel(
         model, selected.to_arrow(), time_origin, values, times, support, input_values, events
     )

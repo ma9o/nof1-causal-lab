@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from math import ceil
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Self
 
 import jax.numpy as jnp
 import jax.random as random
@@ -26,7 +26,8 @@ from nof1_causal_lab.models.ssm.predictive.registry_runtime import (
     simulate_latent_histories,
     simulate_predictive_draws,
 )
-from nof1_causal_lab.models.ssm.runtime import BoundPanel
+from nof1_causal_lab.models.ssm.preflight import ObservationPreflightFailure
+from nof1_causal_lab.models.ssm.runtime import BoundPanel, input_trajectory_events
 from nof1_causal_lab.models.ssm.simulation_checks import (
     ConstructSimulationTarget,
     DesignInfo,
@@ -56,6 +57,23 @@ class SimulationBatch:
     observations: jnp.ndarray | None
     measurement_design: DesignInfo
     time_origin: datetime | None = None
+
+    @classmethod
+    def from_draws(
+        cls,
+        prediction: PredictiveDraws,
+        measurement_design: DesignInfo,
+        *,
+        time_origin: datetime | None = None,
+    ) -> Self:
+        """Bind existing draws to the measurement design that owns their time coordinates."""
+        return cls(
+            tuple(float(time) for time in measurement_design.t_grid),
+            prediction,
+            None,
+            measurement_design,
+            time_origin,
+        )
 
 
 def _time_grid(
@@ -92,12 +110,11 @@ def generate_simulation_batch(
     start: float,
     end: float,
     assignments: tuple[StateAssignment, ...] = (),
-    input_events: tuple[ResolvedIntervention, ...] = (),
     times: np.ndarray | jnp.ndarray | None = None,
     draws: int = SIMULATION_DRAWS,
     seed: int = SIMULATION_SEED,
     time_origin: datetime | None = None,
-) -> SimulationBatch:
+) -> SimulationBatch | ObservationPreflightFailure:
     """Sample current laws once and always generate nonlinear stochastic paths and emissions.
 
     The window and intervention assignments are in model days. Internal check callers
@@ -110,17 +127,27 @@ def generate_simulation_batch(
         times = source.times
         observations = source.values
         support = source.observation_support
-        input_events = source.input_events
     else:
         model = source
         observations = None
         support = None
     indicator_ids = tuple(numeric.observation_ids(model))
     state_ids = tuple(numeric.state_ids(model))
-    laws = sample_model_laws(model, draws=draws, key=predictive_keys(seed).parameters)
     time_points: tuple[float, ...] = next(
         (law.layout.time_points for law in model.laws if law.layout.constructs), ()
     )
+    if isinstance(source, BoundPanel):
+        input_events = source.input_events
+    else:
+        anchor_index = int(np.searchsorted(time_points, start, side="right")) - 1
+        history_start = time_points[anchor_index] if time_points and anchor_index >= 0 else 0.0
+        events = input_trajectory_events(
+            model, time_origin=time_origin, start=history_start, end=end
+        )
+        if isinstance(events, ObservationPreflightFailure):
+            return events
+        input_events = events
+    laws = sample_model_laws(model, draws=draws, key=predictive_keys(seed).parameters)
     grid = _time_grid(model, start, end, assignments) if times is None else np.asarray(times)
     if len(grid) < 2 or grid[0] != start or grid[-1] != end or np.any(np.diff(grid) <= 0):
         raise ValueError("The prepared simulation grid must increase from start through end")

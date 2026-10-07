@@ -1,6 +1,8 @@
 import type {
   CoefficientRole,
   ConstructSpec,
+  CausalEdgeSpec,
+  ParameterSpec,
   Expression,
   ModelSpec,
   ParameterId,
@@ -18,11 +20,33 @@ export function presentEntries<Key extends string, Value>(
   });
 }
 
-/** Follow the serialized graph's endpoint definitions; references carry identity only. */
+/** Expand the document's keyed definitions into entities used by the viewer. */
 export function modelConstructs(model: ModelSpec | null | undefined): ConstructSpec[] {
-  return (model?.edges ?? []).flatMap((edge) =>
-    [edge.cause, edge.effect].filter((endpoint): endpoint is ConstructSpec => "name" in endpoint),
-  );
+  return presentEntries(model?.constructs ?? {}).map(([id, value]) => ({
+    ...value,
+    id,
+    dynamics: presentEntries(value.dynamics).map(([id, mechanism]) => ({ ...mechanism, id })),
+    indicators: presentEntries(value.indicators).map(([id, indicator]) => ({
+      ...indicator,
+      observation: { ...indicator.observation, id },
+    })),
+  }));
+}
+
+/** Edge endpoints identify the construct definitions held by the same document. */
+export function modelEdges(model: ModelSpec | null | undefined): CausalEdgeSpec[] {
+  return presentEntries(model?.edges ?? {}).map(([id, edge]) => ({
+    ...edge,
+    id,
+    cause: { kind: "construct", id: edge.cause },
+    effect: { kind: "construct", id: edge.effect },
+    mechanisms: presentEntries(edge.mechanisms).map(([id, mechanism]) => ({ ...mechanism, id })),
+  }));
+}
+
+/** Restore each parameter's map identity for display and entity selection. */
+export function modelParameters(model: ModelSpec | null | undefined): ParameterSpec[] {
+  return presentEntries(model?.parameters ?? {}).map(([id, value]) => ({ ...value, id }));
 }
 
 /** A coefficient operand that names a parameter, with the quantity its authored role declares. */

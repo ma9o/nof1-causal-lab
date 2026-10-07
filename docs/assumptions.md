@@ -15,7 +15,7 @@ These are the scientific commitments behind every result: what the model can exp
 
 The model is one connected DAG over constructs. A theorized common cause appears as an explicit latent confounder node; the graph has no bidirected edges. Indicators belong to their construct and never cause it.
 
-Endogenous means modeled, with or without causal parents. Every latent construct is endogenous. Exogenous means given through direct exact readings, `Delta(v=state(x))`, with no dynamics, diffusion, initial law or noise coupling; it cannot be an effect.
+Endogenous means modeled, with or without causal parents. Every latent construct is endogenous. Exogenous means supplied by a deterministic trajectory law in the model, with no endogenous dynamics, diffusion, initial-state coefficients or noise coupling; it cannot be an effect. Its indicators are optional; any indicators use direct exact readings, `Delta(v=state(x))`, which are evidence about the supplied trajectory.
 
 | Role | Temporal status | Example |
 | --- | --- | --- |
@@ -32,7 +32,7 @@ The model is built to answer the study [question](../apps/data-pipeline/src/nof1
 
 Time-varying endogenous states follow first-order Markov dynamics: the current state summarizes earlier history. Explicit delay equations and higher-order lags are not modeled. Residual autocorrelation can indicate missing state dynamics or confounders. First-order within-person dynamics are the standard starting point in [dynamic SEM](https://doi.org/10.1080/10705511.2017.1406803).
 
-An input reading sets a constant level over its own window: the recorded point or mean value, or a count or sum divided by the window length in model days. That level holds until the next reading, including beyond the record. Preparation carries the last eligible reading into the first selected window; a missing starting value is an error, and standard-deviation readings are unsupported. Fit pins this replay on every grid point and assigns it no initial or transition density. Simulation replays the same panel in both arms; an input intervention overrides the record from its date until the next intervention. Copied inputs are omitted from simulation checks and data comparisons involving a simulation.
+An exogenous construct's native `Delta` law supplies its trajectory on the [joint law's time coordinates](../apps/data-pipeline/src/nof1_causal_lab/models/ssm/joint_layout.py). Each value holds until the next point, including beyond the final point; requesting time before the first point is an error. Time-invariant inputs require a constant path. Fitting pins that path on every grid point, including input changes between observations, with no initial or transition density. Exact input readings must agree with the trajectory under their declared measurement support; they never define it. Simulation uses the model's path in both arms; an intervention overrides it from its date until the next intervention. Deterministic inputs are omitted from simulation checks and data comparisons involving a simulation. Stochastic exogenous laws are currently unsupported; uncertainty must be modeled as an endogenous construct.
 
 ### A4. Acyclic within a time slice
 
@@ -66,11 +66,9 @@ A construct with one indicator is identified with that indicator: its loading is
 
 ## Time
 
-Each prepared history has one origin for model day zero. For files, it is the explicit source-span start, or otherwise the earliest support boundary across the full panel. Selecting a different set of model indicators does not move it. The initial-state law applies at day zero, and fitting includes that point even when the first observation is later. Fit and simulation reports retain the known calendar instant.
+Each prepared history has one origin for model day zero. For files, it is the explicit source-span start, or otherwise the earliest support boundary across the full panel. Selecting a different set of model indicators does not move it. The initial-state law applies at day zero, and fitting includes that point even when the first observation is later. The conditioned trajectory law retains the known calendar instant with its coordinates. Relative input laws acquire this same binding when conditioned.
 
 A simulation replicate keeps its calendar timestamps and starts a new history: its origin is the source report's origin plus its first model time, and its model days restart at zero. Calendar-free histories remain explicitly calendar-free; any synthetic epoch is only a serialization convention. The [simulate chart](assets/action-flows/simulate.svg) defines how requested starts use the available initial states.
-
-Historical fits migrated from the old anchor-based convention retain their original model coordinates and recorded calendar binding, including any support boundaries before day zero. Migration does not reinterpret their retained states or intervention times. A new fit uses its prepared panel's origin.
 
 | Concept | Meaning |
 | --- | --- |
@@ -92,7 +90,7 @@ Historical fits migrated from the old anchor-based convention retain their origi
 
 These choices are substantive: a daily mean mood and an end-of-day mood encode different theories of what matters. Neither a point summary nor an exact (`Delta`) observation implies that a value persists between observations.
 
-A simulation window, like each question query, has one calendar date, its `start`; the window lasts a `horizon`, and interventions sit `after` offsets from the start. The record's day zero places the start in model days: the fit's origin for fitted laws, otherwise the current panel's. Without a panel the start is day zero, so the initial-state law applies there.
+A simulation window, like each question query, has one calendar date, its `start`; the window lasts a `horizon`, and interventions sit `after` offsets from the start. A retained endogenous trajectory law's calendar origin places the start in model days. Otherwise the start is day zero, where the authored initial-state law applies. Input paths use their own dated coordinates or relative model days; simulation takes no panel reference.
 
 A historical simulation start still uses the selected revision's current joint law, including later observations used to fit it. Changing `start` does not undo conditioning or restrict the simulation to information available at that date.
 

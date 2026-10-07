@@ -2,16 +2,17 @@
 
 from collections.abc import Mapping
 
-from pydantic import AwareDatetime, Field
+from pydantic import Field
 
-from nof1_causal_lab.artifacts.arrays import ScalarValues
 from nof1_causal_lab.artifacts.base import Value
 
-from .checks import Assessment
+from .arrays import NumericalArray
 from .data_ref import DataRef
-from .identity import ConstructId, DistributionId, GitOid, GitRef
+from .identity import ConstructId, DistributionId, GitOid, GitRef, ParameterId
+from .model_checks import QuestionCheckReport
 from .posterior_diagnostics import (
     ChainDiagnostics,
+    DensityCurve,
     LOODiagnostics,
     LOOPITPoint,
     ParameterConvergenceReport,
@@ -22,6 +23,7 @@ from .posterior_diagnostics import (
     RankHistogram,
     TraceSeries,
 )
+from .validation_report import ValidationReportArtifact
 
 
 class FitSettingsSpec(Value):
@@ -35,10 +37,14 @@ class FitSettingsSpec(Value):
 
 
 class InferenceMetadata(Value):
-    """Run measurements for the production particle sampler."""
+    """The production run's law, chain layout and sampler measurements."""
 
-    n_samples: int
-    duration_seconds: float
+    distribution: DistributionId
+    n_samples: int = Field(ge=1)
+    num_chains: int = Field(ge=1)
+    duration_seconds: float = Field(ge=0)
+    engine: ParticleMCMCEvidence
+    sampler_diagnostics: ParticleSamplerDiagnostics | None
 
 
 class PosteriorDrawsInfo(Value):
@@ -49,46 +55,17 @@ class PosteriorDrawsInfo(Value):
 
 
 class InferenceEvidence(Value):
-    """Native execution telemetry; posterior atoms and coordinates belong to the model."""
+    """Native telemetry buffers; posterior atoms and coordinates belong to the model."""
 
-    distribution: DistributionId
-    time_origin: AwareDatetime | None
-    duration_seconds: float = Field(ge=0)
-    engine: ParticleMCMCEvidence | None
-    num_chains: int | None = Field(default=None, ge=1)
-    chain_extra_fields: Mapping[str, str] = Field(default_factory=dict)
-    observation_log_probs: str | None = None
-    observed_rows: str | None = None
-    exact_observation_rows: str | None = None
-    sampler_diagnostics: ParticleSamplerDiagnostics | None = None
-    phase_extra_fields: Mapping[str, Mapping[str, str]] = Field(default_factory=dict)
-    warmup_complete_log_posterior_history: str | None = None
-    all_complete_log_posterior_history: str | None = None
-    initial_latent_delta: str | None = None
-    final_latent_delta: str | None = None
-
-    @property
-    def array_references(self) -> frozenset[str]:
-        """Native buffers that must accompany the retained evidence."""
-        return frozenset(
-            (
-                *self.chain_extra_fields.values(),
-                *(ref for fields in self.phase_extra_fields.values() for ref in fields.values()),
-                *(
-                    ref
-                    for ref in (
-                        self.observation_log_probs,
-                        self.observed_rows,
-                        self.exact_observation_rows,
-                        self.warmup_complete_log_posterior_history,
-                        self.all_complete_log_posterior_history,
-                        self.initial_latent_delta,
-                        self.final_latent_delta,
-                    )
-                    if ref is not None
-                ),
-            )
-        )
+    chain_extra_fields: Mapping[str, NumericalArray] = Field(default_factory=dict)
+    observation_log_probs: NumericalArray | None = None
+    observed_rows: NumericalArray | None = None
+    exact_observation_rows: NumericalArray | None = None
+    phase_extra_fields: Mapping[str, Mapping[str, NumericalArray]] = Field(default_factory=dict)
+    warmup_complete_log_posterior_history: NumericalArray | None = None
+    all_complete_log_posterior_history: NumericalArray | None = None
+    initial_latent_delta: NumericalArray | None = None
+    final_latent_delta: NumericalArray | None = None
 
 
 class ModelFitResult(Value):
@@ -102,14 +79,14 @@ class ModelFitResult(Value):
 class InferenceReportCore(Value):
     """Compact scientific report shared by snapshots and the full report."""
 
-    time_origin: AwareDatetime | None
     inference_metadata: InferenceMetadata
-    engine: Assessment[str, ParticleMCMCEvidence]
     inference_diagnostics: ChainDiagnostics | None
-    sampler_diagnostics: ParticleSamplerDiagnostics | None
     convergence: ParameterConvergenceReport
     loo_diagnostics: LOODiagnostics | None = None
-    posterior_marginals: tuple[PosteriorMarginal, ...] | None = None
+    posterior_marginals: tuple[PosteriorMarginal, ...]
+    prior_densities: Mapping[ParameterId, DensityCurve] = Field(
+        description="Input laws evaluated on the quantity scale of the posterior summaries."
+    )
 
 
 class InferenceReportDetail(Value):
@@ -119,13 +96,18 @@ class InferenceReportDetail(Value):
     rank_histograms: tuple[RankHistogram, ...] = ()
     pareto_k: tuple[ParetoKPoint, ...] = ()
     loo_pit: tuple[LOOPITPoint, ...] = ()
-    divergent: tuple[bool, ...] | str | None = None
-    initial_latent_delta: tuple[ScalarValues, ...] | None = None
-    final_latent_delta: tuple[ScalarValues, ...] | None = None
 
 
 class InferenceReport(Value):
-    """The compact core composed with retained detail, without filtering or re-parsing."""
+    """One fit's provenance, run metadata, native evidence and computed findings."""
 
+    run: ModelFitResult
     core: InferenceReportCore
     detail: InferenceReportDetail
+
+
+class FitCheckReport(Value):
+    """Compatibility and question findings owned by one completed fit."""
+
+    validation: ValidationReportArtifact
+    question: QuestionCheckReport

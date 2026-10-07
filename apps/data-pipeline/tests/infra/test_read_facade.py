@@ -1,5 +1,6 @@
 """Read-only facade replays saved calls and rejects new actions and uploads."""
 
+import msgpack
 import pytest
 from fastapi.testclient import TestClient
 
@@ -89,8 +90,8 @@ def test_saved_call_serves_pinned_artifacts_without_starting_new_actions(monkeyp
             "/api/studies/WS-ART/edit_model", json=request.model_dump(mode="json")
         )
         assert response.status_code == 200, response.text
-        assert response.json()["commit_id"] == revision.commit_id
-        assert response.json()["body"]["model"]["measurement_clock"] == clock
+        assert msgpack.unpackb(response.content)["commit_id"] == revision.commit_id
+        assert msgpack.unpackb(response.content)["body"]["model"]["measurement_clock"] == clock
     assert len(repository.attempts()) == 3
 
 
@@ -142,9 +143,11 @@ def test_saved_call_returns_promoted_traces(monkeypatch, tmp_path):
     result = client.post("/api/studies/WS-TRACE/edit_model", json=request.model_dump(mode="json"))
     assert result.status_code == 200, result.text
     assert (
-        next(message for message in result.json()["messages"] if message["kind"] == "trace")[
-            "trace"
-        ]["messages"][0]["content"]
+        next(
+            message
+            for message in msgpack.unpackb(result.content)["messages"]
+            if message["kind"] == "trace"
+        )["trace"]["messages"][0]["content"]
         == "profiled"
     )
 

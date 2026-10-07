@@ -27,16 +27,16 @@ def read_result(store: ArtifactStore, action: ActionId, revision: GitOid) -> Act
     """Decode the saved result with the schema owned by its recorded action."""
     match action:
         case "edit_question":
-            return store.read_report(revision, EditQuestionOutput)
+            return store.read_result(revision, EditQuestionOutput)
         case "edit_model":
-            return store.read_report(revision, EditModelOutput)
+            return store.read_result(revision, EditModelOutput)
         case "prepare_data":
-            return store.read_report(revision, PrepareDataOutput)
+            return store.read_result(revision, PrepareDataOutput)
         case "fit":
-            return store.read_report(revision, FitOutput)
+            return store.read_result(revision, FitOutput)
         case "simulate":
-            return store.read_report(revision, SimulateOutput)
+            return store.read_result(revision, SimulateOutput)
         case "data_diff":
-            return store.read_report(revision, DataDiffOutput)
+            return store.read_result(revision, DataDiffOutput)
         case "model_diff":
-            return store.read_report(revision, ModelDiffOutput)
+            return store.read_result(revision, ModelDiffOutput)

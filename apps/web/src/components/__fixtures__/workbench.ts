@@ -1,34 +1,37 @@
-import { modelResult, fitResult } from "./action-results";
-import { fixtureValue } from "@/components/__fixtures__/fixture-value";
+import { encode } from "@msgpack/msgpack";
 import type {
   ActionAttempt,
+  ActionPoll,
   ArtifactRecord,
-  DataDiffOutput,
-  ModelSnapshot,
-  ModelSpec,
-  SimulationReport,
-  RecordDependency,
-  SpecificationAssessment,
-  StudyRevision,
-  ActionSuccess,
   CallId,
+  DataDiffOutput,
   ExecutionMessage,
-  PrepareDataRequest,
   FileSourceRef,
   GitOid,
+  ModelSnapshot,
+  ModelSpec,
+  PrepareDataRequest,
+  RecordDependency,
+  SimulationReport,
+  SpecificationAssessment,
+  StudyRevision,
   TimelineResponse,
   TimelineRevision,
 } from "@nof1-causal-lab/api-types";
 import { HttpResponse, http } from "msw";
+import { decodeFixture, fixtureValue } from "@/components/__fixtures__/fixture-value";
 import { modelConstructs } from "@/lib/model-accessors";
+import { modelResult } from "./action-results";
 import { demoModelSnapshot, demoSnapshotAt } from "./demo-artifacts";
 import { demoTraces } from "./demo-traces";
 import comparisonFixture from "./workbench-comparisons.json";
-import visualFixture from "./workbench-visuals.json";
+import rawVisualFixture from "./workbench-visuals.json";
+
+const visualFixture = decodeFixture(rawVisualFixture);
 export const WORKBENCH_WORKSPACE = "STORYBOOK";
 const stamp = "2026-09-16T12:00:00Z";
 // Illustrative interface data. Parameter decisions are staged;
-// retained DEMO evidence is reused for presentation, not claimed as new inference.
+// retained HEALTHDEMO evidence is reused for presentation, not claimed as new inference.
 const freeModel = structuredClone(fixtureValue(demoModelSnapshot.model));
 // Generated and validated by scripts/fixtures/study.py.
 const pinnedModel = comparisonFixture.pinned_model;
@@ -92,8 +95,11 @@ function simulation(revision: string): SimulationReport {
     outcome.indicators.find((item) => item.observation.name === "gad7_screening_score"),
   );
   return {
-    ...structuredClone(visualFixture.report),
-    evidence: { ...structuredClone(visualFixture.report.evidence), model: modelRef(revision) },
+    ...structuredClone(visualFixture.simulation.report),
+    evidence: {
+      ...structuredClone(visualFixture.simulation.report.evidence),
+      model: modelRef(revision),
+    },
     findings: [
       { kind: "construct" as const, id: outcome.id },
       { kind: "indicator" as const, id: indicator.observation.id },
@@ -114,7 +120,7 @@ function simulation(revision: string): SimulationReport {
   };
 }
 const simulations = new Map([
-  [5, simulation(modelId(5))],
+  [4, simulation(modelId(4))],
   [7, simulation(modelId(7))],
 ]);
 const models = new Map<string, ModelSpec>(
@@ -127,11 +133,12 @@ models.set(modelId(5), freeModel);
 models.set(modelId(6), freeModel);
 models.set(modelId(7), pinnedModel);
 const snapshots = new Map<number, ModelSnapshot>(
-  [0, 1, 2, 3, 4, 5, 7].map((seq) => {
+  [0, 2, 3, 4, 5, 7].map((seq) => {
     const snapshot = demoSnapshotAt(seq);
     return [seq, { ...snapshot, workspace_id: WORKBENCH_WORKSPACE }];
   }),
 );
+snapshots.set(1, { ...demoSnapshotAt(0), workspace_id: WORKBENCH_WORKSPACE, selected_seq: 1 });
 function illustratedSnapshot(
   seq: number,
   info: ArtifactRecord,
@@ -147,17 +154,15 @@ function illustratedSnapshot(
     state: { ...snapshot.state, current: { ...snapshot.state.current, model: info } },
     model,
     specification: checks,
-    dispositions: snapshot.dispositions,
     fit: fitted ? snapshot.fit : null,
     simulation: report ? report : null,
   };
 }
-const v5 = metadata(modelId(5), modelId(4), "fit");
-const v6 = metadata(modelId(6), modelId(4), "fit");
-const v7 = metadata(modelId(7), modelId(6), "edit_model");
-snapshots.set(8, illustratedSnapshot(8, v5, true));
-snapshots.set(9, illustratedSnapshot(9, v5, true, simulations.get(5)));
-snapshots.set(10, illustratedSnapshot(10, v6, true));
+const authored = fixtureValue(demoModelSnapshot.state.current.model);
+const v7 = metadata(modelId(7), modelId(4), "edit_model");
+snapshots.set(8, illustratedSnapshot(8, authored, false));
+snapshots.set(9, illustratedSnapshot(9, authored, false, simulations.get(4)));
+snapshots.set(10, illustratedSnapshot(10, authored, false, simulations.get(4)));
 snapshots.set(11, illustratedSnapshot(11, v7, false));
 snapshots.set(12, illustratedSnapshot(12, v7, false, simulations.get(7)));
 const comparisonIndicator = fixtureValue(
@@ -165,109 +170,108 @@ const comparisonIndicator = fixtureValue(
     .flatMap((construct) => construct.indicators)
     .find((indicator) => indicator.observation.name === "gad7_screening_score"),
 );
-const comparedSeries = (values: number[]) => ({
-  variable: {
-    ...comparisonIndicator.observation,
-    observation_window: "1d",
-  },
+// These illustrative histories are returned by their producing actions below.
+const comparedHistory = (values: number[]) => ({
+  label: comparisonIndicator.observation.name,
+  times: values.map((_, index) => index),
+  values,
+  support_start: values.map(() => null),
+  support_end: values.map(() => null),
   time_origin: "2026-01-01T00:00:00Z",
-  points: values.map((value, index) => ({
-    anchor_time: `2026-01-0${index + 1}T00:00:00Z`,
-    support_start: null,
-    support_end: null,
-    value,
-  })),
+  levels: null,
+  empirical: [],
 });
+function comparisonReplicate(index: number) {
+  return {
+    ...fixtureValue(visualFixture.simulation.data[index]),
+    ...(index < 3
+      ? { [comparisonIndicator.observation.id]: comparedHistory([index, index + 1, index + 2]) }
+      : {}),
+  };
+}
 const dataComparison: DataDiffOutput = {
-  left: [{ revision: panelId, replicate_index: 0 }],
-  right: [0, 1, 2].map((replicate_index) => ({ revision: commitId(9), replicate_index })),
-  variables: [
-    {
-      indicator_id: comparisonIndicator.observation.id,
-      left: [comparedSeries([1, 4, 3])],
-      right: [comparedSeries([0, 1, 2]), comparedSeries([1, 2, 3]), comparedSeries([2, 3, 4])],
-      changes: [],
-      comparison_issues: [],
-      statistics: [
-        {
-          statistic: "mean",
-          level: null,
-          left: [2.67],
-          right: [1, 2, 3],
-          left_histogram: [{ bin_center: 2.67, bin_start: 2.5, bin_end: 3, count: 1 }],
-          right_histogram: [1, 2, 3].map((value) => ({
-            bin_center: value,
-            bin_start: value - 0.5,
-            bin_end: value + 0.5,
-            count: 1,
-          })),
-        },
-      ],
-      predictive: {
-        kind: "comparison",
-        reference_side: "left",
-        evaluation: {
-          kind: "available",
-          value: {
-            n_subsample: 3,
-            per_variable_warnings: [
-              {
-                kind: "evaluated",
-                subject: {
-                  target: { kind: "indicator", id: comparisonIndicator.observation.id },
-                  check: "calibration",
+  report: {
+    left: [{ revision: panelId, replicate_index: 0 }],
+    right: [0, 1, 2].map((replicate_index) => ({ revision: commitId(9), replicate_index })),
+    variables: [
+      {
+        indicator_id: comparisonIndicator.observation.id,
+        changes: [],
+        comparison_issues: [],
+        statistics: [
+          {
+            statistic: "mean",
+            level: null,
+            left: [2.67],
+            right: [1, 2, 3],
+          },
+        ],
+        predictive: {
+          kind: "comparison",
+          reference_side: "left",
+          evaluation: {
+            kind: "available",
+            value: {
+              n_subsample: 3,
+              per_variable_warnings: [
+                {
+                  kind: "evaluated",
+                  subject: {
+                    target: { kind: "indicator", id: comparisonIndicator.observation.id },
+                    check: "calibration",
+                  },
+                  outcome: "warning",
+                  evidence: {
+                    criterion: "calibration",
+                    note: "Observed values fall outside the replicated range.",
+                    value: 0.67,
+                    lower: 0.7,
+                    upper: 0.98,
+                    lower_inclusive: true,
+                    upper_inclusive: true,
+                    display_value: "",
+                    band_label: "",
+                  },
                 },
-                outcome: "warning",
-                evidence: {
-                  criterion: "calibration",
-                  note: "Observed values fall outside the replicated range.",
-                  value: 0.67,
-                  lower: 0.7,
-                  upper: 0.98,
-                  lower_inclusive: true,
-                  upper_inclusive: true,
-                  display_value: "",
-                  band_label: "",
+              ],
+              test_stats: [
+                {
+                  indicator_id: comparisonIndicator.observation.id,
+                  stat_name: "mean",
+                  observed_value: 2.67,
+                  rep_values: [1, 2, 3],
+                  p_value: 0.33,
+                  histogram: [1, 2, 3].map((value) => ({
+                    bin_center: value,
+                    bin_start: value - 0.5,
+                    bin_end: value + 0.5,
+                    count: 1,
+                  })),
+                  frame: [1, 3],
                 },
-              },
-            ],
-            test_stats: [
-              {
-                indicator_id: comparisonIndicator.observation.id,
-                stat_name: "mean",
-                observed_value: 2.67,
-                rep_values: [1, 2, 3],
-                p_value: 0.33,
-                histogram: [1, 2, 3].map((value) => ({
-                  bin_center: value,
-                  bin_start: value - 0.5,
-                  bin_end: value + 0.5,
-                  count: 1,
-                })),
-                frame: [1, 3],
-              },
-            ],
-            overlays: [
-              {
-                indicator_id: comparisonIndicator.observation.id,
-                times: [0, 1, 2],
-                time_origin: null,
-                standardized: false,
-                observed: [1, 4, 3],
-                median: [1, 2, 3],
-                spaghetti_draws: [
-                  [0, 1, 2],
-                  [1, 2, 3],
-                  [2, 3, 4],
-                ],
-                frame: [0, 4],
-              },
-            ],
+              ],
+              overlays: [
+                {
+                  indicator_id: comparisonIndicator.observation.id,
+                  times: [0, 1, 2],
+                  time_origin: null,
+                  standardized: false,
+                  observed: [1, 4, 3],
+                  median: [1, 2, 3],
+                  spaghetti_draws: [
+                    [0, 1, 2],
+                    [1, 2, 3],
+                    [2, 3, 4],
+                  ],
+                  frame: [0, 4],
+                },
+              ],
+            },
           },
         },
       },
-    },
-  ],
+    ],
+  },
 };
 
 const demoMetadata = fixtureValue(demoModelSnapshot.metadata);
@@ -409,9 +413,10 @@ const workbenchRecords: StudyRevision[] = [
       },
     },
     outcome: {
-      status: "applied",
-      result: commitId(0),
-      effects: { produced: [v5], retracted: [], reports: {} },
+      status: "raised",
+      error_type: "IllustrativeFitFailure",
+      error_message: "This illustrative fit failed before retaining a result.",
+      details: [],
     },
   }),
   record(9, {
@@ -420,9 +425,8 @@ const workbenchRecords: StudyRevision[] = [
       action: "simulate",
       reasoning: null,
       input: {
-        model_ref: modelId(5),
-        panel_ref: panelId,
-        simulation: fixtureValue(simulations.get(5)).evidence.design,
+        model_ref: modelId(4),
+        simulation: fixtureValue(simulations.get(4)).evidence.design,
       },
     },
     outcome: {
@@ -444,9 +448,10 @@ const workbenchRecords: StudyRevision[] = [
       },
     },
     outcome: {
-      status: "applied",
-      result: commitId(0),
-      effects: { produced: [v6], retracted: [], reports: {} },
+      status: "raised",
+      error_type: "IllustrativeFitFailure",
+      error_message: "This illustrative fit failed before retaining a result.",
+      details: [],
     },
   }),
   record(11, {
@@ -455,7 +460,7 @@ const workbenchRecords: StudyRevision[] = [
       action: "edit_model",
       reasoning: null,
       input: {
-        parent_ref: modelId(6),
+        parent_ref: modelId(4),
         model: pinnedModel,
       },
     },
@@ -472,7 +477,6 @@ const workbenchRecords: StudyRevision[] = [
       reasoning: null,
       input: {
         model_ref: modelId(7),
-        panel_ref: panelId,
         simulation: fixtureValue(simulations.get(7)).evidence.design,
       },
     },
@@ -488,8 +492,8 @@ const workbenchRecords: StudyRevision[] = [
       action: "data_diff",
       reasoning: null,
       input: {
-        left_ref: fixtureValue(dataComparison.left[0]),
-        right_ref: fixtureValue(dataComparison.right[0]),
+        left_ref: fixtureValue(dataComparison.report.left[0]),
+        right_ref: dataComparison.report.right,
       },
     },
     outcome: {
@@ -512,9 +516,9 @@ const commitParents: Record<number, number> = {
   6: 5,
   7: 5,
   8: 7,
-  9: 8,
+  9: 7,
   10: 9,
-  11: 10,
+  11: 9,
   12: 11,
   13: 12,
 };
@@ -538,13 +542,11 @@ export const workbenchDependencies: RecordDependency[] = (
     [7, 4, "parent"],
     [8, 7, "model"],
     [8, 5, "data"],
-    [9, 8, "model"],
-    [9, 5, "panel"],
+    [9, 7, "model"],
     [10, 7, "model"],
     [10, 5, "data"],
-    [11, 10, "parent"],
+    [11, 7, "parent"],
     [12, 11, "model"],
-    [12, 5, "panel"],
     [13, 5, "left"],
     [13, 9, "right"],
   ] as const
@@ -577,18 +579,19 @@ export const workbenchJournal: TimelineRevision[] = journal.map((entry) => {
 });
 
 /** Complete retained results backing the seven public call routes. */
-export function workbenchResult(seq: number): ActionSuccess {
+export function workbenchResult(seq: number): ActionPoll {
   const entry = fixtureValue(journal.find((item) => item.record.seq === seq));
-  const snapshot = fixtureValue(snapshots.get(seq));
   const attempt = entry.record.attempt;
-  if (attempt.outcome.status !== "applied") throw new Error("Expected a successful story call");
-  const paths = snapshot.simulation
-    ? {
-        ...visualFixture.simulation,
-        effect:
-          snapshot.simulation.causal.kind === "available" ? visualFixture.simulation.effect : null,
-      }
-    : null;
+  if (attempt.outcome.status !== "applied")
+    return {
+      call_id: callId(seq),
+      action: attempt.action,
+      status: "failed",
+      commit_id: entry.commit_id,
+      body: null,
+      messages: [{ kind: "failure", timestamp: stamp, failure: attempt.outcome }],
+    };
+  const snapshot = fixtureValue(snapshots.get(seq));
   const messages: ExecutionMessage[] = [
     ...entry.record.messages,
     ...(attempt.action === "prepare_data"
@@ -629,32 +632,30 @@ export function workbenchResult(seq: number): ActionSuccess {
         ...envelope,
         action: attempt.action,
         body: {
-          raw_data: snapshot.raw_data,
-          measurements: snapshot.measurements,
-          metadata: snapshot.metadata,
-          profile: snapshot.profile,
-          data: visualFixture.observations,
+          metadata: fixtureValue(snapshot.metadata),
+          profile: fixtureValue(snapshot.profile),
+          data: {
+            ...visualFixture.observations,
+            [comparisonIndicator.observation.id]: comparedHistory([1, 4, 3]),
+          },
         },
       };
     case "fit":
-      return {
-        ...envelope,
-        action: attempt.action,
-        body: {
-          ...fitResult(snapshot),
-          parameter_draws: visualFixture.parameters,
-          arrays: visualFixture.arrays,
-        },
-      };
+      throw new Error("This story has no retained successful fit");
     case "simulate":
       return {
         ...envelope,
         action: attempt.action,
         body: {
-          report: snapshot.simulation,
-          data: [visualFixture.observations],
-          paths,
-          arrays: {},
+          ...visualFixture.simulation,
+          data: [
+            comparisonReplicate(0),
+            ...visualFixture.simulation.data
+              .slice(1)
+              .map((_, index) => comparisonReplicate(index + 1)),
+          ],
+          report: fixtureValue(snapshot.simulation),
+
         },
       };
     case "data_diff":
@@ -701,7 +702,9 @@ export function workbenchHandlers() {
           item.record.attempt.action === params.action && callId(item.record.seq) === params.callId,
       );
       return entry
-        ? HttpResponse.json(workbenchResult(entry.record.seq))
+        ? new HttpResponse(encode(workbenchResult(entry.record.seq)), {
+            headers: { "Content-Type": "application/msgpack" },
+          })
         : HttpResponse.json({ detail: "No saved story call" }, { status: 403 });
     }),
   ];

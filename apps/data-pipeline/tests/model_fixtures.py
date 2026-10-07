@@ -27,7 +27,7 @@ def load_model_fixture(name: str) -> ModelSpec:
     """Parse one current-format canonical model without study converters."""
     return ModelSpec.model_validate_json(
         (Path(__file__).parent / "fixtures/models" / name).read_text()
-    )
+    ).materialized()
 
 
 def construct_named(model: ModelSpec, name: str) -> ConstructSpec:
@@ -116,7 +116,7 @@ def stress_sleep_causal_model() -> ModelSpec:
 
     model = stress_sleep_model()
     stress = construct_named(model, "Stress")
-    return model.revised(
+    return model.with_entities(
         edges=(
             model.edges[0].revised(
                 effect=construct_named(model, "Sleep"),
@@ -171,7 +171,7 @@ def _make_lgss_data_model_fixture() -> ModelSpec:
         )
     )
     parameters, distributions = without_parameters(model, latent_0_t0_means, latent_0_t0_var_diag)
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(model.edges, (latent_0_revised,)),
         parameters=parameters,
         distributions=distributions,
@@ -194,7 +194,7 @@ def _exact_model_model() -> ModelSpec:
     )
     setting_revised = setting.revised(indicators=(setting_obs_revised,))
     parameters, distributions = without_parameters(model, manifest_mean_setting_obs)
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(model.edges, (setting_revised,)),
         parameters=parameters,
         distributions=distributions,
@@ -224,7 +224,7 @@ def _two_state_fixed_drift_model() -> ModelSpec:
     parameters, distributions = without_parameters(
         model, latent_0_latent_1_hill_emax, latent_0_latent_1_hill_n, latent_0_latent_1_hill_ec50
     )
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(
             tuple(
                 edge

@@ -1,28 +1,25 @@
 """Content-addressed numerical values for native distribution constructor trees."""
 
-import hashlib
-import io
 import re
 
 import numpy as np
 
+from nof1_causal_lab.artifacts.arrays import NumericalArray
 from nof1_causal_lab.utils import storage
 
 
 def encode_array(values: np.ndarray) -> tuple[str, bytes]:
-    """Encode the portable bytes used by both storage and compute transfers."""
-    buffer = io.BytesIO()
-    np.save(buffer, np.asarray(values), allow_pickle=False)
-    payload = buffer.getvalue()
-    identity = hashlib.sha256(payload).hexdigest()
-    return identity, payload
+    """Own the portable numerical NPY encoding used by storage and action transport."""
+    value = NumericalArray.from_numpy(values)
+    return value.identity, value.npy
 
 
 def decode_array(identity: str, payload: bytes) -> np.ndarray:
     """Verify content identity before loading a numerical value."""
-    if hashlib.sha256(payload).hexdigest() != identity:
+    value = NumericalArray(npy=payload)
+    if value.identity != identity:
         raise ValueError("Stored numerical array failed its content identity check")
-    return np.load(io.BytesIO(payload), allow_pickle=False)
+    return value.values
 
 
 def write_array(directory: str, values: np.ndarray) -> str:
@@ -38,8 +35,12 @@ def write_array(directory: str, values: np.ndarray) -> str:
 
 def read_array(directory: str, identity: str) -> np.ndarray:
     """Load a numerical array by a validated SHA-256 identity and verify its encoded content."""
+    return decode_array(identity, read_array_bytes(directory, identity))
+
+
+def read_array_bytes(directory: str, identity: str) -> bytes:
+    """Read a temporary NPY buffer without expanding its numerical values."""
     if re.fullmatch(r"[0-9a-f]{64}", identity) is None:
         raise ValueError("Invalid numerical array identity")
     with storage.open_file(storage.join(directory, f"{identity}.npy"), "rb") as stream:
-        payload = stream.read()
-    return decode_array(identity, payload)
+        return stream.read()

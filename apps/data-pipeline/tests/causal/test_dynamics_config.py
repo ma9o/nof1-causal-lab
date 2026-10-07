@@ -44,7 +44,7 @@ def test_description_retains_expression_constants_and_potential_semantics():
 
 def test_scientific_model_roundtrip_preserves_derived_dynamics():
     model = _scientific_model_roundtrip_preserves_derived_dynamics_model_fixture()
-    restored = ModelSpec.model_validate_json(model.model_dump_json())
+    restored = ModelSpec.model_validate_json(model.model_dump_json()).materialized()
     assert dynamics_spec_to_dict(
         compile_model_fixture(model).dynamics.spec
     ) == dynamics_spec_to_dict(compile_model_fixture(restored).dynamics.spec)

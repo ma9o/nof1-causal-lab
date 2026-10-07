@@ -99,7 +99,7 @@ def _partial_manifest_variance_model() -> ModelSpec:
     )
     latent_0_revised = latent_0.revised(indicators=(manifest_0_revised,))
     parameters, distributions = without_parameters(model, latent_0_manifest_0_manifest_var_diag)
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(model.edges, (latent_0_revised,)),
         parameters=parameters,
         distributions=distributions,
@@ -144,7 +144,7 @@ def _student_innovation_model() -> ModelSpec:
         ),
         innovation_family=DistributionFamily.STUDENT_T,
     )
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(model.edges, (latent_1_revised,)),
         parameters=(
             *model.parameters,
@@ -599,7 +599,7 @@ class TestCompiledArtifactIntegration:
             description="Unbound threshold",
         )
         with pytest.raises(ValueError, match="not referenced by component slots"):
-            spec.revised(parameters=(*spec.parameters, parameter))
+            spec.with_entities(parameters=(*spec.parameters, parameter))
 
     @pytest.mark.contract
     def test_ordered_threshold_priors_bind_per_manifest_component_and_row(self):

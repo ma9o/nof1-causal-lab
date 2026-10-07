@@ -84,7 +84,7 @@ def _diagnostic_noise_matches_point_and_interval_execution_model_fixture_familie
             latent_0_manifest_0_manifest_var_diag.distribution,
         )
     }
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(model.edges, (latent_0_revised,)),
         parameters=replace_parameters(
             parameters,
@@ -141,7 +141,7 @@ def _student_t_model() -> ModelSpec:
         )
     )
     latent_0_revised = latent_0.revised(indicators=(manifest_0_revised,))
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(model.edges, (latent_0_revised,)),
         parameters=(
             *model.parameters,

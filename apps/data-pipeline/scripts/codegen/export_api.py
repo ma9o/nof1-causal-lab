@@ -25,10 +25,13 @@ from nof1_causal_lab.actions.io import DataDiffOutput, ModelDiffOutput
 from nof1_causal_lab.actions.progress_contracts import ProgressEvent
 from nof1_causal_lab.actions.results import ActionPoll
 from nof1_causal_lab.artifacts.catalog import ARTIFACT_CONTRACTS
+from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec
 from nof1_causal_lab.artifacts.effects import EffectSummary
 from nof1_causal_lab.artifacts.expressions import COEFFICIENT_MEANINGS
 from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS, GitOid
+from nof1_causal_lab.artifacts.indicator import IndicatorSpec
 from nof1_causal_lab.artifacts.likelihood import OBSERVATION_FAMILY_SPECS
+from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 from nof1_causal_lab.artifacts.scenarios import (
     CausalEffectResult,
 )
@@ -36,8 +39,6 @@ from nof1_causal_lab.study.records import StudyRevision
 from nof1_causal_lab.study.snapshot_models import ModelSnapshot
 from nof1_causal_lab.study.visual_models import (
     ObservationHistory,
-    ParameterDraws,
-    SimulationPaths,
 )
 from nof1_causal_lab.study_api import (
     TimelineResponse,
@@ -72,10 +73,12 @@ EXPORTED_API_MODELS: tuple[type[BaseModel] | TypeAliasType, ...] = (
     LLMTrace,
     ModelSnapshot,
     ObservationHistory,
-    ParameterDraws,
-    SimulationPaths,
     ActionPoll,
     ProgressEvent,
+    ConstructSpec,
+    CausalEdgeSpec,
+    IndicatorSpec,
+    ParameterSpec,
 )
 
 EXPORTED_RESULT_MODELS: tuple[type[BaseModel], ...] = (
@@ -269,6 +272,8 @@ def _curl_block(
     parameters = operation.get("parameters", [])
     url = f"{_BASE_URL}{_path_with_placeholders(path, parameters)}"
     lines = [f'curl -s "{url}"']
+    if "application/msgpack" in operation.get("responses", {}).get("200", {}).get("content", {}):
+        lines[0] += " -o /tmp/action.msgpack"
     if method != "get":
         lines[0] += " \\"
         lines.append(f"  -X {method.upper()} \\")

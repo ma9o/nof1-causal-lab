@@ -46,7 +46,7 @@ def _fully_fixed_dynamics_keep_the_explicit_draw_axis_model_fixture() -> ModelSp
         )
     )
     parameters, distributions = without_parameters(model, latent_0_dynamics_decay)
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(model.edges, (latent_0_revised,)),
         parameters=parameters,
         distributions=distributions,
@@ -91,18 +91,18 @@ def test_segment_bounds_split_at_exact_event_times():
 
 
 @pytest.mark.contract
-def test_given_inputs_replay_windows_hold_and_override_later_records(monkeypatch):
+def test_model_input_paths_hold_and_interventions_override_later_points(monkeypatch):
     from datetime import UTC, datetime, timedelta, timezone
 
     import numpy as np
-    import polars as pl
+    import numpyro.distributions as dist
 
     from nof1_causal_lab.artifacts.construct import replace_constructs
     from nof1_causal_lab.artifacts.likelihood import LikelihoodSpec
-    from nof1_causal_lab.artifacts.observation_data import ObservationDataset
     from nof1_causal_lab.models.ssm.counterfactual import orchestration
     from nof1_causal_lab.models.ssm.inference.conditioning import compile_exact_state_constraints
-    from nof1_causal_lab.models.ssm.runtime import replay_input_events, replay_input_values
+    from nof1_causal_lab.models.ssm.joint_layout import JointLawLayout
+    from nof1_causal_lab.models.ssm.runtime import input_trajectory_events, input_trajectory_values
 
     model = _exact_model_model()
     dose = model.constructs[0]
@@ -113,72 +113,51 @@ def test_given_inputs_replay_windows_hold_and_override_later_records(monkeypatch
             reasoning="Given dose total",
         ),
     )
+    layout = JointLawLayout(parameters=(), constructs=(dose.id,), time_points=(-2, 2, 4), labels={})
     dose = dose.revised(
-        role="exogenous", indicators=(indicator,), dynamics=(), coefficients=(), distribution=None
+        role="exogenous",
+        indicators=(indicator,),
+        dynamics=(),
+        coefficients=(),
+        distribution=layout.distribution_id,
     )
     parameters = tuple(
         parameter
         for parameter in model.parameters
         if parameter.name not in {"rho_setting", "sigma_setting"}
     )
-    model = model.revised(
+    model = model.revised(measurement_clock="1d").with_entities(
         edges=replace_constructs(model.edges, (dose,)),
-        measurement_clock="1d",
         parameters=parameters,
         distributions={
-            identity: law
-            for identity, law in model.distributions.items()
-            if identity in {parameter.distribution for parameter in parameters}
+            **{
+                identity: law
+                for identity, law in model.distributions.items()
+                if identity in {parameter.distribution for parameter in parameters}
+            },
+            layout.distribution_id: dist.Delta(jnp.array([10.0, 8.0, 12.0]), event_dim=1),
         },
+        law_layouts={layout.distribution_id: layout},
     )
     from tests.inference_fixtures import compile_model_fixture
 
     model = compile_model_fixture(model)
     origin = datetime(2026, 1, 1, tzinfo=UTC)
-    panel = pl.DataFrame(
-        {
-            "indicator_id": [indicator.observation.id] * 3,
-            "value": [20.0, 16.0, 24.0],
-            "support_kind": ["interval"] * 3,
-            "summary_operator": ["sum"] * 3,
-            "anchor_policy": ["support_end"] * 3,
-            "observation_window": ["1d"] * 3,
-            "anchor_time": [origin + timedelta(days=day) for day in (0, 4, 6)],
-            "support_start": [origin + timedelta(days=day) for day in (-2, 2, 4)],
-            "support_end": [origin + timedelta(days=day) for day in (0, 4, 6)],
-        }
-    )
-    panel = ObservationDataset.from_frame(
-        panel,
-        tuple(
-            item.observation for item in model.observations if item.id == indicator.observation.id
-        ),
-        time_origin=origin,
-    )
     grid = jnp.arange(8.0)
-    events = replay_input_events(
-        model, panel, time_origin=origin.astimezone(timezone(timedelta(hours=2))), start=0, end=7
+    events = input_trajectory_events(
+        model, time_origin=origin.astimezone(timezone(timedelta(hours=2))), start=0, end=7
     )
     assert not isinstance(events, ObservationPreflightFailure)
-    values = replay_input_values(model, grid, events)
+    values = input_trajectory_values(model, grid, events)
     np.testing.assert_array_equal(values[:, 0], [10, 10, 8, 8, 12, 12, 12, 12])
     constraints = compile_exact_state_constraints(
         model, jnp.full((8, 2), jnp.nan), input_values=values
     )
     assert constraints is not None
     assert not constraints.free_mask[:, 0].any()
-    failure = replay_input_events(model, panel, time_origin=origin, start=-3, end=7)
+    failure = input_trajectory_events(model, time_origin=origin, start=-3, end=7)
     assert isinstance(failure, ObservationPreflightFailure)
     assert "no value at the start" in failure.message
-    changed = panel.variables[0].revised(observation_window="2d")
-    wrong_data = ObservationDataset.from_frame(
-        panel.recorded.frame.with_columns(pl.lit("2d").alias("observation_window")),
-        (changed,),
-        time_origin=origin,
-    )
-    mismatch = replay_input_events(model, wrong_data, time_origin=origin, start=0, end=7)
-    assert isinstance(mismatch, ObservationPreflightFailure)
-    assert "incompatible measurement definitions" in mismatch.message
     # Isolate dated assignment control flow; no scientific solver runs in this contract.
     monkeypatch.setattr(
         orchestration,

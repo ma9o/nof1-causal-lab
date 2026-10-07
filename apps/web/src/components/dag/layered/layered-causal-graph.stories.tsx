@@ -39,7 +39,7 @@ const meta = {
     docs: {
       description: {
         component:
-          "Six cumulative artifact layers over the backend-selected graph. Early checkpoints show authored structure; established execution dispositions select the retained constructs and edges. Every story uses the canonical DEMO fixture.",
+          "Six cumulative artifact layers over the complete authored DAG. Saved identification findings decorate constructs without changing their structural membership. Every story uses the canonical HEALTHDEMO fixture.",
       },
     },
     svgMaterializer: {

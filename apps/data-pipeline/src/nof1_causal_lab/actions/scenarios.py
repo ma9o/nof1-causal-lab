@@ -6,7 +6,10 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
+from nof1_causal_lab.artifacts.display_frames import central_frame
+from nof1_causal_lab.artifacts.arrays import NumericalArray
 from nof1_causal_lab.artifacts.scenarios import CausalEffectResult
+from nof1_causal_lab.artifacts.simulation import PairedArmSimulation
 from nof1_causal_lab.models.causal_proofs import (
     CausalCertificationError,
     CertifiedCausalAnalysis,
@@ -28,11 +31,15 @@ def summarize_causal_simulation(
     inference: StudyRevision | None,
 ) -> SimulationReport:
     """Report the question's numeric effect only when identification and exact-fit evidence support it."""
+    import jax.numpy as jnp
+
+    from nof1_causal_lab.models.ssm.counterfactual.estimands import summarize_draws
     from nof1_causal_lab.study.lineage import fitted_law_report
     from nof1_causal_lab.study.store import read_model
 
     model, outcome = selection.model, selection.outcome
-    if not report.evidence.design.interventions:
+    arms = report.evidence.arms
+    if not isinstance(arms, PairedArmSimulation):
         return report
     if inference is None or outcome is None or outcome not in report.evidence.state_ids:
         return report.without_causal_result(
@@ -62,20 +69,33 @@ def summarize_causal_simulation(
         )
     except CausalCertificationError as exc:
         return report.without_causal_result(str(exc))
-    assert report.evidence.reference_latent_paths is not None
-    assert report.evidence.reference_observations is not None
-    reference = store.read_array(report.evidence.reference_latent_paths)
-    action = store.read_array(report.evidence.latent_paths)
+    reference = arms.reference.latent_paths.values
+    action = arms.action.latent_paths.values
     if not np.isfinite(reference).all() or not np.isfinite(action).all():
         return report.without_causal_result(
             "Non-finite histories do not support numeric causal effects."
         )
+    outcome_index = report.evidence.state_ids.index(outcome)
+    differences = action[:, :, outcome_index] - reference[:, :, outcome_index]
+    frame = central_frame(differences)
+    assert frame is not None, "Finite paired histories have a display range"
+    observed = arms.action.observations.values
+    reference_observed = arms.reference.observations.values
+    manifest_differences = observed[:, -1] - reference_observed[:, -1]
     result = CausalEffectResult(
         outcome=outcome,
         labels={construct.id: construct.name for construct in model.constructs},
+        differences=NumericalArray.from_numpy(differences),
+        frame=frame,
+        summary=summarize_draws(jnp.asarray(differences[:, -1])),
+        reference_mean=float(reference[:, -1, outcome_index].mean()),
+        manifest_effects={
+            identity: float(manifest_differences[:, index].mean())
+            for index, identity in enumerate(report.evidence.observation_layout.indicator_ids)
+            if np.isfinite(manifest_differences[:, index]).all()
+        },
         warnings=()
-        if np.isfinite(store.read_array(report.evidence.observations)[:, -1]).all()
-        and np.isfinite(store.read_array(report.evidence.reference_observations)[:, -1]).all()
+        if np.isfinite(manifest_differences).all()
         else (
             "Some indicator contrasts are unavailable because their measurement windows extend before simulation start.",
         ),

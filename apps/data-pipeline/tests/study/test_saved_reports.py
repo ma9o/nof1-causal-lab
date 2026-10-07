@@ -11,6 +11,7 @@ import polars as pl
 import pygit2
 import pytest
 
+from nof1_causal_lab.artifacts.arrays import NumericalArray
 from nof1_causal_lab.actions.contracts import (
     EditModelRequest,
     FitRequest,
@@ -26,7 +27,7 @@ from nof1_causal_lab.actions.temporal.activities import (
 )
 from nof1_causal_lab.actions.temporal.messages import AttemptPublication, EvaluateChecksInput
 from nof1_causal_lab.artifacts.availability import NotApplicable
-from nof1_causal_lab.artifacts.checks import Evaluated, NotEvaluated
+from nof1_causal_lab.artifacts.checks import Evaluated
 from nof1_causal_lab.artifacts.data_preparation import FileSourceRef
 from nof1_causal_lab.artifacts.data_ref import DataRef
 from nof1_causal_lab.artifacts.identification import IdentificationReport
@@ -47,9 +48,11 @@ from nof1_causal_lab.artifacts.posterior_diagnostics import ParameterConvergence
 from nof1_causal_lab.artifacts.predictive_provenance import AuthoredLawProvenance
 from nof1_causal_lab.artifacts.simulation import (
     ModelSimulationResult,
+    SimulationArm,
     SimulationEvidence,
     SimulationReport,
     SimulationSpec,
+    SingleArmSimulation,
 )
 from nof1_causal_lab.artifacts.validation_report import (
     DataProfileArtifact,
@@ -61,7 +64,7 @@ from nof1_causal_lab.study.records import Applied, DataPreparationResult
 from nof1_causal_lab.study.snapshots import ModelReader
 from nof1_causal_lab.study.store import ArtifactStore
 from nof1_causal_lab.utils import data
-from tests.action_fixtures import applied_record, question_root
+from tests.action_fixtures import applied_record, empty_simulation_summary, question_root
 from tests.integration.runner_fixtures import panel_frame, panel_metadata, seed_model
 from tests.model_fixtures import x_y_model
 
@@ -199,37 +202,47 @@ def test_action_reports_are_published_once_and_loaded_without_checks(tmp_path, m
         derived_from={"model": authored.revision, "panel": panel.revision},
         json_files={"model.json": model.model_dump(mode="json", round_trip=True)},
     )
+    from nof1_causal_lab.artifacts.posterior_diagnostics import ParticleMCMCEvidence
+
+    initial_delta = NumericalArray.from_numpy(np.asarray([[1.0, 2.0]]))
+    divergent = NumericalArray.from_numpy(np.asarray([False, True]))
+    evidence = InferenceEvidence(
+        initial_latent_delta=initial_delta,
+        chain_extra_fields={"diverging": divergent},
+    )
     inference = InferenceReport(
-        core=InferenceReportCore(
-            time_origin=None,
-            inference_metadata=InferenceMetadata(n_samples=2, duration_seconds=3),
-            engine=NotEvaluated(subject="production_engine", reason="ARCHIVED_ENGINE_NOT_RETAINED"),
-            inference_diagnostics=None,
-            sampler_diagnostics=None,
-            convergence=ParameterConvergenceReport(assessments=()),
+        run=ModelFitResult(
+            model=GitRef(workspace_id=workspace, revision=authored.revision, path="model.json"),
+            data=DataRef[GitOid, int](revision=panel.revision, replicate_index=0),
+            evidence=evidence,
         ),
-        detail=InferenceReportDetail(initial_latent_delta=((1.0, 2.0),), divergent=(False, True)),
+        core=InferenceReportCore(
+            inference_metadata=InferenceMetadata(
+                distribution=DistributionId("distribution:retained"),
+                n_samples=2,
+                num_chains=1,
+                duration_seconds=3,
+                engine=ParticleMCMCEvidence(),
+                sampler_diagnostics=None,
+            ),
+            inference_diagnostics=None,
+            convergence=ParameterConvergenceReport(assessments=()),
+            posterior_marginals=(),
+            prior_densities={},
+        ),
+        detail=InferenceReportDetail(),
     )
 
     def unexpected_evaluation(*_args, **_kwargs):
         pytest.fail("Saved result reads and publication must not run checks")
 
     monkeypatch.setattr("nof1_causal_lab.actions.fit.read_inference_report", unexpected_evaluation)
-    initial_delta = store.write_array(np.asarray([[1.0, 2.0]]))
-    divergent = store.write_array(np.asarray([False, True]))
     fit_publication, fit_revision = publish(
         Applied(
             result=ModelFitResult(
                 model=GitRef(workspace_id=workspace, revision=authored.revision, path="model.json"),
                 data=DataRef[GitOid, int](revision=panel.revision, replicate_index=0),
-                evidence=InferenceEvidence(
-                    distribution=DistributionId("distribution:retained"),
-                    engine=None,
-                    time_origin=None,
-                    duration_seconds=3,
-                    initial_latent_delta=initial_delta,
-                    chain_extra_fields={"diverging": divergent},
-                ),
+                evidence=evidence,
             ),
             effects=ActionEffects(
                 produced=(fitted,), reports={"inference": store.write_report(inference)}
@@ -242,7 +255,7 @@ def test_action_reports_are_published_once_and_loaded_without_checks(tmp_path, m
         ),
         model_checks=(checks, identification, validation),
     )
-    zeroes = store.write_array(np.zeros((2, 2, 0)))
+    zeroes = NumericalArray.from_numpy(np.zeros((2, 2, 0)))
     assert model.measurement_clock is not None
     variables = tuple(
         item.observation.resolved(model.measurement_clock) for item in model.indicators
@@ -262,16 +275,18 @@ def test_action_reports_are_published_once_and_loaded_without_checks(tmp_path, m
         seed=0,
         state_ids=(),
         parameter_draws={},
-        latent_paths=zeroes,
-        observations=store.write_array(observations),
+        arms=SingleArmSimulation(
+            action=SimulationArm(latent_paths=zeroes, observations=NumericalArray.from_numpy(observations)),
+        ),
         observation_layout={
             "variables": variables,
-            "support_start_times": store.write_array(support_ends - 1),
-            "support_end_times": store.write_array(support_ends),
-            "mask": store.write_array(mask),
+            "support_start_times": NumericalArray.from_numpy(support_ends - 1),
+            "support_end_times": NumericalArray.from_numpy(support_ends),
+            "mask": NumericalArray.from_numpy(mask),
         },
     )
     simulation = SimulationReport(
+        summary=empty_simulation_summary(),
         evidence=evidence,
         law=AuthoredLawProvenance(),
         fit_reliability="not_fitted",
@@ -323,19 +338,21 @@ def test_action_reports_are_published_once_and_loaded_without_checks(tmp_path, m
     assert saved_validation is None
     reader = ModelReader(workspace, at=simulated.commit_id)
     assert reader.fit_result is not None
-    assert reader.fit_result.question_checks == checks.question
+    assert reader.fit_result.checks.question == checks.question
     assert reader.validation_report == validation
     saved_inference = reader.inference_report
     assert saved_inference is not None
-    from nof1_causal_lab.study.action_arrays import resolve_vector
+    assert saved_inference == inference
+    assert saved_inference.run.evidence.initial_latent_delta == initial_delta
+    assert saved_inference.run.evidence.chain_extra_fields["diverging"] == divergent
+    np.testing.assert_array_equal(initial_delta.values, [[1.0, 2.0]])
+    assert set(reader.fit_result.model_dump()) == {"model", "checks", "inference"}
+    for field in ("model", "checks", "inference"):
+        from pydantic import ValidationError
 
-    assert saved_inference.core == inference.core
-    assert saved_inference.detail.initial_latent_delta is not None
-    assert resolve_vector(
-        saved_inference.detail.initial_latent_delta[0], reader.fit_result.arrays
-    ) == (1.0, 2.0)
-    assert saved_inference.detail.divergent == divergent
-    np.testing.assert_array_equal(store.read_array(divergent), [False, True])
+        with pytest.raises(ValidationError):
+            reader.fit_result.revised(**{field: None})
+    np.testing.assert_array_equal(divergent.values, [False, True])
     saved_simulation = reader.simulation()
     assert saved_simulation is not None
     assert saved_simulation == simulation
@@ -343,17 +360,20 @@ def test_action_reports_are_published_once_and_loaded_without_checks(tmp_path, m
     from pydantic import TypeAdapter
 
     from nof1_causal_lab.actions.results import ActionPoll
-    from nof1_causal_lab.study.action_outputs import completed_call_json
+    from nof1_causal_lab.study.action_outputs import completed_call_msgpack
+    from nof1_causal_lab.study.result_codec import unpack_result
 
     def completed_call(workspace_id, revision):
-        return TypeAdapter(ActionPoll).validate_json(completed_call_json(workspace_id, revision))
+        return TypeAdapter(ActionPoll).validate_python(
+            unpack_result(completed_call_msgpack(workspace_id, revision))
+        )
 
     fitted_response = completed_call(workspace, fit_revision)
     assert fitted_response.status == "success"
     assert fitted_response.action == "fit"
-    assert fitted_response.body.question_checks == checks.question
-    assert fitted_response.body.inference_report is not None
-    assert fitted_response.body.inference_report == saved_inference
+    assert fitted_response.body.checks.question == checks.question
+    assert fitted_response.body.inference is not None
+    assert fitted_response.body.inference == saved_inference
     with monkeypatch.context() as isolated:
         isolated.setattr(ModelReader, "snapshot", unexpected_evaluation)
         isolated.setattr(ModelReader, "model_output", unexpected_evaluation)
@@ -364,7 +384,7 @@ def test_action_reports_are_published_once_and_loaded_without_checks(tmp_path, m
     assert response.action == "simulate"
     assert response.body.report is not None
     assert response.body.report == simulation
-    assert set(response.body.model_dump()) == {"report", "data", "paths", "arrays"}
+    assert set(response.body.model_dump()) == {"report", "data"}
     assert prepared_response.status == "success"
     assert prepared_response.action == "prepare_data"
     assert isinstance(prepared_response.body.data, Mapping)
@@ -374,7 +394,7 @@ def test_action_reports_are_published_once_and_loaded_without_checks(tmp_path, m
     from nof1_causal_lab.study.action_arrays import resolve_vector
 
     def values(value):
-        return resolve_vector(value, response.body.arrays)
+        return resolve_vector(value)
 
     first, second = response.body.data
     assert type(first[variables[0].id]) is type(prepared_history)
@@ -384,10 +404,10 @@ def test_action_reports_are_published_once_and_loaded_without_checks(tmp_path, m
     assert values(second[variables[0].id].values) == (None, None)
     assert values(second[variables[1].id].values) == (7.0, 7.0)
     np.testing.assert_array_equal(
-        store.read_array(saved_simulation.evidence.latent_paths), np.zeros((2, 2, 0))
+        saved_simulation.evidence.arms.action.latent_paths.values, np.zeros((2, 2, 0))
     )
     assert (
-        repository.read_file(fit_revision.commit_id, "result.json")
+        repository.read_file(fit_revision.commit_id, "result.msgpack")
         == store.repo[pygit2.Oid(hex=fit_revision.record.attempt.outcome.result)]
         .peel(pygit2.Blob)
         .data

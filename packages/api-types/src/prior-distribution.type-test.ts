@@ -15,4 +15,6 @@ export type ParameterOwnsIdentity = Expect<Extends<ParameterSpec["id"], Paramete
 export type ParameterCarriesNativeLaw = Expect<
   Extends<NonNullable<ParameterSpec["distribution"]>, NumPyroDistribution | DistributionId>
 >;
-export type ModelOwnsParameters = Expect<Extends<ModelSpec["parameters"][number], ParameterSpec>>;
+export type ModelOwnsParameters = Expect<
+  Extends<NonNullable<ModelSpec["parameters"][ParameterId]>, Omit<ParameterSpec, "id">>
+>;

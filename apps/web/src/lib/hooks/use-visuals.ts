@@ -25,7 +25,7 @@ export function useObservationHistory(model: ModelSnapshot, id: IndicatorId) {
   return {
     ...query,
     data: selected
-      ? historyView(selected, result?.action === "simulate" ? result.body.arrays : {})
+      ? historyView(selected)
       : null,
   };
 }
@@ -46,10 +46,8 @@ export function useSimulationPaths(model: ModelSnapshot, selection: DrawSelectio
   const simulation = viewedSimulation(model);
   const query = useViewedSimulationResult(model, simulation !== null);
   const paths =
-    query.data?.action === "simulate"
-      ? query.data.body.paths
-        ? pathsView(query.data.body.paths, query.data.body.arrays)
-        : null
+    query.data?.action === "simulate" && model.model
+      ? pathsView(query.data.body, model.model)
       : null;
   const { start, count } = selection;
   const page = (series: PathSeriesView): PathSeriesView => ({

@@ -72,11 +72,6 @@ def predictive_keys(seed: int) -> PredictiveKeys:
     return PredictiveKeys(parameter_key, latent_key, observation_key)
 
 
-def forward_simulation_supported(spec: CompiledModel) -> bool:
-    """Check whether every compiled innovation family is supported by the Gaussian-noise simulator."""
-    return all(family == DistributionFamily.GAUSSIAN for family in numeric.diffusion_families(spec))
-
-
 def _ensure_gaussian_process_diffusion(spec: CompiledModel) -> None:
     non_gaussian = [
         dist.value

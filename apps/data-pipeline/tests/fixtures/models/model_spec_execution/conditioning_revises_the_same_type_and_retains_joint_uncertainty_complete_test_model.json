@@ -1,10 +1,362 @@
 {
-  "edges": [
-    {
-      "id": "edge:906990609f84777bab46",
-      "mechanisms": [
+  "constructs": {
+    "construct:c2061f241aafa2387cc9": {
+      "name": "A",
+      "description": "A",
+      "indicators": {
+        "indicator:1f1d7290b5a33ca3b39c": {
+          "likelihood": {
+            "law": {
+              "distribution": "Normal",
+              "loc": {
+                "kind": "binary",
+                "operator": "add",
+                "left": {
+                  "kind": "coefficient",
+                  "role": "observation_intercept",
+                  "value": 0.0,
+                  "construct_ids": []
+                },
+                "right": {
+                  "kind": "binary",
+                  "operator": "multiply",
+                  "left": {
+                    "kind": "coefficient",
+                    "role": "loading",
+                    "value": 1.0,
+                    "construct_ids": []
+                  },
+                  "right": {
+                    "kind": "state",
+                    "construct_id": "construct:c2061f241aafa2387cc9"
+                  }
+                }
+              },
+              "scale": {
+                "kind": "coefficient",
+                "role": "observation_scale",
+                "value": 0.0,
+                "construct_ids": []
+              }
+            },
+            "standardized": true,
+            "reasoning": "Test Gaussian emission",
+            "sources": []
+          },
+          "construct_polarity": "positive",
+          "observation": {
+            "categorical_levels": null,
+            "aggregation": "mean",
+            "name": "A_obs",
+            "ordinal_levels": null,
+            "measurement_dtype": "continuous",
+            "observation_window": null
+          }
+        }
+      },
+      "dynamics": {
+        "mechanism:23300ec00559c1e70e4fa03ebaa8f6cb8deca502c54e00c7f8b21030f63a5b3b": {
+          "kind": "potential",
+          "expression": {
+            "kind": "binary",
+            "operator": "add",
+            "left": {
+              "kind": "binary",
+              "operator": "divide",
+              "left": {
+                "kind": "binary",
+                "operator": "multiply",
+                "left": {
+                  "kind": "coefficient",
+                  "role": "decay",
+                  "value": "parameter:a13b76d97c503c035e38d91ccc01486e13fbcfc380e47cb2c80e64ed7848c885",
+                  "construct_ids": []
+                },
+                "right": {
+                  "kind": "binary",
+                  "operator": "power",
+                  "left": {
+                    "kind": "binary",
+                    "operator": "subtract",
+                    "left": {
+                      "kind": "state",
+                      "construct_id": "construct:c2061f241aafa2387cc9"
+                    },
+                    "right": {
+                      "kind": "coefficient",
+                      "role": "center",
+                      "value": 0.0,
+                      "construct_ids": []
+                    }
+                  },
+                  "right": {
+                    "kind": "literal",
+                    "value": 2.0
+                  }
+                }
+              },
+              "right": {
+                "kind": "literal",
+                "value": 2.0
+              }
+            },
+            "right": {
+              "kind": "binary",
+              "operator": "divide",
+              "left": {
+                "kind": "binary",
+                "operator": "multiply",
+                "left": {
+                  "kind": "coefficient",
+                  "role": "quartic",
+                  "value": 0.0,
+                  "construct_ids": []
+                },
+                "right": {
+                  "kind": "binary",
+                  "operator": "power",
+                  "left": {
+                    "kind": "binary",
+                    "operator": "subtract",
+                    "left": {
+                      "kind": "state",
+                      "construct_id": "construct:c2061f241aafa2387cc9"
+                    },
+                    "right": {
+                      "kind": "coefficient",
+                      "role": "center",
+                      "value": 0.0,
+                      "construct_ids": []
+                    }
+                  },
+                  "right": {
+                    "kind": "literal",
+                    "value": 4.0
+                  }
+                }
+              },
+              "right": {
+                "kind": "literal",
+                "value": 4.0
+              }
+            }
+          }
+        }
+      },
+      "coefficients": [
         {
-          "id": "mechanism:7603d7826da5a0afb8765f2efb9c3c5fe3f055745e51a1a7db05952b7ce8b875",
+          "kind": "coefficient",
+          "role": "diffusion_scale",
+          "value": "parameter:85bca3dac5c83f1907e6f00ed9f4b9f1c0d4032b7a083337e89e15caf43f6845",
+          "construct_ids": []
+        },
+        {
+          "kind": "coefficient",
+          "role": "initial_mean",
+          "value": 0.0,
+          "construct_ids": []
+        },
+        {
+          "kind": "coefficient",
+          "role": "initial_scale",
+          "value": 1.0,
+          "construct_ids": []
+        }
+      ],
+      "innovation_family": "gaussian",
+      "distribution": null,
+      "role": "endogenous",
+      "temporal_status": "time_varying"
+    },
+    "construct:efca9bd7f243a46c0d06": {
+      "name": "B",
+      "description": "B",
+      "indicators": {
+        "indicator:1260ee92b41d90b180ec": {
+          "likelihood": {
+            "law": {
+              "distribution": "Categorical",
+              "logits": {
+                "kind": "call",
+                "function": "category_logits",
+                "arguments": [
+                  {
+                    "kind": "binary",
+                    "operator": "add",
+                    "left": {
+                      "kind": "coefficient",
+                      "role": "observation_intercept",
+                      "value": 0.0,
+                      "construct_ids": []
+                    },
+                    "right": {
+                      "kind": "binary",
+                      "operator": "multiply",
+                      "left": {
+                        "kind": "coefficient",
+                        "role": "loading",
+                        "value": 1.0,
+                        "construct_ids": []
+                      },
+                      "right": {
+                        "kind": "state",
+                        "construct_id": "construct:efca9bd7f243a46c0d06"
+                      }
+                    }
+                  },
+                  {
+                    "kind": "coefficient",
+                    "role": "category_intercepts",
+                    "value": "parameter:855c0e9decc81b21aac8a6f77adf9ce25269456daba2da077e546155e0bf3ec9",
+                    "construct_ids": []
+                  },
+                  {
+                    "kind": "coefficient",
+                    "role": "category_slopes",
+                    "value": "parameter:e023bf229ef882dc8b4b6732485a912c1cd54b3bd66085595935952f9013d781",
+                    "construct_ids": []
+                  }
+                ]
+              }
+            },
+            "standardized": false,
+            "reasoning": "Joint law with category-specific parameter elements",
+            "sources": []
+          },
+          "construct_polarity": "positive",
+          "observation": {
+            "categorical_levels": [
+              "low",
+              "medium",
+              "high"
+            ],
+            "aggregation": "last",
+            "name": "B_obs",
+            "ordinal_levels": null,
+            "measurement_dtype": "categorical",
+            "observation_window": null
+          }
+        }
+      },
+      "dynamics": {
+        "mechanism:26d15d45d342b8735c14a3847eca07990643ef3226f39ccb55e0f842e3e87d59": {
+          "kind": "potential",
+          "expression": {
+            "kind": "binary",
+            "operator": "add",
+            "left": {
+              "kind": "binary",
+              "operator": "divide",
+              "left": {
+                "kind": "binary",
+                "operator": "multiply",
+                "left": {
+                  "kind": "coefficient",
+                  "role": "decay",
+                  "value": "parameter:27d8c5458fcd6c8573ccaf1af9eb7b799c04e5f3c5e3a48f11ef55d82486a31d",
+                  "construct_ids": []
+                },
+                "right": {
+                  "kind": "binary",
+                  "operator": "power",
+                  "left": {
+                    "kind": "binary",
+                    "operator": "subtract",
+                    "left": {
+                      "kind": "state",
+                      "construct_id": "construct:efca9bd7f243a46c0d06"
+                    },
+                    "right": {
+                      "kind": "coefficient",
+                      "role": "center",
+                      "value": 0.0,
+                      "construct_ids": []
+                    }
+                  },
+                  "right": {
+                    "kind": "literal",
+                    "value": 2.0
+                  }
+                }
+              },
+              "right": {
+                "kind": "literal",
+                "value": 2.0
+              }
+            },
+            "right": {
+              "kind": "binary",
+              "operator": "divide",
+              "left": {
+                "kind": "binary",
+                "operator": "multiply",
+                "left": {
+                  "kind": "coefficient",
+                  "role": "quartic",
+                  "value": 0.0,
+                  "construct_ids": []
+                },
+                "right": {
+                  "kind": "binary",
+                  "operator": "power",
+                  "left": {
+                    "kind": "binary",
+                    "operator": "subtract",
+                    "left": {
+                      "kind": "state",
+                      "construct_id": "construct:efca9bd7f243a46c0d06"
+                    },
+                    "right": {
+                      "kind": "coefficient",
+                      "role": "center",
+                      "value": 0.0,
+                      "construct_ids": []
+                    }
+                  },
+                  "right": {
+                    "kind": "literal",
+                    "value": 4.0
+                  }
+                }
+              },
+              "right": {
+                "kind": "literal",
+                "value": 4.0
+              }
+            }
+          }
+        }
+      },
+      "coefficients": [
+        {
+          "kind": "coefficient",
+          "role": "diffusion_scale",
+          "value": "parameter:e0e90b3df4282bc948a04a3a0f387f939d1669a4aeacaa011c354a83e4ef4f67",
+          "construct_ids": []
+        },
+        {
+          "kind": "coefficient",
+          "role": "initial_mean",
+          "value": 0.0,
+          "construct_ids": []
+        },
+        {
+          "kind": "coefficient",
+          "role": "initial_scale",
+          "value": 1.0,
+          "construct_ids": []
+        }
+      ],
+      "innovation_family": "gaussian",
+      "distribution": null,
+      "role": "endogenous",
+      "temporal_status": "time_varying"
+    }
+  },
+  "edges": {
+    "edge:906990609f84777bab46": {
+      "mechanisms": {
+        "mechanism:7603d7826da5a0afb8765f2efb9c3c5fe3f055745e51a1a7db05952b7ce8b875": {
           "kind": "drift",
           "expression": {
             "kind": "binary",
@@ -21,372 +373,15 @@
             }
           }
         }
-      ],
-      "cause": {
-        "id": "construct:c2061f241aafa2387cc9",
-        "name": "A",
-        "description": "A",
-        "indicators": [
-          {
-            "likelihood": {
-              "law": {
-                "distribution": "Normal",
-                "loc": {
-                  "kind": "binary",
-                  "operator": "add",
-                  "left": {
-                    "kind": "coefficient",
-                    "role": "observation_intercept",
-                    "value": 0.0,
-                    "construct_ids": []
-                  },
-                  "right": {
-                    "kind": "binary",
-                    "operator": "multiply",
-                    "left": {
-                      "kind": "coefficient",
-                      "role": "loading",
-                      "value": 1.0,
-                      "construct_ids": []
-                    },
-                    "right": {
-                      "kind": "state",
-                      "construct_id": "construct:c2061f241aafa2387cc9"
-                    }
-                  }
-                },
-                "scale": {
-                  "kind": "coefficient",
-                  "role": "observation_scale",
-                  "value": 0.0,
-                  "construct_ids": []
-                }
-              },
-              "standardized": true,
-              "reasoning": "Test Gaussian emission",
-              "sources": []
-            },
-            "construct_polarity": "positive",
-            "observation": {
-              "categorical_levels": null,
-              "id": "indicator:1f1d7290b5a33ca3b39c",
-              "aggregation": "mean",
-              "name": "A_obs",
-              "ordinal_levels": null,
-              "measurement_dtype": "continuous",
-              "observation_window": null
-            }
-          }
-        ],
-        "dynamics": [
-          {
-            "id": "mechanism:23300ec00559c1e70e4fa03ebaa8f6cb8deca502c54e00c7f8b21030f63a5b3b",
-            "kind": "potential",
-            "expression": {
-              "kind": "binary",
-              "operator": "add",
-              "left": {
-                "kind": "binary",
-                "operator": "divide",
-                "left": {
-                  "kind": "binary",
-                  "operator": "multiply",
-                  "left": {
-                    "kind": "coefficient",
-                    "role": "decay",
-                    "value": "parameter:a13b76d97c503c035e38d91ccc01486e13fbcfc380e47cb2c80e64ed7848c885",
-                    "construct_ids": []
-                  },
-                  "right": {
-                    "kind": "binary",
-                    "operator": "power",
-                    "left": {
-                      "kind": "binary",
-                      "operator": "subtract",
-                      "left": {
-                        "kind": "state",
-                        "construct_id": "construct:c2061f241aafa2387cc9"
-                      },
-                      "right": {
-                        "kind": "coefficient",
-                        "role": "center",
-                        "value": 0.0,
-                        "construct_ids": []
-                      }
-                    },
-                    "right": {
-                      "kind": "literal",
-                      "value": 2.0
-                    }
-                  }
-                },
-                "right": {
-                  "kind": "literal",
-                  "value": 2.0
-                }
-              },
-              "right": {
-                "kind": "binary",
-                "operator": "divide",
-                "left": {
-                  "kind": "binary",
-                  "operator": "multiply",
-                  "left": {
-                    "kind": "coefficient",
-                    "role": "quartic",
-                    "value": 0.0,
-                    "construct_ids": []
-                  },
-                  "right": {
-                    "kind": "binary",
-                    "operator": "power",
-                    "left": {
-                      "kind": "binary",
-                      "operator": "subtract",
-                      "left": {
-                        "kind": "state",
-                        "construct_id": "construct:c2061f241aafa2387cc9"
-                      },
-                      "right": {
-                        "kind": "coefficient",
-                        "role": "center",
-                        "value": 0.0,
-                        "construct_ids": []
-                      }
-                    },
-                    "right": {
-                      "kind": "literal",
-                      "value": 4.0
-                    }
-                  }
-                },
-                "right": {
-                  "kind": "literal",
-                  "value": 4.0
-                }
-              }
-            }
-          }
-        ],
-        "coefficients": [
-          {
-            "kind": "coefficient",
-            "role": "diffusion_scale",
-            "value": "parameter:85bca3dac5c83f1907e6f00ed9f4b9f1c0d4032b7a083337e89e15caf43f6845",
-            "construct_ids": []
-          },
-          {
-            "kind": "coefficient",
-            "role": "initial_mean",
-            "value": 0.0,
-            "construct_ids": []
-          },
-          {
-            "kind": "coefficient",
-            "role": "initial_scale",
-            "value": 1.0,
-            "construct_ids": []
-          }
-        ],
-        "innovation_family": "gaussian",
-        "distribution": null,
-        "role": "endogenous",
-        "temporal_status": "time_varying"
-      },
-      "effect": {
-        "id": "construct:efca9bd7f243a46c0d06",
-        "name": "B",
-        "description": "B",
-        "indicators": [
-          {
-            "likelihood": {
-              "law": {
-                "distribution": "Categorical",
-                "logits": {
-                  "kind": "call",
-                  "function": "category_logits",
-                  "arguments": [
-                    {
-                      "kind": "binary",
-                      "operator": "add",
-                      "left": {
-                        "kind": "coefficient",
-                        "role": "observation_intercept",
-                        "value": 0.0,
-                        "construct_ids": []
-                      },
-                      "right": {
-                        "kind": "binary",
-                        "operator": "multiply",
-                        "left": {
-                          "kind": "coefficient",
-                          "role": "loading",
-                          "value": 1.0,
-                          "construct_ids": []
-                        },
-                        "right": {
-                          "kind": "state",
-                          "construct_id": "construct:efca9bd7f243a46c0d06"
-                        }
-                      }
-                    },
-                    {
-                      "kind": "coefficient",
-                      "role": "category_intercepts",
-                      "value": "parameter:855c0e9decc81b21aac8a6f77adf9ce25269456daba2da077e546155e0bf3ec9",
-                      "construct_ids": []
-                    },
-                    {
-                      "kind": "coefficient",
-                      "role": "category_slopes",
-                      "value": "parameter:e023bf229ef882dc8b4b6732485a912c1cd54b3bd66085595935952f9013d781",
-                      "construct_ids": []
-                    }
-                  ]
-                }
-              },
-              "standardized": false,
-              "reasoning": "Joint law with category-specific parameter elements",
-              "sources": []
-            },
-            "construct_polarity": "positive",
-            "observation": {
-              "categorical_levels": [
-                "low",
-                "medium",
-                "high"
-              ],
-              "id": "indicator:1260ee92b41d90b180ec",
-              "aggregation": "last",
-              "name": "B_obs",
-              "ordinal_levels": null,
-              "measurement_dtype": "categorical",
-              "observation_window": null
-            }
-          }
-        ],
-        "dynamics": [
-          {
-            "id": "mechanism:26d15d45d342b8735c14a3847eca07990643ef3226f39ccb55e0f842e3e87d59",
-            "kind": "potential",
-            "expression": {
-              "kind": "binary",
-              "operator": "add",
-              "left": {
-                "kind": "binary",
-                "operator": "divide",
-                "left": {
-                  "kind": "binary",
-                  "operator": "multiply",
-                  "left": {
-                    "kind": "coefficient",
-                    "role": "decay",
-                    "value": "parameter:27d8c5458fcd6c8573ccaf1af9eb7b799c04e5f3c5e3a48f11ef55d82486a31d",
-                    "construct_ids": []
-                  },
-                  "right": {
-                    "kind": "binary",
-                    "operator": "power",
-                    "left": {
-                      "kind": "binary",
-                      "operator": "subtract",
-                      "left": {
-                        "kind": "state",
-                        "construct_id": "construct:efca9bd7f243a46c0d06"
-                      },
-                      "right": {
-                        "kind": "coefficient",
-                        "role": "center",
-                        "value": 0.0,
-                        "construct_ids": []
-                      }
-                    },
-                    "right": {
-                      "kind": "literal",
-                      "value": 2.0
-                    }
-                  }
-                },
-                "right": {
-                  "kind": "literal",
-                  "value": 2.0
-                }
-              },
-              "right": {
-                "kind": "binary",
-                "operator": "divide",
-                "left": {
-                  "kind": "binary",
-                  "operator": "multiply",
-                  "left": {
-                    "kind": "coefficient",
-                    "role": "quartic",
-                    "value": 0.0,
-                    "construct_ids": []
-                  },
-                  "right": {
-                    "kind": "binary",
-                    "operator": "power",
-                    "left": {
-                      "kind": "binary",
-                      "operator": "subtract",
-                      "left": {
-                        "kind": "state",
-                        "construct_id": "construct:efca9bd7f243a46c0d06"
-                      },
-                      "right": {
-                        "kind": "coefficient",
-                        "role": "center",
-                        "value": 0.0,
-                        "construct_ids": []
-                      }
-                    },
-                    "right": {
-                      "kind": "literal",
-                      "value": 4.0
-                    }
-                  }
-                },
-                "right": {
-                  "kind": "literal",
-                  "value": 4.0
-                }
-              }
-            }
-          }
-        ],
-        "coefficients": [
-          {
-            "kind": "coefficient",
-            "role": "diffusion_scale",
-            "value": "parameter:e0e90b3df4282bc948a04a3a0f387f939d1669a4aeacaa011c354a83e4ef4f67",
-            "construct_ids": []
-          },
-          {
-            "kind": "coefficient",
-            "role": "initial_mean",
-            "value": 0.0,
-            "construct_ids": []
-          },
-          {
-            "kind": "coefficient",
-            "role": "initial_scale",
-            "value": 1.0,
-            "construct_ids": []
-          }
-        ],
-        "innovation_family": "gaussian",
-        "distribution": null,
-        "role": "endogenous",
-        "temporal_status": "time_varying"
       },
       "description": "A causes B",
-      "sources": []
+      "sources": [],
+      "cause": "construct:c2061f241aafa2387cc9",
+      "effect": "construct:efca9bd7f243a46c0d06"
     }
-  ],
-  "parameters": [
-    {
-      "id": "parameter:a13b76d97c503c035e38d91ccc01486e13fbcfc380e47cb2c80e64ed7848c885",
+  },
+  "parameters": {
+    "parameter:a13b76d97c503c035e38d91ccc01486e13fbcfc380e47cb2c80e64ed7848c885": {
       "name": "rho_A",
       "description": "stiffness of rho_A",
       "distribution": "distribution:917fec2627406d199b3b8ff09b845996bcbbed5c6f384d4137c53bd7a73c8b4a",
@@ -395,8 +390,7 @@
         "interval_days": "model_clock"
       }
     },
-    {
-      "id": "parameter:27d8c5458fcd6c8573ccaf1af9eb7b799c04e5f3c5e3a48f11ef55d82486a31d",
+    "parameter:27d8c5458fcd6c8573ccaf1af9eb7b799c04e5f3c5e3a48f11ef55d82486a31d": {
       "name": "rho_B",
       "description": "stiffness of rho_B",
       "distribution": "distribution:f57db412c0f1b13630efd9dcd7ae60089f9539364b029e25040009f02a3163e7",
@@ -405,8 +399,7 @@
         "interval_days": "model_clock"
       }
     },
-    {
-      "id": "parameter:79483cc47622edfa2a1e13e799a422d756d6be929da89f6f78aa798b4f773196",
+    "parameter:79483cc47622edfa2a1e13e799a422d756d6be929da89f6f78aa798b4f773196": {
       "name": "beta_A_B",
       "description": "weight of beta_A_B",
       "distribution": "distribution:054824992c13ba69ff5084fdabd003da86c1efaa9dcb1e8349588fec65a72ef6",
@@ -415,8 +408,7 @@
         "interval_days": "model_clock"
       }
     },
-    {
-      "id": "parameter:85bca3dac5c83f1907e6f00ed9f4b9f1c0d4032b7a083337e89e15caf43f6845",
+    "parameter:85bca3dac5c83f1907e6f00ed9f4b9f1c0d4032b7a083337e89e15caf43f6845": {
       "name": "sigma_A",
       "description": "innovation.scale for sigma_A",
       "distribution": "distribution:6aac88cbee07a7083e98fa22db06d175e8f0101abf9da0eff7a0499e7a638af0",
@@ -424,8 +416,7 @@
         "kind": "identity"
       }
     },
-    {
-      "id": "parameter:e0e90b3df4282bc948a04a3a0f387f939d1669a4aeacaa011c354a83e4ef4f67",
+    "parameter:e0e90b3df4282bc948a04a3a0f387f939d1669a4aeacaa011c354a83e4ef4f67": {
       "name": "sigma_B",
       "description": "innovation.scale for sigma_B",
       "distribution": "distribution:9786432a8d55f072e18e612e2b2d89944710a1232809355f63c1b9468edc57a6",
@@ -433,8 +424,7 @@
         "kind": "identity"
       }
     },
-    {
-      "id": "parameter:855c0e9decc81b21aac8a6f77adf9ce25269456daba2da077e546155e0bf3ec9",
+    "parameter:855c0e9decc81b21aac8a6f77adf9ce25269456daba2da077e546155e0bf3ec9": {
       "name": "obs_cat_intercepts",
       "description": "category intercepts for obs_cat_intercepts",
       "distribution": "distribution:8d05ff827a2e678b798443c17236030e6f43afaa516ead3fa728fd445ddf9bfb",
@@ -442,8 +432,7 @@
         "kind": "identity"
       }
     },
-    {
-      "id": "parameter:e023bf229ef882dc8b4b6732485a912c1cd54b3bd66085595935952f9013d781",
+    "parameter:e023bf229ef882dc8b4b6732485a912c1cd54b3bd66085595935952f9013d781": {
       "name": "obs_cat_slopes",
       "description": "category slopes for obs_cat_slopes",
       "distribution": "distribution:6243503fdd834ef949f4cecdcc4e0debec2966d9cb2df7e075634e69a1c6a013",
@@ -451,7 +440,7 @@
         "kind": "identity"
       }
     }
-  ],
+  },
   "distributions": {
     "distribution:8d05ff827a2e678b798443c17236030e6f43afaa516ead3fa728fd445ddf9bfb": {
       "distribution": "Normal",
@@ -508,6 +497,6 @@
       }
     }
   },
-  "measurement_clock": "1d",
-  "law_layouts": {}
+  "law_layouts": {},
+  "measurement_clock": "1d"
 }

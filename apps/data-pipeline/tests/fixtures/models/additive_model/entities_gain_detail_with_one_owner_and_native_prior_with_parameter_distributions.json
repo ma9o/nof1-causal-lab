@@ -1,10 +1,82 @@
 {
-  "edges": [
-    {
-      "id": "edge:xy",
-      "mechanisms": [
-        {
-          "id": "mechanism:linear",
+  "constructs": {
+    "construct:x": {
+      "name": "X",
+      "description": "X",
+      "indicators": {},
+      "dynamics": {},
+      "coefficients": [],
+      "innovation_family": "gaussian",
+      "distribution": null,
+      "role": "endogenous",
+      "temporal_status": "time_varying"
+    },
+    "construct:y": {
+      "name": "Y",
+      "description": "Y",
+      "indicators": {
+        "indicator:y": {
+          "likelihood": {
+            "law": {
+              "distribution": "Normal",
+              "loc": {
+                "kind": "binary",
+                "operator": "add",
+                "left": {
+                  "kind": "coefficient",
+                  "role": "observation_intercept",
+                  "value": null,
+                  "construct_ids": []
+                },
+                "right": {
+                  "kind": "binary",
+                  "operator": "multiply",
+                  "left": {
+                    "kind": "coefficient",
+                    "role": "loading",
+                    "value": null,
+                    "construct_ids": []
+                  },
+                  "right": {
+                    "kind": "state",
+                    "construct_id": "construct:y"
+                  }
+                }
+              },
+              "scale": {
+                "kind": "coefficient",
+                "role": "observation_scale",
+                "value": null,
+                "construct_ids": []
+              }
+            },
+            "standardized": false,
+            "reasoning": "Continuous measurement",
+            "sources": []
+          },
+          "construct_polarity": "positive",
+          "observation": {
+            "categorical_levels": null,
+            "aggregation": "mean",
+            "name": "measured_y",
+            "ordinal_levels": null,
+            "measurement_dtype": "continuous",
+            "observation_window": null
+          }
+        }
+      },
+      "dynamics": {},
+      "coefficients": [],
+      "innovation_family": "gaussian",
+      "distribution": null,
+      "role": "endogenous",
+      "temporal_status": "time_varying"
+    }
+  },
+  "edges": {
+    "edge:xy": {
+      "mechanisms": {
+        "mechanism:linear": {
           "kind": "drift",
           "expression": {
             "kind": "binary",
@@ -21,8 +93,7 @@
             }
           }
         },
-        {
-          "id": "mechanism:hill",
+        "mechanism:hill": {
           "kind": "drift",
           "expression": {
             "kind": "binary",
@@ -111,89 +182,15 @@
             }
           }
         }
-      ],
-      "cause": {
-        "id": "construct:x",
-        "name": "X",
-        "description": "X",
-        "indicators": [],
-        "dynamics": [],
-        "coefficients": [],
-        "innovation_family": "gaussian",
-        "distribution": null,
-        "role": "endogenous",
-        "temporal_status": "time_varying"
-      },
-      "effect": {
-        "id": "construct:y",
-        "name": "Y",
-        "description": "Y",
-        "indicators": [
-          {
-            "likelihood": {
-              "law": {
-                "distribution": "Normal",
-                "loc": {
-                  "kind": "binary",
-                  "operator": "add",
-                  "left": {
-                    "kind": "coefficient",
-                    "role": "observation_intercept",
-                    "value": null,
-                    "construct_ids": []
-                  },
-                  "right": {
-                    "kind": "binary",
-                    "operator": "multiply",
-                    "left": {
-                      "kind": "coefficient",
-                      "role": "loading",
-                      "value": null,
-                      "construct_ids": []
-                    },
-                    "right": {
-                      "kind": "state",
-                      "construct_id": "construct:y"
-                    }
-                  }
-                },
-                "scale": {
-                  "kind": "coefficient",
-                  "role": "observation_scale",
-                  "value": null,
-                  "construct_ids": []
-                }
-              },
-              "standardized": false,
-              "reasoning": "Continuous measurement",
-              "sources": []
-            },
-            "construct_polarity": "positive",
-            "observation": {
-              "categorical_levels": null,
-              "id": "indicator:y",
-              "aggregation": "mean",
-              "name": "measured_y",
-              "ordinal_levels": null,
-              "measurement_dtype": "continuous",
-              "observation_window": null
-            }
-          }
-        ],
-        "dynamics": [],
-        "coefficients": [],
-        "innovation_family": "gaussian",
-        "distribution": null,
-        "role": "endogenous",
-        "temporal_status": "time_varying"
       },
       "description": "X influences Y",
-      "sources": []
+      "sources": [],
+      "cause": "construct:x",
+      "effect": "construct:y"
     }
-  ],
-  "parameters": [
-    {
-      "id": "parameter:8deaae71d09e76318d9abe372f4706a9da2c6ad05802da5a3dd67b4780736859",
+  },
+  "parameters": {
+    "parameter:8deaae71d09e76318d9abe372f4706a9da2c6ad05802da5a3dd67b4780736859": {
       "name": "effect",
       "description": "Linear effect",
       "distribution": "distribution:a62411c9bd664f66f88469c684c614c1475bc91a5165160276c0ff8857a157e0",
@@ -201,8 +198,7 @@
         "kind": "identity"
       }
     },
-    {
-      "id": "parameter:1920c59600acfacd9875858e82f1f5deafda7fcffa7981fc66fc3d4c367ad95b",
+    "parameter:1920c59600acfacd9875858e82f1f5deafda7fcffa7981fc66fc3d4c367ad95b": {
       "name": "emax",
       "description": "Maximum Hill effect",
       "distribution": null,
@@ -210,7 +206,7 @@
         "kind": "identity"
       }
     }
-  ],
+  },
   "distributions": {
     "distribution:a62411c9bd664f66f88469c684c614c1475bc91a5165160276c0ff8857a157e0": {
       "distribution": "Normal",
@@ -221,6 +217,6 @@
       }
     }
   },
-  "measurement_clock": null,
-  "law_layouts": {}
+  "law_layouts": {},
+  "measurement_clock": null
 }

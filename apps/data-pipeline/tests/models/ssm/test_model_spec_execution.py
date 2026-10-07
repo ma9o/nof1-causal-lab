@@ -105,6 +105,7 @@ def test_conditioning_revises_the_same_type_and_retains_joint_uncertainty(
         compile_model_fixture(model),
         result,
         times=jnp.arange(4),
+        time_origin=None,
         array_writer=store.write_array,
         array_loader=cache(store.read_array),
     )
@@ -139,13 +140,15 @@ def test_conditioning_revises_the_same_type_and_retains_joint_uncertainty(
         for name, values in samples.items():
             np.testing.assert_array_equal(sampled.parameters[name][draw], values[atom])
     # Entity/parameter list order carries no joint distribution coordinates.
-    reordered = loaded.revised(parameters=tuple(reversed(loaded.parameters)))
+    reordered = loaded.with_entities(parameters=tuple(reversed(loaded.parameters)))
     for name, values in restored.parameters.items():
         np.testing.assert_array_equal(
             model_draws(compile_model_fixture(reordered)).parameters[name], values
         )
     assert (
-        loaded.revised(edges=replace_constructs(loaded.edges, tuple(reversed(loaded.constructs))))
+        loaded.with_entities(
+            edges=replace_constructs(loaded.edges, tuple(reversed(loaded.constructs)))
+        )
         == loaded
     )
     np.testing.assert_array_equal(
@@ -156,14 +159,14 @@ def test_conditioning_revises_the_same_type_and_retains_joint_uncertainty(
     # A joint law's coordinates follow the outcome's scope, which checks them.
     with pytest.raises(ValueError, match="event width must match"):
         StructuralSelection(
-            loaded.revised(
+            loaded.with_entities(
                 distributions={identity: empirical_distribution(empirical_atoms(law)[:, :-1])}
             ),
             None,
         )
     with pytest.raises(ValueError, match="identity and event width must match"):
         StructuralSelection(
-            loaded.revised(
+            loaded.with_entities(
                 law_layouts={
                     identity: loaded.law_layouts[identity].revised(time_points=(0.0, 1.0, 2.0, 5.0))
                 }
@@ -173,7 +176,7 @@ def test_conditioning_revises_the_same_type_and_retains_joint_uncertainty(
     if categorical:
         construct = loaded.constructs[1]
         indicator = construct.indicators[0]
-        renamed = loaded.revised(
+        renamed = loaded.with_entities(
             edges=replace_constructs(
                 loaded.edges,
                 (

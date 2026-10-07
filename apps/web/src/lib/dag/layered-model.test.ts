@@ -1,48 +1,40 @@
+import { presentEntries } from "@/lib/model-accessors";
 import { fixtureValue } from "@/components/__fixtures__/fixture-value";
 import { indexModel } from "@/lib/model-asset/entities";
 import { describe, expect, it } from "vitest";
-import type { CausalEdgeSpec, ModelSnapshot, ModelSpec } from "@nof1-causal-lab/api-types";
+import type { ModelSnapshot, ModelSpec } from "@nof1-causal-lab/api-types";
 import { baseline, modelFixture, outcome, treatment } from "@/lib/__fixtures__/model";
 import { authoredSnapshot, emptySnapshot, fittedSnapshot } from "@/lib/__fixtures__/snapshot";
-import { availableGraphLayers, graphEntities } from "@/lib/dag/layered-model";
+import { availableGraphLayers, graphEntities, graphStatus } from "@/lib/dag/layered-model";
 
-const draftEndpoint = (endpoint: CausalEdgeSpec["cause"]): CausalEdgeSpec["cause"] =>
-  "name" in endpoint ? { ...endpoint, dynamics: [], coefficients: [] } : endpoint;
 const measuredModel: ModelSpec = {
   ...modelFixture,
-  edges: modelFixture.edges.map((edge) => ({
-    ...edge,
-    cause: draftEndpoint(edge.cause),
-    effect: draftEndpoint(edge.effect),
-  })),
-  parameters: [],
+  constructs: Object.fromEntries(
+    presentEntries(modelFixture.constructs).map(([id, construct]) => [
+      id,
+      { ...construct, dynamics: {}, coefficients: [] },
+    ]),
+  ),
+  parameters: {},
   distributions: {},
 };
-const structureEndpoint = (endpoint: CausalEdgeSpec["cause"]): CausalEdgeSpec["cause"] =>
-  "name" in endpoint ? { ...endpoint, indicators: [] } : endpoint;
 const structural: ModelSnapshot = {
   ...authoredSnapshot,
   model: {
     ...measuredModel,
-    edges: measuredModel.edges.map((edge) => ({
-      ...edge,
-      cause: structureEndpoint(edge.cause),
-      effect: structureEndpoint(edge.effect),
-    })),
+    constructs: Object.fromEntries(
+      presentEntries(measuredModel.constructs).map(([id, construct]) => [
+        id,
+        { ...construct, indicators: {} },
+      ]),
+    ),
   },
-  dispositions: null,
-  authoring_prior_densities: {},
+  identification: null,
 };
 const measured: ModelSnapshot = {
   ...authoredSnapshot,
   model: measuredModel,
-  authoring_prior_densities: {},
-  graph: {
-    construct_ids: [treatment.id, outcome.id],
-    dynamic_construct_ids: [treatment.id, outcome.id],
-    edge_ids: ["edge:00000000000000000002"],
-    status: {},
-  },
+
 };
 
 describe("semantic graph layers", () => {
@@ -60,28 +52,31 @@ describe("semantic graph layers", () => {
     expect(availableGraphLayers({ ...fittedSnapshot, fit: null })).not.toContain("fit");
   });
 
-  it("renders the backend selection while preserving the full structural model for inspection", () => {
+  it("renders the complete authored DAG, including latent constructs, independently of identification", () => {
     expect(
-      graphEntities(structural, indexModel(structural.model)).constructs.map((item) => item.id),
+      graphEntities(indexModel(structural.model)).constructs.map((item) => item.id),
     ).toEqual([baseline.id, treatment.id, outcome.id]);
-    const graph = graphEntities(measured, indexModel(measured.model));
-    expect(graph.constructs).toHaveLength(2);
-    expect(graph.constructs.map((item) => item.id)).not.toContain(baseline.id);
-    expect(graph.constructs.map((item) => item.id)).toEqual(measured.graph.construct_ids);
-    expect(graph.edges.map((item) => item.id)).toEqual(measured.graph.edge_ids);
-    // Identification status does not override the backend's retained-state selection.
-    const marked = {
+    const graph = graphEntities(indexModel(measured.model));
+    expect(graph.constructs).toHaveLength(3);
+    expect(graph.constructs.map((item) => item.id)).toContain(baseline.id);
+    expect(graph.constructs.map((item) => item.id)).toEqual([baseline.id, treatment.id, outcome.id]);
+    expect(graph.edges.map((item) => item.id)).toEqual(["edge:00000000000000000001", "edge:00000000000000000002"]);
+    // Identification findings decorate the authored graph without filtering it.
+    const marked: ModelSnapshot = {
       ...measured,
-      graph: {
-        ...measured.graph,
-        status: {
-          ...measured.graph.status,
-          [fixtureValue(graph.constructs[0]).id]: "blocking" as const,
+      identification: {
+        outcome: outcome.id,
+        treatments: {
+          [treatment.id]: { status: "not_identified", confounders: [baseline.id], notes: null },
         },
       },
     };
-    expect(graphEntities(marked, indexModel(marked.model))).toEqual(graph);
-    expect(fixtureValue(measured.model).edges).toHaveLength(2);
-    expect(graphEntities(emptySnapshot, indexModel(emptySnapshot.model)).constructs).toEqual([]);
+    expect(graphStatus(marked, treatment.id)).toBe("blocking");
+    expect(graphStatus(measured, treatment.id)).toBe("observed");
+    expect(graphStatus(measured, baseline.id)).toBe("latent");
+    expect(graphStatus(structural, treatment.id)).toBe("latent");
+    expect(graphEntities(indexModel(marked.model))).toEqual(graph);
+    expect(Object.keys(fixtureValue(measured.model).edges)).toHaveLength(2);
+    expect(graphEntities(indexModel(emptySnapshot.model)).constructs).toEqual([]);
   });
 });

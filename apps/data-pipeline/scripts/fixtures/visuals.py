@@ -6,10 +6,19 @@ from typing import TYPE_CHECKING
 
 import numpy as np
 
-from nof1_causal_lab.artifacts.simulation import SimulationReport
-from nof1_causal_lab.study.visuals import (
-    recorded_simulation_paths,
+from nof1_causal_lab.actions.io import SimulateOutput
+from nof1_causal_lab.actions.simulation_summaries import simulation_summary
+from nof1_causal_lab.artifacts.arrays import NumericalArray
+from nof1_causal_lab.artifacts.availability import Available
+from nof1_causal_lab.artifacts.display_frames import central_frame
+from nof1_causal_lab.artifacts.simulation import (
+    PairedArmSimulation,
+    SimulationArm,
+    SimulationReport,
 )
+from nof1_causal_lab.models.ssm.counterfactual.estimands import summarize_draws
+from nof1_causal_lab.study.visuals import simulation_observation_histories
+from nof1_causal_lab.study.result_codec import result_payload
 
 if TYPE_CHECKING:
     from nof1_causal_lab.study.snapshots import ModelReader
@@ -25,7 +34,7 @@ def workbench_visuals(reader: ModelReader, template):
     model = reader.model
     assert model is not None
     assert reader.data_metadata is not None
-    report = SimulationReport.model_validate(template["report"])
+    report = SimulationReport.model_validate(restore_fixture(template)["report"])
     rng = np.random.default_rng(41)
     time = np.asarray(report.evidence.times)
     phase = rng.uniform(-0.5, 0.5, (report.evidence.draws, 1, 1))
@@ -48,31 +57,47 @@ def workbench_visuals(reader: ModelReader, template):
     )
     mask = np.ones_like(observations, dtype=bool)
     mask[:, 2, :] = False
-    arrays = {
-        "action": action,
-        "reference": reference,
-        "observations": observations,
-        "reference_observations": reference_observations,
-        "mask": mask,
-    }
-    updates = {
-        "latent_paths": "action",
-        "reference_latent_paths": "reference",
-        "observations": "observations",
-        "reference_observations": "reference_observations",
-        "observation_layout": report.evidence.observation_layout.revised(mask="mask"),
-    }
-    report = report.revised(evidence=report.evidence.revised(**updates))
-    paths = recorded_simulation_paths(
-        report,
-        model,
-        action,
-        arrays["observations"],
-        mask,
-        reference,
-        reference_observations,
-        start=0,
-        count=report.evidence.draws,
+    retain = NumericalArray.from_numpy
+
+    starts = np.broadcast_to(time[:, None] - 1, (len(time), len(variables)))
+    ends = np.broadcast_to(time[:, None], starts.shape)
+    evidence = report.evidence.revised(
+        arms=PairedArmSimulation(
+            action=SimulationArm(latent_paths=retain(action), observations=retain(observations)),
+            reference=SimulationArm(
+                latent_paths=retain(reference), observations=retain(reference_observations)
+            ),
+        ),
+        observation_layout=report.evidence.observation_layout.revised(
+            mask=retain(mask),
+            support_start_times=retain(starts),
+            support_end_times=retain(ends),
+        ),
+    )
+    assert isinstance(report.causal, Available)
+    outcome = evidence.state_ids.index(report.causal.value.outcome)
+    contrasts = action[:, :, outcome] - reference[:, :, outcome]
+    report = report.revised(
+        evidence=evidence,
+        summary=simulation_summary(
+            evidence, action, observations, mask, reference, reference_observations
+        ),
+        causal=Available(
+            value=report.causal.value.revised(
+                differences=retain(contrasts),
+                frame=central_frame(contrasts),
+                summary=summarize_draws(contrasts[:, -1]),
+                reference_mean=float(reference[:, -1, outcome].mean()),
+                manifest_effects={
+                    variable.id: float((observations - reference_observations)[:, -1, index].mean())
+                    for index, variable in enumerate(variables)
+                },
+            )
+        ),
+    )
+    result = SimulateOutput(
+        report=report,
+        data=simulation_observation_histories(evidence, observations, mask),
     )
     observations = {}
     for variable in reader.data_metadata.variables:
@@ -81,13 +106,42 @@ def workbench_visuals(reader: ModelReader, template):
         observations[variable.id] = history.model_dump(mode="json")
     return {
         "note": "Simulation paths are explicitly illustrative, not a production fit or scientific evidence. Summaries are derived from these exact paths.",
-        "report": report.model_dump(mode="json"),
-        "simulation": paths.model_dump(mode="json"),
+        "simulation": result_payload(result),
         "observations": observations,
-        "parameters": reader.parameter_draws().model_dump(mode="json"),
-        "arrays": {
-            key: value.model_dump(mode="json") for key, value in reader.fit_result.arrays.items()
-        }
-        if reader.fit_result is not None
-        else {},
     }
+
+
+def render_fixture(value):
+    """Spell binary fixture bytes once; subsequent views select their earlier buffer."""
+    buffers = {}
+    def visit(item):
+        if isinstance(item, bytes):
+            if item in buffers:
+                return {"buffer": buffers[item]}
+            buffers[item] = len(buffers)
+            return list(item)
+        if isinstance(item, dict):
+            return {key: visit(child) for key, child in item.items()}
+        if isinstance(item, (tuple, list)):
+            return [visit(child) for child in item]
+        return item
+    return visit(value)
+
+
+def restore_fixture(value):
+    """Restore the explicit JSON spelling before the production owner parses a fixture."""
+    buffers = []
+    def visit(item):
+        if isinstance(item, dict):
+            if set(item) == {"npy"}:
+                value = item["npy"]
+                if isinstance(value, dict):
+                    return {"npy": buffers[value["buffer"]]}
+                payload = bytes(value)
+                buffers.append(payload)
+                return {"npy": payload}
+            return {key: visit(child) for key, child in item.items()}
+        if isinstance(item, list):
+            return [visit(child) for child in item]
+        return item
+    return visit(value)

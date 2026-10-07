@@ -43,7 +43,7 @@ def workspace(monkeypatch, tmp_path):
 def test_partial_model_revisions_remain_readable_with_capability_findings(workspace):
     partial = make_model(["X", "Y"], [("X", "Y")])
     complete = x_y_model()
-    missing_law = complete.revised(
+    missing_law = complete.with_entities(
         distributions={},
         parameters=tuple(p.revised(distribution=None) for p in complete.parameters),
     )
@@ -89,7 +89,6 @@ def test_partial_model_revisions_remain_readable_with_capability_findings(worksp
             assert execution.outcome == "passed"
         assert "execution" not in snapshot.model_dump()
         assert "execution_readiness" not in snapshot.model.model_dump()
-        assert snapshot.can_simulate == (revision == 2)
         snapshots.append(snapshot)
     assert "compiled_ssm" not in ARTIFACT_IDS
     for snapshot in snapshots:
@@ -140,7 +139,7 @@ def test_refit_after_an_edit_uses_selected_model_and_preserves_the_edit(workspac
 
     prior = x_y_model()
     fitted = prior
-    edited = fitted.revised(
+    edited = fitted.with_entities(
         edges=(fitted.edges[0].revised(description="X changes Y within a day"),)
     )
     store = ArtifactStore(workspace)
@@ -185,30 +184,31 @@ def test_refit_after_an_edit_uses_selected_model_and_preserves_the_edit(workspac
     from nof1_causal_lab.artifacts.posterior import InferenceEvidence
     from nof1_causal_lab.models.ssm.inference.persistence import condition_model
     from nof1_causal_lab.models.ssm.inference.types import JointPosteriorDraws
-    from tests.inference_fixtures import compile_model_fixture, parameter_draws, particle_posterior
+    from tests.inference_fixtures import (
+        compile_model_fixture,
+        inference_metadata,
+        parameter_draws,
+        particle_posterior,
+    )
 
     def fit(**kwargs):
         model = kwargs["selection"].model
         assert model == edited
-        conditioned, identity = condition_model(
+        conditioned, _ = condition_model(
             model,
             compile_model_fixture(model),
             particle_posterior(
                 JointPosteriorDraws(parameter_draws(model, 4), jnp.zeros((4, 2, 2)))
             ),
             times=jnp.array([0.0, 1.0]),
+            time_origin=None,
             array_writer=store.write_array,
             array_loader=store.read_array,
         )
         return {
             "_model": conditioned,
-            "evidence": InferenceEvidence(
-                distribution=identity,
-                engine=None,
-                time_origin=None,
-                duration_seconds=0,
-                num_chains=1,
-            ),
+            "evidence": InferenceEvidence(),
+            "metadata": inference_metadata(conditioned),
         }
 
     monkeypatch.setattr(flow, "fit", fit)

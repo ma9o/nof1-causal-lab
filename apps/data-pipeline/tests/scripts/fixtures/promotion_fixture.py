@@ -7,8 +7,10 @@ from pathlib import Path
 import polars as pl
 
 from nof1_causal_lab.actions.effects import ActionEffects
+from nof1_causal_lab.artifacts.model_spec import ModelEditResult
 from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.records import Applied, DataPreparationResult
+from nof1_causal_lab.study.state import RetractedArtifact
 from nof1_causal_lab.study.store import ArtifactStore
 from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils.llm import LLMTrace, TraceMessage
@@ -41,7 +43,8 @@ def seed(root, workspace, options):
                 )
                 for name in ("stress_score", "sleep_score")
             }
-        )
+        ),
+        pl.col("anchor_time", "support_start", "support_end").str.to_datetime(),
     )
     old_raw = store.write_artifact(
         "raw_data",
@@ -71,10 +74,10 @@ def seed(root, workspace, options):
         parquet_files={"panel.parquet": frame},
     )
 
-    def append(operation, produced, trace=None):
+    def append(operation, produced, traces=(), retracted=()):
         applied = Applied(
-            result=DataPreparationResult() if operation in {"raw_data", "measurements"} else None,
-            effects=ActionEffects(produced=tuple(produced)),
+            result=DataPreparationResult() if operation == "prepare_data" else ModelEditResult(),
+            effects=ActionEffects(produced=tuple(produced), retracted=tuple(retracted)),
         )
         repository.append(
             applied_record(
@@ -82,34 +85,39 @@ def seed(root, workspace, options):
                 applied,
                 seq=repository.latest_seq() + 1,
                 ts=stamp,
-                trace_ids=[trace] if trace else [],
+                trace_ids=[trace for _, trace in traces],
             ),
             logs={
                 f"traces/{trace}.json": LLMTrace(
                     model="fixture",
-                    messages=(TraceMessage(role="assistant", content=f"{operation}: {trace}"),),
+                    messages=(TraceMessage(role="assistant", content=f"{label}: {trace}"),),
                 )
                 .model_dump_json(round_trip=True)
                 .encode()
-            }
-            if trace
-            else {},
+                for label, trace in traces
+            },
         )
 
-    for artifact, operation, trace in (
-        (raw, "raw_data", "raw-data"),
-        (definition, "statistical_model_spec", None),
-        (panel, "measurements", None),
-    ):
-        if artifact.artifact_id != options.get("omit"):
-            append(operation, (artifact,), trace)
-    for operation, trace in (
-        ("latent_structure", "latent-structure"),
-        ("measurement_structure", "measurement-structure"),
-        ("measurements", "measurement-chunk-000000-attempt-001"),
-        ("statistical_model_spec", "model-spec-sleep-attempt-001"),
-    ):
-        append(operation, (), trace)
+    append(
+        "edit_model",
+        (definition,),
+        (
+            ("latent_structure", "latent-structure"),
+            ("measurement_structure", "measurement-structure"),
+            ("statistical_model_spec", "model-spec-sleep-attempt-001"),
+        ),
+    )
+    append(
+        "prepare_data",
+        (raw, panel),
+        (("raw_data", "raw-data"), ("measurements", "measurement-chunk-000000-attempt-001")),
+    )
+    if omitted := options.get("omit"):
+        append(
+            "edit_model",
+            (),
+            retracted=(RetractedArtifact(artifact_id=omitted, reason_ref="fixture-omission"),),
+        )
 
 
 if __name__ == "__main__":

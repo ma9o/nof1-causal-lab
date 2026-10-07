@@ -43,7 +43,6 @@ from nof1_causal_lab.models.ssm.inference.methods.marginal_particle_gibbs.runner
     _initialize_chain_state,
 )
 from nof1_causal_lab.models.ssm.observation_support import ObservationSupportRuntime
-from nof1_causal_lab.study.equations import observation_equations
 from tests.helpers import make_model
 from tests.inference_fixtures import bind_panel_fixture, compile_fit_fixture, compile_model_fixture
 from tests.model_fixtures import _exact_model_model, load_model_fixture
@@ -63,7 +62,7 @@ def exact_model():
 
 @pytest.mark.contract
 def test_exact_binding_roundtrips_without_authored_measurement_parameters(exact_model):
-    model = ModelSpec.model_validate_json(exact_model.model_dump_json())
+    model = ModelSpec.model_validate_json(exact_model.model_dump_json()).materialized()
     owner = model.constructs[0]
     indicator = owner.indicators[0]
     likelihood = indicator.likelihood
@@ -87,7 +86,6 @@ def test_exact_binding_roundtrips_without_authored_measurement_parameters(exact_
     assert owner.id in selected_state_ids(StructuralSelection(model, None))
     assert "usage" not in type(owner).model_fields
     compile_model_fixture(model)
-    assert r"\operatorname{Delta}" in observation_equations(model)[indicator.observation.id]
 
 
 @pytest.mark.contract
@@ -175,7 +173,7 @@ def test_exact_measurement_is_available_but_never_selected_by_default(
     indicator = owner.indicators[0].revised(
         observation=owner.indicators[0].observation.revised(**updates)
     )
-    model = model.revised(
+    model = model.with_entities(
         edges=replace_constructs(
             model.edges,
             (owner.revised(indicators=(indicator,)),),
@@ -192,7 +190,7 @@ def test_exact_measurement_is_available_but_never_selected_by_default(
         ),
         reasoning="Explicit exact measurement",
     )
-    model.revised(
+    model.with_entities(
         edges=replace_constructs(
             model.edges,
             (owner.revised(indicators=(indicator.revised(likelihood=exact),)),),
@@ -299,7 +297,7 @@ def test_unsupported_delta_constraints_fail_before_parameter_initialization(
                 reasoning="An affine equality needs a different constraint parameterization.",
             )
         )
-    exact_model = exact_model.revised(
+    exact_model = exact_model.with_entities(
         edges=replace_constructs(
             exact_model.edges,
             (owner.revised(indicators=(indicator,)),),
@@ -364,7 +362,7 @@ def test_multiple_exact_indicators_must_agree_at_shared_times(exact_model):
             id=scientific_id("indicator", "second_recording"), name="second_recording"
         )
     )
-    model = exact_model.revised(
+    model = exact_model.with_entities(
         edges=replace_constructs(
             exact_model.edges,
             (owner.revised(indicators=(original, duplicate)),),

@@ -16,7 +16,7 @@ import {
 } from "./plot-geometry";
 import { paintCanvas, useChartSize } from "./use-chart-size";
 
-/** A backend density curve: a prior law's density, or a posterior histogram's bin heights. */
+/** A prior law's density, or a retained posterior histogram's bin heights. */
 export interface DensityLayer {
   readonly key: string;
   readonly label: string;

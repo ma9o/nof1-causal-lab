@@ -1,4 +1,5 @@
-import type { ActionSuccess, DataDiffOutput, ModelSnapshot } from "@nof1-causal-lab/api-types";
+import type { ActionSuccess, ModelSnapshot } from "@nof1-causal-lab/api-types";
+import type { DataComparisonView } from "./data-comparison";
 import type { ModelEntities } from "./entities";
 import type { EntitySelection } from "@/lib/model-asset/selection";
 import type { TimelineRevision } from "@nof1-causal-lab/api-types";
@@ -9,6 +10,6 @@ export interface ScopeContext {
   entities: ModelEntities;
   select: (selection: EntitySelection | null) => void;
   ticks: readonly TimelineRevision[];
-  dataDiff: DataDiffOutput | null;
+  dataDiff: DataComparisonView | null;
   result: ActionSuccess | undefined;
 }

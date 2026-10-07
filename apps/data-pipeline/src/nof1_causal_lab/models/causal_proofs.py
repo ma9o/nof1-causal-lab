@@ -145,8 +145,6 @@ def certify_conditioned_model(
         raise CausalCertificationError(
             "The model value differs from the revision certified by the inference log"
         )
-    if report.engine.kind != "evaluated":
-        raise CausalCertificationError("The fit has no retained exact-engine evidence")
     if not model.distributions or not model.time_points:
         raise CausalCertificationError("The model has no retained joint uncertainty")
     if failures := convergence_failures(report.convergence):

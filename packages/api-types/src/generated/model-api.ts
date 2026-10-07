@@ -52,7 +52,7 @@ export interface paths {
         readonly put?: never;
         /**
          * Edit Model
-         * @description Save input.model from input.parent_ref, a question or model revision, and evaluate data-independent model checks. A model parent supplies its pinned question. The body contains the produced model and its findings; messages retain all execution logging. GET polls the returned call_id.
+         * @description Merge input.model into input.parent_ref: start empty for a question revision, or retain omitted fields from a model revision and its pinned question. Null entity entries delete their IDs. Prune constructs outside the outcome ancestry with warnings, then validate and evaluate data-independent model checks. The body contains the produced model and its findings; messages retain all execution logging. GET polls the returned call_id.
          */
         readonly post: operations["edit_model"];
         readonly delete?: never;
@@ -130,7 +130,7 @@ export interface paths {
         readonly put?: never;
         /**
          * Simulate
-         * @description Simulate input.model_ref using input.simulation and optional input.panel_ref. Fitted laws retain their fit origin. body.data contains an array of observation histories of the same type returned by prepare_data. The successful body also includes all paths, arrays and causal evidence; messages retain traces. GET polls call_id.
+         * @description Simulate input.model_ref using input.simulation. The model owns deterministic inputs and retained trajectory coordinates; authored initial states apply at simulation.start. body.data contains an array of observation histories of the same type returned by prepare_data. The successful body requires data, report and arrays; report retains single or paired evidence, calculated summaries and causal findings; messages retain traces. GET polls call_id.
          */
         readonly post: operations["simulate"];
         readonly delete?: never;
@@ -170,7 +170,7 @@ export interface paths {
         readonly put?: never;
         /**
          * Model Diff
-         * @description Compare input.before_ref and input.after_ref and retain definitions and evidence in Git. GET polls call_id. Identical resolved calls reuse successes and failures; the comparison is the body.
+         * @description Compare input.before_ref and input.after_ref as saved ModelSpec documents. Return changes using the same partial ModelSpec contract as edit_model: omissions are unchanged and null map entries delete identities. Retain the patch in Git. GET polls call_id. Identical resolved calls reuse successes and failures; the comparison is the body.
          */
         readonly post: operations["model_diff"];
         readonly delete?: never;
@@ -293,15 +293,6 @@ export interface components {
         readonly ActionReportName: "checks" | "identification" | "validation" | "data-profile" | "inference" | "simulation" | "data-diff" | "model-diff";
         /** @description A successful call pairs its action with that action's scientific result body. */
         readonly ActionSuccess: Domain.SuccessfulPoll<"edit_question", Domain.EditQuestionOutput> | Domain.SuccessfulPoll<"edit_model", Domain.EditModelOutput> | Domain.SuccessfulPoll<"prepare_data", Domain.PrepareDataOutput> | Domain.SuccessfulPoll<"fit", Domain.FitOutput> | Domain.SuccessfulPoll<"simulate", Domain.SimulateOutput> | Domain.SuccessfulPoll<"data_diff", Domain.DataDiffOutput> | Domain.SuccessfulPoll<"model_diff", Domain.ModelDiffOutput>;
-        /** Added[ConstructRef] */
-        readonly Added_ConstructRef_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "added";
-            readonly after: components["schemas"]["ConstructRef-Output"];
-        };
         /** Added[DataPoint] */
         readonly Added_DataPoint_: {
             /**
@@ -310,24 +301,6 @@ export interface components {
              */
             readonly kind: "added";
             readonly after: components["schemas"]["DataPoint"];
-        };
-        /** Added[EdgeRef] */
-        readonly Added_EdgeRef_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "added";
-            readonly after: components["schemas"]["EdgeRef"];
-        };
-        /** Added[ParameterSpec] */
-        readonly Added_ParameterSpec_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "added";
-            readonly after: components["schemas"]["ParameterSpec-Output"];
         };
         /** Applied[GitOid] */
         readonly Applied_GitOid_: {
@@ -358,11 +331,10 @@ export interface components {
         };
         /**
          * ArrayVector
-         * @description One vector selected from the result's numerical buffers without copying its values.
+         * @description A vector view of an owned numerical value; the wire codec shares its buffer.
          */
         readonly ArrayVector: {
-            /** Array Ref */
-            readonly array_ref: string;
+            readonly array: components["schemas"]["NumericalArray"];
             /** Indices */
             readonly indices: readonly (number | null)[];
             /** @default null */
@@ -435,7 +407,6 @@ export interface components {
         readonly ArtifactSource: components["schemas"]["ArtifactFiles"] | components["schemas"]["ArtifactResult"];
         readonly Assessment_ConvergenceAssessmentSubject_NumericCriterionEvidence_: Domain.Evaluated<Domain.ConvergenceAssessmentSubject, Domain.NumericCriterionEvidence> | Domain.NotEvaluated<Domain.ConvergenceAssessmentSubject>;
         readonly Assessment_IndicatorCheckSubject_NumericCriterionEvidence_: Domain.Evaluated<Domain.IndicatorCheckSubject, Domain.NumericCriterionEvidence> | Domain.NotEvaluated<Domain.IndicatorCheckSubject>;
-        readonly Assessment_str_ParticleMCMCEvidence_: Domain.Evaluated<string, Domain.ParticleMCMCEvidence> | Domain.NotEvaluated<string>;
         /**
          * AttemptRecord
          * @description Stored inside the Git object, with no self-referential publication ID.
@@ -601,25 +572,6 @@ export interface components {
             readonly kind: "available";
             readonly value: components["schemas"]["PosteriorPredictiveChecks"];
         };
-        /** Available[tuple[ParameterDrawColumn, ...]] */
-        readonly Available_tuple_ParameterDrawColumn__________: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "available";
-            /** Value */
-            readonly value: readonly components["schemas"]["ParameterDrawColumn"][];
-        };
-        /** BernoulliLogitsLawSpec[Expression] */
-        readonly "BernoulliLogitsLawSpec_Expression_-Input": {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly distribution: "BernoulliLogits";
-            readonly logits: components["schemas"]["Expression-Input"];
-        };
         /** BernoulliLogitsLawSpec[Expression] */
         readonly "BernoulliLogitsLawSpec_Expression_-Output": {
             /**
@@ -628,15 +580,6 @@ export interface components {
              */
             readonly distribution: "BernoulliLogits";
             readonly logits: components["schemas"]["Expression-Output"];
-        };
-        /** BernoulliProbsLawSpec[Expression] */
-        readonly "BernoulliProbsLawSpec_Expression_-Input": {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly distribution: "BernoulliProbs";
-            readonly probs: components["schemas"]["Expression-Input"];
         };
         /** BernoulliProbsLawSpec[Expression] */
         readonly "BernoulliProbsLawSpec_Expression_-Output": {
@@ -648,16 +591,6 @@ export interface components {
             readonly probs: components["schemas"]["Expression-Output"];
         };
         /** BetaLawSpec[Expression] */
-        readonly "BetaLawSpec_Expression_-Input": {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly distribution: "Beta";
-            readonly concentration1: components["schemas"]["Expression-Input"];
-            readonly concentration0: components["schemas"]["Expression-Input"];
-        };
-        /** BetaLawSpec[Expression] */
         readonly "BetaLawSpec_Expression_-Output": {
             /**
              * @description discriminator enum property added by openapi-typescript
@@ -666,20 +599,6 @@ export interface components {
             readonly distribution: "Beta";
             readonly concentration1: components["schemas"]["Expression-Output"];
             readonly concentration0: components["schemas"]["Expression-Output"];
-        };
-        /**
-         * BinaryExpression
-         * @description A supported scalar operation composing two expressions.
-         */
-        readonly "BinaryExpression-Input": {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "binary";
-            readonly operator: components["schemas"]["BinaryOperator"];
-            readonly left: components["schemas"]["Expression-Input"];
-            readonly right: components["schemas"]["Expression-Input"];
         };
         /**
          * BinaryExpression
@@ -711,20 +630,6 @@ export interface components {
          * CallExpression
          * @description A supported mathematical function, including explicit discrete contrasts.
          */
-        readonly "CallExpression-Input": {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "call";
-            readonly function: components["schemas"]["ExpressionFunction"];
-            /** Arguments */
-            readonly arguments: readonly components["schemas"]["Expression-Input"][];
-        };
-        /**
-         * CallExpression
-         * @description A supported mathematical function, including explicit discrete contrasts.
-         */
         readonly "CallExpression-Output": {
             /**
              * @description discriminator enum property added by openapi-typescript
@@ -737,15 +642,6 @@ export interface components {
         };
         readonly "CallId-Input": `call:${string}`;
         readonly "CallId-Output": `call:${string}`;
-        /** CategoricalLawSpec[Expression] */
-        readonly "CategoricalLawSpec_Expression_-Input": {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly distribution: "Categorical";
-            readonly logits: components["schemas"]["Expression-Input"];
-        };
         /** CategoricalLawSpec[Expression] */
         readonly "CategoricalLawSpec_Expression_-Output": {
             /**
@@ -766,33 +662,6 @@ export interface components {
             };
             /** N Draws */
             readonly n_draws: readonly number[];
-        };
-        /**
-         * CausalEdgeSpec
-         * @description A specification of a directed causal relationship between two constructs.
-         */
-        readonly "CausalEdgeSpec-Input": {
-            /** @description Persistent identity. Preserve when revising the same edge. */
-            readonly id: components["schemas"]["EdgeId-Input"];
-            /**
-             * Mechanisms
-             * @default []
-             */
-            readonly mechanisms?: readonly components["schemas"]["DriftMechanismSpec-Input"][];
-            /** @description Cause construct; shared endpoints have one identity. */
-            readonly cause: components["schemas"]["ConstructSpec-Input"] | components["schemas"]["ConstructRef-Input"];
-            /** @description Effect construct; shared endpoints have one identity. */
-            readonly effect: components["schemas"]["ConstructSpec-Input"] | components["schemas"]["ConstructRef-Input"];
-            /**
-             * Description
-             * @description Theoretical justification for this causal link
-             */
-            readonly description: string;
-            /**
-             * Sources
-             * @description Literature sources supporting this causal link
-             */
-            readonly sources?: readonly components["schemas"]["LiteratureSource-Input"][];
         };
         /**
          * CausalEdgeSpec
@@ -829,6 +698,24 @@ export interface components {
             readonly outcome: components["schemas"]["ConstructId-Output"];
             /** Labels */
             readonly labels: Readonly<Partial<Record<components["schemas"]["ConstructId-Output"], string>>>;
+            /** @description Paired outcome contrasts, [draw, time]. */
+            readonly differences: components["schemas"]["NumericalArray"];
+            /** Frame */
+            readonly frame: readonly [
+                number,
+                number
+            ];
+            readonly summary: components["schemas"]["EffectSummary"];
+            /**
+             * Reference Mean
+             * @description Mean reference outcome at the final time.
+             */
+            readonly reference_mean: number;
+            /**
+             * Manifest Effects
+             * @description Mean final-time indicator contrasts where every paired draw is finite.
+             */
+            readonly manifest_effects: Readonly<Partial<Record<components["schemas"]["IndicatorId-Output"], number>>>;
             /** Warnings */
             readonly warnings: readonly string[];
         };
@@ -881,34 +768,7 @@ export interface components {
             /** @default null */
             readonly energy: components["schemas"]["EnergyDiagnostics"] | null;
         };
-        readonly Change_ConstructRef_: Domain.Added<Domain.ConstructRef> | Domain.Removed<Domain.ConstructRef> | Domain.Revised<Domain.ConstructRef>;
         readonly Change_DataPoint_: Domain.Added<Domain.DataPoint> | Domain.Removed<Domain.DataPoint> | Domain.Revised<Domain.DataPoint>;
-        readonly Change_EdgeRef_: Domain.Added<Domain.EdgeRef> | Domain.Removed<Domain.EdgeRef> | Domain.Revised<Domain.EdgeRef>;
-        readonly Change_ParameterSpec_: Domain.Added<Domain.ParameterSpec> | Domain.Removed<Domain.ParameterSpec> | Domain.Revised<Domain.ParameterSpec>;
-        /**
-         * CoefficientExpression
-         * @description A scientifically typed coefficient operand, literal or parameter reference.
-         */
-        readonly "CoefficientExpression-Input": {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "coefficient";
-            readonly role: components["schemas"]["CoefficientRole"];
-            /**
-             * Value
-             * @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.
-             * @default null
-             */
-            readonly value?: number | components["schemas"]["ParameterId-Input"] | null;
-            /**
-             * Construct Ids
-             * @description Additional constructs participating in this coefficient use.
-             * @default []
-             */
-            readonly construct_ids?: readonly components["schemas"]["ConstructId-Input"][];
-        };
         /**
          * CoefficientExpression
          * @description A scientifically typed coefficient operand, literal or parameter reference.
@@ -1022,19 +882,6 @@ export interface components {
          * ConstructRef
          * @description A construct identity independent of its current display name or model revision.
          */
-        readonly "ConstructRef-Input": {
-            /**
-             * Kind
-             * @default construct
-             * @constant
-             */
-            readonly kind?: "construct";
-            readonly id: components["schemas"]["ConstructId-Input"];
-        };
-        /**
-         * ConstructRef
-         * @description A construct identity independent of its current display name or model revision.
-         */
         readonly "ConstructRef-Output": {
             /**
              * @description discriminator enum property added by openapi-typescript
@@ -1042,54 +889,6 @@ export interface components {
              */
             readonly kind: "construct";
             readonly id: components["schemas"]["ConstructId-Output"];
-        };
-        /**
-         * ConstructSpec
-         * @description A specification of a theoretical entity in the scientific causal model.
-         */
-        readonly "ConstructSpec-Input": {
-            /** @description Persistent identity. Preserve when revising or renaming. */
-            readonly id: components["schemas"]["ConstructId-Input"];
-            /**
-             * Name
-             * @description Construct name (e.g., 'stress', 'sleep_quality')
-             */
-            readonly name: string;
-            /**
-             * Description
-             * @description What this theoretical construct represents
-             */
-            readonly description: string;
-            /**
-             * Indicators
-             * @default []
-             */
-            readonly indicators?: readonly components["schemas"]["IndicatorSpec-Input"][];
-            /**
-             * Dynamics
-             * @default []
-             */
-            readonly dynamics?: readonly components["schemas"]["DynamicsMechanismSpec-Input"][];
-            /**
-             * Coefficients
-             * @default []
-             */
-            readonly coefficients?: readonly components["schemas"]["CoefficientExpression-Input"][];
-            /**
-             * Innovation Family
-             * @default gaussian
-             * @enum {string}
-             */
-            readonly innovation_family?: "gaussian" | "student_t";
-            /**
-             * @description Membership in a trajectory law in ModelSpec.distributions on ModelSpec.time_points.
-             * @default null
-             */
-            readonly distribution?: components["schemas"]["DistributionId-Input"] | null;
-            /** @description 'endogenous' means modeled, with or without parents; 'exogenous' means given through direct exact readings, with no law. Unmeasured constructs are endogenous. */
-            readonly role: components["schemas"]["Role"];
-            /** @description 'time_varying' (changes over time) or 'time_invariant' (fixed) */
-            readonly temporal_status: components["schemas"]["TemporalStatus"];
         };
         /**
          * ConstructSpec
@@ -1130,11 +929,11 @@ export interface components {
              */
             readonly innovation_family: "gaussian" | "student_t";
             /**
-             * @description Membership in a trajectory law in ModelSpec.distributions on ModelSpec.time_points.
+             * @description Trajectory law in ModelSpec.distributions, with coordinates in its law_layouts entry. Exogenous trajectories use Delta and hold each value until the next point, including after the last point.
              * @default null
              */
             readonly distribution: components["schemas"]["DistributionId-Output"] | null;
-            /** @description 'endogenous' means modeled, with or without parents; 'exogenous' means given through direct exact readings, with no law. Unmeasured constructs are endogenous. */
+            /** @description 'endogenous' means modeled, with or without parents; 'exogenous' means supplied by a deterministic trajectory law, without endogenous dynamics or noise. */
             readonly role: components["schemas"]["Role"];
             /** @description 'time_varying' (changes over time) or 'time_invariant' (fixed) */
             readonly temporal_status: components["schemas"]["TemporalStatus"];
@@ -1158,6 +957,30 @@ export interface components {
         };
         /** @enum {string} */
         readonly DSMCLeafProposal: "amala_exact" | "paid_mix";
+        /**
+         * DataComparisonReport
+         * @description Statistical comparison of two nonempty selections of immutable saved histories.
+         *
+         *     Left/right name comparison sides, not temporal revisions or an editing language.
+         *     Resolved references retain every selected replicate in request order; a history
+         *     cannot occur twice within one side. Variables are ordered by indicator identity.
+         *     Exogenous indicators supplied by a simulation's model are excluded.
+         *
+         *     One-versus-one comparisons expose point changes. One-versus-many comparisons
+         *     evaluate predictive checks against the singleton reference. Many-versus-many
+         *     comparisons retain per-history statistics without pairing draws or evaluating
+         *     reference-based checks. DataVariableComparison owns the exact change semantics.
+         *     Source definitions and complete observations belong to prepare_data/simulate
+         *     results; this report owns only selection identity and newly computed evidence.
+         */
+        readonly DataComparisonReport: {
+            /** Left */
+            readonly left: readonly Domain.DataRef<Domain.GitOid, number>[];
+            /** Right */
+            readonly right: readonly Domain.DataRef<Domain.GitOid, number>[];
+            /** Variables */
+            readonly variables: readonly components["schemas"]["DataVariableComparison"][];
+        };
         /** DataDiffInput[GitOid] */
         readonly DataDiffInput_GitOid_: {
             /** @description References on the left side. Each reference selects one replicate by index, or all its retained histories when the index is omitted. */
@@ -1174,24 +997,11 @@ export interface components {
         };
         /**
          * DataDiffOutput
-         * @description Per-variable comparisons and the exact history references on both sides.
+         * @description The computed comparison report; original histories remain in their producing results.
          */
         readonly DataDiffOutput: {
-            /**
-             * Left
-             * @description Resolved revision and replicate index for every left-side history.
-             */
-            readonly left: readonly Domain.DataRef<Domain.GitOid, number>[];
-            /**
-             * Right
-             * @description Resolved revision and replicate index for every right-side history.
-             */
-            readonly right: readonly Domain.DataRef<Domain.GitOid, number>[];
-            /**
-             * Variables
-             * @description Series, point changes, statistics, compatibility issues, and any predictive comparison for each compared indicator.
-             */
-            readonly variables: readonly components["schemas"]["DataVariableDiff"][];
+            /** @description Exact history selections, point changes, per-history statistics, compatibility issues and predictive checks. This is a statistical comparison, not a data patch. */
+            readonly report: components["schemas"]["DataComparisonReport"];
         };
         /** DataDiffRequest[GitOid] */
         readonly DataDiffRequest_GitOid_: {
@@ -1229,7 +1039,10 @@ export interface components {
         };
         /**
          * DataPoint
-         * @description An observed anchor and support; dates are synthetic for a calendar-free series.
+         * @description One recorded anchor, support and value; a null value is a present but missing observation.
+         *
+         *     Dates are serialization coordinates for calendar-free histories. Row absence,
+         *     represented by Added or Removed, is distinct from a present point's null value.
          */
         readonly DataPoint: {
             /**
@@ -1306,25 +1119,16 @@ export interface components {
         readonly DataSelection_GitOid_: Domain.DataRef<Domain.GitOid, number | null> | readonly Domain.DataRef<Domain.GitOid, number | null>[];
         /** @description A data selection identifies one or more saved observation histories. */
         readonly DataSelection_RevisionSelector_: components["schemas"]["DataRef_RevisionSelector_Annotated_Union_int__NoneType___FieldInfo_annotation_NoneType__required_False__default_None___"] | readonly components["schemas"]["DataRef_RevisionSelector_Annotated_Union_int__NoneType___FieldInfo_annotation_NoneType__required_False__default_None___"][];
-        /**
-         * DataSeries
-         * @description One variable's recorded measurements in one history; no pooling across replicas.
-         */
-        readonly DataSeries: {
-            readonly variable: Domain.ObservationSpec<string> | null;
-            /**
-             * Time Origin
-             * @description Recorded calendar binding; null means the point dates are serialization coordinates, not real dates.
-             */
-            readonly time_origin: string | null;
-            /** Points */
-            readonly points: readonly components["schemas"]["DataPoint"][];
-        };
         /** @enum {string} */
         readonly DataStatistic: "observed_count" | "missing_count" | "mean" | "sd" | "min" | "max" | "proportion";
         /**
          * DataStatisticComparison
-         * @description The same descriptive statistic measured independently in every selected history.
+         * @description One statistic per whole selected history, in the report's source order.
+         *
+         *     Histories are never pooled or paired across sides. Null denotes an undefined
+         *     statistic. Discrete codebooks use level proportions instead of numeric moments.
+         *     These descriptive values include each history's own observed positions; the
+         *     predictive checks separately use the reference history's observed-value mask.
          */
         readonly DataStatisticComparison: {
             readonly statistic: components["schemas"]["DataStatistic"];
@@ -1337,21 +1141,27 @@ export interface components {
             readonly left: readonly (number | null)[];
             /** Right */
             readonly right: readonly (number | null)[];
-            /** Left Histogram */
-            readonly left_histogram: readonly components["schemas"]["HistogramBin"][];
-            /** Right Histogram */
-            readonly right_histogram: readonly components["schemas"]["HistogramBin"][];
         };
         /**
-         * DataVariableDiff
-         * @description Definitions, histories and comparisons for one persistent observation identity.
+         * DataVariableComparison
+         * @description Computed evidence for one persistent indicator identity, without copying its histories.
+         *
+         *     Point changes are directional, from left to right, and only computed for one
+         *     history on each side with compatible calendar binding. Match by anchor instant:
+         *     a new anchor is Added, a lost anchor Removed, and an exact value or support change
+         *     at a retained anchor Revised. Omit unchanged points and order changes by anchor.
+         *     Renames and measurement-definition changes are not point revisions; definition
+         *     mismatches are comparison issues. No tolerance, interpolation, or imputation is
+         *     used. Reversing sides exchanges additions/removals and before/after payloads.
+         *
+         *     An empty changes tuple can mean identical points or an inapplicable point diff
+         *     (replicated selections or mixed calendar binding); it never asserts that whole
+         *     datasets are equal. Missing variables and differing schedules remain explicit
+         *     issues. Predictive evaluation owns its own applicability, so extra replicate
+         *     anchors can produce a schedule issue without preventing checks at observed anchors.
          */
-        readonly DataVariableDiff: {
+        readonly DataVariableComparison: {
             readonly indicator_id: components["schemas"]["IndicatorId-Output"];
-            /** Left */
-            readonly left: readonly components["schemas"]["DataSeries"][];
-            /** Right */
-            readonly right: readonly components["schemas"]["DataSeries"][];
             /** Changes */
             readonly changes: readonly Domain.Change<Domain.DataPoint>[];
             /** Statistics */
@@ -1367,15 +1177,6 @@ export interface components {
         readonly DataVariableSpec: {
             readonly observation: Domain.ObservationSpec<string | null>;
             readonly extraction: components["schemas"]["ExtractionSpec-Output"];
-        };
-        /** DeltaLawSpec[Expression] */
-        readonly "DeltaLawSpec_Expression_-Input": {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly distribution: "Delta";
-            readonly v: components["schemas"]["Expression-Input"];
         };
         /** DeltaLawSpec[Expression] */
         readonly "DeltaLawSpec_Expression_-Output": {
@@ -1408,19 +1209,6 @@ export interface components {
          * DriftMechanismSpec
          * @description An additive drift contribution on a construct or directed edge.
          */
-        readonly "DriftMechanismSpec-Input": {
-            readonly id: components["schemas"]["MechanismId-Input"];
-            readonly expression: components["schemas"]["Expression-Input"];
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "drift";
-        };
-        /**
-         * DriftMechanismSpec
-         * @description An additive drift contribution on a construct or directed edge.
-         */
         readonly "DriftMechanismSpec-Output": {
             readonly id: components["schemas"]["MechanismId-Output"];
             readonly expression: components["schemas"]["Expression-Output"];
@@ -1430,8 +1218,6 @@ export interface components {
              */
             readonly kind: "drift";
         };
-        /** @description A dynamics mechanism declares one contribution to continuous-time drift. */
-        readonly "DynamicsMechanismSpec-Input": components["schemas"]["DriftMechanismSpec-Input"] | components["schemas"]["PotentialMechanismSpec-Input"];
         /** @description A dynamics mechanism declares one contribution to continuous-time drift. */
         readonly "DynamicsMechanismSpec-Output": components["schemas"]["DriftMechanismSpec-Output"] | components["schemas"]["PotentialMechanismSpec-Output"];
         /** @description A persistent edge identity identifies one authored causal relationship. */
@@ -1453,76 +1239,30 @@ export interface components {
         /** EditModelInput[GitOid] */
         readonly EditModelInput_GitOid_: {
             /** @description Question or model revision to start from. A model parent supplies its pinned question. 'latest' selects the current model, otherwise the current question. */
-            readonly parent_ref: components["schemas"]["GitOid-Output"];
-            /** @description Complete authored scientific definition, replacing the selected model rather than applying a field patch. Endogenous constructs are modeled, with or without parents, and include every latent construct. Exogenous constructs are given by direct exact Delta readings and have no dynamics, diffusion, initial coefficients or trajectory law. */
-            readonly model: components["schemas"]["ModelSpec-Output"];
+            readonly parent_ref: components["schemas"]["GitOid-Input"];
+            /** @description Scientific definitions merged by identity into a model parent, or into an empty model for a question parent. Omitted fields are retained; null entity entries delete their identities. Constructs outside the outcome ancestry are pruned with a warning, then the complete model is validated. Endogenous constructs are modeled, with or without parents, and include every latent construct. Exogenous constructs require deterministic Delta trajectory laws for execution and have no dynamics, diffusion or initial coefficients. */
+            readonly model: components["schemas"]["ModelSpec-Input"];
         };
         /** EditModelInput[RevisionSelector] */
         readonly EditModelInput_RevisionSelector_: {
             /** @description Question or model revision to start from. A model parent supplies its pinned question. 'latest' selects the current model, otherwise the current question. */
             readonly parent_ref: components["schemas"]["RevisionSelector"];
-            /** @description Complete authored scientific definition, replacing the selected model rather than applying a field patch. Endogenous constructs are modeled, with or without parents, and include every latent construct. Exogenous constructs are given by direct exact Delta readings and have no dynamics, diffusion, initial coefficients or trajectory law. */
+            /** @description Scientific definitions merged by identity into a model parent, or into an empty model for a question parent. Omitted fields are retained; null entity entries delete their identities. Constructs outside the outcome ancestry are pruned with a warning, then the complete model is validated. Endogenous constructs are modeled, with or without parents, and include every latent construct. Exogenous constructs require deterministic Delta trajectory laws for execution and have no dynamics, diffusion or initial coefficients. */
             readonly model: components["schemas"]["ModelSpec-Input"];
         };
         /**
          * EditModelOutput
-         * @description The produced model, its checks, and backend-computed display values.
+         * @description The produced model and its recorded scientific findings.
          *
          *     Optional findings are absent when no corresponding report was retained.
          */
         readonly EditModelOutput: {
             /** @description Saved scientific definition. */
             readonly model: components["schemas"]["ModelSpec-Output"];
-            /**
-             * Can Simulate
-             * @description Whether this model compiles to a supported forward simulator.
-             */
-            readonly can_simulate: boolean;
             /** @description Combined findings retained by the action that produced the model. */
             readonly checks: components["schemas"]["ModelCheckReport"] | null;
             /** @description Causal identification findings. */
             readonly identification: components["schemas"]["IdentificationReport"] | null;
-            /**
-             * Dispositions
-             * @description How each structural entity is retained, marginalized, or rejected by the execution representation.
-             */
-            readonly dispositions: readonly components["schemas"]["StructuralItemDisposition"][] | null;
-            /** @description Construct and edge identities, dynamic membership, and execution status for the graph view. */
-            readonly graph: components["schemas"]["ModelGraphView"];
-            /**
-             * Entity Failures
-             * @description Messages attributed to constructs, edges, or indicators from the available scientific reports.
-             */
-            readonly entity_failures: {
-                readonly [key: string]: readonly string[];
-            };
-            /**
-             * Confounder Equations
-             * @description Rendered equations for marginalized confounding terms, keyed by construct.
-             */
-            readonly confounder_equations: Readonly<Partial<Record<components["schemas"]["ConstructId-Output"], string>>>;
-            /**
-             * State Equations
-             * @description Rendered latent state dynamics keyed by construct.
-             */
-            readonly state_equations: Readonly<Partial<Record<components["schemas"]["ConstructId-Output"], string>>>;
-            /**
-             * Observation Equations
-             * @description Rendered measurement laws keyed by indicator.
-             */
-            readonly observation_equations: Readonly<Partial<Record<components["schemas"]["IndicatorId-Output"], string>>>;
-            /**
-             * Authoring Prior Densities
-             * @description Density curves for authored parameter laws, before conditioning on observations.
-             */
-            readonly authoring_prior_densities: Readonly<Partial<Record<components["schemas"]["ParameterId-Output"], components["schemas"]["DensityCurve"]>>>;
-            /**
-             * Arrays
-             * @description Exact buffers referenced by the saved model's numerical laws.
-             */
-            readonly arrays: {
-                readonly [key: string]: components["schemas"]["NumericalArray"];
-            };
         };
         /** EditModelRequest[GitOid] */
         readonly EditModelRequest_GitOid_: {
@@ -1724,22 +1464,6 @@ export interface components {
             /** Evidence */
             readonly evidence: string;
         };
-        /** Evaluated[str, ParticleMCMCEvidence] */
-        readonly Evaluated_str_ParticleMCMCEvidence_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "evaluated";
-            /** Subject */
-            readonly subject: string;
-            /**
-             * Outcome
-             * @enum {string}
-             */
-            readonly outcome: "passed" | "failed" | "warning" | "error";
-            readonly evidence: components["schemas"]["ParticleMCMCEvidence"];
-        };
         /** Evaluated[str, str] */
         readonly Evaluated_str_str_: {
             /**
@@ -1761,8 +1485,6 @@ export interface components {
         readonly Evaluation_PosteriorPredictiveChecks_: Domain.Available<Domain.PosteriorPredictiveChecks> | components["schemas"]["Unavailable"] | components["schemas"]["NotApplicable"];
         /** @description An execution message retains a lifecycle entry, structured progress, an LLM trace, or failure details. */
         readonly ExecutionMessage: components["schemas"]["ActionMessage"] | components["schemas"]["ProgressMessage"] | components["schemas"]["TraceLogMessage"] | components["schemas"]["FailureMessage"];
-        /** @description A scalar expression composes supported arithmetic with scientific state and coefficient references. */
-        readonly "Expression-Input": components["schemas"]["LiteralExpression-Input"] | components["schemas"]["StateExpression-Input"] | components["schemas"]["CoefficientExpression-Input"] | components["schemas"]["BinaryExpression-Input"] | components["schemas"]["CallExpression-Input"];
         /** @description A scalar expression composes supported arithmetic with scientific state and coefficient references. */
         readonly "Expression-Output": components["schemas"]["LiteralExpression-Output"] | components["schemas"]["StateExpression-Output"] | components["schemas"]["CoefficientExpression-Output"] | components["schemas"]["BinaryExpression-Output"] | components["schemas"]["CallExpression-Output"];
         /**
@@ -1945,6 +1667,14 @@ export interface components {
              */
             readonly end: string | null;
         };
+        /**
+         * FitCheckReport
+         * @description Compatibility and question findings owned by one completed fit.
+         */
+        readonly FitCheckReport: {
+            readonly validation: components["schemas"]["ValidationReportArtifact"];
+            readonly question: components["schemas"]["QuestionCheckReport"];
+        };
         /** FitInput[GitOid] */
         readonly FitInput_GitOid_: {
             /** @description Model revision whose parameter law will be conditioned. */
@@ -1975,55 +1705,15 @@ export interface components {
         };
         /**
          * FitOutput
-         * @description The fitted model, inference findings, parameter draws, and numerical arrays.
+         * @description A conditioned model, its completed checks, and self-contained inference evidence.
          */
         readonly FitOutput: {
             /** @description The model with its joint parameter law conditioned on the selected data. */
             readonly model: components["schemas"]["ModelSpec-Output"];
-            /** @description Retained fit result, including input references and array references; absent when the attempt retained no numerical result. */
-            readonly inference: components["schemas"]["ModelFitResult"] | null;
-            /**
-             * Entity Failures
-             * @description Model-dependent data and inference failures attributed to their scientific entities.
-             */
-            readonly entity_failures: {
-                readonly [key: string]: readonly string[];
-            };
-            /** @description Compatibility findings for the model and selected observation history. */
-            readonly validation_report: components["schemas"]["ValidationReportArtifact"] | null;
-            /** @description Question findings evaluated against the selected observation history. */
-            readonly question_checks: components["schemas"]["QuestionCheckReport"] | null;
-            /**
-             * Likelihood Diagnostics
-             * @description Observed histograms for the fitted model's indicator likelihoods.
-             */
-            readonly likelihood_diagnostics: Readonly<Partial<Record<components["schemas"]["IndicatorId-Output"], readonly components["schemas"]["HistogramBin"][]>>>;
-            /**
-             * Edge Estimates
-             * @description Posterior parameter coordinates displayed on causal edges.
-             */
-            readonly edge_estimates: Readonly<Partial<Record<components["schemas"]["EdgeId-Output"], components["schemas"]["ParameterRef"]>>>;
-            /**
-             * Decay Estimates
-             * @description Posterior parameter coordinates displayed on construct dynamics.
-             */
-            readonly decay_estimates: Readonly<Partial<Record<components["schemas"]["ConstructId-Output"], components["schemas"]["ParameterRef"]>>>;
-            /**
-             * Prior Densities
-             * @description Conditioned input laws on the posterior parameters' quantity scale.
-             */
-            readonly prior_densities: Readonly<Partial<Record<components["schemas"]["ParameterId-Output"], components["schemas"]["DensityCurve"]>>>;
-            /** @description Full diagnostic report, when one was retained. */
-            readonly inference_report: components["schemas"]["InferenceReport"] | null;
-            /** @description Per-parameter draws and empirical distributions, or a typed explanation of why draws are unavailable. */
-            readonly parameter_draws: components["schemas"]["ParameterDraws"];
-            /**
-             * Arrays
-             * @description Numerical evidence keyed by its stored array reference. Shape and dtype are retained; non-finite scalars use nan, +inf and -inf tags.
-             */
-            readonly arrays: {
-                readonly [key: string]: components["schemas"]["NumericalArray"];
-            };
+            /** @description Completed compatibility and question findings for the selected history. */
+            readonly checks: components["schemas"]["FitCheckReport"];
+            /** @description Run provenance, native sampler evidence, diagnostics and parameter summaries. */
+            readonly inference: components["schemas"]["InferenceReport"];
         };
         /** @enum {string} */
         readonly FitReliability: "not_fitted" | "converged" | "unconverged" | "unknown";
@@ -2122,24 +1812,6 @@ export interface components {
             readonly seed: number | null;
         };
         /**
-         * FitSummary
-         * @description A fit read contains the inference report summary and server-composed display findings.
-         *
-         *     The completed action also carries the full inference report and per-draw diagnostics.
-         */
-        readonly FitSummary: {
-            readonly report: components["schemas"]["InferenceReportCore"];
-            /** Edge Estimates */
-            readonly edge_estimates: Readonly<Partial<Record<components["schemas"]["EdgeId-Output"], components["schemas"]["ParameterRef"]>>>;
-            /** Decay Estimates */
-            readonly decay_estimates: Readonly<Partial<Record<components["schemas"]["ConstructId-Output"], components["schemas"]["ParameterRef"]>>>;
-            /**
-             * Prior Densities
-             * @description Conditioned input laws of the fitted parameters, on their posterior marginals' quantity scale; absent where the current compiler cannot place the input model.
-             */
-            readonly prior_densities: Readonly<Partial<Record<components["schemas"]["ParameterId-Output"], components["schemas"]["DensityCurve"]>>>;
-        };
-        /**
          * FittedLawProvenance
          * @description All current laws retain one committed fit's model and observation panel.
          */
@@ -2156,16 +1828,6 @@ export interface components {
              * @enum {string}
              */
             readonly interpretation: "in_sample_posterior_predictive" | "posterior_predictive";
-        };
-        /** GammaLawSpec[Expression] */
-        readonly "GammaLawSpec_Expression_-Input": {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly distribution: "Gamma";
-            readonly concentration: components["schemas"]["Expression-Input"];
-            readonly rate: components["schemas"]["Expression-Input"];
         };
         /** GammaLawSpec[Expression] */
         readonly "GammaLawSpec_Expression_-Output": {
@@ -2253,17 +1915,6 @@ export interface components {
          * IdentityTransformSpec
          * @description Keep the authored probability law on the scientific quantity's native scale.
          */
-        readonly "IdentityTransformSpec-Input": {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "identity";
-        };
-        /**
-         * IdentityTransformSpec
-         * @description Keep the authored probability law on the scientific quantity's native scale.
-         */
         readonly "IdentityTransformSpec-Output": {
             /**
              * @description discriminator enum property added by openapi-typescript
@@ -2344,20 +1995,6 @@ export interface components {
          *     Extraction instructions belong to DataPreparationSpec. The shared observation
          *     schema also permits generative models before any observations have been collected.
          */
-        readonly "IndicatorSpec-Input": {
-            readonly observation: components["schemas"]["ObservationSpec_Annotated_Union_Duration__NoneType___FieldInfo_annotation_NoneType__required_False__default_None___-Input"];
-            /** @default null */
-            readonly likelihood?: components["schemas"]["LikelihoodSpec-Input"] | null;
-            /** @description Whether higher values move with (positive) or against (negative) the construct. */
-            readonly construct_polarity: components["schemas"]["IndicatorPolarity"];
-        };
-        /**
-         * IndicatorSpec
-         * @description Bind an observed-variable ID to a construct and an emission likelihood.
-         *
-         *     Extraction instructions belong to DataPreparationSpec. The shared observation
-         *     schema also permits generative models before any observations have been collected.
-         */
         readonly "IndicatorSpec-Output": {
             readonly observation: Domain.ObservationSpec<string | null>;
             /** @default null */
@@ -2367,83 +2004,55 @@ export interface components {
         };
         /**
          * InferenceEvidence
-         * @description Native execution telemetry; posterior atoms and coordinates belong to the model.
+         * @description Native telemetry buffers; posterior atoms and coordinates belong to the model.
          */
         readonly InferenceEvidence: {
-            readonly distribution: components["schemas"]["DistributionId-Output"];
-            /** Time Origin */
-            readonly time_origin: string | null;
-            /** Duration Seconds */
-            readonly duration_seconds: number;
-            readonly engine: components["schemas"]["ParticleMCMCEvidence"] | null;
-            /**
-             * Num Chains
-             * @default null
-             */
-            readonly num_chains: number | null;
             /** Chain Extra Fields */
             readonly chain_extra_fields: {
-                readonly [key: string]: string;
+                readonly [key: string]: components["schemas"]["NumericalArray"];
             };
-            /**
-             * Observation Log Probs
-             * @default null
-             */
-            readonly observation_log_probs: string | null;
-            /**
-             * Observed Rows
-             * @default null
-             */
-            readonly observed_rows: string | null;
-            /**
-             * Exact Observation Rows
-             * @default null
-             */
-            readonly exact_observation_rows: string | null;
             /** @default null */
-            readonly sampler_diagnostics: components["schemas"]["ParticleSamplerDiagnostics"] | null;
+            readonly observation_log_probs: components["schemas"]["NumericalArray"] | null;
+            /** @default null */
+            readonly observed_rows: components["schemas"]["NumericalArray"] | null;
+            /** @default null */
+            readonly exact_observation_rows: components["schemas"]["NumericalArray"] | null;
             /** Phase Extra Fields */
             readonly phase_extra_fields: {
                 readonly [key: string]: {
-                    readonly [key: string]: string;
+                    readonly [key: string]: components["schemas"]["NumericalArray"];
                 };
             };
-            /**
-             * Warmup Complete Log Posterior History
-             * @default null
-             */
-            readonly warmup_complete_log_posterior_history: string | null;
-            /**
-             * All Complete Log Posterior History
-             * @default null
-             */
-            readonly all_complete_log_posterior_history: string | null;
-            /**
-             * Initial Latent Delta
-             * @default null
-             */
-            readonly initial_latent_delta: string | null;
-            /**
-             * Final Latent Delta
-             * @default null
-             */
-            readonly final_latent_delta: string | null;
+            /** @default null */
+            readonly warmup_complete_log_posterior_history: components["schemas"]["NumericalArray"] | null;
+            /** @default null */
+            readonly all_complete_log_posterior_history: components["schemas"]["NumericalArray"] | null;
+            /** @default null */
+            readonly initial_latent_delta: components["schemas"]["NumericalArray"] | null;
+            /** @default null */
+            readonly final_latent_delta: components["schemas"]["NumericalArray"] | null;
         };
         /**
          * InferenceMetadata
-         * @description Run measurements for the production particle sampler.
+         * @description The production run's law, chain layout and sampler measurements.
          */
         readonly InferenceMetadata: {
+            readonly distribution: components["schemas"]["DistributionId-Output"];
             /** N Samples */
             readonly n_samples: number;
+            /** Num Chains */
+            readonly num_chains: number;
             /** Duration Seconds */
             readonly duration_seconds: number;
+            readonly engine: components["schemas"]["ParticleMCMCEvidence"];
+            readonly sampler_diagnostics: components["schemas"]["ParticleSamplerDiagnostics"] | null;
         };
         /**
          * InferenceReport
-         * @description The compact core composed with retained detail, without filtering or re-parsing.
+         * @description One fit's provenance, run metadata, native evidence and computed findings.
          */
         readonly InferenceReport: {
+            readonly run: components["schemas"]["ModelFitResult"];
             readonly core: components["schemas"]["InferenceReportCore"];
             readonly detail: components["schemas"]["InferenceReportDetail"];
         };
@@ -2452,20 +2061,18 @@ export interface components {
          * @description Compact scientific report shared by snapshots and the full report.
          */
         readonly InferenceReportCore: {
-            /** Time Origin */
-            readonly time_origin: string | null;
             readonly inference_metadata: components["schemas"]["InferenceMetadata"];
-            readonly engine: Domain.Assessment<string, Domain.ParticleMCMCEvidence>;
             readonly inference_diagnostics: components["schemas"]["ChainDiagnostics"] | null;
-            readonly sampler_diagnostics: components["schemas"]["ParticleSamplerDiagnostics"] | null;
             readonly convergence: components["schemas"]["ParameterConvergenceReport"];
             /** @default null */
             readonly loo_diagnostics: components["schemas"]["LOODiagnostics"] | null;
+            /** Posterior Marginals */
+            readonly posterior_marginals: readonly components["schemas"]["PosteriorMarginal"][];
             /**
-             * Posterior Marginals
-             * @default null
+             * Prior Densities
+             * @description Input laws evaluated on the quantity scale of the posterior summaries.
              */
-            readonly posterior_marginals: readonly components["schemas"]["PosteriorMarginal"][] | null;
+            readonly prior_densities: Readonly<Partial<Record<components["schemas"]["ParameterId-Output"], components["schemas"]["DensityCurve"]>>>;
         };
         /**
          * InferenceReportDetail
@@ -2492,32 +2099,6 @@ export interface components {
              * @default []
              */
             readonly loo_pit: readonly components["schemas"]["LOOPITPoint"][];
-            /**
-             * Divergent
-             * @default null
-             */
-            readonly divergent: readonly boolean[] | string | null;
-            /**
-             * Initial Latent Delta
-             * @default null
-             */
-            readonly initial_latent_delta: readonly components["schemas"]["ScalarValues"][] | null;
-            /**
-             * Final Latent Delta
-             * @default null
-             */
-            readonly final_latent_delta: readonly components["schemas"]["ScalarValues"][] | null;
-        };
-        /**
-         * InitialCorrelationTransformSpec
-         * @description Constrain an initial-state correlation to its scientific support [-1, 1].
-         */
-        readonly "InitialCorrelationTransformSpec-Input": {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "initial_state_correlation";
         };
         /**
          * InitialCorrelationTransformSpec
@@ -2529,19 +2110,6 @@ export interface components {
              * @enum {string}
              */
             readonly kind: "initial_state_correlation";
-        };
-        /**
-         * IntervalEffectTransformSpec
-         * @description Divide an interval effect by its explicit duration in days.
-         */
-        readonly "IntervalEffectTransformSpec-Input": {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "dt_effect_to_ct_rate";
-            /** Interval Days */
-            readonly interval_days: number | "model_clock";
         };
         /**
          * IntervalEffectTransformSpec
@@ -2594,27 +2162,6 @@ export interface components {
          *     follow in construct-identity order, retaining the supplied time-point order.
          *     Element identities include their categorical or covariance basis.
          */
-        readonly "JointLawLayout-Input": {
-            /** Parameters */
-            readonly parameters: readonly (readonly [
-                components["schemas"]["ParameterId-Input"],
-                readonly components["schemas"]["ParameterElementId-Input"][]
-            ])[];
-            /** Constructs */
-            readonly constructs: readonly components["schemas"]["ConstructId-Input"][];
-            /** Time Points */
-            readonly time_points: readonly number[];
-            /** Labels */
-            readonly labels: Readonly<Partial<Record<components["schemas"]["ParameterElementId-Input"], string>>>;
-        };
-        /**
-         * JointLawLayout
-         * @description An explicit law membership ordered independently of native tensor positions.
-         *
-         *     Parameters sort by identity, then by scientific element identity. Trajectories
-         *     follow in construct-identity order, retaining the supplied time-point order.
-         *     Element identities include their categorical or covariance basis.
-         */
         readonly "JointLawLayout-Output": {
             /** Parameters */
             readonly parameters: readonly (readonly [
@@ -2625,25 +2172,23 @@ export interface components {
             readonly constructs: readonly components["schemas"]["ConstructId-Output"][];
             /** Time Points */
             readonly time_points: readonly number[];
+            /**
+             * Time Origin
+             * @description Calendar instant of model day zero, or relative coordinates bound at execution. Fitting retains its calendar origin with the law.
+             * @default relative
+             */
+            readonly time_origin: string | "relative";
             /** Labels */
             readonly labels: Readonly<Partial<Record<components["schemas"]["ParameterElementId-Output"], string>>>;
         };
         /** @description A JSON array transports an ordered collection of recursively typed values. */
-        readonly "JsonArray-Input": readonly Domain.JsonValue[];
-        /** @description A JSON array transports an ordered collection of recursively typed values. */
         readonly "JsonArray-Output": readonly Domain.JsonValue[];
-        /** @description A JSON object transports string-keyed recursively typed values. */
-        readonly "JsonObject-Input": {
-            readonly [key: string]: Domain.JsonValue;
-        };
         /** @description A JSON object transports string-keyed recursively typed values. */
         readonly "JsonObject-Output": {
             readonly [key: string]: Domain.JsonValue;
         };
         /** @description A JSON scalar transports a string, number, boolean, or null. */
         readonly JsonScalar: boolean | number | string | null;
-        /** @description A JSON value transports a scalar or a recursive array or object. */
-        readonly "JsonValue-Input": Domain.JsonScalar | Domain.JsonArray | Domain.JsonObject;
         /** @description A JSON value transports a scalar or a recursive array or object. */
         readonly "JsonValue-Output": Domain.JsonScalar | Domain.JsonArray | Domain.JsonObject;
         /**
@@ -2713,29 +2258,6 @@ export interface components {
          * LikelihoodSpec
          * @description An indicator's conditional probability law and its scientific justification.
          */
-        readonly "LikelihoodSpec-Input": {
-            readonly law: components["schemas"]["ObservationLawSpec-Input"];
-            /**
-             * Standardized
-             * @description Whether observations are mean-centered and scaled before fitting.
-             * @default false
-             */
-            readonly standardized?: boolean;
-            /**
-             * Reasoning
-             * @description Why this conditional law was chosen for the indicator
-             */
-            readonly reasoning: string;
-            /**
-             * Sources
-             * @default []
-             */
-            readonly sources?: readonly components["schemas"]["LiteratureSource-Input"][];
-        };
-        /**
-         * LikelihoodSpec
-         * @description An indicator's conditional probability law and its scientific justification.
-         */
         readonly "LikelihoodSpec-Output": {
             readonly law: components["schemas"]["ObservationLawSpec-Output"];
             /**
@@ -2759,19 +2281,6 @@ export interface components {
          * LiteralExpression
          * @description A finite scalar constant in a model equation.
          */
-        readonly "LiteralExpression-Input": {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "literal";
-            /** Value */
-            readonly value: number;
-        };
-        /**
-         * LiteralExpression
-         * @description A finite scalar constant in a model equation.
-         */
         readonly "LiteralExpression-Output": {
             /**
              * @description discriminator enum property added by openapi-typescript
@@ -2780,28 +2289,6 @@ export interface components {
             readonly kind: "literal";
             /** Value */
             readonly value: number;
-        };
-        /**
-         * LiteratureSource
-         * @description A literature source records cited evidence supporting a scientific modeling decision.
-         */
-        readonly "LiteratureSource-Input": {
-            /**
-             * Title
-             * @description Title of the source (paper, meta-analysis, textbook, etc.)
-             */
-            readonly title: string;
-            /**
-             * Url
-             * @description URL of the source if available
-             * @default null
-             */
-            readonly url?: string | null;
-            /**
-             * Snippet
-             * @description Relevant excerpt or paraphrase from the source
-             */
-            readonly snippet: string;
         };
         /**
          * LiteratureSource
@@ -3029,18 +2516,6 @@ export interface components {
          * @enum {string}
          */
         readonly MeasurementDtype: "continuous" | "binary" | "count" | "ordinal" | "categorical";
-        /**
-         * MeasurementsData
-         * @description Counts and representative observations read directly from one panel revision.
-         */
-        readonly MeasurementsData: {
-            /** N Observations */
-            readonly n_observations: number;
-            /** Per Indicator Counts */
-            readonly per_indicator_counts: Readonly<Partial<Record<components["schemas"]["IndicatorId-Output"], number>>>;
-            /** Combined Extractions Sample */
-            readonly combined_extractions_sample: readonly components["schemas"]["ObservationRecord"][];
-        };
         /** @description A persistent mechanism identity distinguishes additive terms through reordering and revision. */
         readonly "MechanismId-Input": `mechanism:${string}`;
         /** @description A persistent mechanism identity distinguishes additive terms through reordering and revision. */
@@ -3088,96 +2563,31 @@ export interface components {
         };
         /** ModelDiffInput[GitOid] */
         readonly ModelDiffInput_GitOid_: {
-            /** @description Earlier model revision or checkpoint used as the comparison base. */
+            /** @description Model revision or checkpoint used as the comparison base. */
             readonly before_ref: components["schemas"]["GitOid-Output"];
-            /** @description Later model revision or checkpoint to compare with the base. */
+            /** @description Model revision or checkpoint the returned patch reconstructs from the base. */
             readonly after_ref: components["schemas"]["GitOid-Output"];
         };
         /** ModelDiffInput[RevisionSelector] */
         readonly ModelDiffInput_RevisionSelector_: {
-            /** @description Earlier model revision or checkpoint used as the comparison base. */
+            /** @description Model revision or checkpoint used as the comparison base. */
             readonly before_ref: components["schemas"]["RevisionSelector"];
-            /** @description Later model revision or checkpoint to compare with the base. */
+            /** @description Model revision or checkpoint the returned patch reconstructs from the base. */
             readonly after_ref: components["schemas"]["RevisionSelector"];
         };
         /**
          * ModelDiffOutput
-         * @description Compare model definitions and scientific evidence at two selections.
+         * @description Directional changes between saved specs, expressed in the model's editing language.
+         *
+         *     ModelSpec.changes_from owns the document comparison. Applying its patch with
+         *     merge_fields to the before spec reconstructs the after spec; equal specs yield
+         *     an empty document. Only saved specification fields participate, including their
+         *     exact law-buffer references. No execution findings or statistical comparisons
+         *     are computed here; those remain owned by their producing actions.
          */
         readonly ModelDiffOutput: {
-            /**
-             * Arrays
-             * @description Exact numerical laws referenced by either compared model.
-             */
-            readonly arrays: {
-                readonly [key: string]: components["schemas"]["NumericalArray"];
-            };
-            /** @description Artifact reference for the earlier model, if one is selected. */
-            readonly before: components["schemas"]["GitRef"] | null;
-            /** @description Artifact reference for the later model, if one is selected. */
-            readonly after: components["schemas"]["GitRef"] | null;
-            /** @description Earlier scientific definition, or null without a model. */
-            readonly before_model: components["schemas"]["ModelSpec-Output"] | null;
-            /** @description Later scientific definition, or null without a model. */
-            readonly after_model: components["schemas"]["ModelSpec-Output"] | null;
-            /**
-             * Parameters
-             * @description Added, removed, and revised parameter definitions.
-             */
-            readonly parameters: readonly Domain.Change<Domain.ParameterSpec>[];
-            /**
-             * Constructs
-             * @description Construct identity changes, including unchanged identities.
-             */
-            readonly constructs: readonly (Domain.Change<Domain.ConstructRef> | Domain.Unchanged<Domain.ConstructRef>)[];
-            /**
-             * Edges
-             * @description Edge identity changes, including unchanged identities.
-             */
-            readonly edges: readonly (Domain.Change<Domain.EdgeRef> | Domain.Unchanged<Domain.EdgeRef>)[];
-            /**
-             * Before Dispositions
-             * @description Execution treatment of structural entities before the change.
-             */
-            readonly before_dispositions: readonly components["schemas"]["StructuralItemDisposition"][];
-            /**
-             * After Dispositions
-             * @description Execution treatment of structural entities after the change.
-             */
-            readonly after_dispositions: readonly components["schemas"]["StructuralItemDisposition"][];
-            /**
-             * Before Dynamic Construct Ids
-             * @description Constructs with state dynamics in the earlier selection.
-             */
-            readonly before_dynamic_construct_ids: readonly components["schemas"]["ConstructId-Output"][];
-            /**
-             * After Dynamic Construct Ids
-             * @description Constructs with state dynamics in the later selection.
-             */
-            readonly after_dynamic_construct_ids: readonly components["schemas"]["ConstructId-Output"][];
-            /**
-             * Changed Inputs
-             * @description Names of scientific input dependencies whose selections differ between the two checkpoints.
-             */
-            readonly changed_inputs: readonly string[];
-            /**
-             * Before Checks
-             * @description Specification findings retained for the earlier model.
-             */
-            readonly before_checks: readonly components["schemas"]["SpecificationAssessment"][];
-            /**
-             * After Checks
-             * @description Specification findings retained for the later model.
-             */
-            readonly after_checks: readonly components["schemas"]["SpecificationAssessment"][];
-            /** @description Earlier inference summary, when available. */
-            readonly before_fit: components["schemas"]["InferenceReportCore"] | null;
-            /** @description Later inference summary, when available. */
-            readonly after_fit: components["schemas"]["InferenceReportCore"] | null;
-            /** @description Earlier simulation findings, when available. */
-            readonly before_simulation: components["schemas"]["SimulationReport"] | null;
-            /** @description Later simulation findings, when available. */
-            readonly after_simulation: components["schemas"]["SimulationReport"] | null;
+            /** @description Merge this document into the before spec to obtain the after spec. Omitted fields are unchanged, supplied fields are added or updated, and null map entries delete their identities. A checkpoint without a model denotes the empty spec. */
+            readonly changes: components["schemas"]["ModelSpec-Input"];
         };
         /** ModelDiffRequest[GitOid] */
         readonly ModelDiffRequest_GitOid_: {
@@ -3223,29 +2633,6 @@ export interface components {
             readonly evidence: components["schemas"]["InferenceEvidence"];
         };
         /**
-         * ModelGraphView
-         * @description Scientific entity identities selected for the graph at this authoring checkpoint.
-         */
-        readonly ModelGraphView: {
-            /**
-             * Construct Ids
-             * @default []
-             */
-            readonly construct_ids: readonly components["schemas"]["ConstructId-Output"][];
-            /**
-             * Edge Ids
-             * @default []
-             */
-            readonly edge_ids: readonly components["schemas"]["EdgeId-Output"][];
-            /**
-             * Dynamic Construct Ids
-             * @default []
-             */
-            readonly dynamic_construct_ids: readonly components["schemas"]["ConstructId-Output"][];
-            /** Status */
-            readonly status: Readonly<Partial<Record<components["schemas"]["ConstructId-Output"], "observed" | "marginalized" | "blocking">>>;
-        };
-        /**
          * ModelSnapshot
          * @description Scientific values selected from recorded action dependencies.
          */
@@ -3259,46 +2646,17 @@ export interface components {
             readonly commit_id: components["schemas"]["GitOid-Output"];
             /** Selected Seq */
             readonly selected_seq: number;
-            /**
-             * Can Simulate
-             * @default false
-             */
-            readonly can_simulate: boolean;
             readonly state: components["schemas"]["StudyState"];
-            /** @default null */
-            readonly raw_data: components["schemas"]["RawDataData"] | null;
-            /** @default null */
-            readonly measurements: components["schemas"]["MeasurementsData"] | null;
             /** @default null */
             readonly metadata: components["schemas"]["PreparedDataMetadata"] | null;
             /** @default null */
             readonly profile: components["schemas"]["DataProfileArtifact"] | null;
             /** @default null */
             readonly identification: components["schemas"]["IdentificationReport"] | null;
-            /**
-             * Dispositions
-             * @default null
-             */
-            readonly dispositions: readonly components["schemas"]["StructuralItemDisposition"][] | null;
-            readonly graph: components["schemas"]["ModelGraphView"];
-            /** Entity Failures */
-            readonly entity_failures: {
-                readonly [key: string]: readonly string[];
-            };
             /** @default null */
             readonly validation_report: components["schemas"]["ValidationReportArtifact"] | null;
-            /** Confounder Equations */
-            readonly confounder_equations: Readonly<Partial<Record<components["schemas"]["ConstructId-Output"], string>>>;
-            /** State Equations */
-            readonly state_equations: Readonly<Partial<Record<components["schemas"]["ConstructId-Output"], string>>>;
-            /** Observation Equations */
-            readonly observation_equations: Readonly<Partial<Record<components["schemas"]["IndicatorId-Output"], string>>>;
-            /** Likelihood Diagnostics */
-            readonly likelihood_diagnostics: Readonly<Partial<Record<components["schemas"]["IndicatorId-Output"], readonly components["schemas"]["HistogramBin"][]>>>;
-            /** Authoring Prior Densities */
-            readonly authoring_prior_densities: Readonly<Partial<Record<components["schemas"]["ParameterId-Output"], components["schemas"]["DensityCurve"]>>>;
             /** @default null */
-            readonly fit: components["schemas"]["FitSummary"] | null;
+            readonly fit: components["schemas"]["InferenceReportCore"] | null;
             /**
              * Specification
              * @default null
@@ -3311,80 +2669,2255 @@ export interface components {
         };
         /**
          * ModelSpec
-         * @description A connected causal graph with owned scientific detail, built to answer the study question.
+         * @description One identity-addressed scientific document, usable for creation and partial edits.
+         *
+         *     Omission carries no update. Null entity entries are deletion instructions. The
+         *     editing boundary materializes and checks the complete document before publication.
+         *     Scientific consumers resolve its owned entities at that boundary.
          */
         readonly "ModelSpec-Input": {
-            /**
-             * Edges
-             * @default []
-             */
-            readonly edges?: readonly components["schemas"]["CausalEdgeSpec-Input"][];
-            /**
-             * Parameters
-             * @default []
-             */
-            readonly parameters?: readonly components["schemas"]["ParameterSpec-Input"][];
-            /**
-             * Distributions
-             * @description All explicit probability laws. Members are the parameters and constructs referring to each ID. Event coordinates are parameters by ID and element ID, then constructs by ID and time point. A scalar law belongs to one parameter and applies independently to its elements.
-             */
-            readonly distributions?: Readonly<Partial<Record<components["schemas"]["DistributionId-Input"], components["schemas"]["NumPyroDistribution-Input"]>>>;
-            /**
-             * Law Layouts
-             * @description Scientific coordinates and production labels of each joint law, beside its native atoms.
-             */
-            readonly law_layouts?: Readonly<Partial<Record<components["schemas"]["DistributionId-Input"], components["schemas"]["JointLawLayout-Input"]>>>;
-            /**
-             * Measurement Clock
-             * @default null
-             */
+            readonly constructs?: Readonly<Partial<Record<components["schemas"]["ConstructId-Input"], {
+                /** @description Construct name (e.g., 'stress', 'sleep_quality') */
+                readonly name?: string;
+                /** @description What this theoretical construct represents */
+                readonly description?: string;
+                readonly indicators?: Readonly<Partial<Record<components["schemas"]["IndicatorId-Input"], {
+                    readonly observation?: {
+                        /** @description Indicator name (e.g., 'hrv', 'self_reported_stress') */
+                        readonly name?: string;
+                        /** @enum {string} */
+                        readonly measurement_dtype?: "continuous" | "binary" | "count" | "ordinal" | "categorical";
+                        /**
+                         * @description How measurements within a support window are reduced to one observation.
+                         * @enum {string}
+                         */
+                        readonly aggregation?: "first" | "last" | "sum" | "count" | "mean" | "std";
+                        /** @description Optional duration string describing the support window summarized by this indicator, in positive fixed units s, m, h, d or w (for example '2w'). Resolved by the preparation window or the generative model clock. */
+                        readonly observation_window?: string | null;
+                        /** @description Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding. */
+                        readonly ordinal_levels?: readonly string[] | null;
+                        /** @description Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding. */
+                        readonly categorical_levels?: readonly string[] | null;
+                    };
+                    readonly likelihood?: {
+                        readonly law?: {
+                            /** @constant */
+                            readonly distribution?: "Delta";
+                            readonly v?: {
+                                /** @constant */
+                                readonly kind?: "literal";
+                                readonly value?: number;
+                            } | {
+                                /** @constant */
+                                readonly kind?: "state";
+                                readonly construct_id?: `construct:${string}`;
+                            } | {
+                                /** @constant */
+                                readonly kind?: "coefficient";
+                                /** @enum {string} */
+                                readonly role?: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                                /** @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned. */
+                                readonly value?: number | `parameter:${string}` | null;
+                                /** @description Additional constructs participating in this coefficient use. */
+                                readonly construct_ids?: readonly `construct:${string}`[];
+                            } | {
+                                /** @constant */
+                                readonly kind?: "binary";
+                                /** @enum {string} */
+                                readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                                readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                            } | {
+                                /** @constant */
+                                readonly kind?: "call";
+                                /** @enum {string} */
+                                readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                                readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                            };
+                        } | {
+                            /** @constant */
+                            readonly distribution?: "Normal";
+                            readonly loc?: {
+                                /** @constant */
+                                readonly kind?: "literal";
+                                readonly value?: number;
+                            } | {
+                                /** @constant */
+                                readonly kind?: "state";
+                                readonly construct_id?: `construct:${string}`;
+                            } | {
+                                /** @constant */
+                                readonly kind?: "coefficient";
+                                /** @enum {string} */
+                                readonly role?: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                                /** @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned. */
+                                readonly value?: number | `parameter:${string}` | null;
+                                /** @description Additional constructs participating in this coefficient use. */
+                                readonly construct_ids?: readonly `construct:${string}`[];
+                            } | {
+                                /** @constant */
+                                readonly kind?: "binary";
+                                /** @enum {string} */
+                                readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                                readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                            } | {
+                                /** @constant */
+                                readonly kind?: "call";
+                                /** @enum {string} */
+                                readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                                readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                            };
+                            readonly scale?: {
+                                /** @constant */
+                                readonly kind?: "literal";
+                                readonly value?: number;
+                            } | {
+                                /** @constant */
+                                readonly kind?: "state";
+                                readonly construct_id?: `construct:${string}`;
+                            } | {
+                                /** @constant */
+                                readonly kind?: "coefficient";
+                                /** @enum {string} */
+                                readonly role?: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                                /** @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned. */
+                                readonly value?: number | `parameter:${string}` | null;
+                                /** @description Additional constructs participating in this coefficient use. */
+                                readonly construct_ids?: readonly `construct:${string}`[];
+                            } | {
+                                /** @constant */
+                                readonly kind?: "binary";
+                                /** @enum {string} */
+                                readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                                readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                            } | {
+                                /** @constant */
+                                readonly kind?: "call";
+                                /** @enum {string} */
+                                readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                                readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                            };
+                        } | {
+                            /** @constant */
+                            readonly distribution?: "StudentT";
+                            readonly df?: {
+                                /** @constant */
+                                readonly kind?: "literal";
+                                readonly value?: number;
+                            } | {
+                                /** @constant */
+                                readonly kind?: "state";
+                                readonly construct_id?: `construct:${string}`;
+                            } | {
+                                /** @constant */
+                                readonly kind?: "coefficient";
+                                /** @enum {string} */
+                                readonly role?: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                                /** @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned. */
+                                readonly value?: number | `parameter:${string}` | null;
+                                /** @description Additional constructs participating in this coefficient use. */
+                                readonly construct_ids?: readonly `construct:${string}`[];
+                            } | {
+                                /** @constant */
+                                readonly kind?: "binary";
+                                /** @enum {string} */
+                                readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                                readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                            } | {
+                                /** @constant */
+                                readonly kind?: "call";
+                                /** @enum {string} */
+                                readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                                readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                            };
+                            readonly loc?: {
+                                /** @constant */
+                                readonly kind?: "literal";
+                                readonly value?: number;
+                            } | {
+                                /** @constant */
+                                readonly kind?: "state";
+                                readonly construct_id?: `construct:${string}`;
+                            } | {
+                                /** @constant */
+                                readonly kind?: "coefficient";
+                                /** @enum {string} */
+                                readonly role?: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                                /** @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned. */
+                                readonly value?: number | `parameter:${string}` | null;
+                                /** @description Additional constructs participating in this coefficient use. */
+                                readonly construct_ids?: readonly `construct:${string}`[];
+                            } | {
+                                /** @constant */
+                                readonly kind?: "binary";
+                                /** @enum {string} */
+                                readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                                readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                            } | {
+                                /** @constant */
+                                readonly kind?: "call";
+                                /** @enum {string} */
+                                readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                                readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                            };
+                            readonly scale?: {
+                                /** @constant */
+                                readonly kind?: "literal";
+                                readonly value?: number;
+                            } | {
+                                /** @constant */
+                                readonly kind?: "state";
+                                readonly construct_id?: `construct:${string}`;
+                            } | {
+                                /** @constant */
+                                readonly kind?: "coefficient";
+                                /** @enum {string} */
+                                readonly role?: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                                /** @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned. */
+                                readonly value?: number | `parameter:${string}` | null;
+                                /** @description Additional constructs participating in this coefficient use. */
+                                readonly construct_ids?: readonly `construct:${string}`[];
+                            } | {
+                                /** @constant */
+                                readonly kind?: "binary";
+                                /** @enum {string} */
+                                readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                                readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                            } | {
+                                /** @constant */
+                                readonly kind?: "call";
+                                /** @enum {string} */
+                                readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                                readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                            };
+                        } | {
+                            /** @constant */
+                            readonly distribution?: "Poisson";
+                            readonly rate?: {
+                                /** @constant */
+                                readonly kind?: "literal";
+                                readonly value?: number;
+                            } | {
+                                /** @constant */
+                                readonly kind?: "state";
+                                readonly construct_id?: `construct:${string}`;
+                            } | {
+                                /** @constant */
+                                readonly kind?: "coefficient";
+                                /** @enum {string} */
+                                readonly role?: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                                /** @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned. */
+                                readonly value?: number | `parameter:${string}` | null;
+                                /** @description Additional constructs participating in this coefficient use. */
+                                readonly construct_ids?: readonly `construct:${string}`[];
+                            } | {
+                                /** @constant */
+                                readonly kind?: "binary";
+                                /** @enum {string} */
+                                readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                                readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                            } | {
+                                /** @constant */
+                                readonly kind?: "call";
+                                /** @enum {string} */
+                                readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                                readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                            };
+                        } | {
+                            /** @constant */
+                            readonly distribution?: "Gamma";
+                            readonly concentration?: {
+                                /** @constant */
+                                readonly kind?: "literal";
+                                readonly value?: number;
+                            } | {
+                                /** @constant */
+                                readonly kind?: "state";
+                                readonly construct_id?: `construct:${string}`;
+                            } | {
+                                /** @constant */
+                                readonly kind?: "coefficient";
+                                /** @enum {string} */
+                                readonly role?: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                                /** @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned. */
+                                readonly value?: number | `parameter:${string}` | null;
+                                /** @description Additional constructs participating in this coefficient use. */
+                                readonly construct_ids?: readonly `construct:${string}`[];
+                            } | {
+                                /** @constant */
+                                readonly kind?: "binary";
+                                /** @enum {string} */
+                                readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                                readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                            } | {
+                                /** @constant */
+                                readonly kind?: "call";
+                                /** @enum {string} */
+                                readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                                readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                            };
+                            readonly rate?: {
+                                /** @constant */
+                                readonly kind?: "literal";
+                                readonly value?: number;
+                            } | {
+                                /** @constant */
+                                readonly kind?: "state";
+                                readonly construct_id?: `construct:${string}`;
+                            } | {
+                                /** @constant */
+                                readonly kind?: "coefficient";
+                                /** @enum {string} */
+                                readonly role?: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                                /** @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned. */
+                                readonly value?: number | `parameter:${string}` | null;
+                                /** @description Additional constructs participating in this coefficient use. */
+                                readonly construct_ids?: readonly `construct:${string}`[];
+                            } | {
+                                /** @constant */
+                                readonly kind?: "binary";
+                                /** @enum {string} */
+                                readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                                readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                            } | {
+                                /** @constant */
+                                readonly kind?: "call";
+                                /** @enum {string} */
+                                readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                                readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                            };
+                        } | {
+                            /** @constant */
+                            readonly distribution?: "BernoulliLogits";
+                            readonly logits?: {
+                                /** @constant */
+                                readonly kind?: "literal";
+                                readonly value?: number;
+                            } | {
+                                /** @constant */
+                                readonly kind?: "state";
+                                readonly construct_id?: `construct:${string}`;
+                            } | {
+                                /** @constant */
+                                readonly kind?: "coefficient";
+                                /** @enum {string} */
+                                readonly role?: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                                /** @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned. */
+                                readonly value?: number | `parameter:${string}` | null;
+                                /** @description Additional constructs participating in this coefficient use. */
+                                readonly construct_ids?: readonly `construct:${string}`[];
+                            } | {
+                                /** @constant */
+                                readonly kind?: "binary";
+                                /** @enum {string} */
+                                readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                                readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                            } | {
+                                /** @constant */
+                                readonly kind?: "call";
+                                /** @enum {string} */
+                                readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                                readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                            };
+                        } | {
+                            /** @constant */
+                            readonly distribution?: "BernoulliProbs";
+                            readonly probs?: {
+                                /** @constant */
+                                readonly kind?: "literal";
+                                readonly value?: number;
+                            } | {
+                                /** @constant */
+                                readonly kind?: "state";
+                                readonly construct_id?: `construct:${string}`;
+                            } | {
+                                /** @constant */
+                                readonly kind?: "coefficient";
+                                /** @enum {string} */
+                                readonly role?: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                                /** @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned. */
+                                readonly value?: number | `parameter:${string}` | null;
+                                /** @description Additional constructs participating in this coefficient use. */
+                                readonly construct_ids?: readonly `construct:${string}`[];
+                            } | {
+                                /** @constant */
+                                readonly kind?: "binary";
+                                /** @enum {string} */
+                                readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                                readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                            } | {
+                                /** @constant */
+                                readonly kind?: "call";
+                                /** @enum {string} */
+                                readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                                readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                            };
+                        } | {
+                            /** @constant */
+                            readonly distribution?: "NegativeBinomial2";
+                            readonly mean?: {
+                                /** @constant */
+                                readonly kind?: "literal";
+                                readonly value?: number;
+                            } | {
+                                /** @constant */
+                                readonly kind?: "state";
+                                readonly construct_id?: `construct:${string}`;
+                            } | {
+                                /** @constant */
+                                readonly kind?: "coefficient";
+                                /** @enum {string} */
+                                readonly role?: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                                /** @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned. */
+                                readonly value?: number | `parameter:${string}` | null;
+                                /** @description Additional constructs participating in this coefficient use. */
+                                readonly construct_ids?: readonly `construct:${string}`[];
+                            } | {
+                                /** @constant */
+                                readonly kind?: "binary";
+                                /** @enum {string} */
+                                readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                                readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                            } | {
+                                /** @constant */
+                                readonly kind?: "call";
+                                /** @enum {string} */
+                                readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                                readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                            };
+                            readonly concentration?: {
+                                /** @constant */
+                                readonly kind?: "literal";
+                                readonly value?: number;
+                            } | {
+                                /** @constant */
+                                readonly kind?: "state";
+                                readonly construct_id?: `construct:${string}`;
+                            } | {
+                                /** @constant */
+                                readonly kind?: "coefficient";
+                                /** @enum {string} */
+                                readonly role?: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                                /** @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned. */
+                                readonly value?: number | `parameter:${string}` | null;
+                                /** @description Additional constructs participating in this coefficient use. */
+                                readonly construct_ids?: readonly `construct:${string}`[];
+                            } | {
+                                /** @constant */
+                                readonly kind?: "binary";
+                                /** @enum {string} */
+                                readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                                readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                            } | {
+                                /** @constant */
+                                readonly kind?: "call";
+                                /** @enum {string} */
+                                readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                                readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                            };
+                        } | {
+                            /** @constant */
+                            readonly distribution?: "Beta";
+                            readonly concentration1?: {
+                                /** @constant */
+                                readonly kind?: "literal";
+                                readonly value?: number;
+                            } | {
+                                /** @constant */
+                                readonly kind?: "state";
+                                readonly construct_id?: `construct:${string}`;
+                            } | {
+                                /** @constant */
+                                readonly kind?: "coefficient";
+                                /** @enum {string} */
+                                readonly role?: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                                /** @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned. */
+                                readonly value?: number | `parameter:${string}` | null;
+                                /** @description Additional constructs participating in this coefficient use. */
+                                readonly construct_ids?: readonly `construct:${string}`[];
+                            } | {
+                                /** @constant */
+                                readonly kind?: "binary";
+                                /** @enum {string} */
+                                readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                                readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                            } | {
+                                /** @constant */
+                                readonly kind?: "call";
+                                /** @enum {string} */
+                                readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                                readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                            };
+                            readonly concentration0?: {
+                                /** @constant */
+                                readonly kind?: "literal";
+                                readonly value?: number;
+                            } | {
+                                /** @constant */
+                                readonly kind?: "state";
+                                readonly construct_id?: `construct:${string}`;
+                            } | {
+                                /** @constant */
+                                readonly kind?: "coefficient";
+                                /** @enum {string} */
+                                readonly role?: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                                /** @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned. */
+                                readonly value?: number | `parameter:${string}` | null;
+                                /** @description Additional constructs participating in this coefficient use. */
+                                readonly construct_ids?: readonly `construct:${string}`[];
+                            } | {
+                                /** @constant */
+                                readonly kind?: "binary";
+                                /** @enum {string} */
+                                readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                                readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                            } | {
+                                /** @constant */
+                                readonly kind?: "call";
+                                /** @enum {string} */
+                                readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                                readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                            };
+                        } | {
+                            /** @constant */
+                            readonly distribution?: "OrderedLogistic";
+                            readonly predictor?: {
+                                /** @constant */
+                                readonly kind?: "literal";
+                                readonly value?: number;
+                            } | {
+                                /** @constant */
+                                readonly kind?: "state";
+                                readonly construct_id?: `construct:${string}`;
+                            } | {
+                                /** @constant */
+                                readonly kind?: "coefficient";
+                                /** @enum {string} */
+                                readonly role?: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                                /** @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned. */
+                                readonly value?: number | `parameter:${string}` | null;
+                                /** @description Additional constructs participating in this coefficient use. */
+                                readonly construct_ids?: readonly `construct:${string}`[];
+                            } | {
+                                /** @constant */
+                                readonly kind?: "binary";
+                                /** @enum {string} */
+                                readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                                readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                            } | {
+                                /** @constant */
+                                readonly kind?: "call";
+                                /** @enum {string} */
+                                readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                                readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                            };
+                            readonly cutpoints?: {
+                                /** @constant */
+                                readonly kind?: "literal";
+                                readonly value?: number;
+                            } | {
+                                /** @constant */
+                                readonly kind?: "state";
+                                readonly construct_id?: `construct:${string}`;
+                            } | {
+                                /** @constant */
+                                readonly kind?: "coefficient";
+                                /** @enum {string} */
+                                readonly role?: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                                /** @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned. */
+                                readonly value?: number | `parameter:${string}` | null;
+                                /** @description Additional constructs participating in this coefficient use. */
+                                readonly construct_ids?: readonly `construct:${string}`[];
+                            } | {
+                                /** @constant */
+                                readonly kind?: "binary";
+                                /** @enum {string} */
+                                readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                                readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                            } | {
+                                /** @constant */
+                                readonly kind?: "call";
+                                /** @enum {string} */
+                                readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                                readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                            };
+                        } | {
+                            /** @constant */
+                            readonly distribution?: "Categorical";
+                            readonly logits?: {
+                                /** @constant */
+                                readonly kind?: "literal";
+                                readonly value?: number;
+                            } | {
+                                /** @constant */
+                                readonly kind?: "state";
+                                readonly construct_id?: `construct:${string}`;
+                            } | {
+                                /** @constant */
+                                readonly kind?: "coefficient";
+                                /** @enum {string} */
+                                readonly role?: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                                /** @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned. */
+                                readonly value?: number | `parameter:${string}` | null;
+                                /** @description Additional constructs participating in this coefficient use. */
+                                readonly construct_ids?: readonly `construct:${string}`[];
+                            } | {
+                                /** @constant */
+                                readonly kind?: "binary";
+                                /** @enum {string} */
+                                readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                                readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                                readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                            } | {
+                                /** @constant */
+                                readonly kind?: "call";
+                                /** @enum {string} */
+                                readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                                readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                            };
+                        };
+                        /** @description Whether observations are mean-centered and scaled before fitting. */
+                        readonly standardized?: boolean;
+                        /** @description Why this conditional law was chosen for the indicator */
+                        readonly reasoning?: string;
+                        readonly sources?: readonly {
+                            /** @description Title of the source (paper, meta-analysis, textbook, etc.) */
+                            readonly title?: string;
+                            /** @description URL of the source if available */
+                            readonly url?: string | null;
+                            /** @description Relevant excerpt or paraphrase from the source */
+                            readonly snippet?: string;
+                        }[];
+                    } | null;
+                    /**
+                     * @description Whether the measurement increases or decreases with its owning construct.
+                     * @enum {string}
+                     */
+                    readonly construct_polarity?: "positive" | "negative";
+                } | null>>>;
+                readonly dynamics?: Readonly<Partial<Record<components["schemas"]["MechanismId-Input"], ({
+                    readonly expression?: {
+                        /** @constant */
+                        readonly kind?: "literal";
+                        readonly value?: number;
+                    } | {
+                        /** @constant */
+                        readonly kind?: "state";
+                        readonly construct_id?: `construct:${string}`;
+                    } | {
+                        /** @constant */
+                        readonly kind?: "coefficient";
+                        /** @enum {string} */
+                        readonly role?: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                        /** @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned. */
+                        readonly value?: number | `parameter:${string}` | null;
+                        /** @description Additional constructs participating in this coefficient use. */
+                        readonly construct_ids?: readonly `construct:${string}`[];
+                    } | {
+                        /** @constant */
+                        readonly kind?: "binary";
+                        /** @enum {string} */
+                        readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                        readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                        readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                    } | {
+                        /** @constant */
+                        readonly kind?: "call";
+                        /** @enum {string} */
+                        readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                        readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                    };
+                    /** @constant */
+                    readonly kind?: "drift";
+                } | {
+                    readonly expression?: {
+                        /** @constant */
+                        readonly kind?: "literal";
+                        readonly value?: number;
+                    } | {
+                        /** @constant */
+                        readonly kind?: "state";
+                        readonly construct_id?: `construct:${string}`;
+                    } | {
+                        /** @constant */
+                        readonly kind?: "coefficient";
+                        /** @enum {string} */
+                        readonly role?: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                        /** @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned. */
+                        readonly value?: number | `parameter:${string}` | null;
+                        /** @description Additional constructs participating in this coefficient use. */
+                        readonly construct_ids?: readonly `construct:${string}`[];
+                    } | {
+                        /** @constant */
+                        readonly kind?: "binary";
+                        /** @enum {string} */
+                        readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                        readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                        readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                    } | {
+                        /** @constant */
+                        readonly kind?: "call";
+                        /** @enum {string} */
+                        readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                        readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                    };
+                    /** @constant */
+                    readonly kind?: "potential";
+                }) | null>>>;
+                readonly coefficients?: readonly {
+                    /** @constant */
+                    readonly kind?: "coefficient";
+                    /** @enum {string} */
+                    readonly role?: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                    /** @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned. */
+                    readonly value?: number | `parameter:${string}` | null;
+                    /** @description Additional constructs participating in this coefficient use. */
+                    readonly construct_ids?: readonly `construct:${string}`[];
+                }[];
+                /** @enum {string} */
+                readonly innovation_family?: "gaussian" | "student_t";
+                /** @description Trajectory law in ModelSpec.distributions, with coordinates in its law_layouts entry. Exogenous trajectories use Delta and hold each value until the next point, including after the last point. */
+                readonly distribution?: `distribution:${string}` | null;
+                /**
+                 * @description Whether a construct is modeled as endogenous or supplied as an exogenous input.
+                 * @enum {string}
+                 */
+                readonly role?: "endogenous" | "exogenous";
+                /**
+                 * @description Temporal status states whether a construct varies within the individual over time.
+                 * @enum {string}
+                 */
+                readonly temporal_status?: "time_varying" | "time_invariant";
+            } | null>>>;
+            readonly edges?: Readonly<Partial<Record<components["schemas"]["EdgeId-Input"], {
+                readonly mechanisms?: Readonly<Partial<Record<components["schemas"]["MechanismId-Input"], {
+                    readonly expression?: {
+                        /** @constant */
+                        readonly kind?: "literal";
+                        readonly value?: number;
+                    } | {
+                        /** @constant */
+                        readonly kind?: "state";
+                        readonly construct_id?: `construct:${string}`;
+                    } | {
+                        /** @constant */
+                        readonly kind?: "coefficient";
+                        /** @enum {string} */
+                        readonly role?: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                        /** @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned. */
+                        readonly value?: number | `parameter:${string}` | null;
+                        /** @description Additional constructs participating in this coefficient use. */
+                        readonly construct_ids?: readonly `construct:${string}`[];
+                    } | {
+                        /** @constant */
+                        readonly kind?: "binary";
+                        /** @enum {string} */
+                        readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                        readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                        readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+                    } | {
+                        /** @constant */
+                        readonly kind?: "call";
+                        /** @enum {string} */
+                        readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                        readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
+                    };
+                    /** @constant */
+                    readonly kind?: "drift";
+                } | null>>>;
+                /** @description Persistent identity. Preserve when revising or renaming. */
+                readonly cause?: components["schemas"]["ConstructId-Input"];
+                /** @description Persistent identity. Preserve when revising or renaming. */
+                readonly effect?: components["schemas"]["ConstructId-Input"];
+                /** @description Theoretical justification for this causal link */
+                readonly description?: string;
+                /** @description Literature sources supporting this causal link */
+                readonly sources?: readonly {
+                    /** @description Title of the source (paper, meta-analysis, textbook, etc.) */
+                    readonly title?: string;
+                    /** @description URL of the source if available */
+                    readonly url?: string | null;
+                    /** @description Relevant excerpt or paraphrase from the source */
+                    readonly snippet?: string;
+                }[];
+            } | null>>>;
+            readonly parameters?: Readonly<Partial<Record<components["schemas"]["ParameterId-Input"], {
+                /** @description Authored parameter label; relationships use its persistent ID */
+                readonly name?: string;
+                /** @description Human-readable description of what this parameter represents */
+                readonly description?: string;
+                readonly transform?: {
+                    /** @constant */
+                    readonly kind?: "identity";
+                } | {
+                    /** @constant */
+                    readonly kind?: "dt_persistence_to_ct_decay";
+                    readonly interval_days?: number | "model_clock";
+                } | {
+                    /** @constant */
+                    readonly kind?: "dt_effect_to_ct_rate";
+                    readonly interval_days?: number | "model_clock";
+                } | {
+                    /** @constant */
+                    readonly kind?: "initial_state_correlation";
+                };
+                /** @description Membership in a native law in ModelSpec.distributions; may be joint. None means the law has not been assigned yet. */
+                readonly distribution?: `distribution:${string}` | null;
+                /** @description Why the authored prior law fits this quantity, and where its values come from. */
+                readonly reasoning?: string | null;
+                /** @description Evidence behind the authored prior law. */
+                readonly sources?: readonly {
+                    /** @description Title of the source (paper, meta-analysis, textbook, etc.) */
+                    readonly title?: string;
+                    /** @description URL of the source if available */
+                    readonly url?: string | null;
+                    /** @description Relevant excerpt or paraphrase from the source */
+                    readonly snippet?: string;
+                }[];
+            } | null>>>;
+            /** @description All explicit probability laws. Members are the parameters and constructs referring to each ID. Event coordinates are parameters by ID and element ID, then constructs by ID and time point. A scalar law belongs to one parameter and applies independently to its elements. */
+            readonly distributions?: Readonly<Partial<Record<components["schemas"]["DistributionId-Input"], {
+                readonly distribution?: string;
+                readonly params?: {
+                    readonly [key: string]: components["schemas"]["NumPyroValue-Input"];
+                };
+            } | null>>>;
+            /** @description Scientific coordinates and production labels of each joint law, beside its native atoms. */
+            readonly law_layouts?: Readonly<Partial<Record<components["schemas"]["DistributionId-Input"], {
+                readonly parameters?: readonly (readonly [
+                    components["schemas"]["ParameterId-Input"],
+                    readonly components["schemas"]["ParameterElementId-Input"][]
+                ])[];
+                readonly constructs?: readonly `construct:${string}`[];
+                readonly time_points?: readonly number[];
+                /** @description Calendar instant of model day zero, or relative coordinates bound at execution. Fitting retains its calendar origin with the law. */
+                readonly time_origin?: string | "relative";
+                readonly labels?: Readonly<Partial<Record<components["schemas"]["ParameterElementId-Input"], string | null>>>;
+            } | null>>>;
             readonly measurement_clock?: string | null;
         };
         /**
          * ModelSpec
-         * @description A connected causal graph with owned scientific detail, built to answer the study question.
+         * @description One identity-addressed scientific document, usable for creation and partial edits.
+         *
+         *     Omission carries no update. Null entity entries are deletion instructions. The
+         *     editing boundary materializes and checks the complete document before publication.
+         *     Scientific consumers resolve its owned entities at that boundary.
          */
         readonly "ModelSpec-Output": {
-            /**
-             * Edges
-             * @default []
-             */
-            readonly edges: readonly components["schemas"]["CausalEdgeSpec-Output"][];
-            /**
-             * Parameters
-             * @default []
-             */
-            readonly parameters: readonly components["schemas"]["ParameterSpec-Output"][];
-            /**
-             * Distributions
-             * @description All explicit probability laws. Members are the parameters and constructs referring to each ID. Event coordinates are parameters by ID and element ID, then constructs by ID and time point. A scalar law belongs to one parameter and applies independently to its elements.
-             */
+            readonly constructs: Readonly<Partial<Record<components["schemas"]["ConstructId-Output"], {
+                /** @description Construct name (e.g., 'stress', 'sleep_quality') */
+                readonly name: string;
+                /** @description What this theoretical construct represents */
+                readonly description: string;
+                readonly indicators: Readonly<Partial<Record<components["schemas"]["IndicatorId-Output"], {
+                    readonly observation: {
+                        /** @description Indicator name (e.g., 'hrv', 'self_reported_stress') */
+                        readonly name: string;
+                        /** @enum {string} */
+                        readonly measurement_dtype: "continuous" | "binary" | "count" | "ordinal" | "categorical";
+                        /**
+                         * @description How measurements within a support window are reduced to one observation.
+                         * @enum {string}
+                         */
+                        readonly aggregation: "first" | "last" | "sum" | "count" | "mean" | "std";
+                        /**
+                         * @description Optional duration string describing the support window summarized by this indicator, in positive fixed units s, m, h, d or w (for example '2w'). Resolved by the preparation window or the generative model clock.
+                         * @default null
+                         */
+                        readonly observation_window: string | null;
+                        /**
+                         * @description Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding.
+                         * @default null
+                         */
+                        readonly ordinal_levels: readonly string[] | null;
+                        /**
+                         * @description Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding.
+                         * @default null
+                         */
+                        readonly categorical_levels: readonly string[] | null;
+                    };
+                    /** @default null */
+                    readonly likelihood: {
+                        readonly law: {
+                            /**
+                             * @default Delta
+                             * @constant
+                             */
+                            readonly distribution: "Delta";
+                            readonly v: {
+                                /**
+                                 * @default literal
+                                 * @constant
+                                 */
+                                readonly kind: "literal";
+                                readonly value: number;
+                            } | {
+                                /**
+                                 * @default state
+                                 * @constant
+                                 */
+                                readonly kind: "state";
+                                readonly construct_id: `construct:${string}`;
+                            } | {
+                                /**
+                                 * @default coefficient
+                                 * @constant
+                                 */
+                                readonly kind: "coefficient";
+                                /** @enum {string} */
+                                readonly role: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                                /**
+                                 * @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.
+                                 * @default null
+                                 */
+                                readonly value: number | `parameter:${string}` | null;
+                                /**
+                                 * @description Additional constructs participating in this coefficient use.
+                                 * @default []
+                                 */
+                                readonly construct_ids: readonly `construct:${string}`[];
+                            } | {
+                                /**
+                                 * @default binary
+                                 * @constant
+                                 */
+                                readonly kind: "binary";
+                                /** @enum {string} */
+                                readonly operator: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                                readonly left: components["schemas"]["Expression-Output"];
+                                readonly right: components["schemas"]["Expression-Output"];
+                            } | {
+                                /**
+                                 * @default call
+                                 * @constant
+                                 */
+                                readonly kind: "call";
+                                /** @enum {string} */
+                                readonly function: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                                readonly arguments: readonly components["schemas"]["Expression-Output"][];
+                            };
+                        } | {
+                            /**
+                             * @default Normal
+                             * @constant
+                             */
+                            readonly distribution: "Normal";
+                            readonly loc: {
+                                /**
+                                 * @default literal
+                                 * @constant
+                                 */
+                                readonly kind: "literal";
+                                readonly value: number;
+                            } | {
+                                /**
+                                 * @default state
+                                 * @constant
+                                 */
+                                readonly kind: "state";
+                                readonly construct_id: `construct:${string}`;
+                            } | {
+                                /**
+                                 * @default coefficient
+                                 * @constant
+                                 */
+                                readonly kind: "coefficient";
+                                /** @enum {string} */
+                                readonly role: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                                /**
+                                 * @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.
+                                 * @default null
+                                 */
+                                readonly value: number | `parameter:${string}` | null;
+                                /**
+                                 * @description Additional constructs participating in this coefficient use.
+                                 * @default []
+                                 */
+                                readonly construct_ids: readonly `construct:${string}`[];
+                            } | {
+                                /**
+                                 * @default binary
+                                 * @constant
+                                 */
+                                readonly kind: "binary";
+                                /** @enum {string} */
+                                readonly operator: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                                readonly left: components["schemas"]["Expression-Output"];
+                                readonly right: components["schemas"]["Expression-Output"];
+                            } | {
+                                /**
+                                 * @default call
+                                 * @constant
+                                 */
+                                readonly kind: "call";
+                                /** @enum {string} */
+                                readonly function: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                                readonly arguments: readonly components["schemas"]["Expression-Output"][];
+                            };
+                            readonly scale: {
+                                /**
+                                 * @default literal
+                                 * @constant
+                                 */
+                                readonly kind: "literal";
+                                readonly value: number;
+                            } | {
+                                /**
+                                 * @default state
+                                 * @constant
+                                 */
+                                readonly kind: "state";
+                                readonly construct_id: `construct:${string}`;
+                            } | {
+                                /**
+                                 * @default coefficient
+                                 * @constant
+                                 */
+                                readonly kind: "coefficient";
+                                /** @enum {string} */
+                                readonly role: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                                /**
+                                 * @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.
+                                 * @default null
+                                 */
+                                readonly value: number | `parameter:${string}` | null;
+                                /**
+                                 * @description Additional constructs participating in this coefficient use.
+                                 * @default []
+                                 */
+                                readonly construct_ids: readonly `construct:${string}`[];
+                            } | {
+                                /**
+                                 * @default binary
+                                 * @constant
+                                 */
+                                readonly kind: "binary";
+                                /** @enum {string} */
+                                readonly operator: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                                readonly left: components["schemas"]["Expression-Output"];
+                                readonly right: components["schemas"]["Expression-Output"];
+                            } | {
+                                /**
+                                 * @default call
+                                 * @constant
+                                 */
+                                readonly kind: "call";
+                                /** @enum {string} */
+                                readonly function: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                                readonly arguments: readonly components["schemas"]["Expression-Output"][];
+                            };
+                        } | {
+                            /**
+                             * @default StudentT
+                             * @constant
+                             */
+                            readonly distribution: "StudentT";
+                            readonly df: {
+                                /**
+                                 * @default literal
+                                 * @constant
+                                 */
+                                readonly kind: "literal";
+                                readonly value: number;
+                            } | {
+                                /**
+                                 * @default state
+                                 * @constant
+                                 */
+                                readonly kind: "state";
+                                readonly construct_id: `construct:${string}`;
+                            } | {
+                                /**
+                                 * @default coefficient
+                                 * @constant
+                                 */
+                                readonly kind: "coefficient";
+                                /** @enum {string} */
+                                readonly role: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                                /**
+                                 * @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.
+                                 * @default null
+                                 */
+                                readonly value: number | `parameter:${string}` | null;
+                                /**
+                                 * @description Additional constructs participating in this coefficient use.
+                                 * @default []
+                                 */
+                                readonly construct_ids: readonly `construct:${string}`[];
+                            } | {
+                                /**
+                                 * @default binary
+                                 * @constant
+                                 */
+                                readonly kind: "binary";
+                                /** @enum {string} */
+                                readonly operator: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                                readonly left: components["schemas"]["Expression-Output"];
+                                readonly right: components["schemas"]["Expression-Output"];
+                            } | {
+                                /**
+                                 * @default call
+                                 * @constant
+                                 */
+                                readonly kind: "call";
+                                /** @enum {string} */
+                                readonly function: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                                readonly arguments: readonly components["schemas"]["Expression-Output"][];
+                            };
+                            readonly loc: {
+                                /**
+                                 * @default literal
+                                 * @constant
+                                 */
+                                readonly kind: "literal";
+                                readonly value: number;
+                            } | {
+                                /**
+                                 * @default state
+                                 * @constant
+                                 */
+                                readonly kind: "state";
+                                readonly construct_id: `construct:${string}`;
+                            } | {
+                                /**
+                                 * @default coefficient
+                                 * @constant
+                                 */
+                                readonly kind: "coefficient";
+                                /** @enum {string} */
+                                readonly role: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                                /**
+                                 * @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.
+                                 * @default null
+                                 */
+                                readonly value: number | `parameter:${string}` | null;
+                                /**
+                                 * @description Additional constructs participating in this coefficient use.
+                                 * @default []
+                                 */
+                                readonly construct_ids: readonly `construct:${string}`[];
+                            } | {
+                                /**
+                                 * @default binary
+                                 * @constant
+                                 */
+                                readonly kind: "binary";
+                                /** @enum {string} */
+                                readonly operator: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                                readonly left: components["schemas"]["Expression-Output"];
+                                readonly right: components["schemas"]["Expression-Output"];
+                            } | {
+                                /**
+                                 * @default call
+                                 * @constant
+                                 */
+                                readonly kind: "call";
+                                /** @enum {string} */
+                                readonly function: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                                readonly arguments: readonly components["schemas"]["Expression-Output"][];
+                            };
+                            readonly scale: {
+                                /**
+                                 * @default literal
+                                 * @constant
+                                 */
+                                readonly kind: "literal";
+                                readonly value: number;
+                            } | {
+                                /**
+                                 * @default state
+                                 * @constant
+                                 */
+                                readonly kind: "state";
+                                readonly construct_id: `construct:${string}`;
+                            } | {
+                                /**
+                                 * @default coefficient
+                                 * @constant
+                                 */
+                                readonly kind: "coefficient";
+                                /** @enum {string} */
+                                readonly role: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                                /**
+                                 * @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.
+                                 * @default null
+                                 */
+                                readonly value: number | `parameter:${string}` | null;
+                                /**
+                                 * @description Additional constructs participating in this coefficient use.
+                                 * @default []
+                                 */
+                                readonly construct_ids: readonly `construct:${string}`[];
+                            } | {
+                                /**
+                                 * @default binary
+                                 * @constant
+                                 */
+                                readonly kind: "binary";
+                                /** @enum {string} */
+                                readonly operator: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                                readonly left: components["schemas"]["Expression-Output"];
+                                readonly right: components["schemas"]["Expression-Output"];
+                            } | {
+                                /**
+                                 * @default call
+                                 * @constant
+                                 */
+                                readonly kind: "call";
+                                /** @enum {string} */
+                                readonly function: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                                readonly arguments: readonly components["schemas"]["Expression-Output"][];
+                            };
+                        } | {
+                            /**
+                             * @default Poisson
+                             * @constant
+                             */
+                            readonly distribution: "Poisson";
+                            readonly rate: {
+                                /**
+                                 * @default literal
+                                 * @constant
+                                 */
+                                readonly kind: "literal";
+                                readonly value: number;
+                            } | {
+                                /**
+                                 * @default state
+                                 * @constant
+                                 */
+                                readonly kind: "state";
+                                readonly construct_id: `construct:${string}`;
+                            } | {
+                                /**
+                                 * @default coefficient
+                                 * @constant
+                                 */
+                                readonly kind: "coefficient";
+                                /** @enum {string} */
+                                readonly role: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                                /**
+                                 * @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.
+                                 * @default null
+                                 */
+                                readonly value: number | `parameter:${string}` | null;
+                                /**
+                                 * @description Additional constructs participating in this coefficient use.
+                                 * @default []
+                                 */
+                                readonly construct_ids: readonly `construct:${string}`[];
+                            } | {
+                                /**
+                                 * @default binary
+                                 * @constant
+                                 */
+                                readonly kind: "binary";
+                                /** @enum {string} */
+                                readonly operator: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                                readonly left: components["schemas"]["Expression-Output"];
+                                readonly right: components["schemas"]["Expression-Output"];
+                            } | {
+                                /**
+                                 * @default call
+                                 * @constant
+                                 */
+                                readonly kind: "call";
+                                /** @enum {string} */
+                                readonly function: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                                readonly arguments: readonly components["schemas"]["Expression-Output"][];
+                            };
+                        } | {
+                            /**
+                             * @default Gamma
+                             * @constant
+                             */
+                            readonly distribution: "Gamma";
+                            readonly concentration: {
+                                /**
+                                 * @default literal
+                                 * @constant
+                                 */
+                                readonly kind: "literal";
+                                readonly value: number;
+                            } | {
+                                /**
+                                 * @default state
+                                 * @constant
+                                 */
+                                readonly kind: "state";
+                                readonly construct_id: `construct:${string}`;
+                            } | {
+                                /**
+                                 * @default coefficient
+                                 * @constant
+                                 */
+                                readonly kind: "coefficient";
+                                /** @enum {string} */
+                                readonly role: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                                /**
+                                 * @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.
+                                 * @default null
+                                 */
+                                readonly value: number | `parameter:${string}` | null;
+                                /**
+                                 * @description Additional constructs participating in this coefficient use.
+                                 * @default []
+                                 */
+                                readonly construct_ids: readonly `construct:${string}`[];
+                            } | {
+                                /**
+                                 * @default binary
+                                 * @constant
+                                 */
+                                readonly kind: "binary";
+                                /** @enum {string} */
+                                readonly operator: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                                readonly left: components["schemas"]["Expression-Output"];
+                                readonly right: components["schemas"]["Expression-Output"];
+                            } | {
+                                /**
+                                 * @default call
+                                 * @constant
+                                 */
+                                readonly kind: "call";
+                                /** @enum {string} */
+                                readonly function: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                                readonly arguments: readonly components["schemas"]["Expression-Output"][];
+                            };
+                            readonly rate: {
+                                /**
+                                 * @default literal
+                                 * @constant
+                                 */
+                                readonly kind: "literal";
+                                readonly value: number;
+                            } | {
+                                /**
+                                 * @default state
+                                 * @constant
+                                 */
+                                readonly kind: "state";
+                                readonly construct_id: `construct:${string}`;
+                            } | {
+                                /**
+                                 * @default coefficient
+                                 * @constant
+                                 */
+                                readonly kind: "coefficient";
+                                /** @enum {string} */
+                                readonly role: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                                /**
+                                 * @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.
+                                 * @default null
+                                 */
+                                readonly value: number | `parameter:${string}` | null;
+                                /**
+                                 * @description Additional constructs participating in this coefficient use.
+                                 * @default []
+                                 */
+                                readonly construct_ids: readonly `construct:${string}`[];
+                            } | {
+                                /**
+                                 * @default binary
+                                 * @constant
+                                 */
+                                readonly kind: "binary";
+                                /** @enum {string} */
+                                readonly operator: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                                readonly left: components["schemas"]["Expression-Output"];
+                                readonly right: components["schemas"]["Expression-Output"];
+                            } | {
+                                /**
+                                 * @default call
+                                 * @constant
+                                 */
+                                readonly kind: "call";
+                                /** @enum {string} */
+                                readonly function: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                                readonly arguments: readonly components["schemas"]["Expression-Output"][];
+                            };
+                        } | {
+                            /**
+                             * @default BernoulliLogits
+                             * @constant
+                             */
+                            readonly distribution: "BernoulliLogits";
+                            readonly logits: {
+                                /**
+                                 * @default literal
+                                 * @constant
+                                 */
+                                readonly kind: "literal";
+                                readonly value: number;
+                            } | {
+                                /**
+                                 * @default state
+                                 * @constant
+                                 */
+                                readonly kind: "state";
+                                readonly construct_id: `construct:${string}`;
+                            } | {
+                                /**
+                                 * @default coefficient
+                                 * @constant
+                                 */
+                                readonly kind: "coefficient";
+                                /** @enum {string} */
+                                readonly role: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                                /**
+                                 * @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.
+                                 * @default null
+                                 */
+                                readonly value: number | `parameter:${string}` | null;
+                                /**
+                                 * @description Additional constructs participating in this coefficient use.
+                                 * @default []
+                                 */
+                                readonly construct_ids: readonly `construct:${string}`[];
+                            } | {
+                                /**
+                                 * @default binary
+                                 * @constant
+                                 */
+                                readonly kind: "binary";
+                                /** @enum {string} */
+                                readonly operator: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                                readonly left: components["schemas"]["Expression-Output"];
+                                readonly right: components["schemas"]["Expression-Output"];
+                            } | {
+                                /**
+                                 * @default call
+                                 * @constant
+                                 */
+                                readonly kind: "call";
+                                /** @enum {string} */
+                                readonly function: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                                readonly arguments: readonly components["schemas"]["Expression-Output"][];
+                            };
+                        } | {
+                            /**
+                             * @default BernoulliProbs
+                             * @constant
+                             */
+                            readonly distribution: "BernoulliProbs";
+                            readonly probs: {
+                                /**
+                                 * @default literal
+                                 * @constant
+                                 */
+                                readonly kind: "literal";
+                                readonly value: number;
+                            } | {
+                                /**
+                                 * @default state
+                                 * @constant
+                                 */
+                                readonly kind: "state";
+                                readonly construct_id: `construct:${string}`;
+                            } | {
+                                /**
+                                 * @default coefficient
+                                 * @constant
+                                 */
+                                readonly kind: "coefficient";
+                                /** @enum {string} */
+                                readonly role: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                                /**
+                                 * @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.
+                                 * @default null
+                                 */
+                                readonly value: number | `parameter:${string}` | null;
+                                /**
+                                 * @description Additional constructs participating in this coefficient use.
+                                 * @default []
+                                 */
+                                readonly construct_ids: readonly `construct:${string}`[];
+                            } | {
+                                /**
+                                 * @default binary
+                                 * @constant
+                                 */
+                                readonly kind: "binary";
+                                /** @enum {string} */
+                                readonly operator: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                                readonly left: components["schemas"]["Expression-Output"];
+                                readonly right: components["schemas"]["Expression-Output"];
+                            } | {
+                                /**
+                                 * @default call
+                                 * @constant
+                                 */
+                                readonly kind: "call";
+                                /** @enum {string} */
+                                readonly function: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                                readonly arguments: readonly components["schemas"]["Expression-Output"][];
+                            };
+                        } | {
+                            /**
+                             * @default NegativeBinomial2
+                             * @constant
+                             */
+                            readonly distribution: "NegativeBinomial2";
+                            readonly mean: {
+                                /**
+                                 * @default literal
+                                 * @constant
+                                 */
+                                readonly kind: "literal";
+                                readonly value: number;
+                            } | {
+                                /**
+                                 * @default state
+                                 * @constant
+                                 */
+                                readonly kind: "state";
+                                readonly construct_id: `construct:${string}`;
+                            } | {
+                                /**
+                                 * @default coefficient
+                                 * @constant
+                                 */
+                                readonly kind: "coefficient";
+                                /** @enum {string} */
+                                readonly role: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                                /**
+                                 * @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.
+                                 * @default null
+                                 */
+                                readonly value: number | `parameter:${string}` | null;
+                                /**
+                                 * @description Additional constructs participating in this coefficient use.
+                                 * @default []
+                                 */
+                                readonly construct_ids: readonly `construct:${string}`[];
+                            } | {
+                                /**
+                                 * @default binary
+                                 * @constant
+                                 */
+                                readonly kind: "binary";
+                                /** @enum {string} */
+                                readonly operator: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                                readonly left: components["schemas"]["Expression-Output"];
+                                readonly right: components["schemas"]["Expression-Output"];
+                            } | {
+                                /**
+                                 * @default call
+                                 * @constant
+                                 */
+                                readonly kind: "call";
+                                /** @enum {string} */
+                                readonly function: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                                readonly arguments: readonly components["schemas"]["Expression-Output"][];
+                            };
+                            readonly concentration: {
+                                /**
+                                 * @default literal
+                                 * @constant
+                                 */
+                                readonly kind: "literal";
+                                readonly value: number;
+                            } | {
+                                /**
+                                 * @default state
+                                 * @constant
+                                 */
+                                readonly kind: "state";
+                                readonly construct_id: `construct:${string}`;
+                            } | {
+                                /**
+                                 * @default coefficient
+                                 * @constant
+                                 */
+                                readonly kind: "coefficient";
+                                /** @enum {string} */
+                                readonly role: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                                /**
+                                 * @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.
+                                 * @default null
+                                 */
+                                readonly value: number | `parameter:${string}` | null;
+                                /**
+                                 * @description Additional constructs participating in this coefficient use.
+                                 * @default []
+                                 */
+                                readonly construct_ids: readonly `construct:${string}`[];
+                            } | {
+                                /**
+                                 * @default binary
+                                 * @constant
+                                 */
+                                readonly kind: "binary";
+                                /** @enum {string} */
+                                readonly operator: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                                readonly left: components["schemas"]["Expression-Output"];
+                                readonly right: components["schemas"]["Expression-Output"];
+                            } | {
+                                /**
+                                 * @default call
+                                 * @constant
+                                 */
+                                readonly kind: "call";
+                                /** @enum {string} */
+                                readonly function: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                                readonly arguments: readonly components["schemas"]["Expression-Output"][];
+                            };
+                        } | {
+                            /**
+                             * @default Beta
+                             * @constant
+                             */
+                            readonly distribution: "Beta";
+                            readonly concentration1: {
+                                /**
+                                 * @default literal
+                                 * @constant
+                                 */
+                                readonly kind: "literal";
+                                readonly value: number;
+                            } | {
+                                /**
+                                 * @default state
+                                 * @constant
+                                 */
+                                readonly kind: "state";
+                                readonly construct_id: `construct:${string}`;
+                            } | {
+                                /**
+                                 * @default coefficient
+                                 * @constant
+                                 */
+                                readonly kind: "coefficient";
+                                /** @enum {string} */
+                                readonly role: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                                /**
+                                 * @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.
+                                 * @default null
+                                 */
+                                readonly value: number | `parameter:${string}` | null;
+                                /**
+                                 * @description Additional constructs participating in this coefficient use.
+                                 * @default []
+                                 */
+                                readonly construct_ids: readonly `construct:${string}`[];
+                            } | {
+                                /**
+                                 * @default binary
+                                 * @constant
+                                 */
+                                readonly kind: "binary";
+                                /** @enum {string} */
+                                readonly operator: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                                readonly left: components["schemas"]["Expression-Output"];
+                                readonly right: components["schemas"]["Expression-Output"];
+                            } | {
+                                /**
+                                 * @default call
+                                 * @constant
+                                 */
+                                readonly kind: "call";
+                                /** @enum {string} */
+                                readonly function: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                                readonly arguments: readonly components["schemas"]["Expression-Output"][];
+                            };
+                            readonly concentration0: {
+                                /**
+                                 * @default literal
+                                 * @constant
+                                 */
+                                readonly kind: "literal";
+                                readonly value: number;
+                            } | {
+                                /**
+                                 * @default state
+                                 * @constant
+                                 */
+                                readonly kind: "state";
+                                readonly construct_id: `construct:${string}`;
+                            } | {
+                                /**
+                                 * @default coefficient
+                                 * @constant
+                                 */
+                                readonly kind: "coefficient";
+                                /** @enum {string} */
+                                readonly role: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                                /**
+                                 * @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.
+                                 * @default null
+                                 */
+                                readonly value: number | `parameter:${string}` | null;
+                                /**
+                                 * @description Additional constructs participating in this coefficient use.
+                                 * @default []
+                                 */
+                                readonly construct_ids: readonly `construct:${string}`[];
+                            } | {
+                                /**
+                                 * @default binary
+                                 * @constant
+                                 */
+                                readonly kind: "binary";
+                                /** @enum {string} */
+                                readonly operator: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                                readonly left: components["schemas"]["Expression-Output"];
+                                readonly right: components["schemas"]["Expression-Output"];
+                            } | {
+                                /**
+                                 * @default call
+                                 * @constant
+                                 */
+                                readonly kind: "call";
+                                /** @enum {string} */
+                                readonly function: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                                readonly arguments: readonly components["schemas"]["Expression-Output"][];
+                            };
+                        } | {
+                            /**
+                             * @default OrderedLogistic
+                             * @constant
+                             */
+                            readonly distribution: "OrderedLogistic";
+                            readonly predictor: {
+                                /**
+                                 * @default literal
+                                 * @constant
+                                 */
+                                readonly kind: "literal";
+                                readonly value: number;
+                            } | {
+                                /**
+                                 * @default state
+                                 * @constant
+                                 */
+                                readonly kind: "state";
+                                readonly construct_id: `construct:${string}`;
+                            } | {
+                                /**
+                                 * @default coefficient
+                                 * @constant
+                                 */
+                                readonly kind: "coefficient";
+                                /** @enum {string} */
+                                readonly role: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                                /**
+                                 * @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.
+                                 * @default null
+                                 */
+                                readonly value: number | `parameter:${string}` | null;
+                                /**
+                                 * @description Additional constructs participating in this coefficient use.
+                                 * @default []
+                                 */
+                                readonly construct_ids: readonly `construct:${string}`[];
+                            } | {
+                                /**
+                                 * @default binary
+                                 * @constant
+                                 */
+                                readonly kind: "binary";
+                                /** @enum {string} */
+                                readonly operator: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                                readonly left: components["schemas"]["Expression-Output"];
+                                readonly right: components["schemas"]["Expression-Output"];
+                            } | {
+                                /**
+                                 * @default call
+                                 * @constant
+                                 */
+                                readonly kind: "call";
+                                /** @enum {string} */
+                                readonly function: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                                readonly arguments: readonly components["schemas"]["Expression-Output"][];
+                            };
+                            readonly cutpoints: {
+                                /**
+                                 * @default literal
+                                 * @constant
+                                 */
+                                readonly kind: "literal";
+                                readonly value: number;
+                            } | {
+                                /**
+                                 * @default state
+                                 * @constant
+                                 */
+                                readonly kind: "state";
+                                readonly construct_id: `construct:${string}`;
+                            } | {
+                                /**
+                                 * @default coefficient
+                                 * @constant
+                                 */
+                                readonly kind: "coefficient";
+                                /** @enum {string} */
+                                readonly role: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                                /**
+                                 * @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.
+                                 * @default null
+                                 */
+                                readonly value: number | `parameter:${string}` | null;
+                                /**
+                                 * @description Additional constructs participating in this coefficient use.
+                                 * @default []
+                                 */
+                                readonly construct_ids: readonly `construct:${string}`[];
+                            } | {
+                                /**
+                                 * @default binary
+                                 * @constant
+                                 */
+                                readonly kind: "binary";
+                                /** @enum {string} */
+                                readonly operator: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                                readonly left: components["schemas"]["Expression-Output"];
+                                readonly right: components["schemas"]["Expression-Output"];
+                            } | {
+                                /**
+                                 * @default call
+                                 * @constant
+                                 */
+                                readonly kind: "call";
+                                /** @enum {string} */
+                                readonly function: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                                readonly arguments: readonly components["schemas"]["Expression-Output"][];
+                            };
+                        } | {
+                            /**
+                             * @default Categorical
+                             * @constant
+                             */
+                            readonly distribution: "Categorical";
+                            readonly logits: {
+                                /**
+                                 * @default literal
+                                 * @constant
+                                 */
+                                readonly kind: "literal";
+                                readonly value: number;
+                            } | {
+                                /**
+                                 * @default state
+                                 * @constant
+                                 */
+                                readonly kind: "state";
+                                readonly construct_id: `construct:${string}`;
+                            } | {
+                                /**
+                                 * @default coefficient
+                                 * @constant
+                                 */
+                                readonly kind: "coefficient";
+                                /** @enum {string} */
+                                readonly role: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                                /**
+                                 * @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.
+                                 * @default null
+                                 */
+                                readonly value: number | `parameter:${string}` | null;
+                                /**
+                                 * @description Additional constructs participating in this coefficient use.
+                                 * @default []
+                                 */
+                                readonly construct_ids: readonly `construct:${string}`[];
+                            } | {
+                                /**
+                                 * @default binary
+                                 * @constant
+                                 */
+                                readonly kind: "binary";
+                                /** @enum {string} */
+                                readonly operator: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                                readonly left: components["schemas"]["Expression-Output"];
+                                readonly right: components["schemas"]["Expression-Output"];
+                            } | {
+                                /**
+                                 * @default call
+                                 * @constant
+                                 */
+                                readonly kind: "call";
+                                /** @enum {string} */
+                                readonly function: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                                readonly arguments: readonly components["schemas"]["Expression-Output"][];
+                            };
+                        };
+                        /**
+                         * @description Whether observations are mean-centered and scaled before fitting.
+                         * @default false
+                         */
+                        readonly standardized: boolean;
+                        /** @description Why this conditional law was chosen for the indicator */
+                        readonly reasoning: string;
+                        /** @default [] */
+                        readonly sources: readonly {
+                            /** @description Title of the source (paper, meta-analysis, textbook, etc.) */
+                            readonly title: string;
+                            /**
+                             * @description URL of the source if available
+                             * @default null
+                             */
+                            readonly url: string | null;
+                            /** @description Relevant excerpt or paraphrase from the source */
+                            readonly snippet: string;
+                        }[];
+                    } | null;
+                    /**
+                     * @description Whether the measurement increases or decreases with its owning construct.
+                     * @enum {string}
+                     */
+                    readonly construct_polarity: "positive" | "negative";
+                }>>>;
+                readonly dynamics: Readonly<Partial<Record<components["schemas"]["MechanismId-Output"], {
+                    readonly expression: {
+                        /**
+                         * @default literal
+                         * @constant
+                         */
+                        readonly kind: "literal";
+                        readonly value: number;
+                    } | {
+                        /**
+                         * @default state
+                         * @constant
+                         */
+                        readonly kind: "state";
+                        readonly construct_id: `construct:${string}`;
+                    } | {
+                        /**
+                         * @default coefficient
+                         * @constant
+                         */
+                        readonly kind: "coefficient";
+                        /** @enum {string} */
+                        readonly role: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                        /**
+                         * @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.
+                         * @default null
+                         */
+                        readonly value: number | `parameter:${string}` | null;
+                        /**
+                         * @description Additional constructs participating in this coefficient use.
+                         * @default []
+                         */
+                        readonly construct_ids: readonly `construct:${string}`[];
+                    } | {
+                        /**
+                         * @default binary
+                         * @constant
+                         */
+                        readonly kind: "binary";
+                        /** @enum {string} */
+                        readonly operator: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                        readonly left: components["schemas"]["Expression-Output"];
+                        readonly right: components["schemas"]["Expression-Output"];
+                    } | {
+                        /**
+                         * @default call
+                         * @constant
+                         */
+                        readonly kind: "call";
+                        /** @enum {string} */
+                        readonly function: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                        readonly arguments: readonly components["schemas"]["Expression-Output"][];
+                    };
+                    /**
+                     * @default drift
+                     * @constant
+                     */
+                    readonly kind: "drift";
+                } | {
+                    readonly expression: {
+                        /**
+                         * @default literal
+                         * @constant
+                         */
+                        readonly kind: "literal";
+                        readonly value: number;
+                    } | {
+                        /**
+                         * @default state
+                         * @constant
+                         */
+                        readonly kind: "state";
+                        readonly construct_id: `construct:${string}`;
+                    } | {
+                        /**
+                         * @default coefficient
+                         * @constant
+                         */
+                        readonly kind: "coefficient";
+                        /** @enum {string} */
+                        readonly role: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                        /**
+                         * @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.
+                         * @default null
+                         */
+                        readonly value: number | `parameter:${string}` | null;
+                        /**
+                         * @description Additional constructs participating in this coefficient use.
+                         * @default []
+                         */
+                        readonly construct_ids: readonly `construct:${string}`[];
+                    } | {
+                        /**
+                         * @default binary
+                         * @constant
+                         */
+                        readonly kind: "binary";
+                        /** @enum {string} */
+                        readonly operator: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                        readonly left: components["schemas"]["Expression-Output"];
+                        readonly right: components["schemas"]["Expression-Output"];
+                    } | {
+                        /**
+                         * @default call
+                         * @constant
+                         */
+                        readonly kind: "call";
+                        /** @enum {string} */
+                        readonly function: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                        readonly arguments: readonly components["schemas"]["Expression-Output"][];
+                    };
+                    /**
+                     * @default potential
+                     * @constant
+                     */
+                    readonly kind: "potential";
+                }>>>;
+                /** @default [] */
+                readonly coefficients: readonly {
+                    /**
+                     * @default coefficient
+                     * @constant
+                     */
+                    readonly kind: "coefficient";
+                    /** @enum {string} */
+                    readonly role: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                    /**
+                     * @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.
+                     * @default null
+                     */
+                    readonly value: number | `parameter:${string}` | null;
+                    /**
+                     * @description Additional constructs participating in this coefficient use.
+                     * @default []
+                     */
+                    readonly construct_ids: readonly `construct:${string}`[];
+                }[];
+                /**
+                 * @default gaussian
+                 * @enum {string}
+                 */
+                readonly innovation_family: "gaussian" | "student_t";
+                /**
+                 * @description Trajectory law in ModelSpec.distributions, with coordinates in its law_layouts entry. Exogenous trajectories use Delta and hold each value until the next point, including after the last point.
+                 * @default null
+                 */
+                readonly distribution: `distribution:${string}` | null;
+                /**
+                 * @description Whether a construct is modeled as endogenous or supplied as an exogenous input.
+                 * @enum {string}
+                 */
+                readonly role: "endogenous" | "exogenous";
+                /**
+                 * @description Temporal status states whether a construct varies within the individual over time.
+                 * @enum {string}
+                 */
+                readonly temporal_status: "time_varying" | "time_invariant";
+            }>>>;
+            readonly edges: Readonly<Partial<Record<components["schemas"]["EdgeId-Output"], {
+                readonly mechanisms: Readonly<Partial<Record<components["schemas"]["MechanismId-Output"], {
+                    readonly expression: {
+                        /**
+                         * @default literal
+                         * @constant
+                         */
+                        readonly kind: "literal";
+                        readonly value: number;
+                    } | {
+                        /**
+                         * @default state
+                         * @constant
+                         */
+                        readonly kind: "state";
+                        readonly construct_id: `construct:${string}`;
+                    } | {
+                        /**
+                         * @default coefficient
+                         * @constant
+                         */
+                        readonly kind: "coefficient";
+                        /** @enum {string} */
+                        readonly role: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+                        /**
+                         * @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned.
+                         * @default null
+                         */
+                        readonly value: number | `parameter:${string}` | null;
+                        /**
+                         * @description Additional constructs participating in this coefficient use.
+                         * @default []
+                         */
+                        readonly construct_ids: readonly `construct:${string}`[];
+                    } | {
+                        /**
+                         * @default binary
+                         * @constant
+                         */
+                        readonly kind: "binary";
+                        /** @enum {string} */
+                        readonly operator: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+                        readonly left: components["schemas"]["Expression-Output"];
+                        readonly right: components["schemas"]["Expression-Output"];
+                    } | {
+                        /**
+                         * @default call
+                         * @constant
+                         */
+                        readonly kind: "call";
+                        /** @enum {string} */
+                        readonly function: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+                        readonly arguments: readonly components["schemas"]["Expression-Output"][];
+                    };
+                    /**
+                     * @default drift
+                     * @constant
+                     */
+                    readonly kind: "drift";
+                }>>>;
+                /** @description Persistent identity. Preserve when revising or renaming. */
+                readonly cause: components["schemas"]["ConstructId-Output"];
+                /** @description Persistent identity. Preserve when revising or renaming. */
+                readonly effect: components["schemas"]["ConstructId-Output"];
+                /** @description Theoretical justification for this causal link */
+                readonly description: string;
+                /** @description Literature sources supporting this causal link */
+                readonly sources: readonly {
+                    /** @description Title of the source (paper, meta-analysis, textbook, etc.) */
+                    readonly title: string;
+                    /**
+                     * @description URL of the source if available
+                     * @default null
+                     */
+                    readonly url: string | null;
+                    /** @description Relevant excerpt or paraphrase from the source */
+                    readonly snippet: string;
+                }[];
+            }>>>;
+            readonly parameters: Readonly<Partial<Record<components["schemas"]["ParameterId-Output"], {
+                /** @description Authored parameter label; relationships use its persistent ID */
+                readonly name: string;
+                /** @description Human-readable description of what this parameter represents */
+                readonly description: string;
+                readonly transform: {
+                    /**
+                     * @default identity
+                     * @constant
+                     */
+                    readonly kind: "identity";
+                } | {
+                    /**
+                     * @default dt_persistence_to_ct_decay
+                     * @constant
+                     */
+                    readonly kind: "dt_persistence_to_ct_decay";
+                    readonly interval_days: number | "model_clock";
+                } | {
+                    /**
+                     * @default dt_effect_to_ct_rate
+                     * @constant
+                     */
+                    readonly kind: "dt_effect_to_ct_rate";
+                    readonly interval_days: number | "model_clock";
+                } | {
+                    /**
+                     * @default initial_state_correlation
+                     * @constant
+                     */
+                    readonly kind: "initial_state_correlation";
+                };
+                /**
+                 * @description Membership in a native law in ModelSpec.distributions; may be joint. None means the law has not been assigned yet.
+                 * @default null
+                 */
+                readonly distribution: `distribution:${string}` | null;
+                /**
+                 * @description Why the authored prior law fits this quantity, and where its values come from.
+                 * @default null
+                 */
+                readonly reasoning: string | null;
+                /**
+                 * @description Evidence behind the authored prior law.
+                 * @default []
+                 */
+                readonly sources: readonly {
+                    /** @description Title of the source (paper, meta-analysis, textbook, etc.) */
+                    readonly title: string;
+                    /**
+                     * @description URL of the source if available
+                     * @default null
+                     */
+                    readonly url: string | null;
+                    /** @description Relevant excerpt or paraphrase from the source */
+                    readonly snippet: string;
+                }[];
+            }>>>;
+            /** @description All explicit probability laws. Members are the parameters and constructs referring to each ID. Event coordinates are parameters by ID and element ID, then constructs by ID and time point. A scalar law belongs to one parameter and applies independently to its elements. */
             readonly distributions: Readonly<Partial<Record<components["schemas"]["DistributionId-Output"], components["schemas"]["NumPyroDistribution-Output"]>>>;
-            /**
-             * Law Layouts
-             * @description Scientific coordinates and production labels of each joint law, beside its native atoms.
-             */
+            /** @description Scientific coordinates and production labels of each joint law, beside its native atoms. */
             readonly law_layouts: Readonly<Partial<Record<components["schemas"]["DistributionId-Output"], components["schemas"]["JointLawLayout-Output"]>>>;
-            /**
-             * Measurement Clock
-             * @default null
-             */
+            /** @default null */
             readonly measurement_clock: string | null;
-            /**
-             * Time Points
-             * @description Joint trajectory coordinates own the model's retained time grid.
-             */
-            readonly time_points: readonly number[];
         };
-        /** NegativeBinomial2LawSpec[Expression] */
-        readonly "NegativeBinomial2LawSpec_Expression_-Input": {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly distribution: "NegativeBinomial2";
-            readonly mean: components["schemas"]["Expression-Input"];
-            readonly concentration: components["schemas"]["Expression-Input"];
+        /** @description A supported scalar operation composing two expressions. */
+        readonly "ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__BinaryExpression-Input__1_": {
+            /** @constant */
+            readonly kind?: "binary";
+            /** @enum {string} */
+            readonly operator?: "add" | "subtract" | "multiply" | "divide" | "power" | "maximum";
+            readonly left?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+            readonly right?: components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"];
+        };
+        readonly "ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_": {
+            /** @constant */
+            readonly kind?: "literal";
+            readonly value?: number;
+        } | {
+            /** @constant */
+            readonly kind?: "state";
+            readonly construct_id?: `construct:${string}`;
+        } | {
+            /** @constant */
+            readonly kind?: "coefficient";
+            /** @enum {string} */
+            readonly role?: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
+            /** @description Fixed coefficients are finite literals; uncertain coefficients reference a persistent parameter ID. Null leaves the operand unassigned. */
+            readonly value?: number | `parameter:${string}` | null;
+            /** @description Additional constructs participating in this coefficient use. */
+            readonly construct_ids?: readonly `construct:${string}`[];
+        } | components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__BinaryExpression-Input__1_"] | {
+            /** @constant */
+            readonly kind?: "call";
+            /** @enum {string} */
+            readonly function?: "exp" | "sigmoid" | "normal_cdf" | "ordered_cutpoints" | "category_logits";
+            readonly arguments?: readonly components["schemas"]["ModelSpecDocument___components_schemas_nof1_causal_lab__artifacts__expressions__Expression-Input__1_"][];
         };
         /** NegativeBinomial2LawSpec[Expression] */
         readonly "NegativeBinomial2LawSpec_Expression_-Output": {
@@ -3419,16 +4952,6 @@ export interface components {
             readonly notes: string | null;
         };
         /** NormalLawSpec[Expression] */
-        readonly "NormalLawSpec_Expression_-Input": {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly distribution: "Normal";
-            readonly loc: components["schemas"]["Expression-Input"];
-            readonly scale: components["schemas"]["Expression-Input"];
-        };
-        /** NormalLawSpec[Expression] */
         readonly "NormalLawSpec_Expression_-Output": {
             /**
              * @description discriminator enum property added by openapi-typescript
@@ -3451,7 +4974,7 @@ export interface components {
             /** Reason */
             readonly reason: string;
         };
-        readonly NotEvaluatedReason: components["schemas"]["PredictiveCheckReason"] | ("NONFINITE_EMISSION_MEAN" | "INSUFFICIENT_TIMES" | "NO_RELAXATION_TERM" | "EDGE_CONTRASTS_EXPLICIT" | "NO_OBSERVATION_SUPPORT" | "NO_OBSERVATIONS" | "STATIC_CONSTRUCT" | "INSUFFICIENT_OBSERVATIONS" | "ZERO_RESIDUAL_VARIANCE" | "ZERO_OBSERVED_VARIANCE" | "NONFINITE_PATHS" | "NONFINITE_SIGNAL" | "COMPARISON_INPUTS_MISSING" | "INSUFFICIENT_CHAIN_SAMPLES" | "NO_RETAINED_CHAINS" | "ARCHIVED_ENGINE_NOT_RETAINED" | "NO_OUTCOME" | "CONSTRUCT_UNDEFINED" | "NO_PANEL" | "STATE_NOT_RECORDED");
+        readonly NotEvaluatedReason: components["schemas"]["PredictiveCheckReason"] | ("NONFINITE_EMISSION_MEAN" | "INSUFFICIENT_TIMES" | "NO_RELAXATION_TERM" | "EDGE_CONTRASTS_EXPLICIT" | "NO_OBSERVATION_SUPPORT" | "NO_OBSERVATIONS" | "STATIC_CONSTRUCT" | "INSUFFICIENT_OBSERVATIONS" | "ZERO_RESIDUAL_VARIANCE" | "ZERO_OBSERVED_VARIANCE" | "NONFINITE_PATHS" | "NONFINITE_SIGNAL" | "COMPARISON_INPUTS_MISSING" | "INSUFFICIENT_CHAIN_SAMPLES" | "NO_RETAINED_CHAINS" | "NO_OUTCOME" | "CONSTRUCT_UNDEFINED" | "NO_PANEL" | "STATE_NOT_RECORDED");
         /** NotEvaluated[ConvergenceAssessmentSubject] */
         readonly NotEvaluated_ConvergenceAssessmentSubject_: {
             /**
@@ -3529,22 +5052,19 @@ export interface components {
             readonly detail: string;
         };
         /** @description A native NumPyro probability distribution serialized by its constructor tree. */
-        readonly "NumPyroDistribution-Input": {
-            /** Distribution */
-            readonly distribution: string;
-            /** Params */
-            readonly params: {
-                readonly [key: string]: Domain.JsonValue;
-            };
-        };
-        /** @description A native NumPyro probability distribution serialized by its constructor tree. */
         readonly "NumPyroDistribution-Output": {
             /** Distribution */
             readonly distribution: string;
             /** Params */
             readonly params: {
-                readonly [key: string]: Domain.JsonValue;
+                readonly [key: string]: components["schemas"]["NumPyroValue-Output"];
             };
+        };
+        readonly "NumPyroValue-Input": Domain.JsonScalar | components["schemas"]["NumericalArray"] | readonly components["schemas"]["NumPyroValue-Input"][] | {
+            readonly [key: string]: components["schemas"]["NumPyroValue-Input"];
+        };
+        readonly "NumPyroValue-Output": Domain.JsonScalar | components["schemas"]["NumericalArray"] | readonly components["schemas"]["NumPyroValue-Output"][] | {
+            readonly [key: string]: components["schemas"]["NumPyroValue-Output"];
         };
         /**
          * NumericCriterionEvidence
@@ -3593,15 +5113,18 @@ export interface components {
         };
         /**
          * NumericalArray
-         * @description A lossless row-major buffer, including its original dtype and dimensions.
+         * @description An immutable NPY buffer carried as a MessagePack binary value.
+         *
+         *     The NPY header owns dtype, shape and storage order. Numerical decoding
+         *     belongs to the boundary that consumes the buffer.
          */
         readonly NumericalArray: {
-            /** Dtype */
-            readonly dtype: string;
-            /** Shape */
-            readonly shape: readonly number[];
-            /** Values */
-            readonly values: readonly (boolean | number | ("nan" | "+inf" | "-inf"))[];
+            /**
+             * Npy
+             * Format: binary
+             * @description Lossless NPY bytes, including dtype and dimensions; never base64 or scalar JSON.
+             */
+            readonly npy: Uint8Array;
         };
         readonly ObservationData: Readonly<Partial<Record<components["schemas"]["IndicatorId-Output"], components["schemas"]["ObservationHistory"]>>>;
         /**
@@ -3623,63 +5146,7 @@ export interface components {
             /** Empirical */
             readonly empirical: readonly components["schemas"]["EmpiricalPoint"][];
         };
-        readonly "ObservationLawSpec-Input": components["schemas"]["DeltaLawSpec_Expression_-Input"] | components["schemas"]["NormalLawSpec_Expression_-Input"] | components["schemas"]["StudentTLawSpec_Expression_-Input"] | components["schemas"]["PoissonLawSpec_Expression_-Input"] | components["schemas"]["GammaLawSpec_Expression_-Input"] | components["schemas"]["BernoulliLogitsLawSpec_Expression_-Input"] | components["schemas"]["BernoulliProbsLawSpec_Expression_-Input"] | components["schemas"]["NegativeBinomial2LawSpec_Expression_-Input"] | components["schemas"]["BetaLawSpec_Expression_-Input"] | components["schemas"]["OrderedLogisticLawSpec_Expression_-Input"] | components["schemas"]["CategoricalLawSpec_Expression_-Input"];
         readonly "ObservationLawSpec-Output": Domain.DeltaLawSpec<Domain.Expression> | Domain.NormalLawSpec<Domain.Expression> | Domain.StudentTLawSpec<Domain.Expression> | Domain.PoissonLawSpec<Domain.Expression> | Domain.GammaLawSpec<Domain.Expression> | Domain.BernoulliLogitsLawSpec<Domain.Expression> | Domain.BernoulliProbsLawSpec<Domain.Expression> | Domain.NegativeBinomial2LawSpec<Domain.Expression> | Domain.BetaLawSpec<Domain.Expression> | Domain.OrderedLogisticLawSpec<Domain.Expression> | Domain.CategoricalLawSpec<Domain.Expression>;
-        /**
-         * ObservationRecord
-         * @description Canonical serialized extraction observation row.
-         */
-        readonly ObservationRecord: {
-            readonly indicator_id: components["schemas"]["IndicatorId-Output"];
-            /** Value */
-            readonly value: string | number | boolean | null;
-            /** Anchor Time */
-            readonly anchor_time: string | null;
-            /** Support Kind */
-            readonly support_kind: string | null;
-            /** Summary Operator */
-            readonly summary_operator: string | null;
-            /** Anchor Policy */
-            readonly anchor_policy: string | null;
-            /** Observation Window */
-            readonly observation_window: string | null;
-            /** Support Start */
-            readonly support_start: string | null;
-            /** Support End */
-            readonly support_end: string | null;
-        };
-        /** ObservationSpec[Annotated[Union[Duration, NoneType], FieldInfo(annotation=NoneType, required=False, default=None)]] */
-        readonly "ObservationSpec_Annotated_Union_Duration__NoneType___FieldInfo_annotation_NoneType__required_False__default_None___-Input": {
-            /** @description Persistent identity. Preserve when revising or renaming. */
-            readonly id: components["schemas"]["IndicatorId-Input"];
-            /**
-             * Name
-             * @description Indicator name (e.g., 'hrv', 'self_reported_stress')
-             */
-            readonly name: string;
-            /** @description 'continuous', 'binary', 'count', 'ordinal', 'categorical' */
-            readonly measurement_dtype: components["schemas"]["MeasurementDtype"];
-            /** @description Aggregation function applied when bucketing raw extractions within the indicator support window. Supported operators: first, last, sum, count, mean, std. A computed_rule must produce this same summary. */
-            readonly aggregation: components["schemas"]["SummaryOperator"];
-            /**
-             * Observation Window
-             * @description Optional duration string describing the support window summarized by this indicator, in positive fixed units s, m, h, d or w (for example '2w'). Resolved by the preparation window or the generative model clock.
-             * @default null
-             */
-            readonly observation_window?: string | null;
-            /**
-             * Ordinal Levels
-             * @description Ordered list of level labels from lowest to highest for ordinal indicators (e.g., ['low', 'medium', 'high']). Required when measurement_dtype='ordinal' to ensure correct numeric encoding.
-             * @default null
-             */
-            readonly ordinal_levels?: readonly string[] | null;
-            /**
-             * Categorical Levels
-             * @description Exhaustive list of level labels for categorical indicators (e.g., ['home', 'work', 'other']). Required when measurement_dtype='categorical' to ensure correct numeric encoding.
-             * @default null
-             */
-            readonly categorical_levels?: readonly string[] | null;
-        };
         /** ObservationSpec[Annotated[Union[Duration, NoneType], FieldInfo(annotation=NoneType, required=False, default=None)]] */
         readonly "ObservationSpec_Annotated_Union_Duration__NoneType___FieldInfo_annotation_NoneType__required_False__default_None___-Output": {
             /** @description Persistent identity. Preserve when revising or renaming. */
@@ -3742,16 +5209,6 @@ export interface components {
              * @default null
              */
             readonly categorical_levels: readonly string[] | null;
-        };
-        /** OrderedLogisticLawSpec[Expression] */
-        readonly "OrderedLogisticLawSpec_Expression_-Input": {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly distribution: "OrderedLogistic";
-            readonly predictor: components["schemas"]["Expression-Input"];
-            readonly cutpoints: components["schemas"]["Expression-Input"];
         };
         /** OrderedLogisticLawSpec[Expression] */
         readonly "OrderedLogisticLawSpec_Expression_-Output": {
@@ -3837,6 +5294,19 @@ export interface components {
             ] | null;
         };
         /**
+         * PairedArmSimulation
+         * @description Intervention and natural-course histories with matched draw indices.
+         */
+        readonly PairedArmSimulation: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            readonly kind: "paired";
+            readonly action: components["schemas"]["SimulationArm"];
+            readonly reference: components["schemas"]["SimulationArm"];
+        };
+        /**
          * ParameterConvergenceReport
          * @description Recorded-chain criteria cover parameters, not latent-path mixing.
          */
@@ -3877,28 +5347,6 @@ export interface components {
             /** Mcse Mean */
             readonly mcse_mean: number | null;
         };
-        /**
-         * ParameterDrawColumn
-         * @description Posterior draws for one scientifically identified parameter coordinate.
-         */
-        readonly ParameterDrawColumn: {
-            /**
-             * Label
-             * @description Display name of the parameter coordinate.
-             */
-            readonly label: string;
-            /** @description Parameter and element identity to which the draws belong. */
-            readonly subject: components["schemas"]["ParameterRef"];
-            /** @description Retained finite draws in sampling order. */
-            readonly values: components["schemas"]["ScalarValues"];
-            /**
-             * Empirical
-             * @description Empirical cumulative distribution of those values.
-             */
-            readonly empirical: readonly components["schemas"]["EmpiricalPoint"][];
-        };
-        /** @description Every retained parameter coordinate is available without thinning or pair selection, or has an explicit unavailable reason. */
-        readonly ParameterDraws: Domain.Available<readonly (Domain.ParameterDrawColumn)[]> | components["schemas"]["Unavailable"];
         /** @description A parameter element identity identifies a logical scalar component across model revisions. */
         readonly "ParameterElementId-Input": `element:${string}`;
         /** @description A parameter element identity identifies a logical scalar component across model revisions. */
@@ -3914,41 +5362,6 @@ export interface components {
         readonly ParameterRef: {
             readonly parameter_id: components["schemas"]["ParameterId-Output"];
             readonly element_id: components["schemas"]["ParameterElementId-Output"];
-        };
-        /**
-         * ParameterSpec
-         * @description A named uncertain quantity; fixed coefficients are literals in component slots.
-         */
-        readonly "ParameterSpec-Input": {
-            readonly id: components["schemas"]["ParameterId-Input"];
-            /**
-             * Name
-             * @description Authored parameter label; relationships use its persistent ID
-             */
-            readonly name: string;
-            /**
-             * Description
-             * @description Human-readable description of what this parameter represents
-             */
-            readonly description: string;
-            readonly transform?: components["schemas"]["ParameterTransformSpec-Input"];
-            /**
-             * @description Membership in a native law in ModelSpec.distributions; may be joint. None means the law has not been assigned yet.
-             * @default null
-             */
-            readonly distribution?: components["schemas"]["DistributionId-Input"] | null;
-            /**
-             * Reasoning
-             * @description Why the authored prior law fits this quantity, and where its values come from.
-             * @default null
-             */
-            readonly reasoning?: string | null;
-            /**
-             * Sources
-             * @description Evidence behind the authored prior law.
-             * @default []
-             */
-            readonly sources?: readonly components["schemas"]["LiteratureSource-Input"][];
         };
         /**
          * ParameterSpec
@@ -3985,7 +5398,6 @@ export interface components {
              */
             readonly sources: readonly components["schemas"]["LiteratureSource-Output"][];
         };
-        readonly "ParameterTransformSpec-Input": components["schemas"]["IdentityTransformSpec-Input"] | components["schemas"]["PersistenceTransformSpec-Input"] | components["schemas"]["IntervalEffectTransformSpec-Input"] | components["schemas"]["InitialCorrelationTransformSpec-Input"];
         readonly "ParameterTransformSpec-Output": components["schemas"]["IdentityTransformSpec-Output"] | components["schemas"]["PersistenceTransformSpec-Output"] | components["schemas"]["IntervalEffectTransformSpec-Output"] | components["schemas"]["InitialCorrelationTransformSpec-Output"];
         /**
          * ParameterWarmupDiagnostics
@@ -4129,43 +5541,6 @@ export interface components {
             readonly parameter_warmup: components["schemas"]["ParameterWarmupDiagnostics"];
         };
         /**
-         * PathSeries
-         * @description Action and reference trajectories for one plotted scientific quantity.
-         */
-        readonly PathSeries: {
-            /**
-             * Label
-             * @description Display name of the state, indicator, or effect.
-             */
-            readonly label: string;
-            /**
-             * Action
-             * @description Recorded draws from the requested simulation arm.
-             */
-            readonly action: readonly components["schemas"]["RecordedPath"][];
-            /**
-             * Reference
-             * @description Matched natural-course draws when a reference arm exists.
-             * @default []
-             */
-            readonly reference: readonly components["schemas"]["RecordedPath"][];
-            /**
-             * Levels
-             * @description Labels for discrete category codes, or null for numeric quantities.
-             * @default null
-             */
-            readonly levels: readonly string[] | null;
-            /**
-             * Frame
-             * @description Saved central display range computed when the action ran.
-             * @default null
-             */
-            readonly frame: readonly [
-                number,
-                number
-            ] | null;
-        };
-        /**
          * PathfinderDiagnostics
          * @description Retained native initialization measurements; never posterior evidence.
          */
@@ -4247,19 +5622,6 @@ export interface components {
          * PersistenceTransformSpec
          * @description Map persistence p to -log(p) divided by its explicit interval in days.
          */
-        readonly "PersistenceTransformSpec-Input": {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "dt_persistence_to_ct_decay";
-            /** Interval Days */
-            readonly interval_days: number | "model_clock";
-        };
-        /**
-         * PersistenceTransformSpec
-         * @description Map persistence p to -log(p) divided by its explicit interval in days.
-         */
         readonly "PersistenceTransformSpec-Output": {
             /**
              * @description discriminator enum property added by openapi-typescript
@@ -4268,15 +5630,6 @@ export interface components {
             readonly kind: "dt_persistence_to_ct_decay";
             /** Interval Days */
             readonly interval_days: number | "model_clock";
-        };
-        /** PoissonLawSpec[Expression] */
-        readonly "PoissonLawSpec_Expression_-Input": {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly distribution: "Poisson";
-            readonly rate: components["schemas"]["Expression-Input"];
         };
         /** PoissonLawSpec[Expression] */
         readonly "PoissonLawSpec_Expression_-Output": {
@@ -4296,6 +5649,8 @@ export interface components {
             readonly parameter: string;
             readonly subject: components["schemas"]["ParameterRef"];
             readonly density_curve: components["schemas"]["DensityCurve"];
+            /** Empirical */
+            readonly empirical: readonly components["schemas"]["EmpiricalPoint"][];
             /** Mean */
             readonly mean: number;
             /** Lower */
@@ -4333,19 +5688,6 @@ export interface components {
          * PotentialMechanismSpec
          * @description A construct potential whose negative gradient contributes to its drift.
          */
-        readonly "PotentialMechanismSpec-Input": {
-            readonly id: components["schemas"]["MechanismId-Input"];
-            readonly expression: components["schemas"]["Expression-Input"];
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "potential";
-        };
-        /**
-         * PotentialMechanismSpec
-         * @description A construct potential whose negative gradient contributes to its drift.
-         */
         readonly "PotentialMechanismSpec-Output": {
             readonly id: components["schemas"]["MechanismId-Output"];
             readonly expression: components["schemas"]["Expression-Output"];
@@ -4363,7 +5705,15 @@ export interface components {
         readonly PredictiveCheckReason: "MODEL_INCOMPLETE" | "MODEL_NOT_EXECUTABLE" | "NO_COMPATIBLE_PANEL" | "INSUFFICIENT_OBSERVATION_TIMES" | "SIMULATION_UNSUPPORTED" | "ARCHIVED_MEASUREMENT_NOT_RETAINED";
         /**
          * PredictiveComparison
-         * @description A selected reference history retains its role even when checks are unavailable.
+         * @description One reference history compared with the other side's replicated histories.
+         *
+         *     The singleton side owns the reference role even when evaluation is unavailable.
+         *     Swapping sides changes reference_side and preserves the evaluation. Matching
+         *     measurement definitions, calendar binding, and support at every observed anchor
+         *     are required. Missing reference values are masked; missing replicate values at
+         *     observed anchors prevent evaluation. Replicates may have additional anchors.
+         *     The source simulation's law provenance determines prior/posterior interpretation;
+         *     the side names and number of selected histories do not establish that provenance.
          */
         readonly PredictiveComparison: {
             /**
@@ -4431,22 +5781,15 @@ export interface components {
         };
         /**
          * PrepareDataOutput
-         * @description Observations retained by a preparation run and evidence of how they were made.
-         *
-         *     A missing summary means its artifact or report is unavailable; it does not
-         *     mean the corresponding observation count is zero.
+         * @description Complete prepared observations, their provenance, and data-quality findings.
          */
         readonly PrepareDataOutput: {
-            /** @description Uploaded table dimensions, sample rows, column descriptions, and date bounds when the source provides dates. */
-            readonly raw_data: components["schemas"]["RawDataData"] | null;
-            /** @description Retained observation counts, broken down by indicator, with a sample of extracted records. */
-            readonly measurements: components["schemas"]["MeasurementsData"] | null;
-            /** @description Source reference, preparation recipe, resolved observation schema, and the calendar origin used to interpret model time. */
-            readonly metadata: components["schemas"]["PreparedDataMetadata"] | null;
-            /** @description Data quality findings retained for the prepared panel, when a matching profile report exists. */
-            readonly profile: components["schemas"]["DataProfileArtifact"] | null;
             /** @description Full observation histories keyed by indicator ID, including measurement support intervals and missing values. */
             readonly data: components["schemas"]["ObservationData"];
+            /** @description Source reference, preparation recipe, resolved observation schema, and the calendar origin used to interpret model time. */
+            readonly metadata: components["schemas"]["PreparedDataMetadata"];
+            /** @description Empirical statistics and data-quality findings for the prepared panel. */
+            readonly profile: components["schemas"]["DataProfileArtifact"];
         };
         /** PrepareDataRequest[GitOid, FileSourceRef] */
         readonly PrepareDataRequest_GitOid_FileSourceRef_: {
@@ -4641,45 +5984,6 @@ export interface components {
             readonly chains: readonly (readonly number[])[];
         };
         /**
-         * RawDataColumnDescription
-         * @description A stored column's physical type and authored interpretation.
-         */
-        readonly RawDataColumnDescription: {
-            /** Name */
-            readonly name: string;
-            /** Dtype */
-            readonly dtype: string;
-            /** Description */
-            readonly description: string | null;
-        };
-        /**
-         * RawDataData
-         * @description Profile and representative rows from one uploaded table revision.
-         */
-        readonly RawDataData: {
-            /** N Records */
-            readonly n_records: number;
-            /** N Columns */
-            readonly n_columns: number;
-            readonly date_range: components["schemas"]["RawDataDateRange"] | null;
-            /** Sample */
-            readonly sample: readonly {
-                readonly [key: string]: string | null;
-            }[];
-            /** Column Descriptions */
-            readonly column_descriptions: readonly components["schemas"]["RawDataColumnDescription"][];
-        };
-        /**
-         * RawDataDateRange
-         * @description Observed date bounds of the uploaded table, when it contains a date column.
-         */
-        readonly RawDataDateRange: {
-            /** Start */
-            readonly start: string;
-            /** End */
-            readonly end: string;
-        };
-        /**
          * RecordDependency
          * @description A journal dependency linking a call argument to the attempt that first published its input.
          */
@@ -4699,19 +6003,6 @@ export interface components {
              * @description Input reference field name with its `_ref` suffix removed.
              */
             readonly argument: string;
-        };
-        /**
-         * RecordedPath
-         * @description One original trajectory identified by its retained draw index.
-         */
-        readonly RecordedPath: {
-            /**
-             * Draw
-             * @description Index of this draw in the retained simulation evidence.
-             */
-            readonly draw: number;
-            /** @description Values aligned with the enclosing time grid; non-finite entries are represented by null. */
-            readonly values: components["schemas"]["ScalarValues"];
         };
         /**
          * Rejected
@@ -4736,15 +6027,6 @@ export interface components {
          * @enum {string}
          */
         readonly RejectionReason: "revision_conflict" | "input_unavailable" | "scientific_inputs" | "recorded_rejection";
-        /** Removed[ConstructRef] */
-        readonly Removed_ConstructRef_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "removed";
-            readonly before: components["schemas"]["ConstructRef-Output"];
-        };
         /** Removed[DataPoint] */
         readonly Removed_DataPoint_: {
             /**
@@ -4753,24 +6035,6 @@ export interface components {
              */
             readonly kind: "removed";
             readonly before: components["schemas"]["DataPoint"];
-        };
-        /** Removed[EdgeRef] */
-        readonly Removed_EdgeRef_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "removed";
-            readonly before: components["schemas"]["EdgeRef"];
-        };
-        /** Removed[ParameterSpec] */
-        readonly Removed_ParameterSpec_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "removed";
-            readonly before: components["schemas"]["ParameterSpec-Output"];
         };
         /**
          * RetractedArtifact
@@ -4781,16 +6045,6 @@ export interface components {
             /** Reason Ref */
             readonly reason_ref: string;
         };
-        /** Revised[ConstructRef] */
-        readonly Revised_ConstructRef_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "revised";
-            readonly before: components["schemas"]["ConstructRef-Output"];
-            readonly after: components["schemas"]["ConstructRef-Output"];
-        };
         /** Revised[DataPoint] */
         readonly Revised_DataPoint_: {
             /**
@@ -4800,26 +6054,6 @@ export interface components {
             readonly kind: "revised";
             readonly before: components["schemas"]["DataPoint"];
             readonly after: components["schemas"]["DataPoint"];
-        };
-        /** Revised[EdgeRef] */
-        readonly Revised_EdgeRef_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "revised";
-            readonly before: components["schemas"]["EdgeRef"];
-            readonly after: components["schemas"]["EdgeRef"];
-        };
-        /** Revised[ParameterSpec] */
-        readonly Revised_ParameterSpec_: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "revised";
-            readonly before: components["schemas"]["ParameterSpec-Output"];
-            readonly after: components["schemas"]["ParameterSpec-Output"];
         };
         /** @description An exact Git hash, or 'latest': the current non-stale model/panel or most recent applied simulation, according to the input type. Resolved once before cache lookup and execution; repeat the returned hashes to poll the same call. */
         readonly RevisionSelector: components["schemas"]["GitOid-Input"] | "latest";
@@ -4962,47 +6196,31 @@ export interface components {
         readonly SimulateInput_GitOid_: {
             /** @description Revision supplying the authored or fitted generative law. */
             readonly model_ref: components["schemas"]["GitOid-Output"];
-            /**
-             * @description Optional exact panel supplying the calendar origin for an authored law; a fitted law retains the origin of its conditioning history.
-             * @default null
-             */
-            readonly panel_ref: components["schemas"]["GitOid-Output"] | null;
-            /** @description Requested start, horizon, replicate count, and interventions. */
+            /** @description Requested start, horizon, and interventions. */
             readonly simulation: components["schemas"]["SimulationSpec-Output"];
         };
         /** SimulateInput[RevisionSelector] */
         readonly SimulateInput_RevisionSelector_: {
             /** @description Revision supplying the authored or fitted generative law. */
             readonly model_ref: components["schemas"]["RevisionSelector"];
-            /**
-             * @description Optional exact panel supplying the calendar origin for an authored law; a fitted law retains the origin of its conditioning history.
-             * @default null
-             */
-            readonly panel_ref?: components["schemas"]["RevisionSelector"] | null;
-            /** @description Requested start, horizon, replicate count, and interventions. */
+            /** @description Requested start, horizon, and interventions. */
             readonly simulation: components["schemas"]["SimulationSpec-Input"];
         };
         /**
          * SimulateOutput
-         * @description The generated observation histories, paths, report, and retained arrays.
+         * @description Generated histories and their complete scientific report, including owned numerical evidence.
          */
         readonly SimulateOutput: {
-            /** @description Simulation findings, when a report was retained. */
-            readonly report: components["schemas"]["SimulationReport"] | null;
             /**
              * Data
              * @description One observation history per retained replicate, in replicate order.
              */
-            readonly data: readonly components["schemas"]["ObservationData"][];
-            /** @description Recorded state and indicator trajectories, including a reference arm when present; absent if path evidence is unavailable. */
-            readonly paths: components["schemas"]["SimulationPaths"] | null;
-            /**
-             * Arrays
-             * @description Retained numerical evidence keyed by its stored array reference. Shape and dtype are retained; non-finite scalars use nan, +inf and -inf tags.
-             */
-            readonly arrays: {
-                readonly [key: string]: components["schemas"]["NumericalArray"];
-            };
+            readonly data: readonly [
+                components["schemas"]["ObservationData"],
+                ...components["schemas"]["ObservationData"][]
+            ];
+            /** @description Generation evidence and evaluated findings. */
+            readonly report: components["schemas"]["SimulationReport"];
         };
         /** SimulateRequest[GitOid] */
         readonly SimulateRequest_GitOid_: {
@@ -5037,6 +6255,15 @@ export interface components {
             readonly reasoning?: string | null;
         };
         /**
+         * SimulationArm
+         * @description One arm's exact state and observation draws.
+         */
+        readonly SimulationArm: {
+            readonly latent_paths: components["schemas"]["NumericalArray"];
+            readonly observations: components["schemas"]["NumericalArray"];
+        };
+        readonly SimulationArms: components["schemas"]["SingleArmSimulation"] | components["schemas"]["PairedArmSimulation"];
+        /**
          * SimulationEvidence
          * @description Exact generated histories with their production coordinates and input provenance.
          */
@@ -5059,32 +6286,14 @@ export interface components {
             readonly draws: number;
             /** Seed */
             readonly seed: number;
-            /**
-             * @description Panel that supplied the time origin: the fit's panel for fitted laws, otherwise the explicitly named panel when present.
-             * @default null
-             */
-            readonly origin_data: Domain.DataRef<Domain.GitOid, number> | null;
             /** State Ids */
             readonly state_ids: readonly components["schemas"]["ConstructId-Output"][];
             /** Parameter Draws */
             readonly parameter_draws: {
-                readonly [key: string]: string;
+                readonly [key: string]: components["schemas"]["NumericalArray"];
             };
-            /** Latent Paths */
-            readonly latent_paths: string;
-            /** Observations */
-            readonly observations: string;
+            readonly arms: components["schemas"]["SimulationArms"];
             readonly observation_layout: components["schemas"]["SimulationObservationLayout"];
-            /**
-             * Reference Latent Paths
-             * @default null
-             */
-            readonly reference_latent_paths: string | null;
-            /**
-             * Reference Observations
-             * @default null
-             */
-            readonly reference_observations: string | null;
             /**
              * Assignments
              * @description Intervention assignments positioned on the evidence's retained model-time origin.
@@ -5098,47 +6307,9 @@ export interface components {
         readonly SimulationObservationLayout: {
             /** Variables */
             readonly variables: readonly Domain.ObservationSpec<string>[];
-            /** Support Start Times */
-            readonly support_start_times: string;
-            /** Support End Times */
-            readonly support_end_times: string;
-            /** Mask */
-            readonly mask: string;
-        };
-        /**
-         * SimulationPaths
-         * @description Contiguous pages of original draws, with every recorded time point intact.
-         */
-        readonly SimulationPaths: {
-            /** Times */
-            readonly times: readonly number[];
-            /** Time Origin */
-            readonly time_origin: string | null;
-            /** Total Draws */
-            readonly total_draws: number;
-            /** Start */
-            readonly start: number;
-            /** Count */
-            readonly count: number;
-            /** States */
-            readonly states: Readonly<Partial<Record<components["schemas"]["ConstructId-Output"], components["schemas"]["PathSeries"]>>>;
-            /** Indicators */
-            readonly indicators: Readonly<Partial<Record<components["schemas"]["IndicatorId-Output"], components["schemas"]["PathSeries"]>>>;
-            /** @default null */
-            readonly effect: components["schemas"]["PathSeries"] | null;
-            /** @default null */
-            readonly effect_summary: components["schemas"]["EffectSummary"] | null;
-            /**
-             * Reference Mean
-             * @default null
-             */
-            readonly reference_mean: number | null;
-            /** Manifest Effects */
-            readonly manifest_effects: Readonly<Partial<Record<components["schemas"]["IndicatorId-Output"], number>>>;
-            /** Action Category Probabilities */
-            readonly action_category_probabilities: Readonly<Partial<Record<components["schemas"]["IndicatorId-Output"], components["schemas"]["CategoryProbabilitySummary"]>>>;
-            /** Reference Category Probabilities */
-            readonly reference_category_probabilities: Readonly<Partial<Record<components["schemas"]["IndicatorId-Output"], components["schemas"]["CategoryProbabilitySummary"]>>>;
+            readonly support_start_times: components["schemas"]["NumericalArray"];
+            readonly support_end_times: components["schemas"]["NumericalArray"];
+            readonly mask: components["schemas"]["NumericalArray"];
         };
         /**
          * SimulationReport
@@ -5146,6 +6317,7 @@ export interface components {
          */
         readonly SimulationReport: {
             readonly evidence: components["schemas"]["SimulationEvidence"];
+            readonly summary: components["schemas"]["SimulationSummary"];
             readonly law: components["schemas"]["PredictiveLawProvenance"];
             /**
              * Findings
@@ -5159,8 +6331,8 @@ export interface components {
          * SimulationSpec
          * @description Generate from a calendar day over a horizon, with interventions placed after the start.
          *
-         *     The start is the only absolute time. A record's origin places it in model days;
-         *     without a record, the start is model day zero.
+         *     Authored initial states apply at the start. A retained trajectory law with a
+         *     calendar origin places the start on that law's model-day axis.
          */
         readonly "SimulationSpec-Input": {
             /**
@@ -5184,8 +6356,8 @@ export interface components {
          * SimulationSpec
          * @description Generate from a calendar day over a horizon, with interventions placed after the start.
          *
-         *     The start is the only absolute time. A record's origin places it in model days;
-         *     without a record, the start is model day zero.
+         *     Authored initial states apply at the start. A retained trajectory law with a
+         *     calendar origin places the start on that law's model-day axis.
          */
         readonly "SimulationSpec-Output": {
             /**
@@ -5205,12 +6377,44 @@ export interface components {
              */
             readonly interventions: readonly components["schemas"]["InterventionSpec-Output"][];
         };
+        /**
+         * SimulationSummary
+         * @description Full-draw reductions retained once, independently of a viewer's draw selection.
+         */
+        readonly SimulationSummary: {
+            /** State Frames */
+            readonly state_frames: Readonly<Partial<Record<components["schemas"]["ConstructId-Output"], readonly [
+                number,
+                number
+            ]>>>;
+            /** Indicator Frames */
+            readonly indicator_frames: Readonly<Partial<Record<components["schemas"]["IndicatorId-Output"], readonly [
+                number,
+                number
+            ]>>>;
+            /** Action Category Probabilities */
+            readonly action_category_probabilities: Readonly<Partial<Record<components["schemas"]["IndicatorId-Output"], components["schemas"]["CategoryProbabilitySummary"]>>>;
+            /** Reference Category Probabilities */
+            readonly reference_category_probabilities: Readonly<Partial<Record<components["schemas"]["IndicatorId-Output"], components["schemas"]["CategoryProbabilitySummary"]>>>;
+        };
+        /**
+         * SingleArmSimulation
+         * @description Natural-course generation without an intervention comparison.
+         */
+        readonly SingleArmSimulation: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            readonly kind: "single";
+            readonly action: components["schemas"]["SimulationArm"];
+        };
         /** @description Folder of ready-to-use CSV or Parquet tables under data/{workspace_id}/, such as input. Every table must have a date or datetime timestamp column. */
         readonly SourceFolder: string;
         readonly SpecificationAssessment: Domain.Evaluated<string, string> | Domain.NotEvaluated<string>;
         /**
          * StateAssignment
-         * @description A state set at one model time: a resolved intervention or a replayed input reading.
+         * @description A state set at one model time: a resolved intervention or a deterministic input point.
          */
         readonly StateAssignment: {
             readonly target: components["schemas"]["ConstructId-Output"];
@@ -5221,18 +6425,6 @@ export interface components {
             readonly time: number;
             /** Value */
             readonly value: number;
-        };
-        /**
-         * StateExpression
-         * @description A construct's state or declared known input, referenced by identity.
-         */
-        readonly "StateExpression-Input": {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "state";
-            readonly construct_id: components["schemas"]["ConstructId-Input"];
         };
         /**
          * StateExpression
@@ -5282,34 +6474,6 @@ export interface components {
         };
         /** @enum {string} */
         readonly StepStatus: "running" | "completed" | "failed";
-        /**
-         * StructuralDisposition
-         * @description How compilation retains, marginalizes, or excludes an authored scientific entity.
-         * @enum {string}
-         */
-        readonly StructuralDisposition: "retained_state" | "marginalized" | "identification_only" | "retained_edge" | "projected_edge" | "manifest" | "excluded_indicator" | "unsupported";
-        /**
-         * StructuralItemDisposition
-         * @description Compilation treatment and supporting explanation for one identified scientific entity.
-         */
-        readonly StructuralItemDisposition: {
-            /** Target */
-            readonly target: components["schemas"]["ConstructRef-Output"] | components["schemas"]["EdgeRef"] | components["schemas"]["IndicatorRef"];
-            readonly disposition: components["schemas"]["StructuralDisposition"];
-            /** Reason */
-            readonly reason: string;
-        };
-        /** StudentTLawSpec[Expression] */
-        readonly "StudentTLawSpec_Expression_-Input": {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly distribution: "StudentT";
-            readonly df: components["schemas"]["Expression-Input"];
-            readonly loc: components["schemas"]["Expression-Input"];
-            readonly scale: components["schemas"]["Expression-Input"];
-        };
         /** StudentTLawSpec[Expression] */
         readonly "StudentTLawSpec_Expression_-Output": {
             /**
@@ -5641,28 +6805,6 @@ export interface components {
             /** Reason */
             readonly reason: string;
         };
-        /** Unchanged[ConstructRef] */
-        readonly Unchanged_ConstructRef_: {
-            /**
-             * Kind
-             * @default unchanged
-             * @constant
-             */
-            readonly kind: "unchanged";
-            readonly before: components["schemas"]["ConstructRef-Output"];
-            readonly after: components["schemas"]["ConstructRef-Output"];
-        };
-        /** Unchanged[EdgeRef] */
-        readonly Unchanged_EdgeRef_: {
-            /**
-             * Kind
-             * @default unchanged
-             * @constant
-             */
-            readonly kind: "unchanged";
-            readonly before: components["schemas"]["EdgeRef"];
-            readonly after: components["schemas"]["EdgeRef"];
-        };
         /**
          * UnknownLawProvenance
          * @description Imported laws do not establish a conditioning history.
@@ -5757,7 +6899,7 @@ export interface operations {
                     readonly [name: string]: unknown;
                 };
                 content: {
-                    readonly "application/json": components["schemas"]["ActionPoll"];
+                    readonly "application/msgpack": components["schemas"]["ActionPoll"];
                 };
             };
             /** @description Validation Error */
@@ -5792,7 +6934,7 @@ export interface operations {
                     readonly [name: string]: unknown;
                 };
                 content: {
-                    readonly "application/json": components["schemas"]["ActionPoll"];
+                    readonly "application/msgpack": components["schemas"]["ActionPoll"];
                 };
             };
             /** @description Validation Error */
@@ -5827,7 +6969,7 @@ export interface operations {
                     readonly [name: string]: unknown;
                 };
                 content: {
-                    readonly "application/json": components["schemas"]["ActionPoll"];
+                    readonly "application/msgpack": components["schemas"]["ActionPoll"];
                 };
             };
             /** @description Validation Error */
@@ -5862,7 +7004,7 @@ export interface operations {
                     readonly [name: string]: unknown;
                 };
                 content: {
-                    readonly "application/json": components["schemas"]["ActionPoll"];
+                    readonly "application/msgpack": components["schemas"]["ActionPoll"];
                 };
             };
             /** @description Validation Error */
@@ -5897,7 +7039,7 @@ export interface operations {
                     readonly [name: string]: unknown;
                 };
                 content: {
-                    readonly "application/json": components["schemas"]["ActionPoll"];
+                    readonly "application/msgpack": components["schemas"]["ActionPoll"];
                 };
             };
             /** @description Validation Error */
@@ -5932,7 +7074,7 @@ export interface operations {
                     readonly [name: string]: unknown;
                 };
                 content: {
-                    readonly "application/json": components["schemas"]["ActionPoll"];
+                    readonly "application/msgpack": components["schemas"]["ActionPoll"];
                 };
             };
             /** @description Validation Error */
@@ -5967,7 +7109,7 @@ export interface operations {
                     readonly [name: string]: unknown;
                 };
                 content: {
-                    readonly "application/json": components["schemas"]["ActionPoll"];
+                    readonly "application/msgpack": components["schemas"]["ActionPoll"];
                 };
             };
             /** @description Validation Error */
@@ -6002,7 +7144,7 @@ export interface operations {
                     readonly [name: string]: unknown;
                 };
                 content: {
-                    readonly "application/json": components["schemas"]["ActionPoll"];
+                    readonly "application/msgpack": components["schemas"]["ActionPoll"];
                 };
             };
             /** @description Validation Error */

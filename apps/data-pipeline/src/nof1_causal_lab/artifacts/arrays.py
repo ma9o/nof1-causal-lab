@@ -1,34 +1,84 @@
-"""Exact numerical buffers and vector selections owned by one action result."""
+"""Exact numerical values and shared vector selections owned by scientific fields."""
 
 from __future__ import annotations
 
-from math import prod
-from typing import Annotated, Literal, Self
+import hashlib
+import io
+import math
+from functools import cached_property
+from typing import Annotated, Self, override
 
+import numpy as np
 from pydantic import Field, FiniteFloat, model_validator
 
 from nof1_causal_lab.artifacts.base import Value
 
 
 class NumericalArray(Value):
-    """A lossless row-major buffer, including its original dtype and dimensions."""
+    """An immutable NPY buffer carried as a MessagePack binary value.
 
-    dtype: str
-    shape: tuple[Annotated[int, Field(ge=0)], ...]
-    values: tuple[bool | int | FiniteFloat | Literal["nan", "+inf", "-inf"], ...]
+    The NPY header owns dtype, shape and storage order. Numerical decoding
+    belongs to the boundary that consumes the buffer.
+    """
+
+    npy: bytes = Field(
+        description="Lossless NPY bytes, including dtype and dimensions; never base64 or scalar JSON.",
+        json_schema_extra={"tsType": "Uint8Array"},
+    )
+
+    @override
+    def __eq__(self, other: object) -> bool:
+        """Decoded caches do not participate in numerical value identity."""
+        return isinstance(other, NumericalArray) and self.npy == other.npy
+
+    @classmethod
+    def from_numpy(cls, values: np.ndarray) -> Self:
+        """Own a portable, lossless encoding of a numerical value."""
+        array = np.asarray(values)
+        if array.dtype.kind not in "bifu" or array.dtype.itemsize not in (1, 2, 4, 8):
+            raise TypeError("Numerical buffers require boolean, integer or floating dtypes up to 64 bits")
+        buffer = io.BytesIO()
+        np.save(buffer, np.asarray(array, dtype=array.dtype.newbyteorder("<"), order="C"), allow_pickle=False)
+        return cls(npy=buffer.getvalue())
+
+    @cached_property
+    def identity(self) -> str:
+        """Content identity used only by numerical storage and serialization."""
+        return hashlib.sha256(self.npy).hexdigest()
+
+    @cached_property
+    def values(self) -> np.ndarray:
+        """Decode once at the numerical consumer and retain immutable values."""
+        values = np.load(io.BytesIO(self.npy), allow_pickle=False)
+        values.setflags(write=False)
+        return values
+
+    @cached_property
+    def layout(self) -> tuple[tuple[int, ...], np.dtype]:
+        """Read dimensions and dtype without materializing numerical elements."""
+        stream = io.BytesIO(self.npy)
+        version = np.lib.format.read_magic(stream)
+        if version not in ((1, 0), (2, 0)):
+            raise ValueError("Numerical arrays require NPY version 1 or 2")
+        reader = np.lib.format.read_array_header_1_0 if version == (1, 0) else np.lib.format.read_array_header_2_0
+        shape, _, dtype = reader(stream)
+        if dtype.kind not in "bifu" or dtype.itemsize not in (1, 2, 4, 8):
+            raise ValueError("NPY values must have a supported numerical dtype")
+        if len(self.npy) - stream.tell() != math.prod(shape) * dtype.itemsize:
+            raise ValueError("NPY payload does not match its declared shape and dtype")
+        return shape, dtype
 
     @model_validator(mode="after")
-    def complete_buffer(self) -> Self:
-        """Own the relationship between dimensions and retained scalars."""
-        if len(self.values) != prod(self.shape):
-            raise ValueError("Numerical buffer length must match its shape")
+    def parse_layout(self) -> Self:
+        """Establish the binary array layout once, without reading numerical elements."""
+        _ = self.layout
         return self
 
 
 class ArrayVector(Value):
-    """One vector selected from the result's numerical buffers without copying its values."""
+    """A vector view of an owned numerical value; the wire codec shares its buffer."""
 
-    array_ref: str = Field(pattern=r"^[0-9a-f]{64}$")
+    array: NumericalArray
     indices: tuple[Annotated[int, Field(ge=0)] | None, ...]
     mask: ArrayVector | None = None
     start: int = Field(default=0, ge=0)
@@ -41,7 +91,24 @@ class ArrayVector(Value):
             raise ValueError("A vector selection must have exactly one free axis")
         if self.stop is not None and self.stop < self.start:
             raise ValueError("A vector range must be ordered")
+        shape, _ = self.array.layout
+        if len(self.indices) != len(shape) or any(
+            index is not None and index >= size
+            for index, size in zip(self.indices, shape, strict=True)
+        ):
+            raise ValueError("Vector coordinates exceed the owned buffer")
+        extent = shape[self.indices.index(None)]
+        if self.start > extent or (self.stop is not None and self.stop > extent):
+            raise ValueError("Vector range exceeds the owned buffer")
+        if self.mask is not None and self.mask.length != self.length:
+            raise ValueError("Vector mask must align with its values")
         return self
+
+    @property
+    def length(self) -> int:
+        """The selected vector's extent, proven at construction."""
+        shape, _ = self.array.layout
+        return (self.stop if self.stop is not None else shape[self.indices.index(None)]) - self.start
 
 
 type ScalarValues = tuple[FiniteFloat | None, ...] | ArrayVector

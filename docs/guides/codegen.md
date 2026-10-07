@@ -10,7 +10,7 @@ Generated API artifacts and generated documentation have separate ownership and 
 - **Types and client**: [`generate.ts`](../../packages/api-types/scripts/generate.ts) runs [openapi-typescript](https://openapi-ts.dev/node) once. Named contract aliases and generic declarations come from that AST; [openapi-fetch](https://openapi-ts.dev/openapi-fetch/) supplies the runtime client. Upload inputs use native `Blob` values, serialized as `FormData` by the caller.
 - **Agent skill**: The exporter generates `nof1-study-api` from the application's endpoint descriptions and [action contracts](../../apps/data-pipeline/src/nof1_causal_lab/study_api.py).
 
-Native NumPyro distributions use the shared [JSON codec](../../apps/data-pipeline/src/nof1_causal_lab/numpyro_json.py) on scientific parameters and compiled sites. Export derives constructor signatures from native distribution arguments and constraints. There is no separate prior-parameter class hierarchy.
+Native NumPyro distributions use the shared [JSON codec](../../apps/data-pipeline/src/nof1_causal_lab/numpyro_json.py) on scientific parameters and compiled sites. Export derives constructor signatures from native distribution arguments and constraints. There is no separate prior-parameter class hierarchy. Numerical arguments belong to their native law; inference and simulation evidence own their numerical values directly. The [result codec](../../apps/data-pipeline/src/nof1_causal_lab/study/result_codec.py) shares repeated binary buffers when saving or serving a result. Its Python decoder and the [TypeScript client](../../packages/api-types/src/client.ts) restore those values before consumers read the scientific fields.
 
 ```bash
 bun run codegen       # regenerate API artifacts
@@ -92,9 +92,13 @@ without retaining compatibility aliases.
 
 Use a scalar ID when a field identifies one known kind of entity: scenario
 `target` and `outcome`, question `outcome`, and validation `indicator_id`.
-Keep tagged references for mixed entity kinds and for shared graph endpoints.
-Python edges hold canonical `ConstructSpec` objects; their JSON representation
-defines a shared construct once and refers to it at subsequent endpoints.
+Keep tagged references for mixed entity kinds.
+[`ModelSpec`](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/model_spec.py)
+owns ID-keyed construct, edge and parameter definitions. Its edges refer to scalar
+construct IDs; resolved Python edges hold canonical `ConstructSpec` objects.
+The same document represents creation, partial edits and materialized models.
+See the [edit action chart](../assets/action-flows/edit-model.svg) for assembly,
+pruning and validation order.
 
 Scientific IDs are nominal Python string subclasses whose constructors and
 Pydantic schemas enforce the same grammar. Construct IDs explicitly when
@@ -132,11 +136,11 @@ omitted. Fields excluded from serialization do not appear in output schemas.
 share one generic owner for authored and resolved windows. Prepared metadata,
 saved simulations and dataset readers consume the resolved specialization.
 [Result availability](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/availability.py)
-uses shared payload variants for simulation effects, predictive comparisons and
-retained parameter draws; consumers narrow their discriminator before reading
+uses shared payload variants for simulation effects and predictive comparisons;
+consumers narrow their discriminator before reading
 the payload or its absence reason.
 
-[Assessments](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/checks.py) carry a producer's typed subject and evidence, or its explicit reason for unavailable evaluation. Consume those alternatives directly. Scientific classifications and plot series come from the backend. [Inference reports](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/posterior.py) compose a compact core with full plot detail; snapshot fields declare the core type, so serialization omits detail without filtering or reparsing owned values.
+[Assessments](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/checks.py) carry a producer's typed subject and evidence, or its explicit reason for unavailable evaluation. Consume those alternatives directly. Scientific classifications and inference plot series come from the backend. The [authored-law renderer](../../apps/web/src/lib/model-asset/authored-prior-plot.ts) evaluates supported scalar laws from `ModelSpec` solely for display; those plot points are not saved action results. [Inference reports](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/posterior.py) compose a compact core with full plot detail; snapshot fields declare the core type, so serialization omits detail without filtering or reparsing owned values.
 
 - **New/changed field**: edit the owning Python model.
 - **New artifact contract**: add the payload class in `artifacts/`, register it in `ARTIFACT_CONTRACTS`, add re-export in `index.ts`.

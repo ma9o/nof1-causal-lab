@@ -1,8 +1,8 @@
-import latentStructureTrace from "../../../../../data/DEMO/fixture/traces/latent_structure.json";
-import measurementStructureTrace from "../../../../../data/DEMO/fixture/traces/measurement_structure.json";
-import measurementsTrace from "../../../../../data/DEMO/fixture/traces/measurements.json";
-import rawDataTrace from "../../../../../data/DEMO/fixture/traces/raw_data.json";
-import statisticalModelSpecTrace from "../../../../../data/DEMO/fixture/traces/statistical_model_spec.json";
+import latentStructureTrace from "../../../../../data/HEALTHDEMO/fixture/traces/latent_structure.json";
+import measurementStructureTrace from "../../../../../data/HEALTHDEMO/fixture/traces/measurement_structure.json";
+import measurementsTrace from "../../../../../data/HEALTHDEMO/fixture/traces/measurements.json";
+import rawDataTrace from "../../../../../data/HEALTHDEMO/fixture/traces/raw_data.json";
+import statisticalModelSpecTrace from "../../../../../data/HEALTHDEMO/fixture/traces/statistical_model_spec.json";
 
 export const demoTraces = {
   raw_data: rawDataTrace,

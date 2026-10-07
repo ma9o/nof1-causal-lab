@@ -1,106 +1,127 @@
 {
-  "edges": [
-    {
-      "id": "edge:9495ec9b490f831fbed6",
-      "mechanisms": [],
-      "cause": {
-        "id": "construct:ab99ca39d8b7b1380eed",
-        "name": "burden",
-        "description": "Test state",
-        "indicators": [
-          {
-            "likelihood": {
-              "law": {
-                "distribution": "OrderedLogistic",
-                "predictor": {
+  "constructs": {
+    "construct:ab99ca39d8b7b1380eed": {
+      "name": "burden",
+      "description": "Test state",
+      "indicators": {
+        "indicator:629caa38759753c3b1e8": {
+          "likelihood": {
+            "law": {
+              "distribution": "OrderedLogistic",
+              "predictor": {
+                "kind": "binary",
+                "operator": "add",
+                "left": {
+                  "kind": "coefficient",
+                  "role": "observation_intercept",
+                  "value": 0.0,
+                  "construct_ids": []
+                },
+                "right": {
                   "kind": "binary",
-                  "operator": "add",
+                  "operator": "multiply",
                   "left": {
                     "kind": "coefficient",
-                    "role": "observation_intercept",
-                    "value": 0.0,
+                    "role": "loading",
+                    "value": 1.0,
                     "construct_ids": []
                   },
                   "right": {
-                    "kind": "binary",
-                    "operator": "multiply",
-                    "left": {
-                      "kind": "coefficient",
-                      "role": "loading",
-                      "value": 1.0,
-                      "construct_ids": []
-                    },
-                    "right": {
-                      "kind": "state",
-                      "construct_id": "construct:ab99ca39d8b7b1380eed"
-                    }
+                    "kind": "state",
+                    "construct_id": "construct:ab99ca39d8b7b1380eed"
                   }
-                },
-                "cutpoints": {
-                  "kind": "call",
-                  "function": "ordered_cutpoints",
-                  "arguments": [
-                    {
-                      "kind": "coefficient",
-                      "role": "cutpoint_base",
-                      "value": "parameter:7aa4b198186d977493b0b5a5be35ea349723126edecae45ecfbdabe8bea6de76",
-                      "construct_ids": []
-                    },
-                    {
-                      "kind": "coefficient",
-                      "role": "cutpoint_gaps",
-                      "value": "parameter:b4ac56e943b14c6b8ab69fdf33b6113c0873e2c1f7e52672768f7315dd32cb54",
-                      "construct_ids": []
-                    }
-                  ]
                 }
               },
-              "standardized": false,
-              "reasoning": "Test likelihood",
-              "sources": []
+              "cutpoints": {
+                "kind": "call",
+                "function": "ordered_cutpoints",
+                "arguments": [
+                  {
+                    "kind": "coefficient",
+                    "role": "cutpoint_base",
+                    "value": "parameter:7aa4b198186d977493b0b5a5be35ea349723126edecae45ecfbdabe8bea6de76",
+                    "construct_ids": []
+                  },
+                  {
+                    "kind": "coefficient",
+                    "role": "cutpoint_gaps",
+                    "value": "parameter:b4ac56e943b14c6b8ab69fdf33b6113c0873e2c1f7e52672768f7315dd32cb54",
+                    "construct_ids": []
+                  }
+                ]
+              }
             },
-            "construct_polarity": "positive",
-            "observation": {
-              "categorical_levels": null,
-              "id": "indicator:629caa38759753c3b1e8",
-              "aggregation": "last",
-              "name": "scale",
-              "ordinal_levels": [
-                "0",
-                "1",
-                "2",
-                "3"
-              ],
-              "measurement_dtype": "ordinal",
-              "observation_window": null
-            }
+            "standardized": false,
+            "reasoning": "Test likelihood",
+            "sources": []
+          },
+          "construct_polarity": "positive",
+          "observation": {
+            "categorical_levels": null,
+            "aggregation": "last",
+            "name": "scale",
+            "ordinal_levels": [
+              "0",
+              "1",
+              "2",
+              "3"
+            ],
+            "measurement_dtype": "ordinal",
+            "observation_window": null
           }
-        ],
-        "dynamics": [
-          {
-            "id": "mechanism:096e3522d5b5a78dfd59",
-            "kind": "drift",
-            "expression": {
+        }
+      },
+      "dynamics": {
+        "mechanism:096e3522d5b5a78dfd59": {
+          "kind": "drift",
+          "expression": {
+            "kind": "binary",
+            "operator": "subtract",
+            "left": {
               "kind": "binary",
-              "operator": "subtract",
+              "operator": "multiply",
               "left": {
                 "kind": "binary",
                 "operator": "multiply",
                 "left": {
-                  "kind": "binary",
-                  "operator": "multiply",
-                  "left": {
-                    "kind": "literal",
-                    "value": -1.0
-                  },
-                  "right": {
-                    "kind": "coefficient",
-                    "role": "decay",
-                    "value": "parameter:779fff2b67861eb5f6d998a8cc54505e7ac2aeeb79f1c21acb99f1effdc7b79e",
-                    "construct_ids": []
-                  }
+                  "kind": "literal",
+                  "value": -1.0
                 },
                 "right": {
+                  "kind": "coefficient",
+                  "role": "decay",
+                  "value": "parameter:779fff2b67861eb5f6d998a8cc54505e7ac2aeeb79f1c21acb99f1effdc7b79e",
+                  "construct_ids": []
+                }
+              },
+              "right": {
+                "kind": "binary",
+                "operator": "subtract",
+                "left": {
+                  "kind": "state",
+                  "construct_id": "construct:ab99ca39d8b7b1380eed"
+                },
+                "right": {
+                  "kind": "coefficient",
+                  "role": "center",
+                  "value": 0.0,
+                  "construct_ids": []
+                }
+              }
+            },
+            "right": {
+              "kind": "binary",
+              "operator": "multiply",
+              "left": {
+                "kind": "coefficient",
+                "role": "quartic",
+                "value": 0.0,
+                "construct_ids": []
+              },
+              "right": {
+                "kind": "binary",
+                "operator": "power",
+                "left": {
                   "kind": "binary",
                   "operator": "subtract",
                   "left": {
@@ -113,87 +134,64 @@
                     "value": 0.0,
                     "construct_ids": []
                   }
-                }
-              },
-              "right": {
-                "kind": "binary",
-                "operator": "multiply",
-                "left": {
-                  "kind": "coefficient",
-                  "role": "quartic",
-                  "value": 0.0,
-                  "construct_ids": []
                 },
                 "right": {
-                  "kind": "binary",
-                  "operator": "power",
-                  "left": {
-                    "kind": "binary",
-                    "operator": "subtract",
-                    "left": {
-                      "kind": "state",
-                      "construct_id": "construct:ab99ca39d8b7b1380eed"
-                    },
-                    "right": {
-                      "kind": "coefficient",
-                      "role": "center",
-                      "value": 0.0,
-                      "construct_ids": []
-                    }
-                  },
-                  "right": {
-                    "kind": "literal",
-                    "value": 3.0
-                  }
+                  "kind": "literal",
+                  "value": 3.0
                 }
               }
             }
           }
-        ],
-        "coefficients": [
-          {
-            "kind": "coefficient",
-            "role": "diffusion_scale",
-            "value": "parameter:eac8d6cc96b185366367ba7ec87dfde92c45e0a74e5e7970fb2266e48641221e",
-            "construct_ids": []
-          },
-          {
-            "kind": "coefficient",
-            "role": "initial_mean",
-            "value": "parameter:d21c998d72a2c453bd9fa2053bb49ab316bcf9838662b3e359f6c4525ed96b0a",
-            "construct_ids": []
-          },
-          {
-            "kind": "coefficient",
-            "role": "initial_scale",
-            "value": "parameter:24f231483f465451ebdca14c7eb407206f3aa20619bf8c01428196c9d4067082",
-            "construct_ids": []
-          }
-        ],
-        "innovation_family": "gaussian",
-        "distribution": null,
-        "role": "endogenous",
-        "temporal_status": "time_varying"
+        }
       },
-      "effect": {
-        "id": "construct:numerical_test_outcome",
-        "name": "numerical_test_outcome",
-        "description": "Unmeasured downstream response joining the numerical test states.",
-        "indicators": [],
-        "dynamics": [],
-        "coefficients": [],
-        "innovation_family": "gaussian",
-        "distribution": null,
-        "role": "endogenous",
-        "temporal_status": "time_varying"
-      },
-      "description": "Fixture causal assumption",
-      "sources": []
+      "coefficients": [
+        {
+          "kind": "coefficient",
+          "role": "diffusion_scale",
+          "value": "parameter:eac8d6cc96b185366367ba7ec87dfde92c45e0a74e5e7970fb2266e48641221e",
+          "construct_ids": []
+        },
+        {
+          "kind": "coefficient",
+          "role": "initial_mean",
+          "value": "parameter:d21c998d72a2c453bd9fa2053bb49ab316bcf9838662b3e359f6c4525ed96b0a",
+          "construct_ids": []
+        },
+        {
+          "kind": "coefficient",
+          "role": "initial_scale",
+          "value": "parameter:24f231483f465451ebdca14c7eb407206f3aa20619bf8c01428196c9d4067082",
+          "construct_ids": []
+        }
+      ],
+      "innovation_family": "gaussian",
+      "distribution": null,
+      "role": "endogenous",
+      "temporal_status": "time_varying"
+    },
+    "construct:numerical_test_outcome": {
+      "name": "numerical_test_outcome",
+      "description": "Unmeasured downstream response joining the numerical test states.",
+      "indicators": {},
+      "dynamics": {},
+      "coefficients": [],
+      "innovation_family": "gaussian",
+      "distribution": null,
+      "role": "endogenous",
+      "temporal_status": "time_varying"
     }
-  ],
-  "parameters": [
-    {
-      "id": "parameter:779fff2b67861eb5f6d998a8cc54505e7ac2aeeb79f1c21acb99f1effdc7b79e",
+  },
+  "edges": {
+    "edge:9495ec9b490f831fbed6": {
+      "mechanisms": {},
+      "description": "Fixture causal assumption",
+      "sources": [],
+      "cause": "construct:ab99ca39d8b7b1380eed",
+      "effect": "construct:numerical_test_outcome"
+    }
+  },
+  "parameters": {
+    "parameter:779fff2b67861eb5f6d998a8cc54505e7ac2aeeb79f1c21acb99f1effdc7b79e": {
       "name": "parameter:779fff2b67861eb5f6d998a8cc54505e7ac2aeeb79f1c21acb99f1effdc7b79e",
       "description": "Fixture quantity",
       "distribution": "distribution:31d9c8ed739143f3dffd1ee9c85a348d998fd4233c575d67831a56ed9fd50e69",
@@ -201,8 +199,7 @@
         "kind": "identity"
       }
     },
-    {
-      "id": "parameter:eac8d6cc96b185366367ba7ec87dfde92c45e0a74e5e7970fb2266e48641221e",
+    "parameter:eac8d6cc96b185366367ba7ec87dfde92c45e0a74e5e7970fb2266e48641221e": {
       "name": "parameter:eac8d6cc96b185366367ba7ec87dfde92c45e0a74e5e7970fb2266e48641221e",
       "description": "Fixture quantity",
       "distribution": "distribution:c7a27230ca17cd6d684bcfd999e20cd12e2f4a2452f7336d16b517af00cdd3c1",
@@ -210,8 +207,7 @@
         "kind": "identity"
       }
     },
-    {
-      "id": "parameter:d21c998d72a2c453bd9fa2053bb49ab316bcf9838662b3e359f6c4525ed96b0a",
+    "parameter:d21c998d72a2c453bd9fa2053bb49ab316bcf9838662b3e359f6c4525ed96b0a": {
       "name": "parameter:d21c998d72a2c453bd9fa2053bb49ab316bcf9838662b3e359f6c4525ed96b0a",
       "description": "Fixture quantity",
       "distribution": "distribution:c882f088827d03b715edc7c033d5397ffec1361ecd6525a1b4a74cb2d76f59d1",
@@ -219,8 +215,7 @@
         "kind": "identity"
       }
     },
-    {
-      "id": "parameter:24f231483f465451ebdca14c7eb407206f3aa20619bf8c01428196c9d4067082",
+    "parameter:24f231483f465451ebdca14c7eb407206f3aa20619bf8c01428196c9d4067082": {
       "name": "parameter:24f231483f465451ebdca14c7eb407206f3aa20619bf8c01428196c9d4067082",
       "description": "Fixture quantity",
       "distribution": "distribution:d91554654cd7a2c3dd47ed9609f7aceee3232ac5aa4891d627bd9bc828164f04",
@@ -228,8 +223,7 @@
         "kind": "identity"
       }
     },
-    {
-      "id": "parameter:7aa4b198186d977493b0b5a5be35ea349723126edecae45ecfbdabe8bea6de76",
+    "parameter:7aa4b198186d977493b0b5a5be35ea349723126edecae45ecfbdabe8bea6de76": {
       "name": "obs_ordered_base_scale",
       "description": "likelihood.cutpoint base for obs_ordered_base_scale",
       "distribution": "distribution:c3af8028de9b2821d66ed8a742749d0e4913d064ddee4761e5864fd3fda30522",
@@ -237,8 +231,7 @@
         "kind": "identity"
       }
     },
-    {
-      "id": "parameter:b4ac56e943b14c6b8ab69fdf33b6113c0873e2c1f7e52672768f7315dd32cb54",
+    "parameter:b4ac56e943b14c6b8ab69fdf33b6113c0873e2c1f7e52672768f7315dd32cb54": {
       "name": "obs_ordered_gaps_scale",
       "description": "likelihood.cutpoint gaps for obs_ordered_gaps_scale",
       "distribution": "distribution:4adbd8bb68b2c6711fed78545f65c65653bf2e0a8cea881e504d1464f7769c3f",
@@ -246,7 +239,7 @@
         "kind": "identity"
       }
     }
-  ],
+  },
   "distributions": {
     "distribution:c3af8028de9b2821d66ed8a742749d0e4913d064ddee4761e5864fd3fda30522": {
       "distribution": "Normal",
@@ -293,6 +286,6 @@
       }
     }
   },
-  "measurement_clock": "1d",
-  "law_layouts": {}
+  "law_layouts": {},
+  "measurement_clock": "1d"
 }

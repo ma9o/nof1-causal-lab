@@ -3,7 +3,7 @@
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
-from nof1_causal_lab.artifacts.availability import Availability, Evaluation
+from nof1_causal_lab.artifacts.availability import Evaluation
 from nof1_causal_lab.artifacts.duration import Duration
 from nof1_causal_lab.artifacts.observations import AuthoredObservationSpec, ResolvedObservationSpec
 
@@ -40,9 +40,6 @@ def test_availability_preserves_empty_payloads_and_explicit_absence(payload):
     adapter = TypeAdapter(Evaluation[tuple[str, ...]])
     value = adapter.validate_python(payload)
     assert adapter.validate_json(adapter.dump_json(value)) == value
-    if payload["kind"] == "not_applicable":
-        with pytest.raises(ValidationError):
-            TypeAdapter(Availability[tuple[str, ...]]).validate_python(payload)
 
 
 @pytest.mark.parametrize(

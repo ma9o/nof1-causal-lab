@@ -82,7 +82,7 @@ def make_model(state_names: list[str], edges: Sequence[tuple[str, str]] = ()):
             temporal_status="time_varying",
         )
         edges = [(name, outcome) for name in state_names]
-    return ModelSpec(
+    return ModelSpec.from_entities(
         edges=tuple(
             CausalEdgeSpec(
                 id=fixture_entity_id("edge", cause + "->" + effect),
@@ -97,13 +97,8 @@ def make_model(state_names: list[str], edges: Sequence[tuple[str, str]] = ()):
 
 
 def graph_constructs(payload):
-    """Writable endpoint definitions in a serialized test graph, excluding shared references."""
-    return [
-        endpoint
-        for edge in payload["edges"]
-        for endpoint in (edge["cause"], edge["effect"])
-        if "name" in endpoint
-    ]
+    """Writable construct definitions in an identity-addressed test document."""
+    return list(payload["constructs"].values())
 
 
 def write_question(store, question=None):

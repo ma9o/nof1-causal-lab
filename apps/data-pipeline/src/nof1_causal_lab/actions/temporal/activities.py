@@ -29,7 +29,7 @@ from nof1_causal_lab.actions.temporal.messages import (
 )
 from nof1_causal_lab.actions.temporal.source_data_activity import read_source_data_activity
 from nof1_causal_lab.artifacts.identity import GitOid
-from nof1_causal_lab.artifacts.posterior import ModelFitResult
+from nof1_causal_lab.artifacts.model_spec import ModelEditResult
 from nof1_causal_lab.compilation_errors import AggregatedCompileError, IncompleteModelError
 from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.history import StudyRepository
@@ -106,7 +106,7 @@ async def edit_question_activity(
 
 @activity.defn
 async def evaluate_model_checks_activity(
-    activity_input: EvaluateChecksInput[ModelFitResult | None],
+    activity_input: EvaluateChecksInput[ModelEditResult | None],
 ) -> ChecksResult:
     """Run model checks off the event loop and persist their reports.
 
@@ -209,7 +209,7 @@ async def journal_activity(activity_input: AttemptPublication) -> StudyRevision:
             record.attempt.action,
             record.attempt.outcome.result,
         )
-        inference = result.inference_report if isinstance(result, FitOutput) else None
+        inference = result.inference if isinstance(result, FitOutput) else None
         simulation = result.report if isinstance(result, SimulateOutput) else None
         if messages and (inference is not None or simulation is not None):
             messages = (

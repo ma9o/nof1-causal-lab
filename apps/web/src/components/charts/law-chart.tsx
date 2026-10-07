@@ -24,7 +24,7 @@ function Swatch({ color, dashed = false }: { color: string; dashed?: boolean }) 
   );
 }
 
-/** A law's recorded curves on one axis, with the posterior interval under them after a fit. */
+/** A law's curves on one axis, with the recorded posterior interval after a fit. */
 export function LawChart({ curve, caption }: { curve: LawCurve; caption?: ReactNode }) {
   const posterior = curve.posteriors.length === 1 ? curve.posteriors[0] : undefined;
   const tone = CHART_COLORS.posterior;

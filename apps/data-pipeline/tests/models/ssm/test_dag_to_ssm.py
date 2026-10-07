@@ -85,7 +85,7 @@ def _hill_edge_emitted_for_saturating_edge_complete_test_model() -> ModelSpec:
         )
     )
     parameters, distributions = without_parameters(model, self_limit_y)
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(model.edges, (y_revised,)),
         parameters=parameters,
         distributions=distributions,
@@ -122,7 +122,7 @@ def _x_z_measurements() -> ModelSpec:
     sigma_y = parameter_named(model, "sigma_Y")
     sigma_z = parameter_named(model, "sigma_Z")
     _parameters, distributions = without_parameters(model, hill_emax_x_y, hill_ec50_x_y, hill_n_x_y)
-    return model.revised(
+    return model.with_entities(
         edges=(
             x_to_y.revised(
                 mechanisms=(
@@ -181,7 +181,7 @@ def _translate_spec_rejects_initial_state_correlation_parameters_with_scientific
             coefficient(_COR0_PARAMETER_ID, "initial_correlation", construct_ids=(x.id,)),
         )
     )
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(model.edges, (z_revised,)),
         parameters=(
             *model.parameters,
@@ -230,7 +230,7 @@ def _quartic_freed_only_for_self_limiting_construct_complete_test_model() -> Mod
             ),
         )
     )
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(model.edges, (y_revised,)),
         parameters=(
             rho_x,
@@ -605,7 +605,7 @@ class TestRuntimeStructuralSupport:
         if source_count == 2:
             source = model.get_construct(ConstructId("construct:766f6091724c163a3404"))
             second = source.revised(id="construct:second-common-cause", name="second_common_cause")
-            model = model.revised(
+            model = model.with_entities(
                 edges=replace_constructs(
                     (
                         *model.edges,

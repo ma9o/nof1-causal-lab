@@ -8,8 +8,10 @@ from pydantic import ConfigDict, Field, FiniteFloat
 
 from nof1_causal_lab.artifacts.base import Value
 
+from .arrays import NumericalArray
 from .duration import Duration
-from .identity import ConstructId
+from .effects import EffectSummary
+from .identity import ConstructId, IndicatorId
 
 
 class InterventionSpec(Value):
@@ -23,7 +25,7 @@ class InterventionSpec(Value):
 
 
 class StateAssignment(Value):
-    """A state set at one model time: a resolved intervention or a replayed input reading."""
+    """A state set at one model time: a resolved intervention or a deterministic input point."""
 
     target: ConstructId
     time: FiniteFloat = Field(description="Absolute time in model days.")
@@ -37,4 +39,13 @@ class CausalEffectResult(Value):
 
     outcome: ConstructId
     labels: Mapping[ConstructId, str]
+    differences: NumericalArray = Field(
+        description="Paired outcome contrasts, [draw, time]."
+    )
+    frame: tuple[FiniteFloat, FiniteFloat]
+    summary: EffectSummary
+    reference_mean: FiniteFloat = Field(description="Mean reference outcome at the final time.")
+    manifest_effects: Mapping[IndicatorId, FiniteFloat] = Field(
+        description="Mean final-time indicator contrasts where every paired draw is finite."
+    )
     warnings: tuple[str, ...] = Field(default_factory=tuple)

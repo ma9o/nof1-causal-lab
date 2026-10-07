@@ -1,3 +1,4 @@
+import { readNumericalArray } from "@nof1-causal-lab/api-types";
 import type {
   ArrayVector,
   FitOutput,
@@ -5,43 +6,58 @@ import type {
   InferenceReport,
   InferenceReportDetail,
   ObservationHistory,
-  ParameterDrawColumn,
-  PathSeries,
-  RecordedPath,
+  EmpiricalPoint,
+  ParameterRef,
+  NumPyroValue,
+  NumPyroDistribution,
   ScalarValues,
-  SimulationPaths,
+  SimulateOutput,
+  ModelSpec,
+  SimulationSummary,
 } from "@nof1-causal-lab/api-types";
 
-export type ResultArrays = Readonly<Record<string, NumericalArray | undefined>>;
 export type HistoryView = Omit<ObservationHistory, "values" | "support_start" | "support_end"> & {
   readonly values: readonly (number | null)[];
   readonly support_start: readonly (number | null)[];
   readonly support_end: readonly (number | null)[];
 };
-export type PathView = Omit<RecordedPath, "values"> & {
+export interface PathView {
+  readonly draw: number;
   readonly values: readonly (number | null)[];
-};
-export type PathSeriesView = Omit<PathSeries, "action" | "reference"> & {
+}
+export interface PathSeriesView {
+  readonly label: string;
   readonly action: readonly PathView[];
   readonly reference: readonly PathView[];
-};
-export type SimulationPathsView = Omit<SimulationPaths, "states" | "indicators" | "effect"> & {
+  readonly levels: readonly string[] | null;
+  readonly frame: readonly [number, number] | null;
+}
+export interface SimulationPathsView {
+  readonly times: readonly number[];
+  readonly time_origin: string;
+  readonly total_draws: number;
+  readonly start: number;
+  readonly count: number;
   readonly states: Readonly<Record<string, PathSeriesView | undefined>>;
   readonly indicators: Readonly<Record<string, PathSeriesView | undefined>>;
   readonly effect: PathSeriesView | null;
-};
-export type DrawColumnView = Omit<ParameterDrawColumn, "values"> & {
+  readonly action_category_probabilities: SimulationSummary["action_category_probabilities"];
+  readonly reference_category_probabilities: SimulationSummary["reference_category_probabilities"];
+}
+export interface DrawColumnView {
+  readonly label: string;
+  readonly subject: ParameterRef;
   readonly values: readonly number[];
-};
+  readonly empirical: readonly EmpiricalPoint[];
+}
 
 /** Decode a recorded vector selection; all statistical summaries already belong to the result. */
 export function scalarValues(
   value: ScalarValues,
-  arrays: ResultArrays,
 ): readonly (number | null)[] {
-  if (!("array_ref" in value)) return value;
+  if (!("array" in value)) return value;
   const selection: ArrayVector = value;
-  const array = required(arrays[selection.array_ref]);
+  const array = readNumericalArray(selection.array);
   const axis = selection.indices.indexOf(null);
   const strides = array.shape.map((_, index) =>
     array.shape.slice(index + 1).reduce((a, b) => a * b, 1),
@@ -50,65 +66,137 @@ export function scalarValues(
     (sum, index, dimension) => sum + (index ?? 0) * required(strides[dimension]),
     0,
   );
-  const mask = selection.mask ? scalarValues(selection.mask, arrays) : null;
+  const mask = selection.mask ? scalarValues(selection.mask) : null;
   const stop = selection.stop ?? required(array.shape[axis]);
   return Array.from({ length: stop - selection.start }, (_, index) => {
     if (mask && !mask[index]) return null;
     const scalar = required(
       array.values[offset + (index + selection.start) * required(strides[axis])],
     );
-    return typeof scalar === "string" ? null : Number(scalar);
+    const numeric = Number(scalar);
+    return Number.isFinite(numeric) ? numeric : null;
   });
 }
 
-export function historyView(history: ObservationHistory, arrays: ResultArrays): HistoryView {
+export function historyView(history: ObservationHistory): HistoryView {
   return {
     ...history,
-    values: scalarValues(history.values, arrays),
-    support_start: scalarValues(history.support_start, arrays),
-    support_end: scalarValues(history.support_end, arrays),
+    values: scalarValues(history.values),
+    support_start: scalarValues(history.support_start),
+    support_end: scalarValues(history.support_end),
   };
 }
 
-export function pathsView(paths: SimulationPaths, arrays: ResultArrays): SimulationPathsView {
-  const path = (value: RecordedPath): PathView => ({
-    ...value,
-    values: scalarValues(value.values, arrays),
-  });
-  const series = (value: PathSeries): PathSeriesView => ({
-    ...value,
-    action: value.action.map(path),
-    reference: value.reference.map(path),
-  });
+/** Project the canonical evidence buffers; every reduction is already in the report. */
+export function pathsView(result: SimulateOutput, model: ModelSpec): SimulationPathsView {
+  const { evidence, summary, causal } = result.report;
+  const reference = evidence.arms.kind === "paired" ? evidence.arms.reference : null;
+  const paths = (array: NumericalArray, column?: number, observed = false): readonly PathView[] =>
+    Array.from({ length: evidence.draws }, (_, draw) => ({
+      draw,
+      values: scalarValues(
+        {
+          array,
+          indices: column === undefined ? [draw, null] : [draw, null, column],
+          start: 0,
+          stop: null,
+          mask:
+            observed && column !== undefined
+              ? {
+                  array: evidence.observation_layout.mask,
+                  indices: [draw, null, column],
+                  start: 0,
+                  stop: null,
+                  mask: null,
+                }
+              : null,
+        },
+      ),
+    }));
   return {
-    ...paths,
+    times: evidence.times,
+    time_origin: evidence.time_origin,
+    total_draws: evidence.draws,
+    start: 0,
+    count: evidence.draws,
     states: Object.fromEntries(
-      Object.entries(paths.states).flatMap(([id, value]) => (value ? [[id, series(value)]] : [])),
+      evidence.state_ids.map((id, column) => [
+        id,
+        {
+          label: required(model.constructs[id]).name,
+          action: paths(evidence.arms.action.latent_paths, column),
+          reference: reference ? paths(reference.latent_paths, column) : [],
+          frame: summary.state_frames[id] ?? null,
+          levels: null,
+        },
+      ]),
     ),
     indicators: Object.fromEntries(
-      Object.entries(paths.indicators).flatMap(([id, value]) =>
-        value ? [[id, series(value)]] : [],
-      ),
+      evidence.observation_layout.variables.map((variable, column) => [
+        variable.id,
+        {
+          label: variable.name,
+          action: paths(evidence.arms.action.observations, column, true),
+          reference: reference ? paths(reference.observations, column, true) : [],
+          frame: summary.indicator_frames[variable.id] ?? null,
+          levels: variable.ordinal_levels ?? variable.categorical_levels,
+        },
+      ]),
     ),
-    effect: paths.effect ? series(paths.effect) : null,
+    effect:
+      causal.kind === "available"
+        ? {
+            label: required(causal.value.labels[causal.value.outcome]),
+            action: paths(causal.value.differences),
+            reference: [],
+            levels: null,
+            frame: causal.value.frame,
+          }
+        : null,
+    action_category_probabilities: summary.action_category_probabilities,
+    reference_category_probabilities: summary.reference_category_probabilities,
   };
 }
 
-export function drawsView(
-  result: FitOutput,
-):
-  | { readonly kind: "available"; readonly value: readonly DrawColumnView[] }
-  | Extract<FitOutput["parameter_draws"], { kind: "unavailable" }> {
-  const draws = result.parameter_draws;
-  return draws.kind === "available"
-    ? {
-        ...draws,
-        value: draws.value.map((column) => ({
-          ...column,
-          values: scalarValues(column.values, result.arrays).map(required),
-        })),
-      }
-    : draws;
+const isArray: (value: NumPyroValue) => value is readonly NumPyroValue[] = Array.isArray;
+
+function object(value: NumPyroValue | undefined): NumPyroDistribution["params"] {
+  if (value === undefined || value === null || typeof value !== "object" || isArray(value) || "npy" in value)
+    throw new Error("Saved posterior law has an invalid constructor");
+  return value;
+}
+
+/** Select the model's original joint atoms; empirical summaries stay backend-owned. */
+export function drawsView(result: FitOutput): readonly DrawColumnView[] {
+  const identity = result.inference.core.inference_metadata.distribution;
+  const law = required(result.model.distributions[identity]);
+  const layout = required(result.model.law_layouts[identity]);
+  const component = object(law.params.component_distribution);
+  const atoms = object(component.params).v;
+  if (
+    law.distribution !== "MixtureSameFamily" ||
+    component.distribution !== "Delta" ||
+    atoms === undefined || atoms === null || typeof atoms !== "object" || !("npy" in atoms) || !(atoms.npy instanceof Uint8Array)
+  )
+    throw new Error("Saved posterior law must own its retained joint atoms");
+  const array = { npy: atoms.npy };
+  const coordinates = layout.parameters.flatMap(([parameter, elements]) =>
+    elements.map((element) => ({ parameter_id: parameter, element_id: element })),
+  );
+  return coordinates.map((subject, column) => ({
+    label: required(layout.labels[subject.element_id]),
+    subject,
+    values: scalarValues(
+      { array, indices: [null, column], start: 0, stop: null, mask: null },
+    ).map(required),
+    empirical: required(
+      result.inference.core.posterior_marginals.find(
+        (marginal) =>
+          marginal.subject.parameter_id === subject.parameter_id &&
+          marginal.subject.element_id === subject.element_id,
+      ),
+    ).empirical,
+  }));
 }
 
 /** Missing coordinates are a corrupt result, never an alternate scientific value. */
@@ -118,12 +206,9 @@ function required<T>(value: T | null | undefined): T {
   return value;
 }
 
-export type InferenceDetailView = Omit<
-  InferenceReportDetail,
-  "trace_data" | "divergent" | "initial_latent_delta" | "final_latent_delta"
-> & {
+export type InferenceDetailView = Omit<InferenceReportDetail, "trace_data"> & {
   readonly trace_data: readonly {
-    readonly subject: ParameterDrawColumn["subject"];
+    readonly subject: ParameterRef;
     readonly chains: readonly (readonly number[])[];
   }[];
   readonly divergent: readonly boolean[] | null;
@@ -135,11 +220,22 @@ export type InferenceView = Omit<InferenceReport, "detail"> & {
 };
 
 /** Resolve stored chart coordinates without calculating any diagnostic. */
-export function inferenceView(result: FitOutput): InferenceView | null {
-  const report = result.inference_report;
-  if (!report) return null;
+export function inferenceView(result: FitOutput): InferenceView {
+  const report = result.inference;
   const detail = report.detail;
-  const vector = (value: ScalarValues) => scalarValues(value, result.arrays).map(required);
+  const evidence = report.run.evidence;
+  const rows = (array: NumericalArray | null): readonly (readonly number[])[] | null =>
+    array === null
+      ? null
+      : Array.from(
+          { length: required(readNumericalArray(array).shape[0]) },
+          (_, row) =>
+            scalarValues(
+              { array, indices: [row, null], start: 0, stop: null, mask: null },
+                  ).map(required),
+        );
+  const divergent = evidence.chain_extra_fields.diverging;
+  const vector = (value: ScalarValues) => scalarValues(value).map(required);
   return {
     ...report,
     detail: {
@@ -149,11 +245,11 @@ export function inferenceView(result: FitOutput): InferenceView | null {
         chains: trace.chains.map(vector),
       })),
       divergent:
-        typeof detail.divergent === "string"
-          ? required(result.arrays[detail.divergent]).values.map(Boolean)
-          : detail.divergent,
-      initial_latent_delta: detail.initial_latent_delta?.map(vector) ?? null,
-      final_latent_delta: detail.final_latent_delta?.map(vector) ?? null,
+        divergent === undefined
+          ? null
+          : Array.from(readNumericalArray(divergent).values, Boolean),
+      initial_latent_delta: rows(evidence.initial_latent_delta),
+      final_latent_delta: rows(evidence.final_latent_delta),
     },
   };
 }

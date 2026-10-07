@@ -1,5 +1,6 @@
 import type { PathSeriesView } from "@/lib/model-asset/result-values";
-import type { DataVariableDiff, PPCOverlay } from "@nof1-causal-lab/api-types";
+import type { DataVariableView } from "@/lib/model-asset/data-comparison";
+import type { PPCOverlay } from "@nof1-causal-lab/api-types";
 import { CHART_COLORS, chainColor } from "./chart-tokens";
 import type { DrawLayer, DrawRow, DrawsChartProps } from "./draws-chart";
 import { DAY_MS } from "./plot-geometry";
@@ -89,17 +90,19 @@ const CHANGE_COLORS = {
 } as const;
 
 /** Every saved history of one variable on the union of their anchors, with point changes. */
-export function dataComparisonChart(variable: DataVariableDiff): Omit<DrawsChartProps, "height"> {
+export function dataComparisonChart(variable: DataVariableView): Omit<DrawsChartProps, "height"> {
   const referenceSide =
     variable.predictive.kind === "comparison" ? variable.predictive.reference_side : null;
   const histories = [...variable.left, ...variable.right];
   const definition = histories.flatMap((history) => history.variable ?? []).at(0);
   const anchors = [
-    ...new Set(histories.flatMap((history) => history.points.map((point) => point.anchor_time))),
-  ].sort();
+    ...new Set(
+      histories.flatMap((history) => history.points.map((point) => Date.parse(point.anchor_time))),
+    ),
+  ].sort((a, b) => a - b);
   const origin = anchors.at(0) ?? null;
   const align = (points: readonly { anchor_time: string; value: number | null }[]) => {
-    const byAnchor = new Map(points.map((point) => [point.anchor_time, point.value]));
+    const byAnchor = new Map(points.map((point) => [Date.parse(point.anchor_time), point.value]));
     return anchors.map((anchor) => byAnchor.get(anchor) ?? null);
   };
   const sides: DrawLayer[] = (["left", "right"] as const).flatMap((side): DrawLayer[] =>
@@ -143,7 +146,9 @@ export function dataComparisonChart(variable: DataVariableDiff): Omit<DrawsChart
       if (points.length === 0) return [];
       const values = new Map(
         points.map((change) => [
-          change.kind === "removed" ? change.before.anchor_time : change.after.anchor_time,
+          Date.parse(
+            change.kind === "removed" ? change.before.anchor_time : change.after.anchor_time,
+          ),
           side === "left"
             ? change.kind === "added"
               ? null
@@ -173,14 +178,13 @@ export function dataComparisonChart(variable: DataVariableDiff): Omit<DrawsChart
   );
   return {
     label: `${definition?.name ?? variable.indicator_id}: data comparison`,
-    times:
-      origin === null
-        ? []
-        : anchors.map((anchor) => (Date.parse(anchor) - Date.parse(origin)) / DAY_MS),
+    times: origin === null ? [] : anchors.map((anchor) => (anchor - origin) / DAY_MS),
     timeOrigin: histories.every(
       (history) => history.variable === null || history.time_origin !== null,
     )
-      ? origin
+      ? origin === null
+        ? null
+        : new Date(origin).toISOString()
       : null,
     layers: [...sides, ...references, ...changes],
     ...(single ? { observed: { label: "Observed", values: align(single.points) } } : {}),

@@ -3,6 +3,7 @@
 import type { ActionSuccess, ModelSnapshot, TimelineRevision } from "@nof1-causal-lab/api-types";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import type { ModelComparison } from "@/lib/dag/comparison-overlay";
 import { useModelDiff } from "@/lib/hooks/use-model-diff";
 import { indexModel } from "./entities";
 import { latestSeq } from "./journal";
@@ -49,6 +50,7 @@ export function useWorkbenchSnapshots(
 }
 
 interface WorkbenchOptions {
+  useSnapshot: SnapshotReader;
   workspaceId: string;
   question: string | undefined;
   attempts: readonly TimelineRevision[];
@@ -60,6 +62,7 @@ interface WorkbenchOptions {
 
 /** Coordinate scoped details, chat, version navigation and comparison previews. */
 export function useWorkbench({
+  useSnapshot,
   workspaceId,
   question: initialQuestion,
   attempts,
@@ -105,6 +108,23 @@ export function useWorkbench({
     comparedCommit ?? null,
     attempts,
   );
+  const request = selectedCall?.record.attempt.request;
+  const recorded =
+    request?.action === "model_diff" && result?.action === "model_diff"
+      ? { input: request.input, report: result.body }
+      : null;
+  const beforeView = useSnapshot(
+    activeComparison ? selectedCommit : (recorded?.input.before_ref ?? model.commit_id),
+  );
+  const afterView = useSnapshot(
+    activeComparison ? comparedCommit : (recorded?.input.after_ref ?? model.commit_id),
+  );
+  const report = activeComparison ? compared.data : recorded?.report;
+  const modelComparison: ModelComparison | null =
+    report && beforeView.data && afterView.data
+      ? { ...report, beforeModel: beforeView.data.model, afterModel: afterView.data.model }
+      : null;
+  const comparisonError = beforeView.error ?? afterView.error;
   const retainPreview = () => {
     if (previewTimer.current) clearTimeout(previewTimer.current);
   };
@@ -156,6 +176,8 @@ export function useWorkbench({
     playhead,
     activeComparison,
     compared,
+    modelComparison,
+    comparisonError,
     retainPreview,
     endPreview,
     previewComparison,

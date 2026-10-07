@@ -28,10 +28,6 @@ class NotApplicable(Value):
     reason: str
 
 
-type Availability[PayloadT] = Annotated[
-    Available[PayloadT] | Unavailable, Field(discriminator="kind")
-]
-
 type Evaluation[PayloadT] = Annotated[
     Available[PayloadT] | Unavailable | NotApplicable, Field(discriminator="kind")
 ]

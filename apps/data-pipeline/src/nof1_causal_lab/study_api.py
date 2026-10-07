@@ -22,6 +22,7 @@ from fastapi import (
     Response,
     UploadFile,
 )
+from fastapi.responses import JSONResponse
 
 from nof1_causal_lab.actions.call_logs import collect_call_log
 from nof1_causal_lab.actions.call_state import CallProgress, CompletedCall, PendingCall, RunningCall
@@ -47,7 +48,7 @@ from nof1_causal_lab.actions.results import (
 from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.artifacts.data_preparation import SourceFolder
 from nof1_causal_lab.artifacts.identity import ActionId, CallId, GitOid, RevisionSelector
-from nof1_causal_lab.study.action_outputs import completed_call_json
+from nof1_causal_lab.study.action_outputs import completed_call_msgpack
 from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.inputs import resolve_action_inputs
@@ -59,6 +60,7 @@ from nof1_causal_lab.study.records import (
     StudyRevision,
     record_dependencies,
 )
+from nof1_causal_lab.study.result_codec import MessagePackResponse
 from nof1_causal_lab.study.store import (
     ArtifactStore,
     read_question,
@@ -71,7 +73,7 @@ if TYPE_CHECKING:
 
     from nof1_causal_lab.actions.temporal.workflow import StudyWorkflow
 
-router = APIRouter(prefix="/api/studies")
+router = APIRouter(prefix="/api/studies", default_response_class=MessagePackResponse)
 workspaces_router = APIRouter(prefix="/api")
 uploads_router = APIRouter(prefix="/api")
 
@@ -256,7 +258,8 @@ def _stage_sources(
 
 def _saved_response(workspace_id: str, revision: StudyRevision) -> Response:
     return Response(
-        content=completed_call_json(workspace_id, revision), media_type="application/json"
+        content=completed_call_msgpack(workspace_id, revision),
+        media_type=MessagePackResponse.media_type,
     )
 
 
@@ -411,7 +414,7 @@ async def edit_model(
     body: Annotated[EditModelRequest[RevisionSelector], Body(discriminator="action")],
     clients: Annotated[TemporalClientProvider, Depends(study_clients)],
 ) -> ActionPoll | Response:
-    """Save input.model from input.parent_ref, a question or model revision, and evaluate data-independent model checks. A model parent supplies its pinned question. The body contains the produced model and its findings; messages retain all execution logging. GET polls the returned call_id."""
+    """Merge input.model into input.parent_ref: start empty for a question revision, or retain omitted fields from a model revision and its pinned question. Null entity entries delete their IDs. Prune constructs outside the outcome ancestry with warnings, then validate and evaluate data-independent model checks. The body contains the produced model and its findings; messages retain all execution logging. GET polls the returned call_id."""
     return await _dispatch_action(workspace_id, body, clients)
 
 
@@ -452,7 +455,7 @@ async def fit(
     body: Annotated[FitRequest[RevisionSelector], Body(discriminator="action")],
     clients: Annotated[TemporalClientProvider, Depends(study_clients)],
 ) -> ActionPoll | Response:
-    """Condition input.model_ref on the history selected by input.data_ref and required input.replicate_index. Zero selects prepared user data; a simulation index selects one recorded draw. GET polls call_id. The body retains the complete inference result and arrays."""
+    """Condition input.model_ref on the history selected by input.data_ref and required input.replicate_index. Zero selects prepared user data; a simulation index selects one recorded draw. GET polls call_id. The body retains model, checks and inference. Model laws own their numerical arguments; inference owns native telemetry."""
     return await _dispatch_action(workspace_id, body, clients)
 
 
@@ -462,7 +465,7 @@ async def simulate(
     body: Annotated[SimulateRequest[RevisionSelector], Body(discriminator="action")],
     clients: Annotated[TemporalClientProvider, Depends(study_clients)],
 ) -> ActionPoll | Response:
-    """Simulate input.model_ref using input.simulation and optional input.panel_ref. Fitted laws retain their fit origin. body.data contains an array of observation histories of the same type returned by prepare_data. The successful body also includes all paths, arrays and causal evidence; messages retain traces. GET polls call_id."""
+    """Simulate input.model_ref using input.simulation. The model owns deterministic inputs and retained trajectory coordinates; authored initial states apply at simulation.start. body.data contains an array of observation histories of the same type returned by prepare_data. The successful body requires data and report; report owns single or paired numerical evidence, calculated summaries and causal findings; messages retain traces. GET polls call_id."""
     return await _dispatch_action(workspace_id, body, clients)
 
 
@@ -482,7 +485,7 @@ async def model_diff(
     body: Annotated[ModelDiffRequest[RevisionSelector], Body(discriminator="action")],
     clients: Annotated[TemporalClientProvider, Depends(study_clients)],
 ) -> ActionPoll | Response:
-    """Compare input.before_ref and input.after_ref and retain definitions and evidence in Git. GET polls call_id. Identical resolved calls reuse successes and failures; the comparison is the body."""
+    """Compare input.before_ref and input.after_ref as saved ModelSpec documents. Return changes using the same partial ModelSpec contract as edit_model: omissions are unchanged and null map entries delete identities. Retain the patch in Git. GET polls call_id. Identical resolved calls reuse successes and failures; the comparison is the body."""
     return await _dispatch_action(workspace_id, body, clients)
 
 
@@ -515,7 +518,9 @@ class TimelineResponse(Value):
     running: RunningAction | None
 
 
-@router.get("/{workspace_id}/timeline", response_model=TimelineResponse)
+@router.get(
+    "/{workspace_id}/timeline", response_model=TimelineResponse, response_class=JSONResponse
+)
 async def get_timeline(
     workspace_id: str, clients: Annotated[TemporalClientProvider, Depends(study_clients)]
 ) -> TimelineResponse:

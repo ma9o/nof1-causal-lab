@@ -10,6 +10,7 @@ from pathlib import Path
 from typing import Any, cast
 from unittest.mock import AsyncMock
 
+import msgpack
 import pytest
 from fastapi import Response
 from pydantic import TypeAdapter
@@ -59,43 +60,43 @@ _PREPARATION: dict[str, Any] = {
 
 def _proposed_model() -> dict[str, Any]:
     return {
-        "edges": [
-            {
-                "id": "edge:test-outcome-0",
-                "cause": {
-                    "id": "construct:sleep",
-                    "name": "sleep",
-                    "description": "sleep quality",
-                    "role": "endogenous",
-                    "temporal_status": "time_varying",
-                },
-                "effect": {
-                    "id": "construct:unmeasured_outcome",
-                    "name": "unmeasured_outcome",
-                    "description": "Downstream response outside the measured test states.",
-                    "role": "endogenous",
-                    "temporal_status": "time_varying",
-                },
+        "constructs": {
+            "construct:sleep": {
+                "name": "sleep",
+                "description": "sleep quality",
+                "role": "endogenous",
+                "temporal_status": "time_varying",
+            },
+            "construct:unmeasured_outcome": {
+                "name": "unmeasured_outcome",
+                "description": "Downstream response outside the measured test states.",
+                "role": "endogenous",
+                "temporal_status": "time_varying",
+            },
+        },
+        "edges": {
+            "edge:test-outcome-0": {
+                "cause": "construct:sleep",
+                "effect": "construct:unmeasured_outcome",
                 "description": "Test state affects an unmeasured downstream response",
             }
-        ],
+        },
     }
 
 
 def _measured_model() -> dict[str, Any]:
     model = _proposed_model()
     model["measurement_clock"] = "1d"
-    graph_constructs(model)[0]["indicators"] = [
-        {
+    graph_constructs(model)[0]["indicators"] = {
+        "indicator:sleep": {
             "observation": {
-                "id": "indicator:sleep",
                 "name": "sleep_steps_proxy",
                 "measurement_dtype": "continuous",
                 "aggregation": "mean",
             },
             "construct_polarity": "positive",
         }
-    ]
+    }
     return model
 
 
@@ -160,7 +161,9 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                             workspace_id, response.action, response.call_id, clients
                         )
                     polled = (
-                        TypeAdapter(ActionPoll).validate_json(bytes(response.body))
+                        TypeAdapter(ActionPoll).validate_python(
+                            msgpack.unpackb(bytes(response.body), raw=False)
+                        )
                         if isinstance(response, Response)
                         else response
                     )
@@ -220,7 +223,7 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                     EditModelRequest[GitOid](
                         input=EditModelInput[GitOid](
                             parent_ref=StudyRepository(workspace_id).question().revision,
-                            model=ModelSpec.model_validate(_measured_model()),
+                            model=ModelSpec.model_validate(_measured_model()).materialized(),
                         )
                     )
                 )
@@ -273,7 +276,7 @@ def test_study_workflow_journey(machine_env, monkeypatch):
 
                 store = ArtifactStore(workspace_id)
                 measured = read_model(store, model_revision)
-                revised = measured.revised(
+                revised = measured.with_entities(
                     edges=(measured.edges[0].revised(description="Sleep shapes the response"),)
                 )
                 rewritten = await execute(
@@ -311,8 +314,9 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                 ]
                 assert records[3].record.attempt.action == "edit_model"
                 assert records[3].record.attempt.request is not None
-                assert records[3].record.attempt.request.input.model == ModelSpec.model_validate(
-                    _measured_model()
+                assert (
+                    records[3].record.attempt.request.input.model
+                    == ModelSpec.model_validate(_measured_model()).materialized()
                 )
                 assert records[5].record.attempt.action == "fit"
                 assert records[5].record.attempt.request is not None
@@ -345,11 +349,12 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                     clients,
                 )
                 assert isinstance(saved, Response)
-                completion = TypeAdapter(ActionPoll).validate_json(bytes(saved.body))
+                completion = TypeAdapter(ActionPoll).validate_python(
+                    msgpack.unpackb(bytes(saved.body), raw=False)
+                )
                 assert completion.status == "success"
                 assert completion.action == "model_diff"
-                assert completion.body.before_model == measured
-                assert completion.body.after_model == revised
+                assert completion.body.changes == revised.changes_from(measured)
                 assert compared.record.attempt.request == comparison_request
                 reverse = await execute(
                     ModelDiffRequest[GitOid](
@@ -457,7 +462,7 @@ def test_timeline_reports_only_attempts_a_live_workflow_executes(machine_env, mo
                     EditModelRequest[RevisionSelector](
                         input=EditModelInput[RevisionSelector](
                             parent_ref=StudyRepository(workspace_id).question().revision,
-                            model=ModelSpec.model_validate(_measured_model()),
+                            model=ModelSpec.model_validate(_measured_model()).materialized(),
                         )
                     ),
                     clients,

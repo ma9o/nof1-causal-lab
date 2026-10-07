@@ -96,16 +96,16 @@ def test_inference_advances_model_and_uses_the_selected_input(
             "panel": applied.result.data.revision,
             "question": question.revision,
         } == info.derived_from
-        from nof1_causal_lab.actions.fit import read_inference_report
+        from nof1_causal_lab.artifacts.posterior import InferenceReport
 
-        report = read_inference_report(artifact_store, info.revision, applied.result.evidence)
+        report = artifact_store.read_report(applied.effects.reports["inference"], InferenceReport)
         assert report.core.inference_diagnostics is not None
         assert report.core.inference_diagnostics.num_chains == 1
         assert report.core.inference_diagnostics.num_samples == 4
         assert report.core.inference_metadata.n_samples == 4
         assert "report" not in applied.result.model_dump()
         assert (
-            applied.result.evidence.distribution
+            report.core.inference_metadata.distribution
             in read_model(artifact_store, info.revision).law_layouts
         )
         conditioned = read_model(artifact_store, info.revision)

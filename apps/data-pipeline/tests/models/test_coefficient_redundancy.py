@@ -41,7 +41,7 @@ def _model(*mechanisms, reused=False):
         for identity in (_A, _B, _C)
         if identity in item.model_dump_json()
     }
-    return ModelSpec(
+    return ModelSpec.from_entities(
         edges=(edge.revised(effect=y.revised(dynamics=own), mechanisms=terms),),
         parameters=tuple(
             ParameterSpec(id=identity, name=name, description=name)

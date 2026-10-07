@@ -5,6 +5,7 @@ import { expect, userEvent, within } from "storybook/test";
 import { useState, type ReactNode } from "react";
 import {
   WORKBENCH_WORKSPACE,
+  workbenchDependencies,
   workbenchHandlers,
   workbenchQuestion,
   workbenchTraces,
@@ -107,12 +108,14 @@ export const Complete: Story = {
     const canvas = within(canvasElement);
     // The data_diff links to the panel and the simulation it compared, not to the head.
     await canvas.findByRole("button", { name: "data_diff · c00000d" });
-    await expect(canvasElement.querySelectorAll("path[data-argument]")).toHaveLength(20);
+    await expect(canvasElement.querySelectorAll("path[data-argument]")).toHaveLength(
+      workbenchDependencies.length,
+    );
     for (const [label, section, state] of [
       ["edit_model · c000002", "Model changes", null],
       ["prepare_data · c000005", "Prepared data", "gad7 screening score"],
       ["edit_model · c000006 · failed", "Edit model failed", null],
-      ["fit · c000008", null, "Fit"],
+      ["fit · c000008 · failed", "Fit failed", null],
       ["simulate · c000009", null, "Simulation design"],
     ] as const) {
       await userEvent.click(canvas.getByRole("button", { name: label }));
@@ -136,12 +139,6 @@ export const Complete: Story = {
           await details.findByRole("img", { name: /gad7_screening_score: prepared observations/ }),
         ).toBeInTheDocument();
         await expect(details.queryByText("Time coverage")).not.toBeInTheDocument();
-      }
-      if (state === "Fit") {
-        await expect(record.getByText("No inference report recorded.")).toBeVisible();
-        await expect(
-          details.queryByRole("region", { name: "Posterior predictive checks" }),
-        ).not.toBeInTheDocument();
       }
       if (state === "Simulation design") {
         await expect(record.getByRole("log", { name: "Simulator log" })).toBeVisible();

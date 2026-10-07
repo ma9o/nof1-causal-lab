@@ -71,10 +71,10 @@ class ConstructSpec(Value):
     )
     distribution: DistributionId | None = Field(
         default=None,
-        description="Membership in a trajectory law in ModelSpec.distributions on ModelSpec.time_points.",
+        description="Trajectory law in ModelSpec.distributions, with coordinates in its law_layouts entry. Exogenous trajectories use Delta and hold each value until the next point, including after the last point.",
     )
     role: Role = Field(
-        description="'endogenous' means modeled, with or without parents; 'exogenous' means given through direct exact readings, with no law. Unmeasured constructs are endogenous."
+        description="'endogenous' means modeled, with or without parents; 'exogenous' means supplied by a deterministic trajectory law, without endogenous dynamics or noise."
     )
     temporal_status: TemporalStatus = Field(
         description="'time_varying' (changes over time) or 'time_invariant' (fixed)"
@@ -106,13 +106,9 @@ class ConstructSpec(Value):
     def validate_coefficients(self) -> ConstructSpec:
         """Reject coefficients and dynamics that conflict with the construct's role or innovation law."""
         if self.role == Role.EXOGENOUS:
-            if not self.indicators:
+            if self.dynamics or self.coefficients:
                 raise ValueError(
-                    "Exogenous constructs require exact readings; latent constructs are endogenous"
-                )
-            if self.dynamics or self.coefficients or self.distribution is not None:
-                raise ValueError(
-                    "Exogenous constructs have no dynamics, diffusion, initial coefficients or trajectory law"
+                    "Exogenous constructs have no dynamics, diffusion or initial coefficients"
                 )
             for indicator in self.indicators:
                 likelihood = indicator.likelihood
@@ -125,10 +121,6 @@ class ConstructSpec(Value):
                 ):
                     raise ValueError(
                         "Exogenous readings require Delta(v=state(the owning construct)) in recorded units"
-                    )
-                if indicator.observation.summary_operator == "std":
-                    raise ValueError(
-                        "A constant input cannot reproduce a standard-deviation reading"
                     )
         seen = set()
         for operand in self.coefficients:
@@ -317,6 +309,7 @@ def _check_edge_constraint(edge: CausalEdgeSpec) -> str | None:
 
 
 def _check_global_constraints(
+    constructs: tuple[ConstructSpec, ...],
     edges: tuple[CausalEdgeSpec, ...],
 ) -> list[str]:
     """Check latent-structure global constraints."""
@@ -325,7 +318,8 @@ def _check_global_constraints(
     import networkx as nx
 
     graph = nx.Graph((edge.cause.id, edge.effect.id) for edge in edges)
-    if edges and not nx.is_connected(graph):
+    graph.add_nodes_from(construct.id for construct in constructs)
+    if constructs and not nx.is_connected(graph):
         errors.append("The scientific model must be one connected causal graph")
 
     static_edges = [

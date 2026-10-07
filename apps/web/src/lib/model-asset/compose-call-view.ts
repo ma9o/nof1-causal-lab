@@ -142,21 +142,13 @@ export function composeCallView(
             revision: request.input.data_ref,
             replicate_index: request.input.replicate_index,
           },
-          fit: result.body.inference_report
-            ? {
-                report: result.body.inference_report.core,
-                edge_estimates: result.body.edge_estimates,
-                decay_estimates: result.body.decay_estimates,
-                prior_densities: result.body.prior_densities,
-              }
-            : null,
+          fit: result.body.inference.core,
         };
         break;
       }
       case "simulate": {
         if (request?.action !== "simulate")
           throw new Error("Saved simulation is missing its input references");
-        const panel = request.input.panel_ref === null ? empty : input(entry, "panel");
         const model = input(entry, "model");
         view = {
           ...model,
@@ -166,14 +158,9 @@ export function composeCallView(
                 ([key]) => key === "model" || key === "question",
               ),
             ),
-            ...Object.fromEntries(
-              Object.entries(panel.artifacts).filter(
-                ([key]) => key === "panel" || key === "raw_data",
-              ),
-            ),
           },
-          prepared: panel.prepared,
-          data: panel.data,
+          prepared: null,
+          data: null,
           simulation: result.body.report,
         };
         break;
@@ -202,43 +189,12 @@ export function composeCallView(
       data: view.data,
     },
     model: view.definition,
-    can_simulate: model?.can_simulate ?? false,
-    graph: model?.graph ?? {
-      construct_ids: [],
-      edge_ids: [],
-      dynamic_construct_ids: [],
-      status: {},
-    },
-    raw_data: prepared?.raw_data ?? null,
-    measurements: prepared?.measurements ?? null,
     metadata: prepared?.metadata ?? null,
     profile: prepared?.profile ?? null,
     identification: model?.identification ?? null,
-    dispositions: model?.dispositions ?? null,
-    entity_failures: Object.fromEntries(
-      [
-        ...new Set([
-          ...Object.keys(model?.entity_failures ?? {}),
-          ...Object.keys(view.fitOutput?.entity_failures ?? {}),
-        ]),
-      ].map((id) => [
-        id,
-        [
-          ...(Object.entries(model?.entity_failures ?? {}).find(([key]) => key === id)?.[1] ?? []),
-          ...(Object.entries(view.fitOutput?.entity_failures ?? {}).find(
-            ([key]) => key === id,
-          )?.[1] ?? []),
-        ],
-      ]),
-    ),
-    validation_report: view.fitOutput?.validation_report ?? null,
+    validation_report: view.fitOutput?.checks.validation ?? null,
     specification: model?.checks?.specification ?? null,
-    question_checks: view.fitOutput?.question_checks ?? model?.checks?.question ?? null,
-    confounder_equations: model?.confounder_equations ?? {},
-    state_equations: model?.state_equations ?? {},
-    observation_equations: model?.observation_equations ?? {},
-    likelihood_diagnostics: view.fitOutput?.likelihood_diagnostics ?? {},
-    authoring_prior_densities: model?.authoring_prior_densities ?? {},
+    question_checks: view.fitOutput?.checks.question ?? model?.checks?.question ?? null,
     fit: view.fit,
     simulation: view.simulation,
   };

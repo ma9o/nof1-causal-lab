@@ -44,7 +44,7 @@ if TYPE_CHECKING:
 def test_planner_rejects_retained_static_target_edge():
     model = make_model(["X", "Baseline", "Y"], [("X", "Baseline"), ("Baseline", "Y")])
     x, baseline, y = model.constructs
-    model = model.revised(
+    model = model.with_entities(
         edges=replace_constructs(
             model.edges,
             (
@@ -63,7 +63,7 @@ def test_model_rejects_duplicate_endpoint_pairs():
     model = make_model(["X", "Y"], [("X", "Y")])
     duplicate = model.edges[0].revised(id="edge:another")
     with pytest.raises(ValueError, match="one causal edge per endpoint pair"):
-        model.revised(edges=(*model.edges, duplicate))
+        model.with_entities(edges=(*model.edges, duplicate))
 
 
 @pytest.mark.contract
@@ -81,7 +81,7 @@ def test_projected_coefficients_require_literals():
         indicators=(),
         coefficients=(coefficient(0.0, "initial_mean"), coefficient(1.0, "initial_scale")),
     )
-    model = model.revised(edges=replace_constructs(model.edges, (root,)))
+    model = model.with_entities(edges=replace_constructs(model.edges, (root,)))
     parameter = ParameterSpec(
         id=scientific_id("parameter", "fixed-loading"),
         name="loading",
@@ -102,7 +102,7 @@ def test_projected_coefficients_require_literals():
             else edge
             for edge in model.edges
         )
-        return model.revised(edges=edges, parameters=parameters)
+        return model.with_entities(edges=edges, parameters=parameters)
 
     literal = StructuralSelection(_with_loading(0.5, ()), None)
     assert np.any(
@@ -144,7 +144,7 @@ def _model_with_exact_measurement():
             reasoning="Direct exact driver observation",
         )
     )
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(
             model.edges,
             (
@@ -162,7 +162,6 @@ def _model_with_exact_measurement():
 def test_exact_measurements_retain_scientific_states_and_project_only_supported_roots():
     model = _model_with_exact_measurement()
     selection = StructuralSelection(model, None)
-    dispositions = {d.target.id: d.disposition for d in selection.structural_dispositions}
     by_name = {c.name: c for c in model.constructs}
     assert [model.get_construct(key).name for key in selected_state_ids(selection)] == [
         "X",
@@ -170,9 +169,9 @@ def test_exact_measurements_retain_scientific_states_and_project_only_supported_
         "Driver",
         "History",
     ]
-    assert dispositions[by_name["Driver"].id] == "retained_state"
-    assert dispositions[by_name["History"].id] == "retained_state"
-    assert dispositions[by_name["U"].id] == "marginalized"
+    assert by_name["Driver"].id in selection.retained_construct_ids
+    assert by_name["History"].id in selection.retained_construct_ids
+    assert by_name["U"].id in selection.marginalized_construct_ids
     assert by_name["Driver"].indicators[0].observation.id in tuple(
         indicator.observation.id for indicator in selected_indicators(selection)
     )
@@ -185,16 +184,15 @@ def test_source_ids_are_stable_across_authoring_reordering():
     model = _model_with_exact_measurement()
     original = StructuralSelection(model, None)
     reordered = StructuralSelection(
-        model.revised(
+        model.with_entities(
             edges=replace_constructs(
                 tuple(reversed(model.edges)), tuple(reversed(model.constructs))
             )
         ),
         None,
     )
-    assert {d.target.id: d.disposition for d in original.structural_dispositions} == {
-        d.target.id: d.disposition for d in reordered.structural_dispositions
-    }
+    assert original.retained_construct_ids == reordered.retained_construct_ids
+    assert original.marginalized_construct_ids == reordered.marginalized_construct_ids
     assert original.induced_dependencies == reordered.induced_dependencies
     assert reference_indicators(original) == reference_indicators(reordered)
 
@@ -217,7 +215,7 @@ def test_execution_checks_preserve_the_scientific_model():
 def test_required_unmeasured_mediator_cannot_be_silently_excluded():
     model = make_model(["X", "Mediator", "Y"], [("X", "Mediator"), ("Mediator", "Y")])
     x, mediator, y = model.constructs
-    model = model.revised(
+    model = model.with_entities(
         edges=replace_constructs(
             model.edges,
             (
@@ -228,7 +226,6 @@ def test_required_unmeasured_mediator_cannot_be_silently_excluded():
         ),
     )
     selection = StructuralSelection(model, y.id)
-    assert any(d.disposition == "unsupported" for d in selection.structural_dispositions)
     with pytest.raises(StructuralCompilationError, match="Required constructs"):
         validate_execution_structure(selection)
 
@@ -256,7 +253,7 @@ def test_severed_components_do_not_require_priors_or_bind_numerical_parameters()
     )
     island_parameter = model.parameters_for(nodes["A"].id)[0]
     outcome = nodes["Y"].id
-    unassigned = model.revised(
+    unassigned = model.with_entities(
         parameters=tuple(
             item.revised(distribution=None) if item.id == island_parameter.id else item
             for item in model.parameters
@@ -290,6 +287,7 @@ def test_severed_components_do_not_require_priors_or_bind_numerical_parameters()
             JointPosteriorDraws(draws.parameters, jnp.zeros((2, 2, 2)), draws.state_ids)
         ),
         times=jnp.array([0.0, 1.0]),
+        time_origin=None,
     )
     assert conditioned.parameter(island_parameter.id) == unassigned.parameter(island_parameter.id)
     assert set(conditioned.distributions) & set(unassigned.distributions)
@@ -310,7 +308,7 @@ def test_projected_latent_dependencies_keep_their_connected_states():
     model = make_model(["U", "X", "Y", "A"], [("U", "X"), ("U", "A"), ("X", "Y")])
     nodes = {item.name: item for item in model.constructs}
     selected = StructuralSelection(
-        model.revised(
+        model.with_entities(
             edges=replace_constructs(
                 model.edges,
                 (nodes["U"].revised(role=Role.ENDOGENOUS, indicators=()),),

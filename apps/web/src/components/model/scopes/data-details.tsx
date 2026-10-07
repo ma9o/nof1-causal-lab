@@ -6,7 +6,7 @@ import { humanize, type EntitySelection } from "@/lib/model-asset/selection";
 import { timelineTickLabel } from "@/lib/model-asset/timeline-presentation";
 import { formatModelDate } from "@/lib/utils/format";
 import { Hint, KeyValue, OwnerLink, Section, StatusIcon } from "../scope-primitives";
-import type { DataDiffOutput, DataVariableDiff } from "@nof1-causal-lab/api-types";
+import type { DataComparisonView, DataVariableView } from "@/lib/model-asset/data-comparison";
 import { PPCWarningsTable } from "@/components/analysis-widgets/posterior/ppc-warnings-table";
 import { ChartFigure } from "@/components/charts/chart-figure";
 import { CHART_COLORS, chainColor, cssColor } from "@/components/charts/chart-tokens";
@@ -15,7 +15,7 @@ import { DrawsChart } from "@/components/charts/draws-chart";
 import { extentOf } from "@/components/charts/plot-geometry";
 import { dataComparisonChart } from "@/components/charts/series-adapters";
 
-function comparisonEvaluation(variable: DataVariableDiff) {
+function comparisonEvaluation(variable: DataVariableView) {
   return variable.predictive.kind === "comparison"
     ? variable.predictive.evaluation
     : variable.predictive;
@@ -26,7 +26,7 @@ export function DataComparisonOutcome({
   report,
 }: {
   context: ScopeContext;
-  report: DataDiffOutput;
+  report: DataComparisonView;
 }) {
   return (
     <Section title="Data comparison">
@@ -66,7 +66,7 @@ export function DataComparisonOutcome({
 }
 
 function dataSelectionLabel(
-  report: DataDiffOutput,
+  report: DataComparisonView,
   side: "left" | "right",
   ticks: readonly TimelineRevision[],
 ) {
@@ -105,7 +105,7 @@ export function DataComparisonEvidence({
   selection,
 }: {
   context: ScopeContext;
-  report: DataDiffOutput;
+  report: DataComparisonView;
   selection: EntitySelection | null;
 }) {
   const variables = report.variables.filter(
@@ -121,7 +121,7 @@ export function DataComparisonEvidence({
   ));
 }
 
-function VariableComparison({ variable }: { variable: DataVariableDiff }) {
+function VariableComparison({ variable }: { variable: DataVariableView }) {
   const definition = [...variable.left, ...variable.right]
     .flatMap((history) => history.variable ?? [])
     .at(0);
@@ -294,33 +294,8 @@ export function PreparedObservations({ context }: { context: ScopeContext }) {
   );
 }
 
-export function DataDetails({
-  context,
-  applied,
-}: {
-  context: ScopeContext;
-  applied: PrepareDataOutput;
-}) {
-  const metadata = applied.metadata;
-  const raw = applied.raw_data;
-  if (!metadata)
-    return (
-      <Section title="Prepared data">
-        {raw ? (
-          <KeyValue
-            rows={[
-              ["Imported records", raw.n_records.toLocaleString()],
-              ["Columns", String(raw.n_columns)],
-              ["First observation", raw.date_range?.start ?? "Not recorded"],
-              ["Last observation", raw.date_range?.end ?? "Not recorded"],
-            ]}
-          />
-        ) : (
-          <Hint>No observation panel was produced.</Hint>
-        )}
-      </Section>
-    );
-  const { source, variables } = metadata;
+export function DataDetails({ applied }: { applied: PrepareDataOutput }) {
+  const { source, variables } = applied.metadata;
   return (
     <Section title="Prepared data">
       <KeyValue
@@ -331,7 +306,6 @@ export function DataDetails({
             ["End (exclusive)", source.end ?? "Unbounded"],
           ] as Array<[string, string]>),
           ["Variables", String(variables.length)],
-          ["Observations", context.model.measurements?.n_observations.toLocaleString()],
         ]}
       />
     </Section>

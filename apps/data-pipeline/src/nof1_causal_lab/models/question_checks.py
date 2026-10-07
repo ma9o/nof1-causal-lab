@@ -81,7 +81,10 @@ def _outcome_finding(
     problems = [
         problem
         for failed, problem in (
-            (construct.role != Role.ENDOGENOUS, "it is exogenous, given by readings, not modeled"),
+            (
+                construct.role != Role.ENDOGENOUS,
+                "it is exogenous, supplied by a deterministic trajectory",
+            ),
             (
                 construct.temporal_status == TemporalStatus.TIME_INVARIANT,
                 "it is time-invariant, so it has no course to contrast",

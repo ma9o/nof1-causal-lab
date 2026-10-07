@@ -1,6 +1,6 @@
 /** Explicit served projections for unit tests; no saved study or numerical execution. */
-import type { FitSummary, ModelSnapshot } from "@nof1-causal-lab/api-types";
-import { baseline, decay, diffusion, modelFixture, outcome, treatment } from "./model";
+import type { InferenceReportCore, ModelSnapshot } from "@nof1-causal-lab/api-types";
+import { decay, diffusion, modelFixture, outcome } from "./model";
 
 export const modelRef = { workspace_id: "TEST", revision: "1".repeat(40), path: "model.json" };
 
@@ -8,24 +8,13 @@ export const emptySnapshot: ModelSnapshot = {
   workspace_id: "TEST",
   commit_id: "0".repeat(40),
   selected_seq: 0,
-  can_simulate: false,
   question: null,
   model: null,
   state: { current: {}, data: null },
-  raw_data: null,
-  measurements: null,
   metadata: null,
   profile: null,
   identification: null,
-  dispositions: null,
-  graph: { construct_ids: [], edge_ids: [], dynamic_construct_ids: [], status: {} },
-  entity_failures: {},
   validation_report: null,
-  confounder_equations: {},
-  state_equations: {},
-  observation_equations: {},
-  likelihood_diagnostics: {},
-  authoring_prior_densities: {},
   fit: null,
   specification: null,
   question_checks: null,
@@ -60,53 +49,40 @@ export const authoredSnapshot: ModelSnapshot = {
     },
     data: null,
   },
-  dispositions: [
-    {
-      target: { kind: "construct", id: outcome.id },
-      disposition: "retained_state",
-      reason: "Observed response.",
-    },
-  ],
-  graph: {
-    construct_ids: [baseline.id, treatment.id, outcome.id],
-    edge_ids: ["edge:00000000000000000001", "edge:00000000000000000002"],
-    dynamic_construct_ids: [treatment.id, outcome.id],
-    status: {},
-  },
-  authoring_prior_densities: { [decay.id]: density, [diffusion.id]: density },
+  identification: { outcome: outcome.id, treatments: {} },
 };
 
-const fit: FitSummary = {
-  report: {
-    time_origin: null,
-    inference_metadata: { n_samples: 3, duration_seconds: 0 },
-    engine: {
-      kind: "not_evaluated",
-      subject: "particle_mcmc",
-      reason: "STATE_NOT_RECORDED",
-      detail: "Recorded presentation data.",
-    },
-    inference_diagnostics: null,
+const fit: InferenceReportCore = {
+  inference_metadata: {
+    distribution: "distribution:00000000000000000003",
+    n_samples: 3,
+    num_chains: 1,
+    duration_seconds: 0,
+    engine: {},
     sampler_diagnostics: null,
-    convergence: { assessments: [], checked: 0, status: "not_evaluated", messages: [] },
-    loo_diagnostics: null,
-    posterior_marginals: [decay, diffusion].map((parameter) => ({
-      parameter: parameter.name,
-      subject: {
-        parameter_id: parameter.id,
-        element_id: `element:${parameter.id.slice("parameter:".length)}` as const,
-      },
-      density_curve: density,
-      mean: 0.5,
-      lower: 0.1,
-      upper: 0.9,
-      interval_kind: "hdi" as const,
-      interval_mass: 0.9,
-      sd: 0.2,
-    })),
   },
-  edge_estimates: {},
-  decay_estimates: {},
+  inference_diagnostics: null,
+  convergence: { assessments: [], checked: 0, status: "not_evaluated", messages: [] },
+  loo_diagnostics: null,
+  posterior_marginals: [decay, diffusion].map((parameter) => ({
+    parameter: parameter.name,
+    subject: {
+      parameter_id: parameter.id,
+      element_id: `element:${parameter.id.slice("parameter:".length)}` as const,
+    },
+    density_curve: density,
+    empirical: [
+      { value: 0.1, probability: 1 / 3 },
+      { value: 0.5, probability: 2 / 3 },
+      { value: 0.9, probability: 1 },
+    ],
+    mean: 0.5,
+    lower: 0.1,
+    upper: 0.9,
+    interval_kind: "hdi" as const,
+    interval_mass: 0.9,
+    sd: 0.2,
+  })),
   prior_densities: { [decay.id]: density, [diffusion.id]: density },
 };
 export const fittedSnapshot: ModelSnapshot = {
@@ -114,4 +90,15 @@ export const fittedSnapshot: ModelSnapshot = {
   commit_id: "4".repeat(40),
   selected_seq: 4,
   fit: fit,
+  state: { ...authoredSnapshot.state, data: { revision: "5".repeat(40), replicate_index: 0 } },
+  validation_report: {
+    data: { indicators: {}, dataset_issues: [], is_valid: true },
+    preflight: [],
+    is_valid: true,
+  },
+  question_checks: {
+    question_revision: "2".repeat(40),
+    data: { revision: "5".repeat(40), replicate_index: 0 },
+    findings: [],
+  },
 };

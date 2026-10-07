@@ -4,27 +4,26 @@ import type {
   ConstructId,
   EdgeId,
   PosteriorMarginal,
-  ParameterRef,
   IndicatorSpec,
   ModelSnapshot,
   SimulationReport,
 } from "@nof1-causal-lab/api-types";
 
-import type { ResolvedModelDiff } from "@/lib/hooks/use-model-diff";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { ModelEntities } from "@/lib/model-asset/entities";
 import { useDagLayout } from "@/lib/hooks/use-dag-layout";
 import { type LawCurve, lawCurves, ownLawUses } from "@/lib/model-asset/laws";
 import type { DagLayoutNode } from "@/lib/utils/dag-graph-layout";
 import { buildLayeredCausalGraph, type LayeredGraphEdgeMeta } from "./build-layered-causal-graph";
-import { placeComparisonOverlay } from "./comparison-overlay";
+import { placeComparisonOverlay, type ModelComparison } from "./comparison-overlay";
 import {
   availableGraphLayers,
   type CausalGraphLayerId,
   type GraphBand,
   graphEntities,
+  graphStatus,
 } from "./layered-model";
-import { BLOCKING, COMPARISON_COLORS, DAG_COLORS, MARGINALIZED } from "./palette";
+import { BLOCKING, COMPARISON_COLORS, DAG_COLORS, LATENT } from "./palette";
 import { selectedNeighbors } from "./selection";
 import { useGraphControls, usePlayback } from "./use-graph-controls";
 
@@ -33,7 +32,7 @@ export interface LayeredGraphOptions {
   entities: ModelEntities;
   /** A simulation of the viewed model revision; its node histories replace the law charts. */
   simulation?: SimulationReport | null;
-  comparison?: ResolvedModelDiff | null;
+  comparison?: ModelComparison | null;
   selection: import("@/lib/model-asset/selection").EntitySelection | null;
 }
 
@@ -56,7 +55,7 @@ export function useLayeredGraph({
     [available, hiddenLayers],
   );
 
-  const entities = useMemo(() => graphEntities(model, indexed), [model, indexed]);
+  const entities = useMemo(() => graphEntities(indexed), [indexed]);
   const topology = useMemo(
     () =>
       buildLayeredCausalGraph(entities.constructs, entities.edges, entities.dynamicConstructIds),
@@ -84,15 +83,7 @@ export function useLayeredGraph({
   const nodeStatuses = new Map(
     entities.constructs.map((entity) => [
       entity.id,
-      designVisible ? model.graph.status[entity.id] : null,
-    ]),
-  );
-  const edgeDispositions = new Map(
-    entities.edges.map((entity) => [
-      entity.id,
-      designVisible
-        ? model.dispositions?.find((item) => item.target.id === entity.id)?.disposition
-        : undefined,
+      designVisible ? graphStatus(model, entity.id) : null,
     ]),
   );
   const indicatorsByConstruct = new Map<ConstructId, readonly IndicatorSpec[]>(
@@ -125,24 +116,27 @@ export function useLayeredGraph({
       ),
     [model, entities.edges],
   );
-  const marginal = (ref: ParameterRef) =>
-    model.fit?.report.posterior_marginals?.find(
-      (row) =>
-        row.subject.parameter_id === ref.parameter_id && row.subject.element_id === ref.element_id,
+  const marginal = (uses: ReturnType<typeof ownLawUses>, role: "weight" | "decay") => {
+    const parameters = new Set(
+      uses.filter((use) => use.role === role).map((use) => use.parameterId),
     );
+    const rows =
+      model.fit?.posterior_marginals.filter((row) => parameters.has(row.subject.parameter_id)) ??
+      [];
+    return rows.length === 1 ? rows[0] : undefined;
+  };
   const edgePosteriors: Partial<Record<EdgeId, PosteriorMarginal | undefined>> = fitVisible
     ? Object.fromEntries(
-        Object.entries(model.fit?.edge_estimates ?? {}).flatMap(([id, ref]) =>
-          ref ? [[id, marginal(ref)]] : [],
-        ),
+        entities.edges.map((edge) => [edge.id, marginal(ownLawUses(edge), "weight")]),
       )
     : {};
   const persistencePosteriors: Partial<Record<ConstructId, PosteriorMarginal | undefined>> =
     fitVisible
       ? Object.fromEntries(
-          Object.entries(model.fit?.decay_estimates ?? {}).flatMap(([id, ref]) =>
-            ref ? [[id, marginal(ref)]] : [],
-          ),
+          entities.constructs.map((construct) => [
+            construct.id,
+            marginal(ownLawUses(construct), "decay"),
+          ]),
         )
       : {};
 
@@ -195,27 +189,20 @@ export function useLayeredGraph({
   };
 
   const edgeVisual = (meta: LayeredGraphEdgeMeta) => {
-    const disposition = meta.isSelf
-      ? nodeStatuses.get(meta.cause.id) === "marginalized"
-        ? "projected_edge"
-        : undefined
-      : edgeDispositions.get(meta.id);
     const posterior = meta.isSelf
       ? persistencePosteriors[meta.cause.id]
       : Object.entries(edgePosteriors).find(([id]) => id === meta.id)?.[1];
     const blocking =
       nodeStatuses.get(meta.cause.id) === "blocking" ||
       nodeStatuses.get(meta.effect.id) === "blocking";
-    const marginalized =
-      nodeStatuses.get(meta.cause.id) === "marginalized" ||
-      nodeStatuses.get(meta.effect.id) === "marginalized";
+    const latent =
+      nodeStatuses.get(meta.cause.id) === "latent" ||
+      nodeStatuses.get(meta.effect.id) === "latent";
     const color = blocking
       ? BLOCKING
-      : marginalized
-        ? MARGINALIZED
-        : disposition === "projected_edge"
-          ? DAG_COLORS.muted
-          : meta.crossSlice
+      : latent
+        ? LATENT
+        : meta.crossSlice
             ? DAG_COLORS.crossSlice
             : DAG_COLORS.contemporaneous;
     // A coefficient's mean is not the strength or sign of a nonlinear state-dependent effect.
@@ -225,14 +212,13 @@ export function useLayeredGraph({
     const dimmed = !selectedEdge || (hoveredEdge != null && hoveredEdge !== meta.id);
     const opacity = dimmed
       ? 0.1
-      : marginalized || disposition === "projected_edge"
+      : latent
         ? 0.38
         : posterior
           ? 0.92
           : 0.78;
     const change = difference.edgeChanges.get(meta.id);
     return {
-      disposition,
       posterior,
       laws: meta.isSelf || !lawsVisible ? [] : (edgeLaws.get(meta.id) ?? []),
       color:

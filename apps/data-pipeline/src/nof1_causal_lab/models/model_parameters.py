@@ -25,7 +25,7 @@ if TYPE_CHECKING:
 
     from nof1_causal_lab.artifacts.construct import ConstructSpec
     from nof1_causal_lab.artifacts.identity import EntityRef, ParameterId
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec, _ModelEntities
     from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
     from nof1_causal_lab.models.model_structure import StructuralSelection
 
@@ -60,7 +60,7 @@ class ParameterContext:
         return tuple({owner.id: owner for use in self.uses for owner in use.owners}.values())
 
 
-def iter_coefficient_uses(model: ModelSpec) -> Iterator[CoefficientUse]:
+def iter_coefficient_uses(model: ModelSpec | _ModelEntities) -> Iterator[CoefficientUse]:
     """Yield model coefficient uses with their quantity meanings, owners, and authored locations."""
     for owner, mechanism in model.iter_mechanisms():
         refs: list[EntityRef] = [MechanismRef(id=mechanism.id)]
@@ -120,7 +120,7 @@ def iter_coefficient_uses(model: ModelSpec) -> Iterator[CoefficientUse]:
                     )
 
 
-def parameter_contexts(model: ModelSpec) -> dict[ParameterId, ParameterContext]:
+def parameter_contexts(model: ModelSpec | _ModelEntities) -> dict[ParameterId, ParameterContext]:
     """Group symbolic coefficient uses by parameter identity to establish each parameter's context."""
     grouped: dict[ParameterId, list[CoefficientUse]] = {}
     for use in iter_coefficient_uses(model):

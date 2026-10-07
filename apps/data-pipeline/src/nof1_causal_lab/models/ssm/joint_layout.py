@@ -4,10 +4,10 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 from types import MappingProxyType
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Literal
 
 import numpy as np
-from pydantic import FiniteFloat, model_validator
+from pydantic import AwareDatetime, Field, FiniteFloat, model_validator
 
 from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.artifacts.identity import (
@@ -33,6 +33,10 @@ class JointLawLayout(Value):
     parameters: tuple[tuple[ParameterId, tuple[ParameterElementId, ...]], ...]
     constructs: tuple[ConstructId, ...]
     time_points: tuple[FiniteFloat, ...]
+    time_origin: AwareDatetime | Literal["relative"] = Field(
+        default="relative",
+        description="Calendar instant of model day zero, or relative coordinates bound at execution. Fitting retains its calendar origin with the law.",
+    )
     labels: Mapping[ParameterElementId, str]
 
     @model_validator(mode="after")
@@ -57,6 +61,8 @@ class JointLawLayout(Value):
             for left, right in zip(self.time_points, self.time_points[1:], strict=False)
         ):
             raise ValueError("Trajectory coordinates require their strictly increasing time grid")
+        if not self.constructs and self.time_origin != "relative":
+            raise ValueError("Only trajectory coordinates have a calendar origin")
         return self
 
     @property
@@ -96,6 +102,9 @@ class JointLawLayout(Value):
             [
                 [[identity, list(elements)] for identity, elements in self.parameters],
                 [[identity, list(self.time_points)] for identity in self.constructs],
+                self.time_origin
+                if isinstance(self.time_origin, str)
+                else self.time_origin.isoformat(),
             ],
         )
 

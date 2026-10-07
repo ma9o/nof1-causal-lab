@@ -1,198 +1,196 @@
 {
-  "edges": [
-    {
-      "id": "edge:test-outcome-0",
-      "mechanisms": [],
-      "cause": {
-        "id": "construct:bbc87212909e45b9e6c3",
-        "name": "mood",
-        "description": "Mood",
-        "indicators": [
-          {
-            "likelihood": {
-              "law": {
-                "distribution": "Normal",
-                "loc": {
-                  "kind": "binary",
-                  "operator": "add",
-                  "left": {
-                    "kind": "coefficient",
-                    "role": "observation_intercept",
-                    "value": 0.0,
-                    "construct_ids": []
-                  },
-                  "right": {
-                    "kind": "binary",
-                    "operator": "multiply",
-                    "left": {
-                      "kind": "coefficient",
-                      "role": "loading",
-                      "value": 1.0,
-                      "construct_ids": []
-                    },
-                    "right": {
-                      "kind": "state",
-                      "construct_id": "construct:bbc87212909e45b9e6c3"
-                    }
-                  }
-                },
-                "scale": {
+  "constructs": {
+    "construct:bbc87212909e45b9e6c3": {
+      "name": "mood",
+      "description": "Mood",
+      "indicators": {
+        "indicator:45f78731e3e0c6f3efe1": {
+          "likelihood": {
+            "law": {
+              "distribution": "Normal",
+              "loc": {
+                "kind": "binary",
+                "operator": "add",
+                "left": {
                   "kind": "coefficient",
-                  "role": "observation_scale",
+                  "role": "observation_intercept",
                   "value": 0.0,
                   "construct_ids": []
-                }
-              },
-              "standardized": true,
-              "reasoning": "Test Gaussian emission",
-              "sources": []
-            },
-            "construct_polarity": "positive",
-            "observation": {
-              "categorical_levels": null,
-              "id": "indicator:45f78731e3e0c6f3efe1",
-              "aggregation": "mean",
-              "name": "mood_score",
-              "ordinal_levels": null,
-              "measurement_dtype": "continuous",
-              "observation_window": null
-            }
-          }
-        ],
-        "dynamics": [
-          {
-            "id": "mechanism:58c4f801f718d6530227bb2e928fa769362491675436597eff5538ff57c2c365",
-            "kind": "potential",
-            "expression": {
-              "kind": "binary",
-              "operator": "add",
-              "left": {
-                "kind": "binary",
-                "operator": "divide",
-                "left": {
+                },
+                "right": {
                   "kind": "binary",
                   "operator": "multiply",
                   "left": {
                     "kind": "coefficient",
-                    "role": "decay",
-                    "value": "parameter:3dd6b7c9eb6876093f9fe0c1c1ce2864fd4a8c53e6dac3d6a1e5538016e1fdff",
+                    "role": "loading",
+                    "value": 1.0,
                     "construct_ids": []
                   },
                   "right": {
-                    "kind": "binary",
-                    "operator": "power",
-                    "left": {
-                      "kind": "binary",
-                      "operator": "subtract",
-                      "left": {
-                        "kind": "state",
-                        "construct_id": "construct:bbc87212909e45b9e6c3"
-                      },
-                      "right": {
-                        "kind": "coefficient",
-                        "role": "center",
-                        "value": 0.0,
-                        "construct_ids": []
-                      }
-                    },
-                    "right": {
-                      "kind": "literal",
-                      "value": 2.0
-                    }
+                    "kind": "state",
+                    "construct_id": "construct:bbc87212909e45b9e6c3"
                   }
+                }
+              },
+              "scale": {
+                "kind": "coefficient",
+                "role": "observation_scale",
+                "value": 0.0,
+                "construct_ids": []
+              }
+            },
+            "standardized": true,
+            "reasoning": "Test Gaussian emission",
+            "sources": []
+          },
+          "construct_polarity": "positive",
+          "observation": {
+            "categorical_levels": null,
+            "aggregation": "mean",
+            "name": "mood_score",
+            "ordinal_levels": null,
+            "measurement_dtype": "continuous",
+            "observation_window": null
+          }
+        }
+      },
+      "dynamics": {
+        "mechanism:58c4f801f718d6530227bb2e928fa769362491675436597eff5538ff57c2c365": {
+          "kind": "potential",
+          "expression": {
+            "kind": "binary",
+            "operator": "add",
+            "left": {
+              "kind": "binary",
+              "operator": "divide",
+              "left": {
+                "kind": "binary",
+                "operator": "multiply",
+                "left": {
+                  "kind": "coefficient",
+                  "role": "decay",
+                  "value": "parameter:3dd6b7c9eb6876093f9fe0c1c1ce2864fd4a8c53e6dac3d6a1e5538016e1fdff",
+                  "construct_ids": []
                 },
                 "right": {
-                  "kind": "literal",
-                  "value": 2.0
+                  "kind": "binary",
+                  "operator": "power",
+                  "left": {
+                    "kind": "binary",
+                    "operator": "subtract",
+                    "left": {
+                      "kind": "state",
+                      "construct_id": "construct:bbc87212909e45b9e6c3"
+                    },
+                    "right": {
+                      "kind": "coefficient",
+                      "role": "center",
+                      "value": 0.0,
+                      "construct_ids": []
+                    }
+                  },
+                  "right": {
+                    "kind": "literal",
+                    "value": 2.0
+                  }
                 }
               },
               "right": {
+                "kind": "literal",
+                "value": 2.0
+              }
+            },
+            "right": {
+              "kind": "binary",
+              "operator": "divide",
+              "left": {
                 "kind": "binary",
-                "operator": "divide",
+                "operator": "multiply",
                 "left": {
-                  "kind": "binary",
-                  "operator": "multiply",
-                  "left": {
-                    "kind": "coefficient",
-                    "role": "quartic",
-                    "value": 0.0,
-                    "construct_ids": []
-                  },
-                  "right": {
-                    "kind": "binary",
-                    "operator": "power",
-                    "left": {
-                      "kind": "binary",
-                      "operator": "subtract",
-                      "left": {
-                        "kind": "state",
-                        "construct_id": "construct:bbc87212909e45b9e6c3"
-                      },
-                      "right": {
-                        "kind": "coefficient",
-                        "role": "center",
-                        "value": 0.0,
-                        "construct_ids": []
-                      }
-                    },
-                    "right": {
-                      "kind": "literal",
-                      "value": 4.0
-                    }
-                  }
+                  "kind": "coefficient",
+                  "role": "quartic",
+                  "value": 0.0,
+                  "construct_ids": []
                 },
                 "right": {
-                  "kind": "literal",
-                  "value": 4.0
+                  "kind": "binary",
+                  "operator": "power",
+                  "left": {
+                    "kind": "binary",
+                    "operator": "subtract",
+                    "left": {
+                      "kind": "state",
+                      "construct_id": "construct:bbc87212909e45b9e6c3"
+                    },
+                    "right": {
+                      "kind": "coefficient",
+                      "role": "center",
+                      "value": 0.0,
+                      "construct_ids": []
+                    }
+                  },
+                  "right": {
+                    "kind": "literal",
+                    "value": 4.0
+                  }
                 }
+              },
+              "right": {
+                "kind": "literal",
+                "value": 4.0
               }
             }
           }
-        ],
-        "coefficients": [
-          {
-            "kind": "coefficient",
-            "role": "diffusion_scale",
-            "value": "parameter:ea7fd5ac08160569f35431da4d1741f5ac0606585c802a602de991f3e3a51263",
-            "construct_ids": []
-          },
-          {
-            "kind": "coefficient",
-            "role": "initial_mean",
-            "value": 0.0,
-            "construct_ids": []
-          },
-          {
-            "kind": "coefficient",
-            "role": "initial_scale",
-            "value": 1.0,
-            "construct_ids": []
-          }
-        ],
-        "innovation_family": "gaussian",
-        "distribution": null,
-        "role": "endogenous",
-        "temporal_status": "time_varying"
+        }
       },
-      "effect": {
-        "id": "construct:unmeasured_outcome",
-        "name": "unmeasured_outcome",
-        "description": "Downstream response outside the measured test states.",
-        "indicators": [],
-        "dynamics": [],
-        "coefficients": [],
-        "innovation_family": "gaussian",
-        "distribution": null,
-        "role": "endogenous",
-        "temporal_status": "time_varying"
-      },
-      "description": "Test state affects an unmeasured downstream response",
-      "sources": []
+      "coefficients": [
+        {
+          "kind": "coefficient",
+          "role": "diffusion_scale",
+          "value": "parameter:ea7fd5ac08160569f35431da4d1741f5ac0606585c802a602de991f3e3a51263",
+          "construct_ids": []
+        },
+        {
+          "kind": "coefficient",
+          "role": "initial_mean",
+          "value": 0.0,
+          "construct_ids": []
+        },
+        {
+          "kind": "coefficient",
+          "role": "initial_scale",
+          "value": 1.0,
+          "construct_ids": []
+        }
+      ],
+      "innovation_family": "gaussian",
+      "distribution": null,
+      "role": "endogenous",
+      "temporal_status": "time_varying"
+    },
+    "construct:unmeasured_outcome": {
+      "name": "unmeasured_outcome",
+      "description": "Downstream response outside the measured test states.",
+      "indicators": {},
+      "dynamics": {},
+      "coefficients": [],
+      "innovation_family": "gaussian",
+      "distribution": null,
+      "role": "endogenous",
+      "temporal_status": "time_varying"
     }
-  ],
-  "parameters": [
-    {
-      "id": "parameter:3dd6b7c9eb6876093f9fe0c1c1ce2864fd4a8c53e6dac3d6a1e5538016e1fdff",
+  },
+  "edges": {
+    "edge:test-outcome-0": {
+      "mechanisms": {},
+      "description": "Test state affects an unmeasured downstream response",
+      "sources": [],
+      "cause": "construct:bbc87212909e45b9e6c3",
+      "effect": "construct:unmeasured_outcome"
+    }
+  },
+  "parameters": {
+    "parameter:3dd6b7c9eb6876093f9fe0c1c1ce2864fd4a8c53e6dac3d6a1e5538016e1fdff": {
       "name": "rho_mood",
       "description": "stiffness of rho_mood",
       "distribution": "distribution:2eff23efd9f2c90b12d3fab727df449314c576dbed7ec15919f20bf81841a9b9",
@@ -201,8 +199,7 @@
         "interval_days": "model_clock"
       }
     },
-    {
-      "id": "parameter:ea7fd5ac08160569f35431da4d1741f5ac0606585c802a602de991f3e3a51263",
+    "parameter:ea7fd5ac08160569f35431da4d1741f5ac0606585c802a602de991f3e3a51263": {
       "name": "sigma_mood",
       "description": "innovation.scale for sigma_mood",
       "distribution": "distribution:b4dc0c968ac82b7a968d154b7fd9c17cfc407e1d6f7b44a4a1d3eddd2d99bce7",
@@ -210,7 +207,7 @@
         "kind": "identity"
       }
     }
-  ],
+  },
   "distributions": {
     "distribution:2eff23efd9f2c90b12d3fab727df449314c576dbed7ec15919f20bf81841a9b9": {
       "distribution": "Beta",
@@ -237,6 +234,6 @@
       }
     }
   },
-  "measurement_clock": "1d",
-  "law_layouts": {}
+  "law_layouts": {},
+  "measurement_clock": "1d"
 }

@@ -68,7 +68,7 @@ def _poisson_parameter_evaluator() -> ModelSpec:
     )
     latent_0_revised = latent_0.revised(indicators=(manifest_0_revised,))
     parameters, distributions = without_parameters(model, latent_0_manifest_0_manifest_var_diag)
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(model.edges, (latent_0_revised,)),
         parameters=parameters,
         distributions=distributions,

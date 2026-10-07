@@ -10,7 +10,6 @@ from pydantic import TypeAdapter, ValidationError
 
 from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.artifacts.construct import CausalEdgeSpec, ConstructSpec, replace_constructs
-from nof1_causal_lab.artifacts.execution import StructuralItemDisposition
 from nof1_causal_lab.artifacts.expressions import state
 from nof1_causal_lab.artifacts.identification import IdentificationReport
 from nof1_causal_lab.artifacts.identity import ConstructId, IndicatorId
@@ -58,44 +57,41 @@ def workspace(monkeypatch, tmp_path):
 
 
 def _model():
-    constructs = {
-        key: {
-            "id": f"construct:{key}",
-            "name": key.upper(),
-            "description": key,
-            "role": "endogenous",
-            "temporal_status": "time_varying",
-            "indicators": [
-                {
-                    "observation": {
-                        "id": f"indicator:{key}",
-                        "name": f"{key.upper()}_obs",
-                        "measurement_dtype": "continuous",
-                        "aggregation": "mean",
-                    },
-                    "construct_polarity": "positive",
-                }
-            ],
-        }
-        for key in ("x", "y")
-    }
     return ModelSpec.model_validate(
         {
+            "constructs": {
+                f"construct:{key}": {
+                    "name": key.upper(),
+                    "description": key,
+                    "role": "endogenous",
+                    "temporal_status": "time_varying",
+                    "indicators": {
+                        f"indicator:{key}": {
+                            "observation": {
+                                "name": f"{key.upper()}_obs",
+                                "measurement_dtype": "continuous",
+                                "aggregation": "mean",
+                            },
+                            "construct_polarity": "positive",
+                        }
+                    },
+                }
+                for key in ("x", "y")
+            },
             "measurement_clock": "1d",
-            "edges": [
-                {
-                    "id": "edge:xy",
-                    "cause": constructs["x"],
-                    "effect": constructs["y"],
+            "edges": {
+                "edge:xy": {
+                    "cause": "construct:x",
+                    "effect": "construct:y",
                     "description": "effect",
                 }
-            ],
+            },
         }
-    )
+    ).materialized()
 
 
 def _drop_x(model):
-    return model.revised(
+    return model.with_entities(
         edges=(
             CausalEdgeSpec(
                 id="edge:yz",
@@ -148,8 +144,8 @@ def test_predictive_findings_use_entity_ids_and_keep_served_reasons(monkeypatch)
     prediction = PredictiveDraws(
         {}, PredictiveTrajectory(paths, paths, paths, jnp.ones_like(paths, dtype=bool), paths)
     )
-    batch = simulation.SimulationBatch(
-        (0.0, 1.0), prediction, None, DesignInfo(jnp.array([0.0, 1.0]), (), {}, {})
+    batch = simulation.SimulationBatch.from_draws(
+        prediction, DesignInfo(jnp.array([0.0, 1.0]), (), {}, {})
     )
     findings, _ = simulation.measure_simulation_batch(
         compile_model_fixture(model), batch, groups=("measurement",), clock=time.monotonic
@@ -224,7 +220,7 @@ def test_fitted_snapshot_keeps_joint_arrays_lazy_and_workspace_bound(workspace, 
     store = ArtifactStore(workspace)
     atoms = np.ones((2, layout.width))
     law = empirical_distribution(atoms, array_writer=store.write_array)
-    conditioned = model.revised(
+    conditioned = model.with_entities(
         parameters=tuple(
             p.revised(distribution=layout.distribution_id, transform={"kind": "identity"})
             for p in model.parameters
@@ -247,13 +243,12 @@ def test_fitted_snapshot_keeps_joint_arrays_lazy_and_workspace_bound(workspace, 
     monkeypatch.setattr(ArtifactStore, "read_array", tracked_read)
     reader = ModelReader(workspace, at=StudyRepository(workspace).head())
     snapshot = reader.snapshot()
-    assert snapshot.authoring_prior_densities == {}
     assert _present(snapshot.model).model_dump(mode="json") == conditioned.model_dump(mode="json")
     assert reads == []
-    # A consumer that needs the draws can still resolve them in this workspace.
+    # The retained model owns its buffers and needs no workspace lookup to read draws.
     restored = _present(reader.model).distributions[layout.distribution_id]
     np.testing.assert_array_equal(empirical_atoms(restored), atoms)
-    assert len(reads) == 2  # the draws and their weights, each read once
+    assert reads == []
 
 
 def test_snapshot_exists_before_any_compilation(workspace):
@@ -268,7 +263,7 @@ def test_snapshot_exists_before_any_compilation(workspace):
     _commit(workspace, "model", {"measurement_clock": "1d"})
     snapshot = ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot()
     assert _present(snapshot.question).text == "Does X change Y?"
-    assert _present(snapshot.model) == ModelSpec(measurement_clock="1d")
+    assert _present(snapshot.model) == ModelSpec(measurement_clock="1d").materialized()
     assert snapshot.state.current["model"].revision == artifact_revision(workspace, "model", 1)
     assert snapshot.model_dump(mode="json")["model"] == _present(snapshot.model).model_dump(
         mode="json"
@@ -318,50 +313,35 @@ def test_planning_preserves_ids_across_name_and_role_edits(workspace):
     original = _model()
     payload = _model().model_dump(mode="json")
     given = graph_constructs(payload)[0]
-    given.update(name="Renamed", role="exogenous", coefficients=[], dynamics=[], distribution=None)
-    for indicator in given["indicators"]:
+    given.update(name="Renamed", role="exogenous", coefficients=[], dynamics={}, distribution=None)
+    for indicator in given["indicators"].values():
         indicator["likelihood"] = {
             "law": {
                 "distribution": "Delta",
-                "v": {"kind": "state", "construct_id": given["id"]},
+                "v": {"kind": "state", "construct_id": "construct:x"},
             },
             "standardized": False,
             "reasoning": "The renamed input is given exactly.",
             "sources": [],
         }
-    revised = ModelSpec.model_validate(payload)
+    revised = ModelSpec.model_validate(payload).materialized()
     assert set(selected_state_ids(StructuralSelection(original, None))) == set(
         selected_state_ids(StructuralSelection(revised, None))
     )
     assert original.edges[0].id == revised.edges[0].id == "edge:xy"
     assert "semantics" not in original.model_dump()
     _commit(workspace, "model", revised.model_dump(mode="json"))
-    graph = ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot().graph
-    assert set(graph.dynamic_construct_ids) == set(
-        selected_state_ids(StructuralSelection(revised, None))
-    )
+    assert ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot().model == revised
+    dynamic_ids = selected_state_ids(StructuralSelection(revised, None))
     from nof1_causal_lab.utils.identifiability import unroll_temporal_dag
 
     dag = unroll_temporal_dag(revised.constructs, revised.edges, {"Renamed", "Y"})
-    for construct_id in graph.dynamic_construct_ids:
+    for construct_id in dynamic_ids:
         name = revised.get_construct(construct_id).name
         assert dag.has_edge(f"{name}_{{t-1}}", f"{name}_t")
     assert dag.has_edge("Renamed_{t-1}", "Y_t")
 
 
-def test_snapshot_derives_dispositions_from_its_model_revision(workspace):
-    _measured(workspace)
-    planned = ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot()
-    assert {item.target.id for item in _present(planned.dispositions)} == {
-        item.id for item in _identity_owners(planned)
-    }
-    _commit(
-        workspace,
-        "model",
-        _model().model_dump(mode="json"),
-        pins={"model": artifact_revision(workspace, "model", 1)},
-    )
-    assert ModelReader(workspace, at=planned.commit_id).snapshot() == planned
 
 
 def test_removed_construct_removes_its_owned_indicators(workspace):
@@ -420,20 +400,19 @@ def test_snapshot_rejects_inconsistent_facts(workspace, violation):
         .model_dump(mode="json")
     )
     if violation == "owner":
-        payload["model"]["edges"][0]["effect"] = {
-            "kind": "construct",
-            "id": "construct:missing",
-        }
+        next(iter(payload["model"]["edges"].values()))["effect"] = "construct:missing"
     else:
-        graph_constructs(payload["model"])[0]["indicators"][0]["observation"]["id"] = "indicator:y"
+        next(iter(graph_constructs(payload["model"])[0]["indicators"].values()))["observation"][
+            "id"
+        ] = "indicator:y"
     with pytest.raises(ValidationError):
-        ModelSnapshot.model_validate(payload)
+        _present(ModelSnapshot.model_validate(payload).model).materialized()
 
 
 def test_owned_likelihood_survives_reused_names(workspace, monkeypatch):
     _measured(workspace)
     payload = _model().model_dump(mode="json")
-    graph_constructs(payload)[1]["indicators"][0]["likelihood"] = {
+    next(iter(graph_constructs(payload)[1]["indicators"].values()))["likelihood"] = {
         "law": TypeAdapter(ObservationLawSpec)
         .validate_json(
             (
@@ -447,8 +426,8 @@ def test_owned_likelihood_survives_reused_names(workspace, monkeypatch):
     }
     _commit(workspace, "model", payload)
     before = ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot()
-    graph_constructs(payload)[0]["indicators"][0]["observation"]["name"] = "Y_obs"
-    graph_constructs(payload)[1]["indicators"][0]["observation"]["name"] = "X_obs"
+    next(iter(graph_constructs(payload)[0]["indicators"].values()))["observation"]["name"] = "Y_obs"
+    next(iter(graph_constructs(payload)[1]["indicators"].values()))["observation"]["name"] = "X_obs"
     _commit(workspace, "model", payload)
 
     after = ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot()
@@ -468,24 +447,23 @@ def test_owned_mechanisms_survive_rename_and_disappear_with_owner(workspace, own
     field = "dynamics" if owner == "constructs" else "mechanisms"
     from nof1_causal_lab.artifacts.expressions import hill, restoring_force
 
-    entity = (graph_constructs(payload) if owner == "constructs" else payload["edges"])[0]
+    entity = next(iter(payload[owner].values()))
     mechanism = DriftMechanismSpec(
         id="mechanism:owned-term",
-        expression=restoring_force(entity["id"], center=0, stiffness=1, quartic=0)
+        expression=restoring_force(next(iter(payload[owner])), center=0, stiffness=1, quartic=0)
         if owner == "constructs"
-        else hill(state(entity["cause"]["id"]), emax=2, ec50=1, n=2),
+        else hill(state(entity["cause"]), emax=2, ec50=1, n=2),
     ).model_dump(mode="json")
-    entity[field] = [mechanism]
+    mechanism_id = mechanism.pop("id")
+    entity[field] = {mechanism_id: mechanism}
     _commit(workspace, "model", payload)
     before = ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot()
     graph_constructs(payload)[0]["name"] = "Renamed X"
     _commit(workspace, "model", payload)
     after = ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot()
     encoded = _present(after.model).model_dump(mode="json")
-    assert (graph_constructs(encoded) if owner == "constructs" else encoded["edges"])[0][field] == [
-        mechanism
-    ]
-    payload = _drop_x(ModelSpec.model_validate(payload)).model_dump(mode="json")
+    assert next(iter(encoded[owner].values()))[field] == {mechanism_id: mechanism}
+    payload = _drop_x(ModelSpec.model_validate(payload).materialized()).model_dump(mode="json")
     _commit(workspace, "model", payload)
     assert (
         list(
@@ -500,9 +478,9 @@ def test_owned_mechanisms_survive_rename_and_disappear_with_owner(workspace, own
 
 def test_rename_changes_only_construct_label():
     payload = _model().model_dump(mode="json")
-    original = ModelSpec.model_validate(payload)
+    original = ModelSpec.model_validate(payload).materialized()
     graph_constructs(payload)[0]["name"] = "Renamed"
-    renamed = ModelSpec.model_validate(payload)
+    renamed = ModelSpec.model_validate(payload).materialized()
     assert original.indicators == renamed.indicators
     assert original.edges[0].id == renamed.edges[0].id
     assert original.edges[0].effect == renamed.edges[0].effect
@@ -633,17 +611,3 @@ def test_accessors_do_not_materialize_other_views(workspace, monkeypatch, access
     assert actual == expected
 
 
-@pytest.mark.parametrize(
-    ("target", "disposition", "error"),
-    [
-        ({"kind": "construct", "id": "construct:x"}, "retained_edge", "does not apply"),
-        ({"kind": "indicator", "id": "indicator:x"}, "retained_edge", "does not apply"),
-        ({"kind": "construct", "id": "indicator:x"}, "retained_state", "pattern"),
-        ({"kind": "mechanism", "id": "mechanism:x"}, "retained_state", "union_tag_invalid"),
-    ],
-)
-def test_dispositions_validate_target_identity_and_compatible_decision(target, disposition, error):
-    with pytest.raises(ValidationError, match=error):
-        StructuralItemDisposition.model_validate(
-            {"target": target, "disposition": disposition, "reason": "Test"}
-        )

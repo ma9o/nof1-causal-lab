@@ -1,4 +1,4 @@
-import { fixtureValue } from "@/components/__fixtures__/fixture-value";
+import { dump } from "npyjs";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -7,7 +7,6 @@ import { treatment as dose, outcome as symptoms } from "@/lib/__fixtures__/model
 import { fittedSnapshot, modelRef } from "@/lib/__fixtures__/snapshot";
 import type { SimulationPathsView } from "@/lib/model-asset/result-values";
 import { indexModel } from "@/lib/model-asset/entities";
-import { graphEntities } from "@/lib/dag/layered-model";
 import type { DagGraphInput } from "@/lib/utils/dag-graph-layout";
 import { formatModelDate } from "@/lib/utils/format";
 import { LayeredCausalGraph, type LayeredCausalGraphVariant } from "./layered-causal-graph";
@@ -31,38 +30,27 @@ vi.mock("@/lib/hooks/use-dag-layout", () => ({
 
 const base = fittedSnapshot;
 const indexed = indexModel(base.model);
-const entities = graphEntities(base, indexed);
-const edge = fixtureValue(
-  entities.edges.find((item) => item.cause.id === dose.id && item.effect.id === symptoms.id),
-);
-const model = {
-  ...base,
-  graph: {
-    ...base.graph,
-    construct_ids: [dose.id, symptoms.id],
-    dynamic_construct_ids: [dose.id, symptoms.id],
-    edge_ids: [edge.id],
-  },
-};
+const model = base;
+const buffer = { npy: new Uint8Array(dump([], [0], { dtype: "f8" })) };
 
 const report: SimulationReport = {
   evidence: {
     model: modelRef,
     draws: 1,
     seed: 0,
-    origin_data: null,
     state_ids: [dose.id, symptoms.id],
     parameter_draws: {},
-    latent_paths: "a".repeat(64),
-    observations: "b".repeat(64),
+    arms: {
+      kind: "paired",
+      action: { latent_paths: buffer, observations: buffer },
+      reference: { latent_paths: buffer, observations: buffer },
+    },
     observation_layout: {
       variables: [],
-      support_start_times: "c".repeat(64),
-      support_end_times: "d".repeat(64),
-      mask: "e".repeat(64),
+      support_start_times: buffer,
+      support_end_times: buffer,
+      mask: buffer,
     },
-    reference_latent_paths: null,
-    reference_observations: null,
     time_origin: "2026-01-01T00:00:00Z",
     times: [0, 1, 2, 3, 4, 5, 6, 7],
     design: {
@@ -80,19 +68,22 @@ const report: SimulationReport = {
       { target: dose.id, time: 6, value: 0 },
     ],
   },
+  summary: {
+    state_frames: {},
+    indicator_frames: {},
+    action_category_probabilities: {},
+    reference_category_probabilities: {},
+  },
   law: { kind: "authored", interpretation: "prior_predictive" },
   findings: [],
   fit_reliability: "not_fitted",
   causal: { kind: "unavailable", reason: "This fixture covers intervention rendering." },
 };
 const paths: SimulationPathsView = {
-  effect_summary: null,
-  reference_mean: null,
-  manifest_effects: {},
   action_category_probabilities: {},
   reference_category_probabilities: {},
   times: report.evidence.times,
-  time_origin: null,
+  time_origin: report.evidence.time_origin,
   total_draws: 1,
   start: 0,
   count: 1,
@@ -130,7 +121,7 @@ describe("dated intervention overlay", () => {
   ] as const)("preserves the model's arrows and their styling in the %s view", (variant) => {
     const arrows = (markup: string) => markup.match(/<path\b[^>]*marker-end=[^>]*>/g) ?? [];
     const baseline = arrows(render(variant, null));
-    expect(baseline).toHaveLength(3);
+    expect(baseline).toHaveLength(5);
     expect(arrows(render(variant, report))).toEqual(baseline);
   });
 

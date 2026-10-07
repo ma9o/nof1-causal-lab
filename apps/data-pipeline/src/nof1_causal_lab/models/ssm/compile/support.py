@@ -600,6 +600,10 @@ def _require_execution_choices(selection: StructuralSelection) -> None:
     for identity in state_ids(selection):
         construct = model.get_construct(identity)
         if construct.role == "exogenous":
+            if construct.distribution is None:
+                raise IncompleteModelError(
+                    f"Exogenous construct {construct.name!r} requires a deterministic trajectory law"
+                )
             continue
         if any(construct.coefficient(role) is None for role in ("initial_mean", "initial_scale")):
             raise IncompleteModelError(

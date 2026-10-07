@@ -108,7 +108,7 @@ async function replaceFixture(stagingRoot: string, fixtureRoot: string): Promise
 export async function promoteDataWorkspace({
   sourceWorkspaceId,
   dataRoot = join(repoRoot, "data"),
-  fixtureWorkspaceId = "DEMO",
+  fixtureWorkspaceId = "HEALTHDEMO",
 }: PromotionOptions): Promise<PromotionSummary> {
   assertWorkspaceId(sourceWorkspaceId, "Source workspace id");
   assertWorkspaceId(fixtureWorkspaceId, "Fixture workspace id");

@@ -18,6 +18,7 @@ from nof1_causal_lab.artifacts.posterior_diagnostics import (
     RankHistogram,
     TraceSeries,
 )
+from nof1_causal_lab.utils.histograms import empirical_points
 
 if TYPE_CHECKING:
     import jax.numpy as jnp
@@ -112,6 +113,7 @@ def param_marginal(
         parameter=parameter,
         subject=subject,
         density_curve=histogram,
+        empirical=empirical_points(draws),
         mean=float(np.mean(draws)),
         sd=float(np.std(draws)),
         interval_kind="hdi",

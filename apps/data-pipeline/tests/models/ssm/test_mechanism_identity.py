@@ -32,7 +32,7 @@ def test_independent_hill_coefficients_survive_reorder_rename_and_submission(two
     before_priors = compile_priors(compile_model_fixture(model), StructuralSelection(model, None))[
         0
     ]
-    revised = model.revised(
+    revised = model.with_entities(
         edges=(edge.revised(mechanisms=tuple(reversed(edge.mechanisms))),),
         parameters=tuple(p.revised(name=f"new label {i}") for i, p in enumerate(model.parameters)),
     )
@@ -56,11 +56,11 @@ def test_independent_hill_coefficients_survive_reorder_rename_and_submission(two
         )
     # Incremental edits submit the whole authored model directly.
 
-    submitted = ModelSpec.model_validate(revised.model_dump(mode="json"))
+    submitted = ModelSpec.model_validate(revised.model_dump(mode="json")).materialized()
     assert submitted.edges[0].mechanisms == revised.edges[0].mechanisms
     removed_ids = {p.id for p in model.parameters_for(edge.mechanisms[1].id)}
     remaining = tuple(p for p in model.parameters if p.id not in removed_ids)
-    edited = model.revised(
+    edited = model.with_entities(
         edges=(edge.revised(mechanisms=(edge.mechanisms[0],)),),
         parameters=remaining,
         distributions={
@@ -97,5 +97,5 @@ def test_term_identity_rejects_ambiguous_or_dangling_revisions(two_hills, change
     else:
         terms = (first,)
     with pytest.raises(ValueError, match=r"Duplicate mechanism|not referenced by component slots"):
-        model.revised(edges=(edge.revised(mechanisms=terms),))
+        model.with_entities(edges=(edge.revised(mechanisms=terms),))
     assert model.mechanism(second.id) is second

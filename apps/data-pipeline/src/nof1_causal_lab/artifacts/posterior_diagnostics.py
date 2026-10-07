@@ -18,6 +18,7 @@ from .checks import (
 )
 from .display_frames import central_frame
 from .effects import HistogramBin
+from .empirical import EmpiricalPoint
 from .identity import IndicatorId, ParameterRef
 
 
@@ -169,6 +170,7 @@ class PosteriorMarginal(Value):
     parameter: str
     subject: ParameterRef
     density_curve: DensityCurve
+    empirical: tuple[EmpiricalPoint, ...]
     mean: float
     lower: float
     upper: float

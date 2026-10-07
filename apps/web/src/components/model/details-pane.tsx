@@ -1,5 +1,6 @@
 import { DefinitionContext } from "./definition-context";
 import { Button } from "@/components/ui/button";
+import { constructEquation, observationEquation } from "@/lib/model-asset/equations";
 import { resolveEntity } from "@/lib/model-asset/entities";
 import type { EntitySelection } from "@/lib/model-asset/selection";
 import { Hint, OwnerLink, Section } from "./scope-primitives";
@@ -48,24 +49,24 @@ function ModelScope({
   if (tick.record.attempt.action === "model_diff")
     return <ModelComparisonDetails context={context} />;
   const identification = context.model.identification;
-  const diagnostics = context.model;
   const equations = [
-    ...Object.entries({
-      ...diagnostics.state_equations,
-      ...diagnostics.confounder_equations,
-    }).flatMap(([id, latex]) =>
-      latex === undefined
-        ? []
-        : [
-            [
-              context.entities.constructs.find((item) => item.id === id)?.name ?? id,
-              latex,
-            ] as const,
-          ],
-    ),
+    ...context.entities.constructs.flatMap((construct) => {
+      const equation = constructEquation(construct, context.entities);
+      return equation
+        ? [
+            {
+              id: construct.id,
+              label: `${construct.name} · ${equation.title}`,
+              latex: equation.latex,
+            },
+          ]
+        : [];
+    }),
     ...context.entities.indicators.flatMap((indicator) => {
-      const latex = diagnostics.observation_equations[indicator.observation.id];
-      return latex === undefined ? [] : [[indicator.observation.name, latex] as const];
+      const latex = observationEquation(indicator, context.entities);
+      return latex
+        ? [{ id: indicator.observation.id, label: indicator.observation.name, latex }]
+        : [];
     }),
   ];
 
@@ -104,9 +105,9 @@ function ModelScope({
         </Section>
       )}
       {equations.length > 0 && (
-        <Section title="Equation system" wide>
-          {equations.map(([label, latex]) => (
-            <div key={label} className="min-w-0 space-y-2 border-b pb-2">
+        <Section title="Authored equations" wide>
+          {equations.map(({ id, label, latex }) => (
+            <div key={id} className="min-w-0 space-y-2 border-b pb-2">
               <Hint>{humanize(label)}</Hint>
               <div className="overflow-x-auto pb-2">
                 <Katex latex={latex} />
@@ -116,7 +117,7 @@ function ModelScope({
         </Section>
       )}
       {!identification && equations.length === 0 && (
-        <Hint>No identification report or equations recorded.</Hint>
+        <Hint>No identification report or authored equations available.</Hint>
       )}
     </>
   );

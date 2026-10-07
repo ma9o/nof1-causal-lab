@@ -128,9 +128,6 @@ def resolve_action_inputs(
                 input=SimulateInput[GitOid](
                     simulation=request.input.simulation,
                     model_ref=resolve(request.input.model_ref, "model"),
-                    panel_ref=resolve(request.input.panel_ref, "panel")
-                    if request.input.panel_ref is not None
-                    else None,
                 ),
             )
         case DataDiffRequest():

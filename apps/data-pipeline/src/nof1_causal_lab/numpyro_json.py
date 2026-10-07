@@ -8,7 +8,7 @@ from __future__ import annotations
 
 import inspect
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Mapping, Sequence
 from functools import cached_property
 from typing import TYPE_CHECKING, Annotated, cast, overload
 
@@ -17,14 +17,13 @@ import jax.numpy as jnp
 import numpy as np
 import numpyro.distributions as dist
 from numpyro.distributions import constraints, transforms
-from pydantic import GetCoreSchemaHandler, GetPydanticSchema, ValidationInfo
+from pydantic import GetCoreSchemaHandler, GetPydanticSchema, SerializationInfo, ValidationInfo
 from pydantic_core import core_schema
 
-from nof1_causal_lab.json_types import JsonValue
+from nof1_causal_lab.artifacts.arrays import NumericalArray
+from nof1_causal_lab.json_types import JsonScalar, JsonValue
 
 if TYPE_CHECKING:
-    from collections.abc import Sequence
-
     from jax.typing import ArrayLike
 
 _NATIVE_MODULES = {
@@ -34,6 +33,49 @@ _NATIVE_MODULES = {
 }
 
 type ArrayLoader = Callable[[str], np.ndarray]
+type NumPyroValue = JsonScalar | NumericalArray | Sequence[NumPyroValue] | Mapping[str, NumPyroValue]
+type NumPyroObject = Mapping[str, NumPyroValue]
+
+
+def _stored_constructor(value: NumPyroValue, arrays: dict[str, NumericalArray]) -> JsonValue:
+    """Parse embedded law arguments into the lazy native constructor representation."""
+    if isinstance(value, NumericalArray):
+        arrays[value.identity] = value
+        shape, dtype = value.layout
+        return {"array_ref": value.identity, "shape": list(shape), "dtype": str(dtype), "index": []}
+    if isinstance(value, Mapping):
+        return {key: _stored_constructor(item, arrays) for key, item in value.items()}
+    if isinstance(value, Sequence) and not isinstance(value, str):
+        return [_stored_constructor(item, arrays) for item in value]
+    return value
+
+
+def serialize_constructor(
+    value: NumPyroValue, *, binary: bool, array_loader: ArrayLoader | None = None
+) -> NumPyroValue:
+    """Keep storage references internal; published native arguments own exact NPY values."""
+    if isinstance(value, NumericalArray):
+        if binary:
+            return value
+        return _stored_constructor(value, {})
+    if isinstance(value, Mapping):
+        if binary and "array_ref" in value:
+            if array_loader is None:
+                raise ValueError("Publishing a stored law requires its numerical values")
+            return NumericalArray.from_numpy(np.asarray(_decode(cast("JsonValue", value), array_loader)))
+        return {key: serialize_constructor(item, binary=binary, array_loader=array_loader) for key, item in value.items()}
+    if isinstance(value, Sequence) and not isinstance(value, str):
+        return [serialize_constructor(item, binary=binary, array_loader=array_loader) for item in value]
+    return value
+
+
+def serialize_distribution(value: dist.Distribution, info: SerializationInfo) -> NumPyroObject:
+    """Use the native constructor schema in both metadata and binary transport."""
+    binary = bool((info.context or {}).get("binary_arrays"))
+    loader = value.loader if isinstance(value, _StoredDistribution) else None
+    if loader is None:
+        loader = (info.context or {}).get("distribution_array_loader")
+    return cast("NumPyroObject", serialize_constructor(encode_distribution(value), binary=binary, array_loader=loader))
 
 
 class _StoredDistribution(dist.Distribution):
@@ -394,16 +436,25 @@ def _distribution_schema(_source: object, handler: GetCoreSchemaHandler) -> core
     wire = core_schema.typed_dict_schema(
         {
             "distribution": core_schema.typed_dict_field(core_schema.str_schema()),
-            "params": core_schema.typed_dict_field(handler.generate_schema(dict[str, JsonValue])),
+            "params": core_schema.typed_dict_field(handler.generate_schema(dict[str, NumPyroValue])),
         },
         extra_behavior="forbid",
         ref="NumPyroDistribution",
     )
 
-    def decode(value: dict[str, JsonValue], info: ValidationInfo) -> dist.Distribution:
-        return decode_distribution(
-            value, array_loader=(info.context or {}).get("distribution_array_loader")
-        )
+    def decode(value: NumPyroObject, info: ValidationInfo) -> dist.Distribution:
+        arrays: dict[str, NumericalArray] = {}
+        constructor = cast("dict[str, JsonValue]", _stored_constructor(value, arrays))
+        external: ArrayLoader | None = (info.context or {}).get("distribution_array_loader")
+
+        def load(identity: str) -> np.ndarray:
+            if identity in arrays:
+                return arrays[identity].values
+            if external is None:
+                raise ValueError("Stored law is missing its numerical value")
+            return external(identity)
+
+        return decode_distribution(constructor, array_loader=load if arrays else external)
 
     decoder = core_schema.with_info_after_validator_function(decode, wire)
     return core_schema.json_or_python_schema(
@@ -417,7 +468,7 @@ def _distribution_schema(_source: object, handler: GetCoreSchemaHandler) -> core
             ]
         ),
         serialization=core_schema.plain_serializer_function_ser_schema(
-            encode_distribution, when_used="json", return_schema=wire
+            serialize_distribution, info_arg=True, when_used="always", return_schema=wire
         ),
     )
 

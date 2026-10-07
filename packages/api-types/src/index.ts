@@ -18,4 +18,7 @@ export type ValidationSeverity = "error" | "warning" | "info";
 export type CellStatus = "ok" | "warning" | "error" | "not_evaluated";
 export type CausalGranularity = "hourly" | "daily" | "weekly" | "monthly" | "yearly";
 
+export { readNumericalArray } from "./arrays";
 export { createModelClient } from "./client";
+
+export { decodeModelMessage } from "./msgpack";

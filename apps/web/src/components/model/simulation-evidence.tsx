@@ -5,7 +5,7 @@ import { resolveEntity, type ModelEntities } from "@/lib/model-asset/entities";
 import type { ScopeContext } from "@/lib/model-asset/scope";
 import { formatPlain, humanize } from "@/lib/model-asset/selection";
 import { hasCausalEffects } from "@/lib/simulation-report";
-import { ALL_DRAWS, type DrawSelection, useSimulationPaths } from "@/lib/hooks/use-visuals";
+import { ALL_DRAWS, type DrawSelection } from "@/lib/hooks/use-visuals";
 import { formatModelDate } from "@/lib/utils/format";
 import { SimulationHistory } from "./scopes/recorded-history";
 import { Hint, KeyValue, Section, StatusIcon } from "./scope-primitives";
@@ -134,7 +134,6 @@ export function SimulationEvidence({ context }: { context: ScopeContext }) {
   const simulation = model.simulation;
   const [view, setView] = useState<SimulationView>({ mode: "all", start: 0, arms: "both" });
   const selection = selectionOf(view);
-  const paths = useSimulationPaths(model, selection);
   if (!simulation)
     return (
       <Section title="Simulation">
@@ -158,7 +157,7 @@ export function SimulationEvidence({ context }: { context: ScopeContext }) {
           view={view}
           onChange={setView}
           total={report.evidence.draws}
-          paired={report.evidence.reference_latent_paths !== null}
+          paired={report.evidence.arms.kind === "paired"}
         />
         {simulatedOutcome ? (
           <SimulationHistory
@@ -181,19 +180,17 @@ export function SimulationEvidence({ context }: { context: ScopeContext }) {
               )}{" "}
               at the end of the simulation.
             </Hint>
-            {paths.data?.effect_summary && (
-              <KeyValue
-                rows={[
-                  ["Mean", formatPlain(paths.data.effect_summary.mean)],
-                  ["Median", formatPlain(paths.data.effect_summary.median)],
-                  [
-                    "95% interval",
-                    `[${formatPlain(paths.data.effect_summary.lower_95)}, ${formatPlain(paths.data.effect_summary.upper_95)}]`,
-                  ],
-                  ["Probability positive", formatPlain(paths.data.effect_summary.prob_positive)],
-                ]}
-              />
-            )}
+            <KeyValue
+              rows={[
+                ["Mean", formatPlain(report.causal.value.summary.mean)],
+                ["Median", formatPlain(report.causal.value.summary.median)],
+                [
+                  "95% interval",
+                  `[${formatPlain(report.causal.value.summary.lower_95)}, ${formatPlain(report.causal.value.summary.upper_95)}]`,
+                ],
+                ["Probability positive", formatPlain(report.causal.value.summary.prob_positive)],
+              ]}
+            />
             <SimulationHistory
               {...chart}
               id={report.causal.value.outcome}

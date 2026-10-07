@@ -235,13 +235,13 @@ def load_synthetic_nonlinear_spec(*, diffusion_scale: float = 1.0) -> ModelSpec:
     """Load the retained recovery model and explicitly scale its diffusion priors."""
     model = ModelSpec.model_validate_json(
         Path(__file__).with_name("synthetic_nonlinear_model.json").read_text()
-    )
+    ).materialized()
     distributions = dict(model.distributions)
     for parameter in model.parameters:
         if model.parameter_context(parameter.id).quantity == SiteKind.DIFFUSION_DIAG:
             assert parameter.distribution is not None
             distributions[parameter.distribution] = dist.HalfNormal(0.4 * float(diffusion_scale))
-    return model.revised(distributions=distributions)
+    return model.with_entities(distributions=distributions)
 
 
 def load_synthetic_nonlinear_model(*, diffusion_scale: float = 1.0) -> CompiledFitInputs:

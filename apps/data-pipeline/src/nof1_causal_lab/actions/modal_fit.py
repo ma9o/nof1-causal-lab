@@ -7,12 +7,11 @@ import logging
 from dataclasses import dataclass
 from typing import TYPE_CHECKING
 
-from pydantic import TypeAdapter
-
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.observation_data import ObservationDataset
-from nof1_causal_lab.artifacts.posterior import InferenceEvidence
+from nof1_causal_lab.artifacts.posterior import InferenceEvidence, InferenceMetadata
 from nof1_causal_lab.utils.arrays import decode_array, encode_array
+from nof1_causal_lab.study.result_codec import pack_result, unpack_result
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -23,7 +22,6 @@ if TYPE_CHECKING:
     from nof1_causal_lab.actions.fit import FitResult
     from nof1_causal_lab.artifacts.identity import ConstructId
     from nof1_causal_lab.artifacts.observations import ResolvedObservationSpec
-    from nof1_causal_lab.json_types import JsonValue
     from nof1_causal_lab.models.model_structure import StructuralSelection
     from nof1_causal_lab.numpyro_json import ArrayLoader
     from nof1_causal_lab.sampler_config import SamplerSpec
@@ -33,12 +31,11 @@ if TYPE_CHECKING:
 class FitComputeInput:
     """Pinned, self-contained inputs; no remote workspace or storage credentials."""
 
-    model_json: str
+    model: bytes
     outcome: ConstructId | None
     panel_parquet: bytes
     variables: tuple[ResolvedObservationSpec, ...]
     time_origin: datetime | None
-    arrays: dict[str, bytes]
     sampler: SamplerSpec
     compute_loo_diagnostics: bool
 
@@ -47,19 +44,9 @@ class FitComputeInput:
 class FitComputeResult:
     """Complete fitted output to validate and persist through the caller's store."""
 
-    model_json: str
-    evidence_json: str
-    arrays: dict[str, bytes]
-
-
-def _array_references(value: JsonValue) -> set[str]:
-    if isinstance(value, dict):
-        if "array_ref" in value:
-            return {TypeAdapter(str).validate_python(value["array_ref"])}
-        return {identity for child in value.values() for identity in _array_references(child)}
-    if isinstance(value, list):
-        return {identity for child in value for identity in _array_references(child)}
-    return set()
+    model: bytes
+    evidence: bytes
+    metadata_json: str
 
 
 def execute_fit_compute(payload: FitComputeInput) -> FitComputeResult:
@@ -68,20 +55,16 @@ def execute_fit_compute(payload: FitComputeInput) -> FitComputeResult:
 
     from nof1_causal_lab.actions.fit import fit
 
-    arrays = {identity: decode_array(identity, data) for identity, data in payload.arrays.items()}
-    written: dict[str, bytes] = {}
+    arrays: dict[str, np.ndarray] = {}
 
     def write_array(values: np.ndarray) -> str:
         identity, data = encode_array(values)
-        written[identity] = data
         arrays[identity] = decode_array(identity, data)
         return identity
 
     from nof1_causal_lab.models.model_structure import StructuralSelection
 
-    model = ModelSpec.model_validate_json(
-        payload.model_json, context={"distribution_array_loader": arrays.__getitem__}
-    )
+    model = ModelSpec.model_validate(unpack_result(payload.model)).materialized()
     result = fit(
         selection=StructuralSelection(model, payload.outcome),
         data_for_model=ObservationDataset.from_frame(
@@ -98,9 +81,9 @@ def execute_fit_compute(payload: FitComputeInput) -> FitComputeResult:
     conditioned = result["_model"]
     evidence = result["evidence"]
     return FitComputeResult(
-        model_json=conditioned.model_dump_json(round_trip=True),
-        evidence_json=evidence.model_dump_json(round_trip=True),
-        arrays=written,
+        model=pack_result(conditioned),
+        evidence=pack_result(evidence),
+        metadata_json=result["metadata"].model_dump_json(round_trip=True),
     )
 
 
@@ -159,47 +142,28 @@ def fit_on_modal(
     compute_loo_diagnostics: bool,
 ) -> FitResult:
     """Transfer pinned values, compute once on Modal, then retain returned arrays locally."""
-    inputs: dict[str, bytes] = {}
-    for identity in _array_references(selection.model.model_dump(mode="json")):
-        actual, data = encode_array(array_loader(identity))
-        if actual != identity:
-            raise ValueError("Fit input array does not match its content identity")
-        inputs[identity] = data
     panel = io.BytesIO()
     data_for_model.recorded.frame.write_parquet(panel)
     result = _dispatch_fit(
         FitComputeInput(
-            model_json=selection.model.model_dump_json(round_trip=True),
+            model=pack_result(selection.model, array_loader=array_loader),
             outcome=selection.outcome,
             panel_parquet=panel.getvalue(),
             variables=data_for_model.variables,
             time_origin=time_origin,
-            arrays=inputs,
             sampler=sampler,
             compute_loo_diagnostics=compute_loo_diagnostics,
         )
     )
     # Validate the complete response before the first local write. Exceptions
     # propagate to the action's normal error path; there is no local retry.
-    arrays = {identity: decode_array(identity, data) for identity, data in result.arrays.items()}
-    evidence = InferenceEvidence.model_validate_json(result.evidence_json)
-    available = {
-        identity: decode_array(identity, data) for identity, data in inputs.items()
-    } | arrays
-    conditioned = ModelSpec.model_validate_json(
-        result.model_json, context={"distribution_array_loader": available.__getitem__}
-    )
-    if (
-        _array_references(conditioned.model_dump(mode="json")) | evidence.array_references
-    ) - available.keys():
-        raise ValueError("Modal fit returned an unresolved numerical array reference")
-    for identity, values in arrays.items():
-        if array_writer(values) != identity:
+    from nof1_causal_lab.study.action_arrays import owned_arrays
+
+    evidence = InferenceEvidence.model_validate(unpack_result(result.evidence))
+    metadata = InferenceMetadata.model_validate_json(result.metadata_json)
+    payload = unpack_result(result.model)
+    conditioned = ModelSpec.model_validate(payload).materialized()
+    for identity, value in owned_arrays(payload).items():
+        if array_writer(value.values) != identity:
             raise ValueError("Fit output array does not match its content identity")
-    conditioned = ModelSpec.model_validate_json(
-        result.model_json, context={"distribution_array_loader": array_loader}
-    )
-    return {
-        "evidence": evidence,
-        "_model": conditioned,
-    }
+    return {"evidence": evidence, "metadata": metadata, "_model": conditioned}

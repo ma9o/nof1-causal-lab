@@ -6,6 +6,7 @@ from types import SimpleNamespace
 from typing import TYPE_CHECKING, cast
 from uuid import UUID
 
+import msgpack
 import pytest
 from fastapi.testclient import TestClient
 from pydantic import TypeAdapter
@@ -231,7 +232,7 @@ def test_call_contract_reuses_successful_running_and_failed_calls(tmp_path, monk
     )
     assert first.status_code == second.status_code == 200
     assert first.content == second.content
-    result = first.json()
+    result = msgpack.unpackb(first.content)
     assert set(result) == {"call_id", "action", "status", "commit_id", "body", "messages"}
     assert result["status"] == "success"
     assert result["call_id"] == call_identity(request)
@@ -245,7 +246,7 @@ def test_call_contract_reuses_successful_running_and_failed_calls(tmp_path, monk
     cached_failure = client.post(
         "/api/studies/CALLS/edit_question", json=failure.model_dump(mode="json")
     )
-    failed = cached_failure.json()
+    failed = msgpack.unpackb(cached_failure.content)
     assert failed["status"] == "failed"
     assert failed["body"] is None
     assert failed["commit_id"] is not None
@@ -321,7 +322,7 @@ def test_get_reads_running_call_without_starting_workflow_or_work(tmp_path, monk
             )
         response = client.get(f"/api/studies/RUNNING/edit_question/{identity}")
         assert response.status_code == 200
-        assert response.json() == {
+        assert msgpack.unpackb(response.content) == {
             "call_id": identity,
             "action": "edit_question",
             "status": "running",

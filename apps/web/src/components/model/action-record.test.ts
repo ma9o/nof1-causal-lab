@@ -14,7 +14,6 @@ const request: SimulateRequest<GitOid> = {
   action: "simulate",
   input: {
     model_ref: "1".repeat(40),
-    panel_ref: null,
     simulation: { start: "2026-01-01", horizon: "1d", interventions: [] },
   },
   reasoning: intent,

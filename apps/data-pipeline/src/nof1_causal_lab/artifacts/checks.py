@@ -37,7 +37,6 @@ type NotEvaluatedReason = (
         "COMPARISON_INPUTS_MISSING",
         "INSUFFICIENT_CHAIN_SAMPLES",
         "NO_RETAINED_CHAINS",
-        "ARCHIVED_ENGINE_NOT_RETAINED",
         "NO_OUTCOME",
         "CONSTRUCT_UNDEFINED",
         "NO_PANEL",

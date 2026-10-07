@@ -1,8 +1,9 @@
-"""Ephemeral prior curves on the authoring and quantity scales, evaluated by NumPyro."""
+"""Display curves for fitted input laws, evaluated by NumPyro on the quantity scale."""
 
 from __future__ import annotations
 
 from functools import lru_cache
+from typing import TYPE_CHECKING
 
 import jax
 import jax.numpy as jnp
@@ -10,6 +11,10 @@ import numpy as np
 import numpyro.distributions as dist
 
 from nof1_causal_lab.artifacts.posterior_diagnostics import DensityCurve
+
+if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.identity import ParameterId
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec
 
 
 def prior_density(prior: dist.Distribution) -> DensityCurve:
@@ -37,3 +42,20 @@ def _density_curve(prior: dist.Distribution) -> DensityCurve:
     return DensityCurve(
         x=tuple(point[0] for point in points), density=tuple(point[1] for point in points)
     )
+
+
+def quantity_prior_densities(
+    model: ModelSpec,
+    parameters: frozenset[ParameterId],
+) -> dict[ParameterId, DensityCurve]:
+    """Resolve the fit's input quantity laws before retaining their density curves."""
+    from nof1_causal_lab.models.ssm.compile.prior_compilation import quantity_parameter_law
+    from nof1_causal_lab.numpyro_json import distribution_shape
+
+    return {
+        parameter.id: prior_density(quantity_parameter_law(model, parameter)[0])
+        for parameter in model.parameters
+        if parameter.id in parameters
+        if parameter.distribution is not None
+        and not any(distribution_shape(model.distributions[parameter.distribution]))
+    }

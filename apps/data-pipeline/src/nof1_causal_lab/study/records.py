@@ -22,6 +22,7 @@ from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.artifacts.data_preparation import ExtractionWorkerResult, FileSourceRef
 from nof1_causal_lab.artifacts.identity import GitOid
+from nof1_causal_lab.artifacts.model_spec import ModelEditResult
 from nof1_causal_lab.artifacts.posterior import ModelFitResult
 from nof1_causal_lab.artifacts.simulation import ModelSimulationResult
 from nof1_causal_lab.json_types import JsonValue
@@ -120,12 +121,12 @@ class Attempt[ActionT: str, RequestT: Value, ResultT](Value):
 
 
 StagedEditQuestionAttempt = Attempt[Literal["edit_question"], EditQuestionRequest, None]
-StagedEditAttempt = Attempt[Literal["edit_model"], EditModelRequest[GitOid], None]
+StagedEditAttempt = Attempt[Literal["edit_model"], EditModelRequest[GitOid], ModelEditResult]
 StagedPrepareAttempt = Attempt[
     Literal["prepare_data"], PrepareDataRequest[GitOid, FileSourceRef], DataPreparationResult
 ]
-StagedFitAttempt = Attempt[Literal["fit"], FitRequest[GitOid], ModelFitResult | None]
-StagedSimulateAttempt = Attempt[Literal["simulate"], SimulateRequest[GitOid], ModelSimulationResult]
+StagedFitAttempt = Attempt[Literal["fit"], FitRequest[GitOid], None]
+StagedSimulateAttempt = Attempt[Literal["simulate"], SimulateRequest[GitOid], None]
 StagedDataDiffAttempt = Attempt[Literal["data_diff"], DataDiffRequest[GitOid], None]
 StagedModelDiffAttempt = Attempt[Literal["model_diff"], ModelDiffRequest[GitOid], None]
 
@@ -268,7 +269,7 @@ def applied_attempt[ResultT](
                 request=request,
                 outcome=Applied(result=result, effects=applied.effects),
             )
-        case EditModelRequest(), None:
+        case EditModelRequest(), ModelEditResult():
             return StagedEditAttempt(
                 action="edit_model",
                 request=request,
@@ -280,17 +281,17 @@ def applied_attempt[ResultT](
                 request=request,
                 outcome=Applied(result=result, effects=applied.effects),
             )
-        case FitRequest(), ModelFitResult() | None:
+        case FitRequest(), ModelFitResult():
             return StagedFitAttempt(
                 action="fit",
                 request=request,
-                outcome=Applied(result=result, effects=applied.effects),
+                outcome=Applied(result=None, effects=applied.effects),
             )
         case SimulateRequest(), ModelSimulationResult():
             return StagedSimulateAttempt(
                 action="simulate",
                 request=request,
-                outcome=Applied(result=result, effects=applied.effects),
+                outcome=Applied(result=None, effects=applied.effects),
             )
         case DataDiffRequest(), None:
             return StagedDataDiffAttempt(

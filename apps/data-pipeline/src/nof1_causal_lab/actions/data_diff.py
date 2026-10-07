@@ -6,6 +6,7 @@ from functools import cache
 from typing import TYPE_CHECKING
 
 from nof1_causal_lab.actions.io import DataDiffOutput
+from nof1_causal_lab.artifacts.data_comparison import DataComparisonReport
 from nof1_causal_lab.artifacts.data_ref import DataRef
 from nof1_causal_lab.artifacts.simulation import SimulationEvidence
 from nof1_causal_lab.models.posterior_predictive import compare_data_variables
@@ -47,9 +48,11 @@ def _compute_data_diff(workspace_id: str, request: DataDiffRequest[GitOid]) -> D
 
     left, right = selection(request.input.left_ref), selection(request.input.right_ref)
     return DataDiffOutput(
-        left=tuple(item.source for item in left),
-        right=tuple(item.source for item in right),
-        variables=compare_data_variables(left, right, input_indicators=input_indicators),
+        report=DataComparisonReport(
+            left=tuple(item.source for item in left),
+            right=tuple(item.source for item in right),
+            variables=compare_data_variables(left, right, input_indicators=input_indicators),
+        ),
     )
 
 

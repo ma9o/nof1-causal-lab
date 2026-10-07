@@ -1,11 +1,6 @@
-import type { ModelDiffOutput, ModelSpec, TimelineRevision } from "@nof1-causal-lab/api-types";
+import type { ModelDiffOutput, TimelineRevision } from "@nof1-causal-lab/api-types";
 import { skipToken, useQuery } from "@tanstack/react-query";
 import { readActionResult } from "@/lib/api/endpoints";
-
-export type ResolvedModelDiff = ModelDiffOutput & {
-  beforeModel: ModelSpec | null;
-  afterModel: ModelSpec | null;
-};
 
 export function useModelDiff(
   workspaceId: string,
@@ -25,14 +20,8 @@ export function useModelDiff(
   return useQuery({
     queryKey: ["action-result", workspaceId, call?.call_id],
     queryFn: call ? ({ signal }) => readActionResult(workspaceId, call, signal) : skipToken,
-    select: (result): ResolvedModelDiff | null =>
-      result.action === "model_diff"
-        ? {
-            ...result.body,
-            beforeModel: result.body.before_model,
-            afterModel: result.body.after_model,
-          }
-        : null,
+    select: (result): ModelDiffOutput | null =>
+      result.action === "model_diff" ? result.body : null,
     staleTime: Number.POSITIVE_INFINITY,
     retry: false,
   });

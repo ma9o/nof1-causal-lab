@@ -1,8 +1,7 @@
-"""Posterior Predictive Checks (PPCs) for fitted CT-SSM models.
+"""Statistical comparisons and predictive checks of existing observation histories.
 
-Forward-simulates observations from posterior parameter draws and compares
-them to the real data, producing per-variable diagnostics that flag
-calibration, autocorrelation, and variance issues.
+Generation belongs to the simulation engines. This module measures retained
+observations and replicates under the contracts in artifacts.data_comparison.
 """
 
 from __future__ import annotations
@@ -19,24 +18,23 @@ from nof1_causal_lab.artifacts.checks import (
     NotEvaluated,
     NumericCriterionEvidence,
 )
+from nof1_causal_lab.artifacts.data_comparison import (
+    Added,
+    DataStatistic,
+    DataStatisticComparison,
+    DataVariableComparison,
+    PredictiveComparison,
+    PredictiveComparisonResult,
+    Removed,
+    Revised,
+)
 from nof1_causal_lab.artifacts.identity import IndicatorId, IndicatorRef
 from nof1_causal_lab.artifacts.posterior_diagnostics import (
     PosteriorPredictiveChecks,
     PPCOverlay,
     PPCTestStat,
 )
-from nof1_causal_lab.study.view_models import (
-    Added,
-    DataSeries,
-    Dataset,
-    DataStatistic,
-    DataStatisticComparison,
-    DataVariableDiff,
-    PredictiveComparison,
-    PredictiveComparisonResult,
-    Removed,
-    Revised,
-)
+from nof1_causal_lab.study.view_models import DataSeries, Dataset
 from nof1_causal_lab.utils.histograms import histogram_draws
 from nof1_causal_lab.utils.time_coordinates import ObservationInstant
 
@@ -528,15 +526,12 @@ def _statistics(
     result = []
     for statistic, level in keys:
         sides = [tuple(item.get((statistic, level)) for item in side) for side in (a, b)]
-        finite = [[value for value in side if value is not None] for side in sides]
         result.append(
             DataStatisticComparison(
                 statistic=statistic,
                 level=level,
                 left=sides[0],
                 right=sides[1],
-                left_histogram=tuple(histogram_draws(finite[0])) if finite[0] else (),
-                right_histogram=tuple(histogram_draws(finite[1])) if finite[1] else (),
             )
         )
     return tuple(result)
@@ -626,8 +621,8 @@ def compare_data_variables(
     right: Dataset | Sequence[Dataset],
     *,
     input_indicators: set[IndicatorId] | frozenset[IndicatorId] = frozenset(),
-) -> tuple[DataVariableDiff, ...]:
-    """Compare one or many saved histories on each side without pooling or resimulation."""
+) -> tuple[DataVariableComparison, ...]:
+    """Compute the evidence defined by DataComparisonReport from parsed saved histories."""
     sides = tuple(
         (value,) if isinstance(value, Dataset) else tuple(value) for value in (left, right)
     )
@@ -691,10 +686,8 @@ def compare_data_variables(
                         else Revised(before=old[anchor], after=new[anchor])
                     )
         comparisons.append(
-            DataVariableDiff(
+            DataVariableComparison(
                 indicator_id=identity,
-                left=a,
-                right=b,
                 changes=tuple(changes),
                 statistics=_statistics(a, b),
                 comparison_issues=tuple(issues),

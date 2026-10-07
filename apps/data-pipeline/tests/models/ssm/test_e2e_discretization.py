@@ -47,7 +47,7 @@ def _weekly_effect_rate() -> ModelSpec:
 def _daily_effect_rate() -> ModelSpec:
     model = _weekly_effect_rate()
     beta_stress_mood = parameter_named(model, "beta_stress_mood")
-    return model.revised(
+    return model.with_entities(
         parameters=replace_parameters(
             model.parameters,
             beta_stress_mood.revised(
@@ -61,7 +61,7 @@ def _equal_intervals_elementwise_priors() -> ModelSpec:
     model = _weekly_effect_rate()
     rho_stress = parameter_named(model, "rho_stress")
     rho_mood = parameter_named(model, "rho_mood")
-    return model.revised(
+    return model.with_entities(
         parameters=replace_parameters(
             model.parameters,
             rho_stress.revised(transform=rho_stress.transform.revised(interval_days=7.0)),
@@ -85,7 +85,7 @@ def _stress_mood_model() -> ModelSpec:
     beta_stress_mood = parameter_named(model, "beta_stress_mood")
     rho_stress = parameter_named(model, "rho_stress")
     rho_mood = parameter_named(model, "rho_mood")
-    return model.revised(
+    return model.with_entities(
         parameters=replace_parameters(
             model.parameters,
             beta_stress_mood.revised(
@@ -112,7 +112,7 @@ def _construct_specific_residual_scales() -> ModelSpec:
     sigma_stress = parameter_named(model, "sigma_stress")
     lambda_stress_cortisol_stress = parameter_named(model, "lambda_stress_cortisol_stress")
     sigma_mood = parameter_named(model, "sigma_mood")
-    return model.revised(
+    return model.with_entities(
         parameters=replace_parameters(
             model.parameters,
             beta_stress_mood.revised(
@@ -151,7 +151,7 @@ def _weekly_reference_intervals() -> ModelSpec:
     lambda_stress_cortisol_stress = parameter_named(model, "lambda_stress_cortisol_stress")
     obs_sd_stress_cortisol = parameter_named(model, "obs_sd_stress_cortisol")
     sigma_mood = parameter_named(model, "sigma_mood")
-    return model.revised(
+    return model.with_entities(
         parameters=replace_parameters(
             model.parameters,
             rho_stress.revised(transform=rho_stress.transform.revised(interval_days="model_clock")),
@@ -184,7 +184,7 @@ pytestmark = pytest.mark.contract
 
 def _compile_structure(payload: dict[str, Any]) -> ModelSpec:
 
-    return ModelSpec.model_validate(payload)
+    return ModelSpec.model_validate(payload).materialized()
 
 
 def _compile_priors_for_test(scientific_model: ModelSpec):
@@ -267,57 +267,55 @@ def two_construct_structure() -> ModelSpec:
     """
     return _compile_structure(
         {
-            "edges": [
-                {
-                    "cause": {
-                        "id": "construct:6b04dc42c531e7091eb8",
-                        "name": "stress",
-                        "description": "Daily stress level",
-                        "role": "endogenous",
-                        "temporal_status": "time_varying",
-                        "indicators": [
-                            {
-                                "observation": {
-                                    "id": "indicator:4ff8be7491bd87d28af4",
-                                    "name": "stress_self_report",
-                                    "measurement_dtype": "continuous",
-                                    "aggregation": "mean",
-                                },
-                                "construct_polarity": "positive",
+            "constructs": {
+                "construct:6b04dc42c531e7091eb8": {
+                    "name": "stress",
+                    "description": "Daily stress level",
+                    "role": "endogenous",
+                    "temporal_status": "time_varying",
+                    "indicators": {
+                        "indicator:4ff8be7491bd87d28af4": {
+                            "observation": {
+                                "name": "stress_self_report",
+                                "measurement_dtype": "continuous",
+                                "aggregation": "mean",
                             },
-                            {
-                                "observation": {
-                                    "id": "indicator:522342c2385e38d5e750",
-                                    "name": "stress_cortisol",
-                                    "measurement_dtype": "continuous",
-                                    "aggregation": "mean",
-                                },
-                                "construct_polarity": "positive",
+                            "construct_polarity": "positive",
+                        },
+                        "indicator:522342c2385e38d5e750": {
+                            "observation": {
+                                "name": "stress_cortisol",
+                                "measurement_dtype": "continuous",
+                                "aggregation": "mean",
                             },
-                        ],
+                            "construct_polarity": "positive",
+                        },
                     },
-                    "effect": {
-                        "id": "construct:bbc87212909e45b9e6c3",
-                        "name": "mood",
-                        "description": "Daily mood state",
-                        "role": "endogenous",
-                        "temporal_status": "time_varying",
-                        "indicators": [
-                            {
-                                "observation": {
-                                    "id": "indicator:e05e217de7f4442abdc5",
-                                    "name": "mood_rating",
-                                    "measurement_dtype": "continuous",
-                                    "aggregation": "mean",
-                                },
-                                "construct_polarity": "positive",
-                            }
-                        ],
+                },
+                "construct:bbc87212909e45b9e6c3": {
+                    "name": "mood",
+                    "description": "Daily mood state",
+                    "role": "endogenous",
+                    "temporal_status": "time_varying",
+                    "indicators": {
+                        "indicator:e05e217de7f4442abdc5": {
+                            "observation": {
+                                "name": "mood_rating",
+                                "measurement_dtype": "continuous",
+                                "aggregation": "mean",
+                            },
+                            "construct_polarity": "positive",
+                        }
                     },
-                    "id": "edge:923689028b6b177617c2",
+                },
+            },
+            "edges": {
+                "edge:923689028b6b177617c2": {
+                    "cause": "construct:6b04dc42c531e7091eb8",
+                    "effect": "construct:bbc87212909e45b9e6c3",
                     "description": "Stress impairs mood",
                 }
-            ],
+            },
             "measurement_clock": "1d",
         }
     )
@@ -370,7 +368,7 @@ class TestE2ESpecToDiscretization:
     def test_model_owns_latent_identity(self, two_construct_model):
 
         model = two_construct_model
-        renamed = model.revised(
+        renamed = model.with_entities(
             edges=replace_constructs(
                 model.edges,
                 tuple(
@@ -405,14 +403,14 @@ class TestE2ESpecToDiscretization:
 
     def test_model_rejects_mechanism_reference_outside_its_owners(self, two_construct_model):
         payload = two_construct_model.model_dump(mode="json")
-        target = graph_constructs(payload)[0]["dynamics"][0]
+        target = next(iter(graph_constructs(payload)[0]["dynamics"].values()))
         target["expression"] = {
             "kind": "coefficient",
             "role": "decay",
             "value": "parameter:foreign",
         }
         with pytest.raises(ValueError, match="parameter"):
-            ModelSpec.model_validate(payload)
+            ModelSpec.model_validate(payload).materialized()
 
     def test_compiled_artifact_roundtrips_grounded_structure(
         self,
@@ -421,7 +419,7 @@ class TestE2ESpecToDiscretization:
     ):
         """Compiled artifacts preserve the grounded latent and measurement layout."""
 
-        typed_scientific_model = ModelSpec.model_validate(two_construct_model)
+        typed_scientific_model = ModelSpec.model_validate(two_construct_model).materialized()
         compile_model_fixture(_weekly_reference_intervals())
 
         assert numeric.state_names(compile_model_fixture(_weekly_reference_intervals())) == (
@@ -478,7 +476,7 @@ class TestE2ESpecToDiscretization:
 
         indicator_ids = {
             item.observation.name: item.observation.id
-            for item in two_construct_structure._indicators.values()
+            for item in two_construct_structure.indicators
         }
         data_for_model = data_for_model.with_columns(
             pl.col("indicator").replace_strict(indicator_ids).alias("indicator_id")

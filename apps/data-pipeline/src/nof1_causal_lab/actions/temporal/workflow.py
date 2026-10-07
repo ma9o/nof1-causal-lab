@@ -57,7 +57,7 @@ with workflow.unsafe.imports_passed_through():
     )
     from nof1_causal_lab.actions.temporal.source_data_activity import read_source_data_activity
     from nof1_causal_lab.actions.temporal.workflow_support import temporal_failure
-    from nof1_causal_lab.artifacts.posterior import ModelFitResult
+    from nof1_causal_lab.artifacts.model_spec import ModelEditResult
     from nof1_causal_lab.study.records import (
         ActionAttempt,
         ActionBase,
@@ -253,10 +253,12 @@ class StudyWorkflow:
                         retry_policy=_ACTIVITY_RETRY,
                     )
                 else:
-                    assert result.result is None or isinstance(result.result, ModelFitResult)
+                    assert result.result is None or isinstance(
+                        result.result, ModelEditResult
+                    )
                     evaluated = await workflow.execute_activity(
                         evaluate_model_checks_activity,
-                        EvaluateChecksInput[ModelFitResult | None](
+                        EvaluateChecksInput[ModelEditResult | None](
                             workspace_id=self._workspace_id,
                             state=base.state,
                             applied=Applied(result=result.result, effects=result.effects),

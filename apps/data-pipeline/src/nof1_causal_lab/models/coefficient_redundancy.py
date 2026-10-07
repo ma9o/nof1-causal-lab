@@ -44,7 +44,7 @@ if TYPE_CHECKING:
 
     from nof1_causal_lab.artifacts.expressions import Expression
     from nof1_causal_lab.artifacts.identity import ParameterId
-    from nof1_causal_lab.artifacts.model_spec import ModelSpec
+    from nof1_causal_lab.artifacts.model_spec import ModelSpec, _ModelEntities
 
 _MAX_TERMS = 64
 _PARAMETER = re.compile(r"parameter:[0-9a-f]{64}")
@@ -126,7 +126,7 @@ def _terms(value: Expr, parameters: Mapping[str, ParameterId]) -> tuple[_Term, .
     return tuple(terms)
 
 
-def _equations(model: ModelSpec) -> Iterator[tuple[_Term, ...]]:
+def _equations(model: ModelSpec | _ModelEntities) -> Iterator[tuple[_Term, ...]]:
     """One expanded sum per scalar equation in which coefficients combine."""
     drift: dict[tuple[str, str], list[Expr]] = defaultdict(list)
     parameters = {str(parameter.id): parameter.id for parameter in model.parameters}
@@ -184,7 +184,7 @@ def _deficient_groups(
             yield members, forms
 
 
-def coefficient_redundancies(model: ModelSpec) -> tuple[str, ...]:
+def coefficient_redundancies(model: ModelSpec | _ModelEntities) -> tuple[str, ...]:
     """Describe each exact redundancy among the model's free coefficients."""
     equations = list(_equations(model))
     terms = [term for equation in equations for term in equation]
@@ -247,7 +247,7 @@ def _product_form(form: Mapping[ParameterId, Fraction], names: Mapping[Parameter
     )
 
 
-def validate_coefficient_redundancy(model: ModelSpec) -> None:
+def validate_coefficient_redundancy(model: ModelSpec | _ModelEntities) -> None:
     """A redundancy the observed-data law cannot separate is an authoring error."""
     if found := coefficient_redundancies(model):
         raise ValueError(

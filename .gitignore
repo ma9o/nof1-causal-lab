@@ -20,9 +20,9 @@ build/
 
 # Data (monorepo root) — runtime session dirs and outputs are gitignored
 data/*/
-!data/DEMO/
-data/DEMO/scratch/
-data/DEMO/cache/
+!data/HEALTHDEMO/
+data/HEALTHDEMO/scratch/
+data/HEALTHDEMO/cache/
 **/study/history.git/
 data/processed/**
 .prefect-cache/

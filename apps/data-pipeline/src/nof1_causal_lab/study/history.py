@@ -5,9 +5,11 @@ from __future__ import annotations
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from nof1_causal_lab.actions.contracts import DataDiffRequest, ModelDiffRequest
     from nof1_causal_lab.artifacts.identity import ArtifactId
     from nof1_causal_lab.study.records import AttemptRecord
@@ -210,7 +212,7 @@ class StudyRepository:
             if isinstance(request, (FitRequest, SimulateRequest, PrepareDataRequest))
             else None
         )
-        panel = request.input.panel_ref if isinstance(request, SimulateRequest) else None
+        panel: GitOid | None = None
         if isinstance(request, FitRequest):
             from nof1_causal_lab.artifacts.data_preparation import PreparedDataMetadata
             from nof1_causal_lab.study.data import panel_revision, read_data_source
@@ -342,11 +344,16 @@ class StudyRepository:
             )
             log_tree = self.repo.TreeBuilder(write_tree(self.repo, log_files))
             if isinstance(outcome, Applied):
-                tree.insert("result.json", pygit2.Oid(hex=outcome.result), pygit2.GIT_FILEMODE_BLOB)
-                result = json.loads(
+                from nof1_causal_lab.study.action_arrays import owned_arrays
+                from nof1_causal_lab.study.result_codec import unpack_result
+
+                tree.insert(
+                    "result.msgpack", pygit2.Oid(hex=outcome.result), pygit2.GIT_FILEMODE_BLOB
+                )
+                result = unpack_result(
                     self.repo[pygit2.Oid(hex=outcome.result)].peel(pygit2.Blob).data
                 )
-                array_ids = tuple(result.get("arrays", {}))
+                array_ids = tuple(owned_arrays(result))
                 for identity in array_ids:
                     array_ref = f"refs/arrays/{identity}"
                     transaction.lock_ref(array_ref)

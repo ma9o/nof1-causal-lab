@@ -25,7 +25,7 @@ In practice, the framework is designed for longitudinal consumer datasets that a
 
 ## Demo
 
-[Open the DEMO model](https://project-n98yx.vercel.app/v2/DEMO)
+[Open the HEALTHDEMO model](https://project-n98yx.vercel.app/v2/HEALTHDEMO)
 
 ## Modeling
 

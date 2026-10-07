@@ -1,4 +1,4 @@
-"""Build DEMO and workbench fixtures from the saved bundle, or project a study.
+"""Build HEALTHDEMO and workbench fixtures from the saved bundle, or project a study.
 
 ``bun run fixture:build`` regenerates Storybook fixtures from the authoritative Git
 bundle and blobs.
@@ -19,14 +19,7 @@ from unittest.mock import patch
 from nof1_causal_lab.artifacts.expressions import coefficient
 from nof1_causal_lab.artifacts.expressions import state as expr_state
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.artifacts.question import QuestionSpec
 from nof1_causal_lab.models.model_inputs import input_fingerprints
-from nof1_causal_lab.models.model_structure import (
-    StructuralSelection,
-    compare_model_graph,
-    compare_parameters,
-    model_graph_entities,
-)
 from nof1_causal_lab.study.artifact_files import artifact_file_spec
 from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.snapshots import ModelReader
@@ -40,7 +33,7 @@ if TYPE_CHECKING:
     from nof1_causal_lab.study.state import StudyState
 
 ROOT = Path(__file__).resolve().parents[4]
-DEMO_ROOT = ROOT / "data" / "DEMO"
+HEALTHDEMO_ROOT = ROOT / "data" / "HEALTHDEMO"
 WORKBENCH_OUTPUT = ROOT / "apps/web/src/components/__fixtures__/workbench-comparisons.json"
 SIMULATION_REPORTS = ROOT / "apps/web/src/components/dag/__fixtures__/simulation-reports.json"
 
@@ -149,7 +142,7 @@ def workbench_comparisons(snapshot, history):
         if item.name == "beta_perceived_stress_burden_internalizing_symptom_burden"
     )
     edge = next(item for item in free.edges if item.id == "edge:9df1507c29b9de944a33")
-    pinned = free.revised(
+    pinned = free.with_entities(
         edges=tuple(
             item.revised(
                 mechanisms=tuple(
@@ -178,55 +171,16 @@ def workbench_comparisons(snapshot, history):
     models.update(
         {format(n, "x").rjust(40, "a"): model for n, model in [(5, free), (6, free), (7, pinned)]}
     )
-    # The study's one question scopes every compared revision alike.
-    question = QuestionSpec.model_validate(snapshot["question"])
-    comparisons = {}
-    for before_version, left in models.items():
-        for after_version, right in models.items():
-            parameters = compare_parameters(left, right)
-            before = input_fingerprints(left) if left is not None else {}
-            after = input_fingerprints(right) if right is not None else {}
-            scoped = (
-                StructuralSelection.for_question(left, question) if left is not None else None,
-                StructuralSelection.for_question(right, question) if right is not None else None,
-            )
-            constructs, edges = compare_model_graph(*scoped)
-            graphs = tuple(
-                model_graph_entities(selection) if selection is not None else ((), ())
-                for selection in scoped
-            )
-            comparisons[f"{before_version}:{after_version}"] = {
-                "parameters": [item.model_dump(mode="json") for item in parameters],
-                "constructs": [item.model_dump(mode="json") for item in constructs],
-                "edges": [item.model_dump(mode="json") for item in edges],
-                "before_dispositions": [
-                    item.model_dump(mode="json") for item in scoped[0].structural_dispositions
-                ]
-                if scoped[0] is not None
-                and scoped[0].model.measurement_clock is not None
-                and scoped[0].model.indicators
-                else [],
-                "after_dispositions": [
-                    item.model_dump(mode="json") for item in scoped[1].structural_dispositions
-                ]
-                if scoped[1] is not None
-                and scoped[1].model.measurement_clock is not None
-                and scoped[1].model.indicators
-                else [],
-                "before_dynamic_construct_ids": [
-                    item.id for item in graphs[0][0] if item.is_dynamic
-                ],
-                "after_dynamic_construct_ids": [
-                    item.id for item in graphs[1][0] if item.is_dynamic
-                ],
-                "beforeModel": left.model_dump(mode="json") if left is not None else None,
-                "afterModel": right.model_dump(mode="json") if right is not None else None,
-                "changed_inputs": [
-                    key
-                    for key in sorted(before.keys() | after.keys())
-                    if before.get(key) != after.get(key)
-                ],
-            }
+    empty = ModelSpec.from_entities()
+    comparisons = {
+        f"{before_version}:{after_version}": {
+            "changes": (empty if right is None else right)
+            .changes_from(empty if left is None else left)
+            .model_dump(mode="json")
+        }
+        for before_version, left in models.items()
+        for after_version, right in models.items()
+    }
     return {
         "pinned_model": pinned.model_dump(mode="json"),
         "pinned_inputs": input_fingerprints(pinned),
@@ -241,44 +195,53 @@ def build_outputs():
         TemporaryDirectory(prefix="nof1-model-fixture-") as directory,
         patch.object(data_module, "_DATA_URI", directory),
     ):
-        workspace = Path(directory) / "DEMO"
+        workspace = Path(directory) / "HEALTHDEMO"
         history = workspace / "study/history.git"
         history.parent.mkdir(parents=True)
         subprocess.run(
-            ["git", "clone", "--mirror", str(DEMO_ROOT / "study/history.bundle"), str(history)],
+            [
+                "git",
+                "clone",
+                "--mirror",
+                str(HEALTHDEMO_ROOT / "study/history.bundle"),
+                str(history),
+            ],
             check=True,
             capture_output=True,
         )
         subprocess.run(
-            ["git", "--git-dir", str(history), "config", "nof1.format", "21"],
+            ["git", "--git-dir", str(history), "config", "nof1.format", "24"],
             check=True,
             capture_output=True,
         )
-        shutil.copytree(DEMO_ROOT / "store", workspace / "store")
-        repository = StudyRepository("DEMO")
-        reader = ModelReader("DEMO", at=repository.head())
+        shutil.copytree(HEALTHDEMO_ROOT / "store", workspace / "store")
+        repository = StudyRepository("HEALTHDEMO")
+        reader = ModelReader("HEALTHDEMO", at=repository.head())
         commits = {0: reader.records[0].parent_ids[0]}
         commits.update({record.record.seq: record.commit_id for record in reader.records})
         outputs = {
-            DEMO_ROOT / "fixture" / name: json.loads(content)
+            HEALTHDEMO_ROOT / "fixture" / name: json.loads(content)
             for name, content in read_fixture_files(repository, reader.state).items()
         }
         outputs.update(
             {
-                DEMO_ROOT / "fixture/model_snapshot.json": reader.snapshot().model_dump(
+                HEALTHDEMO_ROOT / "fixture/model_snapshot.json": reader.snapshot().model_dump(
                     mode="json"
                 ),
-                DEMO_ROOT / "fixture/model_history.json": {
-                    str(seq): ModelReader("DEMO", at=commit).snapshot().model_dump(mode="json")
+                HEALTHDEMO_ROOT / "fixture/model_history.json": {
+                    str(seq): ModelReader("HEALTHDEMO", at=commit)
+                    .snapshot()
+                    .model_dump(mode="json")
                     for seq, commit in commits.items()
                 },
             }
         )
         outputs[WORKBENCH_OUTPUT] = workbench_comparisons(
-            outputs[DEMO_ROOT / "fixture/model_snapshot.json"],
-            outputs[DEMO_ROOT / "fixture/model_history.json"],
+            outputs[HEALTHDEMO_ROOT / "fixture/model_snapshot.json"],
+            outputs[HEALTHDEMO_ROOT / "fixture/model_history.json"],
         )
-        from scripts.fixtures.visuals import workbench_visuals
+        from scripts.fixtures.visuals import workbench_visuals, restore_fixture
+        from nof1_causal_lab.study.result_codec import result_payload
 
         outputs[WORKBENCH_OUTPUT.with_name("workbench-visuals.json")] = workbench_visuals(
             reader, json.loads(WORKBENCH_OUTPUT.with_name("workbench-simulation.json").read_text())
@@ -286,8 +249,8 @@ def build_outputs():
         from nof1_causal_lab.artifacts.simulation import SimulationReport
 
         outputs[SIMULATION_REPORTS] = [
-            SimulationReport.model_validate(value).model_dump(mode="json")
-            for value in json.loads(SIMULATION_REPORTS.read_text())
+            result_payload(SimulationReport.model_validate(value))
+            for value in restore_fixture(json.loads(SIMULATION_REPORTS.read_text()))
         ]
         return outputs
 
@@ -299,31 +262,31 @@ def rendered_fixtures(outputs):
     establishes the types at their Python producers.
     """
     contracts = {
-        DEMO_ROOT / "fixture/model_snapshot.json": "Domain.ModelSnapshot",
-        DEMO_ROOT
+        HEALTHDEMO_ROOT / "fixture/model_snapshot.json": "Domain.ModelSnapshot",
+        HEALTHDEMO_ROOT
         / "fixture/model_history.json": "Readonly<Partial<Record<number, Domain.ModelSnapshot>>>",
-        DEMO_ROOT / "fixture/inference.json": "Domain.InferenceReport | null",
-        DEMO_ROOT / "fixture/predictive_checks.json": "Domain.PosteriorPredictiveChecks | null",
+        HEALTHDEMO_ROOT / "fixture/inference.json": "Domain.InferenceReport | null",
+        HEALTHDEMO_ROOT
+        / "fixture/predictive_checks.json": "Domain.PosteriorPredictiveChecks | null",
         SIMULATION_REPORTS: "readonly Domain.SimulationReport[]",
         WORKBENCH_OUTPUT: """Readonly<{
   pinned_model: Domain.ModelSpec;
   pinned_inputs: Record<string, string>;
-  comparisons: Readonly<Partial<Record<string, Pick<Domain.ModelDiffOutput, "constructs" | "edges" | "before_dispositions" | "after_dispositions" | "before_dynamic_construct_ids" | "after_dynamic_construct_ids" | "parameters" | "changed_inputs"> & {beforeModel: Domain.ModelSpec | null; afterModel: Domain.ModelSpec | null}>>>;
+  comparisons: Readonly<Partial<Record<string, Domain.ModelDiffOutput>>>;
 }>""",
         WORKBENCH_OUTPUT.with_name("workbench-visuals.json"): """Readonly<{
   note: string;
-  report: Domain.SimulationReport;
-  simulation: Domain.SimulationPaths;
+  simulation: Domain.SimulateOutput;
   observations: Readonly<Partial<Record<Domain.IndicatorId, Domain.ObservationHistory>>>;
-  parameters: Domain.ParameterDraws;
-  arrays: Readonly<Record<string, Domain.NumericalArray>>;
 }>""",
     }
     contracts.update(
-        {DEMO_ROOT / f"fixture/traces/{name}.json": "Domain.LLMTrace" for name in TRACES}
+        {HEALTHDEMO_ROOT / f"fixture/traces/{name}.json": "Domain.LLMTrace" for name in TRACES}
     )
+    from scripts.fixtures.visuals import render_fixture
+
     contents = {
-        path: json.dumps(value, indent=2, ensure_ascii=False, allow_nan=False) + "\n"
+        path: json.dumps(render_fixture(value), indent=2, ensure_ascii=False, allow_nan=False) + "\n"
         for path, value in outputs.items()
     }
     for path, contract in contracts.items():
@@ -332,7 +295,8 @@ def rendered_fixtures(outputs):
         contents[declaration] = (
             "/** AUTO-GENERATED by fixture:build from the production fixture owner. */\n"
             'import type * as Domain from "@nof1-causal-lab/api-types";\n'
-            f"declare const value: {contract};\nexport default value;\n"
+            'import type { BinaryFixture } from "@/components/__fixtures__/fixture-value";\n'
+            f"declare const value: BinaryFixture<{contract}>;\nexport default value;\n"
         )
     for path, content in contents.items():
         if path == SIMULATION_REPORTS or path.suffix == ".ts":
@@ -349,7 +313,9 @@ def rendered_fixtures(outputs):
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest="command", required=True)
-    commands.add_parser("build", help="Generate DEMO and workbench fixtures from the Git bundle")
+    commands.add_parser(
+        "build", help="Generate HEALTHDEMO and workbench fixtures from the Git bundle"
+    )
     projection = commands.add_parser(
         "project", help="Validate and project a workspace for promotion"
     )
@@ -364,7 +330,7 @@ def main() -> None:
     for path, rendered in rendered_fixtures(outputs):
         path.parent.mkdir(parents=True, exist_ok=True)
         path.write_text(rendered)
-    print(f"Restored the Git bundle and composed {len(outputs)} DEMO and workbench fixtures")
+    print(f"Restored the Git bundle and composed {len(outputs)} HEALTHDEMO and workbench fixtures")
 
 
 if __name__ == "__main__":

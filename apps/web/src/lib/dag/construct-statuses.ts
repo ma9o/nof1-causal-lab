@@ -1,1 +1,1 @@
-export type ConstructStatus = "observed" | "marginalized" | "blocking";
+export type ConstructStatus = "observed" | "latent" | "blocking";

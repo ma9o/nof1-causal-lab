@@ -79,7 +79,7 @@ def _all_categorical_construct_gets_anchor_slope__with_likelihoods() -> ModelSpe
     obs_sd_mood_rating = parameter_named(model, "obs_sd_mood_rating")
     mood_revised = mood.revised(indicators=(mood_kind,))
     parameters, distributions = without_parameters(model, obs_sd_mood_rating)
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(model.edges, (mood_revised,)),
         parameters=parameters,
         distributions=distributions,
@@ -135,7 +135,7 @@ def _exact_state_anchors_location_for_every_summary_complete_component_slots_2_f
             sigma_mood.distribution,
         )
     }
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(model.edges, (mood_revised,)),
         parameters=(
             ParameterSpec(
@@ -160,7 +160,7 @@ def _exact_state_anchors_location_for_every_summary_complete_component_slots_2_f
         )
     )
     mood_revised = mood.revised(indicators=(mood_rating_revised,))
-    return model.revised(edges=replace_constructs(model.edges, (mood_revised,)))
+    return model.with_entities(edges=replace_constructs(model.edges, (mood_revised,)))
 
 
 def _exact_state_anchors_location_for_every_summary_complete_component_slots_2_false_last() -> (
@@ -173,7 +173,7 @@ def _exact_state_anchors_location_for_every_summary_complete_component_slots_2_f
         observation=mood_rating.observation.revised(aggregation=SummaryOperator.LAST)
     )
     mood_revised = mood.revised(indicators=(mood_rating_revised,))
-    return model.revised(edges=replace_constructs(model.edges, (mood_revised,)))
+    return model.with_entities(edges=replace_constructs(model.edges, (mood_revised,)))
 
 
 def _free_center_without_standardized_channel_fails__with_likelihoods() -> ModelSpec:
@@ -208,7 +208,7 @@ def _free_center_without_standardized_channel_fails__with_likelihoods() -> Model
             ),
         )
     )
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(model.edges, (mood_revised,)),
         parameters=(
             *model.parameters,
@@ -245,7 +245,7 @@ def _exact_state_anchors_location_for_every_summary_complete_component_slots_tru
         )
     )
     mood_revised = mood.revised(indicators=(mood_rating_revised,))
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(model.edges, (mood_revised,)),
         parameters=(
             ParameterSpec(
@@ -270,7 +270,7 @@ def _exact_state_anchors_location_for_every_summary_complete_component_slots_tru
         observation=mood_rating.observation.revised(aggregation=SummaryOperator.LAST)
     )
     mood_revised = mood.revised(indicators=(mood_rating_revised,))
-    return model.revised(edges=replace_constructs(model.edges, (mood_revised,)))
+    return model.with_entities(edges=replace_constructs(model.edges, (mood_revised,)))
 
 
 def _exact_state_anchors_location_for_every_summary_complete_component_slots_true_count() -> (
@@ -285,7 +285,7 @@ def _exact_state_anchors_location_for_every_summary_complete_component_slots_tru
         )
     )
     mood_revised = mood.revised(indicators=(mood_rating_revised,))
-    return model.revised(edges=replace_constructs(model.edges, (mood_revised,)))
+    return model.with_entities(edges=replace_constructs(model.edges, (mood_revised,)))
 
 
 def _manifest_intercept_is_rejected_for_categorical_channel__with_likelihoods() -> ModelSpec:
@@ -323,7 +323,7 @@ def _manifest_intercept_is_rejected_for_categorical_channel__with_likelihoods() 
         )
     )
     mood_revised = mood.revised(indicators=(mood_kind_revised,))
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(model.edges, (mood_revised,)),
         parameters=(
             rho_mood,
@@ -388,7 +388,7 @@ def _static_t0_mean_gated_without_standardized_channel__with_likelihoods() -> Mo
         ),
     )
     parameters, distributions = without_parameters(model, t0_mean_trait)
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(model.edges, (trait_revised,)),
         parameters=(
             *parameters,
@@ -448,7 +448,7 @@ def _manifest_intercept_remains_free_for_binary_channel__with_likelihoods() -> M
         )
     )
     _parameters, distributions = without_parameters(model, obs_cat_intercepts, obs_cat_slopes)
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(model.edges, (mood_revised,)),
         parameters=(
             rho_mood,
@@ -500,7 +500,7 @@ def _manifest_intercept_is_rejected_for_standardized_channel__with_likelihoods()
     _parameters, distributions = without_parameters(
         model, obs_sd_mood_rating, obs_cat_intercepts, obs_cat_slopes
     )
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(model.edges, (mood_revised,)),
         parameters=(
             rho_mood,
@@ -566,7 +566,7 @@ def _manifest_intercept_is_rejected_for_threshold_channel__with_likelihoods() ->
         )
     )
     mood_revised = mood.revised(indicators=(mood_level_revised,))
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(model.edges, (mood_revised,)),
         parameters=(
             rho_mood,
@@ -641,7 +641,7 @@ def _structure(
     from nof1_causal_lab.artifacts.indicator import IndicatorSpec
 
     model = make_model(construct_names)
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(
             model.edges,
             tuple(
@@ -780,7 +780,7 @@ class TestLocationAnchors:
     )
     def test_exact_state_anchors_location_for_every_summary(self, affine, model_payload):
         payload = model_payload().model_dump_json()
-        model = ModelSpec.model_validate_json(payload)
+        model = ModelSpec.model_validate_json(payload).materialized()
         if affine:
             with pytest.raises(ValueError, match="Construct 'mood' has no location anchor"):
                 StructuralSelection(model, None)

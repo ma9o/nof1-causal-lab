@@ -1,11 +1,14 @@
 import type { ActionSuccess, RecordDependency, TimelineRevision } from "@nof1-causal-lab/api-types";
 import { describe, expect, it } from "vitest";
-import { fixtureValue } from "@/components/__fixtures__/fixture-value";
+import { decodeFixture, fixtureValue } from "@/components/__fixtures__/fixture-value";
 import { modelResult, fitResult } from "@/components/__fixtures__/action-results";
 import { outcome } from "@/lib/__fixtures__/model";
 import { authoredSnapshot, fittedSnapshot } from "@/lib/__fixtures__/snapshot";
+import rawReports from "@/components/dag/__fixtures__/simulation-reports.json";
 import { callDependencies, producingCall } from "./call-dependencies";
 import { composeCallView } from "./compose-call-view";
+
+const reports = decodeFixture(rawReports);
 
 const WORKSPACE = "TEST";
 const oid = (seq: number) => seq.toString(16).padStart(40, "0");
@@ -68,7 +71,6 @@ const journal: TimelineRevision[] = [1, 4, 5, 7, 8, 9, 10, 11, 12, 13].map((seq)
                 reasoning: null,
                 input: {
                   model_ref: oid(seq - 1),
-                  panel_ref: seq === 9 ? oid(5) : null,
                   simulation: design,
                 },
               }
@@ -156,9 +158,7 @@ function savedResult(seq: number): ActionSuccess {
         ...envelope,
         action: "prepare_data",
         body: {
-          raw_data: null,
-          measurements: null,
-          profile: null,
+          profile: { indicators: {}, dataset_issues: [], is_valid: true },
           data: {},
           metadata: {
             source,
@@ -184,16 +184,18 @@ function savedResult(seq: number): ActionSuccess {
       return {
         ...envelope,
         action: "simulate",
-        body: { report: null, data: [{}, {}], paths: null, arrays: {} },
+        body: { report: fixtureValue(reports[0]), data: [{}, {}] },
       };
     case "data_diff":
       return {
         ...envelope,
         action: "data_diff",
         body: {
-          left: [{ revision: oid(5), replicate_index: 0 }],
-          right: [{ revision: oid(9), replicate_index: 1 }],
-          variables: [],
+          report: {
+            left: [{ revision: oid(5), replicate_index: 0 }],
+            right: [{ revision: oid(9), replicate_index: 1 }],
+            variables: [],
+          },
         },
       };
     case "model_diff":
@@ -231,6 +233,9 @@ describe("views composed from recorded call dependencies", () => {
     expect(view.model).toEqual(fitted.body.model);
     expect(view.fit).toEqual(fittedSnapshot.fit);
     expect(view.simulation).toEqual(simulated.body.report);
+    expect(view.metadata).toBeNull();
+    expect(view.state.data).toBeNull();
+    expect(view.state.current.panel).toBeUndefined();
     expect(view.question).toEqual(question);
     expect(calls.map((call) => call.record.seq).sort((a, b) => a - b)).toEqual([1, 4, 5, 7, 8, 9]);
     expect(producingCall(journal, view.state.current.model?.revision)).toEqual(entry(8));

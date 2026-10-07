@@ -97,7 +97,7 @@ def test_model_reporting_keeps_nonparametric_findings_without_linear_iv_assumpti
     model = make_model(["X", "Y", "Z", "U"], [("Z", "X"), ("X", "Y"), ("U", "X"), ("U", "Y")])
     identities = {construct.name: construct.id for construct in model.constructs}
     x_id, y_id, u_id = (identities[name] for name in ("X", "Y", "U"))
-    model = model.revised(
+    model = model.with_entities(
         edges=replace_constructs(
             model.edges,
             tuple(
@@ -113,7 +113,9 @@ def test_model_reporting_keeps_nonparametric_findings_without_linear_iv_assumpti
     assert x_id not in report.estimable_treatments
     assert x_id in report.non_identifiable
 
-    unconfounded = model.revised(edges=tuple(edge for edge in model.edges if edge.cause.id != u_id))
+    unconfounded = model.with_entities(
+        edges=tuple(edge for edge in model.edges if edge.cause.id != u_id)
+    )
     identified = identify_model(StructuralSelection(unconfounded, y_id))
     finding = identified.treatments[x_id]
     assert finding.status == "identified"

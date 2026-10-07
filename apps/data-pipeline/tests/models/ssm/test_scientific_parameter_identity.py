@@ -64,7 +64,7 @@ def _shared_likelihood_parameter_owns_only_active_channels_complete_model() -> M
         )
     )
     a_revised = a.revised(indicators=(a_obs_revised,))
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(model.edges, (a_revised,)),
         parameters=(
             *model.parameters,
@@ -102,7 +102,7 @@ def _shared_likelihood_parameter_owns_only_active_channels_complete_model_2() ->
         )
     )
     b_revised = b.revised(indicators=(b_obs_revised,))
-    return model.revised(edges=replace_constructs(model.edges, (b_revised,)))
+    return model.with_entities(edges=replace_constructs(model.edges, (b_revised,)))
 
 
 def _student_innovation_model() -> ModelSpec:
@@ -135,7 +135,7 @@ def _student_innovation_model() -> ModelSpec:
         ),
         innovation_family=DistributionFamily.STUDENT_T,
     )
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(
             model.edges,
             (
@@ -178,7 +178,7 @@ def _rename_preserves_parameter_and_element_identity__compile_2() -> ModelSpec:
         observation=b_obs.observation.revised(name="renamed measurement 1")
     )
     b_revised = b.revised(name="renamed construct 1", indicators=(b_obs_revised,))
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(
             model.edges,
             (
@@ -252,7 +252,7 @@ def _initial_state_defaults_are_authored_before_compilation_complete_model_initi
             coefficient(_T0_SD_B_PARAMETER_ID, "initial_scale"),
         )
     )
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(
             model.edges,
             (
@@ -317,7 +317,7 @@ def _initial_state_defaults_are_authored_before_compilation_complete_model_initi
             coefficient(_T0_MEAN_B_PARAMETER_ID, "initial_mean"),
         )
     )
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(
             model.edges,
             (
@@ -378,7 +378,7 @@ def _scalar_identity_survives_reordered_execution_axes__compile() -> ModelSpec:
     beta_b_a = parameter_named(model, "beta_B_A")
     sigma_a = parameter_named(model, "sigma_A")
     sigma_b = parameter_named(model, "sigma_B")
-    return model.revised(
+    return model.with_entities(
         edges=(
             a_to_b,
             b_to_a,
@@ -440,7 +440,9 @@ def test_scalar_identity_survives_reordered_execution_axes():
 def test_model_rejects_forged_owner_before_compilation():
     model = additive_a_b_model()
     payload = model.model_dump(mode="json")
-    payload["parameters"][0]["owners"] = [{"kind": "construct", "id": "construct:forged"}]
+    next(iter(payload["parameters"].values()))["owners"] = [
+        {"kind": "construct", "id": "construct:forged"}
+    ]
     with pytest.raises(ValueError, match=r"Extra inputs|owner"):
         type(model).model_validate(payload)
 
@@ -550,7 +552,7 @@ def test_student_innovation_tail_is_explicit_and_shared_through_completion():
         assert parameter in model.parameters_for(construct.id)
     compile_model_fixture(model)
     first, second = model.constructs
-    candidate = model.revised(
+    candidate = model.with_entities(
         edges=replace_constructs(
             model.edges,
             (
@@ -601,7 +603,7 @@ def test_initial_state_defaults_are_authored_before_compilation(
 ):
     model = _compile_payload()
 
-    free = model.revised(
+    free = model.with_entities(
         edges=replace_constructs(
             model.edges,
             tuple(
@@ -634,14 +636,14 @@ def test_initial_state_defaults_are_authored_before_compilation(
     assert completed.model_dump(mode="json") == before
     assert all(
         "elements" not in p and "role" not in p and "constraint" not in p
-        for p in before["parameters"]
+        for p in before["parameters"].values()
     )
 
 
 @pytest.mark.inference(concern="sampling")
 def test_parameter_labels_do_not_change_mechanisms_bindings_or_prior_laws():
     model = additive_a_b_model()
-    renamed = model.revised(
+    renamed = model.with_entities(
         parameters=tuple(p.revised(name=f"display {n}") for n, p in enumerate(model.parameters))
     )
     compile_model_fixture(renamed)
@@ -661,7 +663,7 @@ def test_additive_hill_and_linear_terms_survive_parameter_renaming():
         _additive_hill_and_linear_terms_survive_parameter_renaming_with_parameter_distributions()
     )
     compile_model_fixture(additive)
-    renamed = additive.revised(
+    renamed = additive.with_entities(
         parameters=tuple(p.revised(name=f"opaque {n}") for n, p in enumerate(additive.parameters))
     )
     compile_model_fixture(renamed)

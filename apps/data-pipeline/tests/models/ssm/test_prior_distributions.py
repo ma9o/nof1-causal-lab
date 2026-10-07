@@ -64,7 +64,7 @@ def _scientific_roundtrip_preserves_distinct_native_coordinate_laws_with_paramet
     parameters, distributions = without_parameters(
         model, latent_0_latent_1_hill_emax, latent_0_latent_1_hill_n, latent_0_latent_1_hill_ec50
     )
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(
             tuple(
                 edge
@@ -105,7 +105,7 @@ def _compiler_and_dynestyx_parameter_trace_use_the_exact_persistence_law_with_pa
         _compiler_and_dynestyx_parameter_trace_use_the_exact_persistence_law_complete_test_model()
     )
     rho_mood = parameter_named(model, "rho_mood")
-    return model.revised(
+    return model.with_entities(
         parameters=replace_parameters(
             model.parameters,
             rho_mood.revised(transform=rho_mood.transform.revised(interval_days=7.0)),
@@ -297,7 +297,7 @@ def test_scientific_roundtrip_preserves_distinct_native_coordinate_laws():
     from nof1_causal_lab.models.ssm.compile.prior_compilation import compile_priors
 
     model = _scientific_roundtrip_preserves_distinct_native_coordinate_laws_with_parameter_distributions()
-    restored = ModelSpec.model_validate_json(model.model_dump_json())
+    restored = ModelSpec.model_validate_json(model.model_dump_json()).materialized()
     assert restored == model
     before = compile_priors(compile_model_fixture(model), StructuralSelection(model, None))[0][
         "t0_means_free"
@@ -327,7 +327,7 @@ def test_compiler_and_dynestyx_parameter_trace_use_the_exact_persistence_law():
         if definition.parameter_context(p.id).quantity == SiteKind.DYNAMICS_DECAY
     )
     definition = _compiler_and_dynestyx_parameter_trace_use_the_exact_persistence_law_with_parameter_distributions()
-    restored = ModelSpec.model_validate_json(definition.model_dump_json())
+    restored = ModelSpec.model_validate_json(definition.model_dump_json()).materialized()
     model = compile_fit_fixture(restored)
     binding = next(
         b

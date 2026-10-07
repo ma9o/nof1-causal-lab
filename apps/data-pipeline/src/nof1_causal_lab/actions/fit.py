@@ -7,7 +7,7 @@ from typing import TYPE_CHECKING, TypedDict
 import numpy as np
 
 from nof1_causal_lab.actions.errors import ModelFitError
-from nof1_causal_lab.artifacts.checks import Evaluated, NotEvaluated
+from nof1_causal_lab.artifacts.arrays import ArrayVector, NumericalArray
 from nof1_causal_lab.artifacts.identity import ParameterRef
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.parameter import ParameterCoordinate
@@ -17,8 +17,8 @@ from nof1_causal_lab.artifacts.posterior import (
     InferenceReport,
     InferenceReportCore,
     InferenceReportDetail,
+    ModelFitResult,
 )
-from nof1_causal_lab.artifacts.posterior_diagnostics import ParticleMCMCEvidence
 from nof1_causal_lab.models.ssm.inference.convergence import parameter_convergence
 from nof1_causal_lab.models.ssm.inference.persistence import condition_model
 
@@ -39,6 +39,7 @@ class FitResult(TypedDict):
 
     _model: ModelSpec
     evidence: InferenceEvidence
+    metadata: InferenceMetadata
 
 
 def fit(
@@ -62,25 +63,29 @@ def fit(
     result = fitted["result"]
     native = result.diagnostics
 
-    def retain(values: object | None) -> str | None:
-        return array_writer(np.asarray(values)) if values is not None else None
+    def retain(values: object | None) -> NumericalArray | None:
+        return NumericalArray.from_numpy(np.asarray(values)) if values is not None else None
 
     conditioned, identity = condition_model(
         selection.model,
         fitted["panel"].model,
         result,
         times=fitted["panel"].times,
+        time_origin=time_origin,
         array_writer=array_writer,
         array_loader=array_loader,
     )
-    evidence = InferenceEvidence(
+    metadata = InferenceMetadata(
         distribution=identity,
-        engine=ParticleMCMCEvidence(),
-        time_origin=time_origin,
+        engine=result.evidence,
         duration_seconds=fitted["duration_seconds"],
         num_chains=native.mcmc.num_chains,
+        n_samples=native.mcmc.num_chains * native.mcmc.num_samples,
+        sampler_diagnostics=native.marginal_particle_gibbs,
+    )
+    evidence = InferenceEvidence(
         chain_extra_fields={
-            name: array_writer(np.asarray(values))
+            name: NumericalArray.from_numpy(np.asarray(values))
             for name, values in native.mcmc.get_extra_fields(group_by_chain=True).items()
         },
         observation_log_probs=retain(native.observation_log_probs)
@@ -90,9 +95,8 @@ def fit(
         if compute_loo_diagnostics
         else None,
         exact_observation_rows=retain(native.exact_observation_rows),
-        sampler_diagnostics=native.marginal_particle_gibbs,
         phase_extra_fields={
-            phase: {name: array_writer(np.asarray(values)) for name, values in buffers.items()}
+            phase: {name: NumericalArray.from_numpy(np.asarray(values)) for name, values in buffers.items()}
             for phase, buffers in (native.marginal_particle_gibbs_phase_extra_fields or {}).items()
         },
         warmup_complete_log_posterior_history=retain(native.warmup_complete_log_posterior_history),
@@ -100,16 +104,19 @@ def fit(
         initial_latent_delta=retain(result.initial_latent_delta),
         final_latent_delta=retain(result.final_latent_delta),
     )
-    return {"_model": conditioned, "evidence": evidence}
+    return {"_model": conditioned, "evidence": evidence, "metadata": metadata}
 
 
 def read_inference_report(
     store: ArtifactStore,
     revision: GitOid,
-    evidence: InferenceEvidence,
+    result: ModelFitResult,
+    metadata: InferenceMetadata,
 ) -> InferenceReport:
     """Compute exact-chain diagnostics from this fit's atoms and native telemetry."""
     from nof1_causal_lab.study.store import read_model
+
+    evidence = result.evidence
 
     def render() -> InferenceReport:
         import jax.numpy as jnp
@@ -124,7 +131,7 @@ def read_inference_report(
         from nof1_causal_lab.numpyro_json import empirical_atoms
 
         model = read_model(store, revision)
-        layouts = {evidence.distribution: model.law_layouts[evidence.distribution]}
+        layouts = {metadata.distribution: model.law_layouts[metadata.distribution]}
         atoms = {identity: empirical_atoms(model.distributions[identity]) for identity in layouts}
         count = next(iter(atoms.values())).shape[0]
         samples: dict[str, jnp.ndarray] = {
@@ -144,13 +151,13 @@ def read_inference_report(
         }
         marginals = compute_posterior_marginals(samples, references)
         extra = {
-            name: jnp.asarray(store.read_array(ref))
+            name: jnp.asarray(ref.values)
             for name, ref in evidence.chain_extra_fields.items()
         }
         diagnostics = None
         traces, ranks, loo = (), (), None
-        if evidence.num_chains is not None and samples:
-            chains = evidence.num_chains
+        if samples:
+            chains = metadata.num_chains
             if count % chains:
                 raise ValueError("Retained atoms do not match their original chain count")
             posterior = ParticleMCMCPosterior.from_run(
@@ -165,12 +172,12 @@ def read_inference_report(
                         num_samples=count // chains,
                     ),
                     observation_log_probs=jnp.asarray(
-                        store.read_array(evidence.observation_log_probs)
+                        evidence.observation_log_probs.values
                     )
                     if evidence.observation_log_probs is not None
                     else jnp.empty((chains, count // chains, 0)),
                     exact_observation_rows=jnp.asarray(
-                        store.read_array(evidence.exact_observation_rows)
+                        evidence.exact_observation_rows.values
                     )
                     if evidence.exact_observation_rows is not None
                     else None,
@@ -181,46 +188,44 @@ def read_inference_report(
             if evidence.observation_log_probs is not None:
                 assert evidence.observed_rows is not None
                 loo = posterior.get_loo_diagnostics(
-                    observed_rows=jnp.asarray(store.read_array(evidence.observed_rows))
+                    observed_rows=jnp.asarray(evidence.observed_rows.values)
                 )
 
-        def rows(ref: str | None) -> tuple[tuple[float, ...], ...] | None:
-            return (
-                tuple(tuple(float(value) for value in row) for row in store.read_array(ref))
-                if ref is not None
-                else None
-            )
+        from nof1_causal_lab.study.prior_views import quantity_prior_densities
 
+        input_model = read_model(store, result.model.revision)
+        fitted_parameters = frozenset(value.subject.parameter_id for value in marginals)
+        priors = quantity_prior_densities(input_model, fitted_parameters)
+        layout = layouts[metadata.distribution]
+        atoms_value = NumericalArray.from_numpy(atoms[metadata.distribution])
+        chain_size = count // metadata.num_chains
         return InferenceReport(
+            run=result,
             core=InferenceReportCore(
-                time_origin=evidence.time_origin,
-                inference_metadata=InferenceMetadata(
-                    n_samples=count, duration_seconds=evidence.duration_seconds
-                ),
-                engine=Evaluated(
-                    subject="production_engine", outcome="passed", evidence=evidence.engine
-                )
-                if evidence.engine is not None
-                else NotEvaluated(
-                    subject="production_engine",
-                    reason="ARCHIVED_ENGINE_NOT_RETAINED",
-                    detail="The original fit retained no exact-engine marker.",
-                ),
+                inference_metadata=metadata,
                 inference_diagnostics=diagnostics,
-                sampler_diagnostics=evidence.sampler_diagnostics,
                 convergence=parameter_convergence(diagnostics),
                 loo_diagnostics=loo[0] if loo is not None else None,
                 posterior_marginals=marginals,
+                prior_densities=priors,
             ),
             detail=InferenceReportDetail(
-                trace_data=traces,
+                trace_data=tuple(
+                    trace.revised(
+                        chains=tuple(
+                            ArrayVector(
+                                array=atoms_value,
+                                indices=(None, layout.parameter_columns[trace.subject.element_id]),
+                                start=chain * chain_size,
+                                stop=(chain + 1) * chain_size,
+                            )
+                            for chain in range(metadata.num_chains)
+                        )
+                    )
+                    for trace in traces
+                ),
                 rank_histograms=ranks,
                 pareto_k=loo[1] if loo is not None else (),
-                divergent=tuple(bool(value) for value in extra["diverging"].reshape(-1))
-                if "diverging" in extra
-                else None,
-                initial_latent_delta=rows(evidence.initial_latent_delta),
-                final_latent_delta=rows(evidence.final_latent_delta),
             ),
         )
 

@@ -1,16 +1,16 @@
+import { modelParameters } from "@/lib/model-accessors";
 import type {
   CausalEdgeSpec,
   ConstructSpec,
   DensityCurve,
   IndicatorSpec,
   ModelSnapshot,
-  ObservationLawSpec,
-  Expression,
   ParameterSpec,
   PosteriorMarginal,
 } from "@nof1-causal-lab/api-types";
 import { type CoefficientUse, coefficientUses } from "@/lib/model-accessors";
-import { assertNever } from "@/lib/assert-never";
+import { observationArguments } from "./observation-law";
+import { authoredPriorPlot } from "./authored-prior-plot";
 import { humanize } from "./selection";
 
 /** One parameter's recorded laws at the viewed version, arranged on a single axis. */
@@ -33,49 +33,21 @@ export function ownLawUses(entity: ConstructSpec | CausalEdgeSpec | IndicatorSpe
   if ("dynamics" in entity)
     return coefficientUses([...entity.dynamics.map((d) => d.expression), ...entity.coefficients]);
   if ("mechanisms" in entity) return coefficientUses(entity.mechanisms.map((m) => m.expression));
-  return coefficientUses(entity.likelihood ? observationOperands(entity.likelihood.law) : []);
+  return coefficientUses(
+    entity.likelihood ? observationArguments(entity.likelihood.law).map(([, value]) => value) : [],
+  );
 }
 
-/** Traverse the typed operands; probability evaluation belongs to the pipeline. */
-function observationOperands(law: ObservationLawSpec): readonly Expression[] {
-  switch (law.distribution) {
-    case "Delta":
-      return [law.v];
-    case "Normal":
-      return [law.loc, law.scale];
-    case "StudentT":
-      return [law.df, law.loc, law.scale];
-    case "Poisson":
-      return [law.rate];
-    case "Gamma":
-      return [law.concentration, law.rate];
-    case "BernoulliLogits":
-      return [law.logits];
-    case "BernoulliProbs":
-      return [law.probs];
-    case "NegativeBinomial2":
-      return [law.mean, law.concentration];
-    case "Beta":
-      return [law.concentration1, law.concentration0];
-    case "OrderedLogistic":
-      return [law.predictor, law.cutpoints];
-    case "Categorical":
-      return [law.logits];
-    default:
-      return assertNever(law);
-  }
-}
-
-/** A fit's posteriors supersede the laws authored at its version; unplotted laws are omitted. */
+/** A fit's posteriors supersede the laws authored at its version. */
 export function lawCurves(model: ModelSnapshot, uses: readonly CoefficientUse[]): LawCurve[] {
   const parameters = new Map(
-    (model.model?.parameters ?? []).map((parameter) => [parameter.id, parameter]),
+    modelParameters(model.model).map((parameter) => [parameter.id, parameter]),
   );
   const fit = model.fit;
   return uses.flatMap((use): LawCurve[] => {
     const parameter = parameters.get(use.parameterId);
     if (!parameter) return [];
-    const posteriors = (fit?.report.posterior_marginals ?? []).filter(
+    const posteriors = (fit?.posterior_marginals ?? []).filter(
       (marginal) => marginal.subject.parameter_id === use.parameterId,
     );
     if (fit && posteriors.length > 0)
@@ -89,20 +61,16 @@ export function lawCurves(model: ModelSnapshot, uses: readonly CoefficientUse[])
           family: null,
         },
       ];
-    const prior = model.authoring_prior_densities[use.parameterId] ?? {
-      x: [],
-      density: [],
-    };
     const law = parameter.distribution ? model.model?.distributions[parameter.distribution] : null;
-    return prior.x.length > 0
+    return law
       ? [
           {
             use,
             parameter,
             kind: "authored",
-            prior,
+            prior: authoredPriorPlot(law),
             posteriors: [],
-            family: law?.distribution ?? null,
+            family: law.distribution,
           },
         ]
       : [];

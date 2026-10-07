@@ -78,7 +78,7 @@ def _all_fixed_spec_yields_no_sites__all_fixed_spec() -> ModelSpec:
             coefficient(1.0, "initial_scale"),
         ),
     )
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(
             model.edges,
             (

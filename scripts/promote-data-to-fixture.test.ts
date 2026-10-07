@@ -53,16 +53,16 @@ afterEach(async () => {
 });
 
 describe("promoteDataWorkspace", () => {
-  it("replaces DEMO with one durable workspace and copy-only fixture projections", async () => {
+  it("replaces HEALTHDEMO with one durable workspace and copy-only fixture projections", async () => {
     const root = await mkdtemp(join(tmpdir(), "nof1-fixture-promotion-"));
     temporaryRoots.push(root);
     const dataRoot = join(root, "data");
     await seedCompleteWorkspace(dataRoot, "CANDIDATE");
 
-    await writeJson(join(dataRoot, "DEMO", "fixture", "artifacts", "artificial.json"), {
+    await writeJson(join(dataRoot, "HEALTHDEMO", "fixture", "artifacts", "artificial.json"), {
       artificial: true,
     });
-    await writeJson(join(dataRoot, "DEMO", "scratch", "old.json"), { old: true });
+    await writeJson(join(dataRoot, "HEALTHDEMO", "scratch", "old.json"), { old: true });
 
     const summary = await promoteDataWorkspace({
       sourceWorkspaceId: "CANDIDATE",
@@ -70,13 +70,13 @@ describe("promoteDataWorkspace", () => {
     });
 
     expect(summary.artifacts).toEqual(["model"]);
-    expect(await pathExists(join(dataRoot, "DEMO", "study", "history.git"))).toBe(true);
+    expect(await pathExists(join(dataRoot, "HEALTHDEMO", "study", "history.git"))).toBe(true);
     const restoredHistory = join(root, "restored.git");
     const restore = Bun.spawnSync([
       "git",
       "clone",
       "--mirror",
-      join(dataRoot, "DEMO", "study", "history.bundle"),
+      join(dataRoot, "HEALTHDEMO", "study", "history.bundle"),
       restoredHistory,
     ]);
     expect(restore.exitCode).toBe(0);
@@ -85,19 +85,19 @@ describe("promoteDataWorkspace", () => {
       expect(result.exitCode).toBe(0);
       return result.stdout.toString();
     };
-    expect(refs(restoredHistory)).toBe(refs(join(dataRoot, "DEMO", "study", "history.git")));
-    expect((await readdir(join(dataRoot, "DEMO", "store", "blobs"))).length).toBeGreaterThan(0);
-    expect(await pathExists(join(dataRoot, "DEMO", "fixture", "artifacts", "raw_data.json"))).toBe(
+    expect(refs(restoredHistory)).toBe(refs(join(dataRoot, "HEALTHDEMO", "study", "history.git")));
+    expect((await readdir(join(dataRoot, "HEALTHDEMO", "store", "blobs"))).length).toBeGreaterThan(0);
+    expect(await pathExists(join(dataRoot, "HEALTHDEMO", "fixture", "artifacts", "raw_data.json"))).toBe(
       false,
     );
     expect(summary.traces).toHaveLength(5);
     expect(
-      JSON.parse(await readFile(join(dataRoot, "DEMO", "fixture", "inference.json"), "utf8")),
+      JSON.parse(await readFile(join(dataRoot, "HEALTHDEMO", "fixture", "inference.json"), "utf8")),
     ).toBeNull();
     expect(
       JSON.parse(
         await readFile(
-          join(dataRoot, "DEMO", "fixture", "traces", "statistical_model_spec.json"),
+          join(dataRoot, "HEALTHDEMO", "fixture", "traces", "statistical_model_spec.json"),
           "utf8",
         ),
       ),
@@ -110,13 +110,13 @@ describe("promoteDataWorkspace", () => {
         },
       ],
     });
-    expect(await pathExists(join(dataRoot, "DEMO", "store", "model"))).toBe(false);
+    expect(await pathExists(join(dataRoot, "HEALTHDEMO", "store", "model"))).toBe(false);
     expect(
-      await pathExists(join(dataRoot, "DEMO", "fixture", "artifacts", "artificial.json")),
+      await pathExists(join(dataRoot, "HEALTHDEMO", "fixture", "artifacts", "artificial.json")),
     ).toBe(false);
-    expect(await pathExists(join(dataRoot, "DEMO", "scratch"))).toBe(false);
-    expect(await pathExists(join(dataRoot, "DEMO", "cache"))).toBe(false);
-    expect(await pathExists(join(dataRoot, "DEMO", "access.json"))).toBe(true);
+    expect(await pathExists(join(dataRoot, "HEALTHDEMO", "scratch"))).toBe(false);
+    expect(await pathExists(join(dataRoot, "HEALTHDEMO", "cache"))).toBe(false);
+    expect(await pathExists(join(dataRoot, "HEALTHDEMO", "access.json"))).toBe(true);
   });
 
   it("leaves the existing fixture untouched when the source run is incomplete", async () => {
@@ -124,15 +124,15 @@ describe("promoteDataWorkspace", () => {
     temporaryRoots.push(root);
     const dataRoot = join(root, "data");
     await seedCompleteWorkspace(dataRoot, "CANDIDATE", { omit: "panel" });
-    await mkdir(join(dataRoot, "DEMO"), { recursive: true });
-    await writeFile(join(dataRoot, "DEMO", "sentinel.txt"), "keep me");
+    await mkdir(join(dataRoot, "HEALTHDEMO"), { recursive: true });
+    await writeFile(join(dataRoot, "HEALTHDEMO", "sentinel.txt"), "keep me");
 
     await expect(
       promoteDataWorkspace({ sourceWorkspaceId: "CANDIDATE", dataRoot }),
     ).rejects.toThrow("missing current artifacts: panel");
 
-    expect(await readFile(join(dataRoot, "DEMO", "sentinel.txt"), "utf8")).toBe("keep me");
-    expect((await readdir(dataRoot)).some((entry) => entry.startsWith(".DEMO-promotion-"))).toBe(
+    expect(await readFile(join(dataRoot, "HEALTHDEMO", "sentinel.txt"), "utf8")).toBe("keep me");
+    expect((await readdir(dataRoot)).some((entry) => entry.startsWith(".HEALTHDEMO-promotion-"))).toBe(
       false,
     );
   });
@@ -142,12 +142,12 @@ describe("promoteDataWorkspace", () => {
     temporaryRoots.push(root);
     const dataRoot = join(root, "data");
     await seedCompleteWorkspace(dataRoot, "CANDIDATE", { stalePanel: true });
-    await mkdir(join(dataRoot, "DEMO"), { recursive: true });
-    await writeFile(join(dataRoot, "DEMO", "sentinel.txt"), "keep me");
+    await mkdir(join(dataRoot, "HEALTHDEMO"), { recursive: true });
+    await writeFile(join(dataRoot, "HEALTHDEMO", "sentinel.txt"), "keep me");
 
     await expect(
       promoteDataWorkspace({ sourceWorkspaceId: "CANDIDATE", dataRoot }),
     ).rejects.toThrow("stale current artifacts: panel");
-    expect(await readFile(join(dataRoot, "DEMO", "sentinel.txt"), "utf8")).toBe("keep me");
+    expect(await readFile(join(dataRoot, "HEALTHDEMO", "sentinel.txt"), "utf8")).toBe("keep me");
   });
 });

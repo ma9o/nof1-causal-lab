@@ -1,105 +1,126 @@
 {
-  "edges": [
-    {
-      "id": "edge:4ffb5631f8cf9e024ca1",
-      "mechanisms": [],
-      "cause": {
-        "id": "construct:f41a49956dbdbff5c9d6",
-        "name": "screen_gap",
-        "description": "Test state",
-        "indicators": [
-          {
-            "likelihood": {
-              "law": {
-                "distribution": "Gamma",
-                "concentration": {
+  "constructs": {
+    "construct:f41a49956dbdbff5c9d6": {
+      "name": "screen_gap",
+      "description": "Test state",
+      "indicators": {
+        "indicator:cbb3ae60fb004e37d3c6": {
+          "likelihood": {
+            "law": {
+              "distribution": "Gamma",
+              "concentration": {
+                "kind": "coefficient",
+                "role": "shape",
+                "value": "parameter:bac97683557f7dace2e2cd5dd012ab554cbf5e6ee48c4382aa3dd82da226269e",
+                "construct_ids": []
+              },
+              "rate": {
+                "kind": "binary",
+                "operator": "divide",
+                "left": {
                   "kind": "coefficient",
                   "role": "shape",
                   "value": "parameter:bac97683557f7dace2e2cd5dd012ab554cbf5e6ee48c4382aa3dd82da226269e",
                   "construct_ids": []
                 },
-                "rate": {
-                  "kind": "binary",
-                  "operator": "divide",
-                  "left": {
-                    "kind": "coefficient",
-                    "role": "shape",
-                    "value": "parameter:bac97683557f7dace2e2cd5dd012ab554cbf5e6ee48c4382aa3dd82da226269e",
-                    "construct_ids": []
-                  },
-                  "right": {
-                    "kind": "call",
-                    "function": "exp",
-                    "arguments": [
-                      {
+                "right": {
+                  "kind": "call",
+                  "function": "exp",
+                  "arguments": [
+                    {
+                      "kind": "binary",
+                      "operator": "add",
+                      "left": {
+                        "kind": "coefficient",
+                        "role": "observation_intercept",
+                        "value": 0.0,
+                        "construct_ids": []
+                      },
+                      "right": {
                         "kind": "binary",
-                        "operator": "add",
+                        "operator": "multiply",
                         "left": {
                           "kind": "coefficient",
-                          "role": "observation_intercept",
-                          "value": 0.0,
+                          "role": "loading",
+                          "value": 1.0,
                           "construct_ids": []
                         },
                         "right": {
-                          "kind": "binary",
-                          "operator": "multiply",
-                          "left": {
-                            "kind": "coefficient",
-                            "role": "loading",
-                            "value": 1.0,
-                            "construct_ids": []
-                          },
-                          "right": {
-                            "kind": "state",
-                            "construct_id": "construct:f41a49956dbdbff5c9d6"
-                          }
+                          "kind": "state",
+                          "construct_id": "construct:f41a49956dbdbff5c9d6"
                         }
                       }
-                    ]
-                  }
+                    }
+                  ]
                 }
-              },
-              "standardized": false,
-              "reasoning": "Test likelihood",
-              "sources": []
+              }
             },
-            "construct_polarity": "positive",
-            "observation": {
-              "categorical_levels": null,
-              "id": "indicator:cbb3ae60fb004e37d3c6",
-              "aggregation": "last",
-              "name": "screen_gap",
-              "ordinal_levels": null,
-              "measurement_dtype": "continuous",
-              "observation_window": null
-            }
+            "standardized": false,
+            "reasoning": "Test likelihood",
+            "sources": []
+          },
+          "construct_polarity": "positive",
+          "observation": {
+            "categorical_levels": null,
+            "aggregation": "last",
+            "name": "screen_gap",
+            "ordinal_levels": null,
+            "measurement_dtype": "continuous",
+            "observation_window": null
           }
-        ],
-        "dynamics": [
-          {
-            "id": "mechanism:096e3522d5b5a78dfd59",
-            "kind": "drift",
-            "expression": {
+        }
+      },
+      "dynamics": {
+        "mechanism:096e3522d5b5a78dfd59": {
+          "kind": "drift",
+          "expression": {
+            "kind": "binary",
+            "operator": "subtract",
+            "left": {
               "kind": "binary",
-              "operator": "subtract",
+              "operator": "multiply",
               "left": {
                 "kind": "binary",
                 "operator": "multiply",
                 "left": {
-                  "kind": "binary",
-                  "operator": "multiply",
-                  "left": {
-                    "kind": "literal",
-                    "value": -1.0
-                  },
-                  "right": {
-                    "kind": "coefficient",
-                    "role": "decay",
-                    "value": "parameter:5243f7920370d9fe86357625c16d0be0a6f367806b5d976588d00ce7dd1f085c",
-                    "construct_ids": []
-                  }
+                  "kind": "literal",
+                  "value": -1.0
                 },
                 "right": {
+                  "kind": "coefficient",
+                  "role": "decay",
+                  "value": "parameter:5243f7920370d9fe86357625c16d0be0a6f367806b5d976588d00ce7dd1f085c",
+                  "construct_ids": []
+                }
+              },
+              "right": {
+                "kind": "binary",
+                "operator": "subtract",
+                "left": {
+                  "kind": "state",
+                  "construct_id": "construct:f41a49956dbdbff5c9d6"
+                },
+                "right": {
+                  "kind": "coefficient",
+                  "role": "center",
+                  "value": 0.0,
+                  "construct_ids": []
+                }
+              }
+            },
+            "right": {
+              "kind": "binary",
+              "operator": "multiply",
+              "left": {
+                "kind": "coefficient",
+                "role": "quartic",
+                "value": 0.0,
+                "construct_ids": []
+              },
+              "right": {
+                "kind": "binary",
+                "operator": "power",
+                "left": {
                   "kind": "binary",
                   "operator": "subtract",
                   "left": {
@@ -112,87 +133,64 @@
                     "value": 0.0,
                     "construct_ids": []
                   }
-                }
-              },
-              "right": {
-                "kind": "binary",
-                "operator": "multiply",
-                "left": {
-                  "kind": "coefficient",
-                  "role": "quartic",
-                  "value": 0.0,
-                  "construct_ids": []
                 },
                 "right": {
-                  "kind": "binary",
-                  "operator": "power",
-                  "left": {
-                    "kind": "binary",
-                    "operator": "subtract",
-                    "left": {
-                      "kind": "state",
-                      "construct_id": "construct:f41a49956dbdbff5c9d6"
-                    },
-                    "right": {
-                      "kind": "coefficient",
-                      "role": "center",
-                      "value": 0.0,
-                      "construct_ids": []
-                    }
-                  },
-                  "right": {
-                    "kind": "literal",
-                    "value": 3.0
-                  }
+                  "kind": "literal",
+                  "value": 3.0
                 }
               }
             }
           }
-        ],
-        "coefficients": [
-          {
-            "kind": "coefficient",
-            "role": "diffusion_scale",
-            "value": "parameter:90be331f277802cea14e9f3de06edc9b23d289491ca5be1d0868c2b2a35cca79",
-            "construct_ids": []
-          },
-          {
-            "kind": "coefficient",
-            "role": "initial_mean",
-            "value": "parameter:dd0cf717029c72a3fdcc5b3f1c2a51d6509e5cd34e46ec0d9afde0c40c7e8d87",
-            "construct_ids": []
-          },
-          {
-            "kind": "coefficient",
-            "role": "initial_scale",
-            "value": "parameter:bc0cf155753a1065c26ee1e9e8b166caa0472ed1ce6ec4e87dd976b523c2fafa",
-            "construct_ids": []
-          }
-        ],
-        "innovation_family": "gaussian",
-        "distribution": null,
-        "role": "endogenous",
-        "temporal_status": "time_varying"
+        }
       },
-      "effect": {
-        "id": "construct:numerical_test_outcome",
-        "name": "numerical_test_outcome",
-        "description": "Unmeasured downstream response joining the numerical test states.",
-        "indicators": [],
-        "dynamics": [],
-        "coefficients": [],
-        "innovation_family": "gaussian",
-        "distribution": null,
-        "role": "endogenous",
-        "temporal_status": "time_varying"
-      },
-      "description": "Fixture causal assumption",
-      "sources": []
+      "coefficients": [
+        {
+          "kind": "coefficient",
+          "role": "diffusion_scale",
+          "value": "parameter:90be331f277802cea14e9f3de06edc9b23d289491ca5be1d0868c2b2a35cca79",
+          "construct_ids": []
+        },
+        {
+          "kind": "coefficient",
+          "role": "initial_mean",
+          "value": "parameter:dd0cf717029c72a3fdcc5b3f1c2a51d6509e5cd34e46ec0d9afde0c40c7e8d87",
+          "construct_ids": []
+        },
+        {
+          "kind": "coefficient",
+          "role": "initial_scale",
+          "value": "parameter:bc0cf155753a1065c26ee1e9e8b166caa0472ed1ce6ec4e87dd976b523c2fafa",
+          "construct_ids": []
+        }
+      ],
+      "innovation_family": "gaussian",
+      "distribution": null,
+      "role": "endogenous",
+      "temporal_status": "time_varying"
+    },
+    "construct:numerical_test_outcome": {
+      "name": "numerical_test_outcome",
+      "description": "Unmeasured downstream response joining the numerical test states.",
+      "indicators": {},
+      "dynamics": {},
+      "coefficients": [],
+      "innovation_family": "gaussian",
+      "distribution": null,
+      "role": "endogenous",
+      "temporal_status": "time_varying"
     }
-  ],
-  "parameters": [
-    {
-      "id": "parameter:5243f7920370d9fe86357625c16d0be0a6f367806b5d976588d00ce7dd1f085c",
+  },
+  "edges": {
+    "edge:4ffb5631f8cf9e024ca1": {
+      "mechanisms": {},
+      "description": "Fixture causal assumption",
+      "sources": [],
+      "cause": "construct:f41a49956dbdbff5c9d6",
+      "effect": "construct:numerical_test_outcome"
+    }
+  },
+  "parameters": {
+    "parameter:5243f7920370d9fe86357625c16d0be0a6f367806b5d976588d00ce7dd1f085c": {
       "name": "parameter:5243f7920370d9fe86357625c16d0be0a6f367806b5d976588d00ce7dd1f085c",
       "description": "Fixture quantity",
       "distribution": "distribution:a3103fb2a5c8c30fccfa0bebd9349e00af3eb69025fd9fdb0a7c19640445faf0",
@@ -200,8 +198,7 @@
         "kind": "identity"
       }
     },
-    {
-      "id": "parameter:90be331f277802cea14e9f3de06edc9b23d289491ca5be1d0868c2b2a35cca79",
+    "parameter:90be331f277802cea14e9f3de06edc9b23d289491ca5be1d0868c2b2a35cca79": {
       "name": "parameter:90be331f277802cea14e9f3de06edc9b23d289491ca5be1d0868c2b2a35cca79",
       "description": "Fixture quantity",
       "distribution": "distribution:62528c909bacc47fbe4d70ae5e8f4859f6c68ab02dcfa53c10ab6b744b64e6d9",
@@ -209,8 +206,7 @@
         "kind": "identity"
       }
     },
-    {
-      "id": "parameter:dd0cf717029c72a3fdcc5b3f1c2a51d6509e5cd34e46ec0d9afde0c40c7e8d87",
+    "parameter:dd0cf717029c72a3fdcc5b3f1c2a51d6509e5cd34e46ec0d9afde0c40c7e8d87": {
       "name": "parameter:dd0cf717029c72a3fdcc5b3f1c2a51d6509e5cd34e46ec0d9afde0c40c7e8d87",
       "description": "Fixture quantity",
       "distribution": "distribution:02b2166e3e58497aaa3789f044d127060b70b37ce57ad236d20a72db761b604a",
@@ -218,8 +214,7 @@
         "kind": "identity"
       }
     },
-    {
-      "id": "parameter:bc0cf155753a1065c26ee1e9e8b166caa0472ed1ce6ec4e87dd976b523c2fafa",
+    "parameter:bc0cf155753a1065c26ee1e9e8b166caa0472ed1ce6ec4e87dd976b523c2fafa": {
       "name": "parameter:bc0cf155753a1065c26ee1e9e8b166caa0472ed1ce6ec4e87dd976b523c2fafa",
       "description": "Fixture quantity",
       "distribution": "distribution:cbe841afbfafafce01389fe80a74479bc70475e1a85d964bd89a185b743a09d0",
@@ -227,8 +222,7 @@
         "kind": "identity"
       }
     },
-    {
-      "id": "parameter:bac97683557f7dace2e2cd5dd012ab554cbf5e6ee48c4382aa3dd82da226269e",
+    "parameter:bac97683557f7dace2e2cd5dd012ab554cbf5e6ee48c4382aa3dd82da226269e": {
       "name": "obs_shape",
       "description": "shape for obs_shape",
       "distribution": "distribution:bcd14ba72ab5a1e0ec09e071e70b33a2f8bbb2b93808fb4c19e6281c9401e362",
@@ -236,7 +230,7 @@
         "kind": "identity"
       }
     }
-  ],
+  },
   "distributions": {
     "distribution:bcd14ba72ab5a1e0ec09e071e70b33a2f8bbb2b93808fb4c19e6281c9401e362": {
       "distribution": "Gamma",
@@ -276,6 +270,6 @@
       }
     }
   },
-  "measurement_clock": "1d",
-  "law_layouts": {}
+  "law_layouts": {},
+  "measurement_clock": "1d"
 }

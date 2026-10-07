@@ -13,7 +13,7 @@ import json
 import re
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, cast
 
 import numpy as np
 import polars as pl
@@ -21,19 +21,22 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pygit2
 
+from nof1_causal_lab.artifacts.data_comparison import DataPoint
 from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid, GitRef
 from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.git_objects import object_tree, open_repository, read_file, write_tree
 from nof1_causal_lab.study.state import ArtifactRecord, ArtifactResult
-from nof1_causal_lab.study.view_models import DataPoint, DataRef, DataSeries, Dataset
+from nof1_causal_lab.study.view_models import DataSeries, Dataset
 from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
 
 if TYPE_CHECKING:
+    from collections.abc import Mapping
+
     from jax.typing import ArrayLike
     from pydantic import BaseModel
 
-    from nof1_causal_lab.artifacts.measurements import ObservationRecord
+    from nof1_causal_lab.artifacts.data_ref import DataRef
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.observation_data import ObservationDataset
     from nof1_causal_lab.artifacts.question import QuestionSpec
@@ -53,8 +56,7 @@ def read_model(store: ArtifactStore, revision: GitOid) -> ModelSpec:
 
     return ModelSpec.model_validate(
         store.read_json_file("model", revision, "model.json"),
-        context={"distribution_array_loader": cache(store.read_array)},
-    )
+    ).materialized(context={"distribution_array_loader": cache(store.read_array)})
 
 
 def read_question(store: ArtifactStore, revision: GitOid) -> QuestionSpec:
@@ -90,40 +92,57 @@ class ArtifactStore:
 
     def read_array(self, identity: str) -> np.ndarray:
         """Load and verify a numerical array using its retained content identity."""
-        from nof1_causal_lab.artifacts.arrays import NumericalArray
-        from nof1_causal_lab.study.action_arrays import decode_array
-        from nof1_causal_lab.utils.arrays import read_array
+        from nof1_causal_lab.utils.arrays import decode_array
+
+        return decode_array(identity, self.read_array_bytes(identity))
+
+    def read_array_bytes(self, identity: str) -> bytes:
+        """Read retained NPY bytes from a published result or its execution buffer."""
+        from nof1_causal_lab.study.result_codec import unpack_result
+        from nof1_causal_lab.utils.arrays import read_array_bytes
 
         ref = f"refs/arrays/{identity}"
         if ref in self.repo.references:
-            payload = json.loads(self.repo[self.repo.references[ref].target].peel(pygit2.Blob).data)
-            return decode_array(NumericalArray.model_validate(payload["arrays"][identity]))
-        return read_array(storage.join(self._root, "arrays"), identity)
+            from nof1_causal_lab.study.action_arrays import owned_arrays
+
+            payload = unpack_result(
+                self.repo[self.repo.references[ref].target].peel(pygit2.Blob).data
+            )
+            return owned_arrays(payload)[identity].npy
+        return read_array_bytes(storage.join(self._root, "arrays"), identity)
 
     def write_result(self, result: BaseModel) -> GitOid:
         """Store the exact public result, including display values evaluated during execution."""
-        from nof1_causal_lab.artifacts.arrays import NumericalArray
-        from nof1_causal_lab.study.action_arrays import check_result_vectors
+        from nof1_causal_lab.study.result_codec import pack_result
 
-        payload = result.model_dump(mode="json")
-        arrays = {
-            ref: NumericalArray.model_validate(value)
-            for ref, value in payload.get("arrays", {}).items()
-        }
-        check_result_vectors(payload, arrays)
-        return GitOid(str(self.repo.create_blob(result.model_dump_json().encode())))
+        return GitOid(str(self.repo.create_blob(pack_result(result, array_loader=self.read_array))))
+
+    def read_result[ResultT: BaseModel](self, revision: GitOid, target: type[ResultT]) -> ResultT:
+        """Restore a saved MessagePack body using its action-owned schema."""
+        from functools import cache
+
+        from nof1_causal_lab.study.result_codec import unpack_result
+
+        payload = self.repo[pygit2.Oid(hex=revision)].peel(pygit2.Blob).data
+        return target.model_validate(
+            unpack_result(payload), context={"distribution_array_loader": cache(self.read_array)}
+        )
 
     def write_report(self, report: BaseModel) -> GitOid:
         """Retain the computed report as a Git blob for the action's publication."""
-        return GitOid(str(self.repo.create_blob(report.model_dump_json(round_trip=True).encode())))
+        from nof1_causal_lab.study.result_codec import pack_result
+
+        return GitOid(str(self.repo.create_blob(pack_result(report, array_loader=self.read_array))))
 
     def read_report[ReportT: BaseModel](self, revision: GitOid, target: type[ReportT]) -> ReportT:
         """Parse a retained Git report blob with the caller's expected report schema."""
         payload = self.repo[pygit2.Oid(hex=revision)].peel(pygit2.Blob).data
         from functools import cache
 
-        return target.model_validate_json(
-            payload, context={"distribution_array_loader": cache(self.read_array)}
+        from nof1_causal_lab.study.result_codec import unpack_result
+
+        return target.model_validate(
+            unpack_result(payload), context={"distribution_array_loader": cache(self.read_array)}
         )
 
     def write_artifact(
@@ -184,7 +203,7 @@ class ArtifactStore:
             self.repo.create_blob(json.dumps(metadata, sort_keys=True).encode()),
             pygit2.GIT_FILEMODE_BLOB,
         )
-        tree.insert("result.json", pygit2.Oid(hex=result), pygit2.GIT_FILEMODE_BLOB)
+        tree.insert("result.msgpack", pygit2.Oid(hex=result), pygit2.GIT_FILEMODE_BLOB)
         revision = GitOid(str(tree.write()))
         self.repo.references.create(
             f"refs/artifacts/{info.artifact_id}/{revision}", pygit2.Oid(hex=revision), force=True
@@ -211,7 +230,7 @@ class ArtifactStore:
         return GitRef(
             workspace_id=self.workspace_id,
             revision=revision,
-            path="result.json" if isinstance(info.source, ArtifactResult) else "model.json",
+            path="result.msgpack" if isinstance(info.source, ArtifactResult) else "model.json",
         )
 
     def read_value[ValueT: BaseModel](
@@ -224,12 +243,13 @@ class ArtifactStore:
         """Check artifact ownership and read a named JSON object from the selected revision."""
         info = self.read_meta(artifact_id, revision)
         if isinstance(info.source, ArtifactResult):
-            output = json.loads(
+            from nof1_causal_lab.study.result_codec import unpack_result
+
+            output = unpack_result(
                 self.repo[pygit2.Oid(hex=info.source.result)].peel(pygit2.Blob).data
             )
             key = {"model": "model", "question": "question", "panel": "metadata"}[artifact_id]
-            selected: JsonObject = output[key]
-            return selected
+            return cast("JsonObject", output[key])
         value: JsonObject = json.loads(read_file(self.repo, revision, name))
         return value
 
@@ -264,7 +284,7 @@ class ArtifactStore:
             from nof1_causal_lab.study.data import prepared_frame
 
             assert artifact_id == "panel"
-            return prepared_frame(self.read_report(info.source.result, PrepareDataOutput))
+            return prepared_frame(self.read_result(info.source.result, PrepareDataOutput))
         return pl.read_parquet(self.file_path(artifact_id, revision, name))
 
     def read_parquet_table(self, artifact_id: ArtifactId, revision: str, name: str) -> pa.Table:
@@ -308,29 +328,13 @@ def read_payload(store: ArtifactStore, artifact_id: ArtifactId, revision: str) -
     from nof1_causal_lab.artifacts.catalog import ARTIFACT_CONTRACTS
     from nof1_causal_lab.study.artifact_files import artifact_file_spec
 
+    if artifact_id == "model":
+        return read_model(store, GitOid(revision))
     filename = next(iter(artifact_file_spec(artifact_id).json_files.values()))
     return TypeAdapter[BaseModel](ARTIFACT_CONTRACTS[artifact_id]).validate_python(
         store.read_json_file(artifact_id, revision, filename),
         context={"distribution_array_loader": cache(store.read_array)},
     )
-
-
-def observation_sample(panel: pl.DataFrame) -> tuple[ObservationRecord, ...]:
-    """Parse stored rows before their compact projection."""
-    from pydantic import TypeAdapter
-
-    from nof1_causal_lab.artifacts.measurements import ObservationRecord
-
-    sample = []
-    for row in panel.head(20).to_dicts():
-        record = {
-            key: value for key, value in row.items() if key in ObservationRecord.__annotations__
-        }
-        for key in ("anchor_time", "support_start", "support_end"):
-            if record.get(key) is not None:
-                record[key] = str(record[key])
-        sample.append(TypeAdapter(ObservationRecord).validate_python(record))
-    return tuple(sample)
 
 
 def read_dataset(

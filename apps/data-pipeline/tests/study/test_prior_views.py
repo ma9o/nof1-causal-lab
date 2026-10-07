@@ -12,11 +12,9 @@ import numpyro.distributions as dist
 import pytest
 from pydantic import TypeAdapter
 
-from nof1_causal_lab.actions.output_builder import quantity_prior_densities
-from nof1_causal_lab.models.model_structure import StructuralSelection
 from nof1_causal_lab.numpyro_json import NumPyroDistribution
 from nof1_causal_lab.prior_distributions import interval_effect_to_rate, persistence_to_decay
-from nof1_causal_lab.study.prior_views import prior_density
+from nof1_causal_lab.study.prior_views import prior_density, quantity_prior_densities
 from tests.model_fixtures import construct_named, load_model_fixture
 
 
@@ -27,7 +25,7 @@ def _quantity_curves_put_authored_laws_on_the_posterior_scale_complete_test_mode
     x = construct_named(model, "X")
     y = construct_named(model, "Y")
     x_to_y = next(edge for edge in model.edges if edge.cause.id == x.id and edge.effect.id == y.id)
-    return model.revised(edges=(x_to_y.revised(description="X"),))
+    return model.with_entities(edges=(x_to_y.revised(description="X"),))
 
 
 if TYPE_CHECKING:
@@ -66,7 +64,9 @@ def test_prior_curves_preserve_native_gamma_and_transforms_without_mutating_the_
 
 def test_quantity_curves_put_authored_laws_on_the_posterior_scale():
     model = _quantity_curves_put_authored_laws_on_the_posterior_scale_complete_test_model()
-    curves = quantity_prior_densities(StructuralSelection(model, None))
+    curves = quantity_prior_densities(
+        model, frozenset(parameter.id for parameter in model.parameters)
+    )
     transforms = {parameter.transform.kind for parameter in model.parameters}
     assert "dt_persistence_to_ct_decay" in transforms
     for parameter in model.parameters:

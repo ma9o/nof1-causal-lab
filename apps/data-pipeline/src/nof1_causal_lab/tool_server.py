@@ -30,6 +30,13 @@ Start a call with `POST /api/studies/{workspace_id}/{action}` using
 `reasoning` explains the caller's intent and is excluded from call identity.
 
 POST and polling GET return `{call_id, action, status, commit_id, body, messages}`.
+Action responses use `application/msgpack`; requests remain JSON. Python callers
+can decode a saved response with `msgpack.unpackb(response_bytes, raw=False)`;
+the shared TypeScript client decodes responses automatically. `arrays` entries
+carry binary NPY bytes, read with `numpy.load(io.BytesIO(entry["npy"]), allow_pickle=False)`
+in Python or `readNumericalArray(entry)` in TypeScript. NPY retains dtype, shape,
+NaN and infinities without scalar JSON or base64 conversion. Timeline, workspace,
+upload and HTTP error responses remain JSON.
 `status` is `running`, `failed`, or `success`. `commit_id` is null before publication;
 a journaled failure also has a commit. `body` is null while running or failed and
 contains only that action's typed scientific output on success.
@@ -48,13 +55,15 @@ folder name under `data/{workspace_id}/`, such as `"input"`. Every file beneath
 that folder, including subfolders, is captured and hashed before call identity.
 Polling saved calls does not require the original source folder.
 `edit_model` selects a question or model parent through `input.parent_ref`;
-a model parent supplies its pinned question, without a head-conflict
-check. Every study starts with `edit_question`.
+a question parent starts a new model; a model parent supplies its definition and pinned
+question. The same ModelSpec accepts partial definitions: omission retains fields and null
+entity entries delete their IDs. The editing boundary prunes outcome-unrelated components
+with warnings and validates the assembled model. Every study starts with `edit_question`.
 
 Each action owns its successful `body`; input state is read from its producing calls.
 For `model_diff` and `data_diff`, `body` is the complete saved comparison.
 Fit and simulation outputs include their own retained arrays and paths without paging.
-Missing numerical values are null.
+Display summaries use null for missing values; numerical buffers retain native missingness.
 Reports and checks are retained with their action in Git and never recomputed by GET,
 including after cache deletion or code changes. Comparisons and failures remain
 journal leaves without advancing scientific state.

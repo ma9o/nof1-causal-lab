@@ -187,7 +187,7 @@ def _model(expression):
         )
         for name in ("x", "y", "z")
     }
-    return ModelSpec(
+    return ModelSpec.from_entities(
         edges=(
             CausalEdgeSpec(
                 id="edge:xy",
@@ -213,8 +213,8 @@ def test_composition_requires_all_causal_dependencies_and_valid_parameter_refere
         mechanisms=(DriftMechanismSpec(id="mechanism:effect", expression=compound),)
     )
     with pytest.raises(ValueError, match="explicit causal edges"):
-        base.revised(edges=(edge, *base.edges[1:]))
-    extended = base.revised(
+        base.with_entities(edges=(edge, *base.edges[1:]))
+    extended = base.with_entities(
         edges=(
             edge,
             CausalEdgeSpec(
@@ -237,7 +237,7 @@ def test_composition_requires_all_causal_dependencies_and_valid_parameter_refere
             * state(ConstructId("construct:x"))
         )
     with pytest.raises(ValueError, match="owning construct"):
-        base.revised(
+        base.with_entities(
             edges=replace_constructs(
                 base.edges,
                 (

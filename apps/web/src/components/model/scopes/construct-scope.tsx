@@ -1,5 +1,6 @@
 import type { ConstructId, ConstructSpec } from "@nof1-causal-lab/api-types";
-import { constructPresentation, dispositionLabel } from "@/lib/model-asset/inspector";
+import { constructPresentation } from "@/lib/model-asset/inspector";
+import { constructEquation } from "@/lib/model-asset/equations";
 import { ownLawUses } from "@/lib/model-asset/laws";
 import { humanize } from "@/lib/model-asset/selection";
 import type { ScopeContext } from "@/lib/model-asset/scope";
@@ -18,8 +19,8 @@ import { Katex } from "@/components/analysis-widgets/statistical-model-spec/ssm-
 export function ConstructScope({ context, id }: { context: ScopeContext; id: ConstructId }) {
   const scope = constructPresentation(context, id);
   if (!scope) return null;
-  const { model, construct, indicators, disposition } = scope;
-  const equations = model;
+  const { model, construct, indicators } = scope;
+  const equation = constructEquation(construct, context.entities);
   return (
     <>
       <Section title="Structure">
@@ -53,23 +54,14 @@ export function ConstructScope({ context, id }: { context: ScopeContext; id: Con
           </ul>
         </Section>
       )}
-      {[equations.state_equations[id], equations.confounder_equations[id]].flatMap(
-        (latex, index) =>
-          latex === undefined
-            ? []
-            : [
-                <Section key={index} title="Equation" wide>
-                  <Katex latex={latex} />
-                </Section>,
-              ],
+      {equation && (
+        <Section title={equation.title} wide>
+          <Katex latex={equation.latex} />
+        </Section>
       )}
       <LawSections context={context} uses={ownLawUses(construct)} />
       <SimulatedHistory context={context} id={id} kind="states" />
-      {disposition && disposition.disposition !== "retained_state" && (
-        <Section title={dispositionLabel(disposition.disposition)}>
-          <Hint issue>{disposition.reason}</Hint>
-        </Section>
-      )}
+
       {model.identification?.treatments[id] && (
         <Section title="Identification">
           <IdentificationFinding context={context} construct={construct} />

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
+from nof1_causal_lab.artifacts.model_document import entity_document
+
 if TYPE_CHECKING:
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.json_types import JsonObject, JsonValue
@@ -27,7 +29,7 @@ def graph_input(model: ModelSpec) -> JsonObject:
             for item in model.edges
         ],
     }
-    return result
+    return entity_document(result)
 
 
 def indicator_rows(model: ModelSpec) -> list[JsonObject]:
@@ -40,12 +42,14 @@ def indicator_rows(model: ModelSpec) -> list[JsonObject]:
 
 def observation_input(model: ModelSpec) -> JsonObject:
     """Project the model clock and observation definitions used to fingerprint measurement inputs."""
-    return {
-        "model_clock": model.measurement_clock.source
-        if model.measurement_clock is not None
-        else None,
-        "indicators": indicator_rows(model),
-    }
+    return entity_document(
+        {
+            "model_clock": model.measurement_clock.source
+            if model.measurement_clock is not None
+            else None,
+            "indicators": indicator_rows(model),
+        }
+    )
 
 
 def identification_input(model: ModelSpec) -> JsonObject:
@@ -56,16 +60,15 @@ def identification_input(model: ModelSpec) -> JsonObject:
 def compilation_input(model: ModelSpec) -> JsonObject:
     """Structure and constants needed by execution, independent of the current law."""
     result: dict[str, JsonValue] = {
-        **model.model_dump(
-            mode="json",
-            exclude={
-                "edges": True,
-                "distributions": True,
-                "law_layouts": True,
-                "time_points": True,
-                "parameters": {"__all__": {"distribution", "transform", "reasoning", "sources"}},
-            },
-        ),
+        "measurement_clock": model.measurement_clock.source
+        if model.measurement_clock is not None
+        else None,
+        "parameters": [
+            parameter.model_dump(
+                mode="json", exclude={"distribution", "transform", "reasoning", "sources"}
+            )
+            for parameter in model.parameters
+        ],
         "constructs": [
             construct.model_dump(mode="json", exclude={"distribution"})
             for construct in model.constructs
@@ -79,7 +82,7 @@ def compilation_input(model: ModelSpec) -> JsonObject:
             for edge in model.edges
         ],
     }
-    return result
+    return entity_document(result)
 
 
 def input_fingerprints(model: ModelSpec) -> dict[str, str]:

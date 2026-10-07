@@ -61,6 +61,7 @@ def applied_record(
     from pydantic import TypeAdapter
 
     from nof1_causal_lab.actions.output_builder import build_output, staged_state
+    from nof1_causal_lab.artifacts.model_spec import ModelEditResult
     from nof1_causal_lab.artifacts.posterior import ModelFitResult
     from nof1_causal_lab.artifacts.simulation import ModelSimulationResult
     from nof1_causal_lab.study.history import StudyRepository
@@ -90,18 +91,21 @@ def applied_record(
                 replicate_index=result.result.data.replicate_index,
             )
         )
+    if result.result is None and (
+        getattr(request, "action", None) == "edit_model"
+        or any(artifact.artifact_id == "model" for artifact in result.effects.produced)
+    ):
+        result = result.revised(result=ModelEditResult())
     if request is not None:
         attempt = applied_attempt(request, result)
     else:
         match result.result:
             case None:
-                attempt = (
-                    StagedEditAttempt(action="edit_model", request=None, outcome=result)
-                    if any(artifact.artifact_id == "model" for artifact in result.effects.produced)
-                    else StagedEditQuestionAttempt(
-                        action="edit_question", request=None, outcome=result
-                    )
+                attempt = StagedEditQuestionAttempt(
+                    action="edit_question", request=None, outcome=result
                 )
+            case ModelEditResult():
+                attempt = StagedEditAttempt(action="edit_model", request=None, outcome=result)
             case DataPreparationResult():
                 attempt = StagedPrepareAttempt(action="prepare_data", request=None, outcome=result)
             case ModelFitResult():
@@ -118,6 +122,17 @@ def applied_record(
         state = state.with_artifacts((write_question(store),))
     if isinstance(result.result, ModelFitResult):
         state = state.revised(data=result.result.data)
+    if isinstance(result.result, DataPreparationResult):
+        from nof1_causal_lab.actions.data_checks import evaluate_data_checks
+
+        profile = evaluate_data_checks(workspace_id, state, result)
+        attempt = attempt.revised(
+            outcome=result.revised(
+                effects=result.effects.revised(
+                    reports={**result.effects.reports, "data-profile": store.write_report(profile)}
+                )
+            )
+        )
     if (
         isinstance(result.result, ModelSimulationResult)
         and "simulation" not in result.effects.reports
@@ -134,6 +149,44 @@ def applied_record(
                 )
             )
         )
+    if isinstance(result.result, ModelFitResult):
+        from nof1_causal_lab.artifacts.model_checks import ModelCheckReport, QuestionCheckReport
+        from nof1_causal_lab.artifacts.validation_report import (
+            DataProfileArtifact,
+            ValidationReportArtifact,
+        )
+        from nof1_causal_lab.study.store import read_model
+        from tests.inference_fixtures import _report
+
+        assert isinstance(attempt.outcome, Applied)
+        reports = dict(attempt.outcome.effects.reports)
+        if "inference" not in reports:
+            report = _report(read_model(store, state.current["model"].revision)).revised(
+                run=result.result,
+            )
+            reports["inference"] = store.write_report(report)
+        if "checks" not in reports:
+            reports["checks"] = store.write_report(
+                ModelCheckReport(
+                    specification=(),
+                    question=QuestionCheckReport(
+                        question_revision=state.current["question"].revision,
+                        data=result.result.data,
+                        findings=(),
+                    ),
+                )
+            )
+        if "validation" not in reports:
+            reports["validation"] = store.write_report(
+                ValidationReportArtifact(
+                    data=DataProfileArtifact(indicators={}, dataset_issues=()),
+                )
+            )
+        attempt = attempt.revised(
+            outcome=attempt.outcome.revised(
+                effects=attempt.outcome.effects.revised(reports=reports),
+            )
+        )
     output = build_output(workspace_id, attempt, state)
     # Storage-focused fixtures may retain physical input artifacts. The result itself
     # is always the same complete body used by production publication.
@@ -147,3 +200,15 @@ def applied_record(
         }
     )
     return AttemptRecord(seq=seq, ts=ts, attempt=saved, **metadata)
+
+
+def empty_simulation_summary():
+    """Reports used only for routing have no plotted reductions."""
+    from nof1_causal_lab.artifacts.simulation import SimulationSummary
+
+    return SimulationSummary(
+        state_frames={},
+        indicator_frames={},
+        action_category_probabilities={},
+        reference_category_probabilities={},
+    )

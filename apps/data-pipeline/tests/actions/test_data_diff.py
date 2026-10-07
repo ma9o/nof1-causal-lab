@@ -7,6 +7,7 @@ import polars as pl
 import pytest
 from pydantic import ValidationError
 
+from nof1_causal_lab.artifacts.arrays import NumericalArray
 from nof1_causal_lab.actions.contracts import DataDiffRequest
 from nof1_causal_lab.actions.data_diff import read_data_diff
 from nof1_causal_lab.actions.effects import ActionEffects
@@ -20,17 +21,19 @@ from nof1_causal_lab.artifacts.observations import ResolvedObservationSpec
 from nof1_causal_lab.artifacts.predictive_provenance import AuthoredLawProvenance
 from nof1_causal_lab.artifacts.simulation import (
     ModelSimulationResult,
+    SimulationArm,
     SimulationEvidence,
     SimulationObservationLayout,
     SimulationReport,
     SimulationSpec,
+    SingleArmSimulation,
 )
 from nof1_causal_lab.models.posterior_predictive import compare_data_variables
 from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.records import Applied
 from nof1_causal_lab.study.store import ArtifactStore, read_dataset
-from tests.action_fixtures import applied_record
+from tests.action_fixtures import applied_record, empty_simulation_summary
 from tests.git_fixtures import artifact_revisions, git_oid
 
 
@@ -123,7 +126,13 @@ def test_replica_checks_are_symmetric_and_preserve_whole_history_statistics():
     assert stats["mean"].observed_value == pytest.approx(4 / 3)
     assert stats["mean"].rep_values == pytest.approx([4 / 3, 7 / 3, 10 / 3])
     assert forward.predictive.evaluation.value.n_subsample == 3
-    assert len(forward.left) == 3
+    assert set(forward.model_dump()) == {
+        "indicator_id",
+        "changes",
+        "statistics",
+        "comparison_issues",
+        "predictive",
+    }
     # Many-to-many retains one summary per history, without implying paired draws.
     many = compare_data_variables(replicas, [observed, _dataset([0, 1, 2, 3], number=9)])[0]
     assert many.predictive.kind == "unavailable"
@@ -163,10 +172,6 @@ def test_measurement_mismatches_and_uncovered_times_do_not_produce_predictive_ch
         "Measurement definitions differ; statistics describe each side separately"
         in mismatch.comparison_issues
     )
-    assert mismatch.left[0].variable is not None
-    assert mismatch.right[0].variable is not None
-    assert mismatch.left[0].variable.aggregation == "last"
-    assert mismatch.right[0].variable.aggregation == "mean"
     renamed = _dataset(
         [1, 2, 3],
         variable=original_variable.revised(name="Renamed", observation_window="24h"),
@@ -192,7 +197,6 @@ def test_measurement_mismatches_and_uncovered_times_do_not_produce_predictive_ch
     mismatch = compare_data_variables(observed, floating)[0]
     assert mismatch.predictive.kind == "comparison"
     assert mismatch.predictive.evaluation.kind == "not_applicable"
-    assert mismatch.right[0].time_origin is None
     assert mismatch.comparison_issues == (
         "Calendar-free histories cannot be aligned to calendar-bound histories",
     )
@@ -257,6 +261,7 @@ def test_reads_saved_draws_without_generation_or_writing_models(tmp_path, monkey
     observed = _dataset([1, 2, 3])
     values = np.asarray([[[0], [1], [2]], [[1], [2], [3]], [[2], [3], [4]]], dtype=float)
     report = SimulationReport(
+        summary=empty_simulation_summary(),
         causal=NotApplicable(reason="No intervention was requested."),
         fit_reliability="not_fitted",
         law=AuthoredLawProvenance(),
@@ -269,13 +274,17 @@ def test_reads_saved_draws_without_generation_or_writing_models(tmp_path, monkey
             seed=0,
             state_ids=(),
             parameter_draws={},
-            latent_paths=store.write_array(np.zeros((3, 3, 0))),
-            observations=store.write_array(values),
+            arms=SingleArmSimulation(
+                action=SimulationArm(
+                    latent_paths=NumericalArray.from_numpy(np.zeros((3, 3, 0))),
+                    observations=NumericalArray.from_numpy(values),
+                ),
+            ),
             observation_layout=SimulationObservationLayout(
                 variables=tuple(series.variable for series in observed.series.values()),
-                support_start_times=store.write_array(np.arange(3.0)[:, None]),
-                support_end_times=store.write_array(np.arange(3.0)[:, None]),
-                mask=store.write_array(np.ones_like(values, dtype=bool)),
+                support_start_times=NumericalArray.from_numpy(np.arange(3.0)[:, None]),
+                support_end_times=NumericalArray.from_numpy(np.arange(3.0)[:, None]),
+                mask=NumericalArray.from_numpy(np.ones_like(values, dtype=bool)),
             ),
         ),
     )
@@ -333,9 +342,11 @@ def test_reads_saved_draws_without_generation_or_writing_models(tmp_path, monkey
         )
     )
     refs_before = sorted(store.repo.references)
-    result = read_data_diff("DIFF", request).model_dump(mode="json")
+    output = read_data_diff("DIFF", request).model_dump(mode="json")
+    assert set(output) == {"report"}
+    result = output["report"]
     assert len(result["left"]) == 3
-    assert result["variables"][0]["left"][0]["time_origin"] == "2026-01-01T00:00:00Z"
+    assert result["left"] == [{"revision": commit, "replicate_index": index} for index in range(3)]
     assert result["variables"][0]["predictive"]["evaluation"]["value"]["n_subsample"] == 3
     assert history.head() == commit
     assert sorted(store.repo.references) == refs_before
@@ -344,7 +355,7 @@ def test_reads_saved_draws_without_generation_or_writing_models(tmp_path, monkey
     one = request.revised(
         input=request.input.revised(left_ref=request.input.left_ref.revised(replicate_index=1))
     )
-    assert read_data_diff("DIFF", one).variables[0].changes == ()
+    assert read_data_diff("DIFF", one).report.variables[0].changes == ()
     bad = request.revised(
         input=request.input.revised(
             left_ref=DataRef[GitOid, int | None](revision=commit, replicate_index=3)
@@ -372,8 +383,8 @@ def test_reads_saved_draws_without_generation_or_writing_models(tmp_path, monkey
             design=SimulationSpec(start=date(2026, 1, 1 + start), horizon="2d"),
             times=tuple(times),
             observation_layout=report.evidence.observation_layout.revised(
-                support_start_times=store.write_array(times[:, None]),
-                support_end_times=store.write_array(times[:, None]),
+                support_start_times=NumericalArray.from_numpy(times[:, None]),
+                support_end_times=NumericalArray.from_numpy(times[:, None]),
             ),
         )
         commits.append(
@@ -398,7 +409,7 @@ def test_reads_saved_draws_without_generation_or_writing_models(tmp_path, monkey
                 right_ref=DataRef[GitOid, int | None](revision=commits[1], replicate_index=1),
             )
         ),
-    ).variables[0]
+    ).report.variables[0]
     assert [
         (
             (change.before.anchor_time if change.kind == "removed" else change.after.anchor_time),
@@ -411,6 +422,5 @@ def test_reads_saved_draws_without_generation_or_writing_models(tmp_path, monkey
         (origin + timedelta(days=7), "revised"),
         (origin + timedelta(days=8), "added"),
     ]
-    assert aligned.left[0].time_origin == aligned.right[0].time_origin == origin
-    materialized = read_simulation_observations(saved, 1, read_array=store.read_array)
+    materialized = read_simulation_observations(saved, 1)
     assert materialized["anchor_time"][0] == (origin + timedelta(days=6)).replace(tzinfo=None)

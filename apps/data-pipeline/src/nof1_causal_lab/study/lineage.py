@@ -53,9 +53,8 @@ def fitted_law_report(
     assert fitted.record.attempt.outcome.status == "applied"
     from nof1_causal_lab.actions.io import FitOutput
 
-    result = store.read_report(fitted.record.attempt.outcome.result, FitOutput)
-    assert result.inference_report is not None
-    return result.inference_report.core
+    result = store.read_result(fitted.record.attempt.outcome.result, FitOutput)
+    return result.inference.core
 
 
 def law_provenance(
@@ -65,6 +64,14 @@ def law_provenance(
     data: DataRef[GitOid, int] | None,
 ) -> PredictiveLawProvenance:
     """Follow authored ancestry; a native law family alone never establishes fitting."""
+    uncertain = {
+        quantity.distribution
+        for quantity in (
+            *model.parameters,
+            *(construct for construct in model.constructs if construct.role == "endogenous"),
+        )
+        if quantity.distribution is not None
+    }
     laws = model.model_dump(mode="json")["distributions"]
     current = record
     while True:
@@ -73,7 +80,7 @@ def law_provenance(
             inherited = {
                 key
                 for key, value in laws.items()
-                if key in model.law_layouts and fitted.get(key) == value
+                if key in uncertain and key in model.law_layouts and fitted.get(key) == value
             }
             if inherited:
                 from pathlib import Path
@@ -93,10 +100,11 @@ def law_provenance(
                 assert isinstance(fit.record.attempt.outcome, Applied)
                 from nof1_causal_lab.actions.io import FitOutput
 
-                result = store.read_report(fit.record.attempt.outcome.result, FitOutput)
-                assert result.inference is not None
-                fitted_data = result.inference.data
-                if inherited != set(laws):
+                result = store.read_result(fit.record.attempt.outcome.result, FitOutput)
+                fitted_data = result.inference.run.data
+                if inherited != uncertain or any(
+                    fitted.get(key) != value for key, value in laws.items() if key not in uncertain
+                ):
                     return MixedLawProvenance(
                         fitted_data=fitted_data,
                         fitted_model_revision=current.revision,
@@ -119,5 +127,5 @@ def law_provenance(
     # does not establish a training panel, so their interpretation stays unknown.
     from nof1_causal_lab.numpyro_json import distribution_shape
 
-    joint = any(any(distribution_shape(law)) for law in model.distributions.values())
+    joint = any(any(distribution_shape(model.distributions[key])) for key in uncertain)
     return UnknownLawProvenance() if joint else AuthoredLawProvenance()

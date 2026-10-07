@@ -20,14 +20,13 @@ def test_prior_request_round_trips_through_a_cold_workflow_sandbox():
     graph_constructs(model)[0]["coefficients"] = [
         {"kind": "coefficient", "role": "initial_mean", "value": parameter_id}
     ]
-    model["parameters"] = [
-        {
-            "id": parameter_id,
+    model["parameters"] = {
+        parameter_id: {
             "name": "baseline",
             "description": "Initial symptom burden",
             "distribution": "distribution:baseline",
         }
-    ]
+    }
     model["distributions"] = {
         "distribution:baseline": {
             "distribution": "Beta",
@@ -66,6 +65,7 @@ def test_prior_request_round_trips_through_a_cold_workflow_sandbox():
                 from nof1_causal_lab.actions.io import FitInput, SimulateInput
                 from nof1_causal_lab.artifacts.identity import GitOid
                 from nof1_causal_lab.artifacts.simulation import SimulationSpec
+                from nof1_causal_lab.artifacts.model_spec import ModelEditResult
                 from nof1_causal_lab.study.records import AttemptRecord, Applied, EditAttempt
                 from nof1_causal_lab.actions.temporal.messages import (
                     ActionInput, ActionRequest, EditModelActivityInput, EvaluateChecksInput, AttemptPublication,
@@ -100,9 +100,9 @@ def test_prior_request_round_trips_through_a_cold_workflow_sandbox():
                                 simulation=SimulationSpec(start="2026-01-01", horizon="2d"),
                             )),
                         ),
-                        EvaluateChecksInput[None](
+                        EvaluateChecksInput[ModelEditResult](
                             workspace_id="test", state=state, request=restored.request,
-                            applied=Applied(result=None, effects=ActionEffects(produced=[model_record])),
+                            applied=Applied(result=ModelEditResult(), effects=ActionEffects(produced=[model_record])),
                         ),
                     ]
                     activity_payloads = converter.to_payloads(inputs)

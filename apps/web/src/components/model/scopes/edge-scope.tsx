@@ -1,14 +1,12 @@
 import type { EdgeId } from "@nof1-causal-lab/api-types";
-import { dispositionLabel } from "@/lib/model-asset/inspector";
 import { ownLawUses } from "@/lib/model-asset/laws";
 import type { ScopeContext } from "@/lib/model-asset/scope";
-import { Hint, Prose, Section } from "../scope-primitives";
+import { Prose, Section } from "../scope-primitives";
 import { LawSections } from "./law-sections";
 
 export function EdgeScope({ context, id }: { context: ScopeContext; id: EdgeId }) {
   const edge = context.entities.edgeById.get(id);
   if (!edge) return null;
-  const disposition = context.model.dispositions?.find((item) => item.target.id === id);
   return (
     <>
       <Section title="Relationship">
@@ -38,11 +36,7 @@ export function EdgeScope({ context, id }: { context: ScopeContext; id: EdgeId }
         )}
       </Section>
       <LawSections context={context} uses={ownLawUses(edge)} />
-      {disposition && disposition.disposition !== "retained_edge" && (
-        <Section title={dispositionLabel(disposition.disposition)}>
-          <Hint issue>{disposition.reason}</Hint>
-        </Section>
-      )}
+
     </>
   );
 }

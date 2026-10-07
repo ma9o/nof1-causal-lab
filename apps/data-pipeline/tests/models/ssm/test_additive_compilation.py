@@ -31,16 +31,12 @@ def test_static_target_is_retained_and_reported_as_unsupported():
     static_constructs = tuple(
         node.revised(temporal_status="time_invariant") for node in draft.constructs
     )
-    model = draft.revised(edges=replace_constructs(draft.edges, static_constructs))
+    model = draft.with_entities(edges=replace_constructs(draft.edges, static_constructs))
     before = model.model_dump(mode="json")
     selection = StructuralSelection(model, None)
     assert set(selected_state_ids(selection)) == {node.id for node in model.constructs}
     with pytest.raises(StructuralCompilationError, match="static-target edge"):
         validate_execution_structure(selection)
-    assert any(
-        item.target.id == model.edges[0].id and item.disposition == "unsupported"
-        for item in selection.structural_dispositions
-    )
     assert model.model_dump(mode="json") == before
 
 
@@ -58,7 +54,7 @@ def test_exact_observations_preserve_state_and_parameter_identity():
             ),
         )
     )
-    model = draft.revised(edges=replace_constructs(draft.edges, (observed,)))
+    model = draft.with_entities(edges=replace_constructs(draft.edges, (observed,)))
     selection = StructuralSelection(model, None)
     assert source.id in selected_state_ids(selection)
     assert model.parameters == draft.parameters
@@ -76,7 +72,7 @@ def test_edge_off_targets_every_additive_contribution_without_running_a_simulati
         id="mechanism:fixed-hill-a",
         expression=expr_hill(expr_state(edge.cause.id), emax=0.4, ec50=1, n=2),
     )
-    model = model.revised(
+    model = model.with_entities(
         edges=(
             edge.revised(
                 mechanisms=(
@@ -123,7 +119,7 @@ def test_predictive_edge_findings_exclude_the_response_state(monkeypatch):
         expression=expr_hill(expr_state(edge.cause.id), emax=0.4, ec50=1, n=2)
         * expr_state(edge.effect.id),
     )
-    model = model.revised(edges=(edge.revised(mechanisms=(*edge.mechanisms, mechanism)),))
+    model = model.with_entities(edges=(edge.revised(mechanisms=(*edge.mechanisms, mechanism)),))
     compiled = compile_model_fixture(model)
     received: list[ConstructSimulationTarget] = []
 
@@ -157,8 +153,8 @@ def test_predictive_edge_findings_exclude_the_response_state(monkeypatch):
             latent, observed, observed, jnp.ones_like(observed, dtype=bool), observed
         ),
     )
-    batch = simulation.SimulationBatch(
-        (0.0, 1.0), prediction, None, DesignInfo(jnp.array([0.0, 1.0]), (), {}, {})
+    batch = simulation.SimulationBatch.from_draws(
+        prediction, DesignInfo(jnp.array([0.0, 1.0]), (), {}, {})
     )
     findings, _ = simulation.measure_simulation_batch(
         compiled, batch, groups=("dynamics",), clock=lambda: 0.0

@@ -6,6 +6,8 @@ from dataclasses import dataclass
 from types import MappingProxyType
 from typing import TYPE_CHECKING
 
+from nof1_causal_lab.artifacts.base import Value
+from nof1_causal_lab.artifacts.identity import ConstructId
 from nof1_causal_lab.compilation_errors import AggregatedCompileError, IncompleteModelError
 from nof1_causal_lab.distributions import DistributionFamily
 from nof1_causal_lab.models.model_parameters import execution_parameters
@@ -17,6 +19,7 @@ from nof1_causal_lab.models.ssm.compile.prior_compilation import (
 from nof1_causal_lab.models.ssm.compile.prior_indexing import (
     build_site_bindings,
 )
+from nof1_causal_lab.models.ssm.joint_layout import JointLawLayout
 from nof1_causal_lab.models.ssm.parameterization import (
     PriorRuntimeBundle,
     build_prior_runtime_bundle,
@@ -30,7 +33,6 @@ if TYPE_CHECKING:
 
     from nof1_causal_lab.artifacts.duration import Duration
     from nof1_causal_lab.artifacts.identity import (
-        ConstructId,
         EdgeId,
         IndicatorId,
     )
@@ -42,7 +44,6 @@ if TYPE_CHECKING:
     from nof1_causal_lab.models.ssm.compile.bindings import CompiledParameterBinding
     from nof1_causal_lab.models.ssm.dynamics.expression import BoundExpression
     from nof1_causal_lab.models.ssm.dynamics.spec import CompiledDynamics
-    from nof1_causal_lab.models.ssm.joint_layout import JointLawLayout
     from nof1_causal_lab.models.ssm.structure import (
         DiffusionBlockSpec,
         ManifestCholBlockSpec,
@@ -120,6 +121,15 @@ class CompiledLaw:
     layout: JointLawLayout
 
 
+class CompiledInputTrajectory(Value):
+    """One deterministic construct trajectory on its model-owned coordinates."""
+
+    index: int
+    construct_id: ConstructId
+    layout: JointLawLayout
+    values: tuple[float, ...]
+
+
 @dataclass(frozen=True, eq=False)
 class CompiledModel:
     """Ordered execution records; authored entities remain at the compiler boundary."""
@@ -141,6 +151,7 @@ class CompiledModel:
     bindings: tuple[CompiledParameterBinding, ...]
     auxiliary_coordinates: tuple[ParameterCoordinate, ...]
     laws: tuple[CompiledLaw, ...]
+    input_trajectories: tuple[CompiledInputTrajectory, ...]
 
     @property
     def state_index(self) -> Mapping[ConstructId, int]:
@@ -327,11 +338,42 @@ def compile_model(
             bindings=bindings,
             auxiliary_coordinates=auxiliary,
             laws=_compile_laws(selection, bindings, states),
+            input_trajectories=_compile_input_trajectories(selection, states),
         )
     except IncompleteModelError as exc:
         return IncompleteModel(str(exc))
     except AggregatedCompileError as exc:
         return UnsupportedFit(tuple(dict.fromkeys(exc.errors)))
+
+
+def _compile_input_trajectories(
+    selection: StructuralSelection, states: tuple[CompiledState, ...]
+) -> tuple[CompiledInputTrajectory, ...]:
+    import numpy as np
+
+    from nof1_causal_lab.numpyro_json import materialize_distribution
+
+    model = selection.model
+    result = []
+    for index, state in enumerate(states):
+        if not state.is_input:
+            continue
+        identity = model.get_construct(state.id).distribution
+        assert identity is not None  # Execution readiness owns the required membership.
+        layout = model.law_layouts[identity]
+        law = materialize_distribution(model.distributions[identity])
+        result.append(
+            CompiledInputTrajectory(
+                index=index,
+                construct_id=state.id,
+                layout=layout,
+                values=tuple(
+                    float(value)
+                    for value in np.asarray(law.mean)[layout.trajectory_slices[state.id]]
+                ),
+            )
+        )
+    return tuple(result)
 
 
 def _compile_laws(

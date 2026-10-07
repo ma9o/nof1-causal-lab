@@ -4,21 +4,16 @@ from __future__ import annotations
 
 from typing import Annotated, Literal
 
-from pydantic import Field, computed_field
+from pydantic import Field
 
 from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.artifacts.data_ref import DataRef
 
 from .checks import (
     Assessment,
-    Evaluated,
-    PredictiveAssessment,
-    PredictiveCheckReason,
     SpecificationAssessment,
 )
 from .identity import ConstructRef, GitOid
-from .posterior_diagnostics import PosteriorPredictiveChecks
-from .predictive_provenance import PredictiveLawProvenance
 
 
 class OutcomeSubject(Value):
@@ -55,56 +50,6 @@ class QuestionCheckReport(Value):
     question_revision: GitOid
     data: DataRef[GitOid, int] | None
     findings: tuple[QuestionAssessment, ...]
-
-
-class EvaluatedPredictiveChecks(Value):
-    """An evaluated run may retain failed and partially unavailable scientific evidence."""
-
-    kind: Literal["evaluated"] = "evaluated"
-    findings: tuple[PredictiveAssessment, ...]
-    predictive_checks: PosteriorPredictiveChecks | None = None
-
-
-class UnavailablePredictiveChecks(Value):
-    """The run could not evaluate its scientific battery."""
-
-    kind: Literal["unavailable"] = "unavailable"
-    reason: PredictiveCheckReason
-    detail: str | None = None
-
-
-type ModelPredictiveEvaluation = Annotated[
-    EvaluatedPredictiveChecks | UnavailablePredictiveChecks, Field(discriminator="kind")
-]
-
-
-class ModelPredictiveReport(Value):
-    """One automatic, reproducible battery over the full model's current laws."""
-
-    model_revision: GitOid
-    data: DataRef[GitOid, int] | None
-    draws: int = Field(ge=1)
-    seed: int = Field(ge=0)
-    law: PredictiveLawProvenance
-    evaluation: ModelPredictiveEvaluation
-
-    @computed_field
-    @property
-    def status(self) -> Literal["passed", "failed", "not_evaluated"]:
-        """Aggregate predictive verdict; unavailable evaluation remains explicitly not evaluated."""
-        evaluation = self.evaluation
-        if isinstance(evaluation, UnavailablePredictiveChecks):
-            return "not_evaluated"
-        failed = any(
-            isinstance(f, Evaluated) and f.outcome == "failed" for f in evaluation.findings
-        ) or (
-            evaluation.predictive_checks is not None
-            and any(
-                isinstance(f, Evaluated) and f.outcome != "passed"
-                for f in evaluation.predictive_checks.per_variable_warnings
-            )
-        )
-        return "failed" if failed else "passed"
 
 
 class ModelCheckReport(Value):

@@ -95,26 +95,44 @@ export const outcome: ConstructSpec = {
   ],
 };
 
-export const modelFixture: ModelSpec = {
-  edges: [
+function constructEntry({ id, indicators, dynamics, ...value }: ConstructSpec) {
+  return [
+    id,
     {
-      id: "edge:00000000000000000001",
-      cause: baseline,
-      effect: treatment,
-      mechanisms: [],
+      ...value,
+      indicators: Object.fromEntries(
+        indicators.map(({ observation: { id, ...observation }, ...indicator }) => [
+          id,
+          { ...indicator, observation },
+        ]),
+      ),
+      dynamics: Object.fromEntries(dynamics.map(({ id, ...mechanism }) => [id, mechanism])),
+    },
+  ] as const;
+}
+function parameterEntry({ id, ...value }: ParameterSpec) {
+  return [id, value] as const;
+}
+
+export const modelFixture: ModelSpec = {
+  constructs: Object.fromEntries([baseline, treatment, outcome].map(constructEntry)),
+  edges: {
+    "edge:00000000000000000001": {
+      cause: baseline.id,
+      effect: treatment.id,
+      mechanisms: {},
       description: "Baseline affects treatment.",
       sources: [],
     },
-    {
-      id: "edge:00000000000000000002",
-      cause: { kind: "construct", id: treatment.id },
-      effect: outcome,
-      mechanisms: [],
+    "edge:00000000000000000002": {
+      cause: treatment.id,
+      effect: outcome.id,
+      mechanisms: {},
       description: "Treatment affects the outcome.",
       sources: [],
     },
-  ],
-  parameters: [decay, diffusion],
+  },
+  parameters: Object.fromEntries([decay, diffusion].map(parameterEntry)),
   distributions: {
     "distribution:00000000000000000001": {
       distribution: "Beta",
@@ -127,5 +145,4 @@ export const modelFixture: ModelSpec = {
   },
   law_layouts: {},
   measurement_clock: "1d",
-  time_points: [],
 };

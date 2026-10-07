@@ -64,7 +64,7 @@ def time_invariant_mask(model: CompiledModel) -> np.ndarray:
 
 
 def input_mask(model: CompiledModel) -> np.ndarray:
-    """Mark state coordinates supplied by exact exogenous input readings."""
+    """Mark state coordinates supplied by deterministic input laws."""
     return np.asarray([state.is_input for state in model.states], dtype=bool)
 
 

@@ -126,8 +126,8 @@ def test_conditioning_rejects_warmup_statically(tmp_path):
             from nof1_causal_lab.models.ssm.inference.types import ParticleMCMCPosterior, WarmupProposal
 
             def condition(model: ModelSpec, compiled: CompiledModel, posterior: ParticleMCMCPosterior, warmup: WarmupProposal, times: Array):
-                condition_model(model, compiled, posterior, times=times)
-                condition_model(model, compiled, warmup, times=times)
+                condition_model(model, compiled, posterior, times=times, time_origin=None)
+                condition_model(model, compiled, warmup, times=times, time_origin=None)
             """)
     )
     checked = subprocess.run(
@@ -178,21 +178,12 @@ def test_causal_reporting_requires_retained_uncertainty_and_converged_exact_engi
             model,
             report.core,
         )
-    from nof1_causal_lab.artifacts.checks import NotEvaluated
+    from pydantic import ValidationError
 
-    unavailable = report.revised(
-        core=report.core.revised(
-            engine=NotEvaluated(
-                subject="production_engine",
-                reason="ARCHIVED_ENGINE_NOT_RETAINED",
-                detail="Exact engine evidence not retained",
-            )
-        )
-    )
-    with pytest.raises(CausalCertificationError, match="retained exact-engine evidence"):
-        certify_conditioned_model(model, revision, record, model, unavailable.core)
+    with pytest.raises(ValidationError):
+        report.core.inference_metadata.revised(engine=None)
     prior = _treatment_outcome()
-    with pytest.raises(CausalCertificationError, match="committed fit"):
+    with pytest.raises(CausalCertificationError, match="retained joint uncertainty"):
         certify_conditioned_model(prior, revision, inference_log(prior), prior, _report(prior).core)
     from nof1_causal_lab.models.ssm.inference.convergence import parameter_convergence
 

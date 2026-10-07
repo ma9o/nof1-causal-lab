@@ -1,6 +1,7 @@
 "use client";
 
 import type { SimulationPathsView } from "@/lib/model-asset/result-values";
+import type { DataComparisonView } from "@/lib/model-asset/data-comparison";
 
 import type {
   ConstructSpec,
@@ -9,8 +10,6 @@ import type {
   StateAssignment,
   PosteriorMarginal,
   ActionId,
-  DataDiffOutput,
-  StructuralItemDisposition,
 } from "@nof1-causal-lab/api-types";
 import { Pause, Play } from "lucide-react";
 import type { KeyboardEvent, ReactNode } from "react";
@@ -33,7 +32,7 @@ import {
 } from "@/lib/dag/build-layered-causal-graph";
 import type { ConstructStatus } from "@/lib/dag/construct-statuses";
 import { boundsForBand, type CausalGraphLayerId } from "@/lib/dag/layered-model";
-import { BLOCKING, COMPARISON_COLORS, DAG_COLORS, MARGINALIZED } from "@/lib/dag/palette";
+import { BLOCKING, COMPARISON_COLORS, DAG_COLORS, LATENT } from "@/lib/dag/palette";
 import { type LayeredGraphOptions, useLayeredGraph } from "@/lib/dag/use-layered-graph";
 import { entityFailures } from "@/lib/model-asset/inspector";
 import type { EntitySelection } from "@/lib/model-asset/selection";
@@ -64,7 +63,7 @@ export type LayeredCausalGraphVariant = "workbench" | "asset";
 
 export interface LayeredCausalGraphProps extends LayeredGraphOptions {
   simulationPaths?: SimulationPathsView | null;
-  dataDiff?: DataDiffOutput | null;
+  dataDiff?: DataComparisonView | null;
   onSelect: (selection: EntitySelection | null) => void;
   /** The action whose version is viewed; a data preparation shows each node's prepared data. */
   step?: ActionId | null;
@@ -92,13 +91,13 @@ function activateOnKeyboard(event: KeyboardEvent<SVGGElement>, action: () => voi
 
 function statusAccent(status: ConstructStatus | undefined): string | undefined {
   if (status === "blocking") return BLOCKING;
-  if (status === "marginalized") return MARGINALIZED;
+  if (status === "latent") return LATENT;
   return undefined;
 }
 
 function statusLabel(status: ConstructStatus | undefined): string | null {
   if (status === "blocking") return "blocking";
-  if (status === "marginalized") return "marginalized";
+  if (status === "latent") return "latent";
   return null;
 }
 
@@ -254,7 +253,7 @@ function CardMarkers({
   );
 }
 
-/** A law's backend curves inside a card or slot, on the law's own value range. */
+/** A law's curves inside a card or slot, on the law's own value range. */
 function LawMarks({ curve, box }: { curve: LawCurve; box: PlotBox }) {
   const domain = lawDomain(curve);
   if (!domain) return null;
@@ -272,7 +271,7 @@ function LawMarks({ curve, box }: { curve: LawCurve; box: PlotBox }) {
   );
 }
 
-/** Each own law's backend curves: the prior outlined, posteriors filled after a fit. */
+/** Each own law's curves: the prior outlined, posteriors filled after a fit. */
 function LawStrip({ laws }: { laws: LawCurve[] }) {
   const shown = laws.slice(0, STRIP_ROWS);
   return (
@@ -389,13 +388,13 @@ function ConstructCard({
     ? DAG_COLORS.intervention
     : status === "blocking"
       ? BLOCKING
-      : status === "marginalized"
-        ? MARGINALIZED
+      : status === "latent"
+        ? LATENT
         : DAG_COLORS.slate;
 
   return (
     <g
-      opacity={dimmed ? 0.18 : status === "marginalized" ? 0.62 : 1}
+      opacity={dimmed ? 0.18 : status === "latent" ? 0.62 : 1}
       role="button"
       aria-label={humanize(construct.name)}
       tabIndex={0}
@@ -408,7 +407,7 @@ function ConstructCard({
         height={LAYERED_NODE_HEIGHT}
         title={`${isOutcome ? "★ " : ""}${truncate(humanize(construct.name), 29)}`}
         {...(shellAccent === undefined ? {} : { accent: shellAccent })}
-        dashed={status === "marginalized"}
+        dashed={status === "latent"}
         highlighted={selected}
         outcome={isOutcome}
       >
@@ -484,14 +483,12 @@ function HistoryCard({
 
 function EdgeSlot({
   meta,
-  disposition,
   posterior,
   laws,
   color,
   dimmed,
 }: {
   meta: LayeredGraphEdgeMeta;
-  disposition: StructuralItemDisposition["disposition"] | undefined;
   posterior: PosteriorMarginal | undefined;
   /** The edge mechanism's own laws; the first is drawn in the slot. */
   laws: LawCurve[];
@@ -511,7 +508,7 @@ function EdgeSlot({
       <g opacity={dimmed ? 0.12 : 1}>
         <title>
           {[
-            `${timing}${disposition === "projected_edge" ? " · projected" : ""}`,
+            `${timing}`,
             ...laws.map(lawTitle),
           ].join("\n")}
         </title>
@@ -522,7 +519,6 @@ function EdgeSlot({
           fill="var(--card)"
           stroke={color}
           strokeOpacity={0.55}
-          strokeDasharray={disposition === "projected_edge" ? "4,3" : undefined}
         />
         <LawMarks
           curve={law}
@@ -553,7 +549,7 @@ function EdgeSlot({
   if (bottom === null)
     return (
       <g opacity={dimmed ? 0.12 : 1}>
-        <title>{`${timing}${disposition === "projected_edge" ? " · projected" : ""}`}</title>
+        <title>{`${timing}`}</title>
         <line
           x1={0}
           x2={LAYERED_EDGE_SLOT_WIDTH}
@@ -561,7 +557,6 @@ function EdgeSlot({
           y2={LAYERED_EDGE_SLOT_HEIGHT / 2}
           stroke={color}
           strokeWidth={1.2}
-          strokeDasharray={disposition === "projected_edge" ? "4,3" : undefined}
         />
       </g>
     );
@@ -576,7 +571,6 @@ function EdgeSlot({
         fill="var(--card)"
         stroke={color}
         strokeOpacity={0.55}
-        strokeDasharray={disposition === "projected_edge" ? "4,3" : undefined}
       />
       <text
         x={LAYERED_EDGE_SLOT_WIDTH / 2}
@@ -744,7 +738,6 @@ export function LayeredCausalGraph({
                     points={segment.points}
                     color={visual.color}
                     width={visual.width}
-                    dashed={visual.disposition === "projected_edge"}
                     opacity={dataDiff ? 0.15 : visual.opacity}
                     markerEnd={segmentMeta.markerEnd}
                     highlighted={hoveredEdge === meta.id}
@@ -791,7 +784,6 @@ export function LayeredCausalGraph({
                     />
                     <EdgeSlot
                       meta={edge}
-                      disposition={visual.disposition}
                       posterior={visual.posterior}
                       laws={visual.laws}
                       color={visual.color}

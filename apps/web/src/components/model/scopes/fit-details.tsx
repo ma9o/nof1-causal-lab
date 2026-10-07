@@ -10,7 +10,7 @@ import { FitCalibration } from "./fit-calibration";
 export function FitOutcome({ context }: { context: ScopeContext }) {
   const fit = context.model.fit;
   if (!fit) return <Hint>No inference report recorded.</Hint>;
-  const { report } = fit;
+  const report = fit;
   const { convergence } = report;
   const mcmc = report.inference_diagnostics;
   return (
@@ -41,10 +41,10 @@ export function FitDetails({ context }: { context: ScopeContext }) {
         <Hint>No inference report recorded at this version.</Hint>
       </Section>
     );
-  const { report } = fit;
+  const report = fit;
   const plot = detail.data?.detail;
   const mcmc = report.inference_diagnostics;
-  const gibbs = report.sampler_diagnostics;
+  const gibbs = report.inference_metadata.sampler_diagnostics;
   return (
     <>
       <FitCalibration context={context} />

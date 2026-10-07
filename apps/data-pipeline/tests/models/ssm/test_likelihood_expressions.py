@@ -34,7 +34,6 @@ from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 from nof1_causal_lab.compilation_errors import IncompleteModelError
 from nof1_causal_lab.models.likelihoods import function
 from nof1_causal_lab.models.model_parameters import iter_coefficient_uses
-from nof1_causal_lab.study.equations import observation_equations
 from tests.helpers import make_model
 from tests.inference_fixtures import compile_model_fixture
 from tests.model_fixtures import (
@@ -79,7 +78,7 @@ def _partial_law_is_explicit_and_unsupported_formulas_fail_before_execution_comp
         )
     )
     x_revised = x.revised(indicators=(x_obs_revised,))
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(model.edges, (x_revised,)),
         parameters=(
             rho_x,
@@ -439,7 +438,7 @@ def test_authored_laws_preserve_coefficient_identities(
 
 
 @pytest.mark.contract
-def test_completion_binding_equations_and_serialization_follow_the_same_cross_loading():
+def test_completion_binding_and_serialization_follow_the_same_cross_loading():
     model = x_y_model()
     owner, other = model.constructs
     indicator = owner.indicators[0]
@@ -450,7 +449,7 @@ def test_completion_binding_equations_and_serialization_follow_the_same_cross_lo
             / "likelihood_expressions/completion_binding_equations_and_serialization_follow_the_same_cross_loading_revise_law.json"
         ).read_text()
     )
-    model = model.revised(
+    model = model.with_entities(
         edges=replace_constructs(
             model.edges,
             (owner.revised(indicators=(indicator.revised(likelihood=revised),)),),
@@ -463,13 +462,10 @@ def test_completion_binding_equations_and_serialization_follow_the_same_cross_lo
     uses = [use for use in iter_coefficient_uses(model) if use.quantity == SiteKind.LOADING]
     cross = next(use for use in uses if use.value == 0.25)
     assert {ref.id for ref in cross.owners} == {indicator.observation.id, other.id}
-    equation = observation_equations(model)[indicator.observation.id]
-    assert r"\operatorname{Normal}" in equation
-    assert r"0.25" in equation
-    assert r"\eta_{\text{Y}}(t)" in equation
-    assert ModelSpec.model_validate_json(model.model_dump_json()) == model
-    renamed = model.revised(edges=replace_constructs(model.edges, (other.revised(name="Renamed"),)))
-    assert r"\eta_{\text{Renamed}}(t)" in observation_equations(renamed)[indicator.observation.id]
+    assert ModelSpec.model_validate_json(model.model_dump_json()).materialized() == model
+    renamed = model.with_entities(
+        edges=replace_constructs(model.edges, (other.revised(name="Renamed"),))
+    )
     assert {p.id for p in renamed.parameters} == {p.id for p in model.parameters}
 
 
@@ -514,7 +510,7 @@ def test_partial_law_is_explicit_and_unsupported_formulas_fail_before_execution(
     )
 
     def with_law(law):
-        return model.revised(
+        return model.with_entities(
             edges=replace_constructs(
                 model.edges,
                 (owner.revised(indicators=(indicator.revised(likelihood=law),)),),
@@ -524,7 +520,6 @@ def test_partial_law_is_explicit_and_unsupported_formulas_fail_before_execution(
     unfinished = with_law(partial)
     with pytest.raises(IncompleteModelError):
         compile_model_fixture(unfinished)
-    assert "?" in observation_equations(unfinished)[indicator.observation.id]
     compile_model_fixture(
         _partial_law_is_explicit_and_unsupported_formulas_fail_before_execution_complete_test_model()
     )

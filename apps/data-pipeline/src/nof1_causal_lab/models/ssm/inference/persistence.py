@@ -13,6 +13,7 @@ from nof1_causal_lab.numpyro_json import empirical_distribution
 
 if TYPE_CHECKING:
     from collections.abc import Callable
+    from datetime import datetime
 
     from jax.typing import ArrayLike
 
@@ -29,6 +30,7 @@ def condition_model(
     result: ParticleMCMCPosterior,
     *,
     times: ArrayLike,
+    time_origin: datetime | None,
     array_writer: Callable[[np.ndarray], str] | None = None,
     array_loader: ArrayLoader | None = None,
 ) -> tuple[ModelSpec, DistributionId]:
@@ -58,7 +60,17 @@ def condition_model(
         parameters=conditioned_parameters,
         constructs=modeled_ids,
         time_points=grid.tolist(),
+        time_origin=time_origin if time_origin is not None else "relative",
     )
+    # Relative input paths acquire the same calendar binding as the conditioned states.
+    input_layouts = {
+        key: value.revised(time_origin=time_origin)
+        for key, value in model_spec.law_layouts.items()
+        if time_origin is not None
+        and value.time_origin == "relative"
+        and value.constructs
+        and all(model_spec.get_construct(member).role == "exogenous" for member in value.constructs)
+    }
     joint = layout.pack(
         {
             identity: samples[coordinate.site_name][(slice(None), *coordinate.indices)]
@@ -69,15 +81,17 @@ def condition_model(
     )
     law = empirical_distribution(joint, array_writer=array_writer, array_loader=array_loader)
     identity = layout.distribution_id
-    edges = replace_constructs(
-        model_spec.edges,
-        tuple(
-            construct.with_distribution(
-                identity if construct.id in modeled_ids else construct.distribution
-            )
-            for construct in model_spec.constructs
-        ),
+    constructs = tuple(
+        construct.with_distribution(
+            identity
+            if construct.id in modeled_ids
+            else input_layouts[construct.distribution].distribution_id
+            if construct.distribution is not None and construct.distribution in input_layouts
+            else construct.distribution
+        )
+        for construct in model_spec.constructs
     )
+    edges = replace_constructs(model_spec.edges, constructs)
     parameters = tuple(
         parameter if parameter.id not in conditioned_parameters else parameter.conditioned(identity)
         for parameter in model_spec.parameters
@@ -86,24 +100,32 @@ def condition_model(
         member.distribution
         for member in (
             *parameters,
-            *(edge.cause for edge in edges),
-            *(edge.effect for edge in edges),
+            *constructs,
         )
         if member.distribution is not None
     }
-    conditioned = model_spec.revised(
+    conditioned = model_spec.with_entities(
+        constructs=constructs,
         edges=edges,
         parameters=parameters,
         distributions={
             **{
-                key: value
+                input_layouts[key].distribution_id if key in input_layouts else key: value
                 for key, value in model_spec.distributions.items()
-                if key in retained_laws
+                if (input_layouts[key].distribution_id if key in input_layouts else key)
+                in retained_laws
             },
             identity: law,
         },
         law_layouts={
-            **{key: value for key, value in model_spec.law_layouts.items() if key in retained_laws},
+            **{
+                input_layouts[key].distribution_id
+                if key in input_layouts
+                else key: input_layouts.get(key, value)
+                for key, value in model_spec.law_layouts.items()
+                if (input_layouts[key].distribution_id if key in input_layouts else key)
+                in retained_laws
+            },
             identity: layout,
         },
     )

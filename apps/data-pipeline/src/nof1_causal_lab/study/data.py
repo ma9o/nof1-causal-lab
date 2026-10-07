@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from functools import cache
 from pathlib import Path
 from typing import TYPE_CHECKING
 
@@ -19,7 +18,6 @@ from nof1_causal_lab.utils.observation_rows import observation_row_schema
 from nof1_causal_lab.utils.time_coordinates import ModelTime, ObservationInstant
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
     from datetime import datetime
 
     from nof1_causal_lab.actions.io import PrepareDataOutput
@@ -32,23 +30,21 @@ if TYPE_CHECKING:
 def read_simulation_observations(
     report: SimulationEvidence,
     replicate: int,
-    *,
-    read_array: Callable[[str], np.ndarray],
 ) -> pl.DataFrame:
     """Read emitted observations on their recorded dates."""
     if not 0 <= replicate < report.draws:
         raise StudyLookupError(f"Simulation replicate must be between 0 and {report.draws - 1}")
     times = np.asarray(report.times)
     layout = report.observation_layout
-    starts = read_array(layout.support_start_times)
-    ends = read_array(layout.support_end_times)
-    mask = read_array(layout.mask)
+    starts = layout.support_start_times.values
+    ends = layout.support_end_times.values
+    mask = layout.mask.values
     if (
         starts.shape != (len(times), len(report.observation_layout.indicator_ids))
         or ends.shape != starts.shape
     ):
         raise ValueError("Simulation support does not match the recorded observation layout")
-    observations = read_array(report.observations)
+    observations = report.arms.action.observations.values
     if observations.shape != (
         report.draws,
         len(times),
@@ -149,8 +145,7 @@ def read_data_source(
             raise StudyLookupError("The selected preparation produced no observation history")
         return read_data_metadata(store, panel.revision)
     if attempt.action == "simulate":
-        result = store.read_report(attempt.outcome.result, SimulateOutput)
-        assert result.report is not None
+        result = store.read_result(attempt.outcome.result, SimulateOutput)
         return result.report.evidence
     raise StudyLookupError("Data must select an applied prepare_data or simulate call")
 
@@ -178,14 +173,13 @@ def panel_revision(store: ArtifactStore, revision: GitOid) -> GitOid:
 def read_data_history(store: ArtifactStore, source: DataRef[GitOid, int]) -> DataHistory:
     """Select exactly one recorded history; prepared user data has only index zero."""
     data = read_data_source(store, source.revision)
-    return _read_history(store, source, data, cache(store.read_array))
+    return _read_history(store, source, data)
 
 
 def _read_history(
     store: ArtifactStore,
     source: DataRef[GitOid, int],
     data: PreparedDataMetadata | SimulationEvidence,
-    read_array: Callable[[str], np.ndarray],
 ) -> DataHistory:
     if isinstance(data, PreparedDataMetadata):
         if source.replicate_index != 0:
@@ -204,7 +198,7 @@ def _read_history(
     return DataHistory(
         source,
         ObservationDataset.from_frame(
-            read_simulation_observations(data, source.replicate_index, read_array=read_array),
+            read_simulation_observations(data, source.replicate_index),
             data.observation_layout.variables,
             time_origin=data.time_origin,
         ),
@@ -224,13 +218,11 @@ def read_data_histories(
         if isinstance(data, PreparedDataMetadata)
         else range(data.draws)
     )
-    read_array = cache(store.read_array)
     return tuple(
         _read_history(
             store,
             DataRef[GitOid, int](revision=source.revision, replicate_index=index),
             data,
-            read_array,
         )
         for index in indices
     )
@@ -240,7 +232,6 @@ def prepared_frame(result: PrepareDataOutput) -> pl.DataFrame:
     """Decode the preparation's saved history into the scientific observation table."""
     from nof1_causal_lab.study.action_arrays import resolve_vector
 
-    assert result.metadata is not None
     rows = []
     for variable in result.metadata.variables:
         history = result.data[variable.id]
@@ -249,9 +240,9 @@ def prepared_frame(result: PrepareDataOutput) -> pl.DataFrame:
         def instant(day: float | None, origin: ObservationInstant = origin) -> datetime | None:
             return ModelTime(day).at(origin).value.replace(tzinfo=None) if day is not None else None
 
-        starts = resolve_vector(history.support_start, {})
-        ends = resolve_vector(history.support_end, {})
-        values = resolve_vector(history.values, {})
+        starts = resolve_vector(history.support_start)
+        ends = resolve_vector(history.support_end)
+        values = resolve_vector(history.values)
         rows.extend(
             {
                 "indicator_id": variable.id,

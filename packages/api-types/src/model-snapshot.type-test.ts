@@ -9,9 +9,9 @@ import type {
   Attempt,
   Change,
   ConstructId,
-  ConstructRef,
   ConstructSpec,
   DistributionId,
+  EdgeId,
   EditModelRequest,
   Evaluation,
   FitOutput,
@@ -19,12 +19,14 @@ import type {
   IndicatorId,
   IndicatorSpec,
   InferenceReportCore,
+  ModelDiffOutput,
   ModelSnapshot,
   ModelSpec,
   NumPyroDistribution,
   ObservationData,
   ObservationHistory,
   ObservationSpec,
+  ParameterId,
   ParameterSpec,
   Rejected,
   TimelineResponse,
@@ -55,13 +57,25 @@ export type GenericObservationRetainsWindow = Expect<
 // @ts-expect-error Rejection reasons are the closed domain reason type.
 export type RejectionHasNoUnrelatedReason = Rejected<number>;
 
+export type ModelComparisonUsesTheEditDocument = Expect<
+  Equal<ModelDiffOutput["changes"], EditModelRequest<GitOid>["input"]["model"]>
+>;
+export type EmptyModelDiffIsValid = Expect<
+  Extends<Record<string, never>, ModelDiffOutput["changes"]>
+>;
+export type ModelDiffKeepsDeletionEntries = Expect<
+  Extends<null, NonNullable<ModelDiffOutput["changes"]["constructs"]>[ConstructId]>
+>;
+
 export type CanonicalDefinition = Expect<Equal<NonNullable<ModelSnapshot["model"]>, ModelSpec>>;
 export type CanonicalInferenceCore = Expect<
-  Equal<NonNullable<ModelSnapshot["fit"]>["report"], InferenceReportCore>
+  Equal<NonNullable<ModelSnapshot["fit"]>, InferenceReportCore>
 >;
-export type CanonicalParameter = Expect<Equal<ModelSpec["parameters"][number], ParameterSpec>>;
+export type CanonicalParameter = Expect<
+  Equal<NonNullable<ModelSpec["parameters"][ParameterId]>, Omit<ParameterSpec, "id">>
+>;
 export type CanonicalConstruct = Expect<
-  Equal<ModelSpec["edges"][number]["cause"], ConstructSpec | ConstructRef>
+  Equal<NonNullable<ModelSpec["edges"][EdgeId]>["cause"], ConstructId>
 >;
 export type OwnedIndicator = Expect<Equal<ConstructSpec["indicators"][number], IndicatorSpec>>;
 // @ts-expect-error Indicator ownership is declared by containment.
@@ -134,6 +148,29 @@ export type RequestDefaultsMayBeOmitted = Expect<
     FitInput
   >
 >;
+type EditInput =
+  paths["/api/studies/{workspace_id}/edit_model"]["post"]["requestBody"]["content"]["application/json"];
+export type PartialModelEditsKeepNestedFieldsOptional = Expect<
+  Extends<
+    {
+      action: "edit_model";
+      input: {
+        parent_ref: string;
+        model: {
+          edges: {
+            "edge:remove": null;
+            "edge:revise": {
+              mechanisms: {
+                "mechanism:weight": { expression: { left: { left: { value: 4 } } } };
+              };
+            };
+          };
+        };
+      };
+    },
+    EditInput
+  >
+>;
 export type DefaultsAreAbsent = Expect<
   Equal<
     Extends<
@@ -153,9 +190,9 @@ export type DefaultsAreAbsent = Expect<
 >;
 
 declare const definition: ModelSpec;
-declare const edge: ModelSpec["edges"][number];
-// @ts-expect-error Published arrays are read-only.
-definition.parameters.push({});
+declare const edge: NonNullable<ModelSpec["edges"][EdgeId]>;
+// @ts-expect-error Published entity maps are read-only.
+definition.parameters["parameter:new"] = {};
 // @ts-expect-error Read-only guarantees extend to nested values.
 edge.description = "changed";
 // @ts-expect-error Published maps are read-only.

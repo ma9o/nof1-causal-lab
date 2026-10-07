@@ -72,20 +72,20 @@ class TestModel:
             effect=construct_factory("mood"),
             description="Stress affects mood",
         )
-        model = ModelSpec(edges=(edge,))
+        model = ModelSpec.from_entities(edges=(edge,))
         assert [construct.name for construct in model.constructs] == ["stress", "mood"]
         assert model.edges[0].cause is model.get_construct(edge.cause.id)
 
     @pytest.mark.parametrize("endpoint", ["cause", "effect"])
     def test_undefined_endpoint_reference_is_rejected(self, endpoint):
         payload = make_model(["stress", "mood"], [("stress", "mood")]).model_dump(mode="json")
-        payload["edges"][0][endpoint] = {"kind": "construct", "id": "construct:unknown"}
+        next(iter(payload["edges"].values()))[endpoint] = "construct:unknown"
         with pytest.raises(ValueError, match="Undefined construct endpoint"):
-            ModelSpec.model_validate(payload)
+            ModelSpec.model_validate(payload).materialized()
 
     def test_invalid_exogenous_cannot_be_effect(self, construct_factory):
         with pytest.raises(ValueError, match="Exogenous construct 'weather' cannot be an effect"):
-            ModelSpec(
+            ModelSpec.from_entities(
                 edges=(
                     CausalEdgeSpec(
                         id="edge:mood-weather",
@@ -98,7 +98,7 @@ class TestModel:
 
     def test_invalid_time_varying_to_time_invariant_edge(self, construct_factory):
         with pytest.raises(ValueError, match="cannot be a cause of time-invariant construct"):
-            ModelSpec(
+            ModelSpec.from_entities(
                 edges=(
                     CausalEdgeSpec(
                         id="edge:habit-trait",
@@ -539,14 +539,16 @@ class TestModelContainment:
     def test_indicator_cannot_have_an_independent_unknown_owner(self):
         model = make_model(["mood"])
         value = model.model_dump(mode="json")
-        graph_constructs(value)[0]["indicators"][0]["construct_id"] = "construct:unknown"
+        next(iter(graph_constructs(value)[0]["indicators"].values()))["construct_id"] = (
+            "construct:unknown"
+        )
         with pytest.raises(ValidationError, match="Extra inputs"):
-            ModelSpec.model_validate(value)
+            ModelSpec.model_validate(value).materialized()
 
     def test_latent_construct_without_indicators_is_valid(self):
         model = make_model(["observed", "latent"], [("observed", "latent")])
         observed, latent = model.constructs
-        result = model.revised(
+        result = model.with_entities(
             edges=replace_constructs(
                 model.edges,
                 (observed, latent.revised(indicators=())),
@@ -562,10 +564,10 @@ class TestModelContainment:
             "source_indicator_id": model.constructs[1].indicators[0].observation.id,
         }
         with pytest.raises(ValueError, match="Extra inputs are not permitted"):
-            ModelSpec.model_validate(data)
+            ModelSpec.model_validate(data).materialized()
         graph_constructs(data)[0]["usage"] = [{"kind": "scientific_only", "reason": "context"}]
         with pytest.raises(ValidationError):
-            ModelSpec.model_validate(data)
+            ModelSpec.model_validate(data).materialized()
 
     def test_dynamic_feedback_is_valid_but_static_cycles_are_rejected(self):
         model = make_model(["X", "Y"], [("X", "Y"), ("Y", "X")])
@@ -573,14 +575,14 @@ class TestModelContainment:
         for construct in graph_constructs(payload):
             construct["temporal_status"] = "time_invariant"
         with pytest.raises(ValidationError, match="Time-invariant edges form cycle"):
-            ModelSpec.model_validate(payload)
+            ModelSpec.model_validate(payload).materialized()
 
     def test_edge_rejects_removed_lagged_field(self):
         model = make_model(["sleep", "mood"], [("sleep", "mood")]).revised(measurement_clock="6h")
         payload = model.model_dump(mode="json")
-        payload["edges"][0]["lagged"] = True
+        next(iter(payload["edges"].values()))["lagged"] = True
         with pytest.raises(ValidationError, match="lagged"):
-            ModelSpec.model_validate(payload)
+            ModelSpec.model_validate(payload).materialized()
         from nof1_causal_lab.models.ssm.compile.support import get_construct_dt_days
 
         assert get_construct_dt_days(model) == 0.25

@@ -22,9 +22,7 @@ from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.artifacts.data_ref import DataRef
 from nof1_causal_lab.artifacts.identity import GitOid
 from nof1_causal_lab.artifacts.posterior import ModelFitResult
-from nof1_causal_lab.artifacts.predictive_provenance import FittedLawProvenance, MixedLawProvenance
 from nof1_causal_lab.artifacts.simulation import ModelSimulationResult
-from nof1_causal_lab.compilation_errors import AggregatedCompileError
 from nof1_causal_lab.models.model_structure import StructuralSelection
 from nof1_causal_lab.study.artifact_files import json_filename
 from nof1_causal_lab.study.records import Applied
@@ -85,70 +83,39 @@ async def _run_fit(
             json_filename("model", "model"): conditioned.model_dump(mode="json", round_trip=True)
         },
     )
-    report = read_inference_report(store, info.revision, evidence)
+    retained = ModelFitResult(model=store.model_ref(pins["model"]), data=source, evidence=evidence)
+    report = read_inference_report(store, info.revision, retained, result["metadata"])
     return Applied(
-        result=ModelFitResult(
-            model=store.model_ref(pins["model"]),
-            data=source,
-            evidence=evidence,
-        ),
+        result=retained,
         effects=ActionEffects(produced=(info,), reports={"inference": store.write_report(report)}),
     )
 
 
 async def _run_simulate(
-    workspace_id: str,
     store: ArtifactStore,
     pins: dict[ArtifactId, GitOid],
     design: SimulationSpec,
 ) -> Applied[ModelSimulationResult]:
     from nof1_causal_lab.actions.simulate import read_simulation_report, simulate
-    from nof1_causal_lab.study.history import StudyRepository
-    from nof1_causal_lab.study.store import read_model
+    from nof1_causal_lab.study.store import read_model, read_question
 
     model = read_model(store, pins["model"])
-    from nof1_causal_lab.study.data import read_data_history
-    from nof1_causal_lab.study.lineage import fitted_law_report, law_provenance
-    from nof1_causal_lab.study.store import read_question
-
     selection = StructuralSelection.for_question(model, read_question(store, pins["question"]))
-
-    records = StudyRepository(workspace_id).attempts()
-    law = law_provenance(store, store.read_meta("model", pins["model"]), model, None)
-    # Without a record, the design's start is model day zero for the initial-state law.
-    origin_data = (
-        DataRef[GitOid, int](revision=pins["panel"], replicate_index=0) if "panel" in pins else None
-    )
-    if isinstance(law, (FittedLawProvenance, MixedLawProvenance)):
-        origin_data = law.fitted_data
-    history = read_data_history(store, origin_data) if origin_data is not None else None
-    time_origin = history.time_origin if history is not None else design.start_instant
-    if isinstance(law, (FittedLawProvenance, MixedLawProvenance)):
-        time_origin = fitted_law_report(store, records, law.fitted_model_revision).time_origin
-    if time_origin is None:
-        raise AggregatedCompileError(["A calendar-free record cannot place a dated simulation."])
-
     report = await asyncio.to_thread(
         simulate,
         selection,
         design,
         revision=store.model_ref(pins["model"]),
-        write_array=store.write_array,
-        time_origin=time_origin,
-        origin_data=origin_data,
-        input_data=history.observations
-        if history is not None
-        and any(construct.role == "exogenous" for construct in model.constructs)
-        else None,
     )
     from nof1_causal_lab.actions.errors import ActionExecutionError
     from nof1_causal_lab.models.ssm.preflight import ObservationPreflightFailure
 
     if isinstance(report, ObservationPreflightFailure):
         raise ActionExecutionError(report.message)
-    findings = read_simulation_report(store, report, pins["question"])
+    retained = ModelSimulationResult(evidence=report)
+    findings = read_simulation_report(store, retained.evidence, pins["question"])
     return Applied(
-        result=ModelSimulationResult(evidence=report),
+        result=retained,
         effects=ActionEffects(reports={"simulation": store.write_report(findings)}),
     )
 
@@ -170,7 +137,7 @@ async def run_action_locally(
             read_model_diff, workspace_id, request.input.before_ref, request.input.after_ref
         )
         return Applied(
-            result=None, effects=ActionEffects(reports={"model-diff": store.write_report(report)})
+            result=None, effects=ActionEffects(reports={"model-diff": store.write_result(report)})
         )
     if isinstance(request, DataDiffRequest):
         from nof1_causal_lab.actions.data_diff import read_data_diff
@@ -189,7 +156,7 @@ async def run_action_locally(
                 revision=request.input.data_ref, replicate_index=request.input.replicate_index
             ),
         )
-    return await _run_simulate(workspace_id, store, pins, request.input.simulation)
+    return await _run_simulate(store, pins, request.input.simulation)
 
 
 def _pinned(store: ArtifactStore, selected: dict[ArtifactId, GitOid]) -> dict[ArtifactId, GitOid]:
@@ -230,8 +197,6 @@ async def run_action(
             store,
             {"model": request.input.model_ref, "question": state.current["question"].revision},
         )
-        if request.input.panel_ref is not None:
-            pins["panel"] = _pinned(store, {"panel": request.input.panel_ref})["panel"]
     else:
         pins = {}
     return await run_action_locally(workspace_id, request, pins)

@@ -4,6 +4,7 @@ import hashlib
 from datetime import UTC, date, datetime
 from types import SimpleNamespace
 
+import msgpack
 import numpy as np
 import pytest
 from fastapi import Response
@@ -11,6 +12,7 @@ from fastapi.testclient import TestClient
 from pydantic import TypeAdapter, ValidationError
 
 from nof1_causal_lab import study_api, tool_server
+from nof1_causal_lab.artifacts.arrays import NumericalArray
 from nof1_causal_lab.actions.call_state import PendingCall
 from nof1_causal_lab.actions.contracts import (
     DataDiffRequest,
@@ -25,12 +27,20 @@ from nof1_causal_lab.artifacts.identity import GitOid, GitRef
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.simulation import (
     ModelSimulationResult,
+    SimulationArm,
     SimulationEvidence,
     SimulationObservationLayout,
     SimulationSpec,
+    SingleArmSimulation,
 )
 from nof1_causal_lab.study.history import StudyRepository
-from nof1_causal_lab.study.records import Applied, AttemptRecord, Raised, SimulateAttempt
+from nof1_causal_lab.study.records import (
+    Applied,
+    AttemptRecord,
+    FitAttempt,
+    Raised,
+    SimulateAttempt,
+)
 from nof1_causal_lab.study.state import RetractedArtifact
 from nof1_causal_lab.study.store import ArtifactStore
 from nof1_causal_lab.utils import data
@@ -92,13 +102,17 @@ def study(tmp_path, monkeypatch):
         seed=0,
         state_ids=(),
         parameter_draws={},
-        latent_paths=store.write_array(np.zeros((2, 2, 0))),
-        observations=store.write_array(np.zeros((2, 2, 0))),
+        arms=SingleArmSimulation(
+            action=SimulationArm(
+                latent_paths=NumericalArray.from_numpy(np.zeros((2, 2, 0))),
+                observations=NumericalArray.from_numpy(np.zeros((2, 2, 0))),
+            ),
+        ),
         observation_layout=SimulationObservationLayout(
             variables=(),
-            support_start_times=store.write_array(np.zeros((2, 0))),
-            support_end_times=store.write_array(np.zeros((2, 0))),
-            mask=store.write_array(np.zeros((2, 2, 0), dtype=bool)),
+            support_start_times=NumericalArray.from_numpy(np.zeros((2, 0))),
+            support_end_times=NumericalArray.from_numpy(np.zeros((2, 0))),
+            mask=NumericalArray.from_numpy(np.zeros((2, 2, 0), dtype=bool)),
         ),
     )
     for seed in (0, 1):
@@ -173,7 +187,6 @@ def client(monkeypatch):
             "simulate",
             {
                 "model_ref": "latest",
-                "panel_ref": "latest",
                 "simulation": {"start": "2026-01-01", "horizon": "1d"},
             },
         ),
@@ -215,7 +228,7 @@ def test_latest_is_pinned_by_input_type_before_running_call_deduplication(
         },
     )
     assert response.status_code == 200, response.text
-    result = response.json()
+    result = msgpack.unpackb(response.content)
     assert set(result) == {"call_id", "action", "status", "commit_id", "body", "messages"}
     pinned = dispatched[0].model_dump(mode="json")
     assert pinned["reasoning"] == "Choose the newest published inputs."
@@ -224,8 +237,8 @@ def test_latest_is_pinned_by_input_type_before_running_call_deduplication(
         assert (
             inputs["parent_ref" if action == "edit_model" else "model_ref"] == models[-1].revision
         )
-        if action in {"fit", "simulate"}:
-            assert inputs["data_ref" if action == "fit" else "panel_ref"] == panel.revision
+        if action == "fit":
+            assert inputs["data_ref"] == panel.revision
     elif action == "model_diff":
         assert inputs["before_ref"] == git_oid(1)
         assert inputs["after_ref"] == models[-1].revision
@@ -235,9 +248,11 @@ def test_latest_is_pinned_by_input_type_before_running_call_deduplication(
     assert len(dispatched) == 1
     if action == "prepare_data":
         inputs["source"] = arguments["source"]
-    assert http.post(path, json=pinned).json()["call_id"] == result["call_id"]
+    assert msgpack.unpackb(http.post(path, json=pinned).content)["call_id"] == result["call_id"]
     assert (
-        http.post(path, json={"action": action, "input": arguments}).json()["call_id"]
+        msgpack.unpackb(http.post(path, json={"action": action, "input": arguments}).content)[
+            "call_id"
+        ]
         == result["call_id"]
     )
     assert len(dispatched) == 1
@@ -273,23 +288,23 @@ def test_prepare_data_captures_named_folder_recursively_and_pins_bytes(study, cl
 
     response = _prepare_folder(http, "exports")
     assert response.status_code == 200, response.text
-    original_id = response.json()["call_id"]
+    original_id = msgpack.unpackb(response.content)["call_id"]
     captured = dispatched[0].input.source
     assert captured.files == tuple(expected)
     assert captured.hashes == {
         name: hashlib.sha256(body).hexdigest() for name, body in expected.items()
     }
-    assert _prepare_folder(http, "exports").json()["call_id"] == original_id
+    assert msgpack.unpackb(_prepare_folder(http, "exports").content)["call_id"] == original_id
     assert len(dispatched) == 1
 
     (source / "a.csv").write_bytes(b"date,score\n2026-01-01,3\n")
-    changed_id = _prepare_folder(http, "exports").json()["call_id"]
+    changed_id = msgpack.unpackb(_prepare_folder(http, "exports").content)["call_id"]
     assert changed_id != original_id
     (source / "c.csv").write_bytes(b"date,score\n2026-01-03,4\n")
-    added_id = _prepare_folder(http, "exports").json()["call_id"]
+    added_id = msgpack.unpackb(_prepare_folder(http, "exports").content)["call_id"]
     assert added_id not in {original_id, changed_id}
     (source / "c.csv").unlink()
-    assert _prepare_folder(http, "exports").json()["call_id"] == changed_id
+    assert msgpack.unpackb(_prepare_folder(http, "exports").content)["call_id"] == changed_id
     assert len(dispatched) == 3
 
     for name in expected:
@@ -298,7 +313,7 @@ def test_prepare_data_captures_named_folder_recursively_and_pins_bytes(study, cl
     source.rmdir()
     poll = http.get(f"/api/studies/LATEST/prepare_data/{original_id}")
     assert poll.status_code == 200
-    assert poll.json()["call_id"] == original_id
+    assert msgpack.unpackb(poll.content)["call_id"] == original_id
     for name, body in expected.items():
         staged = workspace / "scratch" / "source-files" / captured.hashes[name] / name
         assert staged.read_bytes() == body
@@ -343,11 +358,14 @@ def test_latest_reuses_explicit_saved_call_and_pinned_poll_survives_newer_model(
         )
     )
     saved = repository.append(
-        applied_record(
-            repository.workspace_id,
-            Applied(result=None, effects=ActionEffects()),
+        AttemptRecord(
             seq=repository.latest_seq() + 1,
-            request=request,
+            ts="2026-01-01T00:00:00Z",
+            attempt=FitAttempt(
+                action="fit",
+                request=request,
+                outcome=Raised(error_type="TestError", error_message="Retained failed fit"),
+            ),
         )
     )
     monkeypatch.setattr(
@@ -488,8 +506,8 @@ def test_edit_model_parent_pins_question_for_identity_checks_and_provenance(
     )
     _publish(repository, question)
     assert (
-        http.post(path, json=original.model_dump(mode="json")).json()["call_id"]
-        == response.json()["call_id"]
+        msgpack.unpackb(http.post(path, json=original.model_dump(mode="json")).content)["call_id"]
+        == msgpack.unpackb(response.content)["call_id"]
     )
     changed = http.post(
         path,
@@ -499,7 +517,9 @@ def test_edit_model_parent_pins_question_for_identity_checks_and_provenance(
         },
     )
     assert changed.status_code == 200, changed.text
-    assert changed.json()["call_id"] != response.json()["call_id"]
+    assert (
+        msgpack.unpackb(changed.content)["call_id"] != msgpack.unpackb(response.content)["call_id"]
+    )
     selected = dispatched[1]
     assert selected.input.parent_ref == question.revision
     assert repository.input_state(selected).current == {"question": question}

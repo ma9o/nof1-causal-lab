@@ -28,7 +28,7 @@ def _sleep_state_model() -> ModelSpec:
     model = load_model_fixture("inference/sleep_state_model.json")
     first = model.constructs[0]
     indicator = first.indicators[0]
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(
             model.edges,
             (

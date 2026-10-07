@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import json
 from collections import defaultdict
 from dataclasses import dataclass
 from functools import cached_property
@@ -11,28 +10,17 @@ from typing import TYPE_CHECKING, Literal
 
 from nof1_causal_lab.artifacts.construct import (
     CausalEdgeSpec,
-    ConstructSpec,
     TemporalStatus,
 )
-from nof1_causal_lab.artifacts.execution import StructuralDisposition, StructuralItemDisposition
-from nof1_causal_lab.artifacts.identity import ConstructRef, EdgeRef, IndicatorRef
 from nof1_causal_lab.compilation_errors import AggregatedCompileError
-from nof1_causal_lab.study.view_models import (
-    Added,
-    Change,
-    Removed,
-    Revised,
-    Unchanged,
-)
 
 if TYPE_CHECKING:
-    from collections.abc import Callable, Iterator, Mapping, Sequence
+    from collections.abc import Mapping
 
     from nof1_causal_lab.artifacts.identification import IdentificationReport
     from nof1_causal_lab.artifacts.identity import ConstructId, IndicatorId
     from nof1_causal_lab.artifacts.indicator import IndicatorSpec
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
-    from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
     from nof1_causal_lab.artifacts.question import QuestionSpec
 
 type DependencyKey = tuple[
@@ -99,16 +87,16 @@ class StructuralSelection:
         """Dependencies induced by marginalization, paired with the constructs that induce them."""
         return induced_dependencies(self)
 
-    @cached_property
-    def structural_dispositions(self) -> tuple[StructuralItemDisposition, ...]:
-        """Execution treatment of the selection's constructs, edges, and observation indicators."""
-        return structural_dispositions(self)
 
 
 def marginalized_construct_ids(selection: StructuralSelection) -> frozenset[ConstructId]:
     """Identify eligible unmeasured roots without changing the scientific DAG."""
     model = selection.model
-    observed = {construct.id for construct in model.constructs if construct.indicators}
+    observed = {
+        construct.id
+        for construct in model.constructs
+        if construct.indicators or construct.role == "exogenous"
+    }
     blocked = {
         confounder
         for treatment, finding in selection.identification.non_identifiable.items()
@@ -164,6 +152,7 @@ def reference_indicators(selection: StructuralSelection) -> Mapping[ConstructId,
                 selection.model.get_construct(identity).indicators
             ).observation.id
             for identity in selected_state_ids(selection)
+            if selection.model.get_construct(identity).indicators
         }
     )
 
@@ -218,7 +207,11 @@ def retained_construct_ids(selection: StructuralSelection) -> frozenset[Construc
     import networkx as nx
 
     model = selection.model
-    measured = {construct.id for construct in model.constructs if construct.indicators}
+    measured = {
+        construct.id
+        for construct in model.constructs
+        if construct.indicators or construct.role == "exogenous"
+    }
     if selection.outcome is None:
         # A model-wide operation has no outcome against which to discard a component.
         return frozenset(measured)
@@ -309,165 +302,3 @@ def validate_execution_structure(selection: StructuralSelection) -> None:
     if errors:
         raise StructuralCompilationError(errors)
 
-
-def structural_dispositions(
-    selection: StructuralSelection,
-) -> tuple[StructuralItemDisposition, ...]:
-    """Explain the computational treatment of every scientific entity at this revision."""
-    model = selection.model
-    model.require_measurements()
-    unsupported = unsupported_construct_ids(selection)
-    states = set(selected_state_ids(selection))
-    edge_ids = {edge.id for edge in selected_edges(selection)}
-    manifests = {indicator.observation.id for indicator in selected_indicators(selection)}
-    findings = []
-    for construct in model.constructs:
-        if construct.id in states:
-            disposition = StructuralDisposition.RETAINED_STATE
-            reason = "Measured construct selected as a state; execution requirements are checked separately."
-        elif construct.id in unsupported:
-            disposition = StructuralDisposition.UNSUPPORTED
-            reason = "Required cause outside the retained states has no supported marginalization semantics."
-        elif construct.id in selection.marginalized_construct_ids:
-            disposition = StructuralDisposition.MARGINALIZED
-            reason = "Safe unmeasured root projected from the executable state vector."
-        else:
-            disposition = StructuralDisposition.IDENTIFICATION_ONLY
-            reason = (
-                f"Disconnected from outcome '{model.get_construct(selection.outcome).name}' "
-                "after structural projection."
-                if construct.indicators and selection.outcome is not None
-                else "Scientific-DAG construct not retained in the executable state."
-            )
-        findings.append(
-            StructuralItemDisposition(
-                target=ConstructRef(id=construct.id),
-                disposition=disposition,
-                reason=reason,
-            )
-        )
-    for edge in model.edges:
-        retained = edge.id in edge_ids
-        unsupported_edge = edge.cause.id in unsupported or (
-            retained and edge.effect.temporal_status == TemporalStatus.TIME_INVARIANT
-        )
-        findings.append(
-            StructuralItemDisposition(
-                target=EdgeRef(id=edge.id),
-                disposition=StructuralDisposition.UNSUPPORTED
-                if unsupported_edge
-                else StructuralDisposition.RETAINED_EDGE
-                if retained
-                else StructuralDisposition.PROJECTED_EDGE,
-                reason="Required relation lacks supported state or baseline semantics."
-                if unsupported_edge
-                else "Both endpoints survive the executable projection."
-                if retained
-                else "At least one endpoint is not an executable retained state.",
-            )
-        )
-    for indicator in model.indicators:
-        if indicator.observation.id in manifests:
-            disposition = StructuralDisposition.MANIFEST
-            reason = "Indicator retained as a manifest likelihood channel."
-        else:
-            disposition = StructuralDisposition.EXCLUDED_INDICATOR
-            reason = "Indicator belongs to a construct outside the executable state vector."
-        findings.append(
-            StructuralItemDisposition(
-                target=IndicatorRef(id=indicator.observation.id),
-                disposition=disposition,
-                reason=reason,
-            )
-        )
-    return tuple(findings)
-
-
-def model_graph_entities(
-    selection: StructuralSelection,
-) -> tuple[tuple[ConstructSpec, ...], tuple[CausalEdgeSpec, ...]]:
-    """Show authored structure until execution dispositions establish the retained graph."""
-    model = selection.model
-    if model.measurement_clock is None or not model.indicators:
-        return model.constructs, model.edges
-    dispositions = {item.target.id: item.disposition for item in selection.structural_dispositions}
-    return (
-        tuple(
-            item
-            for item in model.constructs
-            if dispositions[item.id] == StructuralDisposition.RETAINED_STATE
-        ),
-        tuple(
-            item
-            for item in model.edges
-            if dispositions[item.id] == StructuralDisposition.RETAINED_EDGE
-        ),
-    )
-
-
-def compare_parameters(
-    left: ModelSpec | None, right: ModelSpec | None
-) -> tuple[Change[ParameterSpec], ...]:
-    """Compare native parameter decisions and law contents by persistent identity."""
-    old = {p.id: p for p in left.parameters} if left is not None else {}
-    new = {p.id: p for p in right.parameters} if right is not None else {}
-    old_laws = left.model_dump(mode="json")["distributions"] if left is not None else {}
-    new_laws = right.model_dump(mode="json")["distributions"] if right is not None else {}
-    changes: list[Change[ParameterSpec]] = []
-    for identity in sorted(old.keys() | new.keys()):
-        a, b = old.get(identity), new.get(identity)
-        if a == b and (
-            a is None
-            or a.distribution is None
-            or json.dumps(old_laws[a.distribution], sort_keys=True)
-            == json.dumps(new_laws[a.distribution], sort_keys=True)
-        ):
-            continue
-        change = (
-            Added(after=new[identity])
-            if identity not in old
-            else Removed(before=old[identity])
-            if identity not in new
-            else Revised(before=old[identity], after=new[identity])
-        )
-        changes.append(change)
-    return tuple(changes)
-
-
-def compare_model_graph(
-    left: StructuralSelection | None, right: StructuralSelection | None
-) -> tuple[
-    tuple[Change[ConstructRef] | Unchanged[ConstructRef], ...],
-    tuple[Change[EdgeRef] | Unchanged[EdgeRef], ...],
-]:
-    """Compare entity presence and time-slice topology against the pinned models."""
-    graphs = tuple(
-        model_graph_entities(selection) if selection is not None else ((), ())
-        for selection in (left, right)
-    )
-
-    def topology(
-        entity: ConstructSpec | CausalEdgeSpec,
-    ) -> bool | tuple[ConstructId, bool, ConstructId]:
-        if isinstance(entity, CausalEdgeSpec):
-            return entity.cause.id, entity.cause.is_dynamic, entity.effect.id
-        return entity.is_dynamic
-
-    def entities[T: (ConstructSpec, CausalEdgeSpec), RefT: (ConstructRef, EdgeRef)](
-        before: Sequence[T], after: Sequence[T], project: Callable[[T], RefT]
-    ) -> Iterator[Change[RefT] | Unchanged[RefT]]:
-        old, new = {item.id: item for item in before}, {item.id: item for item in after}
-        for identity in sorted(old.keys() | new.keys()):
-            if identity not in old:
-                yield Added(after=project(new[identity]))
-            elif identity not in new:
-                yield Removed(before=project(old[identity]))
-            elif topology(old[identity]) == topology(new[identity]):
-                yield Unchanged(before=project(old[identity]), after=project(new[identity]))
-            else:
-                yield Revised(before=project(old[identity]), after=project(new[identity]))
-
-    return (
-        tuple(entities(graphs[0][0], graphs[1][0], lambda item: ConstructRef(id=item.id))),
-        tuple(entities(graphs[0][1], graphs[1][1], lambda item: EdgeRef(id=item.id))),
-    )

@@ -7,10 +7,12 @@ import {
   type TimelineRevision,
 } from "@nof1-causal-lab/api-types";
 import Link from "next/link";
+import { graphEntities } from "@/lib/dag/layered-model";
 import { useEffect, useMemo, useRef } from "react";
 import { LayeredCausalGraph } from "@/components/dag/layered/layered-causal-graph";
 import { Button } from "@/components/ui/button";
 import { useLLMTraceForAction } from "@/lib/hooks/use-llm-trace";
+import { useDataComparison } from "@/lib/hooks/use-data-comparison";
 import { useModelSnapshot } from "@/lib/hooks/use-model-snapshot";
 import type { StudyJournal } from "@/lib/hooks/use-study-journal";
 import { useSimulationPaths } from "@/lib/hooks/use-visuals";
@@ -106,6 +108,7 @@ export function CausalModelAssetView(props: CausalModelAssetViewProps) {
 }
 
 function ModelRevision({
+  useSnapshot,
   workspaceId,
   question: initialQuestion,
   attempts,
@@ -131,6 +134,8 @@ function ModelRevision({
     playhead,
     activeComparison,
     compared,
+    modelComparison,
+    comparisonError,
     retainPreview,
     endPreview,
     previewComparison,
@@ -142,6 +147,7 @@ function ModelRevision({
     select,
     context: versionContext,
   } = useWorkbench({
+    useSnapshot,
     workspaceId,
     question: initialQuestion,
     attempts,
@@ -152,12 +158,14 @@ function ModelRevision({
   });
   const recordedPaths = useSimulationPaths(model);
   const tick = ticks.find((item) => item.record.seq === focusSeq);
-  const dataDiff =
+  const dataReport =
     tick?.record.attempt.action === "data_diff" && tick.record.attempt.outcome.status === "applied"
       ? result?.action === "data_diff"
-        ? result.body
+        ? result.body.report
         : null
       : null;
+  const dataComparison = useDataComparison(workspaceId, dataReport, attempts);
+  const dataDiff = dataComparison.data;
   const context = { ...versionContext, dataDiff };
   const recordedComparison = result?.action === "model_diff" ? result.body : null;
   // Nodes chart what the viewed version's action produced.
@@ -225,14 +233,12 @@ function ModelRevision({
                   onFocus={retainPreview}
                 >
                   <span className="whitespace-nowrap font-medium text-amber-700">
-                    Topology · {playhead} → {activeComparison.after}
+                    Spec · {playhead} → {activeComparison.after}
                   </span>
                   {compared.data &&
-                    ([...compared.data.constructs, ...compared.data.edges].every(
-                      (item) => item.kind === "unchanged",
-                    ) ? (
+                    (Object.keys(compared.data.changes).length === 0 ? (
                       <span className="whitespace-nowrap text-muted-foreground">
-                        No topology changes
+                        No spec changes
                       </span>
                     ) : (
                       <span className="hidden items-center gap-2 text-[10px] text-muted-foreground sm:flex">
@@ -268,19 +274,29 @@ function ModelRevision({
               onPointerEnter={retainPreview}
               onPointerLeave={endPreview}
             >
-              {activeComparison && !compared.data && (
+              {dataReport && !dataDiff && (
                 <p
-                  role={compared.error ? "alert" : "status"}
+                  role={dataComparison.error ? "alert" : "status"}
                   className="absolute top-3 left-3 z-20 rounded border bg-card px-3 py-2 text-xs"
                 >
-                  {compared.error
-                    ? compared.error.message
-                    : compared.isLoading
+                  {dataComparison.error?.message ?? "Reading compared histories…"}
+                </p>
+              )}
+              {activeComparison && !modelComparison && (
+                <p
+                  role={compared.error || comparisonError ? "alert" : "status"}
+                  className="absolute top-3 left-3 z-20 rounded border bg-card px-3 py-2 text-xs"
+                >
+                  {compared.error || comparisonError
+                    ? (compared.error ?? comparisonError)?.message
+                    : compared.isLoading || compared.data
                       ? "Reading differences…"
                       : "No saved comparison for these model versions."}
                 </p>
               )}
-              {model.graph.construct_ids.length > 0 || activeComparison || recordedComparison ? (
+              {graphEntities(context.entities).constructs.length > 0 ||
+              activeComparison ||
+              recordedComparison ? (
                 <LayeredCausalGraph
                   model={model}
                   entities={context.entities}
@@ -290,17 +306,7 @@ function ModelRevision({
                   step={step}
                   selection={selection}
                   onSelect={select}
-                  comparison={
-                    activeComparison
-                      ? (compared.data ?? null)
-                      : recordedComparison
-                        ? {
-                            ...recordedComparison,
-                            beforeModel: recordedComparison.before_model,
-                            afterModel: recordedComparison.after_model,
-                          }
-                        : null
-                  }
+                  comparison={modelComparison}
                   variant="asset"
                 />
               ) : (
@@ -316,7 +322,7 @@ function ModelRevision({
           <DetailsPane
             selection={selection}
             context={context}
-            loading={loadingRevision}
+            loading={loadingRevision || dataComparison.isLoading}
             tick={tick}
           />
         </div>

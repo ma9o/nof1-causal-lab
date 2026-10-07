@@ -39,7 +39,7 @@
 
 # Web app
 
-- Never put domain logic or statistical computations in frontend code.
+- Keep domain logic and statistical computations in the backend, except for evaluating saved scalar authored probability laws solely to draw frontend plots. These display evaluations never feed inference, diagnostics, or scientific decisions.
 
 - v2 (`/v2/{workspaceId}`) is the only interface. v1 lives at the annotated `v1-reference` tag as a reference for things v2 might surface; run it from a separate checkout of that tag with its own fixtures.
 
@@ -52,4 +52,3 @@
 - The latent SSM is continuous-time **nonlinear**. Linearization and Gaussian approximations are allowed **only for particle-sampler initialization**: parameter positions, proposal preconditioner, and cSMC reference trajectory.
 - Production posteriors, all diagnostics, posterior-predictive checks, and counterfactual/predictive outputs must use the exact engines in [docs/assumptions.md](docs/assumptions.md#model-class).
 - Before reintroducing linearization, run [test_linearization_init_only.py](apps/data-pipeline/tests/models/ssm/test_linearization_init_only.py), which restricts Laplace imports to warmup/init.
-

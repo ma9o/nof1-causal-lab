@@ -1,9 +1,12 @@
 """Whole scientific values commit atomically and findings retain exact source revisions."""
 
+import json
+
 import pytest
 
 from nof1_causal_lab.actions.contracts import EditModelRequest
 from nof1_causal_lab.artifacts.identity import GitOid
+from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.question import QuestionSpec
 from nof1_causal_lab.models.model_inputs import input_fingerprints
 from nof1_causal_lab.study.history import StudyRepository
@@ -88,12 +91,16 @@ def test_statistical_enrichment_preserves_structural_and_measurement_inputs():
     measured = make_model(["X", "Y"], [("X", "Y")])
     specified = x_y_model()
     before, after = input_fingerprints(measured), input_fingerprints(specified)
+    reloaded = ModelSpec.model_validate_json(
+        json.dumps(specified.model_dump(mode="json"), sort_keys=True)
+    ).materialized()
+    assert input_fingerprints(reloaded) == after
     for purpose in ("observations", "identification"):
         assert before[purpose] == after[purpose]
     assert before["compilation"] != after["compilation"]
 
     changed = input_fingerprints(
-        measured.revised(
+        measured.with_entities(
             edges=(measured.edges[0].revised(description="Revised causal assumption"),)
         )
     )
@@ -102,7 +109,7 @@ def test_statistical_enrichment_preserves_structural_and_measurement_inputs():
         assert changed[purpose] != before[purpose]
 
     reasoned = input_fingerprints(
-        specified.revised(
+        specified.with_entities(
             parameters=tuple(
                 parameter.revised(reasoning="A literature range for this quantity.")
                 for parameter in specified.parameters

@@ -14,6 +14,13 @@ Start a call with `POST /api/studies/{workspace_id}/{action}` using
 `reasoning` explains the caller's intent and is excluded from call identity.
 
 POST and polling GET return `{call_id, action, status, commit_id, body, messages}`.
+Action responses use `application/msgpack`; requests remain JSON. Python callers
+can decode a saved response with `msgpack.unpackb(response_bytes, raw=False)`;
+the shared TypeScript client decodes responses automatically. `arrays` entries
+carry binary NPY bytes, read with `numpy.load(io.BytesIO(entry["npy"]), allow_pickle=False)`
+in Python or `readNumericalArray(entry)` in TypeScript. NPY retains dtype, shape,
+NaN and infinities without scalar JSON or base64 conversion. Timeline, workspace,
+upload and HTTP error responses remain JSON.
 `status` is `running`, `failed`, or `success`. `commit_id` is null before publication;
 a journaled failure also has a commit. `body` is null while running or failed and
 contains only that action's typed scientific output on success.
@@ -32,13 +39,15 @@ folder name under `data/{workspace_id}/`, such as `"input"`. Every file beneath
 that folder, including subfolders, is captured and hashed before call identity.
 Polling saved calls does not require the original source folder.
 `edit_model` selects a question or model parent through `input.parent_ref`;
-a model parent supplies its pinned question, without a head-conflict
-check. Every study starts with `edit_question`.
+a question parent starts a new model; a model parent supplies its definition and pinned
+question. The same ModelSpec accepts partial definitions: omission retains fields and null
+entity entries delete their IDs. The editing boundary prunes outcome-unrelated components
+with warnings and validates the assembled model. Every study starts with `edit_question`.
 
 Each action owns its successful `body`; input state is read from its producing calls.
 For `model_diff` and `data_diff`, `body` is the complete saved comparison.
 Fit and simulation outputs include their own retained arrays and paths without paging.
-Missing numerical values are null.
+Display summaries use null for missing values; numerical buffers retain native missingness.
 Reports and checks are retained with their action in Git and never recomputed by GET,
 including after cache deletion or code changes. Comparisons and failures remain
 journal leaves without advancing scientific state.
@@ -67,7 +76,7 @@ Compare input.left_ref and input.right_ref, each a gitref with an optional repli
 - `workspace_id` (path, required)
 
 ```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/data_diff" \
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/data_diff" -o /tmp/action.msgpack \
   -X POST \
   -H 'Content-Type: application/json' \
   -d '{"action": "data_diff", "input": {"left_ref": {"revision": "string"}, "right_ref": {"revision": "string"}}}'
@@ -75,14 +84,14 @@ curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/data
 
 ### POST `/api/studies/{workspace_id}/edit_model`
 
-Save input.model from input.parent_ref, a question or model revision, and evaluate data-independent model checks. A model parent supplies its pinned question. The body contains the produced model and its findings; messages retain all execution logging. GET polls the returned call_id.
+Merge input.model into input.parent_ref: start empty for a question revision, or retain omitted fields from a model revision and its pinned question. Null entity entries delete their IDs. Prune constructs outside the outcome ancestry with warnings, then validate and evaluate data-independent model checks. The body contains the produced model and its findings; messages retain all execution logging. GET polls the returned call_id.
 
 **Parameters**
 
 - `workspace_id` (path, required)
 
 ```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/edit_model" \
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/edit_model" -o /tmp/action.msgpack \
   -X POST \
   -H 'Content-Type: application/json' \
   -d '{"action": "edit_model", "input": {"parent_ref": "string", "model": {}}}'
@@ -97,7 +106,7 @@ Set the study question from input.question. POST returns a call_id; GET polls it
 - `workspace_id` (path, required)
 
 ```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/edit_question" \
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/edit_question" -o /tmp/action.msgpack \
   -X POST \
   -H 'Content-Type: application/json' \
   -d '{"action": "edit_question", "input": {"question": {"text": "string", "outcome": "string"}}}'
@@ -112,7 +121,7 @@ Condition input.model_ref on the history selected by input.data_ref and required
 - `workspace_id` (path, required)
 
 ```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/fit" \
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/fit" -o /tmp/action.msgpack \
   -X POST \
   -H 'Content-Type: application/json' \
   -d '{"action": "fit", "input": {"model_ref": "string", "data_ref": "string", "replicate_index": 0}}'
@@ -120,14 +129,14 @@ curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/fit"
 
 ### POST `/api/studies/{workspace_id}/model_diff`
 
-Compare input.before_ref and input.after_ref and retain definitions and evidence in Git. GET polls call_id. Identical resolved calls reuse successes and failures; the comparison is the body.
+Compare input.before_ref and input.after_ref as saved ModelSpec documents. Return changes using the same partial ModelSpec contract as edit_model: omissions are unchanged and null map entries delete identities. Retain the patch in Git. GET polls call_id. Identical resolved calls reuse successes and failures; the comparison is the body.
 
 **Parameters**
 
 - `workspace_id` (path, required)
 
 ```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/model_diff" \
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/model_diff" -o /tmp/action.msgpack \
   -X POST \
   -H 'Content-Type: application/json' \
   -d '{"action": "model_diff", "input": {"before_ref": "string", "after_ref": "string"}}'
@@ -160,7 +169,7 @@ Returns:
 - `workspace_id` (path, required)
 
 ```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/prepare_data" \
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/prepare_data" -o /tmp/action.msgpack \
   -X POST \
   -H 'Content-Type: application/json' \
   -d '{"action": "prepare_data", "input": {"model_ref": "string", "source": "string", "extraction": {}}}'
@@ -168,14 +177,14 @@ curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/prep
 
 ### POST `/api/studies/{workspace_id}/simulate`
 
-Simulate input.model_ref using input.simulation and optional input.panel_ref. Fitted laws retain their fit origin. body.data contains an array of observation histories of the same type returned by prepare_data. The successful body also includes all paths, arrays and causal evidence; messages retain traces. GET polls call_id.
+Simulate input.model_ref using input.simulation. The model owns deterministic inputs and retained trajectory coordinates; authored initial states apply at simulation.start. body.data contains an array of observation histories of the same type returned by prepare_data. The successful body requires data, report and arrays; report retains single or paired evidence, calculated summaries and causal findings; messages retain traces. GET polls call_id.
 
 **Parameters**
 
 - `workspace_id` (path, required)
 
 ```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/simulate" \
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/simulate" -o /tmp/action.msgpack \
   -X POST \
   -H 'Content-Type: application/json' \
   -d '{"action": "simulate", "input": {"model_ref": "string", "simulation": {"start": "string", "horizon": "string"}}}'
@@ -204,7 +213,7 @@ Read an existing call by ID. Never resolve inputs, start a workflow, execute, or
 - `call_id` (path, required)
 
 ```bash
-curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/ACTION/CALL_ID"
+curl -s "${TOOL_SERVER_URL:-http://localhost:8100}/api/studies/WORKSPACE_ID/ACTION/CALL_ID" -o /tmp/action.msgpack
 ```
 
 ### POST `/api/upload`

@@ -10,9 +10,9 @@ export function ActionFindings({ context, call }: { context: ScopeContext; call:
   const { model, entities, select } = context;
   const checks = callModel(call)?.checks;
   const identification = call.action === "edit_model" ? call.body.identification : null;
-  const validation = call.action === "fit" ? call.body.validation_report : null;
+  const validation = call.action === "fit" ? call.body.checks.validation : null;
   const data = validation?.data ?? (call.action === "prepare_data" ? call.body.profile : null);
-  const question = call.action === "fit" ? call.body.question_checks : checks?.question;
+  const question = call.action === "fit" ? call.body.checks.question : checks?.question;
   const findings: Array<{
     label: string;
     reason: string | null;

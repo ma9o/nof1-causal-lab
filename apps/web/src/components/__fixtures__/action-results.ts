@@ -5,20 +5,11 @@ import { fixtureValue } from "./fixture-value";
 export function modelResult(snapshot: ModelSnapshot): EditModelOutput {
   return {
     model: fixtureValue(snapshot.model),
-    arrays: {},
-    can_simulate: snapshot.can_simulate,
     checks: {
       specification: snapshot.specification ?? [],
       question: snapshot.question_checks ?? null,
     },
-    graph: snapshot.graph,
     identification: snapshot.identification,
-    dispositions: snapshot.dispositions,
-    entity_failures: snapshot.entity_failures,
-    confounder_equations: snapshot.confounder_equations,
-    state_equations: snapshot.state_equations,
-    observation_equations: snapshot.observation_equations,
-    authoring_prior_densities: snapshot.authoring_prior_densities,
   };
 }
 
@@ -26,32 +17,32 @@ export function modelResult(snapshot: ModelSnapshot): EditModelOutput {
 export function fitResult(snapshot: ModelSnapshot): FitOutput {
   return {
     model: fixtureValue(snapshot.model),
-    inference: null,
-    entity_failures: {},
-    validation_report: snapshot.validation_report,
-    question_checks: snapshot.question_checks,
-    likelihood_diagnostics: snapshot.likelihood_diagnostics,
-    edge_estimates: snapshot.fit?.edge_estimates ?? {},
-    decay_estimates: snapshot.fit?.decay_estimates ?? {},
-    prior_densities: snapshot.fit?.prior_densities ?? {},
-    inference_report: snapshot.fit
-      ? {
-          core: snapshot.fit.report,
-          detail: {
-            trace_data: [],
-            rank_histograms: [],
-            pareto_k: [],
-            loo_pit: [],
-            divergent: null,
-            initial_latent_delta: null,
-            final_latent_delta: null,
-          },
-        }
-      : null,
-    parameter_draws: {
-      kind: "unavailable",
-      reason: "This illustrative fit retains no joint draws",
+    checks: {
+      validation: fixtureValue(snapshot.validation_report),
+      question: fixtureValue(snapshot.question_checks),
     },
-    arrays: {},
+    inference: {
+      run: {
+        model: {
+          workspace_id: snapshot.workspace_id,
+          revision: snapshot.commit_id,
+          path: "result.msgpack",
+        },
+        data: fixtureValue(snapshot.state.data),
+        evidence: {
+          chain_extra_fields: {},
+          observation_log_probs: null,
+          observed_rows: null,
+          exact_observation_rows: null,
+          phase_extra_fields: {},
+          warmup_complete_log_posterior_history: null,
+          all_complete_log_posterior_history: null,
+          initial_latent_delta: null,
+          final_latent_delta: null,
+        },
+      },
+      core: fixtureValue(snapshot.fit),
+      detail: { trace_data: [], rank_histograms: [], pareto_k: [], loo_pit: [] },
+    },
   };
 }

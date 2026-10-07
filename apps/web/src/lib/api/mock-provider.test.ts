@@ -21,7 +21,7 @@ describe("isMockMode", () => {
     ["", false],
     ["false", false],
     ["true", true],
-    ["demo_health", true],
+    ["healthdemo", true],
   ])("interprets NEXT_PUBLIC_MOCK_DATA=%s as mock mode %s", (value, expected) => {
     if (value === undefined) {
       unsetEnv("NEXT_PUBLIC_MOCK_DATA");
@@ -48,7 +48,7 @@ describe("getMockFixture", () => {
     [undefined, "DEFAULT"],
     ["", "DEFAULT"],
     ["true", "DEFAULT"],
-    ["demo_health", "DEMO"],
+    ["healthdemo", "HEALTHDEMO"],
   ])("maps NEXT_PUBLIC_MOCK_DATA=%s to fixture %s", (value, expected) => {
     if (value === undefined) {
       unsetEnv("NEXT_PUBLIC_MOCK_DATA");

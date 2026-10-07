@@ -70,7 +70,7 @@ def _particle_runtime_reconstructs_log_normal_hill_sites_with_parameter_distribu
             ),
         )
     )
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(model.edges, (latent_0_revised,)),
         distributions=parameter_laws(
             model,

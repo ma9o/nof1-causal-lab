@@ -1,4 +1,4 @@
-import { modelConstructs } from "@/lib/model-accessors";
+import { modelConstructs, modelEdges, modelParameters } from "@/lib/model-accessors";
 import type { ConstructSpec, ModelSpec, ParameterId } from "@nof1-causal-lab/api-types";
 import { humanize, type EntitySelection } from "./selection";
 import { ownLawUses } from "./laws";
@@ -6,9 +6,9 @@ import { ownLawUses } from "./laws";
 /** Index the authored graph; these maps are derived, never a second model definition. */
 export function indexModel(model: ModelSpec | null | undefined) {
   const constructs = modelConstructs(model);
-  const edges = model?.edges ?? [];
+  const edges = modelEdges(model);
   const indicators = constructs.flatMap((construct) => construct.indicators);
-  const parameters = model?.parameters ?? [];
+  const parameters = modelParameters(model);
   return {
     constructs,
     edges,

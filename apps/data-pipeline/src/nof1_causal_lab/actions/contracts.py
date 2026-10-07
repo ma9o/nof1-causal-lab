@@ -66,7 +66,7 @@ class FitRequest[RevisionT](Value):
 
 
 class SimulateRequest[RevisionT](Value):
-    """Generate the requested histories and paths; return ``SimulateOutput``."""
+    """Generate observation histories and their complete report; return ``SimulateOutput``."""
 
     action: Literal["simulate"] = Field(
         default="simulate", description="Scientific action that owns this request or result."
@@ -86,7 +86,7 @@ class DataDiffRequest[RevisionT](Value):
 
 
 class ModelDiffRequest[RevisionT](Value):
-    """Compare two saved models and their evidence; return ``ModelDiffOutput``."""
+    """Compare two saved specs as an edit document; return ``ModelDiffOutput``."""
 
     action: Literal["model_diff"] = Field(
         default="model_diff", description="Scientific action that owns this request or result."

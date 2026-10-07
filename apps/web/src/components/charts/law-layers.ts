@@ -3,7 +3,7 @@ import { CHART_COLORS } from "./chart-tokens";
 import { type DensityLayer, densityExtent } from "./distribution-chart";
 import type { Domain } from "./plot-geometry";
 
-/** A law's backend curves: the prior outlined, posterior histograms filled after a fit. */
+/** The prior outlined, posterior histograms filled after a fit. */
 export function lawLayers(curve: LawCurve): DensityLayer[] {
   const fitted = curve.posteriors.length > 0;
   const single = curve.posteriors.length === 1;
@@ -38,7 +38,7 @@ export function lawLayers(curve: LawCurve): DensityLayer[] {
   ];
 }
 
-/** The value range shared by every backend curve drawn for one law. */
+/** The value range shared by every curve drawn for one law. */
 export function lawDomain(curve: LawCurve): Domain | null {
   return densityExtent(lawLayers(curve));
 }

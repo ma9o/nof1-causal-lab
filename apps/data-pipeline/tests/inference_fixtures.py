@@ -69,26 +69,31 @@ def inference_log(
     return StudyRevision(commit_id=git_oid(100 + seq), parent_ids=(), record=record)
 
 
-def inference_evidence(model):
-    """Small execution evidence for tests that explicitly stage a fit."""
-    from nof1_causal_lab.artifacts.posterior import InferenceEvidence
+def inference_metadata(model):
+    """Metadata for an explicit test-owned joint law with one retained chain."""
+    from nof1_causal_lab.artifacts.posterior import InferenceMetadata
     from nof1_causal_lab.artifacts.posterior_diagnostics import ParticleMCMCEvidence
 
-    return InferenceEvidence(
-        distribution=next(iter(model.law_layouts)),
+    identity = next(iter(model.law_layouts))
+    return InferenceMetadata(
+        distribution=identity,
         engine=ParticleMCMCEvidence(),
-        time_origin="2024-01-01T00:00:00Z",
         duration_seconds=0,
+        n_samples=len(empirical_atoms(model.distributions[identity])),
+        num_chains=1,
+        sampler_diagnostics=None,
     )
 
 
 def _report(model):
-    from nof1_causal_lab.artifacts.checks import Evaluated
-    from nof1_causal_lab.artifacts.identity import ParameterRef
+    from nof1_causal_lab.artifacts.data_ref import DataRef
+    from nof1_causal_lab.artifacts.identity import DistributionId, GitOid, GitRef, ParameterRef
     from nof1_causal_lab.artifacts.posterior import (
+        InferenceEvidence,
         InferenceMetadata,
         InferenceReport,
         InferenceReportDetail,
+        ModelFitResult,
     )
     from nof1_causal_lab.artifacts.posterior_diagnostics import (
         ChainDiagnostics,
@@ -115,15 +120,24 @@ def _report(model):
         ),
     )
     return InferenceReport(
+        run=ModelFitResult(
+            model=GitRef(workspace_id="TEST", revision=git_oid(1), path="model.json"),
+            data=DataRef[GitOid, int](revision=git_oid(2), replicate_index=0),
+            evidence=InferenceEvidence(),
+        ),
         core=InferenceReportCore(
-            time_origin="2024-01-01T00:00:00Z",
-            inference_metadata=InferenceMetadata(n_samples=3, duration_seconds=0),
-            engine=Evaluated(
-                subject="production_engine", outcome="passed", evidence=ParticleMCMCEvidence()
+            inference_metadata=InferenceMetadata(
+                distribution=DistributionId("distribution:fixture"),
+                n_samples=12,
+                num_chains=4,
+                duration_seconds=0,
+                engine=ParticleMCMCEvidence(),
+                sampler_diagnostics=None,
             ),
             inference_diagnostics=diagnostics,
-            sampler_diagnostics=None,
             convergence=parameter_convergence(diagnostics),
+            posterior_marginals=(),
+            prior_densities={},
         ),
         detail=InferenceReportDetail(),
     )

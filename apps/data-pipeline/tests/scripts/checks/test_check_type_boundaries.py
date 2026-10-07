@@ -409,7 +409,7 @@ def test_pure_projection_scope_rejects_revalidation(operation: str) -> None:
     assert [
         v.code
         for v in checker.scan_text(
-            source, path="src/nof1_causal_lab/study/equations.py", rules=frozenset({"VIEW001"})
+            source, path="src/nof1_causal_lab/study/visuals.py", rules=frozenset({"VIEW001"})
         )
     ] == ["VIEW001"]
     assert checker.scan_text(source, path="src/boundary.py", rules=frozenset({"VIEW001"})) == []
@@ -420,7 +420,7 @@ def test_projection_allows_exhaustiveness() -> None:
     assert (
         checker.scan_text(
             "def project(value):\n    assert_never(value)\n",
-            path="src/nof1_causal_lab/study/equations.py",
+            path="src/nof1_causal_lab/study/visuals.py",
             rules=frozenset({"VIEW001"}),
         )
         == []
@@ -496,14 +496,14 @@ def compile_model() -> {result}:
 
 
 @pytest.mark.parametrize(
-    "directory", ["utils", "actions", "study/views", "models/ssm/compile", "models/ssm/execution"]
+    "directory", ["utils", "actions", "study/visuals", "models/ssm/compile", "models/ssm/execution"]
 )
 def test_json_decoding_obeys_whole_role_parse_rules(directory: str) -> None:
     checker = _load_checker()
-    # study/views is explicitly projection-owned; actions and utils use their directory role.
+    # study/visuals is explicitly projection-owned; actions and utils use their directory role.
     path = (
-        "src/nof1_causal_lab/study/views.py"
-        if directory == "study/views"
+        "src/nof1_causal_lab/study/visuals.py"
+        if directory == "study/visuals"
         else f"src/nof1_causal_lab/{directory}/new_consumer.py"
     )
     violations = checker.scan_text(

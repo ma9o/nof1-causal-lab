@@ -1670,7 +1670,7 @@ def test_marginalization(case):
         [construct["name"] for construct in case["constructs"]],
         [(edge["cause"], edge["effect"]) for edge in case["edges"]],
     )
-    model = model.revised(
+    model = model.with_entities(
         edges=replace_constructs(
             model.edges,
             tuple(

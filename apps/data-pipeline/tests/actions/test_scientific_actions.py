@@ -21,7 +21,7 @@ from nof1_causal_lab.models.ssm.predictive.parameters import sample_model_laws
 from nof1_causal_lab.models.ssm.preflight import ObservationPreflightFailure
 from nof1_causal_lab.study.records import Applied
 from nof1_causal_lab.study.state import StudyState
-from tests.action_fixtures import applied_record
+from tests.action_fixtures import applied_record, empty_simulation_summary
 from tests.git_fixtures import artifact_revision, commit_id, git_oid
 from tests.helpers import write_question
 from tests.inference_fixtures import compile_model_fixture, parameter_draws, particle_posterior
@@ -52,6 +52,7 @@ def test_current_law_sampling_preserves_joint_parameter_atoms():
             )
         ),
         times=jnp.array([0.0, 1.0]),
+        time_origin=None,
     )
     draws = sample_model_laws(
         compile_model_fixture(conditioned), draws=24, key=jax.random.PRNGKey(4)
@@ -89,13 +90,13 @@ def test_durable_replication_preserves_current_laws_without_comparison(
 ):
     from nof1_causal_lab.actions.runners import run_action_locally
     from nof1_causal_lab.artifacts.identity import GitRef
-    from nof1_causal_lab.artifacts.posterior import ModelFitResult
+    from nof1_causal_lab.artifacts.posterior import InferenceEvidence, ModelFitResult
     from nof1_causal_lab.study.history import StudyRepository
     from nof1_causal_lab.study.snapshots import ModelReader
     from nof1_causal_lab.study.store import ArtifactStore
     from nof1_causal_lab.utils import data as data_module
     from tests.helpers import run_async
-    from tests.inference_fixtures import inference_evidence
+    from tests.inference_fixtures import inference_metadata
     from tests.integration.runner_fixtures import panel_frame
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path))
@@ -107,6 +108,9 @@ def test_durable_replication_preserves_current_laws_without_comparison(
         derived_from={},
         json_files={"model.json": model.model_dump(mode="json")},
     )
+    from nof1_causal_lab.study.store import read_model
+
+    model = read_model(store, definition.revision)
     from nof1_causal_lab.artifacts.question import QuestionSpec
     from tests.model_fixtures import construct_named
 
@@ -142,6 +146,7 @@ def test_durable_replication_preserves_current_laws_without_comparison(
                 JointPosteriorDraws(parameter_draws(model, 3), jnp.zeros((3, 5, 2)))
             ),
             times=jnp.arange(-1.0, 4.0),
+            time_origin=panel_metadata().time_origin,
         )
         fitted = store.write_artifact(
             "model",
@@ -153,18 +158,21 @@ def test_durable_replication_preserves_current_laws_without_comparison(
         produced.append(fitted)
         from nof1_causal_lab.actions.fit import read_inference_report
 
-        evidence = inference_evidence(model)
+        evidence = InferenceEvidence()
+        retained = ModelFitResult(
+            model=GitRef(workspace_id="TEST", revision=definition.revision, path="model.json"),
+            data=DataRef[GitOid, int](revision=produced[2].revision, replicate_index=0),
+            evidence=evidence,
+        )
         prepared = Applied(
-            result=ModelFitResult(
-                model=GitRef(workspace_id="TEST", revision=definition.revision, path="model.json"),
-                data=DataRef[GitOid, int](revision=produced[2].revision, replicate_index=0),
-                evidence=evidence,
-            ),
+            result=retained,
             effects=ActionEffects(
                 produced=tuple(produced),
                 reports={
                     "inference": store.write_report(
-                        read_inference_report(store, fitted.revision, evidence)
+                        read_inference_report(
+                            store, fitted.revision, retained, inference_metadata(model)
+                        )
                     )
                 },
             ),
@@ -190,8 +198,8 @@ def test_durable_replication_preserves_current_laws_without_comparison(
 
     report = read_simulation_report(store, applied.result.evidence, pins["question"])
     evidence = report.evidence
-    assert store.read_array(evidence.latent_paths).shape == (evidence.draws, 5, 2)
-    assert store.read_array(evidence.observations).shape == (evidence.draws, 5, 2)
+    assert evidence.arms.action.latent_paths.values.shape == (evidence.draws, 5, 2)
+    assert evidence.arms.action.observations.values.shape == (evidence.draws, 5, 2)
     assert evidence.model.revision == pins["model"]
     assert set(pins) == {"model", "question"}
     assert "predictive_checks" not in evidence.model_dump()
@@ -213,7 +221,7 @@ def test_durable_replication_preserves_current_laws_without_comparison(
         produced_by=None,
         derived_from={},
         json_files={
-            "model.json": model.revised(
+            "model.json": model.with_entities(
                 edges=(
                     model.edges[0].revised(description="Revised justification"),
                     *model.edges[1:],
@@ -253,8 +261,13 @@ def test_durable_replication_preserves_current_laws_without_comparison(
     assert not isinstance(projected, ObservationPreflightFailure)
     (wide, _) = projected
     np.testing.assert_allclose(
-        wide.select(["stress_score", "sleep_score"]).to_numpy(),
-        store.read_array(evidence.observations)[1],
+        wide.select(
+            [
+                model.indicator(identity).observation.name
+                for identity in evidence.observation_layout.indicator_ids
+            ]
+        ).to_numpy(),
+        evidence.arms.action.observations.values[1],
         equal_nan=True,
     )
 
@@ -288,6 +301,7 @@ def test_retained_forecast_and_timed_intervention_preserve_joint_starts(
         compile_model_fixture(model),
         particle_posterior(JointPosteriorDraws(parameter_draws(model, 2), paths)),
         times=jnp.array([0.0, 1.0]),
+        time_origin=origin,
     )
     store = ArtifactStore("TEST")
     design = SimulationSpec(
@@ -299,14 +313,12 @@ def test_retained_forecast_and_timed_intervention_preserve_joint_starts(
     report = simulate(
         StructuralSelection(model, None),
         design,
-        time_origin=origin,
         revision=GitRef(workspace_id="TEST", revision=git_oid(2), path="model.json"),
-        write_array=store.write_array,
     )
     assert not isinstance(report, ObservationPreflightFailure)
-    action = store.read_array(report.latent_paths)
-    assert report.reference_latent_paths is not None
-    reference = store.read_array(report.reference_latent_paths)
+    action = report.arms.action.latent_paths.values
+    assert report.arms.kind == "paired"
+    reference = report.arms.reference.latent_paths.values
     np.testing.assert_allclose(action[:, 0], reference[:, 0])
     if start_time in (1.0, 0.0):
         for initial in action[:, 0]:
@@ -314,7 +326,7 @@ def test_retained_forecast_and_timed_intervention_preserve_joint_starts(
     np.testing.assert_allclose(action[:, 1, 0], 2.0, atol=1e-5)
     assert not np.allclose(action[:, -1, 0], 2.0)
     assert np.isfinite(action).all()
-    emissions = store.read_array(report.observations)
+    emissions = report.arms.action.observations.values
     assert np.isnan(emissions[:, :-1]).all()
     assert np.isfinite(emissions[:, -1]).all()
 
@@ -340,6 +352,7 @@ def test_causal_action_uses_common_generator_and_requires_matching_engine_eviden
         compile_model_fixture(model),
         particle_posterior(JointPosteriorDraws(parameter_draws(model, 2), jnp.zeros((2, 2, 2)))),
         times=jnp.array([0.0, 1.0]),
+        time_origin=datetime(2024, 1, 1, tzinfo=UTC),
     )
     design = SimulationSpec(
         start=date(2024, 1, 2),
@@ -351,9 +364,7 @@ def test_causal_action_uses_common_generator_and_requires_matching_engine_eviden
     evidence = simulate(
         StructuralSelection(model, states[1]),
         design,
-        time_origin=datetime(2024, 1, 1, tzinfo=UTC),
         revision=GitRef(workspace_id="TEST", revision=git_oid(2), path="model.json"),
-        write_array=store.write_array,
     )
     assert not isinstance(evidence, ObservationPreflightFailure)
     from nof1_causal_lab.artifacts.availability import Unavailable
@@ -362,6 +373,7 @@ def test_causal_action_uses_common_generator_and_requires_matching_engine_eviden
     from tests.inference_fixtures import _report
 
     generated = SimulationReport(
+        summary=empty_simulation_summary(),
         evidence=evidence,
         law=AuthoredLawProvenance(),
         findings=(),
@@ -376,13 +388,26 @@ def test_causal_action_uses_common_generator_and_requires_matching_engine_eviden
         StructuralSelection(model, states[1]), generated, store=store, inference=record
     )
     assert result.causal.kind == "available"
-    assert result.evidence.reference_latent_paths is not None
+    assert result.evidence.arms.kind == "paired"
     assert result.evidence.model.revision == git_oid(2)
+    arms = result.evidence.arms
+    outcome_index = result.evidence.state_ids.index(result.causal.value.outcome)
+    reference = arms.reference.latent_paths.values
+    expected = (
+        arms.action.latent_paths.values[:, :, outcome_index]
+        - reference[:, :, outcome_index]
+    )
+    np.testing.assert_array_equal(result.causal.value.differences.values, expected)
+    assert result.causal.value.summary.mean == pytest.approx(float(expected[:, -1].mean()))
+    assert result.causal.value.reference_mean == pytest.approx(
+        float(reference[:, -1, outcome_index].mean())
+    )
+    assert SimulationReport.model_validate_json(result.model_dump_json()) == result
     from nof1_causal_lab.models.ssm.runtime import project_observation_data
     from nof1_causal_lab.study.data import read_simulation_observations
 
     store = ArtifactStore("TEST")
-    panel = read_simulation_observations(result.evidence, 0, read_array=store.read_array)
+    panel = read_simulation_observations(result.evidence, 0)
     projected = project_observation_data(
         panel, model_spec=compile_model_fixture(model), time_origin=panel_metadata().time_origin
     )
@@ -390,29 +415,9 @@ def test_causal_action_uses_common_generator_and_requires_matching_engine_eviden
     (wide, _) = projected
     np.testing.assert_allclose(
         wide.select(numeric.observation_names(compile_model_fixture(model))).to_numpy(),
-        store.read_array(result.evidence.observations)[0],
+        result.evidence.arms.action.observations.values[0],
         equal_nan=True,
     )
-    from nof1_causal_lab.artifacts.checks import NotEvaluated
-
-    report = _report(model)
-    unavailable_report = report.core.revised(
-        engine=NotEvaluated(
-            subject="production_engine",
-            reason="ARCHIVED_ENGINE_NOT_RETAINED",
-            detail="Engine evidence not retained",
-        )
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.study.lineage.fitted_law_report", lambda *_args: unavailable_report
-    )
-    bad = record
-    rejected = summarize_causal_simulation(
-        StructuralSelection(model, states[1]), generated, store=store, inference=bad
-    )
-    assert rejected.causal.kind == "unavailable"
-    assert "retained exact-engine evidence" in rejected.causal.reason
-    assert rejected.evidence.latent_paths == generated.evidence.latent_paths
     unavailable = summarize_causal_simulation(
         StructuralSelection(model, states[1]), generated, store=store, inference=None
     )
@@ -439,7 +444,7 @@ def test_data_profile_survives_model_edits(tmp_path, monkeypatch):
     assert set(profile.indicators) == {item.id for item in panel_metadata().variables}
     assert not state.has("model")
     revised_model = stress_sleep_model()
-    revised_model = revised_model.revised(
+    revised_model = revised_model.with_entities(
         edges=(
             revised_model.edges[0].revised(description="Another scientific goal"),
             *revised_model.edges[1:],
@@ -506,23 +511,14 @@ def test_simulation_retains_exact_histories_without_running_measurement_reducers
 
     monkeypatch.setattr(simulation_checks, "measure_construct_dynamics", no_measurements)
     monkeypatch.setattr(simulation_checks, "measure_construct_measurement", no_measurements)
-    arrays = {}
-
-    def write(values):
-        key = str(len(arrays))
-        arrays[key] = values
-        return key
-
     evidence = action.simulate(
         StructuralSelection(model, None),
         SimulationSpec(start=date(2026, 1, 1), horizon="2d"),
-        time_origin=datetime(2026, 1, 1, tzinfo=UTC),
         revision=GitRef(workspace_id="TEST", revision=git_oid(1), path="model.json"),
-        write_array=write,
     )
     assert not isinstance(evidence, ObservationPreflightFailure)
     assert called == []
     assert evidence.parameter_draws.keys() == prediction.parameters.keys()
     np.testing.assert_array_equal(
-        arrays[evidence.parameter_draws["future_parameter_site"]], [1.0, 2.0]
+        evidence.parameter_draws["future_parameter_site"].values, [1.0, 2.0]
     )

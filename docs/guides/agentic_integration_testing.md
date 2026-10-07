@@ -125,19 +125,18 @@ lint, type, documentation, and duplicate checks when they apply to the change.
 
 ### Local study history
 
-New studies initialize their local bare repository on first use. On a fresh checkout, restore the tracked `DEMO` history bundle before using its backend:
+New studies initialize their local bare repository on first use. On a fresh checkout, restore the tracked `HEALTHDEMO` history bundle before using its backend:
 
 ```bash
-git clone --mirror data/DEMO/study/history.bundle data/DEMO/study/history.git
-git --git-dir=data/DEMO/study/history.git config nof1.format 21
+git clone --mirror data/HEALTHDEMO/study/history.bundle data/HEALTHDEMO/study/history.git
+git --git-dir=data/HEALTHDEMO/study/history.git config nof1.format 24
 ```
 
 #### Storage format
 
 The [storage owner](../../apps/data-pipeline/src/nof1_causal_lab/study/git_objects.py)
-requires format 21. Start a new study or restore a format-21 bundle. This change
-includes no conversion of existing studies; older migration and squash tools do
-not produce the current format.
+requires format 24. Start a new study or restore a format-24 bundle. The application
+reads only this format and does not perform automatic migrations.
 
 ### Local stack
 
@@ -202,12 +201,12 @@ data/
 │   ├── study/             # Complete results, logs and traces in each Git commit
 │   ├── cache/             # Temporary compilation and file materialization
 │   └── scratch/           # Live progress events and run-scoped execution state
-└── DEMO/                  # Tracked mock fixture workspace (evals + manual sampling)
+└── HEALTHDEMO/                  # Tracked mock fixture workspace (evals + manual sampling)
 ```
 
 Back up the whole workspace directory: Git retains complete action results and their numerical buffers; `store/` retains uploaded input tables. See the [storage owner](../../apps/data-pipeline/src/nof1_causal_lab/study/store.py). Temporary cache entries are safe to delete at any time. `uv run nof1-sweep WORKSPACE_ID` expires telemetry and caches, and offline maintenance can add `--collect-runs` to remove finished run scratch.
 
-### Promoting a workspace to the DEMO fixture
+### Promoting a workspace to the HEALTHDEMO fixture
 
 Keep ordinary data workspaces and the committed fixture separate. Once a candidate
 workspace has a complete, fresh artifact chain, promote it explicitly:
@@ -217,22 +216,22 @@ bun run fixture:promote --from <WORKSPACE_ID>
 ```
 
 The command validates the selected Git snapshot, copies the durable workspace into
-`data/DEMO`, and rebuilds stable JSON and trace copies under `data/DEMO/fixture/`
-for Storybook. It replaces `data/DEMO` as a unit rather than merging,
+`data/HEALTHDEMO`, and rebuilds stable JSON and trace copies under `data/HEALTHDEMO/fixture/`
+for Storybook. It replaces `data/HEALTHDEMO` as a unit rather than merging,
 and excludes `cache/` and `scratch/`. It exports all Git refs and objects to
 `study/history.bundle` so the tracked fixture retains the main history, attempts and
 artifact trees while its local bare repository remains gitignored. The files in
 `store/` retain uploaded input tables.
 
-The tracked `data/DEMO/study/history.bundle` and `data/DEMO/store/` are the fixture's authoritative inputs. Files under `data/DEMO/fixture/` are generated projections for Storybook. General behavior tests use small, test-owned fixtures independent of DEMO. Regenerate Storybook fixtures with:
+The tracked `data/HEALTHDEMO/study/history.bundle` and `data/HEALTHDEMO/store/` are the fixture's authoritative inputs. Files under `data/HEALTHDEMO/fixture/` are generated projections for Storybook. General behavior tests use small, test-owned fixtures independent of HEALTHDEMO. Regenerate Storybook fixtures with:
 
 ```bash
 bun run fixture:build
 ```
 
-The command restores the bundle into an isolated temporary repository and uses the production readers to project artifacts, logs, traces, historical snapshots and workbench comparisons in one pass. It does not read the local `history.git` or the generated projections as inputs. DEMO has no numbered artifact directories or separate journal and trace directories.
+The command restores the bundle into an isolated temporary repository and uses the production readers to project artifacts, logs, traces, historical snapshots and workbench comparisons in one pass. It does not read the local `history.git` or the generated projections as inputs. HEALTHDEMO has no numbered artifact directories or separate journal and trace directories.
 
-The bundle preserves the illustrative action history and authored and extracted facts. DEMO retained no posterior samples, so its fit has no numerical evidence or posterior summaries. Reports and checks load the findings retained with [complete action results](../../apps/data-pipeline/src/nof1_causal_lab/actions/io.py); missing historical reports remain absent. Regeneration does not fit, simulate, or invent missing scientific artifacts. Prior plot viewports use a small deterministic draw from the retained prior laws.
+The bundle preserves the authored and extracted facts through the last model edit. HEALTHDEMO retained no posterior samples or inference report, so it contains no successful fit. Reports and checks load the findings retained with [complete action results](../../apps/data-pipeline/src/nof1_causal_lab/actions/io.py). Regeneration does not fit, simulate, or invent missing scientific artifacts. The [frontend renderer](../../apps/web/src/lib/model-asset/authored-prior-plot.ts) derives authored prior plots from the retained laws.
 
 ### Publishing a workspace
 
@@ -254,10 +253,11 @@ QUESTION="How does screen time affect sleep?"
 
 curl -s -X POST http://localhost:8100/api/upload \
   -F "workspaceId=$WORKSPACE_ID" \
-  -F "file=@data/DEMO/input/observations.csv"
+  -F "file=@data/HEALTHDEMO/input/observations.csv"
 
 curl -s -X POST http://localhost:8100/api/studies/$WORKSPACE_ID/edit_question \
   -H 'Content-Type: application/json' \
+  -o /tmp/action.msgpack \
   -d "{\"action\":\"edit_question\",\"input\":{\"question\":{\"text\":\"$QUESTION\"}}}"
 ```
 
@@ -277,7 +277,14 @@ curl -s http://localhost:8100/api/studies/$WORKSPACE_ID/timeline > /tmp/study-ti
 ACTION=$(jq -r '.running.action' /tmp/study-timeline.json)
 CALL_ID=$(jq -r '.running.call_id' /tmp/study-timeline.json)
 curl -s "http://localhost:8100/api/studies/$WORKSPACE_ID/$ACTION/$CALL_ID" \
-  | jq '{call_id, action, status, commit_id, messages}'
+  -o /tmp/action.msgpack
+uv run --directory apps/data-pipeline python - <<'PY'
+from pathlib import Path
+from pprint import pprint
+from nof1_causal_lab.study.result_codec import unpack_result
+result = unpack_result(Path('/tmp/action.msgpack').read_bytes())
+pprint({key: value for key, value in result.items() if key != 'body'})
+PY
 
 # The viewer uses the same GET route for saved results and execution logs.
 ```
@@ -286,7 +293,7 @@ curl -s "http://localhost:8100/api/studies/$WORKSPACE_ID/$ACTION/$CALL_ID" \
 
 - `http://localhost:3000/v2/{WORKSPACE_ID}` is the model workbench, the default destination from the workspace list.
 - After each backend action, check that the workbench shows the question, graph, entity details, data, findings, history and action log. The workbench is read-only: the agent submits every change through the backend API.
-- Storybook's **V2 / Model / Workbench / Complete** story covers the workbench with mocked responses. Extend it rather than adding separate stories. Its pinned responses are included in the [fixture build](#promoting-a-workspace-to-the-demo-fixture).
+- Storybook's **V2 / Model / Workbench / Complete** story covers the workbench with mocked responses. Extend it rather than adding separate stories. Its pinned responses are included in the [fixture build](#promoting-a-workspace-to-the-healthdemo-fixture).
 
 If the UI behaves unexpectedly, check Next.js devtools MCP errors before debugging the browser script.
 

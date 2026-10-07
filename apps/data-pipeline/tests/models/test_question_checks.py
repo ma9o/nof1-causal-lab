@@ -30,7 +30,7 @@ def _model():
             law=DeltaLawSpec(v=state(dose.id)), reasoning="The dose is read exactly."
         )
     )
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(
             model.edges, (dose.revised(role="exogenous", indicators=(reading,)),)
         )
@@ -141,8 +141,7 @@ def test_an_edit_defines_the_question_and_models_its_outcome():
 )
 def test_an_edit_rejects_connected_branches_without_a_path_to_the_outcome(extra_edges, outside):
     model = make_model(["Dose", "Mood", *outside], [("Dose", "Mood"), *extra_edges])
-    draft = model.revised(
-        measurement_clock=None,
+    draft = model.revised(measurement_clock=None).with_entities(
         edges=replace_constructs(
             model.edges, tuple(construct.revised(indicators=()) for construct in model.constructs)
         ),
@@ -172,7 +171,7 @@ def test_an_edit_allows_upstream_causes_confounders_and_feedback_that_reaches_th
         ],
     ).revised(measurement_clock=None)
     confounder = next(construct for construct in model.constructs if construct.name == "U")
-    model = model.revised(
+    model = model.with_entities(
         edges=replace_constructs(model.edges, (confounder.revised(indicators=()),))
     )
     assert question_edit_reason(model, _question(_model())) is None

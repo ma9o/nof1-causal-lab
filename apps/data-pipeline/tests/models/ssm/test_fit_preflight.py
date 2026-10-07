@@ -90,7 +90,7 @@ def _raw_channels_model() -> ModelSpec:
             small_channel,
         )
     )
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(model.edges, (latent_0_revised,)),
         parameters=(
             latent_0_dynamics_decay,
@@ -124,7 +124,7 @@ def _preflight_uses_compiled_authored_location_laws_with_parameter_distributions
     latent_0_small_channel_manifest_means = parameter_for(
         model, SiteKind.MANIFEST_MEANS, "latent_0", "small_channel"
     )
-    return model.revised(
+    return model.with_entities(
         distributions=parameter_laws(
             model,
             {
@@ -187,7 +187,7 @@ def _non_identity_links_are_not_judged__model() -> ModelSpec:
         )
     )
     parameters, distributions = without_parameters(model, latent_0_raw_channel_manifest_var_diag)
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(model.edges, (latent_0_revised,)),
         parameters=(
             *parameters,

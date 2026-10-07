@@ -74,7 +74,7 @@ def _compile_distinguishes_incomplete_unsupported_and_bugs_with_parameter_distri
 ):
     model = one_state_gaussian_model()
     latent_0_dynamics_decay = parameter_for(model, SiteKind.DYNAMICS_DECAY, "latent_0")
-    return model.revised(
+    return model.with_entities(
         distributions=parameter_laws(
             model,
             {
@@ -114,7 +114,7 @@ def _initial_state_correlation_priors_are_bounded_to_correlation_scale_with_para
     parameters, distributions = without_parameters(
         model, latent_0_latent_1_hill_emax, latent_0_latent_1_hill_n, latent_0_latent_1_hill_ec50
     )
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(
             tuple(
                 edge
@@ -151,7 +151,7 @@ def _initial_state_mean_and_sd_priors_bind_to_t0_sites_with_parameter_distributi
     latent_0_t0_var_diag = parameter_for(model, SiteKind.T0_VAR_DIAG, "latent_0")
     latent_1_t0_means = parameter_for(model, SiteKind.T0_MEANS, "latent_1")
     latent_1_t0_var_diag = parameter_for(model, SiteKind.T0_VAR_DIAG, "latent_1")
-    return model.revised(
+    return model.with_entities(
         parameters=replace_parameters(
             model.parameters,
             latent_0_latent_1_t0_var_lower.revised(transform=IdentityTransformSpec()),
@@ -212,7 +212,7 @@ def _manifest_standardization_of_constant_column_centers_without_scaling__make_s
         )
     )
     parameters, distributions = without_parameters(model, latent_0_manifest_0_manifest_var_diag)
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(model.edges, (latent_0_revised,)),
         parameters=(
             *parameters,
@@ -273,7 +273,7 @@ def _stress_interval_model(window="31d") -> ModelSpec:
         )
     )
     parameters, distributions = without_parameters(model, latent_0_manifest_0_manifest_var_diag)
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(model.edges, (latent_0_revised,)),
         parameters=(
             *parameters,
@@ -312,7 +312,7 @@ def _manifest_standardization_applies_only_to_standardized_channels__make_spec()
     x_likelihood = likelihood_named(model, "x")
     x_revised = x.revised(likelihood=x_likelihood.revised(standardized=True))
     latent_0_revised = latent_0.revised(indicators=(x_revised,))
-    return model.revised(edges=replace_constructs(model.edges, (latent_0_revised,)))
+    return model.with_entities(edges=replace_constructs(model.edges, (latent_0_revised,)))
 
 
 def _stress_mood_model() -> ModelSpec:
@@ -502,7 +502,7 @@ class TestPrepareModelRuntime:
             early.model_dump_json()
             .replace(str(early.indicators[0].observation.id), "indicator:late")
             .replace(early.indicators[0].observation.name, "late_obs")
-        )
+        ).materialized()
         rows = pl.DataFrame(
             {
                 "indicator_id": [
@@ -659,9 +659,13 @@ class TestPrepareModelRuntime:
         from nof1_causal_lab.models.ssm.predictive.simulation import generate_simulation_batch
 
         assert isinstance(runtime, BoundPanel)
-        samples = generate_simulation_batch(
+        batch = generate_simulation_batch(
             runtime, start=float(runtime.times[0]), end=float(runtime.times[-1]), draws=3
-        ).prediction
+        )
+        from nof1_causal_lab.models.ssm.predictive.simulation import SimulationBatch
+
+        assert isinstance(batch, SimulationBatch)
+        samples = batch.prediction
 
         assert samples.trajectory.observations.shape == (3, 2, 1)
         assert samples.trajectory.observations_mask.shape == (3, 2, 1)

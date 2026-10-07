@@ -31,7 +31,7 @@ pytestmark = pytest.mark.contract
 def simple_causal_design():
     stress = _make_spec()
     sleep = _make_spec(indicator_name="sleep_hours", construct_name="sleep")
-    return stress.revised(
+    return stress.with_entities(
         edges=replace_constructs(
             (
                 CausalEdgeSpec(
@@ -133,8 +133,8 @@ def _make_spec(
             "indicators": definitions,
         }
     )
-    return model.revised(
-        edges=replace_constructs(model.edges, [construct]), measurement_clock=model_clock
+    return model.revised(measurement_clock=model_clock).with_entities(
+        edges=replace_constructs(model.edges, [construct]),
     )
 
 

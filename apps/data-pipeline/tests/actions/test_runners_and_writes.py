@@ -69,7 +69,7 @@ def _exact_measurement(model):
             reasoning="An exact observation of the construct",
         )
     )
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(
             model.edges,
             (
@@ -225,7 +225,7 @@ def test_extraction_requires_some_observations(workspace, tmp_path, nonempty):
     outcome = journal.attempts()[0].record.attempt.outcome
     assert outcome.status == "applied"
     assert outcome.effects.produced == effects.effects.produced
-    assert journal.read_file(journal.head(), "result.json")
+    assert journal.read_file(journal.head(), "result.msgpack")
     current = apply_effects(state, effects.effects.produced, effects.effects.retracted)
     if not nonempty:
         assert not current.has("panel")
@@ -286,7 +286,7 @@ def test_exact_measurement_preserves_execution_layout(workspace):
     store = ArtifactStore(workspace)
     info = next(info for info in effects.effects.produced if info.artifact_id == "model")
     payload = store.read_json_file("model", info.revision, "model.json")
-    plan = ModelSpec.model_validate(payload)
+    plan = ModelSpec.model_validate(payload).materialized()
     assert [
         plan.get_construct(identity).name
         for identity in selected_state_ids(StructuralSelection(plan, None))

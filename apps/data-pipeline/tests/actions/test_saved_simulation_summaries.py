@@ -5,6 +5,7 @@ from datetime import UTC, date, datetime
 import numpy as np
 import pytest
 
+from nof1_causal_lab.artifacts.arrays import NumericalArray
 from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.artifacts.availability import Unavailable
 from nof1_causal_lab.artifacts.construct import replace_constructs
@@ -13,6 +14,8 @@ from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.predictive_provenance import AuthoredLawProvenance
 from nof1_causal_lab.artifacts.simulation import (
     ModelSimulationResult,
+    PairedArmSimulation,
+    SimulationArm,
     SimulationEvidence,
     SimulationObservationLayout,
     SimulationReport,
@@ -24,7 +27,7 @@ from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.records import Applied
 from nof1_causal_lab.study.snapshots import ModelReader
 from nof1_causal_lab.study.store import ArtifactStore
-from tests.action_fixtures import applied_record
+from tests.action_fixtures import applied_record, empty_simulation_summary
 from tests.data_fixtures import metadata_for_model
 from tests.helpers import make_model, write_question
 from tests.inference_fixtures import compile_model_fixture
@@ -63,7 +66,7 @@ def test_full_categories_and_paired_paths_are_saved_once(tmp_path, monkeypatch):
         )
         for c in model.constructs
     )
-    model = model.revised(edges=replace_constructs(model.edges, constructs))
+    model = model.with_entities(edges=replace_constructs(model.edges, constructs))
     store, history = ArtifactStore("SUMMARY"), StudyRepository("SUMMARY")
     definition = store.write_artifact(
         "model",
@@ -104,11 +107,12 @@ def test_full_categories_and_paired_paths_are_saved_once(tmp_path, monkeypatch):
     support_times = np.broadcast_to(np.array([[5.0], [7.0]]), (2, len(model.indicators)))
     layout = SimulationObservationLayout(
         variables=metadata_for_model(model).variables,
-        support_start_times=store.write_array(support_times),
-        support_end_times=store.write_array(support_times),
-        mask=store.write_array(mask),
+        support_start_times=NumericalArray.from_numpy(support_times),
+        support_end_times=NumericalArray.from_numpy(support_times),
+        mask=NumericalArray.from_numpy(mask),
     )
     report = SimulationReport(
+        summary=empty_simulation_summary(),
         causal=Unavailable(reason="No causal effect was recorded."),
         fit_reliability="not_fitted",
         law=AuthoredLawProvenance(),
@@ -127,10 +131,16 @@ def test_full_categories_and_paired_paths_are_saved_once(tmp_path, monkeypatch):
             time_origin=datetime(2026, 1, 1, tzinfo=UTC),
             state_ids=tuple(selected_state_ids(StructuralSelection(model, None))),
             parameter_draws={},
-            latent_paths=store.write_array(states),
-            observations=store.write_array(observations),
-            reference_latent_paths=store.write_array(states - 1),
-            reference_observations=store.write_array(observations),
+            arms=PairedArmSimulation(
+                action=SimulationArm(
+                    latent_paths=NumericalArray.from_numpy(states),
+                    observations=NumericalArray.from_numpy(observations),
+                ),
+                reference=SimulationArm(
+                    latent_paths=NumericalArray.from_numpy(states - 1),
+                    observations=NumericalArray.from_numpy(observations),
+                ),
+            ),
             observation_layout=layout,
         ),
     )
@@ -147,24 +157,29 @@ def test_full_categories_and_paired_paths_are_saved_once(tmp_path, monkeypatch):
     )
 
     reader = ModelReader("SUMMARY", at=history.head())
-    paths = reader.simulation_paths(start=1, count=128)
-    assert paths is not None
-    path_data = paths.model_dump(mode="json")
-    assert path_data["total_draws"] == 3
-    assert path_data["count"] == 2
-    assert path_data["times"] == [5, 7]
-    identity = selected_state_ids(StructuralSelection(model, None))[0]
-    assert path_data["states"][identity]["action"][0]["draw"] == 1
+    saved = reader.simulation_result
+    assert saved is not None
+    assert set(type(saved).model_fields) == {"data", "report"}
+    evidence = saved.report.evidence
+    assert evidence.draws == 3
+    assert evidence.times == (5, 7)
+    assert evidence.arms.kind == "paired"
     from nof1_causal_lab.study.action_arrays import resolve_vector
 
-    assert reader.simulation_result is not None
-    assert resolve_vector(
-        paths.states[identity].action[0].values, reader.simulation_result.arrays
-    ) == tuple(states[1, :, 0])
-    from nof1_causal_lab.study.errors import StudyLookupError
-
-    with pytest.raises(StudyLookupError, match="past"):
-        reader.simulation_paths(start=3, count=128)
+    np.testing.assert_array_equal(
+        evidence.arms.action.latent_paths.values, states
+    )
+    np.testing.assert_array_equal(
+        evidence.arms.reference.latent_paths.values, states - 1
+    )
+    assert len(saved.data) == 3
+    for index, variable in enumerate(layout.variables):
+        expected = tuple(
+            float(value) if observed else None
+            for value, observed in zip(observations[1, :, index], mask[1, :, index], strict=True)
+        )
+        assert resolve_vector(saved.data[1][variable.id].values) == expected
+    path_data = saved.report.summary.model_dump(mode="json")
     for variable in layout.variables:
         if variable.measurement_dtype == "binary":
             assert path_data["action_category_probabilities"][variable.id]["probabilities"]["1"][
@@ -212,8 +227,8 @@ def test_authored_law_advances_from_zero_before_a_later_requested_start():
         return value
 
     payload = literal_coefficients(model.model_dump(mode="json"))
-    payload.update(parameters=[], distributions={})
-    model = ModelSpec.model_validate(payload)
+    payload.update(parameters={}, distributions={})
+    model = ModelSpec.model_validate(payload).materialized()
     constructs = tuple(
         c.revised(
             coefficients=tuple(
@@ -225,8 +240,11 @@ def test_authored_law_advances_from_zero_before_a_later_requested_start():
         )
         for c in model.constructs
     )
-    model = model.revised(edges=replace_constructs(model.edges, constructs))
+    model = model.with_entities(edges=replace_constructs(model.edges, constructs))
     batch = generate_simulation_batch(compile_model_fixture(model), start=2.0, end=3.0, draws=2)
+    from nof1_causal_lab.models.ssm.predictive.simulation import SimulationBatch
+
+    assert isinstance(batch, SimulationBatch)
     np.testing.assert_allclose(
         batch.prediction.trajectory.latents[:, 0], 10 * np.exp(-1), rtol=0.002
     )

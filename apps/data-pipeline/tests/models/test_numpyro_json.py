@@ -11,6 +11,7 @@ import numpyro.distributions as dist
 import pytest
 from pydantic import TypeAdapter, ValidationError
 
+from nof1_causal_lab.artifacts.identity import DistributionId
 from nof1_causal_lab.artifacts.parameter_spec import PersistenceTransformSpec
 from nof1_causal_lab.models.model_parameters import require_priors
 from nof1_causal_lab.models.model_structure import StructuralSelection
@@ -24,7 +25,7 @@ def _parameter_changes_distribution_without_keeping_authoring_history_model_with
 ):
     model = x_model()
     rho_x = parameter_named(model, "rho_X")
-    return model.revised(
+    return model.with_entities(
         parameters=replace_parameters(
             model.parameters, rho_x.revised(transform=rho_x.transform.revised(interval_days=7.0))
         ),
@@ -113,10 +114,12 @@ def test_parameter_changes_distribution_without_keeping_authoring_history():
     transform = restored.parameter(parameter.id).transform
     assert isinstance(transform, PersistenceTransformSpec)
     assert transform.interval_days == 7.0
-    revised = restored.revised(
+    distribution = restored.parameter(parameter.id).distribution
+    assert distribution is not None
+    revised = restored.with_entities(
         distributions={
             **restored.distributions,
-            restored.parameter(parameter.id).distribution: dist.Normal(0.3, 0.1),
+            distribution: dist.Normal(0.3, 0.1),
         }
     )
     assert (
@@ -150,7 +153,7 @@ def test_completed_model_requires_a_prior_on_each_parameter():
     from nof1_causal_lab.compilation_errors import IncompleteModelError
 
     science = x_model()
-    draft = science.revised(
+    draft = science.with_entities(
         distributions={},
         parameters=tuple(parameter.revised(distribution=None) for parameter in science.parameters),
     )
@@ -169,13 +172,16 @@ def test_law_memberships_reject_dangling_unused_and_accidentally_shared_scalar_l
     first, second = model.parameters[:2]
     assert first.distribution != second.distribution
     with pytest.raises(ValidationError, match="every reference must exist"):
-        model.revised(distributions={})
+        model.with_entities(distributions={})
     with pytest.raises(ValidationError, match="must be referenced"):
-        model.revised(
-            distributions={**model.distributions, "distribution:unused": dist.Normal(0, 1)}
+        model.with_entities(
+            distributions={
+                **model.distributions,
+                DistributionId("distribution:unused"): dist.Normal(0, 1),
+            }
         )
     with pytest.raises(ValidationError, match="exactly one parameter"):
-        model.revised(
+        model.with_entities(
             parameters=tuple(
                 p.revised(distribution=first.distribution) if p.id == second.id else p
                 for p in model.parameters

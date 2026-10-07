@@ -1,6 +1,7 @@
 import { presentEntries } from "@/lib/model-accessors";
 import type { IndicatorId } from "@nof1-causal-lab/api-types";
-import { indicatorPresentation, dispositionLabel } from "@/lib/model-asset/inspector";
+import { indicatorPresentation } from "@/lib/model-asset/inspector";
+import { observationEquation } from "@/lib/model-asset/equations";
 import { ownLawUses } from "@/lib/model-asset/laws";
 import { formatFillNull, humanize } from "@/lib/model-asset/selection";
 import type { ScopeContext } from "@/lib/model-asset/scope";
@@ -19,12 +20,12 @@ const CHECK_STATUS = {
 export function IndicatorScope({ context, id }: { context: ScopeContext; id: IndicatorId }) {
   const scope = indicatorPresentation(context, id);
   if (!scope) return null;
-  const { indicator, disposition, audit, counts, likelihood, issues } = scope;
+  const { indicator, audit, likelihood, issues } = scope;
   const metadata = context.model.metadata;
   const preparation = metadata?.preparation.variables.find(
     (variable) => variable.observation.id === id,
   );
-  const equation = context.model.observation_equations[id];
+  const equation = observationEquation(indicator, context.entities);
   const empirical = context.model.profile?.indicators[id]?.profile;
   return (
     <>
@@ -73,14 +74,9 @@ export function IndicatorScope({ context, id }: { context: ScopeContext; id: Ind
           />
         </Section>
       )}
-      {disposition && disposition.disposition !== "manifest" && (
-        <Section title={dispositionLabel(disposition.disposition)}>
-          <Hint issue>{disposition.reason}</Hint>
-        </Section>
-      )}
-      {(counts != null || empirical) && (
+
+      {preparation && (
         <Section title="Observations" wide>
-          {counts != null && <Hint>{counts.toLocaleString()} observations</Hint>}
           <ObservationPlots model={context.model} id={id} />
           {empirical && (
             <>

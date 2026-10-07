@@ -1,9 +1,11 @@
+import { placeComparisonOverlay } from "./comparison-overlay";
+import { modelEdges } from "@/lib/model-accessors";
 import { describe, expect, it } from "vitest";
 import { baseline, modelFixture, outcome, treatment } from "@/lib/__fixtures__/model";
 import { buildLayeredCausalGraph } from "@/lib/dag/build-layered-causal-graph";
 
 const constructs = [baseline, treatment, outcome];
-const edges = modelFixture.edges;
+const edges = modelEdges(modelFixture);
 const dynamicConstructIds = [treatment.id, outcome.id];
 
 describe("buildLayeredCausalGraph", () => {
@@ -43,4 +45,31 @@ describe("buildLayeredCausalGraph", () => {
     expect(identities(after)).toEqual(identities(before));
     expect(after.segmentMeta).toEqual(before.segmentMeta);
   });
+});
+
+it("marks spec revisions without presenting a rename as a topology change", () => {
+  const built = buildLayeredCausalGraph(constructs, edges, dynamicConstructIds);
+  const definition = modelFixture.constructs[treatment.id];
+  if (!definition) throw new Error("Missing fixture construct");
+  const after = {
+    ...modelFixture,
+    constructs: { ...modelFixture.constructs, [treatment.id]: { ...definition, name: "Exposure" } },
+  };
+  const overlay = placeComparisonOverlay(
+    {
+      changes: { constructs: { [treatment.id]: { name: "Exposure" } } },
+      beforeModel: modelFixture,
+      afterModel: after,
+    },
+    built,
+    [{ id: treatment.id, x: 0, y: 0, width: 100, height: 60 }],
+    200,
+    100,
+  );
+  expect(overlay.constructChanges.get(treatment.id)).toBe("revised");
+  expect(overlay.addedNodes).toEqual([]);
+  expect(overlay.addedEdges).toEqual([]);
+  expect(overlay.marks).toEqual([
+    expect.objectContaining({ title: "revised construct", detail: "Exposure" }),
+  ]);
 });

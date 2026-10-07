@@ -10,6 +10,7 @@ import polars as pl
 import pytest
 from pydantic import ValidationError
 
+from nof1_causal_lab.artifacts.arrays import NumericalArray
 from nof1_causal_lab.actions.contracts import FitRequest, PrepareDataRequest
 from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.actions.io import FitInput
@@ -22,10 +23,12 @@ from nof1_causal_lab.artifacts.identity import GitOid, GitRef
 from nof1_causal_lab.artifacts.predictive_provenance import AuthoredLawProvenance
 from nof1_causal_lab.artifacts.simulation import (
     ModelSimulationResult,
+    SimulationArm,
     SimulationEvidence,
     SimulationObservationLayout,
     SimulationReport,
     SimulationSpec,
+    SingleArmSimulation,
 )
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.preflight import ObservationPreflightFailure
@@ -37,7 +40,7 @@ from nof1_causal_lab.study.records import Applied
 from nof1_causal_lab.study.state import StudyState
 from nof1_causal_lab.study.store import ArtifactStore
 from nof1_causal_lab.utils.observation_semantics import SummaryOperator
-from tests.action_fixtures import applied_record
+from tests.action_fixtures import applied_record, empty_simulation_summary
 from tests.data_fixtures import metadata_for_model, simulation_layout
 from tests.git_fixtures import git_oid
 from tests.helpers import make_model, run_async
@@ -59,7 +62,7 @@ def _recorded_replicate_becomes_a_compatible_panel_complete_test_model() -> Mode
         observation=y_obs.observation.revised(aggregation=SummaryOperator.LAST)
     )
     y_revised = y.revised(indicators=(y_obs_revised,))
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(
             model.edges,
             (
@@ -79,7 +82,7 @@ pytestmark = pytest.mark.contract
 
 def _model(**observation_changes):
     model = make_model(["X", "Y"], [("X", "Y")])
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(
             model.edges,
             tuple(
@@ -125,6 +128,7 @@ def test_fit_reads_selected_history_without_preparing_a_panel(tmp_path, monkeypa
     draws = np.array([[[91, 92], [93, 94], [95, 96]], [[2, 4], [3, 8], [6, 12]]], dtype=float)
     design = SimulationSpec(start=date(2026, 1, 6), horizon="2d")
     report = SimulationReport(
+        summary=empty_simulation_summary(),
         causal=NotApplicable(reason="No intervention was requested."),
         fit_reliability="not_fitted",
         law=AuthoredLawProvenance(),
@@ -136,16 +140,20 @@ def test_fit_reads_selected_history_without_preparing_a_panel(tmp_path, monkeypa
             draws=2,
             seed=0,
             state_ids=tuple(numeric.state_ids(compile_model_fixture(model))),
-            parameter_draws={"known_truth": store.write_array(np.asarray([100.0, 100.0]))},
-            latent_paths=store.write_array(
-                np.zeros((2, 3, len(numeric.state_ids(compile_model_fixture(model)))))
+            parameter_draws={"known_truth": NumericalArray.from_numpy(np.asarray([100.0, 100.0]))},
+            arms=SingleArmSimulation(
+                action=SimulationArm(
+                    latent_paths=NumericalArray.from_numpy(
+                        np.zeros((2, 3, len(numeric.state_ids(compile_model_fixture(model)))))
+                    ),
+                    observations=NumericalArray.from_numpy(draws),
+                ),
             ),
-            observations=store.write_array(draws),
             observation_layout=simulation_layout(
                 model,
                 tuple(t + 5 for t in times),
                 np.ones_like(draws, dtype=bool),
-                store.write_array,
+                NumericalArray.from_numpy,
             ),
         ),
     )
@@ -162,7 +170,13 @@ def test_fit_reads_selected_history_without_preparing_a_panel(tmp_path, monkeypa
     source_commit = history.append(simulation_record).commit_id
     # A later simulation must not replace the explicitly selected source.
     later = report.revised(
-        evidence=report.evidence.revised(observations=store.write_array(np.zeros_like(draws)))
+        evidence=report.evidence.revised(
+            arms=report.evidence.arms.revised(
+                action=report.evidence.arms.action.revised(
+                    observations=NumericalArray.from_numpy(np.zeros_like(draws))
+                )
+            )
+        )
     )
     history.append(
         applied_record(
@@ -176,14 +190,8 @@ def test_fit_reads_selected_history_without_preparing_a_panel(tmp_path, monkeypa
     )
     source = DataRef[GitOid, int](revision=source_commit, replicate_index=1)
     refs_before = set(store.repo.references)
-    read_array = store.read_array
-
-    def observations_only(identity):
-        assert identity not in {
-            *report.evidence.parameter_draws.values(),
-            report.evidence.latent_paths,
-        }
-        return read_array(identity)
+    def observations_only(_identity):
+        raise AssertionError("Saved numerical evidence must be self-contained")
 
     monkeypatch.setattr(store, "read_array", observations_only)
     with pytest.raises(StudyLookupError, match="applied prepare_data or simulate"):
@@ -207,7 +215,6 @@ def test_fit_reads_selected_history_without_preparing_a_panel(tmp_path, monkeypa
     assert set(panel["support_kind"]) == {"point"}
 
     from nof1_causal_lab.actions import fit as fit_module
-    from nof1_causal_lab.artifacts.identity import DistributionId
     from nof1_causal_lab.artifacts.posterior import InferenceEvidence
     from tests.inference_fixtures import _report
 
@@ -216,12 +223,8 @@ def test_fit_reads_selected_history_without_preparing_a_panel(tmp_path, monkeypa
         assert kwargs["time_origin"] == selected.time_origin
         return {
             "_model": model,
-            "evidence": InferenceEvidence(
-                distribution=DistributionId("distribution:test"),
-                engine=None,
-                time_origin=selected.time_origin,
-                duration_seconds=0,
-            ),
+            "evidence": InferenceEvidence(),
+            "metadata": _report(model).core.inference_metadata,
         }
 
     monkeypatch.setattr(fit_module, "fit", fit)
@@ -264,14 +267,8 @@ def test_reading_preserves_measurement_support_and_numeric_codes(interval):
     values = np.array([[[np.nan, np.nan], [2, 2], [2, 2]]])
     if not interval:
         values[0, 0] = 2
-    arrays = {}
-
-    def write_array(value):
-        key = str(len(arrays))
-        arrays[key] = value
-        return key
-
     report = SimulationReport(
+        summary=empty_simulation_summary(),
         causal=NotApplicable(reason="No intervention was requested."),
         fit_reliability="not_fitted",
         law=AuthoredLawProvenance(),
@@ -284,26 +281,27 @@ def test_reading_preserves_measurement_support_and_numeric_codes(interval):
             seed=0,
             state_ids=tuple(item.id for item in model.constructs),
             parameter_draws={},
-            latent_paths="truth",
-            observations="observations",
+            arms=SingleArmSimulation(
+                action=SimulationArm(latent_paths=NumericalArray.from_numpy(np.zeros_like(values)), observations=NumericalArray.from_numpy(values)),
+            ),
             observation_layout=SimulationObservationLayout(
                 variables=metadata_for_model(model).variables,
-                support_start_times=write_array(
+                support_start_times=NumericalArray.from_numpy(
                     np.array([[np.nan, np.nan], [0, 0], [1.5, 1.5]])
                     if interval
                     else np.array([[0, 0], [1, 1], [2.5, 2.5]])
                 ),
-                support_end_times=write_array(
+                support_end_times=NumericalArray.from_numpy(
                     np.array([[np.nan, np.nan], [1, 1], [2.5, 2.5]])
                     if interval
                     else np.array([[0, 0], [1, 1], [2.5, 2.5]])
                 ),
-                mask=write_array(np.isfinite(values)),
+                mask=NumericalArray.from_numpy(np.isfinite(values)),
             ),
         ),
     )
     panel = read_simulation_observations(
-        report.evidence, 0, read_array=lambda key: values if key == "observations" else arrays[key]
+        report.evidence, 0
     )
     assert panel["value"].drop_nulls().to_list() == [2.0] * (4 if interval else 6)
     assert panel["anchor_time"].min() == datetime(2026, 1, 1)
@@ -319,14 +317,13 @@ def test_reading_preserves_measurement_support_and_numeric_codes(interval):
         read_simulation_observations(
             report.evidence,
             1,
-            read_array=lambda key: values if key == "observations" else arrays[key],
         )
     values[0, 1, 0] = np.nan
+    report = report.revised(evidence=report.evidence.revised(arms=SingleArmSimulation(action=report.evidence.arms.action.revised(observations=NumericalArray.from_numpy(values)))))
     with pytest.raises(ValueError, match="non-finite emissions"):
         read_simulation_observations(
             report.evidence,
             0,
-            read_array=lambda key: values if key == "observations" else arrays[key],
         )
 
 

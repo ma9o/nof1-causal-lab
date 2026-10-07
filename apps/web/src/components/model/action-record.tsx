@@ -227,9 +227,7 @@ export function ActionRecord({
                 {tick.record.attempt.action === "edit_model" && (
                   <EditDetails context={context} tick={tick} />
                 )}
-                {call?.action === "prepare_data" && (
-                  <DataDetails context={context} applied={call.body} />
-                )}
+                {call?.action === "prepare_data" && <DataDetails applied={call.body} />}
                 {tick.record.attempt.action === "fit" && <FitOutcome context={context} />}
                 {call?.action === "data_diff" && context.dataDiff && (
                   <DataComparisonOutcome context={context} report={context.dataDiff} />

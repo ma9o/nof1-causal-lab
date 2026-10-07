@@ -98,7 +98,7 @@ def _map_bundle_reuses_runtime_objectives_across_same_shape_datasets__make_aux_k
         )
     )
     parameters, distributions = without_parameters(model, latent_0_t0_means)
-    return model.revised(
+    return model.with_entities(
         edges=replace_constructs(model.edges, (latent_0_revised,)),
         parameters=parameters,
         distributions=distributions,

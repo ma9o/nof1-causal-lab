@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, assert_never
+from typing import TYPE_CHECKING, Literal, assert_never
 
 import numpy as np
 from pydantic import Field
@@ -24,6 +24,7 @@ from nof1_causal_lab.models.ssm.structure.sites import (
 
 if TYPE_CHECKING:
     from collections.abc import Collection, Sequence
+    from datetime import datetime
 
     from nof1_causal_lab.artifacts.identity import ConstructId
     from nof1_causal_lab.models.ssm.compile.inputs import CompiledModel
@@ -103,6 +104,7 @@ def joint_law_layout(
     parameters: Collection[ParameterId],
     constructs: Collection[ConstructId],
     time_points: Sequence[float],
+    time_origin: datetime | Literal["relative"] = "relative",
 ) -> JointLawLayout:
     """Establish scientific coordinates and display labels once at production."""
     by_id = {binding.parameter_id: binding for binding in bindings}
@@ -113,6 +115,7 @@ def joint_law_layout(
         ),
         constructs=tuple(sorted(constructs)),
         time_points=tuple(float(value) for value in time_points),
+        time_origin=time_origin,
         labels={
             element: label
             for identity in members

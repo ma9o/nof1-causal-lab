@@ -10,43 +10,28 @@ Request envelopes live in ``actions.contracts``. Each output becomes the
 
 from collections.abc import Mapping
 
-from pydantic import Field
+from pydantic import ConfigDict, Field
 
-from nof1_causal_lab.artifacts.arrays import NumericalArray
 from nof1_causal_lab.artifacts.base import Value
-from nof1_causal_lab.artifacts.checks import SpecificationAssessment
+from nof1_causal_lab.artifacts.data_comparison import DataComparisonReport
 from nof1_causal_lab.artifacts.data_preparation import (
     ExtractionSpec,
     PreparedDataMetadata,
 )
-from nof1_causal_lab.artifacts.data_ref import DataRef, DataSelection
-from nof1_causal_lab.artifacts.effects import HistogramBin
-from nof1_causal_lab.artifacts.execution import StructuralItemDisposition
+from nof1_causal_lab.artifacts.data_ref import DataSelection
 from nof1_causal_lab.artifacts.identification import IdentificationReport
 from nof1_causal_lab.artifacts.identity import (
-    ConstructId,
-    ConstructRef,
-    EdgeId,
-    EdgeRef,
-    GitOid,
-    GitRef,
     IndicatorId,
-    ParameterId,
-    ParameterRef,
 )
 from nof1_causal_lab.artifacts.model_checks import (
     ModelCheckReport,
-    QuestionCheckReport,
 )
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
-from nof1_causal_lab.artifacts.parameter_spec import ParameterSpec
 from nof1_causal_lab.artifacts.posterior import (
+    FitCheckReport,
     FitSettingsSpec,
     InferenceReport,
-    InferenceReportCore,
-    ModelFitResult,
 )
-from nof1_causal_lab.artifacts.posterior_diagnostics import DensityCurve
 from nof1_causal_lab.artifacts.question import QuestionSpec
 from nof1_causal_lab.artifacts.simulation import (
     SimulationReport,
@@ -54,17 +39,8 @@ from nof1_causal_lab.artifacts.simulation import (
 )
 from nof1_causal_lab.artifacts.validation_report import (
     DataProfileArtifact,
-    ValidationReportArtifact,
 )
-from nof1_causal_lab.study.snapshot_models import ModelGraphView
-from nof1_causal_lab.study.view_models import (
-    Change,
-    DataVariableDiff,
-    MeasurementsData,
-    RawDataData,
-    Unchanged,
-)
-from nof1_causal_lab.study.visual_models import ObservationData, ParameterDraws, SimulationPaths
+from nof1_causal_lab.study.visual_models import ObservationData
 
 # edit_question
 
@@ -94,6 +70,8 @@ class EditQuestionOutput(Value):
 class EditModelInput[RevisionT](Value):
     """Create or revise a model from a question or model parent."""
 
+    model_config = ConfigDict(json_schema_mode_override="validation")
+
     parent_ref: RevisionT = Field(
         description=(
             "Question or model revision to start from. A model parent supplies its pinned "
@@ -102,63 +80,29 @@ class EditModelInput[RevisionT](Value):
     )
     model: ModelSpec = Field(
         description=(
-            "Complete authored scientific definition, replacing the selected model rather than "
-            "applying a field patch. Endogenous constructs are modeled, with or without parents, "
-            "and include every latent construct. Exogenous constructs are given by direct exact "
-            "Delta readings and have no dynamics, diffusion, initial coefficients or trajectory law."
+            "Scientific definitions merged by identity into a model parent, or into an empty "
+            "model for a question parent. Omitted fields are retained; null entity entries "
+            "delete their identities. Constructs outside the outcome ancestry are pruned "
+            "with a warning, then the complete model is validated. Endogenous constructs "
+            "are modeled, with or without parents, "
+            "and include every latent construct. Exogenous constructs require deterministic Delta "
+            "trajectory laws for execution and have no dynamics, diffusion or initial coefficients."
         )
     )
 
 
 class EditModelOutput(Value):
-    """The produced model, its checks, and backend-computed display values.
+    """The produced model and its recorded scientific findings.
 
     Optional findings are absent when no corresponding report was retained.
     """
 
     model: ModelSpec = Field(description="Saved scientific definition.")
-    can_simulate: bool = Field(
-        description="Whether this model compiles to a supported forward simulator."
-    )
     checks: ModelCheckReport | None = Field(
         description="Combined findings retained by the action that produced the model."
     )
     identification: IdentificationReport | None = Field(
         description="Causal identification findings."
-    )
-    dispositions: tuple[StructuralItemDisposition, ...] | None = Field(
-        description=(
-            "How each structural entity is retained, marginalized, or rejected by the execution"
-            " representation."
-        )
-    )
-    graph: ModelGraphView = Field(
-        description=(
-            "Construct and edge identities, dynamic membership, and execution status for the "
-            "graph view."
-        )
-    )
-    entity_failures: Mapping[ConstructId | EdgeId | IndicatorId, tuple[str, ...]] = Field(
-        description=(
-            "Messages attributed to constructs, edges, or indicators from the available "
-            "scientific reports."
-        )
-    )
-    confounder_equations: Mapping[ConstructId, str] = Field(
-        description="Rendered equations for marginalized confounding terms, keyed by construct."
-    )
-    state_equations: Mapping[ConstructId, str] = Field(
-        description="Rendered latent state dynamics keyed by construct."
-    )
-    observation_equations: Mapping[IndicatorId, str] = Field(
-        description="Rendered measurement laws keyed by indicator."
-    )
-    authoring_prior_densities: Mapping[ParameterId, DensityCurve] = Field(
-        description="Density curves for authored parameter laws, before conditioning on observations."
-    )
-
-    arrays: Mapping[str, NumericalArray] = Field(  # noqa: FIELD003 -- External action clients resolve the model law buffers from this complete result.
-        description="Exact buffers referenced by the saved model's numerical laws."
     )
 
 
@@ -190,41 +134,22 @@ class PrepareDataInput[RevisionT, SourceT](Value):
 
 
 class PrepareDataOutput(Value):
-    """Observations retained by a preparation run and evidence of how they were made.
+    """Complete prepared observations, their provenance, and data-quality findings."""
 
-    A missing summary means its artifact or report is unavailable; it does not
-    mean the corresponding observation count is zero.
-    """
-
-    raw_data: RawDataData | None = Field(
-        description=(
-            "Uploaded table dimensions, sample rows, column descriptions, and date bounds when "
-            "the source provides dates."
-        )
-    )
-    measurements: MeasurementsData | None = Field(
-        description=(
-            "Retained observation counts, broken down by indicator, with a sample of extracted "
-            "records."
-        )
-    )
-    metadata: PreparedDataMetadata | None = Field(
-        description=(
-            "Source reference, preparation recipe, resolved observation schema, and the "
-            "calendar origin used to interpret model time."
-        )
-    )
-    profile: DataProfileArtifact | None = Field(
-        description=(
-            "Data quality findings retained for the prepared panel, when a matching profile "
-            "report exists."
-        )
-    )
     data: ObservationData = Field(
         description=(
             "Full observation histories keyed by indicator ID, including measurement support "
             "intervals and missing values."
         )
+    )
+    metadata: PreparedDataMetadata = Field(
+        description=(
+            "Source reference, preparation recipe, resolved observation schema, and the "
+            "calendar origin used to interpret model time."
+        )
+    )
+    profile: DataProfileArtifact = Field(
+        description="Empirical statistics and data-quality findings for the prepared panel."
     )
 
 
@@ -254,52 +179,16 @@ class FitInput[RevisionT](Value):
 
 
 class FitOutput(Value):
-    """The fitted model, inference findings, parameter draws, and numerical arrays."""
+    """A conditioned model, its completed checks, and self-contained inference evidence."""
 
     model: ModelSpec = Field(
         description="The model with its joint parameter law conditioned on the selected data."
     )
-    inference: ModelFitResult | None = Field(  # noqa: FIELD003 -- External callers locate this fit's input model, selected history and numerical evidence.
-        description=(
-            "Retained fit result, including input references and array references; absent when "
-            "the attempt retained no numerical result."
-        )
+    checks: FitCheckReport = Field(
+        description="Completed compatibility and question findings for the selected history."
     )
-    entity_failures: Mapping[ConstructId | EdgeId | IndicatorId, tuple[str, ...]] = Field(
-        description="Model-dependent data and inference failures attributed to their scientific entities."
-    )
-    validation_report: ValidationReportArtifact | None = Field(
-        description="Compatibility findings for the model and selected observation history."
-    )
-    question_checks: QuestionCheckReport | None = Field(
-        description="Question findings evaluated against the selected observation history."
-    )
-    likelihood_diagnostics: Mapping[IndicatorId, tuple[HistogramBin, ...]] = Field(
-        description="Observed histograms for the fitted model's indicator likelihoods."
-    )
-    edge_estimates: Mapping[EdgeId, ParameterRef] = Field(
-        description="Posterior parameter coordinates displayed on causal edges."
-    )
-    decay_estimates: Mapping[ConstructId, ParameterRef] = Field(
-        description="Posterior parameter coordinates displayed on construct dynamics."
-    )
-    prior_densities: Mapping[ParameterId, DensityCurve] = Field(
-        description="Conditioned input laws on the posterior parameters' quantity scale."
-    )
-    inference_report: InferenceReport | None = Field(
-        description="Full diagnostic report, when one was retained."
-    )
-    parameter_draws: ParameterDraws = Field(
-        description=(
-            "Per-parameter draws and empirical distributions, or a typed explanation of why "
-            "draws are unavailable."
-        )
-    )
-    arrays: Mapping[str, NumericalArray] = Field(  # noqa: FIELD003 -- External callers consume this action's full numerical evidence without another read route.
-        description=(
-            "Numerical evidence keyed by its stored array reference. Shape and dtype are retained; "
-            "non-finite scalars use nan, +inf and -inf tags."
-        )
+    inference: InferenceReport = Field(
+        description="Run provenance, native sampler evidence, diagnostics and parameter summaries."
     )
 
 
@@ -312,46 +201,28 @@ class SimulateInput[RevisionT](Value):
     model_ref: RevisionT = Field(
         description="Revision supplying the authored or fitted generative law."
     )
-    panel_ref: RevisionT | None = Field(
-        default=None,
-        description=(
-            "Optional exact panel supplying the calendar origin for an authored law; "
-            "a fitted law retains the origin of its conditioning history."
-        ),
-    )
-    simulation: SimulationSpec = Field(
-        description="Requested start, horizon, replicate count, and interventions."
-    )
+    simulation: SimulationSpec = Field(description="Requested start, horizon, and interventions.")
 
 
 class SimulateOutput(Value):
-    """The generated observation histories, paths, report, and retained arrays."""
+    """Generated histories and their complete scientific report, including owned numerical evidence."""
 
-    report: SimulationReport | None = Field(
-        description="Simulation findings, when a report was retained."
-    )
     data: tuple[ObservationData, ...] = Field(
-        description="One observation history per retained replicate, in replicate order."
+        min_length=1,
+        description="One observation history per retained replicate, in replicate order.",
     )
-    paths: SimulationPaths | None = Field(
-        description=(
-            "Recorded state and indicator trajectories, including a reference arm when present;"
-            " absent if path evidence is unavailable."
-        )
-    )
-    arrays: Mapping[str, NumericalArray] = Field(  # noqa: FIELD003 -- External callers consume this action's full numerical evidence without another read route.
-        description=(
-            "Retained numerical evidence keyed by its stored array reference. Shape and dtype "
-            "are retained; non-finite scalars use nan, +inf and -inf tags."
-        )
-    )
+    report: SimulationReport = Field(description="Generation evidence and evaluated findings.")
 
 
 # data_diff
 
 
 class DataDiffInput[RevisionT](Value):
-    """Compare two selections of saved observation histories."""
+    """Compare saved histories statistically; left/right do not imply before/after revisions.
+
+    DataComparisonReport owns selection and comparison semantics. The action reads
+    retained observations without generating new draws or changing scientific state.
+    """
 
     left_ref: DataSelection[RevisionT] = Field(
         description=(
@@ -365,18 +236,12 @@ class DataDiffInput[RevisionT](Value):
 
 
 class DataDiffOutput(Value):
-    """Per-variable comparisons and the exact history references on both sides."""
+    """The computed comparison report; original histories remain in their producing results."""
 
-    left: tuple[DataRef[GitOid, int], ...] = Field(
-        description="Resolved revision and replicate index for every left-side history."
-    )
-    right: tuple[DataRef[GitOid, int], ...] = Field(
-        description="Resolved revision and replicate index for every right-side history."
-    )
-    variables: tuple[DataVariableDiff, ...] = Field(
+    report: DataComparisonReport = Field(
         description=(
-            "Series, point changes, statistics, compatibility issues, and any predictive "
-            "comparison for each compared indicator."
+            "Exact history selections, point changes, per-history statistics, compatibility "
+            "issues and predictive checks. This is a statistical comparison, not a data patch."
         )
     )
 
@@ -385,76 +250,36 @@ class DataDiffOutput(Value):
 
 
 class ModelDiffInput[RevisionT](Value):
-    """The before and after model revisions or study checkpoints to compare."""
+    """Base and target specs for a directional patch, selected by revisions or checkpoints.
+
+    The selections need not be chronologically ordered or share an editing parent.
+    Before/after determine patch direction; ModelDiffOutput defines its contract.
+    """
 
     before_ref: RevisionT = Field(
-        description="Earlier model revision or checkpoint used as the comparison base."
+        description="Model revision or checkpoint used as the comparison base."
     )
     after_ref: RevisionT = Field(
-        description="Later model revision or checkpoint to compare with the base."
+        description="Model revision or checkpoint the returned patch reconstructs from the base."
     )
 
 
 class ModelDiffOutput(Value):
-    """Compare model definitions and scientific evidence at two selections."""
+    """Directional changes between saved specs, expressed in the model's editing language.
 
-    arrays: Mapping[str, NumericalArray] = Field(
-        description="Exact numerical laws referenced by either compared model."
-    )
-    before: GitRef | None = Field(
-        description="Artifact reference for the earlier model, if one is selected."
-    )
-    after: GitRef | None = Field(
-        description="Artifact reference for the later model, if one is selected."
-    )
-    before_model: ModelSpec | None = Field(
-        description="Earlier scientific definition, or null without a model."
-    )
-    after_model: ModelSpec | None = Field(
-        description="Later scientific definition, or null without a model."
-    )
-    parameters: tuple[Change[ParameterSpec], ...] = Field(
-        description="Added, removed, and revised parameter definitions."
-    )
-    constructs: tuple[Change[ConstructRef] | Unchanged[ConstructRef], ...] = Field(
-        description="Construct identity changes, including unchanged identities."
-    )
-    edges: tuple[Change[EdgeRef] | Unchanged[EdgeRef], ...] = Field(
-        description="Edge identity changes, including unchanged identities."
-    )
-    before_dispositions: tuple[StructuralItemDisposition, ...] = Field(
-        description="Execution treatment of structural entities before the change."
-    )
-    after_dispositions: tuple[StructuralItemDisposition, ...] = Field(
-        description="Execution treatment of structural entities after the change."
-    )
-    before_dynamic_construct_ids: tuple[ConstructId, ...] = Field(
-        description="Constructs with state dynamics in the earlier selection."
-    )
-    after_dynamic_construct_ids: tuple[ConstructId, ...] = Field(
-        description="Constructs with state dynamics in the later selection."
-    )
-    changed_inputs: tuple[str, ...] = Field(
+    ModelSpec.changes_from owns the document comparison. Applying its patch with
+    merge_fields to the before spec reconstructs the after spec; equal specs yield
+    an empty document. Only saved specification fields participate, including their
+    exact law-buffer references. No execution findings or statistical comparisons
+    are computed here; those remain owned by their producing actions.
+    """
+
+    model_config = ConfigDict(json_schema_mode_override="validation")
+
+    changes: ModelSpec = Field(
         description=(
-            "Names of scientific input dependencies whose selections differ between the two "
-            "checkpoints."
+            "Merge this document into the before spec to obtain the after spec. Omitted fields "
+            "are unchanged, supplied fields are added or updated, and null map entries delete "
+            "their identities. A checkpoint without a model denotes the empty spec."
         )
-    )
-    before_checks: tuple[SpecificationAssessment, ...] = Field(
-        description="Specification findings retained for the earlier model."
-    )
-    after_checks: tuple[SpecificationAssessment, ...] = Field(
-        description="Specification findings retained for the later model."
-    )
-    before_fit: InferenceReportCore | None = Field(
-        description="Earlier inference summary, when available."
-    )
-    after_fit: InferenceReportCore | None = Field(
-        description="Later inference summary, when available."
-    )
-    before_simulation: SimulationReport | None = Field(
-        description="Earlier simulation findings, when available."
-    )
-    after_simulation: SimulationReport | None = Field(
-        description="Later simulation findings, when available."
     )

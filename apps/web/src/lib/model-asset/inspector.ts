@@ -5,24 +5,9 @@ import type {
   IndicatorId,
   IndicatorSpec,
   ModelSnapshot,
-  StructuralDisposition,
 } from "@nof1-causal-lab/api-types";
 import type { ScopeContext } from "./scope";
-
-const DISPOSITION_LABEL: Record<StructuralDisposition, string> = {
-  unsupported: "unsupported",
-  retained_state: "retained state",
-  marginalized: "marginalized",
-  identification_only: "identification-only",
-  retained_edge: "retained edge",
-  projected_edge: "projected edge",
-  manifest: "manifest",
-  excluded_indicator: "excluded indicator",
-};
-
-export function dispositionLabel(disposition: StructuralDisposition): string {
-  return DISPOSITION_LABEL[disposition];
-}
+import { recordedEntityFailures } from "./entity-findings";
 
 /** These selectors only arrange recorded findings for their owning entities. */
 export function constructPresentation(context: ScopeContext, id: ConstructId) {
@@ -30,21 +15,18 @@ export function constructPresentation(context: ScopeContext, id: ConstructId) {
   const construct = entities.constructById.get(id);
   if (!construct) return null;
   const indicators = construct.indicators;
-  const disposition = context.model.dispositions?.find((item) => item.target.id === id);
 
   return {
     model,
     entities,
     construct,
     indicators,
-    disposition,
   };
 }
 
 export function indicatorPresentation(context: ScopeContext, id: IndicatorId) {
   const indicator = context.entities.indicatorById.get(id);
   if (!indicator) return null;
-  const disposition = context.model.dispositions?.find((item) => item.target.id === id);
   const profile = context.model.profile?.indicators[id];
   const compatibility = context.model.validation_report?.data.indicators[id];
   const audit =
@@ -55,14 +37,11 @@ export function indicatorPresentation(context: ScopeContext, id: IndicatorId) {
           issues: [...(profile?.issues ?? []), ...(compatibility?.issues ?? [])],
         }
       : null;
-  const counts = context.model.measurements?.per_indicator_counts[id];
   const likelihood = indicator.likelihood;
   const issues = audit?.issues.filter((issue) => issue.severity !== "info") ?? [];
   return {
     indicator,
-    disposition,
     audit,
-    counts,
     likelihood,
     issues,
   };
@@ -73,7 +52,12 @@ export function entityFailures(
   model: ModelSnapshot,
   entity: ConstructSpec | CausalEdgeSpec | IndicatorSpec,
 ): string[] {
+  const identity = "observation" in entity ? entity.observation.id : entity.id;
   return [
-    ...(model.entity_failures["observation" in entity ? entity.observation.id : entity.id] ?? []),
+    ...(recordedEntityFailures(model)[identity] ?? []),
+    ...("dynamics" in entity &&
+    model.identification?.treatments[entity.id]?.status === "not_identified"
+      ? [`Identification against ★: ${entity.name}`]
+      : []),
   ];
 }

@@ -7,12 +7,16 @@ from typing import TYPE_CHECKING, cast
 
 import numpy as np
 
+from nof1_causal_lab.artifacts.arrays import NumericalArray
 from nof1_causal_lab.artifacts.availability import NotApplicable, Unavailable
 from nof1_causal_lab.artifacts.simulation import (
     FitReliability,
+    PairedArmSimulation,
+    SimulationArm,
     SimulationEvidence,
     SimulationObservationLayout,
     SimulationReport,
+    SingleArmSimulation,
 )
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.predictive.simulation import (
@@ -22,15 +26,10 @@ from nof1_causal_lab.models.ssm.predictive.simulation import (
 from nof1_causal_lab.models.ssm.preflight import ObservationPreflightFailure
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-    from datetime import datetime
-
     import dynestyx as dsx
     from jax import Array
 
-    from nof1_causal_lab.artifacts.data_ref import DataRef
     from nof1_causal_lab.artifacts.identity import GitOid, GitRef
-    from nof1_causal_lab.artifacts.observation_data import ObservationDataset
     from nof1_causal_lab.artifacts.simulation import SimulationSpec
     from nof1_causal_lab.models.model_structure import StructuralSelection
     from nof1_causal_lab.models.ssm.execution.dynamical_model import HeterogeneousObservation
@@ -42,50 +41,40 @@ def simulate(
     design: SimulationSpec,
     *,
     revision: GitRef,
-    write_array: Callable[[np.ndarray], str],
-    time_origin: datetime,
-    origin_data: DataRef[GitOid, int] | None = None,
-    input_data: ObservationDataset | None = None,
 ) -> SimulationEvidence | ObservationPreflightFailure:
     """Generate current model histories; data_diff compares the saved observations separately."""
     from nof1_causal_lab.models.ssm.compile.inputs import compile_executable_model
 
     compiled = compile_executable_model(selection)
-    from nof1_causal_lab.models.ssm.runtime import replay_input_events
-
+    time_origin = next(
+        (
+            law.layout.time_origin
+            for law in compiled.laws
+            if law.layout.constructs and not isinstance(law.layout.time_origin, str)
+        ),
+        design.start_instant,
+    )
     start, end = design.start_day(time_origin), design.end_day(time_origin)
     assignments = design.assignments(time_origin)
-    retained_times = next(
-        (law.layout.time_points for law in compiled.laws if law.layout.constructs), ()
-    )
-    history_start = (
-        retained_times[int(np.searchsorted(retained_times, start, side="right")) - 1]
-        if retained_times and start >= retained_times[0]
-        else 0.0
-    )
-    input_events = replay_input_events(
-        compiled,
-        input_data,
-        time_origin=time_origin,
-        start=history_start,
-        end=end,
-    )
-    if isinstance(input_events, ObservationPreflightFailure):
-        return input_events
     batch = generate_simulation_batch(
         compiled,
         start=start,
         end=end,
         assignments=assignments,
-        input_events=input_events,
         time_origin=time_origin,
     )
+    if isinstance(batch, ObservationPreflightFailure):
+        return batch
     support = batch.measurement_design.observation_support
     if support is None:
         raise ValueError("Simulation must retain its observation support")
     prediction = batch.prediction
     state_ids = tuple(numeric.state_ids(compiled))
     variables = tuple(observation.observation for observation in compiled.observations)
+    action = SimulationArm(
+        latent_paths=NumericalArray.from_numpy(np.asarray(prediction.trajectory.latents)),
+        observations=NumericalArray.from_numpy(np.asarray(prediction.trajectory.observations)),
+    )
     return SimulationEvidence(
         model=revision,
         design=design,
@@ -93,25 +82,25 @@ def simulate(
         times=batch.times,
         draws=prediction.n_draws,
         seed=batch.measurement_design.seed,
-        origin_data=origin_data,
         state_ids=state_ids,
         parameter_draws={
-            name: write_array(np.asarray(value)) for name, value in prediction.parameters.items()
+            name: NumericalArray.from_numpy(np.asarray(value)) for name, value in prediction.parameters.items()
         },
-        latent_paths=write_array(np.asarray(prediction.trajectory.latents)),
-        observations=write_array(np.asarray(prediction.trajectory.observations)),
+        arms=SingleArmSimulation(action=action)
+        if prediction.reference is None
+        else PairedArmSimulation(
+            action=action,
+            reference=SimulationArm(
+                latent_paths=NumericalArray.from_numpy(np.asarray(prediction.reference.latents)),
+                observations=NumericalArray.from_numpy(np.asarray(prediction.reference.observations)),
+            ),
+        ),
         observation_layout=SimulationObservationLayout(
             variables=variables,
-            support_start_times=write_array(np.asarray(support.support_start_times)),
-            support_end_times=write_array(np.asarray(support.support_end_times)),
-            mask=write_array(np.asarray(prediction.trajectory.observations_mask)),
+            support_start_times=NumericalArray.from_numpy(np.asarray(support.support_start_times)),
+            support_end_times=NumericalArray.from_numpy(np.asarray(support.support_end_times)),
+            mask=NumericalArray.from_numpy(np.asarray(prediction.trajectory.observations_mask)),
         ),
-        reference_latent_paths=write_array(np.asarray(prediction.reference.latents))
-        if prediction.reference is not None
-        else None,
-        reference_observations=write_array(np.asarray(prediction.reference.observations))
-        if prediction.reference is not None
-        else None,
     )
 
 
@@ -124,6 +113,7 @@ def read_simulation_report(
     import jax.numpy as jnp
 
     from nof1_causal_lab.actions.scenarios import summarize_causal_simulation
+    from nof1_causal_lab.actions.simulation_summaries import simulation_summary
     from nof1_causal_lab.artifacts.predictive_provenance import (
         FittedLawProvenance,
         MixedLawProvenance,
@@ -161,29 +151,60 @@ def read_simulation_report(
             if evidence.design.interventions
             else NotApplicable(reason="No intervention was requested.")
         )
+        latents = evidence.arms.action.latent_paths.values
+        observations = evidence.arms.action.observations.values
+        mask = evidence.observation_layout.mask.values
+        reference = (
+            evidence.arms.reference.latent_paths.values
+            if isinstance(evidence.arms, PairedArmSimulation)
+            else None
+        )
+        reference_observations = (
+            evidence.arms.reference.observations.values
+            if isinstance(evidence.arms, PairedArmSimulation)
+            else None
+        )
+        for index, variable in enumerate(evidence.observation_layout.variables):
+            levels = (
+                ("0", "1")
+                if variable.measurement_dtype == "binary"
+                else variable.ordinal_levels or variable.categorical_levels
+            )
+            if levels is None:
+                continue
+            for buffer in (observations, reference_observations):
+                if buffer is None:
+                    continue
+                channel = buffer[:, :, index]
+                codes = channel[mask[:, :, index] & np.isfinite(channel)]
+                if not np.all((codes == np.floor(codes)) & (codes >= 0) & (codes < len(levels))):
+                    raise ValueError(
+                        "Saved simulation emissions differ from their declared category codes"
+                    )
+        summary = simulation_summary(
+            evidence, latents, observations, mask, reference, reference_observations
+        )
         selection = StructuralSelection.for_question(model, read_question(store, question_revision))
         try:
             compiled = compile_executable_model(selection)
         except (AggregatedCompileError, IncompleteModelError) as exc:
             return SimulationReport(
                 evidence=evidence,
+                summary=summary,
                 law=law,
                 fit_reliability=reliability,
                 causal=Unavailable(reason=str(exc)) if evidence.design.interventions else causal,
             )
         times = jnp.asarray(evidence.times)
         parameters = {
-            name: jnp.asarray(store.read_array(ref))
+            name: jnp.asarray(ref.values)
             for name, ref in evidence.parameter_draws.items()
         }
-        latents = jnp.asarray(store.read_array(evidence.latent_paths))
-        observations = jnp.asarray(store.read_array(evidence.observations))
-        mask = jnp.asarray(store.read_array(evidence.observation_layout.mask))
         support = recorded_observation_support(
             np.asarray(times),
             evidence.observation_layout.variables,
-            store.read_array(evidence.observation_layout.support_start_times),
-            store.read_array(evidence.observation_layout.support_end_times),
+            evidence.observation_layout.support_start_times.values,
+            evidence.observation_layout.support_end_times.values,
         )
         if isinstance(support, ObservationPreflightFailure):
             raise ValueError(f"Recorded simulation support is corrupt: {support.message}")
@@ -191,7 +212,14 @@ def read_simulation_report(
             compile_observation_operator,
         )
 
-        operator = compile_observation_operator(support)
+        operator = compile_observation_operator(
+            support,
+            held_channels=tuple(
+                index
+                for index, observation in enumerate(compiled.observations)
+                if compiled.states[observation.state_index].is_input
+            ),
+        )
         native = _predictive_models(compiled, parameters, times)
 
         def responses(native_model: dsx.DynamicalModel, path: Array) -> tuple[Array, Array]:
@@ -201,16 +229,18 @@ def read_simulation_report(
             response, _ = operator.project_response_trajectory(response)
             return predictors, response
 
-        predictors, means = eqx.filter_vmap(responses)(native, latents)
+        predictors, means = eqx.filter_vmap(responses)(native, jnp.asarray(latents))
         trajectory = PredictiveTrajectory(
-            latents, predictors, observations, mask, jnp.where(mask, means, jnp.nan)
+            jnp.asarray(latents),
+            predictors,
+            jnp.asarray(observations),
+            jnp.asarray(mask),
+            jnp.where(mask, means, jnp.nan),
         )
         prediction = PredictiveDraws(parameters, trajectory)
         variables = evidence.observation_layout.indicator_ids
-        batch = SimulationBatch(
-            evidence.times,
+        batch = SimulationBatch.from_draws(
             prediction,
-            None,
             DesignInfo(
                 t_grid=times,
                 manifest_ids=variables,
@@ -230,6 +260,7 @@ def read_simulation_report(
             selection,
             SimulationReport(
                 evidence=evidence,
+                summary=summary,
                 law=law,
                 findings=findings,
                 fit_reliability=reliability,

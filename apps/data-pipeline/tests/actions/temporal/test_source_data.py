@@ -10,7 +10,6 @@ from nof1_causal_lab.actions.temporal.messages import ReadSourceDataInput
 from nof1_causal_lab.actions.temporal.source_data_activity import read_source_data_activity
 from nof1_causal_lab.study.records import Rejected
 from nof1_causal_lab.study.store import ArtifactStore
-from nof1_causal_lab.study.views import raw_data_view
 from nof1_causal_lab.utils import data
 from tests.helpers import run_async
 
@@ -51,11 +50,6 @@ def test_csv_sources_preserve_rows_columns_and_missing_values(tmp_path, monkeypa
         "score": [2, None],
         "text": ["hello", "world"],
     }
-    assert [column.description for column in raw_data_view(table, None).column_descriptions] == [
-        None,
-        None,
-        None,
-    ]
 
 
 def test_parquet_preserves_authored_column_metadata(tmp_path, monkeypatch):
