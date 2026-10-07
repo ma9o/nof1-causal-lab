@@ -3516,47 +3516,62 @@
     "time_points": []
   },
   "workspace_id": "DEMO",
-  "commit_id": "2877ce34332794c4dc0e3f76edbc4970db6e3a93",
+  "commit_id": "a0f0d7a6a7f2eff9d98170f2ac995023fcd32718",
   "selected_seq": 8,
   "can_simulate": false,
   "state": {
     "current": {
-      "model": {
-        "artifact_id": "model",
-        "revision": "5a35f1be487660f3d7539fb1cd2f5de211705d0f",
-        "derived_from": {
-          "model": "80eddfdebb827cd915db5d5b771fe188b5352d1d",
-          "panel": "56bdee3e277db7ef924619b76aa429e9320de9b7"
-        },
-        "produced_by": "edit_model",
-        "created_at": "2026-07-08T12:00:00Z"
-      },
-      "panel": {
-        "artifact_id": "panel",
-        "revision": "56bdee3e277db7ef924619b76aa429e9320de9b7",
-        "derived_from": {
-          "raw_data": "00a69be5f3b1288b3d88d1f7658d175a0a6aa504"
-        },
-        "produced_by": "prepare_data",
-        "created_at": "2026-07-08T12:00:00Z"
-      },
       "question": {
         "artifact_id": "question",
-        "revision": "ecb7038bb4b5667e9b75ba255ae7366c20808546",
+        "revision": "fc73f7ee586294e75ed472fb7c1600ee83d925e9",
         "derived_from": {},
         "produced_by": "edit_question",
-        "created_at": "2026-07-08T12:00:00Z"
+        "created_at": "2026-07-08T12:00:00Z",
+        "source": {
+          "kind": "result",
+          "result": "a74e5b93ce06537adc761c3b41f906ebbd21c48c"
+        }
       },
       "raw_data": {
         "artifact_id": "raw_data",
-        "revision": "00a69be5f3b1288b3d88d1f7658d175a0a6aa504",
+        "revision": "5563e479c118e61fc92528ad0c9aa23d2ca29f02",
         "derived_from": {},
         "produced_by": "prepare_data",
-        "created_at": "2026-07-08T12:00:00Z"
+        "created_at": "2026-07-08T12:00:00Z",
+        "source": {
+          "kind": "files"
+        }
+      },
+      "model": {
+        "artifact_id": "model",
+        "revision": "f70109841d0b2ee4c282ca701c2b4390b874c047",
+        "derived_from": {
+          "model": "1e56c791edd5e7756f080d3c7c04c5431919e6ad",
+          "panel": "1427e379de8fbf6567865fd00a0b62facb2d51cc"
+        },
+        "produced_by": "edit_model",
+        "created_at": "2026-07-08T12:00:00Z",
+        "source": {
+          "kind": "result",
+          "result": "7b9529b5e1d9e72feadcaeed3463aef4389d82e5"
+        }
+      },
+      "panel": {
+        "artifact_id": "panel",
+        "revision": "1427e379de8fbf6567865fd00a0b62facb2d51cc",
+        "derived_from": {
+          "raw_data": "5563e479c118e61fc92528ad0c9aa23d2ca29f02"
+        },
+        "produced_by": "prepare_data",
+        "created_at": "2026-07-08T12:00:00Z",
+        "source": {
+          "kind": "result",
+          "result": "bcfe19458ba037fed0f18b80d1221aeec49e576b"
+        }
       }
     },
     "data": {
-      "revision": "5137abec7490538bd9f2b7ee66ad9e9b3d449158",
+      "revision": "1427e379de8fbf6567865fd00a0b62facb2d51cc",
       "replicate_index": 0
     }
   },
@@ -5703,702 +5718,702 @@
       {
         "name": "timestamp",
         "dtype": "Datetime(time_unit='us', time_zone='UTC')",
-        "description": "UTC-normalized datetime for the observation or event start time."
+        "description": null
       },
       {
         "name": "local_date",
         "dtype": "Date",
-        "description": "Date of the observation in the source-local America/New_York calendar."
+        "description": null
       },
       {
         "name": "timestamp_inferred",
         "dtype": "Boolean",
-        "description": "True when the source lacked an exact clock time and a midnight or nearby inferred time was used."
+        "description": null
       },
       {
         "name": "source_file",
         "dtype": "String",
-        "description": "Original staged file that supplied the row."
+        "description": null
       },
       {
         "name": "source",
         "dtype": "String",
-        "description": "Normalized source system or export name."
+        "description": null
       },
       {
         "name": "record_type",
         "dtype": "String",
-        "description": "Specific parsed row type within the source."
+        "description": null
       },
       {
         "name": "observation_id",
         "dtype": "String",
-        "description": "Stable identifier created from source identifiers or row sequence."
+        "description": null
       },
       {
         "name": "interval_start",
         "dtype": "Datetime(time_unit='us', time_zone='UTC')",
-        "description": "UTC-normalized start datetime for interval-based observations."
+        "description": null
       },
       {
         "name": "interval_end",
         "dtype": "Datetime(time_unit='us', time_zone='UTC')",
-        "description": "UTC-normalized end datetime for interval-based observations."
+        "description": null
       },
       {
         "name": "genetic_rsid",
         "dtype": "String",
-        "description": "23andMe SNP rsid or variant identifier."
+        "description": null
       },
       {
         "name": "genetic_chromosome",
         "dtype": "String",
-        "description": "Chromosome for the genotype variant."
+        "description": null
       },
       {
         "name": "genetic_position",
         "dtype": "Int64",
-        "description": "Genome build 37 position for the genotype variant."
+        "description": null
       },
       {
         "name": "genotype",
         "dtype": "String",
-        "description": "23andMe genotype call."
+        "description": null
       },
       {
         "name": "apple_record_type",
         "dtype": "String",
-        "description": "Cleaned Apple Health quantity record type."
+        "description": null
       },
       {
         "name": "apple_value",
         "dtype": "Float64",
-        "description": "Numeric value from an Apple Health quantity record."
+        "description": null
       },
       {
         "name": "apple_unit",
         "dtype": "String",
-        "description": "Unit reported for the Apple Health value."
+        "description": null
       },
       {
         "name": "apple_source_name",
         "dtype": "String",
-        "description": "Apple Health source device or app name."
+        "description": null
       },
       {
         "name": "apple_source_version",
         "dtype": "String",
-        "description": "Apple Health source app or device software version."
+        "description": null
       },
       {
         "name": "apple_creation_date",
         "dtype": "Datetime(time_unit='us', time_zone='UTC')",
-        "description": "UTC-normalized Apple Health creation date for the record."
+        "description": null
       },
       {
         "name": "apple_metadata_json",
         "dtype": "String",
-        "description": "JSON string of Apple Health metadata entries attached to the record."
+        "description": null
       },
       {
         "name": "step_count_count",
         "dtype": "Int64",
-        "description": "Apple Health step count for the interval."
+        "description": null
       },
       {
         "name": "active_energy_burned_kcal",
         "dtype": "Float64",
-        "description": "Apple Health active energy burned in kilocalories."
+        "description": null
       },
       {
         "name": "apple_exercise_time_min",
         "dtype": "Float64",
-        "description": "Apple Health exercise time in minutes."
+        "description": null
       },
       {
         "name": "walking_speed_m_s",
         "dtype": "Float64",
-        "description": "Apple Health walking speed in meters per second."
+        "description": null
       },
       {
         "name": "apple_workout_activity_type",
         "dtype": "String",
-        "description": "Cleaned Apple Health workout activity type."
+        "description": null
       },
       {
         "name": "workout_duration_min",
         "dtype": "Float64",
-        "description": "Apple workout duration in minutes."
+        "description": null
       },
       {
         "name": "workout_total_energy_kcal",
         "dtype": "Float64",
-        "description": "Apple workout total energy burned in kilocalories."
+        "description": null
       },
       {
         "name": "activity_active_energy_burned_kcal",
         "dtype": "Float64",
-        "description": "Apple daily Activity Summary active energy burned in kilocalories."
+        "description": null
       },
       {
         "name": "activity_active_energy_goal_kcal",
         "dtype": "Float64",
-        "description": "Apple daily Activity Summary active energy goal in kilocalories."
+        "description": null
       },
       {
         "name": "activity_exercise_time_min",
         "dtype": "Float64",
-        "description": "Apple daily Activity Summary exercise minutes."
+        "description": null
       },
       {
         "name": "activity_exercise_time_goal_min",
         "dtype": "Float64",
-        "description": "Apple daily Activity Summary exercise minute goal."
+        "description": null
       },
       {
         "name": "activity_stand_hours",
         "dtype": "Float64",
-        "description": "Apple daily Activity Summary stand hours."
+        "description": null
       },
       {
         "name": "activity_stand_hours_goal",
         "dtype": "Float64",
-        "description": "Apple daily Activity Summary stand hours goal."
+        "description": null
       },
       {
         "name": "mood_kind",
         "dtype": "String",
-        "description": "Apple State of Mind entry kind."
+        "description": null
       },
       {
         "name": "mood_valence",
         "dtype": "Float64",
-        "description": "Apple State of Mind valence score."
+        "description": null
       },
       {
         "name": "mood_labels",
         "dtype": "String",
-        "description": "Apple State of Mind labels."
+        "description": null
       },
       {
         "name": "mood_associations",
         "dtype": "String",
-        "description": "Apple State of Mind associations."
+        "description": null
       },
       {
         "name": "oura_sleep_id",
         "dtype": "String",
-        "description": "Oura sleep period identifier."
+        "description": null
       },
       {
         "name": "oura_day",
         "dtype": "Date",
-        "description": "Oura sleep day date."
+        "description": null
       },
       {
         "name": "oura_sleep_type",
         "dtype": "String",
-        "description": "Oura sleep period type."
+        "description": null
       },
       {
         "name": "average_breath_per_min",
         "dtype": "Float64",
-        "description": "Oura nightly average breathing rate per minute."
+        "description": null
       },
       {
         "name": "average_heart_rate_bpm",
         "dtype": "Float64",
-        "description": "Oura nightly average heart rate in beats per minute."
+        "description": null
       },
       {
         "name": "average_hrv_ms",
         "dtype": "Float64",
-        "description": "Oura nightly average HRV RMSSD in milliseconds."
+        "description": null
       },
       {
         "name": "awake_time_sec",
         "dtype": "Int64",
-        "description": "Oura awake time during sleep period in seconds."
+        "description": null
       },
       {
         "name": "deep_sleep_duration_sec",
         "dtype": "Int64",
-        "description": "Oura deep sleep duration in seconds."
+        "description": null
       },
       {
         "name": "light_sleep_duration_sec",
         "dtype": "Int64",
-        "description": "Oura light sleep duration in seconds."
+        "description": null
       },
       {
         "name": "rem_sleep_duration_sec",
         "dtype": "Int64",
-        "description": "Oura REM sleep duration in seconds."
+        "description": null
       },
       {
         "name": "total_sleep_duration_sec",
         "dtype": "Int64",
-        "description": "Oura total sleep duration in seconds."
+        "description": null
       },
       {
         "name": "time_in_bed_sec",
         "dtype": "Int64",
-        "description": "Oura time in bed in seconds."
+        "description": null
       },
       {
         "name": "sleep_efficiency_pct",
         "dtype": "Int64",
-        "description": "Oura sleep efficiency percentage."
+        "description": null
       },
       {
         "name": "sleep_latency_sec",
         "dtype": "Int64",
-        "description": "Oura sleep latency in seconds."
+        "description": null
       },
       {
         "name": "lowest_heart_rate_bpm",
         "dtype": "Int64",
-        "description": "Oura lowest nightly heart rate in beats per minute."
+        "description": null
       },
       {
         "name": "restless_periods",
         "dtype": "Int64",
-        "description": "Oura count of restless periods during the sleep period."
+        "description": null
       },
       {
         "name": "sleep_phase_5_min",
         "dtype": "String",
-        "description": "Oura 5-minute sleep phase hypnogram string."
+        "description": null
       },
       {
         "name": "readiness_score",
         "dtype": "Int64",
-        "description": "Oura readiness score."
+        "description": null
       },
       {
         "name": "readiness_score_delta",
         "dtype": "Int64",
-        "description": "Oura readiness score delta."
+        "description": null
       },
       {
         "name": "sleep_score_delta",
         "dtype": "Int64",
-        "description": "Oura sleep score delta."
+        "description": null
       },
       {
         "name": "readiness_activity_balance",
         "dtype": "Int64",
-        "description": "Oura readiness contributor score for activity balance."
+        "description": null
       },
       {
         "name": "readiness_body_temperature",
         "dtype": "Int64",
-        "description": "Oura readiness contributor score for body temperature."
+        "description": null
       },
       {
         "name": "readiness_hrv_balance",
         "dtype": "Int64",
-        "description": "Oura readiness contributor score for HRV balance."
+        "description": null
       },
       {
         "name": "readiness_previous_day_activity",
         "dtype": "Int64",
-        "description": "Oura readiness contributor score for previous day activity."
+        "description": null
       },
       {
         "name": "readiness_previous_night",
         "dtype": "Int64",
-        "description": "Oura readiness contributor score for previous night."
+        "description": null
       },
       {
         "name": "readiness_recovery_index",
         "dtype": "Int64",
-        "description": "Oura readiness contributor score for recovery index."
+        "description": null
       },
       {
         "name": "readiness_resting_heart_rate",
         "dtype": "Int64",
-        "description": "Oura readiness contributor score for resting heart rate."
+        "description": null
       },
       {
         "name": "readiness_sleep_balance",
         "dtype": "Int64",
-        "description": "Oura readiness contributor score for sleep balance."
+        "description": null
       },
       {
         "name": "oura_low_battery_alert",
         "dtype": "Boolean",
-        "description": "Whether Oura reported a low battery alert for the sleep period."
+        "description": null
       },
       {
         "name": "oura_sample_heart_rate_bpm",
         "dtype": "Float64",
-        "description": "Oura sleep sample heart rate in beats per minute."
+        "description": null
       },
       {
         "name": "oura_sample_hrv_ms",
         "dtype": "Float64",
-        "description": "Oura sleep sample HRV RMSSD in milliseconds."
+        "description": null
       },
       {
         "name": "oura_sample_interval_sec",
         "dtype": "Int64",
-        "description": "Sampling interval for Oura sleep time-series points in seconds."
+        "description": null
       },
       {
         "name": "rx_number",
         "dtype": "String",
-        "description": "Pharmacy prescription number."
+        "description": null
       },
       {
         "name": "drug_name",
         "dtype": "String",
-        "description": "Dispensed drug name from pharmacy fill record."
+        "description": null
       },
       {
         "name": "ndc",
         "dtype": "String",
-        "description": "National Drug Code from pharmacy fill record."
+        "description": null
       },
       {
         "name": "strength",
         "dtype": "String",
-        "description": "Medication strength from pharmacy fill record."
+        "description": null
       },
       {
         "name": "medication_name",
         "dtype": "String",
-        "description": "Medication name normalized from clinical or pharmacy source."
+        "description": null
       },
       {
         "name": "medication_dose_mg",
         "dtype": "Float64",
-        "description": "Medication dose in milligrams when available."
+        "description": null
       },
       {
         "name": "form",
         "dtype": "String",
-        "description": "Medication dosage form."
+        "description": null
       },
       {
         "name": "quantity",
         "dtype": "Float64",
-        "description": "Dispensed medication quantity."
+        "description": null
       },
       {
         "name": "days_supply",
         "dtype": "Int64",
-        "description": "Days of supply dispensed."
+        "description": null
       },
       {
         "name": "refill_number",
         "dtype": "Int64",
-        "description": "Refill number for the pharmacy fill."
+        "description": null
       },
       {
         "name": "refills_remaining",
         "dtype": "Int64",
-        "description": "Remaining refills after the pharmacy fill."
+        "description": null
       },
       {
         "name": "prescriber_name",
         "dtype": "String",
-        "description": "Prescriber name for pharmacy or clinical medication context."
+        "description": null
       },
       {
         "name": "prescriber_npi",
         "dtype": "String",
-        "description": "Prescriber NPI for pharmacy fills."
+        "description": null
       },
       {
         "name": "pharmacy_name",
         "dtype": "String",
-        "description": "Dispensing pharmacy name."
+        "description": null
       },
       {
         "name": "pharmacy_address",
         "dtype": "String",
-        "description": "Dispensing pharmacy address."
+        "description": null
       },
       {
         "name": "pharmacy_phone",
         "dtype": "String",
-        "description": "Dispensing pharmacy phone number."
+        "description": null
       },
       {
         "name": "transaction_id",
         "dtype": "String",
-        "description": "Plaid transaction identifier."
+        "description": null
       },
       {
         "name": "account_id",
         "dtype": "String",
-        "description": "Plaid account identifier."
+        "description": null
       },
       {
         "name": "account_name",
         "dtype": "String",
-        "description": "Plaid account display name."
+        "description": null
       },
       {
         "name": "account_official_name",
         "dtype": "String",
-        "description": "Plaid official account name."
+        "description": null
       },
       {
         "name": "account_type",
         "dtype": "String",
-        "description": "Plaid account type."
+        "description": null
       },
       {
         "name": "account_subtype",
         "dtype": "String",
-        "description": "Plaid account subtype."
+        "description": null
       },
       {
         "name": "account_mask",
         "dtype": "String",
-        "description": "Plaid account mask."
+        "description": null
       },
       {
         "name": "amount_usd",
         "dtype": "Float64",
-        "description": "Transaction amount in USD."
+        "description": null
       },
       {
         "name": "iso_currency_code",
         "dtype": "String",
-        "description": "ISO currency code for the transaction."
+        "description": null
       },
       {
         "name": "transaction_name",
         "dtype": "String",
-        "description": "Raw Plaid transaction name."
+        "description": null
       },
       {
         "name": "merchant_name",
         "dtype": "String",
-        "description": "Plaid merchant name."
+        "description": null
       },
       {
         "name": "finance_category_primary",
         "dtype": "String",
-        "description": "Plaid primary personal finance category."
+        "description": null
       },
       {
         "name": "finance_category_detailed",
         "dtype": "String",
-        "description": "Plaid detailed personal finance category."
+        "description": null
       },
       {
         "name": "payment_channel",
         "dtype": "String",
-        "description": "Plaid payment channel."
+        "description": null
       },
       {
         "name": "transaction_pending",
         "dtype": "Boolean",
-        "description": "Whether the Plaid transaction was pending."
+        "description": null
       },
       {
         "name": "calendar_uid",
         "dtype": "String",
-        "description": "Calendar VEVENT UID."
+        "description": null
       },
       {
         "name": "calendar_summary",
         "dtype": "String",
-        "description": "Calendar event summary or title."
+        "description": null
       },
       {
         "name": "calendar_location",
         "dtype": "String",
-        "description": "Calendar event location."
+        "description": null
       },
       {
         "name": "calendar_description",
         "dtype": "String",
-        "description": "Calendar event description."
+        "description": null
       },
       {
         "name": "calendar_status",
         "dtype": "String",
-        "description": "Calendar event status such as cancelled."
+        "description": null
       },
       {
         "name": "calendar_is_recurring",
         "dtype": "Boolean",
-        "description": "True when row came from an RRULE-expanded event."
+        "description": null
       },
       {
         "name": "calendar_recurrence_rule",
         "dtype": "String",
-        "description": "Raw iCalendar RRULE for recurring events."
+        "description": null
       },
       {
         "name": "calendar_occurrence_sequence",
         "dtype": "Int64",
-        "description": "Sequence number of the expanded calendar occurrence for its UID."
+        "description": null
       },
       {
         "name": "calendar_duration_min",
         "dtype": "Float64",
-        "description": "Calendar event duration in minutes."
+        "description": null
       },
       {
         "name": "calendar_is_all_day",
         "dtype": "Boolean",
-        "description": "True for all-day calendar events."
+        "description": null
       },
       {
         "name": "provider_name",
         "dtype": "String",
-        "description": "Clinician provider name from GP visit notes."
+        "description": null
       },
       {
         "name": "visit_type",
         "dtype": "String",
-        "description": "Visit type from GP visit notes."
+        "description": null
       },
       {
         "name": "department",
         "dtype": "String",
-        "description": "Clinical department from GP visit notes."
+        "description": null
       },
       {
         "name": "chief_complaint",
         "dtype": "String",
-        "description": "Chief complaint text from GP visit notes."
+        "description": null
       },
       {
         "name": "clinical_note_text",
         "dtype": "String",
-        "description": "Full parsed GP visit note text."
+        "description": null
       },
       {
         "name": "assessment_text",
         "dtype": "String",
-        "description": "Assessment section text from GP visit notes."
+        "description": null
       },
       {
         "name": "plan_text",
         "dtype": "String",
-        "description": "Plan section text from GP visit notes."
+        "description": null
       },
       {
         "name": "phq9_score",
         "dtype": "Int64",
-        "description": "PHQ-9 depression screening total score."
+        "description": null
       },
       {
         "name": "gad7_score",
         "dtype": "Int64",
-        "description": "GAD-7 anxiety screening total score."
+        "description": null
       },
       {
         "name": "bp_systolic",
         "dtype": "Int64",
-        "description": "Systolic blood pressure in mmHg."
+        "description": null
       },
       {
         "name": "bp_diastolic",
         "dtype": "Int64",
-        "description": "Diastolic blood pressure in mmHg."
+        "description": null
       },
       {
         "name": "heart_rate_bpm",
         "dtype": "Int64",
-        "description": "Clinical visit heart rate in beats per minute."
+        "description": null
       },
       {
         "name": "weight_lb",
         "dtype": "Float64",
-        "description": "Clinical visit weight in pounds."
+        "description": null
       },
       {
         "name": "bmi",
         "dtype": "Float64",
-        "description": "Clinical visit body mass index."
+        "description": null
       },
       {
         "name": "temperature_f",
         "dtype": "Float64",
-        "description": "Clinical visit temperature in degrees Fahrenheit."
+        "description": null
       },
       {
         "name": "medication_action",
         "dtype": "String",
-        "description": "Medication action from GP plan such as initiate increase or continue."
+        "description": null
       },
       {
         "name": "journal_location",
         "dtype": "String",
-        "description": "Location metadata from journal entry when present."
+        "description": null
       },
       {
         "name": "journal_text",
         "dtype": "String",
-        "description": "Full journal entry body text."
+        "description": null
       },
       {
         "name": "journal_word_count",
         "dtype": "Int64",
-        "description": "Word count of the journal entry body."
+        "description": null
       },
       {
         "name": "imessage_thread",
         "dtype": "String",
-        "description": "iMessage thread name."
+        "description": null
       },
       {
         "name": "imessage_total_messages",
         "dtype": "Int64",
-        "description": "Total messages in the exported thread summary."
+        "description": null
       },
       {
         "name": "imessage_sent_messages",
         "dtype": "Int64",
-        "description": "Sent message count in the exported thread summary."
+        "description": null
       },
       {
         "name": "imessage_received_messages",
         "dtype": "Int64",
-        "description": "Received message count in the exported thread summary."
+        "description": null
       },
       {
         "name": "imessage_volume_profile",
         "dtype": "String",
-        "description": "Narrative volume profile for the iMessage thread."
+        "description": null
       },
       {
         "name": "imessage_note_text",
         "dtype": "String",
-        "description": "Thread note call note or non-message annotation from iMessage export."
+        "description": null
       },
       {
         "name": "imessage_sender",
         "dtype": "String",
-        "description": "Sender shown for an individual iMessage row."
+        "description": null
       },
       {
         "name": "imessage_direction",
         "dtype": "String",
-        "description": "Sent or received direction for an individual iMessage row."
+        "description": null
       },
       {
         "name": "imessage_text",
         "dtype": "String",
-        "description": "Text content of an individual iMessage row."
+        "description": null
       },
       {
         "name": "imessage_message_length",
         "dtype": "Int64",
-        "description": "Character length of the iMessage text."
+        "description": null
       },
       {
         "name": "imessage_call_duration_min",
         "dtype": "Float64",
-        "description": "Duration in minutes for parsed call annotations."
+        "description": null
       }
     ]
   },
@@ -8563,94 +8578,94 @@
       "construct:428de2b75c12e36ca19d"
     ],
     "status": {
-      "construct:ac82920bb78125ab0aca": "observed",
+      "construct:4cfc4a70f9d59a668364": "observed",
       "construct:5bf588dc29d582cd7423": "observed",
-      "construct:517d64db16ceb6e6a692": "observed",
-      "construct:b7418d1841c57d53abf8": "observed",
+      "construct:4a7b8d4d0772b0b10e4e": "marginalized",
+      "construct:1ca8eec7961c69a0cbe1": "marginalized",
       "construct:07f8d9915eaa311c9e50": "observed",
       "construct:7b3d7a5f98ae353c60b6": "observed",
-      "construct:27f64faaddd59b2ad491": "observed",
-      "construct:4cfc4a70f9d59a668364": "observed",
       "construct:bb5a697c4e5f020f733d": "observed",
+      "construct:27f64faaddd59b2ad491": "observed",
+      "construct:b7418d1841c57d53abf8": "observed",
+      "construct:ecfbf689dbd8add308bb": "observed",
+      "construct:ac82920bb78125ab0aca": "observed",
       "construct:428de2b75c12e36ca19d": "observed",
-      "construct:4a7b8d4d0772b0b10e4e": "marginalized",
       "construct:6ca86c47aaf18b2472ce": "observed",
-      "construct:eb28b45b275c6732596f": "marginalized",
       "construct:47ab45d6fa00e93be7ee": "observed",
-      "construct:1ca8eec7961c69a0cbe1": "marginalized",
-      "construct:2da513406663702e475d": "blocking",
-      "construct:ecfbf689dbd8add308bb": "observed"
+      "construct:eb28b45b275c6732596f": "marginalized",
+      "construct:517d64db16ceb6e6a692": "observed",
+      "construct:2da513406663702e475d": "blocking"
     }
   },
   "entity_failures": {
-    "construct:517d64db16ceb6e6a692": [],
-    "construct:6ca86c47aaf18b2472ce": [],
-    "construct:4cfc4a70f9d59a668364": [],
-    "construct:4a7b8d4d0772b0b10e4e": [],
-    "construct:47ab45d6fa00e93be7ee": [],
-    "construct:7b3d7a5f98ae353c60b6": [],
-    "construct:b7418d1841c57d53abf8": [],
-    "construct:27f64faaddd59b2ad491": [],
-    "construct:2da513406663702e475d": [],
-    "construct:eb28b45b275c6732596f": [],
-    "construct:1ca8eec7961c69a0cbe1": [],
-    "construct:5bf588dc29d582cd7423": [],
-    "construct:bb5a697c4e5f020f733d": [],
-    "construct:ac82920bb78125ab0aca": [],
-    "construct:07f8d9915eaa311c9e50": [],
-    "construct:ecfbf689dbd8add308bb": [],
-    "construct:428de2b75c12e36ca19d": [],
-    "edge:f01776f0929a8eccc2fc": [],
-    "edge:9f17859ba14225cbef18": [],
-    "edge:06d2e4026996e4b9379f": [],
-    "edge:3d92787d7a5f9e0201a9": [],
-    "edge:93cda69e8ea3105f7cde": [],
-    "edge:ffb1bdc7cf492b1d7f1d": [],
-    "edge:027439d7acff15a9f7f3": [],
-    "edge:66bd0e882b7fbd2118a1": [],
-    "edge:14682ec416926f40197b": [],
-    "edge:c8efa1de930a894c06ce": [],
-    "edge:e41bd8d330491d104a1a": [],
-    "edge:326df5ec6c9291a64dea": [],
-    "edge:8b0771916792e703d7e9": [],
-    "edge:73e5ab450d651575bcd5": [],
-    "edge:55e88b356c8e0a1a6eb2": [],
-    "edge:b3c79da49c3d691b8d84": [],
-    "edge:41f8d691f9ffb9121691": [],
     "edge:94b56531da4578528cca": [],
-    "edge:0956802ffa3b8f7363c5": [],
-    "edge:e96deda9a6084d6d4ed9": [],
-    "edge:6001378d624b64d8db27": [],
+    "construct:bb5a697c4e5f020f733d": [],
+    "edge:f01776f0929a8eccc2fc": [],
     "edge:466eed55d5293ecb5f6a": [],
-    "edge:9df1507c29b9de944a33": [],
-    "edge:00282e82c6e558b8219b": [],
-    "edge:0ffc13808e1300eb0e24": [],
-    "edge:347cf99a9951dfd01cf4": [],
-    "edge:bc472e241b3651bc152a": [],
-    "edge:cbe7ea3961c0a9149ae2": [],
-    "edge:1198da260c8bcf398021": [],
-    "edge:1d473931f0684c7749af": [],
-    "edge:a3d943e0f5e7db74a977": [],
-    "edge:2c2a94ecd60e62fa9f59": [],
-    "indicator:a1c5e49b6b167636f7a0": [],
-    "indicator:93c7007ff8e5a6565b25": [],
-    "indicator:b3eb347f05220d9f4130": [],
-    "indicator:b20fa3887689d5616a60": [],
-    "indicator:8e1b73dd3c754b48e92c": [],
-    "indicator:cd5618fdf5311bf6e90d": [],
-    "indicator:ea0f209a3393fba5194e": [],
-    "indicator:c9a9156464b8dce5ba14": [],
     "indicator:eca6b8b2c4379267b6c8": [],
-    "indicator:1f8878c9ba1ad571b89e": [],
-    "indicator:eb0949a188790298c25d": [],
+    "construct:428de2b75c12e36ca19d": [],
     "indicator:d14078f40ae3b26ae799": [],
+    "construct:6ca86c47aaf18b2472ce": [],
+    "edge:14682ec416926f40197b": [],
+    "edge:9df1507c29b9de944a33": [],
+    "edge:06d2e4026996e4b9379f": [],
+    "edge:93cda69e8ea3105f7cde": [],
+    "indicator:ea0f209a3393fba5194e": [],
+    "edge:0ffc13808e1300eb0e24": [],
+    "construct:ac82920bb78125ab0aca": [],
+    "construct:5bf588dc29d582cd7423": [],
+    "edge:73e5ab450d651575bcd5": [],
+    "indicator:b3eb347f05220d9f4130": [],
+    "indicator:eb0949a188790298c25d": [],
+    "edge:a3d943e0f5e7db74a977": [],
+    "indicator:b20fa3887689d5616a60": [],
+    "edge:1d473931f0684c7749af": [],
+    "construct:eb28b45b275c6732596f": [],
+    "edge:ffb1bdc7cf492b1d7f1d": [],
+    "indicator:93c7007ff8e5a6565b25": [],
+    "construct:7b3d7a5f98ae353c60b6": [],
     "indicator:7a4890fc254d4a508b7c": [],
-    "indicator:9becfedce394873f8c0c": [],
+    "indicator:cd5618fdf5311bf6e90d": [],
+    "edge:b3c79da49c3d691b8d84": [],
+    "construct:4a7b8d4d0772b0b10e4e": [],
     "indicator:0b02f0d32a40caec29ef": [],
+    "indicator:8e1b73dd3c754b48e92c": [],
+    "edge:00282e82c6e558b8219b": [],
+    "construct:ecfbf689dbd8add308bb": [],
+    "edge:41f8d691f9ffb9121691": [],
+    "construct:b7418d1841c57d53abf8": [],
+    "edge:cbe7ea3961c0a9149ae2": [],
+    "edge:6001378d624b64d8db27": [],
+    "edge:0956802ffa3b8f7363c5": [],
     "indicator:21069529417a9a99ee50": [],
-    "indicator:80833c21d9dd9f2ce5d5": [],
+    "edge:9f17859ba14225cbef18": [],
+    "edge:66bd0e882b7fbd2118a1": [],
+    "edge:e41bd8d330491d104a1a": [],
+    "indicator:7f51bc663e8e0bbea95f": [],
+    "construct:517d64db16ceb6e6a692": [],
+    "indicator:1f8878c9ba1ad571b89e": [],
+    "indicator:9becfedce394873f8c0c": [],
     "indicator:a7234127c37d7ce4a0c2": [],
-    "indicator:7f51bc663e8e0bbea95f": []
+    "edge:326df5ec6c9291a64dea": [],
+    "indicator:c9a9156464b8dce5ba14": [],
+    "construct:2da513406663702e475d": [],
+    "edge:8b0771916792e703d7e9": [],
+    "edge:bc472e241b3651bc152a": [],
+    "indicator:a1c5e49b6b167636f7a0": [],
+    "edge:c8efa1de930a894c06ce": [],
+    "construct:27f64faaddd59b2ad491": [],
+    "edge:1198da260c8bcf398021": [],
+    "edge:347cf99a9951dfd01cf4": [],
+    "edge:3d92787d7a5f9e0201a9": [],
+    "edge:2c2a94ecd60e62fa9f59": [],
+    "edge:027439d7acff15a9f7f3": [],
+    "construct:07f8d9915eaa311c9e50": [],
+    "edge:55e88b356c8e0a1a6eb2": [],
+    "edge:e96deda9a6084d6d4ed9": [],
+    "construct:4cfc4a70f9d59a668364": [],
+    "indicator:80833c21d9dd9f2ce5d5": [],
+    "construct:47ab45d6fa00e93be7ee": [],
+    "construct:1ca8eec7961c69a0cbe1": []
   },
   "validation_report": null,
   "confounder_equations": {},
@@ -17959,6 +17974,5 @@
   "fit": null,
   "specification": null,
   "question_checks": null,
-  "simulation": null,
-  "predictive": null
+  "simulation": null
 }

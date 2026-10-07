@@ -2,7 +2,7 @@
 
 from typing import Annotated, Literal
 
-from pydantic import Field
+from pydantic import Field, computed_field
 
 from nof1_causal_lab.actions.contracts import (
     DataDiffRequest,
@@ -29,9 +29,19 @@ class RunningPoll(Value):
     call_id: CallId  # noqa: FIELD003 -- External action clients use this ID for GET polling.
     action: ActionId  # noqa: FIELD003 -- External action clients use this name for GET polling.
     status: Literal["running"] = "running"
-    commit_id: None = None  # noqa: FIELD003 -- The shared action wire envelope requires null before publication.
-    body: None = None  # noqa: FIELD003 -- The shared action wire envelope requires null while running.
     messages: tuple[ExecutionMessage, ...] = ()
+
+    @computed_field
+    @property
+    def commit_id(self) -> None:  # noqa: FIELD003 -- The shared action wire envelope requires null before publication.
+        """A running call has no published revision."""
+        return None
+
+    @computed_field
+    @property
+    def body(self) -> None:  # noqa: FIELD003 -- The shared action wire envelope requires null while running.
+        """The shared envelope has no scientific result while running."""
+        return None
 
 
 class FailedPoll(Value):
@@ -41,8 +51,13 @@ class FailedPoll(Value):
     action: ActionId  # noqa: FIELD003 -- The shared action wire envelope identifies the failed action.
     status: Literal["failed"] = "failed"
     commit_id: GitOid | None  # noqa: FIELD003 -- External action clients retain the recorded failure's Git reference.
-    body: None = None  # noqa: FIELD003 -- The shared action wire envelope requires null on failure.
     messages: tuple[ExecutionMessage, ...]
+
+    @computed_field
+    @property
+    def body(self) -> None:  # noqa: FIELD003 -- The shared action wire envelope requires null on failure.
+        """The shared envelope has no scientific result after failure."""
+        return None
 
 
 class SuccessfulPoll[ActionT: str, BodyT](Value):

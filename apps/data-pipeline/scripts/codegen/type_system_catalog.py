@@ -191,6 +191,7 @@ CONCERNS = {
             "artifacts.identification",
             "artifacts.prior",
             "artifacts.execution",
+            "artifacts.arrays",
             "artifacts.posterior",
             "artifacts.posterior_diagnostics",
             "sampler_config",
@@ -238,6 +239,8 @@ CONCERNS = {
 # Aliases and dataclasses need explicit role sentences: JSON Schema does not carry
 # their Python docstrings. These describe concepts, never infer prose from field names.
 ROLE_SENTENCES = {
+    "ScalarValues": "Scalar values are owned inline or selected from the action result’s numerical buffers.",
+    "ArtifactSource": "An artifact owns staged input files or references its complete action result.",
     "Availability": "A result is either an owned available payload or its explicit unavailable reason.",
     "Evaluation": "An evaluation produces an available result, an unavailable reason, or an explicit non-applicable state.",
     "ParameterDraws": "Every retained parameter coordinate is available without thinning or pair selection, or has an explicit unavailable reason.",
@@ -344,6 +347,7 @@ def _layer_for(name: str, module: str) -> str:
         return "artifacts"
     if module.endswith(
         (
+            "artifacts.arrays",
             "artifacts.posterior",
             "artifacts.posterior_diagnostics",
             "artifacts.effects",

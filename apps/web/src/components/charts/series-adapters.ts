@@ -1,4 +1,5 @@
-import type { DataVariableDiff, PathSeries, PPCOverlay } from "@nof1-causal-lab/api-types";
+import type { PathSeriesView } from "@/lib/model-asset/result-values";
+import type { DataVariableDiff, PPCOverlay } from "@nof1-causal-lab/api-types";
 import { CHART_COLORS, chainColor } from "./chart-tokens";
 import type { DrawLayer, DrawRow, DrawsChartProps } from "./draws-chart";
 import { DAY_MS } from "./plot-geometry";
@@ -7,7 +8,7 @@ import { DAY_MS } from "./plot-geometry";
 
 export type ArmChoice = "both" | "reference" | "intervened";
 
-const pathRows = (paths: PathSeries["action"], arm: string): DrawRow[] =>
+const pathRows = (paths: PathSeriesView["action"], arm: string): DrawRow[] =>
   paths.map((path) => ({
     key: `${arm}-${path.draw}`,
     label: `draw ${path.draw + 1}`,
@@ -15,7 +16,7 @@ const pathRows = (paths: PathSeries["action"], arm: string): DrawRow[] =>
   }));
 
 /** A saved series by arm: colour names the arm, and matching draw numbers are paired. */
-export function pathLayers(series: PathSeries, arms: ArmChoice, points: boolean): DrawLayer[] {
+export function pathLayers(series: PathSeriesView, arms: ArmChoice, points: boolean): DrawLayer[] {
   const paired = series.reference.length > 0;
   const reference: DrawLayer[] =
     paired && arms !== "intervened"
@@ -45,7 +46,7 @@ export function pathLayers(series: PathSeries, arms: ArmChoice, points: boolean)
 }
 
 /** Paired effects: each draw's intervened path minus the same draw's reference path. */
-export function effectLayers(series: PathSeries): DrawLayer[] {
+export function effectLayers(series: PathSeriesView): DrawLayer[] {
   return [
     {
       key: "effect",

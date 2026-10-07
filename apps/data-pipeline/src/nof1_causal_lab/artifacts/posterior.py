@@ -4,6 +4,7 @@ from collections.abc import Mapping
 
 from pydantic import AwareDatetime, Field
 
+from nof1_causal_lab.artifacts.arrays import ScalarValues
 from nof1_causal_lab.artifacts.base import Value
 
 from .checks import Assessment
@@ -118,9 +119,9 @@ class InferenceReportDetail(Value):
     rank_histograms: tuple[RankHistogram, ...] = ()
     pareto_k: tuple[ParetoKPoint, ...] = ()
     loo_pit: tuple[LOOPITPoint, ...] = ()
-    divergent: tuple[bool, ...] | None = None
-    initial_latent_delta: tuple[tuple[float, ...], ...] | None = None
-    final_latent_delta: tuple[tuple[float, ...], ...] | None = None
+    divergent: tuple[bool, ...] | str | None = None
+    initial_latent_delta: tuple[ScalarValues, ...] | None = None
+    final_latent_delta: tuple[ScalarValues, ...] | None = None
 
 
 class InferenceReport(Value):

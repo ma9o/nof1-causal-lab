@@ -246,7 +246,7 @@ export type webhooks = Record<string, never>;
 export interface components {
     schemas: {
         /** @description A closed action attempt pairs its request with only that action's successful result or failure outcome. */
-        readonly ActionAttempt: Domain.Attempt<"edit_question", Domain.EditQuestionRequest, null> | Domain.Attempt<"edit_model", Domain.EditModelRequest<Domain.GitOid>, null> | Domain.Attempt<"prepare_data", Domain.PrepareDataRequest<Domain.GitOid, Domain.FileSourceRef>, Domain.DataPreparationResult> | Domain.Attempt<"fit", Domain.FitRequest<Domain.GitOid>, Domain.ModelFitResult | null> | Domain.Attempt<"simulate", Domain.SimulateRequest<Domain.GitOid>, Domain.ModelSimulationResult> | Domain.Attempt<"data_diff", Domain.DataDiffRequest<Domain.GitOid>, null> | Domain.Attempt<"model_diff", Domain.ModelDiffRequest<Domain.GitOid>, null>;
+        readonly ActionAttempt: Domain.Attempt<"edit_question", Domain.EditQuestionRequest, Domain.GitOid> | Domain.Attempt<"edit_model", Domain.EditModelRequest<Domain.GitOid>, Domain.GitOid> | Domain.Attempt<"prepare_data", Domain.PrepareDataRequest<Domain.GitOid, Domain.FileSourceRef>, Domain.GitOid> | Domain.Attempt<"fit", Domain.FitRequest<Domain.GitOid>, Domain.GitOid> | Domain.Attempt<"simulate", Domain.SimulateRequest<Domain.GitOid>, Domain.GitOid> | Domain.Attempt<"data_diff", Domain.DataDiffRequest<Domain.GitOid>, Domain.GitOid> | Domain.Attempt<"model_diff", Domain.ModelDiffRequest<Domain.GitOid>, Domain.GitOid>;
         /**
          * ActionEffects
          * @description What an executed action did to the store: the workflow installs this.
@@ -282,6 +282,10 @@ export interface components {
             readonly level: "debug" | "info" | "warn" | "error";
             /** Label */
             readonly label: string;
+            /** Details */
+            readonly details: {
+                readonly [key: string]: Domain.JsonValue;
+            };
         };
         /** @description A call returns its identity, publication status, scientific body, and accumulated execution messages. */
         readonly ActionPoll: components["schemas"]["RunningPoll"] | components["schemas"]["FailedPoll"] | components["schemas"]["ActionSuccess"];
@@ -325,27 +329,15 @@ export interface components {
             readonly kind: "added";
             readonly after: components["schemas"]["ParameterSpec-Output"];
         };
-        /** Applied[DataPreparationResult] */
-        readonly Applied_DataPreparationResult_: {
+        /** Applied[GitOid] */
+        readonly Applied_GitOid_: {
             /**
              * @description Discriminator identifying an applied outcome. (enum property replaced by openapi-typescript)
              * @enum {string}
              */
             readonly status: "applied";
-            /** @description Action-specific retained result; some actions publish only effects and use null here. */
-            readonly result: components["schemas"]["DataPreparationResult"];
-            /** @description Produced and retracted artifacts and retained report references. */
-            readonly effects: components["schemas"]["ActionEffects"];
-        };
-        /** Applied[ModelSimulationResult] */
-        readonly Applied_ModelSimulationResult_: {
-            /**
-             * @description Discriminator identifying an applied outcome. (enum property replaced by openapi-typescript)
-             * @enum {string}
-             */
-            readonly status: "applied";
-            /** @description Action-specific retained result; some actions publish only effects and use null here. */
-            readonly result: components["schemas"]["ModelSimulationResult"];
+            /** @description Complete saved result reference, or the transient evidence awaiting completion. */
+            readonly result: components["schemas"]["GitOid-Output"];
             /** @description Produced and retracted artifacts and retained report references. */
             readonly effects: components["schemas"]["ActionEffects"];
         };
@@ -358,23 +350,44 @@ export interface components {
             readonly status: "applied";
             /**
              * Result
-             * @description Action-specific retained result; some actions publish only effects and use null here.
+             * @description Complete saved result reference, or the transient evidence awaiting completion.
              */
             readonly result: null;
             /** @description Produced and retracted artifacts and retained report references. */
             readonly effects: components["schemas"]["ActionEffects"];
         };
-        /** Applied[Union[ModelFitResult, NoneType]] */
-        readonly Applied_Union_ModelFitResult__NoneType__: {
+        /**
+         * ArrayVector
+         * @description One vector selected from the result's numerical buffers without copying its values.
+         */
+        readonly ArrayVector: {
+            /** Array Ref */
+            readonly array_ref: string;
+            /** Indices */
+            readonly indices: readonly (number | null)[];
+            /** @default null */
+            readonly mask: components["schemas"]["ArrayVector"] | null;
             /**
-             * @description Discriminator identifying an applied outcome. (enum property replaced by openapi-typescript)
+             * Start
+             * @default 0
+             */
+            readonly start: number;
+            /**
+             * Stop
+             * @default null
+             */
+            readonly stop: number | null;
+        };
+        /**
+         * ArtifactFiles
+         * @description Execution staging or an uploaded input owns its physical files.
+         */
+        readonly ArtifactFiles: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
              * @enum {string}
              */
-            readonly status: "applied";
-            /** @description Action-specific retained result; some actions publish only effects and use null here. */
-            readonly result: components["schemas"]["ModelFitResult"] | null;
-            /** @description Produced and retracted artifacts and retained report references. */
-            readonly effects: components["schemas"]["ActionEffects"];
+            readonly kind: "files";
         };
         /**
          * @description An artifact identity selects one node in the study's artifact graph.
@@ -404,7 +417,22 @@ export interface components {
              * @default
              */
             readonly created_at: string;
+            readonly source: components["schemas"]["ArtifactSource"];
         };
+        /**
+         * ArtifactResult
+         * @description A published scientific artifact selects a field of its owning action result.
+         */
+        readonly ArtifactResult: {
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            readonly kind: "result";
+            readonly result: components["schemas"]["GitOid-Output"];
+        };
+        /** @description An artifact owns staged input files or references its complete action result. */
+        readonly ArtifactSource: components["schemas"]["ArtifactFiles"] | components["schemas"]["ArtifactResult"];
         readonly Assessment_ConvergenceAssessmentSubject_NumericCriterionEvidence_: Domain.Evaluated<Domain.ConvergenceAssessmentSubject, Domain.NumericCriterionEvidence> | Domain.NotEvaluated<Domain.ConvergenceAssessmentSubject>;
         readonly Assessment_IndicatorCheckSubject_NumericCriterionEvidence_: Domain.Evaluated<Domain.IndicatorCheckSubject, Domain.NumericCriterionEvidence> | Domain.NotEvaluated<Domain.IndicatorCheckSubject>;
         readonly Assessment_str_ParticleMCMCEvidence_: Domain.Evaluated<string, Domain.ParticleMCMCEvidence> | Domain.NotEvaluated<string>;
@@ -454,8 +482,8 @@ export interface components {
             /** Outcome */
             readonly outcome: Domain.Applied<null> | components["schemas"]["Rejected"] | components["schemas"]["Raised"];
         };
-        /** Attempt[Literal['data_diff'], DataDiffRequest[GitOid], NoneType] */
-        readonly Attempt_Literal__data_diff___DataDiffRequest_GitOid__NoneType_: {
+        /** Attempt[Literal['data_diff'], DataDiffRequest[GitOid], GitOid] */
+        readonly Attempt_Literal__data_diff___DataDiffRequest_GitOid__GitOid_: {
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -464,10 +492,10 @@ export interface components {
             /** @description Parsed arguments, or null for a historical attempt whose arguments were not retained */
             readonly request: Domain.DataDiffRequest<Domain.GitOid> | null;
             /** Outcome */
-            readonly outcome: Domain.Applied<null> | components["schemas"]["Rejected"] | components["schemas"]["Raised"];
+            readonly outcome: Domain.Applied<Domain.GitOid> | components["schemas"]["Rejected"] | components["schemas"]["Raised"];
         };
-        /** Attempt[Literal['edit_model'], EditModelRequest[GitOid], NoneType] */
-        readonly Attempt_Literal__edit_model___EditModelRequest_GitOid__NoneType_: {
+        /** Attempt[Literal['edit_model'], EditModelRequest[GitOid], GitOid] */
+        readonly Attempt_Literal__edit_model___EditModelRequest_GitOid__GitOid_: {
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -476,10 +504,10 @@ export interface components {
             /** @description Parsed arguments, or null for a historical attempt whose arguments were not retained */
             readonly request: Domain.EditModelRequest<Domain.GitOid> | null;
             /** Outcome */
-            readonly outcome: Domain.Applied<null> | components["schemas"]["Rejected"] | components["schemas"]["Raised"];
+            readonly outcome: Domain.Applied<Domain.GitOid> | components["schemas"]["Rejected"] | components["schemas"]["Raised"];
         };
-        /** Attempt[Literal['edit_question'], EditQuestionRequest, NoneType] */
-        readonly Attempt_Literal__edit_question___EditQuestionRequest_NoneType_: {
+        /** Attempt[Literal['edit_question'], EditQuestionRequest, GitOid] */
+        readonly Attempt_Literal__edit_question___EditQuestionRequest_GitOid_: {
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -488,10 +516,10 @@ export interface components {
             /** @description Parsed arguments, or null for a historical attempt whose arguments were not retained */
             readonly request: components["schemas"]["EditQuestionRequest-Output"] | null;
             /** Outcome */
-            readonly outcome: Domain.Applied<null> | components["schemas"]["Rejected"] | components["schemas"]["Raised"];
+            readonly outcome: Domain.Applied<Domain.GitOid> | components["schemas"]["Rejected"] | components["schemas"]["Raised"];
         };
-        /** Attempt[Literal['fit'], FitRequest[GitOid], Union[ModelFitResult, NoneType]] */
-        readonly Attempt_Literal__fit___FitRequest_GitOid__Union_ModelFitResult__NoneType__: {
+        /** Attempt[Literal['fit'], FitRequest[GitOid], GitOid] */
+        readonly Attempt_Literal__fit___FitRequest_GitOid__GitOid_: {
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -500,10 +528,10 @@ export interface components {
             /** @description Parsed arguments, or null for a historical attempt whose arguments were not retained */
             readonly request: Domain.FitRequest<Domain.GitOid> | null;
             /** Outcome */
-            readonly outcome: Domain.Applied<Domain.ModelFitResult | null> | components["schemas"]["Rejected"] | components["schemas"]["Raised"];
+            readonly outcome: Domain.Applied<Domain.GitOid> | components["schemas"]["Rejected"] | components["schemas"]["Raised"];
         };
-        /** Attempt[Literal['model_diff'], ModelDiffRequest[GitOid], NoneType] */
-        readonly Attempt_Literal__model_diff___ModelDiffRequest_GitOid__NoneType_: {
+        /** Attempt[Literal['model_diff'], ModelDiffRequest[GitOid], GitOid] */
+        readonly Attempt_Literal__model_diff___ModelDiffRequest_GitOid__GitOid_: {
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -512,10 +540,10 @@ export interface components {
             /** @description Parsed arguments, or null for a historical attempt whose arguments were not retained */
             readonly request: Domain.ModelDiffRequest<Domain.GitOid> | null;
             /** Outcome */
-            readonly outcome: Domain.Applied<null> | components["schemas"]["Rejected"] | components["schemas"]["Raised"];
+            readonly outcome: Domain.Applied<Domain.GitOid> | components["schemas"]["Rejected"] | components["schemas"]["Raised"];
         };
-        /** Attempt[Literal['prepare_data'], PrepareDataRequest[GitOid, FileSourceRef], DataPreparationResult] */
-        readonly Attempt_Literal__prepare_data___PrepareDataRequest_GitOid__FileSourceRef__DataPreparationResult_: {
+        /** Attempt[Literal['prepare_data'], PrepareDataRequest[GitOid, FileSourceRef], GitOid] */
+        readonly Attempt_Literal__prepare_data___PrepareDataRequest_GitOid__FileSourceRef__GitOid_: {
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -524,10 +552,10 @@ export interface components {
             /** @description Parsed arguments, or null for a historical attempt whose arguments were not retained */
             readonly request: Domain.PrepareDataRequest<Domain.GitOid, Domain.FileSourceRef> | null;
             /** Outcome */
-            readonly outcome: Domain.Applied<Domain.DataPreparationResult> | components["schemas"]["Rejected"] | components["schemas"]["Raised"];
+            readonly outcome: Domain.Applied<Domain.GitOid> | components["schemas"]["Rejected"] | components["schemas"]["Raised"];
         };
-        /** Attempt[Literal['simulate'], SimulateRequest[GitOid], ModelSimulationResult] */
-        readonly Attempt_Literal__simulate___SimulateRequest_GitOid__ModelSimulationResult_: {
+        /** Attempt[Literal['simulate'], SimulateRequest[GitOid], GitOid] */
+        readonly Attempt_Literal__simulate___SimulateRequest_GitOid__GitOid_: {
             /**
              * @description discriminator enum property added by openapi-typescript
              * @enum {string}
@@ -536,7 +564,7 @@ export interface components {
             /** @description Parsed arguments, or null for a historical attempt whose arguments were not retained */
             readonly request: Domain.SimulateRequest<Domain.GitOid> | null;
             /** Outcome */
-            readonly outcome: Domain.Applied<Domain.ModelSimulationResult> | components["schemas"]["Rejected"] | components["schemas"]["Raised"];
+            readonly outcome: Domain.Applied<Domain.GitOid> | components["schemas"]["Rejected"] | components["schemas"]["Raised"];
         };
         /**
          * AuthoredLawProvenance
@@ -858,11 +886,6 @@ export interface components {
         readonly Change_EdgeRef_: Domain.Added<Domain.EdgeRef> | Domain.Removed<Domain.EdgeRef> | Domain.Revised<Domain.EdgeRef>;
         readonly Change_ParameterSpec_: Domain.Added<Domain.ParameterSpec> | Domain.Removed<Domain.ParameterSpec> | Domain.Revised<Domain.ParameterSpec>;
         /**
-         * @description A group of model checks is selected by the inputs it consumes.
-         * @enum {string}
-         */
-        readonly CheckGroup: "specification" | "identification" | "compatibility" | "question";
-        /**
          * CoefficientExpression
          * @description A scientifically typed coefficient operand, literal or parameter reference.
          */
@@ -915,23 +938,6 @@ export interface components {
          * @enum {string}
          */
         readonly CoefficientRole: "center" | "decay" | "quartic" | "intercept" | "weight" | "emax" | "ec50" | "exponent" | "loading" | "observation_intercept" | "observation_scale" | "degrees_of_freedom" | "shape" | "dispersion" | "concentration" | "cutpoint_base" | "cutpoint_gaps" | "category_intercepts" | "category_slopes" | "diffusion_scale" | "diffusion_loading" | "process_degrees_of_freedom" | "initial_mean" | "initial_scale" | "initial_correlation";
-        /**
-         * CompletedExtractionWorker
-         * @description Counts of extracted observations and windows retained from a completed worker.
-         */
-        readonly CompletedExtractionWorker: {
-            /** Worker Id */
-            readonly worker_id: number;
-            /** N Extractions */
-            readonly n_extractions: number;
-            /** N Windows */
-            readonly n_windows: number;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly status: "completed";
-        };
         /**
          * ComputedExtractionSpec
          * @description Compute a deterministic support-window measurement from source columns.
@@ -1239,22 +1245,6 @@ export interface components {
             readonly value: number | null;
         };
         /**
-         * DataPreparationResult
-         * @description Preparation artifacts and the measurements actually retained by extraction.
-         */
-        readonly DataPreparationResult: {
-            /**
-             * Workers
-             * @default []
-             */
-            readonly workers: readonly components["schemas"]["ExtractionWorkerResult"][];
-            /**
-             * Extraction Reused
-             * @default null
-             */
-            readonly extraction_reused: number | null;
-        };
-        /**
          * DataPreparationSpec
          * @description The model-owned observation definitions resolved for extraction.
          */
@@ -1499,22 +1489,6 @@ export interface components {
             readonly dispositions: readonly components["schemas"]["StructuralItemDisposition"][] | null;
             /** @description Construct and edge identities, dynamic membership, and execution status for the graph view. */
             readonly graph: components["schemas"]["ModelGraphView"];
-            /** @description Data findings combined with model-dependent preflight checks, when a report is available. */
-            readonly validation_report: components["schemas"]["ValidationReportArtifact"] | null;
-            /**
-             * Specification
-             * @description Individual assessments of whether the model can be compiled and used with its selected inputs.
-             */
-            readonly specification: readonly components["schemas"]["SpecificationAssessment"][] | null;
-            /** @description Findings about the model's ability to address the selected study question. */
-            readonly question_checks: components["schemas"]["QuestionCheckReport"] | null;
-            /** @description Predictive check findings for the model's implied behavior. */
-            readonly predictive: components["schemas"]["ModelPredictiveReport"] | null;
-            /**
-             * Predictive Overlays
-             * @description Observed and generated summaries keyed by indicator.
-             */
-            readonly predictive_overlays: Readonly<Partial<Record<components["schemas"]["IndicatorId-Output"], components["schemas"]["PPCOverlay"]>>>;
             /**
              * Entity Failures
              * @description Messages attributed to constructs, edges, or indicators from the available scientific reports.
@@ -1538,15 +1512,17 @@ export interface components {
              */
             readonly observation_equations: Readonly<Partial<Record<components["schemas"]["IndicatorId-Output"], string>>>;
             /**
-             * Likelihood Diagnostics
-             * @description Histograms of recorded indicator values for comparison with their declared likelihoods.
-             */
-            readonly likelihood_diagnostics: Readonly<Partial<Record<components["schemas"]["IndicatorId-Output"], readonly components["schemas"]["HistogramBin"][]>>>;
-            /**
              * Authoring Prior Densities
              * @description Density curves for authored parameter laws, before conditioning on observations.
              */
             readonly authoring_prior_densities: Readonly<Partial<Record<components["schemas"]["ParameterId-Output"], components["schemas"]["DensityCurve"]>>>;
+            /**
+             * Arrays
+             * @description Exact buffers referenced by the saved model's numerical laws.
+             */
+            readonly arrays: {
+                readonly [key: string]: components["schemas"]["NumericalArray"];
+            };
         };
         /** EditModelRequest[GitOid] */
         readonly EditModelRequest_GitOid_: {
@@ -1686,21 +1662,6 @@ export interface components {
         };
         /** @description An entity reference identifies a construct, edge, indicator, or mechanism by its persistent identity. */
         readonly EntityRef: components["schemas"]["ConstructRef-Output"] | components["schemas"]["EdgeRef"] | components["schemas"]["IndicatorRef"] | components["schemas"]["MechanismRef"];
-        /**
-         * EvaluatedPredictiveChecks
-         * @description An evaluated run may retain failed and partially unavailable scientific evidence.
-         */
-        readonly EvaluatedPredictiveChecks: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "evaluated";
-            /** Findings */
-            readonly findings: readonly components["schemas"]["PredictiveAssessment"][];
-            /** @default null */
-            readonly predictive_checks: components["schemas"]["PosteriorPredictiveChecks"] | null;
-        };
         /** Evaluated[ConvergenceAssessmentSubject, NumericCriterionEvidence] */
         readonly Evaluated_ConvergenceAssessmentSubject_NumericCriterionEvidence_: {
             /**
@@ -1915,36 +1876,6 @@ export interface components {
              */
             readonly error: string | null;
         };
-        readonly ExtractionWorkerResult: components["schemas"]["CompletedExtractionWorker"] | components["schemas"]["FailedExtractionChunk"];
-        /**
-         * FailedExtractionChunk
-         * @description A failed extraction chunk with its error, retained counts, and execution details.
-         */
-        readonly FailedExtractionChunk: {
-            /** Worker Id */
-            readonly worker_id: number;
-            /** N Extractions */
-            readonly n_extractions: number;
-            /** N Windows */
-            readonly n_windows: number;
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly status: "failed";
-            /** Error */
-            readonly error: string;
-            /**
-             * N Llm Calls
-             * @default 0
-             */
-            readonly n_llm_calls: number | null;
-            /**
-             * Reused
-             * @default false
-             */
-            readonly reused: boolean | null;
-        };
         /**
          * FailedPoll
          * @description A terminal failure with its full details in the accumulated messages.
@@ -1958,13 +1889,13 @@ export interface components {
              */
             readonly status: "failed";
             readonly commit_id: components["schemas"]["GitOid-Output"] | null;
-            /**
-             * Body
-             * @default null
-             */
-            readonly body: null;
             /** Messages */
             readonly messages: readonly components["schemas"]["ExecutionMessage"][];
+            /**
+             * Body
+             * @description The shared envelope has no scientific result after failure.
+             */
+            readonly body: null;
         };
         /**
          * FailureMessage
@@ -2047,22 +1978,51 @@ export interface components {
          * @description The fitted model, inference findings, parameter draws, and numerical arrays.
          */
         readonly FitOutput: {
-            /** @description Model definition and scientific findings associated with this fit. */
-            readonly model: components["schemas"]["EditModelOutput"];
+            /** @description The model with its joint parameter law conditioned on the selected data. */
+            readonly model: components["schemas"]["ModelSpec-Output"];
             /** @description Retained fit result, including input references and array references; absent when the attempt retained no numerical result. */
             readonly inference: components["schemas"]["ModelFitResult"] | null;
-            /** @description Convergence summary and display findings for the recorded fit. */
-            readonly summary: components["schemas"]["FitSummary"] | null;
+            /**
+             * Entity Failures
+             * @description Model-dependent data and inference failures attributed to their scientific entities.
+             */
+            readonly entity_failures: {
+                readonly [key: string]: readonly string[];
+            };
+            /** @description Compatibility findings for the model and selected observation history. */
+            readonly validation_report: components["schemas"]["ValidationReportArtifact"] | null;
+            /** @description Question findings evaluated against the selected observation history. */
+            readonly question_checks: components["schemas"]["QuestionCheckReport"] | null;
+            /**
+             * Likelihood Diagnostics
+             * @description Observed histograms for the fitted model's indicator likelihoods.
+             */
+            readonly likelihood_diagnostics: Readonly<Partial<Record<components["schemas"]["IndicatorId-Output"], readonly components["schemas"]["HistogramBin"][]>>>;
+            /**
+             * Edge Estimates
+             * @description Posterior parameter coordinates displayed on causal edges.
+             */
+            readonly edge_estimates: Readonly<Partial<Record<components["schemas"]["EdgeId-Output"], components["schemas"]["ParameterRef"]>>>;
+            /**
+             * Decay Estimates
+             * @description Posterior parameter coordinates displayed on construct dynamics.
+             */
+            readonly decay_estimates: Readonly<Partial<Record<components["schemas"]["ConstructId-Output"], components["schemas"]["ParameterRef"]>>>;
+            /**
+             * Prior Densities
+             * @description Conditioned input laws on the posterior parameters' quantity scale.
+             */
+            readonly prior_densities: Readonly<Partial<Record<components["schemas"]["ParameterId-Output"], components["schemas"]["DensityCurve"]>>>;
             /** @description Full diagnostic report, when one was retained. */
             readonly inference_report: components["schemas"]["InferenceReport"] | null;
             /** @description Per-parameter draws and empirical distributions, or a typed explanation of why draws are unavailable. */
             readonly parameter_draws: components["schemas"]["ParameterDraws"];
             /**
              * Arrays
-             * @description Numerical evidence keyed by its stored array reference. Non-finite elements are represented by JSON nulls.
+             * @description Numerical evidence keyed by its stored array reference. Shape and dtype are retained; non-finite scalars use nan, +inf and -inf tags.
              */
             readonly arrays: {
-                readonly [key: string]: Domain.JsonValue;
+                readonly [key: string]: components["schemas"]["NumericalArray"];
             };
         };
         /** @enum {string} */
@@ -2536,17 +2496,17 @@ export interface components {
              * Divergent
              * @default null
              */
-            readonly divergent: readonly boolean[] | null;
+            readonly divergent: readonly boolean[] | string | null;
             /**
              * Initial Latent Delta
              * @default null
              */
-            readonly initial_latent_delta: readonly (readonly number[])[] | null;
+            readonly initial_latent_delta: readonly components["schemas"]["ScalarValues"][] | null;
             /**
              * Final Latent Delta
              * @default null
              */
-            readonly final_latent_delta: readonly (readonly number[])[] | null;
+            readonly final_latent_delta: readonly components["schemas"]["ScalarValues"][] | null;
         };
         /**
          * InitialCorrelationTransformSpec
@@ -3118,20 +3078,13 @@ export interface components {
         };
         /**
          * ModelCheckReport
-         * @description Current-code findings selected by their consumed scientific inputs.
+         * @description Findings evaluated by the action against its pinned scientific inputs.
          */
         readonly ModelCheckReport: {
             /** Specification */
             readonly specification: readonly components["schemas"]["SpecificationAssessment"][];
             /** @default null */
             readonly question: components["schemas"]["QuestionCheckReport"] | null;
-            /** @default null */
-            readonly predictive: components["schemas"]["ModelPredictiveReport"] | null;
-            /**
-             * Reused
-             * @default []
-             */
-            readonly reused: readonly (components["schemas"]["CheckGroup"] | "predictive")[];
         };
         /** ModelDiffInput[GitOid] */
         readonly ModelDiffInput_GitOid_: {
@@ -3152,6 +3105,13 @@ export interface components {
          * @description Compare model definitions and scientific evidence at two selections.
          */
         readonly ModelDiffOutput: {
+            /**
+             * Arrays
+             * @description Exact numerical laws referenced by either compared model.
+             */
+            readonly arrays: {
+                readonly [key: string]: components["schemas"]["NumericalArray"];
+            };
             /** @description Artifact reference for the earlier model, if one is selected. */
             readonly before: components["schemas"]["GitRef"] | null;
             /** @description Artifact reference for the later model, if one is selected. */
@@ -3285,34 +3245,6 @@ export interface components {
             /** Status */
             readonly status: Readonly<Partial<Record<components["schemas"]["ConstructId-Output"], "observed" | "marginalized" | "blocking">>>;
         };
-        readonly ModelPredictiveEvaluation: components["schemas"]["EvaluatedPredictiveChecks"] | components["schemas"]["UnavailablePredictiveChecks"];
-        /**
-         * ModelPredictiveReport
-         * @description One automatic, reproducible battery over the full model's current laws.
-         */
-        readonly ModelPredictiveReport: {
-            readonly model_revision: components["schemas"]["GitOid-Output"];
-            readonly data: Domain.DataRef<Domain.GitOid, number> | null;
-            /** Draws */
-            readonly draws: number;
-            /** Seed */
-            readonly seed: number;
-            readonly law: components["schemas"]["PredictiveLawProvenance"];
-            readonly evaluation: components["schemas"]["ModelPredictiveEvaluation"];
-            /**
-             * Status
-             * @description Aggregate predictive verdict; unavailable evaluation remains explicitly not evaluated.
-             * @enum {string}
-             */
-            readonly status: "passed" | "failed" | "not_evaluated";
-        };
-        /**
-         * ModelSimulationResult
-         * @description The exact generated histories and provenance retained by one simulation.
-         */
-        readonly ModelSimulationResult: {
-            readonly evidence: components["schemas"]["SimulationEvidence"];
-        };
         /**
          * ModelSnapshot
          * @description Scientific values selected from recorded action dependencies.
@@ -3376,8 +3308,6 @@ export interface components {
             readonly question_checks: components["schemas"]["QuestionCheckReport"] | null;
             /** @default null */
             readonly simulation: components["schemas"]["SimulationReport"] | null;
-            /** @default null */
-            readonly predictive: components["schemas"]["ModelPredictiveReport"] | null;
         };
         /**
          * ModelSpec
@@ -3661,6 +3591,18 @@ export interface components {
              */
             readonly band_label: string;
         };
+        /**
+         * NumericalArray
+         * @description A lossless row-major buffer, including its original dtype and dimensions.
+         */
+        readonly NumericalArray: {
+            /** Dtype */
+            readonly dtype: string;
+            /** Shape */
+            readonly shape: readonly number[];
+            /** Values */
+            readonly values: readonly (boolean | number | ("nan" | "+inf" | "-inf"))[];
+        };
         readonly ObservationData: Readonly<Partial<Record<components["schemas"]["IndicatorId-Output"], components["schemas"]["ObservationHistory"]>>>;
         /**
          * ObservationHistory
@@ -3671,12 +3613,9 @@ export interface components {
             readonly label: string;
             /** Times */
             readonly times: readonly number[];
-            /** Values */
-            readonly values: readonly (number | null)[];
-            /** Support Start */
-            readonly support_start: readonly (number | null)[];
-            /** Support End */
-            readonly support_end: readonly (number | null)[];
+            readonly values: components["schemas"]["ScalarValues"];
+            readonly support_start: components["schemas"]["ScalarValues"];
+            readonly support_end: components["schemas"]["ScalarValues"];
             /** Time Origin */
             readonly time_origin: string | null;
             /** Levels */
@@ -3950,11 +3889,8 @@ export interface components {
             readonly label: string;
             /** @description Parameter and element identity to which the draws belong. */
             readonly subject: components["schemas"]["ParameterRef"];
-            /**
-             * Values
-             * @description Retained finite draws in sampling order.
-             */
-            readonly values: readonly number[];
+            /** @description Retained finite draws in sampling order. */
+            readonly values: components["schemas"]["ScalarValues"];
             /**
              * Empirical
              * @description Empirical cumulative distribution of those values.
@@ -4221,7 +4157,8 @@ export interface components {
             readonly levels: readonly string[] | null;
             /**
              * Frame
-             * @description Value range charts show: the widest per-time central 95% of both arms' draws.
+             * @description Saved central display range computed when the action ran.
+             * @default null
              */
             readonly frame: readonly [
                 number,
@@ -4383,11 +4320,6 @@ export interface components {
             /** Per Variable Warnings */
             readonly per_variable_warnings: readonly Domain.Assessment<Domain.IndicatorCheckSubject, Domain.NumericCriterionEvidence>[];
             /**
-             * Checked
-             * @default false
-             */
-            readonly checked: boolean;
-            /**
              * N Subsample
              * @default 0
              */
@@ -4505,16 +4437,6 @@ export interface components {
          *     mean the corresponding observation count is zero.
          */
         readonly PrepareDataOutput: {
-            /**
-             * Workers
-             * @description Outcomes of the semantic extraction chunks, including retained observation and window counts and any chunk failures.
-             */
-            readonly workers: readonly components["schemas"]["ExtractionWorkerResult"][];
-            /**
-             * Extraction Reused
-             * @description Number of extraction chunks served from retained results; null when the attempt did not record this count.
-             */
-            readonly extraction_reused: number | null;
             /** @description Uploaded table dimensions, sample rows, column descriptions, and date bounds when the source provides dates. */
             readonly raw_data: components["schemas"]["RawDataData"] | null;
             /** @description Retained observation counts, broken down by indicator, with a sample of extracted records. */
@@ -4788,11 +4710,8 @@ export interface components {
              * @description Index of this draw in the retained simulation evidence.
              */
             readonly draw: number;
-            /**
-             * Values
-             * @description Values aligned with the enclosing time grid; non-finite entries are represented by null.
-             */
-            readonly values: readonly (number | null)[];
+            /** @description Values aligned with the enclosing time grid; non-finite entries are represented by null. */
+            readonly values: components["schemas"]["ScalarValues"];
         };
         /**
          * Rejected
@@ -4935,20 +4854,20 @@ export interface components {
              */
             readonly status: "running";
             /**
-             * Commit Id
-             * @default null
-             */
-            readonly commit_id: null;
-            /**
-             * Body
-             * @default null
-             */
-            readonly body: null;
-            /**
              * Messages
              * @default []
              */
             readonly messages: readonly components["schemas"]["ExecutionMessage"][];
+            /**
+             * Commit Id
+             * @description A running call has no published revision.
+             */
+            readonly commit_id: null;
+            /**
+             * Body
+             * @description The shared envelope has no scientific result while running.
+             */
+            readonly body: null;
         };
         /**
          * SamplerSpec
@@ -4987,6 +4906,8 @@ export interface components {
             readonly retain_latent_paths: boolean;
             readonly marginal_particle_gibbs: components["schemas"]["MarginalParticleGibbsSpec"];
         };
+        /** @description Scalar values are owned inline or selected from the action result’s numerical buffers. */
+        readonly ScalarValues: readonly (number | null)[] | components["schemas"]["ArrayVector"];
         /**
          * @description A scientific action identity selects setting the question, model editing, data preparation, fitting, or simulation.
          * @enum {string}
@@ -5066,8 +4987,6 @@ export interface components {
          * @description The generated observation histories, paths, report, and retained arrays.
          */
         readonly SimulateOutput: {
-            /** @description Generation result with the input references, coordinates, and references to the retained numerical evidence. */
-            readonly simulation: components["schemas"]["ModelSimulationResult"];
             /** @description Simulation findings, when a report was retained. */
             readonly report: components["schemas"]["SimulationReport"] | null;
             /**
@@ -5079,10 +4998,10 @@ export interface components {
             readonly paths: components["schemas"]["SimulationPaths"] | null;
             /**
              * Arrays
-             * @description Retained numerical evidence keyed by its stored array reference. Non-finite elements are represented by JSON nulls.
+             * @description Retained numerical evidence keyed by its stored array reference. Shape and dtype are retained; non-finite scalars use nan, +inf and -inf tags.
              */
             readonly arrays: {
-                readonly [key: string]: Domain.JsonValue;
+                readonly [key: string]: components["schemas"]["NumericalArray"];
             };
         };
         /** SimulateRequest[GitOid] */
@@ -5674,7 +5593,7 @@ export interface components {
         readonly TraceSeries: {
             readonly subject: components["schemas"]["ParameterRef"];
             /** Chains */
-            readonly chains: readonly (readonly number[])[];
+            readonly chains: readonly components["schemas"]["ScalarValues"][];
         };
         /**
          * TraceToolCall
@@ -5721,23 +5640,6 @@ export interface components {
             readonly kind: "unavailable";
             /** Reason */
             readonly reason: string;
-        };
-        /**
-         * UnavailablePredictiveChecks
-         * @description The run could not evaluate its scientific battery.
-         */
-        readonly UnavailablePredictiveChecks: {
-            /**
-             * @description discriminator enum property added by openapi-typescript
-             * @enum {string}
-             */
-            readonly kind: "unavailable";
-            readonly reason: components["schemas"]["PredictiveCheckReason"];
-            /**
-             * Detail
-             * @default null
-             */
-            readonly detail: string | null;
         };
         /** Unchanged[ConstructRef] */
         readonly Unchanged_ConstructRef_: {

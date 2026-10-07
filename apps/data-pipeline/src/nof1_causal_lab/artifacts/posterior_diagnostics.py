@@ -4,6 +4,7 @@ from typing import Annotated, Literal
 
 from pydantic import AwareDatetime, ConfigDict, Field, FiniteFloat, computed_field, model_validator
 
+from nof1_causal_lab.artifacts.arrays import ScalarValues
 from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.sampler_config import SamplerSpec
 
@@ -35,7 +36,7 @@ class TraceSeries(Value):
     """Every retained draw, grouped in original chain order."""
 
     subject: ParameterRef
-    chains: tuple[tuple[float, ...], ...]
+    chains: tuple[ScalarValues, ...]
 
 
 class RankHistogram(Value):
@@ -245,7 +246,6 @@ class PosteriorPredictiveChecks(Value):
     per_variable_warnings: tuple[
         Assessment[IndicatorCheckSubject, NumericCriterionEvidence], ...
     ] = Field(default_factory=tuple)
-    checked: bool = False
     n_subsample: int = 0
     overlays: tuple[PPCOverlay, ...] = Field(default_factory=tuple)
     test_stats: tuple[PPCTestStat, ...] = Field(default_factory=tuple)

@@ -30,7 +30,6 @@ export const emptySnapshot: ModelSnapshot = {
   specification: null,
   question_checks: null,
   simulation: null,
-  predictive: null,
 };
 
 const density = { x: [0, 0.5, 1], density: [0, 2, 0] };
@@ -48,6 +47,7 @@ export const authoredSnapshot: ModelSnapshot = {
         derived_from: {},
         produced_by: "edit_question",
         created_at: "2026-01-01T00:00:00Z",
+        source: { kind: "files" },
       },
       model: {
         artifact_id: "model",
@@ -55,6 +55,7 @@ export const authoredSnapshot: ModelSnapshot = {
         derived_from: { question: "2".repeat(40) },
         produced_by: "edit_model",
         created_at: "2026-01-01T00:00:00Z",
+        source: { kind: "files" },
       },
     },
     data: null,

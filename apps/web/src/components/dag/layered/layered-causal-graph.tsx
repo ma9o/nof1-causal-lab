@@ -1,5 +1,7 @@
 "use client";
 
+import type { SimulationPathsView } from "@/lib/model-asset/result-values";
+
 import type {
   ConstructSpec,
   IndicatorEmpiricalProfile,
@@ -8,7 +10,6 @@ import type {
   PosteriorMarginal,
   ActionId,
   DataDiffOutput,
-  SimulationPaths,
   StructuralItemDisposition,
 } from "@nof1-causal-lab/api-types";
 import { Pause, Play } from "lucide-react";
@@ -62,7 +63,7 @@ const LAYER_LABELS: Record<CausalGraphLayerId, string> = {
 export type LayeredCausalGraphVariant = "workbench" | "asset";
 
 export interface LayeredCausalGraphProps extends LayeredGraphOptions {
-  simulationPaths?: SimulationPaths | null;
+  simulationPaths?: SimulationPathsView | null;
   dataDiff?: DataDiffOutput | null;
   onSelect: (selection: EntitySelection | null) => void;
   /** The action whose version is viewed; a data preparation shows each node's prepared data. */

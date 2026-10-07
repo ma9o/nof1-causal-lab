@@ -1,7 +1,7 @@
 import type { ActionSuccess, RecordDependency, TimelineRevision } from "@nof1-causal-lab/api-types";
 import { describe, expect, it } from "vitest";
 import { fixtureValue } from "@/components/__fixtures__/fixture-value";
-import { modelResult } from "@/components/__fixtures__/action-results";
+import { modelResult, fitResult } from "@/components/__fixtures__/action-results";
 import { outcome } from "@/lib/__fixtures__/model";
 import { authoredSnapshot, fittedSnapshot } from "@/lib/__fixtures__/snapshot";
 import { callDependencies, producingCall } from "./call-dependencies";
@@ -19,28 +19,6 @@ const extraction = {
 };
 const source = { files: ["input/test.csv"] as const, hashes: {}, start: null, end: null };
 const design = { start: "2026-01-01", horizon: "1d", interventions: [] };
-const evidence = {
-  model: { workspace_id: WORKSPACE, revision: oid(108), path: "model.json" },
-  design,
-  time_origin: "2026-01-01T00:00:00Z",
-  times: [0, 1] as const,
-  draws: 2,
-  seed: 0,
-  origin_data: { revision: oid(5), replicate_index: 0 },
-  state_ids: [],
-  parameter_draws: {},
-  latent_paths: "latent",
-  observations: "observations",
-  observation_layout: {
-    variables: [],
-    mask: "mask",
-    support_start_times: "start",
-    support_end_times: "end",
-  },
-  reference_latent_paths: null,
-  reference_observations: null,
-  assignments: [],
-};
 const settings = {
   num_samples: null,
   num_warmup: null,
@@ -136,6 +114,7 @@ const journal: TimelineRevision[] = [1, 4, 5, 7, 8, 9, 10, 11, 12, 13].map((seq)
                       derived_from: {},
                       produced_by: request.action,
                       created_at: "2026-01-01T00:00:00Z",
+                      source: { kind: "files" },
                     },
                   ]
                 : request.action === "edit_question" || request.action === "prepare_data"
@@ -146,6 +125,7 @@ const journal: TimelineRevision[] = [1, 4, 5, 7, 8, 9, 10, 11, 12, 13].map((seq)
                         derived_from: {},
                         produced_by: request.action,
                         created_at: "2026-01-01T00:00:00Z",
+                        source: { kind: "files" },
                       },
                     ]
                   : [],
@@ -176,8 +156,6 @@ function savedResult(seq: number): ActionSuccess {
         ...envelope,
         action: "prepare_data",
         body: {
-          workers: [],
-          extraction_reused: null,
           raw_data: null,
           measurements: null,
           profile: null,
@@ -199,19 +177,14 @@ function savedResult(seq: number): ActionSuccess {
         ...envelope,
         action: "fit",
         body: {
-          model: model(),
-          summary: fittedSnapshot.fit,
-          inference: null,
-          inference_report: null,
-          arrays: {},
-          parameter_draws: { kind: "unavailable", reason: "Test has no numerical draws" },
+          ...fitResult(fittedSnapshot),
         },
       };
     case "simulate":
       return {
         ...envelope,
         action: "simulate",
-        body: { simulation: { evidence }, report: null, data: [{}, {}], paths: null, arrays: {} },
+        body: { report: null, data: [{}, {}], paths: null, arrays: {} },
       };
     case "data_diff":
       return {
@@ -255,8 +228,8 @@ describe("views composed from recorded call dependencies", () => {
     const simulated = savedResult(9);
     if (fitted.action !== "fit" || simulated.action !== "simulate") throw new Error("Fixture");
     const { calls, view } = compose(entry(9));
-    expect(view.model).toEqual(fitted.body.model.model);
-    expect(view.fit).toEqual(fitted.body.summary);
+    expect(view.model).toEqual(fitted.body.model);
+    expect(view.fit).toEqual(fittedSnapshot.fit);
     expect(view.simulation).toEqual(simulated.body.report);
     expect(view.question).toEqual(question);
     expect(calls.map((call) => call.record.seq).sort((a, b) => a - b)).toEqual([1, 4, 5, 7, 8, 9]);
@@ -327,7 +300,7 @@ describe("views composed from recorded call dependencies", () => {
       ],
       new Map([[14, fitted]]),
     );
-    expect(view.model).toEqual(fitted.body.model.model);
+    expect(view.model).toEqual(fitted.body.model);
     expect(view.state.data).toEqual({ revision: entry(9).commit_id, replicate_index: 1 });
     expect(view.metadata).toBeNull();
     expect(view.simulation).toBeNull();

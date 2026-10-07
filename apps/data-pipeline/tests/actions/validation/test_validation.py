@@ -64,8 +64,19 @@ def validate_extraction(model: ModelSpec, dataframes: list[pl.DataFrame]) -> Dat
         for item in model.indicators
     )
     data = pl.concat(dataframes).with_columns(pl.col("value").cast(pl.Float64, strict=False))
-    return validate_model_data(
-        model, dataframes, data_profile=profile_data(data, definitions=definitions)
+    profile = profile_data(data, definitions=definitions)
+    compatibility = validate_model_data(model, dataframes)
+    return profile.revised(
+        indicators={
+            identity: audit.revised(
+                checks={**audit.checks, **compatibility.indicators[identity].checks},
+                issues=(*audit.issues, *compatibility.indicators[identity].issues),
+            )
+            if identity in compatibility.indicators
+            else audit
+            for identity, audit in profile.indicators.items()
+        },
+        dataset_issues=(*profile.dataset_issues, *compatibility.dataset_issues),
     )
 
 

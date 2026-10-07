@@ -8,6 +8,7 @@ from pathlib import Path
 
 import numpy as np
 import polars as pl
+import pygit2
 import pytest
 
 from nof1_causal_lab.actions.contracts import (
@@ -88,7 +89,7 @@ def test_action_reports_are_published_once_and_loaded_without_checks(tmp_path, m
     profile = DataProfileArtifact(indicators={}, dataset_issues=())
 
     def publish(applied, *, request=None, model_checks=None, data_profile=None):
-        record = applied_record(applied, seq=repository.latest_seq() + 1, request=request)
+        assert request is not None
         evaluated = None
         if model_checks is not None:
             monkeypatch.setattr(
@@ -101,7 +102,7 @@ def test_action_reports_are_published_once_and_loaded_without_checks(tmp_path, m
                         workspace_id=workspace,
                         state=repository.state(repository.head()),
                         applied=applied,
-                        request=record.attempt.request,
+                        request=request,
                     )
                 )
             )
@@ -116,23 +117,25 @@ def test_action_reports_are_published_once_and_loaded_without_checks(tmp_path, m
                         workspace_id=workspace,
                         state=repository.state(repository.head()),
                         applied=applied,
-                        request=record.attempt.request,
+                        request=request,
                     )
                 )
             )
         if evaluated is not None:
             # Even a multi-megabyte report crosses Temporal only by immutable reference.
             assert len(evaluated.model_dump_json().encode()) < 10_000
-            record = record.revised(
-                attempt=record.attempt.revised(
-                    outcome=applied.revised(
-                        effects=applied.effects.revised(
-                            reports={**applied.effects.reports, **evaluated.reports}
-                        )
-                    )
-                ),
-                messages=evaluated.messages,
+            applied = applied.revised(
+                effects=applied.effects.revised(
+                    reports={**applied.effects.reports, **evaluated.reports}
+                )
             )
+        record = applied_record(
+            workspace,
+            applied,
+            seq=repository.latest_seq() + 1,
+            request=request,
+            messages=evaluated.messages if evaluated is not None else (),
+        )
         publication = AttemptPublication(
             workspace_id=workspace,
             parent_id=repository.head(),
@@ -212,6 +215,8 @@ def test_action_reports_are_published_once_and_loaded_without_checks(tmp_path, m
         pytest.fail("Saved result reads and publication must not run checks")
 
     monkeypatch.setattr("nof1_causal_lab.actions.fit.read_inference_report", unexpected_evaluation)
+    initial_delta = store.write_array(np.asarray([[1.0, 2.0]]))
+    divergent = store.write_array(np.asarray([False, True]))
     fit_publication, fit_revision = publish(
         Applied(
             result=ModelFitResult(
@@ -222,6 +227,8 @@ def test_action_reports_are_published_once_and_loaded_without_checks(tmp_path, m
                     engine=None,
                     time_origin=None,
                     duration_seconds=3,
+                    initial_latent_delta=initial_delta,
+                    chain_extra_fields={"diverging": divergent},
                 ),
             ),
             effects=ActionEffects(
@@ -288,7 +295,9 @@ def test_action_reports_are_published_once_and_loaded_without_checks(tmp_path, m
     cache = Path(data.cache_dir(workspace))
     cache.mkdir(parents=True, exist_ok=True)
     shutil.rmtree(cache)
-    monkeypatch.setattr("nof1_causal_lab.study.store._CODE_DIGEST", "changed-code")
+    monkeypatch.setattr(
+        "nof1_causal_lab.actions.output_builder.build_output", unexpected_evaluation
+    )
 
     for owner in (
         "model_checks.read_model_checks",
@@ -304,30 +313,47 @@ def test_action_reports_are_published_once_and_loaded_without_checks(tmp_path, m
     assert saved_profile is not None
     assert saved_profile == profile
     edited_reader = ModelReader(workspace, at=edited.commit_id)
-    assert edited_reader.checks == (edit_checks, identification, None)
+    edited_output = edited_reader.model_output()
+    assert edited_output is not None
+    assert edited_output.checks == edit_checks
     saved_identification = edited_reader.identification()
     assert saved_identification is not None
     assert saved_identification == identification
     saved_validation = edited_reader.validation_report
     assert saved_validation is None
-    assert edited_reader.predictive_history(model.indicators[0].observation.id) is None
     reader = ModelReader(workspace, at=simulated.commit_id)
-    assert reader.checks == (checks, identification, validation)
+    assert reader.fit_result is not None
+    assert reader.fit_result.question_checks == checks.question
+    assert reader.validation_report == validation
     saved_inference = reader.inference_report
     assert saved_inference is not None
-    assert saved_inference == inference
+    from nof1_causal_lab.study.action_arrays import resolve_vector
+
+    assert saved_inference.core == inference.core
+    assert saved_inference.detail.initial_latent_delta is not None
+    assert resolve_vector(
+        saved_inference.detail.initial_latent_delta[0], reader.fit_result.arrays
+    ) == (1.0, 2.0)
+    assert saved_inference.detail.divergent == divergent
+    np.testing.assert_array_equal(store.read_array(divergent), [False, True])
     saved_simulation = reader.simulation()
     assert saved_simulation is not None
     assert saved_simulation == simulation
     assert fitted_law_report(store, reader.records, fitted.revision) == inference.core
-    from nof1_causal_lab.study.action_outputs import completed_call
+    from pydantic import TypeAdapter
+
+    from nof1_causal_lab.actions.results import ActionPoll
+    from nof1_causal_lab.study.action_outputs import completed_call_json
+
+    def completed_call(workspace_id, revision):
+        return TypeAdapter(ActionPoll).validate_json(completed_call_json(workspace_id, revision))
 
     fitted_response = completed_call(workspace, fit_revision)
     assert fitted_response.status == "success"
     assert fitted_response.action == "fit"
-    assert fitted_response.body.model.checks == checks
+    assert fitted_response.body.question_checks == checks.question
     assert fitted_response.body.inference_report is not None
-    assert fitted_response.body.inference_report == inference
+    assert fitted_response.body.inference_report == saved_inference
     with monkeypatch.context() as isolated:
         isolated.setattr(ModelReader, "snapshot", unexpected_evaluation)
         isolated.setattr(ModelReader, "model_output", unexpected_evaluation)
@@ -338,28 +364,33 @@ def test_action_reports_are_published_once_and_loaded_without_checks(tmp_path, m
     assert response.action == "simulate"
     assert response.body.report is not None
     assert response.body.report == simulation
-    assert set(response.body.model_dump()) == {"simulation", "report", "data", "paths", "arrays"}
+    assert set(response.body.model_dump()) == {"report", "data", "paths", "arrays"}
     assert prepared_response.status == "success"
     assert prepared_response.action == "prepare_data"
     assert isinstance(prepared_response.body.data, Mapping)
     prepared_history = prepared_response.body.data[panel_metadata().variables[0].id]
     assert isinstance(response.body.data, tuple)
     assert len(response.body.data) == 2
+    from nof1_causal_lab.study.action_arrays import resolve_vector
+
+    def values(value):
+        return resolve_vector(value, response.body.arrays)
+
     first, second = response.body.data
     assert type(first[variables[0].id]) is type(prepared_history)
-    assert first[variables[0].id].values == (0.0, 0.0)
+    assert values(first[variables[0].id].values) == (0.0, 0.0)
     assert first[variables[0].id].times == (0.0, 1.0)
-    assert first[variables[0].id].support_start == (-1.0, 0.0)
-    assert second[variables[0].id].values == (None, None)
-    assert second[variables[1].id].values == (7.0, 7.0)
+    assert values(first[variables[0].id].support_start) == (-1.0, 0.0)
+    assert values(second[variables[0].id].values) == (None, None)
+    assert values(second[variables[1].id].values) == (7.0, 7.0)
     np.testing.assert_array_equal(
         store.read_array(saved_simulation.evidence.latent_paths), np.zeros((2, 2, 0))
     )
     assert (
-        ModelCheckReport.model_validate_json(
-            repository.read_file(fit_revision.commit_id, "logs/reports/checks.json")
-        )
-        == checks
+        repository.read_file(fit_revision.commit_id, "result.json")
+        == store.repo[pygit2.Oid(hex=fit_revision.record.attempt.outcome.result)]
+        .peel(pygit2.Blob)
+        .data
     )
     assert all(record.record.trace_ids == () for record in repository.attempts())
 
@@ -375,12 +406,18 @@ def test_missing_saved_reports_remain_absent(tmp_path, monkeypatch):
         json_files={"model.json": x_y_model().model_dump(mode="json", round_trip=True)},
     )
     repository.append(
-        applied_record(Applied(result=None, effects=ActionEffects(produced=(model,))), seq=2)
+        applied_record(
+            store.workspace_id,
+            Applied(result=None, effects=ActionEffects(produced=(model,))),
+            seq=2,
+        )
     )
     monkeypatch.setattr(
         "nof1_causal_lab.actions.model_checks.read_model_checks",
         lambda *_args, **_kwargs: pytest.fail("Missing reports must not trigger evaluation"),
     )
     reader = ModelReader("ABSENT", at=repository.head())
-    assert reader.checks is None
+    output = reader.model_output()
+    assert output is not None
+    assert output.checks is None
     assert reader.identification() is None

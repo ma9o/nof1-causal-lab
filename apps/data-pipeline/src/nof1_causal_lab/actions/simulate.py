@@ -6,7 +6,6 @@ import time
 from typing import TYPE_CHECKING, cast
 
 import numpy as np
-from pydantic import TypeAdapter
 
 from nof1_causal_lab.artifacts.availability import NotApplicable, Unavailable
 from nof1_causal_lab.artifacts.simulation import (
@@ -119,7 +118,7 @@ def simulate(
 def read_simulation_report(
     store: ArtifactStore, evidence: SimulationEvidence, question_revision: GitOid
 ) -> SimulationReport:
-    """Measure saved histories with current code; never sample parameters, paths or emissions."""
+    """Evaluate this simulation's findings from its already generated histories."""
     import equinox as eqx
     import jax
     import jax.numpy as jnp
@@ -141,7 +140,7 @@ def read_simulation_report(
     from nof1_causal_lab.study.history import StudyRepository
     from nof1_causal_lab.study.lineage import fitted_law_report, law_provenance
     from nof1_causal_lab.study.records import inference_record
-    from nof1_causal_lab.study.store import cached_value, read_model, read_question
+    from nof1_causal_lab.study.store import read_model, read_question
 
     def render() -> SimulationReport:
         model = read_model(store, evidence.model.revision)
@@ -240,10 +239,4 @@ def read_simulation_report(
             inference=inference_record(records, evidence.model.revision),
         )
 
-    value, _ = cached_value(
-        store.workspace_id,
-        ("simulation-report", question_revision, evidence.model_dump_json(round_trip=True)),
-        TypeAdapter(SimulationReport),
-        render,
-    )
-    return value
+    return render()

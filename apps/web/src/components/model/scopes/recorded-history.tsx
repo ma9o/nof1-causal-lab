@@ -1,9 +1,9 @@
+import type { PathSeriesView } from "@/lib/model-asset/result-values";
 import type {
   EmpiricalPoint,
   IndicatorEmpiricalProfile,
   IndicatorId,
   ModelSnapshot,
-  PathSeries,
 } from "@nof1-causal-lab/api-types";
 import { ChartFigure } from "@/components/charts/chart-figure";
 import { CHART_COLORS, chainColor, cssColor } from "@/components/charts/chart-tokens";
@@ -11,23 +11,17 @@ import { DistributionChart } from "@/components/charts/distribution-chart";
 import { type DrawLayer, DrawsChart } from "@/components/charts/draws-chart";
 import { type Domain, extentOf } from "@/components/charts/plot-geometry";
 import { ProfileStrip } from "@/components/charts/profile-strip";
-import {
-  type ArmChoice,
-  effectLayers,
-  overlayChart,
-  pathLayers,
-} from "@/components/charts/series-adapters";
+import { type ArmChoice, effectLayers, pathLayers } from "@/components/charts/series-adapters";
 import { presentEntries } from "@/lib/model-accessors";
 import {
   ALL_DRAWS,
   type DrawSelection,
   useObservationHistory,
-  usePredictiveHistory,
   useSimulationPaths,
 } from "@/lib/hooks/use-visuals";
 import { Hint } from "../scope-primitives";
 
-function ArmLegend({ series, arms }: { series: PathSeries; arms: ArmChoice }) {
+function ArmLegend({ series, arms }: { series: PathSeriesView; arms: ArmChoice }) {
   if (series.reference.length === 0) return null;
   return (
     <span className="flex items-center gap-2">
@@ -260,39 +254,6 @@ export function EmpiricalPlot({
               points,
             },
           ]}
-        />
-      )}
-    </ChartFigure>
-  );
-}
-
-export function PredictiveHistoryPlot({ model, id }: { model: ModelSnapshot; id: IndicatorId }) {
-  const history = usePredictiveHistory(model, id);
-  if (history.error) return <Hint issue>{history.error.message}</Hint>;
-  if (!history.data)
-    return (
-      <Hint>
-        {history.isLoading ? "Loading predictive history…" : "No saved predictive history."}
-      </Hint>
-    );
-  const overlay = history.data;
-  const span = timeline(overlay.times, overlay.time_origin);
-  return (
-    <ChartFigure
-      title="Observed and replicated observations"
-      height={150}
-      note={`Observations (dark) over all ${overlay.spaghetti_draws.length} retained replicates on the actual time axis. Gaps are not joined. ${
-        overlay.standardized
-          ? "Values are on the model’s standardized observation scale."
-          : "Values are on the observation scale."
-      }`}
-      {...(span ? { timeline: span } : {})}
-    >
-      {(view) => (
-        <DrawsChart
-          {...overlayChart(overlay, "Observed and replicated observations")}
-          height={view.height}
-          timeWindow={view.timeWindow}
         />
       )}
     </ChartFigure>

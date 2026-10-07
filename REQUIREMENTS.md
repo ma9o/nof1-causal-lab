@@ -52,7 +52,7 @@ The client polls `GET /api/studies/{workspace_id}/{action}/{call_id}`. Polling r
 
 Used to specify the SSM. It can be used for structural (nodes and edges) and/or mathematical (setting priors and mechanisms) specification.
 
-The `input.base_revision` field selects the model revision being edited: null for the initial model, `latest` for the latest valid model, or an exact Git hash. It selects the base for the edit without requiring it to be the current head. The resulting action commit is returned as `commit_id`.
+The `input.parent_ref` field selects a question revision for an initial model or a model revision to edit. `latest` selects the current model, otherwise the current question; an exact Git hash pins either parent without requiring it to be the current head. The resulting action commit is returned as `commit_id`.
 
 The LLM will decide here based on the study quesiton which parematers will be fixed and hwich will be free - inferred during fit.
 

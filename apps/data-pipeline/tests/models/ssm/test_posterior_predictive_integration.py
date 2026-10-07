@@ -67,7 +67,6 @@ def test_predictive_draws_feed_mixed_family_diagnostics():
     )
 
     assert isinstance(result, PosteriorPredictiveChecks)
-    assert result.checked is True
     assert result.n_subsample == 3
     assert [overlay.indicator_id for overlay in result.overlays] == indicator_ids
     assert len(result.test_stats) == 8

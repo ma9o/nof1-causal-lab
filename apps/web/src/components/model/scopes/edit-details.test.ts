@@ -35,6 +35,7 @@ const applied: Applied<null> = {
         derived_from: { model: "archived-authorship-base" },
         produced_by: "edit_model",
         created_at: "2026-09-30T00:00:00Z",
+        source: { kind: "files" },
       },
     ],
   },
@@ -164,8 +165,6 @@ describe("edit change summaries after history compaction", () => {
         ...modelResult(context.model),
         checks: {
           question: null,
-          predictive: null,
-          reused: ["specification"],
           specification: [
             {
               kind: "evaluated",

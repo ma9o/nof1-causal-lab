@@ -458,10 +458,11 @@ def _float_or_none(value: float | None) -> float | None:
     return None if math.isnan(value) else value
 
 
-def _compute_empirical_profile(
+def compute_empirical_profile(
     indicator_id: IndicatorId,
     model_data: pl.DataFrame,
 ) -> IndicatorEmpiricalProfile | None:
+    """Summarize the retained values of one indicator without model assumptions."""
     ind_model = model_data.filter(pl.col("indicator_id") == indicator_id)
     values_df = ind_model.select(pl.col("value").cast(pl.Float64, strict=False)).drop_nulls()
     n_obs = len(values_df)
@@ -483,7 +484,7 @@ def _compute_empirical_profile(
 def build_indicator_audits(
     *,
     indicator_ids: set[IndicatorId],
-    model_data: pl.DataFrame,
+    profiles: dict[IndicatorId, IndicatorEmpiricalProfile | None],
     indicator_issues: list[ValidationIssue],
     indicator_health: dict[str, HealthMetrics],
 ) -> dict[IndicatorId, IndicatorAudit]:
@@ -498,10 +499,7 @@ def build_indicator_audits(
     for indicator_id in sorted(indicator_ids):
         health_metrics = indicator_health.get(indicator_id, {})
         audits[indicator_id] = IndicatorAudit(
-            profile=_compute_empirical_profile(
-                indicator_id,
-                model_data,
-            ),
+            profile=profiles.get(indicator_id),
             issues=tuple(issues_by_indicator.get(indicator_id, [])),
             checks=dict(health_metrics.get("cell_statuses", {})),
         )

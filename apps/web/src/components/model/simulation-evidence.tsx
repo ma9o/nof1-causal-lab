@@ -1,4 +1,4 @@
-import type { ModelPredictiveReport } from "@nof1-causal-lab/api-types";
+import type { SimulationReport } from "@nof1-causal-lab/api-types";
 import { useState } from "react";
 import type { ArmChoice } from "@/components/charts/series-adapters";
 import { resolveEntity, type ModelEntities } from "@/lib/model-asset/entities";
@@ -277,7 +277,7 @@ export function PredictiveFindings({
   findings,
   entities,
 }: {
-  findings: Extract<ModelPredictiveReport["evaluation"], { kind: "evaluated" }>["findings"];
+  findings: SimulationReport["findings"];
   entities: ModelEntities;
 }) {
   const names = new Map<string, string>([

@@ -23,6 +23,7 @@ from nof1_causal_lab.actions.validation.rules import (
     DATA_RULES,
     ValidationContext,
     build_indicator_audits,
+    compute_empirical_profile,
     no_data_validation_result,
     run_rules,
 )
@@ -36,23 +37,8 @@ from nof1_causal_lab.artifacts.validation_report import DataProfileArtifact, Val
 def validate_extraction(
     model: ModelSpec,
     dataframes: list[pl.DataFrame],
-    *,
-    data_profile: DataProfileArtifact | None = None,
 ) -> DataProfileArtifact:
-    """Combine empirical data findings with the selected model's compatibility checks.
-
-    Args:
-        model: Scientific definition supplying observation identities, construct
-            ownership, and the measurement clock.
-        dataframes: Long-format frames with ``indicator_id``, ``value``, and
-            ``anchor_time`` columns; rows outside the model's indicators are excluded.
-        data_profile: Previously computed empirical findings for these observations.
-            When omitted, compute them from the combined selected rows.
-
-    Returns:
-        Per-indicator audits and dataset-wide findings. An empty selection produces
-        a data profile containing a dataset-wide no-data error.
-    """
+    """Assess compatibility with the selected model; empirical profiles belong to preparation."""
     dataframes = [df for df in dataframes if not df.is_empty()]
     if not dataframes:
         return no_data_validation_result()
@@ -96,19 +82,11 @@ def validate_extraction(
 
     indicator_audits = build_indicator_audits(
         indicator_ids=indicator_ids,
-        model_data=combined,
+        profiles={},
         indicator_issues=indicator_issues,
         indicator_health=indicator_health,
     )
 
-    profile = data_profile if data_profile is not None else profile_data(combined)
-    # Reuse stored empirical summaries; add only model-dependent measurements here.
-    for identity, audit in indicator_audits.items():
-        source = profile.indicators.get(identity)
-        if source is not None:
-            indicator_audits[identity] = audit.with_source(source)
-        else:
-            indicator_audits[identity] = audit.without_data()
     return DataProfileArtifact(indicators=indicator_audits, dataset_issues=tuple(dataset_issues))
 
 
@@ -128,7 +106,7 @@ def profile_data(
     issues, health, dataset_issues = run_rules(context, indicator_rules=DATA_RULES)
     audits = build_indicator_audits(
         indicator_ids=identities,
-        model_data=data,
+        profiles={identity: compute_empirical_profile(identity, data) for identity in identities},
         indicator_issues=issues,
         indicator_health=health,
     )

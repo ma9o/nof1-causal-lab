@@ -1,7 +1,6 @@
 import { presentEntries } from "@/lib/model-accessors";
 import type { ScopeContext } from "@/lib/model-asset/scope";
 import type { ActionSuccess } from "@nof1-causal-lab/api-types";
-import { resolveEntity } from "@/lib/model-asset/entities";
 import { callModel } from "@/lib/model-asset/compose-call-view";
 import { humanize, type EntitySelection } from "@/lib/model-asset/selection";
 import { Hint, OwnerLink, Section, StatusIcon } from "./scope-primitives";
@@ -10,10 +9,10 @@ import { Hint, OwnerLink, Section, StatusIcon } from "./scope-primitives";
 export function ActionFindings({ context, call }: { context: ScopeContext; call: ActionSuccess }) {
   const { model, entities, select } = context;
   const checks = callModel(call)?.checks;
-  const identification = checks ? model.identification : null;
-  const validation = checks ? model.validation_report : null;
+  const identification = call.action === "edit_model" ? call.body.identification : null;
+  const validation = call.action === "fit" ? call.body.validation_report : null;
   const data = validation?.data ?? (call.action === "prepare_data" ? call.body.profile : null);
-  const predictive = checks?.predictive;
+  const question = call.action === "fit" ? call.body.question_checks : checks?.question;
   const findings: Array<{
     label: string;
     reason: string | null;
@@ -67,7 +66,7 @@ export function ActionFindings({ context, call }: { context: ScopeContext; call:
         owner: { kind: "construct", id: construct.id },
       });
   }
-  for (const finding of checks?.question?.findings ?? []) {
+  for (const finding of question?.findings ?? []) {
     if (finding.kind === "evaluated" && finding.outcome === "passed") continue;
     const subject = finding.subject;
     const construct =
@@ -91,61 +90,11 @@ export function ActionFindings({ context, call }: { context: ScopeContext; call:
       ...(entity ? { owner: { kind: "construct" as const, id: entity.id } } : {}),
     });
   }
-  for (const finding of predictive?.evaluation.kind === "evaluated"
-    ? predictive.evaluation.findings
-    : []) {
-    if (finding.kind === "evaluated" && finding.outcome === "passed") continue;
-    const target = typeof finding.subject.target === "string" ? null : finding.subject.target.id;
-    const indicator = entities.indicators.find((item) => item.observation.id === target);
-    const edge = entities.edges.find((item) => item.id === target);
-    const construct = entities.constructs.find((item) => item.id === finding.subject.construct_id);
-    const owner: EntitySelection | undefined = indicator
-      ? { kind: "indicator", id: indicator.observation.id }
-      : edge
-        ? { kind: "edge", id: edge.id }
-        : construct
-          ? { kind: "construct", id: construct.id }
-          : undefined;
-    const entity = owner && resolveEntity(entities, owner);
-    findings.push({
-      label: `${humanize(finding.subject.check)}${entity ? ` · ${entity.label}` : ""}`,
-      reason:
-        finding.kind === "evaluated"
-          ? finding.evidence.map((item) => item.note).join("; ")
-          : finding.detail,
-      status: finding.kind === "evaluated" ? finding.outcome : "not_evaluated",
-      ...(owner ? { owner } : {}),
-    });
-  }
-  for (const check of predictive?.evaluation.kind === "evaluated"
-    ? (predictive.evaluation.predictive_checks?.per_variable_warnings ?? [])
-    : []) {
-    if (check.kind === "evaluated" && check.outcome === "passed") continue;
-    const target = check.subject.target;
-    const indicator =
-      typeof target === "string"
-        ? undefined
-        : entities.indicators.find((item) => item.observation.id === target.id);
-    if (!indicator) continue;
-    findings.push({
-      label: `${humanize(check.subject.check)} · ${humanize(indicator.observation.name)}`,
-      reason: check.kind === "evaluated" ? check.evidence.note : check.detail,
-      status: check.kind === "evaluated" ? check.outcome : "not_evaluated",
-      owner: { kind: "indicator", id: indicator.observation.id },
-    });
-  }
-  if (predictive?.status === "not_evaluated")
-    findings.push({
-      label: "Predictive checks",
-      reason:
-        predictive.evaluation.kind === "unavailable"
-          ? (predictive.evaluation.detail ?? humanize(predictive.evaluation.reason).toLowerCase())
-          : null,
-      status: "not_evaluated",
-    });
   if (
     call.action === "prepare_data" &&
-    call.body.workers.some((worker) => worker.status === "failed")
+    call.messages.some(
+      (message) => message.kind === "log" && message.label === "EXTRACTION_PARTIAL",
+    )
   )
     findings.push({
       label: "Extraction incomplete",

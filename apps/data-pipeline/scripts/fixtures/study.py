@@ -62,7 +62,9 @@ def read_fixture_files(repository: StudyRepository, state: StudyState) -> dict[s
     store = ArtifactStore(repository.workspace_id)
     files = {}
     for aid, filename in ARTIFACTS.items():
-        files[f"artifacts/{aid}.json"] = repository.read_file(state.current[aid].revision, filename)
+        files[f"artifacts/{aid}.json"] = json.dumps(
+            store.read_json_file(aid, state.current[aid].revision, filename)
+        ).encode()
     for name, prefix in TRACES.items():
         trace, record = next(
             (trace, record)
@@ -86,24 +88,17 @@ def read_fixture_files(repository: StudyRepository, state: StudyState) -> dict[s
         ).encode()
     report = reader.inference_report
     files["inference.json"] = (
-        (report.model_dump_json(indent=2) + "\n").encode()
-        if report is not None
-        else b"null\n"
+        (report.model_dump_json(indent=2) + "\n").encode() if report is not None else b"null\n"
     )
-    predictive = reader.checks[0].predictive if reader.checks is not None else None
-    checks = (
-        predictive.evaluation.predictive_checks
-        if predictive is not None and predictive.evaluation.kind == "evaluated"
-        else None
-    )
-    files["predictive_checks.json"] = (
-        (checks.model_dump_json(indent=2) + "\n").encode() if checks is not None else b"null\n"
-    )
-    # Check external payload closure as well as the native Git objects.
+    files["predictive_checks.json"] = b"null\n"
+    # Published artifacts select their canonical result; only uploaded inputs own files.
+    from nof1_causal_lab.study.state import ArtifactFiles
+
     for aid, info in state.current.items():
-        spec = artifact_file_spec(aid)
-        for filename in (*spec.json_files.values(), *spec.parquet_files.values()):
-            store.file_path(aid, info.revision, filename)
+        if isinstance(info.source, ArtifactFiles):
+            spec = artifact_file_spec(aid)
+            for filename in (*spec.json_files.values(), *spec.parquet_files.values()):
+                store.file_path(aid, info.revision, filename)
     return files
 
 
@@ -255,7 +250,7 @@ def build_outputs():
             capture_output=True,
         )
         subprocess.run(
-            ["git", "--git-dir", str(history), "config", "nof1.format", "20"],
+            ["git", "--git-dir", str(history), "config", "nof1.format", "21"],
             check=True,
             capture_output=True,
         )
@@ -321,6 +316,7 @@ def rendered_fixtures(outputs):
   simulation: Domain.SimulationPaths;
   observations: Readonly<Partial<Record<Domain.IndicatorId, Domain.ObservationHistory>>>;
   parameters: Domain.ParameterDraws;
+  arrays: Readonly<Record<string, Domain.NumericalArray>>;
 }>""",
     }
     contracts.update(

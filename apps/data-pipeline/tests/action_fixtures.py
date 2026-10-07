@@ -46,42 +46,104 @@ def question_root(workspace_id, question=None):
     journal = StudyRepository(workspace_id)
     return journal.append(
         applied_record(
-            edit_question(workspace_id, request), request=request, seq=journal.latest_seq() + 1
+            workspace_id,
+            edit_question(workspace_id, request),
+            request=request,
+            seq=journal.latest_seq() + 1,
         )
     )
 
 
-def applied_record(result, *, seq, request=None, ts="2026-01-01T00:00:00Z", **metadata):
+def applied_record(
+    workspace_id, result, *, seq, request=None, ts="2026-01-01T00:00:00Z", **metadata
+):
     """A successful test publication composes the actual owned action payload."""
+    from pydantic import TypeAdapter
+
+    from nof1_causal_lab.actions.output_builder import build_output, staged_state
     from nof1_causal_lab.artifacts.posterior import ModelFitResult
     from nof1_causal_lab.artifacts.simulation import ModelSimulationResult
+    from nof1_causal_lab.study.history import StudyRepository
     from nof1_causal_lab.study.records import (
+        ActionAttempt,
+        Applied,
         AttemptRecord,
         DataPreparationResult,
-        EditAttempt,
-        EditQuestionAttempt,
-        FitAttempt,
-        PrepareAttempt,
-        SimulateAttempt,
+        StagedEditAttempt,
+        StagedEditQuestionAttempt,
+        StagedFitAttempt,
+        StagedPrepareAttempt,
+        StagedSimulateAttempt,
+        applied_attempt,
     )
+    from nof1_causal_lab.study.store import ArtifactStore
 
-    if request is not None:
-        from nof1_causal_lab.study.records import applied_attempt
+    if request is None and isinstance(result.result, ModelFitResult):
+        from nof1_causal_lab.actions.contracts import FitRequest
+        from nof1_causal_lab.actions.io import FitInput
+        from nof1_causal_lab.artifacts.identity import GitOid
 
-        return AttemptRecord(seq=seq, ts=ts, attempt=applied_attempt(request, result), **metadata)
-    match result.result:
-        case None:
-            attempt = (
-                EditAttempt(action="edit_model", request=request, outcome=result)
-                if any(artifact.artifact_id == "model" for artifact in result.effects.produced)
-                else EditQuestionAttempt(action="edit_question", request=request, outcome=result)
+        request = FitRequest[GitOid](
+            input=FitInput[GitOid](
+                model_ref=result.result.model.revision,
+                data_ref=result.result.data.revision,
+                replicate_index=result.result.data.replicate_index,
             )
-        case DataPreparationResult():
-            attempt = PrepareAttempt(action="prepare_data", request=request, outcome=result)
-        case ModelFitResult():
-            attempt = FitAttempt(action="fit", request=request, outcome=result)
-        case ModelSimulationResult():
-            attempt = SimulateAttempt(action="simulate", request=request, outcome=result)
-        case _:
-            raise TypeError("A publication fixture needs an owned action result")
-    return AttemptRecord(seq=seq, ts=ts, attempt=attempt, **metadata)
+        )
+    if request is not None:
+        attempt = applied_attempt(request, result)
+    else:
+        match result.result:
+            case None:
+                attempt = (
+                    StagedEditAttempt(action="edit_model", request=None, outcome=result)
+                    if any(artifact.artifact_id == "model" for artifact in result.effects.produced)
+                    else StagedEditQuestionAttempt(
+                        action="edit_question", request=None, outcome=result
+                    )
+                )
+            case DataPreparationResult():
+                attempt = StagedPrepareAttempt(action="prepare_data", request=None, outcome=result)
+            case ModelFitResult():
+                attempt = StagedFitAttempt(action="fit", request=None, outcome=result)
+            case ModelSimulationResult():
+                attempt = StagedSimulateAttempt(action="simulate", request=None, outcome=result)
+            case _:
+                raise TypeError("A publication fixture needs an owned action result")
+    repository, store = StudyRepository(workspace_id), ArtifactStore(workspace_id)
+    state = staged_state(repository.state(repository.head()), result.effects)
+    if not state.has("question"):
+        from tests.helpers import write_question
+
+        state = state.with_artifacts((write_question(store),))
+    if isinstance(result.result, ModelFitResult):
+        state = state.revised(data=result.result.data)
+    if (
+        isinstance(result.result, ModelSimulationResult)
+        and "simulation" not in result.effects.reports
+    ):
+        from nof1_causal_lab.actions.simulate import read_simulation_report
+
+        report = read_simulation_report(
+            store, result.result.evidence, state.current["question"].revision
+        )
+        attempt = attempt.revised(
+            outcome=result.revised(
+                effects=result.effects.revised(
+                    reports={**result.effects.reports, "simulation": store.write_report(report)}
+                )
+            )
+        )
+    output = build_output(workspace_id, attempt, state)
+    # Storage-focused fixtures may retain physical input artifacts. The result itself
+    # is always the same complete body used by production publication.
+    saved = TypeAdapter(ActionAttempt).validate_python(
+        {
+            "action": attempt.action,
+            "request": request,
+            "outcome": Applied(
+                result=store.write_result(output), effects=result.effects.revised(reports={})
+            ),
+        }
+    )
+    return AttemptRecord(seq=seq, ts=ts, attempt=saved, **metadata)

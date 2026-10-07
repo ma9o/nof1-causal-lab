@@ -141,7 +141,6 @@ def test_edit_with_missing_panel_variable_has_no_data_findings(tmp_path, monkeyp
         "TEST", state.with_artifacts(edited.effects.produced), action="edit_model"
     )
     assert report is None
-    assert checks.predictive is None
     assert checks.question is not None
     assert checks.question.data is None
     messages = completion_messages(

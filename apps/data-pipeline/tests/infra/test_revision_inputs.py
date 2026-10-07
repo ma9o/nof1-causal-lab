@@ -4,6 +4,7 @@ import hashlib
 from datetime import UTC, date, datetime
 from types import SimpleNamespace
 
+import numpy as np
 import pytest
 from fastapi import Response
 from fastapi.testclient import TestClient
@@ -42,6 +43,7 @@ pytestmark = pytest.mark.contract
 def _publish(repository, *artifacts, retracted=()):
     return repository.append(
         applied_record(
+            repository.workspace_id,
             Applied(result=None, effects=ActionEffects(produced=artifacts, retracted=retracted)),
             seq=repository.latest_seq() + 1,
         )
@@ -90,15 +92,19 @@ def study(tmp_path, monkeypatch):
         seed=0,
         state_ids=(),
         parameter_draws={},
-        latent_paths="paths",
-        observations="observations",
+        latent_paths=store.write_array(np.zeros((2, 2, 0))),
+        observations=store.write_array(np.zeros((2, 2, 0))),
         observation_layout=SimulationObservationLayout(
-            variables=(), support_start_times="starts", support_end_times="ends", mask="mask"
+            variables=(),
+            support_start_times=store.write_array(np.zeros((2, 0))),
+            support_end_times=store.write_array(np.zeros((2, 0))),
+            mask=store.write_array(np.zeros((2, 2, 0), dtype=bool)),
         ),
     )
     for seed in (0, 1):
         simulation = repository.append(
             applied_record(
+                repository.workspace_id,
                 Applied(
                     result=ModelSimulationResult(evidence=evidence.revised(seed=seed)),
                     effects=ActionEffects(),
@@ -338,6 +344,7 @@ def test_latest_reuses_explicit_saved_call_and_pinned_poll_survives_newer_model(
     )
     saved = repository.append(
         applied_record(
+            repository.workspace_id,
             Applied(result=None, effects=ActionEffects()),
             seq=repository.latest_seq() + 1,
             request=request,
@@ -509,7 +516,9 @@ def test_edit_model_parent_pins_question_for_identity_checks_and_provenance(
     assert checks.question is not None
     assert checks.question.question_revision == original_question.revision
     saved = repository.append(
-        applied_record(outcome, request=original, seq=repository.latest_seq() + 1)
+        applied_record(
+            repository.workspace_id, outcome, request=original, seq=repository.latest_seq() + 1
+        )
     )
     dependency = next(
         item for item in record_dependencies(repository.attempts()) if item.seq == saved.record.seq

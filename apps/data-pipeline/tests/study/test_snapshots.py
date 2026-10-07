@@ -179,6 +179,7 @@ def _commit(workspace, artifact_id, payload, *, pins=None, retracted=(), reports
     rooted = journal.state(journal.head()).has("question")
     journal.append(
         applied_record(
+            store.workspace_id,
             Applied(
                 result=None,
                 effects=ActionEffects(

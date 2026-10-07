@@ -1,11 +1,10 @@
-"""Retain posterior atoms and native telemetry; derive reports through the read cache."""
+"""Retain posterior atoms, native telemetry, and diagnostics during fit execution."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING, TypedDict
 
 import numpy as np
-from pydantic import TypeAdapter
 
 from nof1_causal_lab.actions.errors import ModelFitError
 from nof1_causal_lab.artifacts.checks import Evaluated, NotEvaluated
@@ -22,7 +21,6 @@ from nof1_causal_lab.artifacts.posterior import (
 from nof1_causal_lab.artifacts.posterior_diagnostics import ParticleMCMCEvidence
 from nof1_causal_lab.models.ssm.inference.convergence import parameter_convergence
 from nof1_causal_lab.models.ssm.inference.persistence import condition_model
-from nof1_causal_lab.study.store import cached_value
 
 if TYPE_CHECKING:
     from collections.abc import Callable
@@ -110,7 +108,7 @@ def read_inference_report(
     revision: GitOid,
     evidence: InferenceEvidence,
 ) -> InferenceReport:
-    """Rebuild exact-chain reductions from scientific atoms and retained native telemetry."""
+    """Compute exact-chain diagnostics from this fit's atoms and native telemetry."""
     from nof1_causal_lab.study.store import read_model
 
     def render() -> InferenceReport:
@@ -226,10 +224,4 @@ def read_inference_report(
             ),
         )
 
-    value, _ = cached_value(
-        store.workspace_id,
-        ("inference-report", revision, evidence.model_dump_json(round_trip=True)),
-        TypeAdapter(InferenceReport),
-        render,
-    )
-    return value
+    return render()

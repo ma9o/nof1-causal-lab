@@ -237214,6 +237214,7 @@
   },
   "parameters": {
     "kind": "unavailable",
-    "reason": "This revision has no complete retained joint posterior."
-  }
+    "reason": "No fit at this revision."
+  },
+  "arrays": {}
 }

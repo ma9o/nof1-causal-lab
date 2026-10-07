@@ -95,7 +95,7 @@ def test_durable_replication_preserves_current_laws_without_comparison(
     from nof1_causal_lab.study.store import ArtifactStore
     from nof1_causal_lab.utils import data as data_module
     from tests.helpers import run_async
-    from tests.inference_fixtures import inference_log
+    from tests.inference_fixtures import inference_evidence
     from tests.integration.runner_fixtures import panel_frame
 
     monkeypatch.setattr(data_module, "_DATA_URI", str(tmp_path))
@@ -153,7 +153,7 @@ def test_durable_replication_preserves_current_laws_without_comparison(
         produced.append(fitted)
         from nof1_causal_lab.actions.fit import read_inference_report
 
-        evidence = inference_log(model).record.attempt.outcome.result.evidence
+        evidence = inference_evidence(model)
         prepared = Applied(
             result=ModelFitResult(
                 model=GitRef(workspace_id="TEST", revision=definition.revision, path="model.json"),
@@ -171,7 +171,7 @@ def test_durable_replication_preserves_current_laws_without_comparison(
         )
     else:
         prepared = Applied(result=None, effects=ActionEffects(produced=tuple(produced)))
-    journal.append(applied_record(prepared, seq=1, ts="2026-09-15T12:00:00Z"))
+    journal.append(applied_record("TEST", prepared, seq=1, ts="2026-09-15T12:00:00Z"))
     applied = run_async(
         run_action_locally(
             "TEST",
@@ -204,7 +204,7 @@ def test_durable_replication_preserves_current_laws_without_comparison(
     assert not applied.effects.produced
     assert any(finding.subject.check.startswith("C5c") for finding in report.findings)
     assert not any(finding.subject.check.startswith("C5d") for finding in report.findings)
-    journal.append(applied_record(applied, seq=2, ts="2026-09-15T12:01:00Z"))
+    journal.append(applied_record("TEST", applied, seq=2, ts="2026-09-15T12:01:00Z"))
     current = ModelReader("TEST", at=StudyRepository("TEST").head()).simulation()
     assert current is not None
     assert current == report
@@ -223,6 +223,7 @@ def test_durable_replication_preserves_current_laws_without_comparison(
     )
     journal.append(
         applied_record(
+            "TEST",
             Applied(result=None, effects=ActionEffects(produced=[edited])),
             seq=3,
             ts="2026-09-15T12:02:00Z",
@@ -281,7 +282,7 @@ def test_retained_forecast_and_timed_intervention_preserve_joint_starts(
     from nof1_causal_lab.models.ssm import numerics as numeric
 
     states = numeric.state_ids(compile_model_fixture(model))
-    paths = jnp.asarray([[[1.0, 2.0], [3.0, 4.0]], [[5.0, 6.0], [7.0, 8.0]]])
+    paths = jnp.arange(1.0, 1 + 4 * len(states)).reshape(2, 2, len(states))
     model, _ = condition_model(
         model,
         compile_model_fixture(model),

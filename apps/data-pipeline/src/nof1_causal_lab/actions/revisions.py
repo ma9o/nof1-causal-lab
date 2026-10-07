@@ -4,13 +4,7 @@ from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from pydantic import TypeAdapter
-
 from nof1_causal_lab.actions.io import ModelDiffOutput
-from nof1_causal_lab.artifacts.identity import (
-    GitOid,
-    GitRef,
-)
 from nof1_causal_lab.models.model_structure import (
     compare_model_graph,
     compare_parameters,
@@ -18,6 +12,7 @@ from nof1_causal_lab.models.model_structure import (
 )
 
 if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.identity import GitOid, GitRef
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.posterior import InferenceReportCore
     from nof1_causal_lab.artifacts.simulation import SimulationReport
@@ -41,12 +36,11 @@ def _model_revision(
         raise StudyLookupError(f"Unknown model revision {revision}")
     obj = store.repo[oid]
     if isinstance(obj, pygit2.Tree):
-        if "model.json" not in obj:
-            raise StudyLookupError("The selected tree is not a model artifact")
+        ref = store.model_ref(revision)
         model = read_model(store, revision)
         return (
             model,
-            GitRef(workspace_id=workspace_id, revision=revision, path="model.json"),
+            ref,
             None,
             None,
         )
@@ -64,11 +58,7 @@ def _model_revision(
     fit, simulation = reader.inference_report, reader.simulation()
     return (
         reader.model,
-        GitRef(
-            workspace_id=workspace_id,
-            revision=reader.state.current["model"].revision,
-            path="model.json",
-        ),
+        store.model_ref(reader.state.current["model"].revision),
         fit.core if fit is not None else None,
         simulation
         if simulation is not None
@@ -114,7 +104,18 @@ def model_diff(workspace_id: str, before_id: GitOid, after_id: GitOid) -> ModelD
         model_graph_entities(selection) if selection is not None else ((), ())
         for selection in scoped
     )
+    from nof1_causal_lab.study.action_arrays import array_references, result_arrays
+    from nof1_causal_lab.study.store import ArtifactStore
+
+    arrays = result_arrays(
+        ArtifactStore(workspace_id),
+        (
+            *(array_references(left.model_dump(mode="json")) if left is not None else ()),
+            *(array_references(right.model_dump(mode="json")) if right is not None else ()),
+        ),
+    )
     return ModelDiffOutput(
+        arrays=arrays,
         before=before,
         after=after,
         before_model=left,
@@ -149,13 +150,5 @@ def model_diff(workspace_id: str, before_id: GitOid, after_id: GitOid) -> ModelD
 
 
 def read_model_diff(workspace_id: str, before_id: GitOid, after_id: GitOid) -> ModelDiffOutput:
-    """Compute a comparison for publication, reusing the current-code preparation cache."""
-    from nof1_causal_lab.study.store import cached_value
-
-    report, _ = cached_value(
-        workspace_id,
-        ("model-diff", before_id, after_id),
-        TypeAdapter(ModelDiffOutput),
-        lambda: model_diff(workspace_id, before_id, after_id),
-    )
-    return report
+    """Compute the comparison once during its owning action."""
+    return model_diff(workspace_id, before_id, after_id)

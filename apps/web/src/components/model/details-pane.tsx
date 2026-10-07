@@ -15,7 +15,6 @@ import { FitDetails } from "./scopes/fit-details";
 import { QuestionChecks, QuestionDetails } from "./scopes/question-details";
 import { SimulationEvidence } from "./simulation-evidence";
 import { ModelComparisonDetails } from "./scopes/edit-details";
-import { PPCWarningsTable } from "@/components/analysis-widgets/posterior/ppc-warnings-table";
 
 function ModelScope({
   context,
@@ -48,9 +47,6 @@ function ModelScope({
     );
   if (tick.record.attempt.action === "model_diff")
     return <ModelComparisonDetails context={context} />;
-  const predictive = context.model.predictive;
-  const predictivePlots =
-    predictive?.evaluation.kind === "evaluated" ? predictive.evaluation.predictive_checks : null;
   const identification = context.model.identification;
   const diagnostics = context.model;
   const equations = [
@@ -75,22 +71,6 @@ function ModelScope({
 
   return (
     <>
-      {predictive && (
-        <Section title="Predictive checks" wide>
-          {predictivePlots ? (
-            <PPCWarningsTable
-              indicators={context.entities.indicators.map((indicator) => indicator.observation)}
-              warnings={predictivePlots.per_variable_warnings}
-              testStats={predictivePlots.test_stats}
-              overlays={predictivePlots.overlays}
-            />
-          ) : (
-            <Hint>
-              {predictive.evaluation.kind === "unavailable" ? predictive.evaluation.detail : null}
-            </Hint>
-          )}
-        </Section>
-      )}
       <QuestionChecks context={context} />
       {identification && (
         <Section title="Identification" wide>

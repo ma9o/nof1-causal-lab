@@ -1,4 +1,4 @@
-import { modelResult } from "./action-results";
+import { modelResult, fitResult } from "./action-results";
 import { fixtureValue } from "@/components/__fixtures__/fixture-value";
 import type {
   ActionAttempt,
@@ -64,7 +64,9 @@ function record(seq: number, attempt: ActionAttempt, trace_ids: string[] = []): 
       ts: stamp,
       attempt,
       trace_ids,
-      messages: [{ kind: "log", timestamp: stamp, level: "info", label: "ACTION_COMPLETED" }],
+      messages: [
+        { kind: "log", timestamp: stamp, level: "info", label: "ACTION_COMPLETED", details: {} },
+      ],
     },
   };
 }
@@ -79,6 +81,7 @@ function metadata(revision: string, parent: string, produced_by: string): Artifa
     },
     produced_by,
     created_at: stamp,
+    source: { kind: "result", result: commitId(0) },
   };
 }
 function simulation(revision: string): SimulationReport {
@@ -206,7 +209,6 @@ const dataComparison: DataDiffOutput = {
         evaluation: {
           kind: "available",
           value: {
-            checked: true,
             n_subsample: 3,
             per_variable_warnings: [
               {
@@ -309,7 +311,7 @@ const workbenchRecords: StudyRevision[] = [
     },
     outcome: {
       status: "applied",
-      result: null,
+      result: commitId(0),
       effects: {
         produced: [fixtureValue(demoModelSnapshot.state.current.question)],
         retracted: [],
@@ -332,7 +334,7 @@ const workbenchRecords: StudyRevision[] = [
         },
         outcome: {
           status: "applied",
-          result: null,
+          result: commitId(0),
           effects: {
             produced: [fixtureValue(fixtureValue(snapshots.get(seq)).state.current.model)],
             retracted: [],
@@ -348,20 +350,7 @@ const workbenchRecords: StudyRevision[] = [
     request: preparation(5),
     outcome: {
       status: "applied",
-      result: {
-        extraction_reused: null,
-        workers: [
-          {
-            worker_id: 0,
-            status: "failed",
-            n_extractions: 0,
-            n_windows: 1,
-            n_llm_calls: null,
-            error: "Illustrative extraction failure",
-            reused: null,
-          },
-        ],
-      },
+      result: commitId(0),
       effects: {
         produced: [
           fixtureValue(fixtureValue(snapshots.get(5)).state.current.raw_data),
@@ -397,7 +386,7 @@ const workbenchRecords: StudyRevision[] = [
       },
       outcome: {
         status: "applied",
-        result: null,
+        result: commitId(0),
         effects: {
           produced: [fixtureValue(fixtureValue(snapshots.get(7)).state.current.model)],
           retracted: [],
@@ -421,7 +410,7 @@ const workbenchRecords: StudyRevision[] = [
     },
     outcome: {
       status: "applied",
-      result: null,
+      result: commitId(0),
       effects: { produced: [v5], retracted: [], reports: {} },
     },
   }),
@@ -438,9 +427,7 @@ const workbenchRecords: StudyRevision[] = [
     },
     outcome: {
       status: "applied",
-      result: {
-        evidence: fixtureValue(simulations.get(5)).evidence,
-      },
+      result: commitId(0),
       effects: { produced: [], retracted: [], reports: {} },
     },
   }),
@@ -458,7 +445,7 @@ const workbenchRecords: StudyRevision[] = [
     },
     outcome: {
       status: "applied",
-      result: null,
+      result: commitId(0),
       effects: { produced: [v6], retracted: [], reports: {} },
     },
   }),
@@ -474,7 +461,7 @@ const workbenchRecords: StudyRevision[] = [
     },
     outcome: {
       status: "applied",
-      result: null,
+      result: commitId(0),
       effects: { produced: [v7], retracted: [], reports: {} },
     },
   }),
@@ -491,9 +478,7 @@ const workbenchRecords: StudyRevision[] = [
     },
     outcome: {
       status: "applied",
-      result: {
-        evidence: fixtureValue(simulations.get(7)).evidence,
-      },
+      result: commitId(0),
       effects: { produced: [], retracted: [], reports: {} },
     },
   }),
@@ -509,7 +494,7 @@ const workbenchRecords: StudyRevision[] = [
     },
     outcome: {
       status: "applied",
-      result: null,
+      result: commitId(0),
       effects: { produced: [], retracted: [], reports: {} },
     },
   }),
@@ -606,6 +591,17 @@ export function workbenchResult(seq: number): ActionSuccess {
     : null;
   const messages: ExecutionMessage[] = [
     ...entry.record.messages,
+    ...(attempt.action === "prepare_data"
+      ? [
+          {
+            kind: "log" as const,
+            timestamp: stamp,
+            level: "warn" as const,
+            label: "EXTRACTION_PARTIAL",
+            details: {},
+          },
+        ]
+      : []),
     ...entry.record.trace_ids.map((id) => ({
       kind: "trace" as const,
       timestamp: stamp,
@@ -633,7 +629,6 @@ export function workbenchResult(seq: number): ActionSuccess {
         ...envelope,
         action: attempt.action,
         body: {
-          ...attempt.outcome.result,
           raw_data: snapshot.raw_data,
           measurements: snapshot.measurements,
           metadata: snapshot.metadata,
@@ -646,12 +641,9 @@ export function workbenchResult(seq: number): ActionSuccess {
         ...envelope,
         action: attempt.action,
         body: {
-          model: modelResult(snapshot),
-          inference: attempt.outcome.result,
-          summary: snapshot.fit,
-          inference_report: null,
+          ...fitResult(snapshot),
           parameter_draws: visualFixture.parameters,
-          arrays: {},
+          arrays: visualFixture.arrays,
         },
       };
     case "simulate":
@@ -659,7 +651,6 @@ export function workbenchResult(seq: number): ActionSuccess {
         ...envelope,
         action: attempt.action,
         body: {
-          simulation: attempt.outcome.result,
           report: snapshot.simulation,
           data: [visualFixture.observations],
           paths,
@@ -692,7 +683,13 @@ export function workbenchHandlers() {
         },
       },
       messages: [
-        { kind: "log", timestamp: "2026-09-16T12:05:00Z", level: "info", label: "FIT_STARTED" },
+        {
+          kind: "log",
+          timestamp: "2026-09-16T12:05:00Z",
+          level: "info",
+          label: "FIT_STARTED",
+          details: {},
+        },
       ],
     },
   });

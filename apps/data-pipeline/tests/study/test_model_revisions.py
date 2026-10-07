@@ -64,7 +64,8 @@ def test_full_model_write_keeps_the_named_base_without_a_head_gate(workspace):
     checks, _, _ = read_model_checks(
         workspace, state.with_artifacts(second.effects.produced), action="edit_model"
     )
-    assert "identification" in checks.reused
+    assert checks.question is not None
+    assert checks.question.question_revision == root.current["question"].revision
     assert second.effects.produced[0].revision != effects.effects.produced[0].revision
     assert second.effects.produced[0].derived_from == {
         "question": root.current["question"].revision,

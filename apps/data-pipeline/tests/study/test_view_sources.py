@@ -24,8 +24,7 @@ from tests.model_fixtures import x_y_model
 
 
 @pytest.mark.contract
-def test_fit_without_retained_atoms_has_no_report(monkeypatch, tmp_path):
-    from nof1_causal_lab.study.records import FitAttempt
+def test_authored_model_has_no_inference_report(monkeypatch, tmp_path):
     from nof1_causal_lab.utils import data
 
     monkeypatch.setattr(data, "_DATA_URI", str(tmp_path))
@@ -38,15 +37,11 @@ def test_fit_without_retained_atoms_has_no_report(monkeypatch, tmp_path):
     )
     journal.append(
         applied_record(
+            store.workspace_id,
             Applied(result=None, effects=ActionEffects(produced=(write_question(store), info))),
             seq=1,
         )
     )
-    record = applied_record(Applied(result=None, effects=ActionEffects()), seq=2)
-    record = record.revised(
-        attempt=FitAttempt(action="fit", request=None, outcome=record.attempt.outcome)
-    )
-    journal.append(record)
     reader = ModelReader("ABSENT", at=journal.head())
     assert reader.inference_report is None
     assert reader.fit() is None
@@ -77,7 +72,9 @@ def test_joint_reports_and_raw_draws_use_production_labels_without_compiling(mon
             )
         },
     )
-    panel = store.write_artifact("panel", derived_from={}, produced_by="prepare_data")
+    from tests.integration.runner_fixtures import seed_panel
+
+    panel = seed_panel(store, model_revision=prior.revision)
     info = store.write_artifact(
         "model",
         derived_from={"model": prior.revision, "panel": panel.revision},
@@ -93,6 +90,7 @@ def test_joint_reports_and_raw_draws_use_production_labels_without_compiling(mon
     )
     journal.append(
         applied_record(
+            store.workspace_id,
             Applied(
                 result=result,
                 effects=ActionEffects(
@@ -123,8 +121,13 @@ def test_joint_reports_and_raw_draws_use_production_labels_without_compiling(mon
     columns = reader.parameter_draws()
     assert columns.kind == "available"
     assert {column.label for column in columns.value} == set(labels.values())
+    from nof1_causal_lab.study.action_arrays import resolve_vector
+
+    assert reader.fit_result is not None
     assert all(
-        len(column.values) == report.core.inference_metadata.n_samples for column in columns.value
+        len(resolve_vector(column.values, reader.fit_result.arrays))
+        == report.core.inference_metadata.n_samples
+        for column in columns.value
     )
     assert set(reader.state.current) == {"question", "model", "panel"}
 
@@ -242,6 +245,7 @@ def test_likelihood_plot_requires_its_pinned_panel(
     selected = DataRef[GitOid, int](revision=panel.revision, replicate_index=0)
     StudyRepository("PLOTS").append(
         applied_record(
+            store.workspace_id,
             Applied(
                 result=None,
                 effects=ActionEffects(
@@ -310,6 +314,7 @@ def test_likelihood_plot_requires_its_pinned_panel(
     )
     StudyRepository("PLOTS").append(
         applied_record(
+            store.workspace_id,
             Applied(
                 result=DataPreparationResult(), effects=ActionEffects(produced=[current_panel])
             ),
@@ -341,6 +346,7 @@ def test_model_view_reads_canonical_science_without_a_compiled_plan(monkeypatch,
     repository = StudyRepository("DEFINITION")
     repository.append(
         applied_record(
+            store.workspace_id,
             Applied(
                 result=None,
                 effects=ActionEffects(produced=[write_question(store), info]),
@@ -365,6 +371,7 @@ def test_model_view_reads_canonical_science_without_a_compiled_plan(monkeypatch,
     )
     repository.append(
         applied_record(
+            store.workspace_id,
             Applied(result=None, effects=ActionEffects(produced=[revision])),
             seq=2,
             ts="2026-09-14T13:00:00Z",

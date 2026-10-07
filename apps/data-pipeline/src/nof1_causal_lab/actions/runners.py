@@ -20,7 +20,7 @@ from nof1_causal_lab.actions.contracts import (
 )
 from nof1_causal_lab.actions.effects import ActionEffects
 from nof1_causal_lab.artifacts.data_ref import DataRef
-from nof1_causal_lab.artifacts.identity import GitOid, GitRef
+from nof1_causal_lab.artifacts.identity import GitOid
 from nof1_causal_lab.artifacts.posterior import ModelFitResult
 from nof1_causal_lab.artifacts.predictive_provenance import FittedLawProvenance, MixedLawProvenance
 from nof1_causal_lab.artifacts.simulation import ModelSimulationResult
@@ -88,9 +88,7 @@ async def _run_fit(
     report = read_inference_report(store, info.revision, evidence)
     return Applied(
         result=ModelFitResult(
-            model=GitRef(
-                workspace_id=store.workspace_id, revision=pins["model"], path="model.json"
-            ),
+            model=store.model_ref(pins["model"]),
             data=source,
             evidence=evidence,
         ),
@@ -105,7 +103,6 @@ async def _run_simulate(
     design: SimulationSpec,
 ) -> Applied[ModelSimulationResult]:
     from nof1_causal_lab.actions.simulate import read_simulation_report, simulate
-    from nof1_causal_lab.artifacts.identity import GitRef
     from nof1_causal_lab.study.history import StudyRepository
     from nof1_causal_lab.study.store import read_model
 
@@ -135,7 +132,7 @@ async def _run_simulate(
         simulate,
         selection,
         design,
-        revision=GitRef(workspace_id=workspace_id, revision=pins["model"], path="model.json"),
+        revision=store.model_ref(pins["model"]),
         write_array=store.write_array,
         time_origin=time_origin,
         origin_data=origin_data,

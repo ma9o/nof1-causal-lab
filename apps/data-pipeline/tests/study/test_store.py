@@ -17,7 +17,6 @@ from nof1_causal_lab.study.records import (
 )
 from nof1_causal_lab.study.state import RetractedArtifact
 from nof1_causal_lab.study.store import ArtifactStore
-from tests.action_fixtures import applied_record
 from tests.git_fixtures import artifact_revisions, git_oid
 from tests.helpers import make_model
 
@@ -90,7 +89,7 @@ class TestArtifactStore:
 
 
 class TestStudyRepository:
-    def _record(self, seq, action, outcome=None, **kwargs):
+    def _record(self, workspace, seq, action, outcome=None, **kwargs):
         if outcome is not None:
             variant = {
                 "edit_model": EditAttempt,
@@ -106,21 +105,29 @@ class TestStudyRepository:
             result=None if action == "edit_model" else DataPreparationResult(),
             effects=ActionEffects(**kwargs),
         )
-        return (
-            AttemptRecord(
-                seq=seq,
-                ts="2026-07-03T00:00:00+00:00",
-                attempt=EditAttempt(action="edit_model", request=None, outcome=result),
-            )
-            if action == "edit_model"
-            else applied_record(result, seq=seq, ts="2026-07-03T00:00:00+00:00")
+        from nof1_causal_lab.artifacts.identity import GitOid
+
+        store = ArtifactStore(workspace)
+        identity = GitOid(str(store.repo.create_blob(b"{}")))
+        variant = {"edit_model": EditAttempt, "prepare_data": PrepareAttempt, "fit": FitAttempt}[
+            action
+        ]
+        return AttemptRecord(
+            seq=seq,
+            ts="2026-07-03T00:00:00+00:00",
+            attempt=variant(
+                action=action,
+                request=None,
+                outcome=Applied(result=identity, effects=result.effects),
+            ),
         )
 
     def test_append_and_read_back_in_order(self, workspace):
         journal = StudyRepository(workspace)
-        journal.append(self._record(1, "edit_model"))
+        journal.append(self._record(workspace, 1, "edit_model"))
         journal.append(
             self._record(
+                workspace,
                 2,
                 "edit_model",
                 outcome=Rejected(
@@ -134,6 +141,7 @@ class TestStudyRepository:
         )
         journal.append(
             self._record(
+                workspace,
                 3,
                 "fit",
                 outcome=Raised(
@@ -157,21 +165,21 @@ class TestStudyRepository:
 
     def test_identical_duplicate_seq_is_idempotent(self, workspace):
         journal = StudyRepository(workspace)
-        record = self._record(1, "edit_model")
+        record = self._record(workspace, 1, "edit_model")
         journal.append(record)
         journal.append(record)
         assert [item.record.model_dump() for item in journal.attempts()] == [record.model_dump()]
 
     def test_different_duplicate_seq_refused(self, workspace):
         journal = StudyRepository(workspace)
-        journal.append(self._record(1, "edit_model"))
+        journal.append(self._record(workspace, 1, "edit_model"))
         with pytest.raises(FileExistsError):
-            journal.append(self._record(1, "prepare_data"))
+            journal.append(self._record(workspace, 1, "prepare_data"))
 
     def test_latest_seq_reads_max_entry_without_state_manifest(self, workspace):
         journal = StudyRepository(workspace)
         assert journal.latest_seq() == 0
-        journal.append(self._record(3, "edit_model"))
+        journal.append(self._record(workspace, 3, "edit_model"))
         assert journal.latest_seq() == 3
 
 
@@ -182,7 +190,9 @@ class TestDerivedCurrentState:
                 result=None if action == "edit_model" else DataPreparationResult(),
                 effects=ActionEffects(produced=produced or (), retracted=retracted or ()),
             )
-            record = applied_record(result, seq=seq)
+            record = TestStudyRepository()._record(
+                workspace, seq, action, **result.effects.model_dump()
+            )
         else:
             # A failed outcome has no artifact payload, even if staging wrote a tree.
             variant = {"edit_model": EditAttempt, "prepare_data": PrepareAttempt}[action]

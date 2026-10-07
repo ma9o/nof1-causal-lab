@@ -129,81 +129,15 @@ New studies initialize their local bare repository on first use. On a fresh chec
 
 ```bash
 git clone --mirror data/DEMO/study/history.bundle data/DEMO/study/history.git
-git --git-dir=data/DEMO/study/history.git config nof1.format 20
+git --git-dir=data/DEMO/study/history.git config nof1.format 21
 ```
 
-#### Migrating a local study
+#### Storage format
 
-The migration tools and their tests live in the gitignored `scratchpad/migrations/` directory. Run the commands below from the repository root with those local tools present.
-
-The current runtime requires format 20. Restore only a bundle exported after the offline conversion. Stop the study and close its workflow before converting. The destination must be new and outside the source; the source remains untouched. Convert a format-19 study with the [format-20 converter](../../scratchpad/migrations/migrate_format_20.py):
-
-```bash
-uv run --project apps/data-pipeline python -m scratchpad.migrations.migrate_format_20 \
-  data/STUDY /tmp/format20/STUDY
-```
-
-It wraps retained requests, rebuilds call IDs, and retains the accumulated execution log without scientific execution. Both successful and failed calls are indexed; duplicate historical calls use their first recorded outcome. Unknown original requests remain unknown. If an action's scientific input schema also changed, `--requests` accepts verified current requests keyed by source attempt commit. Retired model-independent preparation calls require that explicit mapping.
-
-Older studies must first reach format 19 using the matching historical contracts and converters. Convert a format-16 study through formats 17 and 18, then format 19:
-
-1. Stop work on the study and close its workflow:
-
-   ```bash
-   temporal workflow signal --workflow-id study-STUDY --name close
-   ```
-
-2. Run the [format-17 converter](../../scratchpad/migrations/migrate_format_17.py), the [format-18 converter](../../scratchpad/migrations/migrate_format_18.py) and the [format-19 converter](../../scratchpad/migrations/migrate_format_19.py), each into another new destination. The destination must be new and outside the source, and the source is left untouched.
-
-   ```bash
-   uv run --project apps/data-pipeline python -m scratchpad.migrations.migrate_format_17 \
-     data/STUDY /tmp/format17/STUDY --file-hashes /path/to/verified-file-hashes.json
-   uv run --project apps/data-pipeline python -m scratchpad.migrations.migrate_format_18 \
-     /tmp/format17/STUDY /tmp/format18/STUDY
-   uv run --project apps/data-pipeline python -m scratchpad.migrations.migrate_format_19 \
-     /tmp/format18/STUDY /tmp/format19/STUDY
-   ```
-
-   The format-19 converter evaluates each applied attempt once, as its action
-   publishes, and retains the reports with its record.
-   The format-17 converter rebuilds retained call arguments, names each panel originally
-   read, removes branch fields and rewrites revision references. Missing upload hashes
-   require verified historical SHA-256 values keyed by source call commit; unknown
-   historical calls remain unknown; `--requests` accepts verified original arguments
-   for calls whose transport was not retained. It performs no scientific execution.
-   Convert format 15 with the [format-16 converter](../../scratchpad/migrations/migrate_format_16.py) first.
-   Convert a format-14 study with the
-   [format-15 converter](../../scratchpad/migrations/migrate_format_15.py)
-   first. That conversion requires the original resolved sampler controls via
-   `--sampler-settings` when the report did not retain them, and binds overlays
-   to their pinned evaluation schedules. Earlier studies first use the
-   [format-14](../../scratchpad/migrations/migrate_format_14.py),
-   [format-13](../../scratchpad/migrations/migrate_format_13.py), or
-   [format-12](../../scratchpad/migrations/migrate_format_12.py)
-   converter for their respective source format.
-
-3. Review the migrated snapshots and ref mapping before a live cutover. Then, while offline, back up each whole original under `.local/format-backup-<date>/STUDY`, including `store/`, and replace `data/STUDY` with the migrated repository, keeping one study per ID. Keep backups outside `data/` in durable storage; temporary directories are only converter destinations.
-
-4. Restart the workers with the new code and start a fresh `study-STUDY` workflow from the migrated Git state; don't replay the previous workflow. Export any fixture bundle from the migrated repository, then run `bun run fixture:build`.
-
-Formats before 11 have no route to the current runtime.
-
-#### Squashing a local study's action history
-
-Stop work on the study and close its `study-STUDY` workflow, as in the [migration procedure](#migrating-a-local-study). The [history squash script](../../scratchpad/migrations/squash_study_history.py) compacts saved effects through an applied commit `R` into a new directory outside the source. Keep the directory's basename, which is the logical workspace ID:
-
-```bash
-uv run --project apps/data-pipeline python -m scratchpad.migrations.squash_study_history \
-  data/STUDY /tmp/squashed/STUDY --at R --dry-run
-uv run --project apps/data-pipeline python -m scratchpad.migrations.squash_study_history \
-  data/STUDY /tmp/squashed/STUDY --at R
-```
-
-Replace `R` with the applied commit OID. The dry run lists retained and dropped attempts without copying. The script keeps the root, `R`, the entire suffix, and the dependency closure of the prefix's last artifact writers (including retractions) and latest fresh simulation. It preserves saved artifact and log objects, all artifact refs, numerical files and authorship links; `squash-mapping.json` maps original commits to new commits or `null` for dropped actions. Sequence numbers and attempt IDs retain their gaps.
-
-At `R` and later commits, artifacts (including absence), supporting evidence and saved action reports are preserved. Readers load retained reports without evaluating checks; missing historical reports remain absent. This is the smallest closure of the mandatory writers, not a globally minimal history: redundant retractions can retain extra actions. There is no optimizer, numerical execution or post-squash equality gate.
-
-Only current-format histories with one main ref are supported. The script refuses recorded data comparisons, simulation-replicate panels anywhere in the preserved catalog, other Git heads, and retained scientific inputs without a recorded producer. Review the new copy, select it offline, then start a fresh workflow and regenerate any fixture bundle using the migration procedure above. The source is unchanged.
+The [storage owner](../../apps/data-pipeline/src/nof1_causal_lab/study/git_objects.py)
+requires format 21. Start a new study or restore a format-21 bundle. This change
+includes no conversion of existing studies; older migration and squash tools do
+not produce the current format.
 
 ### Local stack
 
@@ -264,14 +198,14 @@ rather than orphaning them. To start genuinely fresh, delete that
 data/
 ├── <WORKSPACE_ID>/        # User-facing workspace
 │   ├── input/             # Ready-to-use CSV or Parquet tables for prepare_data
-│   ├── store/             # Content-addressed arrays and external table blobs
-│   ├── study/             # Local Git history with logs and traces in each commit
-│   ├── cache/             # Evictable compilation and artifact-read reuse
+│   ├── store/             # Uploaded tables and transient execution buffers
+│   ├── study/             # Complete results, logs and traces in each Git commit
+│   ├── cache/             # Temporary compilation and file materialization
 │   └── scratch/           # Live progress events and run-scoped execution state
 └── DEMO/                  # Tracked mock fixture workspace (evals + manual sampling)
 ```
 
-Back up the whole workspace directory, including `store/`, because the Git history doesn't hold the numerical arrays. Cache entries are safe to delete at any time. `uv run nof1-sweep WORKSPACE_ID` expires telemetry and caches, and offline maintenance can add `--collect-runs` to remove finished run scratch.
+Back up the whole workspace directory: Git retains complete action results and their numerical buffers; `store/` retains uploaded input tables. See the [storage owner](../../apps/data-pipeline/src/nof1_causal_lab/study/store.py). Temporary cache entries are safe to delete at any time. `uv run nof1-sweep WORKSPACE_ID` expires telemetry and caches, and offline maintenance can add `--collect-runs` to remove finished run scratch.
 
 ### Promoting a workspace to the DEMO fixture
 
@@ -288,7 +222,7 @@ for Storybook. It replaces `data/DEMO` as a unit rather than merging,
 and excludes `cache/` and `scratch/`. It exports all Git refs and objects to
 `study/history.bundle` so the tracked fixture retains the main history, attempts and
 artifact trees while its local bare repository remains gitignored. The files in
-`store/` retain the external numerical payloads.
+`store/` retain uploaded input tables.
 
 The tracked `data/DEMO/study/history.bundle` and `data/DEMO/store/` are the fixture's authoritative inputs. Files under `data/DEMO/fixture/` are generated projections for Storybook. General behavior tests use small, test-owned fixtures independent of DEMO. Regenerate Storybook fixtures with:
 
@@ -298,7 +232,7 @@ bun run fixture:build
 
 The command restores the bundle into an isolated temporary repository and uses the production readers to project artifacts, logs, traces, historical snapshots and workbench comparisons in one pass. It does not read the local `history.git` or the generated projections as inputs. DEMO has no numbered artifact directories or separate journal and trace directories.
 
-The bundle preserves the illustrative action history and authored and extracted facts. DEMO retained no posterior samples, so its fit has no numerical evidence or posterior summaries. Reports and checks load the findings retained with [action outcomes](../../apps/data-pipeline/src/nof1_causal_lab/actions/effects.py); missing historical reports remain absent. Regeneration does not fit, simulate, or invent missing scientific artifacts. Prior plot viewports use a small deterministic draw from the retained prior laws.
+The bundle preserves the illustrative action history and authored and extracted facts. DEMO retained no posterior samples, so its fit has no numerical evidence or posterior summaries. Reports and checks load the findings retained with [complete action results](../../apps/data-pipeline/src/nof1_causal_lab/actions/io.py); missing historical reports remain absent. Regeneration does not fit, simulate, or invent missing scientific artifacts. Prior plot viewports use a small deterministic draw from the retained prior laws.
 
 ### Publishing a workspace
 

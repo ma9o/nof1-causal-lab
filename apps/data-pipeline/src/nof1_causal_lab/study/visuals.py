@@ -136,7 +136,7 @@ def recorded_simulation_paths(
         reference_observed = cast("np.ndarray", reference_observed)
         outcome = report.evidence.state_ids.index(report.causal.value.outcome)
         differences = latent[:, :, outcome] - reference[:, :, outcome]
-        effect = PathSeries(
+        effect = PathSeries.from_paths(
             label=report.causal.value.labels[report.causal.value.outcome],
             action=paths(differences),
         )
@@ -166,7 +166,7 @@ def recorded_simulation_paths(
         start=start,
         count=stop - start,
         states={
-            identity: PathSeries(
+            identity: PathSeries.from_paths(
                 label=model.get_construct(identity).name,
                 action=paths(latent[:, :, index]),
                 reference=paths(reference[:, :, index]) if reference is not None else (),
@@ -174,7 +174,7 @@ def recorded_simulation_paths(
             for index, identity in enumerate(report.evidence.state_ids)
         },
         indicators={
-            variable.id: PathSeries(
+            variable.id: PathSeries.from_paths(
                 label=variable.name,
                 action=paths(np.where(mask[:, :, index], observed[:, :, index], np.nan)),
                 reference=paths(

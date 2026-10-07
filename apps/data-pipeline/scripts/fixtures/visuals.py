@@ -85,4 +85,9 @@ def workbench_visuals(reader: ModelReader, template):
         "simulation": paths.model_dump(mode="json"),
         "observations": observations,
         "parameters": reader.parameter_draws().model_dump(mode="json"),
+        "arrays": {
+            key: value.model_dump(mode="json") for key, value in reader.fit_result.arrays.items()
+        }
+        if reader.fit_result is not None
+        else {},
     }

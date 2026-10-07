@@ -220,11 +220,12 @@ def test_extraction_requires_some_observations(workspace, tmp_path, nonempty):
     from nof1_causal_lab.study.history import StudyRepository
 
     journal = StudyRepository(workspace)
-    record = applied_record(effects, seq=1, ts="2026-01-01T00:00:00Z", trace_ids=[])
+    record = applied_record(workspace, effects, seq=1, ts="2026-01-01T00:00:00Z", trace_ids=[])
     journal.append(record)
     outcome = journal.attempts()[0].record.attempt.outcome
     assert outcome.status == "applied"
-    assert outcome == effects
+    assert outcome.effects.produced == effects.effects.produced
+    assert journal.read_file(journal.head(), "result.json")
     current = apply_effects(state, effects.effects.produced, effects.effects.retracted)
     if not nonempty:
         assert not current.has("panel")

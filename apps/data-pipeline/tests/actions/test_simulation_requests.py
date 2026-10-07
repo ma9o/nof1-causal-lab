@@ -216,7 +216,7 @@ def test_runner_derives_origin_and_reliability_from_current_panel_or_fit(
     from nof1_causal_lab.study.store import ArtifactStore
     from nof1_causal_lab.utils import data
     from tests.helpers import run_async, write_question
-    from tests.inference_fixtures import _report, inference_log, parameter_draws
+    from tests.inference_fixtures import _report, inference_evidence, parameter_draws
     from tests.integration.runner_fixtures import panel_frame, panel_metadata
 
     monkeypatch.setattr(data, "_DATA_URI", str(tmp_path))
@@ -282,6 +282,7 @@ def test_runner_derives_origin_and_reliability_from_current_panel_or_fit(
             )
             StudyRepository("ORIGIN").append(
                 applied_record(
+                    "ORIGIN",
                     Applied(
                         result=ModelFitResult(
                             model=GitRef(
@@ -290,11 +291,7 @@ def test_runner_derives_origin_and_reliability_from_current_panel_or_fit(
                             data=DataRef[GitOid, int](
                                 revision=fit_panel.revision, replicate_index=0
                             ),
-                            evidence=inference_log(
-                                model
-                            ).record.attempt.outcome.result.evidence.revised(
-                                time_origin=fit_origin
-                            ),
+                            evidence=inference_evidence(model).revised(time_origin=fit_origin),
                         ),
                         effects=ActionEffects(produced=(prior, fit_panel, record)),
                     ),

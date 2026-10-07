@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING, Literal
 from nof1_causal_lab.artifacts.availability import Unavailable
 from nof1_causal_lab.artifacts.checks import Evaluated, NotEvaluated
 from nof1_causal_lab.artifacts.identification import IdentificationReport
-from nof1_causal_lab.artifacts.model_checks import EvaluatedPredictiveChecks
 from nof1_causal_lab.artifacts.validation_report import (
     DataProfileArtifact,
     ValidationReportArtifact,
@@ -62,19 +61,6 @@ def completion_messages(
                     labels["QUESTION_CONSTRUCTS_UNDEFINED"] = "info"
             elif finding.outcome in {"failed", "error"}:
                 labels[_QUESTION_LABELS[finding.subject.check]] = "warn"
-        predictive = checks.predictive
-        if predictive is not None:
-            if predictive.status == "failed":
-                labels["PREDICTIVE_CHECK_FAILED"] = "warn"
-            if predictive.status == "not_evaluated" or (
-                isinstance(predictive.evaluation, EvaluatedPredictiveChecks)
-                and any(
-                    isinstance(finding, NotEvaluated) for finding in predictive.evaluation.findings
-                )
-            ):
-                labels["SIMULATION_CHECK_NOT_EVALUATED"] = "info"
-            if "predictive" in checks.reused:
-                labels["PREDICTIVE_CHECKS_REUSED"] = "debug"
 
     for report in reports:
         if isinstance(report, IdentificationReport):
@@ -111,7 +97,25 @@ def completion_messages(
             labels["SIMULATION_CHECK_NOT_EVALUATED"] = "info"
         if isinstance(simulation.causal, Unavailable):
             labels["CAUSAL_EFFECT_NOT_REPORTABLE"] = "info"
-    return tuple(
-        ActionMessage(timestamp=timestamp, level=level, label=label)
-        for label, level in labels.items()
+    execution = (
+        (
+            ActionMessage(
+                timestamp=timestamp,
+                level="info",
+                label="EXTRACTION_COMPLETED",
+                details={
+                    "workers": [worker.model_dump(mode="json") for worker in result.workers],
+                    "extraction_reused": result.extraction_reused,
+                },
+            ),
+        )
+        if isinstance(result, DataPreparationResult)
+        else ()
+    )
+    return (
+        *execution,
+        *tuple(
+            ActionMessage(timestamp=timestamp, level=level, label=label)
+            for label, level in labels.items()
+        ),
     )

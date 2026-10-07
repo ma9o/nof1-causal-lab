@@ -158,7 +158,7 @@ class ModelSimulationResult(Value):
 
 
 class SimulationReport(Value):
-    """Current-code measurements of immutable simulation evidence."""
+    """Findings evaluated during simulation and retained with its exact evidence."""
 
     evidence: SimulationEvidence
     law: PredictiveLawProvenance

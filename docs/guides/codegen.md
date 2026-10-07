@@ -116,7 +116,7 @@ records own their input references and produced artifact revisions.
 Workflow: **edit Python → `bun run codegen` → commit both**.
 
 Follow the [type naming conventions](#type-naming-conventions). `ModelSpec` is the
-directly persisted scientific definition; `ConstructSpec`, `IndicatorSpec`, and
+scientific definition retained inside the owning [action result](../../apps/data-pipeline/src/nof1_causal_lab/actions/io.py); `ConstructSpec`, `IndicatorSpec`, and
 `ParameterSpec` retain their canonical ownership inside it, while [`Value`](../../apps/data-pipeline/src/nof1_causal_lab/artifacts/base.py) supplies the shared immutable
 base. Server-composed views and study records share this export. Frontend code
 owns presentation state only.
@@ -167,8 +167,8 @@ options stay absent rather than being assigned `undefined`.
 [Fixture generation](../../apps/data-pipeline/scripts/fixtures/study.py) emits
 `.d.json.ts` declarations alongside canonical JSON projections. They reference
 the production domain types without copying payloads or declaring another
-schema. `fixture:build` owns both outputs. Stored trace and
-predictive-check bytes pass through their Python contract owners before export;
+schema. `fixture:build` owns both outputs. Stored results and
+trace bytes pass through their Python contract owners before export;
 the declarations preserve discriminators and scientific IDs in JSON imports.
 
 ## Troubleshooting

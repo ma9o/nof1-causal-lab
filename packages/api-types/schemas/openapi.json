@@ -617,37 +617,37 @@
       "ActionAttempt": {
         "discriminator": {
           "mapping": {
-            "data_diff": "#/components/schemas/Attempt_Literal__data_diff___DataDiffRequest_GitOid__NoneType_",
-            "edit_model": "#/components/schemas/Attempt_Literal__edit_model___EditModelRequest_GitOid__NoneType_",
-            "edit_question": "#/components/schemas/Attempt_Literal__edit_question___EditQuestionRequest_NoneType_",
-            "fit": "#/components/schemas/Attempt_Literal__fit___FitRequest_GitOid__Union_ModelFitResult__NoneType__",
-            "model_diff": "#/components/schemas/Attempt_Literal__model_diff___ModelDiffRequest_GitOid__NoneType_",
-            "prepare_data": "#/components/schemas/Attempt_Literal__prepare_data___PrepareDataRequest_GitOid__FileSourceRef__DataPreparationResult_",
-            "simulate": "#/components/schemas/Attempt_Literal__simulate___SimulateRequest_GitOid__ModelSimulationResult_"
+            "data_diff": "#/components/schemas/Attempt_Literal__data_diff___DataDiffRequest_GitOid__GitOid_",
+            "edit_model": "#/components/schemas/Attempt_Literal__edit_model___EditModelRequest_GitOid__GitOid_",
+            "edit_question": "#/components/schemas/Attempt_Literal__edit_question___EditQuestionRequest_GitOid_",
+            "fit": "#/components/schemas/Attempt_Literal__fit___FitRequest_GitOid__GitOid_",
+            "model_diff": "#/components/schemas/Attempt_Literal__model_diff___ModelDiffRequest_GitOid__GitOid_",
+            "prepare_data": "#/components/schemas/Attempt_Literal__prepare_data___PrepareDataRequest_GitOid__FileSourceRef__GitOid_",
+            "simulate": "#/components/schemas/Attempt_Literal__simulate___SimulateRequest_GitOid__GitOid_"
           },
           "propertyName": "action"
         },
         "oneOf": [
           {
-            "$ref": "#/components/schemas/Attempt_Literal__edit_question___EditQuestionRequest_NoneType_"
+            "$ref": "#/components/schemas/Attempt_Literal__edit_question___EditQuestionRequest_GitOid_"
           },
           {
-            "$ref": "#/components/schemas/Attempt_Literal__edit_model___EditModelRequest_GitOid__NoneType_"
+            "$ref": "#/components/schemas/Attempt_Literal__edit_model___EditModelRequest_GitOid__GitOid_"
           },
           {
-            "$ref": "#/components/schemas/Attempt_Literal__prepare_data___PrepareDataRequest_GitOid__FileSourceRef__DataPreparationResult_"
+            "$ref": "#/components/schemas/Attempt_Literal__prepare_data___PrepareDataRequest_GitOid__FileSourceRef__GitOid_"
           },
           {
-            "$ref": "#/components/schemas/Attempt_Literal__fit___FitRequest_GitOid__Union_ModelFitResult__NoneType__"
+            "$ref": "#/components/schemas/Attempt_Literal__fit___FitRequest_GitOid__GitOid_"
           },
           {
-            "$ref": "#/components/schemas/Attempt_Literal__simulate___SimulateRequest_GitOid__ModelSimulationResult_"
+            "$ref": "#/components/schemas/Attempt_Literal__simulate___SimulateRequest_GitOid__GitOid_"
           },
           {
-            "$ref": "#/components/schemas/Attempt_Literal__data_diff___DataDiffRequest_GitOid__NoneType_"
+            "$ref": "#/components/schemas/Attempt_Literal__data_diff___DataDiffRequest_GitOid__GitOid_"
           },
           {
-            "$ref": "#/components/schemas/Attempt_Literal__model_diff___ModelDiffRequest_GitOid__NoneType_"
+            "$ref": "#/components/schemas/Attempt_Literal__model_diff___ModelDiffRequest_GitOid__GitOid_"
           }
         ],
         "x-python-module": "nof1_causal_lab.study.records",
@@ -741,13 +741,21 @@
             "pattern": "^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$",
             "title": "Label",
             "type": "string"
+          },
+          "details": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/JsonValue-Output"
+            },
+            "title": "Details",
+            "type": "object"
           }
         },
         "required": [
           "kind",
           "timestamp",
           "level",
-          "label"
+          "label",
+          "details"
         ],
         "title": "ActionMessage",
         "type": "object",
@@ -977,7 +985,7 @@
             "type": "string"
           },
           "result": {
-            "description": "Action-specific retained result; some actions publish only effects and use null here.",
+            "description": "Complete saved result reference, or the transient evidence awaiting completion.",
             "title": "Result",
             "tsType": "ResultT",
             "type": "string"
@@ -1002,7 +1010,7 @@
         "x-layer": "study",
         "x-concern": "execution_history"
       },
-      "Applied_DataPreparationResult_": {
+      "Applied_GitOid_": {
         "additionalProperties": false,
         "properties": {
           "status": {
@@ -1013,8 +1021,8 @@
             "type": "string"
           },
           "result": {
-            "$ref": "#/components/schemas/DataPreparationResult",
-            "description": "Action-specific retained result; some actions publish only effects and use null here."
+            "$ref": "#/components/schemas/GitOid-Output",
+            "description": "Complete saved result reference, or the transient evidence awaiting completion."
           },
           "effects": {
             "$ref": "#/components/schemas/ActionEffects",
@@ -1026,42 +1034,10 @@
           "result",
           "effects"
         ],
-        "title": "Applied[DataPreparationResult]",
+        "title": "Applied[GitOid]",
         "type": "object",
         "x-typescript-mode": "serialization",
-        "x-typescript-type": "Applied<DataPreparationResult>",
-        "x-python-module": "nof1_causal_lab.study.records",
-        "x-layer": "study",
-        "x-concern": "execution_history"
-      },
-      "Applied_ModelSimulationResult_": {
-        "additionalProperties": false,
-        "properties": {
-          "status": {
-            "const": "applied",
-            "default": "applied",
-            "description": "Discriminator identifying an applied outcome.",
-            "title": "Status",
-            "type": "string"
-          },
-          "result": {
-            "$ref": "#/components/schemas/ModelSimulationResult",
-            "description": "Action-specific retained result; some actions publish only effects and use null here."
-          },
-          "effects": {
-            "$ref": "#/components/schemas/ActionEffects",
-            "description": "Produced and retracted artifacts and retained report references."
-          }
-        },
-        "required": [
-          "status",
-          "result",
-          "effects"
-        ],
-        "title": "Applied[ModelSimulationResult]",
-        "type": "object",
-        "x-typescript-mode": "serialization",
-        "x-typescript-type": "Applied<ModelSimulationResult>",
+        "x-typescript-type": "Applied<GitOid>",
         "x-python-module": "nof1_causal_lab.study.records",
         "x-layer": "study",
         "x-concern": "execution_history"
@@ -1077,7 +1053,7 @@
             "type": "string"
           },
           "result": {
-            "description": "Action-specific retained result; some actions publish only effects and use null here.",
+            "description": "Complete saved result reference, or the transient evidence awaiting completion.",
             "title": "Result",
             "type": "null"
           },
@@ -1099,42 +1075,91 @@
         "x-layer": "study",
         "x-concern": "execution_history"
       },
-      "Applied_Union_ModelFitResult__NoneType__": {
+      "ArrayVector": {
         "additionalProperties": false,
+        "description": "One vector selected from the result's numerical buffers without copying its values.",
         "properties": {
-          "status": {
-            "const": "applied",
-            "default": "applied",
-            "description": "Discriminator identifying an applied outcome.",
-            "title": "Status",
+          "array_ref": {
+            "pattern": "^[0-9a-f]{64}$",
+            "title": "Array Ref",
             "type": "string"
           },
-          "result": {
+          "indices": {
+            "items": {
+              "anyOf": [
+                {
+                  "minimum": 0,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Indices",
+            "type": "array"
+          },
+          "mask": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/ModelFitResult"
+                "$ref": "#/components/schemas/ArrayVector"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Action-specific retained result; some actions publish only effects and use null here."
+            "default": null
           },
-          "effects": {
-            "$ref": "#/components/schemas/ActionEffects",
-            "description": "Produced and retracted artifacts and retained report references."
+          "start": {
+            "default": 0,
+            "minimum": 0,
+            "title": "Start",
+            "type": "integer"
+          },
+          "stop": {
+            "anyOf": [
+              {
+                "minimum": 0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "default": null,
+            "title": "Stop"
           }
         },
         "required": [
-          "status",
-          "result",
-          "effects"
+          "array_ref",
+          "indices",
+          "mask",
+          "start",
+          "stop"
         ],
-        "title": "Applied[Union[ModelFitResult, NoneType]]",
+        "title": "ArrayVector",
         "type": "object",
-        "x-typescript-mode": "serialization",
-        "x-typescript-type": "Applied<ModelFitResult | null>",
-        "x-python-module": "nof1_causal_lab.study.records",
+        "x-python-module": "nof1_causal_lab.artifacts.arrays",
+        "x-layer": "findings",
+        "x-concern": "scientific_model"
+      },
+      "ArtifactFiles": {
+        "additionalProperties": false,
+        "description": "Execution staging or an uploaded input owns its physical files.",
+        "properties": {
+          "kind": {
+            "const": "files",
+            "default": "files",
+            "title": "Kind",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind"
+        ],
+        "title": "ArtifactFiles",
+        "type": "object",
+        "x-python-module": "nof1_causal_lab.study.state",
         "x-layer": "study",
         "x-concern": "execution_history"
       },
@@ -1187,6 +1212,9 @@
             "default": "",
             "title": "Created At",
             "type": "string"
+          },
+          "source": {
+            "$ref": "#/components/schemas/ArtifactSource"
           }
         },
         "required": [
@@ -1194,13 +1222,59 @@
           "revision",
           "derived_from",
           "produced_by",
-          "created_at"
+          "created_at",
+          "source"
         ],
         "title": "ArtifactRecord",
         "type": "object",
         "x-python-module": "nof1_causal_lab.study.state",
         "x-layer": "study",
         "x-concern": "execution_history"
+      },
+      "ArtifactResult": {
+        "additionalProperties": false,
+        "description": "A published scientific artifact selects a field of its owning action result.",
+        "properties": {
+          "kind": {
+            "const": "result",
+            "default": "result",
+            "title": "Kind",
+            "type": "string"
+          },
+          "result": {
+            "$ref": "#/components/schemas/GitOid-Output"
+          }
+        },
+        "required": [
+          "kind",
+          "result"
+        ],
+        "title": "ArtifactResult",
+        "type": "object",
+        "x-python-module": "nof1_causal_lab.study.state",
+        "x-layer": "study",
+        "x-concern": "execution_history"
+      },
+      "ArtifactSource": {
+        "discriminator": {
+          "mapping": {
+            "files": "#/components/schemas/ArtifactFiles",
+            "result": "#/components/schemas/ArtifactResult"
+          },
+          "propertyName": "kind"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/ArtifactFiles"
+          },
+          {
+            "$ref": "#/components/schemas/ArtifactResult"
+          }
+        ],
+        "x-python-module": "nof1_causal_lab.study.state",
+        "x-layer": "study",
+        "x-concern": "execution_history",
+        "description": "An artifact owns staged input files or references its complete action result."
       },
       "Assessment_Annotated_Any__WithJsonSchema__Annotated_Any__WithJsonSchema__": {
         "discriminator": {
@@ -1478,7 +1552,7 @@
         "x-layer": "study",
         "x-concern": "execution_history"
       },
-      "Attempt_Literal__data_diff___DataDiffRequest_GitOid__NoneType_": {
+      "Attempt_Literal__data_diff___DataDiffRequest_GitOid__GitOid_": {
         "additionalProperties": false,
         "properties": {
           "action": {
@@ -1500,7 +1574,7 @@
           "outcome": {
             "discriminator": {
               "mapping": {
-                "applied": "#/components/schemas/Applied_NoneType_",
+                "applied": "#/components/schemas/Applied_GitOid_",
                 "raised": "#/components/schemas/Raised",
                 "rejected": "#/components/schemas/Rejected"
               },
@@ -1508,7 +1582,7 @@
             },
             "oneOf": [
               {
-                "$ref": "#/components/schemas/Applied_NoneType_"
+                "$ref": "#/components/schemas/Applied_GitOid_"
               },
               {
                 "$ref": "#/components/schemas/Rejected"
@@ -1525,15 +1599,15 @@
           "request",
           "outcome"
         ],
-        "title": "Attempt[Literal['data_diff'], DataDiffRequest[GitOid], NoneType]",
+        "title": "Attempt[Literal['data_diff'], DataDiffRequest[GitOid], GitOid]",
         "type": "object",
         "x-typescript-mode": "serialization",
-        "x-typescript-type": "Attempt<\"data_diff\", DataDiffRequest<GitOid>, null>",
+        "x-typescript-type": "Attempt<\"data_diff\", DataDiffRequest<GitOid>, GitOid>",
         "x-python-module": "nof1_causal_lab.study.records",
         "x-layer": "study",
         "x-concern": "execution_history"
       },
-      "Attempt_Literal__edit_model___EditModelRequest_GitOid__NoneType_": {
+      "Attempt_Literal__edit_model___EditModelRequest_GitOid__GitOid_": {
         "additionalProperties": false,
         "properties": {
           "action": {
@@ -1555,7 +1629,7 @@
           "outcome": {
             "discriminator": {
               "mapping": {
-                "applied": "#/components/schemas/Applied_NoneType_",
+                "applied": "#/components/schemas/Applied_GitOid_",
                 "raised": "#/components/schemas/Raised",
                 "rejected": "#/components/schemas/Rejected"
               },
@@ -1563,7 +1637,7 @@
             },
             "oneOf": [
               {
-                "$ref": "#/components/schemas/Applied_NoneType_"
+                "$ref": "#/components/schemas/Applied_GitOid_"
               },
               {
                 "$ref": "#/components/schemas/Rejected"
@@ -1580,15 +1654,15 @@
           "request",
           "outcome"
         ],
-        "title": "Attempt[Literal['edit_model'], EditModelRequest[GitOid], NoneType]",
+        "title": "Attempt[Literal['edit_model'], EditModelRequest[GitOid], GitOid]",
         "type": "object",
         "x-typescript-mode": "serialization",
-        "x-typescript-type": "Attempt<\"edit_model\", EditModelRequest<GitOid>, null>",
+        "x-typescript-type": "Attempt<\"edit_model\", EditModelRequest<GitOid>, GitOid>",
         "x-python-module": "nof1_causal_lab.study.records",
         "x-layer": "study",
         "x-concern": "execution_history"
       },
-      "Attempt_Literal__edit_question___EditQuestionRequest_NoneType_": {
+      "Attempt_Literal__edit_question___EditQuestionRequest_GitOid_": {
         "additionalProperties": false,
         "properties": {
           "action": {
@@ -1610,7 +1684,7 @@
           "outcome": {
             "discriminator": {
               "mapping": {
-                "applied": "#/components/schemas/Applied_NoneType_",
+                "applied": "#/components/schemas/Applied_GitOid_",
                 "raised": "#/components/schemas/Raised",
                 "rejected": "#/components/schemas/Rejected"
               },
@@ -1618,7 +1692,7 @@
             },
             "oneOf": [
               {
-                "$ref": "#/components/schemas/Applied_NoneType_"
+                "$ref": "#/components/schemas/Applied_GitOid_"
               },
               {
                 "$ref": "#/components/schemas/Rejected"
@@ -1635,15 +1709,15 @@
           "request",
           "outcome"
         ],
-        "title": "Attempt[Literal['edit_question'], EditQuestionRequest, NoneType]",
+        "title": "Attempt[Literal['edit_question'], EditQuestionRequest, GitOid]",
         "type": "object",
         "x-typescript-mode": "serialization",
-        "x-typescript-type": "Attempt<\"edit_question\", EditQuestionRequest, null>",
+        "x-typescript-type": "Attempt<\"edit_question\", EditQuestionRequest, GitOid>",
         "x-python-module": "nof1_causal_lab.study.records",
         "x-layer": "study",
         "x-concern": "execution_history"
       },
-      "Attempt_Literal__fit___FitRequest_GitOid__Union_ModelFitResult__NoneType__": {
+      "Attempt_Literal__fit___FitRequest_GitOid__GitOid_": {
         "additionalProperties": false,
         "properties": {
           "action": {
@@ -1665,7 +1739,7 @@
           "outcome": {
             "discriminator": {
               "mapping": {
-                "applied": "#/components/schemas/Applied_Union_ModelFitResult__NoneType__",
+                "applied": "#/components/schemas/Applied_GitOid_",
                 "raised": "#/components/schemas/Raised",
                 "rejected": "#/components/schemas/Rejected"
               },
@@ -1673,7 +1747,7 @@
             },
             "oneOf": [
               {
-                "$ref": "#/components/schemas/Applied_Union_ModelFitResult__NoneType__"
+                "$ref": "#/components/schemas/Applied_GitOid_"
               },
               {
                 "$ref": "#/components/schemas/Rejected"
@@ -1690,15 +1764,15 @@
           "request",
           "outcome"
         ],
-        "title": "Attempt[Literal['fit'], FitRequest[GitOid], Union[ModelFitResult, NoneType]]",
+        "title": "Attempt[Literal['fit'], FitRequest[GitOid], GitOid]",
         "type": "object",
         "x-typescript-mode": "serialization",
-        "x-typescript-type": "Attempt<\"fit\", FitRequest<GitOid>, ModelFitResult | null>",
+        "x-typescript-type": "Attempt<\"fit\", FitRequest<GitOid>, GitOid>",
         "x-python-module": "nof1_causal_lab.study.records",
         "x-layer": "study",
         "x-concern": "execution_history"
       },
-      "Attempt_Literal__model_diff___ModelDiffRequest_GitOid__NoneType_": {
+      "Attempt_Literal__model_diff___ModelDiffRequest_GitOid__GitOid_": {
         "additionalProperties": false,
         "properties": {
           "action": {
@@ -1720,7 +1794,7 @@
           "outcome": {
             "discriminator": {
               "mapping": {
-                "applied": "#/components/schemas/Applied_NoneType_",
+                "applied": "#/components/schemas/Applied_GitOid_",
                 "raised": "#/components/schemas/Raised",
                 "rejected": "#/components/schemas/Rejected"
               },
@@ -1728,7 +1802,7 @@
             },
             "oneOf": [
               {
-                "$ref": "#/components/schemas/Applied_NoneType_"
+                "$ref": "#/components/schemas/Applied_GitOid_"
               },
               {
                 "$ref": "#/components/schemas/Rejected"
@@ -1745,15 +1819,15 @@
           "request",
           "outcome"
         ],
-        "title": "Attempt[Literal['model_diff'], ModelDiffRequest[GitOid], NoneType]",
+        "title": "Attempt[Literal['model_diff'], ModelDiffRequest[GitOid], GitOid]",
         "type": "object",
         "x-typescript-mode": "serialization",
-        "x-typescript-type": "Attempt<\"model_diff\", ModelDiffRequest<GitOid>, null>",
+        "x-typescript-type": "Attempt<\"model_diff\", ModelDiffRequest<GitOid>, GitOid>",
         "x-python-module": "nof1_causal_lab.study.records",
         "x-layer": "study",
         "x-concern": "execution_history"
       },
-      "Attempt_Literal__prepare_data___PrepareDataRequest_GitOid__FileSourceRef__DataPreparationResult_": {
+      "Attempt_Literal__prepare_data___PrepareDataRequest_GitOid__FileSourceRef__GitOid_": {
         "additionalProperties": false,
         "properties": {
           "action": {
@@ -1775,7 +1849,7 @@
           "outcome": {
             "discriminator": {
               "mapping": {
-                "applied": "#/components/schemas/Applied_DataPreparationResult_",
+                "applied": "#/components/schemas/Applied_GitOid_",
                 "raised": "#/components/schemas/Raised",
                 "rejected": "#/components/schemas/Rejected"
               },
@@ -1783,7 +1857,7 @@
             },
             "oneOf": [
               {
-                "$ref": "#/components/schemas/Applied_DataPreparationResult_"
+                "$ref": "#/components/schemas/Applied_GitOid_"
               },
               {
                 "$ref": "#/components/schemas/Rejected"
@@ -1800,15 +1874,15 @@
           "request",
           "outcome"
         ],
-        "title": "Attempt[Literal['prepare_data'], PrepareDataRequest[GitOid, FileSourceRef], DataPreparationResult]",
+        "title": "Attempt[Literal['prepare_data'], PrepareDataRequest[GitOid, FileSourceRef], GitOid]",
         "type": "object",
         "x-typescript-mode": "serialization",
-        "x-typescript-type": "Attempt<\"prepare_data\", PrepareDataRequest<GitOid, FileSourceRef>, DataPreparationResult>",
+        "x-typescript-type": "Attempt<\"prepare_data\", PrepareDataRequest<GitOid, FileSourceRef>, GitOid>",
         "x-python-module": "nof1_causal_lab.study.records",
         "x-layer": "study",
         "x-concern": "execution_history"
       },
-      "Attempt_Literal__simulate___SimulateRequest_GitOid__ModelSimulationResult_": {
+      "Attempt_Literal__simulate___SimulateRequest_GitOid__GitOid_": {
         "additionalProperties": false,
         "properties": {
           "action": {
@@ -1830,7 +1904,7 @@
           "outcome": {
             "discriminator": {
               "mapping": {
-                "applied": "#/components/schemas/Applied_ModelSimulationResult_",
+                "applied": "#/components/schemas/Applied_GitOid_",
                 "raised": "#/components/schemas/Raised",
                 "rejected": "#/components/schemas/Rejected"
               },
@@ -1838,7 +1912,7 @@
             },
             "oneOf": [
               {
-                "$ref": "#/components/schemas/Applied_ModelSimulationResult_"
+                "$ref": "#/components/schemas/Applied_GitOid_"
               },
               {
                 "$ref": "#/components/schemas/Rejected"
@@ -1855,10 +1929,10 @@
           "request",
           "outcome"
         ],
-        "title": "Attempt[Literal['simulate'], SimulateRequest[GitOid], ModelSimulationResult]",
+        "title": "Attempt[Literal['simulate'], SimulateRequest[GitOid], GitOid]",
         "type": "object",
         "x-typescript-mode": "serialization",
-        "x-typescript-type": "Attempt<\"simulate\", SimulateRequest<GitOid>, ModelSimulationResult>",
+        "x-typescript-type": "Attempt<\"simulate\", SimulateRequest<GitOid>, GitOid>",
         "x-python-module": "nof1_causal_lab.study.records",
         "x-layer": "study",
         "x-concern": "execution_history"
@@ -2971,19 +3045,6 @@
         "x-layer": "read_models",
         "x-concern": "read_models"
       },
-      "CheckGroup": {
-        "enum": [
-          "specification",
-          "identification",
-          "compatibility",
-          "question"
-        ],
-        "type": "string",
-        "x-python-module": "nof1_causal_lab.artifacts.model_checks",
-        "x-layer": "findings",
-        "x-concern": "scientific_model",
-        "description": "A group of model checks is selected by the inputs it consumes."
-      },
       "CoefficientExpression-Input": {
         "additionalProperties": false,
         "description": "A scientifically typed coefficient operand, literal or parameter reference.",
@@ -3116,41 +3177,6 @@
         "x-layer": "authored",
         "x-concern": "scientific_model",
         "description": "A coefficient role identifies an expression operand\u2019s scientific quantity and support."
-      },
-      "CompletedExtractionWorker": {
-        "additionalProperties": false,
-        "description": "Counts of extracted observations and windows retained from a completed worker.",
-        "properties": {
-          "worker_id": {
-            "title": "Worker Id",
-            "type": "integer"
-          },
-          "n_extractions": {
-            "title": "N Extractions",
-            "type": "integer"
-          },
-          "n_windows": {
-            "title": "N Windows",
-            "type": "integer"
-          },
-          "status": {
-            "const": "completed",
-            "default": "completed",
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "worker_id",
-          "n_extractions",
-          "n_windows",
-          "status"
-        ],
-        "title": "CompletedExtractionWorker",
-        "type": "object",
-        "x-python-module": "nof1_causal_lab.artifacts.data_preparation",
-        "x-layer": "authored",
-        "x-concern": "scientific_model"
       },
       "ComputedExtractionSpec-Input": {
         "additionalProperties": false,
@@ -3923,41 +3949,6 @@
         "x-python-module": "nof1_causal_lab.study.view_models",
         "x-layer": "read_models",
         "x-concern": "read_models"
-      },
-      "DataPreparationResult": {
-        "additionalProperties": false,
-        "description": "Preparation artifacts and the measurements actually retained by extraction.",
-        "properties": {
-          "workers": {
-            "default": [],
-            "items": {
-              "$ref": "#/components/schemas/ExtractionWorkerResult"
-            },
-            "title": "Workers",
-            "type": "array"
-          },
-          "extraction_reused": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Extraction Reused"
-          }
-        },
-        "required": [
-          "workers",
-          "extraction_reused"
-        ],
-        "title": "DataPreparationResult",
-        "type": "object",
-        "x-python-module": "nof1_causal_lab.study.records",
-        "x-layer": "study",
-        "x-concern": "execution_history"
       },
       "DataPreparationSpec": {
         "additionalProperties": false,
@@ -4856,65 +4847,6 @@
             "$ref": "#/components/schemas/ModelGraphView",
             "description": "Construct and edge identities, dynamic membership, and execution status for the graph view."
           },
-          "validation_report": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ValidationReportArtifact"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Data findings combined with model-dependent preflight checks, when a report is available."
-          },
-          "specification": {
-            "anyOf": [
-              {
-                "items": {
-                  "$ref": "#/components/schemas/SpecificationAssessment"
-                },
-                "type": "array"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Individual assessments of whether the model can be compiled and used with its selected inputs.",
-            "title": "Specification"
-          },
-          "question_checks": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/QuestionCheckReport"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Findings about the model's ability to address the selected study question."
-          },
-          "predictive": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ModelPredictiveReport"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Predictive check findings for the model's implied behavior."
-          },
-          "predictive_overlays": {
-            "additionalProperties": {
-              "$ref": "#/components/schemas/PPCOverlay"
-            },
-            "description": "Observed and generated summaries keyed by indicator.",
-            "propertyNames": {
-              "$ref": "#/components/schemas/IndicatorId-Output"
-            },
-            "title": "Predictive Overlays",
-            "type": "object"
-          },
           "entity_failures": {
             "additionalProperties": {
               "items": {
@@ -4959,20 +4891,6 @@
             "title": "Observation Equations",
             "type": "object"
           },
-          "likelihood_diagnostics": {
-            "additionalProperties": {
-              "items": {
-                "$ref": "#/components/schemas/HistogramBin"
-              },
-              "type": "array"
-            },
-            "description": "Histograms of recorded indicator values for comparison with their declared likelihoods.",
-            "propertyNames": {
-              "$ref": "#/components/schemas/IndicatorId-Output"
-            },
-            "title": "Likelihood Diagnostics",
-            "type": "object"
-          },
           "authoring_prior_densities": {
             "additionalProperties": {
               "$ref": "#/components/schemas/DensityCurve"
@@ -4983,6 +4901,14 @@
             },
             "title": "Authoring Prior Densities",
             "type": "object"
+          },
+          "arrays": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/NumericalArray"
+            },
+            "description": "Exact buffers referenced by the saved model's numerical laws.",
+            "title": "Arrays",
+            "type": "object"
           }
         },
         "required": [
@@ -4992,17 +4918,12 @@
           "identification",
           "dispositions",
           "graph",
-          "validation_report",
-          "specification",
-          "question_checks",
-          "predictive",
-          "predictive_overlays",
           "entity_failures",
           "confounder_equations",
           "state_equations",
           "observation_equations",
-          "likelihood_diagnostics",
-          "authoring_prior_densities"
+          "authoring_prior_densities",
+          "arrays"
         ],
         "title": "EditModelOutput",
         "type": "object",
@@ -5387,46 +5308,6 @@
         "x-layer": "identity",
         "x-concern": "identity",
         "description": "An entity reference identifies a construct, edge, indicator, or mechanism by its persistent identity."
-      },
-      "EvaluatedPredictiveChecks": {
-        "additionalProperties": false,
-        "description": "An evaluated run may retain failed and partially unavailable scientific evidence.",
-        "properties": {
-          "kind": {
-            "const": "evaluated",
-            "default": "evaluated",
-            "title": "Kind",
-            "type": "string"
-          },
-          "findings": {
-            "items": {
-              "$ref": "#/components/schemas/PredictiveAssessment"
-            },
-            "title": "Findings",
-            "type": "array"
-          },
-          "predictive_checks": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/PosteriorPredictiveChecks"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null
-          }
-        },
-        "required": [
-          "kind",
-          "findings",
-          "predictive_checks"
-        ],
-        "title": "EvaluatedPredictiveChecks",
-        "type": "object",
-        "x-python-module": "nof1_causal_lab.artifacts.model_checks",
-        "x-layer": "findings",
-        "x-concern": "scientific_model"
       },
       "Evaluated_Annotated_Any__WithJsonSchema__Annotated_Any__WithJsonSchema__": {
         "additionalProperties": false,
@@ -6162,92 +6043,6 @@
         "x-layer": "study",
         "x-concern": "execution_history"
       },
-      "ExtractionWorkerResult": {
-        "discriminator": {
-          "mapping": {
-            "completed": "#/components/schemas/CompletedExtractionWorker",
-            "failed": "#/components/schemas/FailedExtractionChunk"
-          },
-          "propertyName": "status"
-        },
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/CompletedExtractionWorker"
-          },
-          {
-            "$ref": "#/components/schemas/FailedExtractionChunk"
-          }
-        ],
-        "x-python-module": "nof1_causal_lab.artifacts.data_preparation",
-        "x-layer": "authored",
-        "x-concern": "scientific_model"
-      },
-      "FailedExtractionChunk": {
-        "additionalProperties": false,
-        "description": "A failed extraction chunk with its error, retained counts, and execution details.",
-        "properties": {
-          "worker_id": {
-            "title": "Worker Id",
-            "type": "integer"
-          },
-          "n_extractions": {
-            "title": "N Extractions",
-            "type": "integer"
-          },
-          "n_windows": {
-            "title": "N Windows",
-            "type": "integer"
-          },
-          "status": {
-            "const": "failed",
-            "default": "failed",
-            "title": "Status",
-            "type": "string"
-          },
-          "error": {
-            "title": "Error",
-            "type": "string"
-          },
-          "n_llm_calls": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": 0,
-            "title": "N Llm Calls"
-          },
-          "reused": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": false,
-            "title": "Reused"
-          }
-        },
-        "required": [
-          "worker_id",
-          "n_extractions",
-          "n_windows",
-          "status",
-          "error",
-          "n_llm_calls",
-          "reused"
-        ],
-        "title": "FailedExtractionChunk",
-        "type": "object",
-        "x-python-module": "nof1_causal_lab.artifacts.data_preparation",
-        "x-layer": "authored",
-        "x-concern": "scientific_model"
-      },
       "FailedPoll": {
         "additionalProperties": false,
         "description": "A terminal failure with its full details in the accumulated messages.",
@@ -6274,17 +6069,18 @@
               }
             ]
           },
-          "body": {
-            "default": null,
-            "title": "Body",
-            "type": "null"
-          },
           "messages": {
             "items": {
               "$ref": "#/components/schemas/ExecutionMessage"
             },
             "title": "Messages",
             "type": "array"
+          },
+          "body": {
+            "description": "The shared envelope has no scientific result after failure.",
+            "readOnly": true,
+            "title": "Body",
+            "type": "null"
           }
         },
         "required": [
@@ -6292,8 +6088,8 @@
           "action",
           "status",
           "commit_id",
-          "body",
-          "messages"
+          "messages",
+          "body"
         ],
         "title": "FailedPoll",
         "type": "object",
@@ -6526,8 +6322,8 @@
         "description": "The fitted model, inference findings, parameter draws, and numerical arrays.",
         "properties": {
           "model": {
-            "$ref": "#/components/schemas/EditModelOutput",
-            "description": "Model definition and scientific findings associated with this fit."
+            "$ref": "#/components/schemas/ModelSpec-Output",
+            "description": "The model with its joint parameter law conditioned on the selected data."
           },
           "inference": {
             "anyOf": [
@@ -6540,16 +6336,85 @@
             ],
             "description": "Retained fit result, including input references and array references; absent when the attempt retained no numerical result."
           },
-          "summary": {
+          "entity_failures": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "description": "Model-dependent data and inference failures attributed to their scientific entities.",
+            "title": "Entity Failures",
+            "type": "object"
+          },
+          "validation_report": {
             "anyOf": [
               {
-                "$ref": "#/components/schemas/FitSummary"
+                "$ref": "#/components/schemas/ValidationReportArtifact"
               },
               {
                 "type": "null"
               }
             ],
-            "description": "Convergence summary and display findings for the recorded fit."
+            "description": "Compatibility findings for the model and selected observation history."
+          },
+          "question_checks": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/QuestionCheckReport"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Question findings evaluated against the selected observation history."
+          },
+          "likelihood_diagnostics": {
+            "additionalProperties": {
+              "items": {
+                "$ref": "#/components/schemas/HistogramBin"
+              },
+              "type": "array"
+            },
+            "description": "Observed histograms for the fitted model's indicator likelihoods.",
+            "propertyNames": {
+              "$ref": "#/components/schemas/IndicatorId-Output"
+            },
+            "title": "Likelihood Diagnostics",
+            "type": "object"
+          },
+          "edge_estimates": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ParameterRef"
+            },
+            "description": "Posterior parameter coordinates displayed on causal edges.",
+            "propertyNames": {
+              "$ref": "#/components/schemas/EdgeId-Output"
+            },
+            "title": "Edge Estimates",
+            "type": "object"
+          },
+          "decay_estimates": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/ParameterRef"
+            },
+            "description": "Posterior parameter coordinates displayed on construct dynamics.",
+            "propertyNames": {
+              "$ref": "#/components/schemas/ConstructId-Output"
+            },
+            "title": "Decay Estimates",
+            "type": "object"
+          },
+          "prior_densities": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/DensityCurve"
+            },
+            "description": "Conditioned input laws on the posterior parameters' quantity scale.",
+            "propertyNames": {
+              "$ref": "#/components/schemas/ParameterId-Output"
+            },
+            "title": "Prior Densities",
+            "type": "object"
           },
           "inference_report": {
             "anyOf": [
@@ -6568,9 +6433,9 @@
           },
           "arrays": {
             "additionalProperties": {
-              "$ref": "#/components/schemas/JsonValue-Output"
+              "$ref": "#/components/schemas/NumericalArray"
             },
-            "description": "Numerical evidence keyed by its stored array reference. Non-finite elements are represented by JSON nulls.",
+            "description": "Numerical evidence keyed by its stored array reference. Shape and dtype are retained; non-finite scalars use nan, +inf and -inf tags.",
             "title": "Arrays",
             "type": "object"
           }
@@ -6578,7 +6443,13 @@
         "required": [
           "model",
           "inference",
-          "summary",
+          "entity_failures",
+          "validation_report",
+          "question_checks",
+          "likelihood_diagnostics",
+          "edge_estimates",
+          "decay_estimates",
+          "prior_densities",
           "inference_report",
           "parameter_draws",
           "arrays"
@@ -7935,6 +7806,9 @@
                 "type": "array"
               },
               {
+                "type": "string"
+              },
+              {
                 "type": "null"
               }
             ],
@@ -7945,10 +7819,7 @@
             "anyOf": [
               {
                 "items": {
-                  "items": {
-                    "type": "number"
-                  },
-                  "type": "array"
+                  "$ref": "#/components/schemas/ScalarValues"
                 },
                 "type": "array"
               },
@@ -7963,10 +7834,7 @@
             "anyOf": [
               {
                 "items": {
-                  "items": {
-                    "type": "number"
-                  },
-                  "type": "array"
+                  "$ref": "#/components/schemas/ScalarValues"
                 },
                 "type": "array"
               },
@@ -9144,7 +9012,7 @@
       },
       "ModelCheckReport": {
         "additionalProperties": false,
-        "description": "Current-code findings selected by their consumed scientific inputs.",
+        "description": "Findings evaluated by the action against its pinned scientific inputs.",
         "properties": {
           "specification": {
             "items": {
@@ -9163,40 +9031,11 @@
               }
             ],
             "default": null
-          },
-          "predictive": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ModelPredictiveReport"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null
-          },
-          "reused": {
-            "default": [],
-            "items": {
-              "anyOf": [
-                {
-                  "$ref": "#/components/schemas/CheckGroup"
-                },
-                {
-                  "const": "predictive",
-                  "type": "string"
-                }
-              ]
-            },
-            "title": "Reused",
-            "type": "array"
           }
         },
         "required": [
           "specification",
-          "question",
-          "predictive",
-          "reused"
+          "question"
         ],
         "title": "ModelCheckReport",
         "type": "object",
@@ -9286,6 +9125,14 @@
         "additionalProperties": false,
         "description": "Compare model definitions and scientific evidence at two selections.",
         "properties": {
+          "arrays": {
+            "additionalProperties": {
+              "$ref": "#/components/schemas/NumericalArray"
+            },
+            "description": "Exact numerical laws referenced by either compared model.",
+            "title": "Arrays",
+            "type": "object"
+          },
           "before": {
             "anyOf": [
               {
@@ -9470,6 +9317,7 @@
           }
         },
         "required": [
+          "arrays",
           "before",
           "after",
           "before_model",
@@ -9698,103 +9546,6 @@
         "x-python-module": "nof1_causal_lab.study.snapshot_models",
         "x-layer": "read_models",
         "x-concern": "read_models"
-      },
-      "ModelPredictiveEvaluation": {
-        "discriminator": {
-          "mapping": {
-            "evaluated": "#/components/schemas/EvaluatedPredictiveChecks",
-            "unavailable": "#/components/schemas/UnavailablePredictiveChecks"
-          },
-          "propertyName": "kind"
-        },
-        "oneOf": [
-          {
-            "$ref": "#/components/schemas/EvaluatedPredictiveChecks"
-          },
-          {
-            "$ref": "#/components/schemas/UnavailablePredictiveChecks"
-          }
-        ],
-        "x-python-module": "nof1_causal_lab.artifacts.model_checks",
-        "x-layer": "findings",
-        "x-concern": "scientific_model"
-      },
-      "ModelPredictiveReport": {
-        "additionalProperties": false,
-        "description": "One automatic, reproducible battery over the full model's current laws.",
-        "properties": {
-          "model_revision": {
-            "$ref": "#/components/schemas/GitOid-Output"
-          },
-          "data": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/DataRef_GitOid_int_"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "draws": {
-            "minimum": 1,
-            "title": "Draws",
-            "type": "integer"
-          },
-          "seed": {
-            "minimum": 0,
-            "title": "Seed",
-            "type": "integer"
-          },
-          "law": {
-            "$ref": "#/components/schemas/PredictiveLawProvenance"
-          },
-          "evaluation": {
-            "$ref": "#/components/schemas/ModelPredictiveEvaluation"
-          },
-          "status": {
-            "description": "Aggregate predictive verdict; unavailable evaluation remains explicitly not evaluated.",
-            "enum": [
-              "passed",
-              "failed",
-              "not_evaluated"
-            ],
-            "readOnly": true,
-            "title": "Status",
-            "type": "string"
-          }
-        },
-        "required": [
-          "model_revision",
-          "data",
-          "draws",
-          "seed",
-          "law",
-          "evaluation",
-          "status"
-        ],
-        "title": "ModelPredictiveReport",
-        "type": "object",
-        "x-python-module": "nof1_causal_lab.artifacts.model_checks",
-        "x-layer": "findings",
-        "x-concern": "scientific_model"
-      },
-      "ModelSimulationResult": {
-        "additionalProperties": false,
-        "description": "The exact generated histories and provenance retained by one simulation.",
-        "properties": {
-          "evidence": {
-            "$ref": "#/components/schemas/SimulationEvidence"
-          }
-        },
-        "required": [
-          "evidence"
-        ],
-        "title": "ModelSimulationResult",
-        "type": "object",
-        "x-python-module": "nof1_causal_lab.artifacts.simulation",
-        "x-layer": "findings",
-        "x-concern": "scientific_model"
       },
       "ModelSnapshot": {
         "additionalProperties": false,
@@ -10037,17 +9788,6 @@
               }
             ],
             "default": null
-          },
-          "predictive": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ModelPredictiveReport"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null
           }
         },
         "required": [
@@ -10075,8 +9815,7 @@
           "fit",
           "specification",
           "question_checks",
-          "simulation",
-          "predictive"
+          "simulation"
         ],
         "title": "ModelSnapshot",
         "type": "object",
@@ -10854,6 +10593,59 @@
         "x-layer": "findings",
         "x-concern": "scientific_model"
       },
+      "NumericalArray": {
+        "additionalProperties": false,
+        "description": "A lossless row-major buffer, including its original dtype and dimensions.",
+        "properties": {
+          "dtype": {
+            "title": "Dtype",
+            "type": "string"
+          },
+          "shape": {
+            "items": {
+              "minimum": 0,
+              "type": "integer"
+            },
+            "title": "Shape",
+            "type": "array"
+          },
+          "values": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "enum": [
+                    "nan",
+                    "+inf",
+                    "-inf"
+                  ],
+                  "type": "string"
+                }
+              ]
+            },
+            "title": "Values",
+            "type": "array"
+          }
+        },
+        "required": [
+          "dtype",
+          "shape",
+          "values"
+        ],
+        "title": "NumericalArray",
+        "type": "object",
+        "x-python-module": "nof1_causal_lab.artifacts.arrays",
+        "x-layer": "findings",
+        "x-concern": "scientific_model"
+      },
       "ObservationData": {
         "additionalProperties": {
           "$ref": "#/components/schemas/ObservationHistory"
@@ -10882,46 +10674,13 @@
             "type": "array"
           },
           "values": {
-            "items": {
-              "anyOf": [
-                {
-                  "type": "number"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "title": "Values",
-            "type": "array"
+            "$ref": "#/components/schemas/ScalarValues"
           },
           "support_start": {
-            "items": {
-              "anyOf": [
-                {
-                  "type": "number"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "title": "Support Start",
-            "type": "array"
+            "$ref": "#/components/schemas/ScalarValues"
           },
           "support_end": {
-            "items": {
-              "anyOf": [
-                {
-                  "type": "number"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "title": "Support End",
-            "type": "array"
+            "$ref": "#/components/schemas/ScalarValues"
           },
           "time_origin": {
             "anyOf": [
@@ -11973,12 +11732,8 @@
             "description": "Parameter and element identity to which the draws belong."
           },
           "values": {
-            "description": "Retained finite draws in sampling order.",
-            "items": {
-              "type": "number"
-            },
-            "title": "Values",
-            "type": "array"
+            "$ref": "#/components/schemas/ScalarValues",
+            "description": "Retained finite draws in sampling order."
           },
           "empirical": {
             "description": "Empirical cumulative distribution of those values.",
@@ -12708,8 +12463,8 @@
                 "type": "null"
               }
             ],
-            "description": "Value range charts show: the widest per-time central 95% of both arms' draws.",
-            "readOnly": true,
+            "default": null,
+            "description": "Saved central display range computed when the action ran.",
             "title": "Frame"
           }
         },
@@ -13152,11 +12907,6 @@
             "title": "Per Variable Warnings",
             "type": "array"
           },
-          "checked": {
-            "default": false,
-            "title": "Checked",
-            "type": "boolean"
-          },
           "n_subsample": {
             "default": 0,
             "title": "N Subsample",
@@ -13179,7 +12929,6 @@
         },
         "required": [
           "per_variable_warnings",
-          "checked",
           "n_subsample",
           "overlays",
           "test_stats"
@@ -13554,26 +13303,6 @@
         "additionalProperties": false,
         "description": "Observations retained by a preparation run and evidence of how they were made.\n\nA missing summary means its artifact or report is unavailable; it does not\nmean the corresponding observation count is zero.",
         "properties": {
-          "workers": {
-            "description": "Outcomes of the semantic extraction chunks, including retained observation and window counts and any chunk failures.",
-            "items": {
-              "$ref": "#/components/schemas/ExtractionWorkerResult"
-            },
-            "title": "Workers",
-            "type": "array"
-          },
-          "extraction_reused": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Number of extraction chunks served from retained results; null when the attempt did not record this count.",
-            "title": "Extraction Reused"
-          },
           "raw_data": {
             "anyOf": [
               {
@@ -13624,8 +13353,6 @@
           }
         },
         "required": [
-          "workers",
-          "extraction_reused",
           "raw_data",
           "measurements",
           "metadata",
@@ -14323,19 +14050,8 @@
             "type": "integer"
           },
           "values": {
-            "description": "Values aligned with the enclosing time grid; non-finite entries are represented by null.",
-            "items": {
-              "anyOf": [
-                {
-                  "type": "number"
-                },
-                {
-                  "type": "null"
-                }
-              ]
-            },
-            "title": "Values",
-            "type": "array"
+            "$ref": "#/components/schemas/ScalarValues",
+            "description": "Values aligned with the enclosing time grid; non-finite entries are represented by null."
           }
         },
         "required": [
@@ -14782,16 +14498,6 @@
             "title": "Status",
             "type": "string"
           },
-          "commit_id": {
-            "default": null,
-            "title": "Commit Id",
-            "type": "null"
-          },
-          "body": {
-            "default": null,
-            "title": "Body",
-            "type": "null"
-          },
           "messages": {
             "default": [],
             "items": {
@@ -14799,15 +14505,27 @@
             },
             "title": "Messages",
             "type": "array"
+          },
+          "commit_id": {
+            "description": "A running call has no published revision.",
+            "readOnly": true,
+            "title": "Commit Id",
+            "type": "null"
+          },
+          "body": {
+            "description": "The shared envelope has no scientific result while running.",
+            "readOnly": true,
+            "title": "Body",
+            "type": "null"
           }
         },
         "required": [
           "call_id",
           "action",
           "status",
+          "messages",
           "commit_id",
-          "body",
-          "messages"
+          "body"
         ],
         "title": "RunningPoll",
         "type": "object",
@@ -14872,6 +14590,30 @@
         "x-python-module": "nof1_causal_lab.sampler_config",
         "x-layer": "authored",
         "x-concern": "scientific_model"
+      },
+      "ScalarValues": {
+        "anyOf": [
+          {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "type": "array"
+          },
+          {
+            "$ref": "#/components/schemas/ArrayVector"
+          }
+        ],
+        "x-python-module": "nof1_causal_lab.artifacts.arrays",
+        "x-layer": "findings",
+        "x-concern": "scientific_model",
+        "description": "Scalar values are owned inline or selected from the action result\u2019s numerical buffers."
       },
       "ScientificActionId": {
         "enum": [
@@ -15111,10 +14853,6 @@
         "additionalProperties": false,
         "description": "The generated observation histories, paths, report, and retained arrays.",
         "properties": {
-          "simulation": {
-            "$ref": "#/components/schemas/ModelSimulationResult",
-            "description": "Generation result with the input references, coordinates, and references to the retained numerical evidence."
-          },
           "report": {
             "anyOf": [
               {
@@ -15147,15 +14885,14 @@
           },
           "arrays": {
             "additionalProperties": {
-              "$ref": "#/components/schemas/JsonValue-Output"
+              "$ref": "#/components/schemas/NumericalArray"
             },
-            "description": "Retained numerical evidence keyed by its stored array reference. Non-finite elements are represented by JSON nulls.",
+            "description": "Retained numerical evidence keyed by its stored array reference. Shape and dtype are retained; non-finite scalars use nan, +inf and -inf tags.",
             "title": "Arrays",
             "type": "object"
           }
         },
         "required": [
-          "simulation",
           "report",
           "data",
           "paths",
@@ -16794,10 +16531,7 @@
           },
           "chains": {
             "items": {
-              "items": {
-                "type": "number"
-              },
-              "type": "array"
+              "$ref": "#/components/schemas/ScalarValues"
             },
             "title": "Chains",
             "type": "array"
@@ -16901,43 +16635,6 @@
         "title": "Unavailable",
         "type": "object",
         "x-python-module": "nof1_causal_lab.artifacts.availability",
-        "x-layer": "findings",
-        "x-concern": "scientific_model"
-      },
-      "UnavailablePredictiveChecks": {
-        "additionalProperties": false,
-        "description": "The run could not evaluate its scientific battery.",
-        "properties": {
-          "kind": {
-            "const": "unavailable",
-            "default": "unavailable",
-            "title": "Kind",
-            "type": "string"
-          },
-          "reason": {
-            "$ref": "#/components/schemas/PredictiveCheckReason"
-          },
-          "detail": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "default": null,
-            "title": "Detail"
-          }
-        },
-        "required": [
-          "kind",
-          "reason",
-          "detail"
-        ],
-        "title": "UnavailablePredictiveChecks",
-        "type": "object",
-        "x-python-module": "nof1_causal_lab.artifacts.model_checks",
         "x-layer": "findings",
         "x-concern": "scientific_model"
       },

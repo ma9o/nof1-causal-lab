@@ -12,7 +12,6 @@ import numpy as np
 from dynestyx.inference.configs.discretizer import ExactAffineConfig
 
 from nof1_causal_lab.actions.effects import ActionEffects
-from nof1_causal_lab.artifacts.data_ref import DataRef
 from nof1_causal_lab.artifacts.posterior import InferenceReportCore
 from nof1_causal_lab.models.ssm import numerics as numeric
 from nof1_causal_lab.models.ssm.autoreparam import Strategy, _minimal_reparam
@@ -44,38 +43,43 @@ def inference_log(
     workspace_id="workspace",
 ):
     pins: dict[ArtifactId, GitOid] = {"model": prior_revision, "panel": git_oid(1)}
-    from nof1_causal_lab.artifacts.identity import GitOid, GitRef
-    from nof1_causal_lab.artifacts.posterior import InferenceEvidence, ModelFitResult
-    from nof1_causal_lab.artifacts.posterior_diagnostics import ParticleMCMCEvidence
-    from nof1_causal_lab.study.records import StudyRevision
-    from tests.action_fixtures import applied_record
+    from nof1_causal_lab.study.records import AttemptRecord, FitAttempt, StudyRevision
 
-    record = applied_record(
-        Applied(
-            result=ModelFitResult(
-                model=GitRef(workspace_id=workspace_id, revision=prior_revision, path="model.json"),
-                data=DataRef[GitOid, int](revision=pins["panel"], replicate_index=0),
-                evidence=InferenceEvidence(
-                    distribution=next(iter(model.law_layouts)),
-                    engine=ParticleMCMCEvidence(),
-                    time_origin="2024-01-01T00:00:00Z",
-                    duration_seconds=0,
-                ),
-            )
-            if model.law_layouts
-            else None,
-            effects=ActionEffects(
-                produced=(
-                    ArtifactRecord(
-                        artifact_id="model", revision=revision, produced_by="fit", derived_from=pins
-                    ),
-                )
-            ),
-        ),
+    record = AttemptRecord(
         seq=seq,
         ts="2026-07-03T00:00:00+00:00",
+        attempt=FitAttempt(
+            action="fit",
+            request=None,
+            outcome=Applied(
+                result=git_oid(500 + seq),
+                effects=ActionEffects(
+                    produced=(
+                        ArtifactRecord(
+                            artifact_id="model",
+                            revision=revision,
+                            produced_by="fit",
+                            derived_from=pins,
+                        ),
+                    ),
+                ),
+            ),
+        ),
     )
     return StudyRevision(commit_id=git_oid(100 + seq), parent_ids=(), record=record)
+
+
+def inference_evidence(model):
+    """Small execution evidence for tests that explicitly stage a fit."""
+    from nof1_causal_lab.artifacts.posterior import InferenceEvidence
+    from nof1_causal_lab.artifacts.posterior_diagnostics import ParticleMCMCEvidence
+
+    return InferenceEvidence(
+        distribution=next(iter(model.law_layouts)),
+        engine=ParticleMCMCEvidence(),
+        time_origin="2024-01-01T00:00:00Z",
+        duration_seconds=0,
+    )
 
 
 def _report(model):

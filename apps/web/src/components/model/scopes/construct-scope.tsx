@@ -14,25 +14,12 @@ import {
 } from "../scope-primitives";
 import { LawSections, SimulatedHistory } from "./law-sections";
 import { Katex } from "@/components/analysis-widgets/statistical-model-spec/ssm-equation-display";
-import { PredictiveFindings } from "../simulation-evidence";
 
 export function ConstructScope({ context, id }: { context: ScopeContext; id: ConstructId }) {
   const scope = constructPresentation(context, id);
   if (!scope) return null;
   const { model, construct, indicators, disposition } = scope;
   const equations = model;
-  const predictive = model.predictive;
-  const findings = (
-    predictive?.evaluation.kind === "evaluated" ? predictive.evaluation.findings : []
-  ).filter(
-    (finding) =>
-      finding.subject.construct_id === id &&
-      !indicators.some(
-        (indicator) =>
-          typeof finding.subject.target !== "string" &&
-          indicator.observation.id === finding.subject.target.id,
-      ),
-  );
   return (
     <>
       <Section title="Structure">
@@ -86,11 +73,6 @@ export function ConstructScope({ context, id }: { context: ScopeContext; id: Con
       {model.identification?.treatments[id] && (
         <Section title="Identification">
           <IdentificationFinding context={context} construct={construct} />
-        </Section>
-      )}
-      {findings.length > 0 && (
-        <Section title="Predictive checks" wide>
-          <PredictiveFindings findings={findings} entities={context.entities} />
         </Section>
       )}
     </>

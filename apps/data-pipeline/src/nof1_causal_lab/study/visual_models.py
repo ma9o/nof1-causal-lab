@@ -4,8 +4,9 @@ from __future__ import annotations
 
 from collections.abc import Mapping
 
-from pydantic import AwareDatetime, Field, FiniteFloat, computed_field
+from pydantic import AwareDatetime, Field, FiniteFloat
 
+from nof1_causal_lab.artifacts.arrays import ScalarValues
 from nof1_causal_lab.artifacts.availability import Availability
 from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.artifacts.display_frames import central_frame
@@ -18,7 +19,7 @@ class RecordedPath(Value):
     """One original trajectory identified by its retained draw index."""
 
     draw: int = Field(description="Index of this draw in the retained simulation evidence.")
-    values: tuple[FiniteFloat | None, ...] = Field(
+    values: ScalarValues = Field(
         description=(
             "Values aligned with the enclosing time grid; non-finite entries are represented by"
             " null."
@@ -41,11 +42,31 @@ class PathSeries(Value):
         description="Labels for discrete category codes, or null for numeric quantities.",
     )
 
-    @computed_field
-    @property
-    def frame(self) -> tuple[float, float] | None:
-        """Value range charts show: the widest per-time central 95% of both arms' draws."""
-        return central_frame(path.values for path in (*self.action, *self.reference))
+    frame: tuple[float, float] | None = Field(
+        default=None, description="Saved central display range computed when the action ran."
+    )
+
+    @classmethod
+    def from_paths(
+        cls,
+        *,
+        label: str,
+        action: tuple[RecordedPath, ...],
+        reference: tuple[RecordedPath, ...] = (),
+        levels: tuple[str, ...] | None = None,
+    ) -> PathSeries:
+        """Construct a display series while its numerical paths are in memory."""
+        from typing import cast
+
+        return cls(
+            label=label,
+            action=action,
+            reference=reference,
+            levels=levels,
+            frame=central_frame(
+                cast("tuple[float | None, ...]", path.values) for path in (*action, *reference)
+            ),
+        )
 
 
 class SimulationPaths(Value):
@@ -84,9 +105,9 @@ class ObservationHistory(Value):
 
     label: str
     times: tuple[FiniteFloat, ...]
-    values: tuple[FiniteFloat | None, ...]
-    support_start: tuple[FiniteFloat | None, ...]
-    support_end: tuple[FiniteFloat | None, ...]
+    values: ScalarValues
+    support_start: ScalarValues
+    support_end: ScalarValues
     time_origin: AwareDatetime | None
     levels: tuple[str, ...] | None
     empirical: tuple[EmpiricalPoint, ...]
@@ -102,7 +123,7 @@ class ParameterDrawColumn(Value):
     subject: ParameterRef = Field(
         description="Parameter and element identity to which the draws belong."
     )
-    values: tuple[FiniteFloat, ...] = Field(description="Retained finite draws in sampling order.")
+    values: ScalarValues = Field(description="Retained finite draws in sampling order.")
     empirical: tuple[EmpiricalPoint, ...] = Field(
         description="Empirical cumulative distribution of those values."
     )

@@ -36,6 +36,7 @@ with workflow.unsafe.imports_passed_through():
         call_identity,
     )
     from nof1_causal_lab.actions.temporal.activities import (
+        complete_result_activity,
         evaluate_model_checks_activity,
         run_action_activity,
     )
@@ -45,6 +46,7 @@ with workflow.unsafe.imports_passed_through():
         ActionRequest,
         AttemptPublication,
         ChecksResult,
+        CompleteResultInput,
         EditModelActivityInput,
         EditQuestionActivityInput,
         EvaluateChecksInput,
@@ -63,10 +65,10 @@ with workflow.unsafe.imports_passed_through():
         Applied,
         AttemptRecord,
         DataPreparationResult,
-        EditAttempt,
-        EditQuestionAttempt,
-        PrepareAttempt,
         Rejected,
+        StagedEditAttempt,
+        StagedEditQuestionAttempt,
+        StagedPrepareAttempt,
         StudyRevision,
         failed_attempt,
     )
@@ -199,7 +201,7 @@ class StudyWorkflow:
                 attempt = await workflow.execute_activity(
                     "edit_question_activity",
                     EditQuestionActivityInput(workspace_id=self._workspace_id, request=action),
-                    result_type=EditQuestionAttempt,
+                    result_type=StagedEditQuestionAttempt,
                     start_to_close_timeout=_WRITE_TIMEOUT,
                     retry_policy=_ACTIVITY_RETRY,
                 )
@@ -207,7 +209,7 @@ class StudyWorkflow:
                 attempt = await workflow.execute_activity(
                     "edit_model_activity",
                     EditModelActivityInput(workspace_id=self._workspace_id, request=action),
-                    result_type=EditAttempt,
+                    result_type=StagedEditAttempt,
                     start_to_close_timeout=_WRITE_TIMEOUT,
                     retry_policy=_ACTIVITY_RETRY,
                 )
@@ -272,13 +274,19 @@ class StudyWorkflow:
                         )
                     )
                 )
+            completed = await workflow.execute_activity(
+                complete_result_activity,
+                CompleteResultInput(workspace_id=self._workspace_id, attempt=attempt),
+                start_to_close_timeout=_CHECK_TIMEOUT,
+                retry_policy=_ACTIVITY_RETRY,
+            )
         except (ActivityError, ChildWorkflowError) as exc:
-            attempt = failed_attempt(action, temporal_failure(exc))
-        await self._journal(seq, request, base, attempt)
+            completed = failed_attempt(action, temporal_failure(exc))
+        await self._journal(seq, request, base, completed)
 
     async def _prepare_files(
         self, seq: int, request: ActionRequest, preparation: PrepareDataInput[GitOid, FileSourceRef]
-    ) -> PrepareAttempt:
+    ) -> StagedPrepareAttempt:
         assert isinstance(request.request, PrepareDataRequest)
         memo = {"workspace_id": self._workspace_id, "seq": seq, "action": "prepare_data"}
         raw_data = await workflow.execute_activity(
@@ -289,7 +297,9 @@ class StudyWorkflow:
             summary="Read source tables",
         )
         if isinstance(raw_data, Rejected):
-            return PrepareAttempt(action="prepare_data", request=request.request, outcome=raw_data)
+            return StagedPrepareAttempt(
+                action="prepare_data", request=request.request, outcome=raw_data
+            )
         extracted = await workflow.execute_child_workflow(
             "MeasurementsWorkflow",
             MeasurementsWorkflowInput(
@@ -305,7 +315,7 @@ class StudyWorkflow:
             static_summary="Prepare observations",
             memo=memo,
         )
-        return PrepareAttempt(
+        return StagedPrepareAttempt(
             action="prepare_data",
             request=request.request,
             outcome=Applied(

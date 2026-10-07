@@ -6,7 +6,7 @@ import asyncio
 import os
 import pathlib
 import re
-from collections.abc import Callable, Mapping
+from collections.abc import Mapping
 from datetime import UTC, datetime
 from typing import TYPE_CHECKING, Annotated, cast
 from uuid import uuid4
@@ -22,7 +22,6 @@ from fastapi import (
     Response,
     UploadFile,
 )
-from pydantic import TypeAdapter
 
 from nof1_causal_lab.actions.call_logs import collect_call_log
 from nof1_causal_lab.actions.call_state import CallProgress, CompletedCall, PendingCall, RunningCall
@@ -48,7 +47,7 @@ from nof1_causal_lab.actions.results import (
 from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.artifacts.data_preparation import SourceFolder
 from nof1_causal_lab.artifacts.identity import ActionId, CallId, GitOid, RevisionSelector
-from nof1_causal_lab.study.action_outputs import completed_call
+from nof1_causal_lab.study.action_outputs import completed_call_json
 from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.history import StudyRepository
 from nof1_causal_lab.study.inputs import resolve_action_inputs
@@ -62,7 +61,6 @@ from nof1_causal_lab.study.records import (
 )
 from nof1_causal_lab.study.store import (
     ArtifactStore,
-    cached_read,
     read_question,
 )
 from nof1_causal_lab.utils import data as data_module
@@ -77,16 +75,8 @@ router = APIRouter(prefix="/api/studies")
 workspaces_router = APIRouter(prefix="/api")
 uploads_router = APIRouter(prefix="/api")
 
-_ACTION_JSON = TypeAdapter(ActionPoll)
 _CALL_PROGRESS_TYPE = cast("type[CallProgress | None]", CallProgress | None)
 _CALL_STATE_TYPE = cast("type[CallProgress]", CallProgress)
-
-
-def _cached_read[T](
-    workspace_id: str, key: tuple[str, ...], adapter: TypeAdapter[T], render: Callable[[], T]
-) -> Response:
-    body, _ = cached_read(workspace_id, key, adapter, render)
-    return Response(content=body, media_type="application/json")
 
 
 def actions_enabled() -> bool:
@@ -265,11 +255,8 @@ def _stage_sources(
 
 
 def _saved_response(workspace_id: str, revision: StudyRevision) -> Response:
-    return _cached_read(
-        workspace_id,
-        ("call-result", revision.commit_id),
-        _ACTION_JSON,
-        lambda: completed_call(workspace_id, revision),
+    return Response(
+        content=completed_call_json(workspace_id, revision), media_type="application/json"
     )
 
 

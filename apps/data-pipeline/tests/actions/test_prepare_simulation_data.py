@@ -114,6 +114,7 @@ def test_fit_reads_selected_history_without_preparing_a_panel(tmp_path, monkeypa
     state = StudyState().with_artifacts([write_question(store), model_info])
     model_commit = history.append(
         applied_record(
+            store.workspace_id,
             Applied(result=None, effects=ActionEffects(produced=[model_info])),
             seq=1,
             ts="2026-09-25T12:00:00Z",
@@ -135,8 +136,10 @@ def test_fit_reads_selected_history_without_preparing_a_panel(tmp_path, monkeypa
             draws=2,
             seed=0,
             state_ids=tuple(numeric.state_ids(compile_model_fixture(model))),
-            parameter_draws={"known_truth": "not-an-observation-array"},
-            latent_paths="not-an-observation-array",
+            parameter_draws={"known_truth": store.write_array(np.asarray([100.0, 100.0]))},
+            latent_paths=store.write_array(
+                np.zeros((2, 3, len(numeric.state_ids(compile_model_fixture(model)))))
+            ),
             observations=store.write_array(draws),
             observation_layout=simulation_layout(
                 model,
@@ -147,32 +150,42 @@ def test_fit_reads_selected_history_without_preparing_a_panel(tmp_path, monkeypa
         ),
     )
     simulation_record = applied_record(
-        Applied(result=ModelSimulationResult(evidence=(report).evidence), effects=ActionEffects()),
+        store.workspace_id,
+        Applied(
+            result=ModelSimulationResult(evidence=report.evidence),
+            effects=ActionEffects(reports={"simulation": store.write_report(report)}),
+        ),
         seq=2,
         ts="2026-09-25T12:01:00Z",
         trace_ids=[],
     )
     source_commit = history.append(simulation_record).commit_id
     # A later simulation must not replace the explicitly selected source.
+    later = report.revised(
+        evidence=report.evidence.revised(observations=store.write_array(np.zeros_like(draws)))
+    )
     history.append(
         applied_record(
+            store.workspace_id,
             Applied(
-                result=ModelSimulationResult(
-                    evidence=(
-                        report.revised(
-                            evidence=report.evidence.revised(
-                                observations=store.write_array(np.zeros_like(draws))
-                            )
-                        )
-                    ).evidence
-                ),
-                effects=ActionEffects(),
+                result=ModelSimulationResult(evidence=later.evidence),
+                effects=ActionEffects(reports={"simulation": store.write_report(later)}),
             ),
             seq=3,
         )
     )
     source = DataRef[GitOid, int](revision=source_commit, replicate_index=1)
     refs_before = set(store.repo.references)
+    read_array = store.read_array
+
+    def observations_only(identity):
+        assert identity not in {
+            *report.evidence.parameter_draws.values(),
+            report.evidence.latent_paths,
+        }
+        return read_array(identity)
+
+    monkeypatch.setattr(store, "read_array", observations_only)
     with pytest.raises(StudyLookupError, match="applied prepare_data or simulate"):
         read_data_history(store, source.revised(revision=model_commit))
     selected = read_data_history(store, source)

@@ -47,18 +47,6 @@ class IndicatorAudit(Value):
     issues: tuple[ValidationIssue, ...]
     checks: Mapping[str, Literal["ok", "warning", "error", "not_evaluated"]]
 
-    def with_source(self, source: Self) -> Self:
-        """Compose retained empirical findings with model-dependent findings."""
-        return self.revised(
-            profile=source.profile,
-            issues=(*source.issues, *self.issues),
-            checks={**source.checks, **self.checks},
-        )
-
-    def without_data(self) -> Self:
-        """Record unavailable observations without revising the published audit."""
-        return self.revised(checks={**self.checks, "data_availability": "not_evaluated"})
-
     def with_issue(self, issue: ValidationIssue) -> Self:
         """Append a finding as a new audit, preserving the old value."""
         return self.revised(issues=(*self.issues, issue))

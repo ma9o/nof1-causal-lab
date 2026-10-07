@@ -12,11 +12,11 @@ import numpyro.distributions as dist
 import pytest
 from pydantic import TypeAdapter
 
+from nof1_causal_lab.actions.output_builder import quantity_prior_densities
 from nof1_causal_lab.models.model_structure import StructuralSelection
 from nof1_causal_lab.numpyro_json import NumPyroDistribution
 from nof1_causal_lab.prior_distributions import interval_effect_to_rate, persistence_to_decay
 from nof1_causal_lab.study.prior_views import prior_density
-from nof1_causal_lab.study.snapshots import quantity_prior_densities
 from tests.model_fixtures import construct_named, load_model_fixture
 
 

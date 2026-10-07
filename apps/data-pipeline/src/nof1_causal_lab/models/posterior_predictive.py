@@ -490,7 +490,6 @@ def measure_predictive_checks(
 
     return PosteriorPredictiveChecks(
         per_variable_warnings=warnings,
-        checked=True,
         n_subsample=int(y_sim.shape[0]),
         overlays=tuple(overlays),
         test_stats=tuple(test_stats),

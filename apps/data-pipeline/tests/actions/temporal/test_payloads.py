@@ -111,7 +111,7 @@ def test_prior_request_round_trips_through_a_cold_workflow_sandbox():
                         record=AttemptRecord(
                             seq=1, ts="2026-10-01T00:00:00Z", attempt_id=restored.attempt_id,
                             attempt=EditAttempt(action="edit_model", request=restored.request,
-                                outcome=Applied(result=None, effects=ActionEffects(produced=[model_record]))),
+                                outcome=Applied(result=GitOid("4" * 40), effects=ActionEffects(produced=[model_record]))),
                         ),
                     )
                     inputs.append(journal)

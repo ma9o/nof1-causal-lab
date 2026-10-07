@@ -21,6 +21,7 @@ from nof1_causal_lab.actions.temporal.messages import (
     ActionInput,
     AttemptPublication,
     ChecksResult,
+    CompleteResultInput,
     EditModelActivityInput,
     EditQuestionActivityInput,
     EvaluateChecksInput,
@@ -28,8 +29,7 @@ from nof1_causal_lab.actions.temporal.messages import (
 )
 from nof1_causal_lab.actions.temporal.source_data_activity import read_source_data_activity
 from nof1_causal_lab.artifacts.identity import GitOid
-from nof1_causal_lab.artifacts.posterior import InferenceReport, ModelFitResult
-from nof1_causal_lab.artifacts.simulation import ModelSimulationResult, SimulationReport
+from nof1_causal_lab.artifacts.posterior import ModelFitResult
 from nof1_causal_lab.compilation_errors import AggregatedCompileError, IncompleteModelError
 from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.history import StudyRepository
@@ -38,12 +38,13 @@ from nof1_causal_lab.study.records import (
     ActionBase,
     Applied,
     DataPreparationResult,
-    EditAttempt,
-    EditQuestionAttempt,
     Rejected,
+    StagedActionAttempt,
+    StagedEditAttempt,
+    StagedEditQuestionAttempt,
     StudyRevision,
     applied_attempt,
-    failed_attempt,
+    failed_staged_attempt,
 )
 from nof1_causal_lab.study.state import StudyState
 from nof1_causal_lab.study.store import ArtifactStore, collect_run_traces
@@ -51,7 +52,7 @@ from nof1_causal_lab.study.sweep import collect_completed_runs
 
 
 @activity.defn
-async def run_action_activity(activity_input: ActionInput) -> ActionAttempt:
+async def run_action_activity(activity_input: ActionInput) -> StagedActionAttempt:
     """Run a scientific action and translate expected input failures into rejected attempts.
 
     Args:
@@ -69,11 +70,11 @@ async def run_action_activity(activity_input: ActionInput) -> ActionAttempt:
             activity_input.workspace_id, activity_input.request, activity_input.state
         )
     except StudyLookupError as exc:
-        return failed_attempt(
+        return failed_staged_attempt(
             activity_input.request, Rejected(reason="input_unavailable", detail=str(exc))
         )
     except (IncompleteModelError, AggregatedCompileError) as exc:
-        return failed_attempt(
+        return failed_staged_attempt(
             activity_input.request, Rejected(reason="scientific_inputs", detail=str(exc))
         )
     except ActionExecutionError as exc:
@@ -86,17 +87,19 @@ async def run_action_activity(activity_input: ActionInput) -> ActionAttempt:
 
 
 @activity.defn
-async def edit_model_activity(activity_input: EditModelActivityInput) -> EditAttempt:
+async def edit_model_activity(activity_input: EditModelActivityInput) -> StagedEditAttempt:
     """Execute a model edit and wrap its applied or rejected outcome as an edit attempt."""
     result = edit_model(activity_input.workspace_id, activity_input.request)
-    return EditAttempt(request=activity_input.request, outcome=result, action="edit_model")
+    return StagedEditAttempt(request=activity_input.request, outcome=result, action="edit_model")
 
 
 @activity.defn
-async def edit_question_activity(activity_input: EditQuestionActivityInput) -> EditQuestionAttempt:
+async def edit_question_activity(
+    activity_input: EditQuestionActivityInput,
+) -> StagedEditQuestionAttempt:
     """Save the question and return the attempt that owns its publication effect."""
     result = edit_question(activity_input.workspace_id, activity_input.request)
-    return EditQuestionAttempt(
+    return StagedEditQuestionAttempt(
         request=activity_input.request, outcome=result, action="edit_question"
     )
 
@@ -136,12 +139,6 @@ async def evaluate_model_checks_activity(
     }
     if validation is not None:
         reports["validation"] = store.write_report(validation)
-    if action == "fit" and activity_input.state.data is not None:
-        from nof1_causal_lab.actions.data_checks import read_data_profile
-
-        reports["data-profile"] = store.write_report(
-            read_data_profile(store, activity_input.state.data)
-        )
     return ChecksResult(
         reports=reports,
         messages=completion_messages(
@@ -185,6 +182,16 @@ async def read_inputs_activity(activity_input: ReadInputsInput) -> ActionBase:
 
 
 @activity.defn
+async def complete_result_activity(activity_input: CompleteResultInput) -> ActionAttempt:
+    """Save the complete typed result and return its small publication reference."""
+    from nof1_causal_lab.actions.output_builder import complete_attempt
+
+    return await asyncio.to_thread(
+        complete_attempt, activity_input.workspace_id, activity_input.attempt
+    )
+
+
+@activity.defn
 async def journal_activity(activity_input: AttemptPublication) -> StudyRevision:
     """Publish the owned record and traces; replay retries use its persisted identity."""
     journal = StudyRepository(activity_input.workspace_id)
@@ -194,25 +201,21 @@ async def journal_activity(activity_input: AttemptPublication) -> StudyRevision:
     record = activity_input.record
     messages = record.messages
     if isinstance(record.attempt.outcome, Applied):
-        store = ArtifactStore(activity_input.workspace_id)
-        inference, simulation = None, None
-        result = record.attempt.outcome.result
-        if record.attempt.action == "fit" and isinstance(result, ModelFitResult):
-            inference = store.read_report(
-                record.attempt.outcome.effects.reports["inference"], InferenceReport
-            )
-        if record.attempt.action == "simulate" and isinstance(result, ModelSimulationResult):
-            simulation = store.read_report(
-                record.attempt.outcome.effects.reports["simulation"], SimulationReport
-            )
+        from nof1_causal_lab.actions.io import FitOutput, SimulateOutput
+        from nof1_causal_lab.study.results import read_result
+
+        result = read_result(
+            ArtifactStore(activity_input.workspace_id),
+            record.attempt.action,
+            record.attempt.outcome.result,
+        )
+        inference = result.inference_report if isinstance(result, FitOutput) else None
+        simulation = result.report if isinstance(result, SimulateOutput) else None
         if messages and (inference is not None or simulation is not None):
             messages = (
                 messages[:-1]
                 + completion_messages(
-                    record.attempt.outcome.result,
-                    messages[-1].timestamp,
-                    inference=inference,
-                    simulation=simulation,
+                    None, messages[-1].timestamp, inference=inference, simulation=simulation
                 )
                 + messages[-1:]
             )
@@ -240,6 +243,7 @@ async def collect_completed_runs_activity(workspace_id: str) -> None:
 
 
 ALL_ACTIVITIES = [
+    complete_result_activity,
     run_action_activity,
     edit_question_activity,
     edit_model_activity,

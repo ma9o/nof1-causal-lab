@@ -33,7 +33,7 @@ from tests.model_fixtures import x_y_model
 pytestmark = pytest.mark.inference(concern="simulation")
 
 
-def test_full_categories_and_paired_paths_are_derived_on_read_and_cached(tmp_path, monkeypatch):
+def test_full_categories_and_paired_paths_are_saved_once(tmp_path, monkeypatch):
     from nof1_causal_lab.utils import data
 
     monkeypatch.setattr(data, "_DATA_URI", str(tmp_path))
@@ -73,6 +73,7 @@ def test_full_categories_and_paired_paths_are_derived_on_read_and_cached(tmp_pat
     )
     history.append(
         applied_record(
+            store.workspace_id,
             Applied(
                 result=None,
                 effects=ActionEffects(produced=[write_question(store), definition]),
@@ -135,6 +136,7 @@ def test_full_categories_and_paired_paths_are_derived_on_read_and_cached(tmp_pat
     )
     history.append(
         applied_record(
+            store.workspace_id,
             Applied(
                 result=ModelSimulationResult(evidence=(report).evidence), effects=ActionEffects()
             ),
@@ -153,7 +155,12 @@ def test_full_categories_and_paired_paths_are_derived_on_read_and_cached(tmp_pat
     assert path_data["times"] == [5, 7]
     identity = selected_state_ids(StructuralSelection(model, None))[0]
     assert path_data["states"][identity]["action"][0]["draw"] == 1
-    assert path_data["states"][identity]["action"][0]["values"] == states[1, :, 0].tolist()
+    from nof1_causal_lab.study.action_arrays import resolve_vector
+
+    assert reader.simulation_result is not None
+    assert resolve_vector(
+        paths.states[identity].action[0].values, reader.simulation_result.arrays
+    ) == tuple(states[1, :, 0])
     from nof1_causal_lab.study.errors import StudyLookupError
 
     with pytest.raises(StudyLookupError, match="past"):
@@ -183,7 +190,7 @@ def test_full_categories_and_paired_paths_are_derived_on_read_and_cached(tmp_pat
         "nof1_causal_lab.models.ssm.predictive.simulation.generate_simulation_batch", no_generation
     )
     assert ModelReader("SUMMARY", at=history.head()).simulation() == first
-    monkeypatch.setattr("nof1_causal_lab.study.store._CODE_DIGEST", "current-reducer-code")
+    monkeypatch.setattr("nof1_causal_lab.actions.output_builder.build_output", no_generation)
     assert ModelReader("SUMMARY", at=history.head()).simulation() == first
 
 

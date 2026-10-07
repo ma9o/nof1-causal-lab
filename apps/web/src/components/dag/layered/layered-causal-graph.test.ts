@@ -2,9 +2,10 @@ import { fixtureValue } from "@/components/__fixtures__/fixture-value";
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
-import type { SimulationPaths, SimulationReport } from "@nof1-causal-lab/api-types";
+import type { SimulationReport } from "@nof1-causal-lab/api-types";
 import { treatment as dose, outcome as symptoms } from "@/lib/__fixtures__/model";
 import { fittedSnapshot, modelRef } from "@/lib/__fixtures__/snapshot";
+import type { SimulationPathsView } from "@/lib/model-asset/result-values";
 import { indexModel } from "@/lib/model-asset/entities";
 import { graphEntities } from "@/lib/dag/layered-model";
 import type { DagGraphInput } from "@/lib/utils/dag-graph-layout";
@@ -84,7 +85,7 @@ const report: SimulationReport = {
   fit_reliability: "not_fitted",
   causal: { kind: "unavailable", reason: "This fixture covers intervention rendering." },
 };
-const paths: SimulationPaths = {
+const paths: SimulationPathsView = {
   effect_summary: null,
   reference_mean: null,
   manifest_effects: {},

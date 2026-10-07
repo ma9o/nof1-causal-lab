@@ -12,11 +12,11 @@ from collections.abc import Mapping
 
 from pydantic import Field
 
+from nof1_causal_lab.artifacts.arrays import NumericalArray
 from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.artifacts.checks import SpecificationAssessment
 from nof1_causal_lab.artifacts.data_preparation import (
     ExtractionSpec,
-    ExtractionWorkerResult,
     PreparedDataMetadata,
 )
 from nof1_causal_lab.artifacts.data_ref import DataRef, DataSelection
@@ -32,10 +32,10 @@ from nof1_causal_lab.artifacts.identity import (
     GitRef,
     IndicatorId,
     ParameterId,
+    ParameterRef,
 )
 from nof1_causal_lab.artifacts.model_checks import (
     ModelCheckReport,
-    ModelPredictiveReport,
     QuestionCheckReport,
 )
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
@@ -46,10 +46,9 @@ from nof1_causal_lab.artifacts.posterior import (
     InferenceReportCore,
     ModelFitResult,
 )
-from nof1_causal_lab.artifacts.posterior_diagnostics import DensityCurve, PPCOverlay
+from nof1_causal_lab.artifacts.posterior_diagnostics import DensityCurve
 from nof1_causal_lab.artifacts.question import QuestionSpec
 from nof1_causal_lab.artifacts.simulation import (
-    ModelSimulationResult,
     SimulationReport,
     SimulationSpec,
 )
@@ -57,8 +56,7 @@ from nof1_causal_lab.artifacts.validation_report import (
     DataProfileArtifact,
     ValidationReportArtifact,
 )
-from nof1_causal_lab.json_types import JsonValue
-from nof1_causal_lab.study.snapshot_models import FitSummary, ModelGraphView
+from nof1_causal_lab.study.snapshot_models import ModelGraphView
 from nof1_causal_lab.study.view_models import (
     Change,
     DataVariableDiff,
@@ -140,27 +138,6 @@ class EditModelOutput(Value):
             "graph view."
         )
     )
-    validation_report: ValidationReportArtifact | None = Field(
-        description=(
-            "Data findings combined with model-dependent preflight checks, when a report is "
-            "available."
-        )
-    )
-    specification: tuple[SpecificationAssessment, ...] | None = Field(
-        description=(
-            "Individual assessments of whether the model can be compiled and used with its "
-            "selected inputs."
-        )
-    )
-    question_checks: QuestionCheckReport | None = Field(
-        description="Findings about the model's ability to address the selected study question."
-    )
-    predictive: ModelPredictiveReport | None = Field(
-        description="Predictive check findings for the model's implied behavior."
-    )
-    predictive_overlays: Mapping[IndicatorId, PPCOverlay] = Field(
-        description="Observed and generated summaries keyed by indicator."
-    )
     entity_failures: Mapping[ConstructId | EdgeId | IndicatorId, tuple[str, ...]] = Field(
         description=(
             "Messages attributed to constructs, edges, or indicators from the available "
@@ -176,14 +153,12 @@ class EditModelOutput(Value):
     observation_equations: Mapping[IndicatorId, str] = Field(
         description="Rendered measurement laws keyed by indicator."
     )
-    likelihood_diagnostics: Mapping[IndicatorId, tuple[HistogramBin, ...]] = Field(
-        description=(
-            "Histograms of recorded indicator values for comparison with their declared "
-            "likelihoods."
-        )
-    )
     authoring_prior_densities: Mapping[ParameterId, DensityCurve] = Field(
         description="Density curves for authored parameter laws, before conditioning on observations."
+    )
+
+    arrays: Mapping[str, NumericalArray] = Field(  # noqa: FIELD003 -- External action clients resolve the model law buffers from this complete result.
+        description="Exact buffers referenced by the saved model's numerical laws."
     )
 
 
@@ -221,18 +196,6 @@ class PrepareDataOutput(Value):
     mean the corresponding observation count is zero.
     """
 
-    workers: tuple[ExtractionWorkerResult, ...] = Field(
-        description=(
-            "Outcomes of the semantic extraction chunks, including retained observation and "
-            "window counts and any chunk failures."
-        )
-    )
-    extraction_reused: int | None = Field(  # noqa: FIELD003 -- External callers inspect how many extraction workers reused retained observations.
-        description=(
-            "Number of extraction chunks served from retained results; null when the attempt "
-            "did not record this count."
-        )
-    )
     raw_data: RawDataData | None = Field(
         description=(
             "Uploaded table dimensions, sample rows, column descriptions, and date bounds when "
@@ -293,8 +256,8 @@ class FitInput[RevisionT](Value):
 class FitOutput(Value):
     """The fitted model, inference findings, parameter draws, and numerical arrays."""
 
-    model: EditModelOutput = Field(
-        description="Model definition and scientific findings associated with this fit."
+    model: ModelSpec = Field(
+        description="The model with its joint parameter law conditioned on the selected data."
     )
     inference: ModelFitResult | None = Field(  # noqa: FIELD003 -- External callers locate this fit's input model, selected history and numerical evidence.
         description=(
@@ -302,8 +265,26 @@ class FitOutput(Value):
             "the attempt retained no numerical result."
         )
     )
-    summary: FitSummary | None = Field(
-        description="Convergence summary and display findings for the recorded fit."
+    entity_failures: Mapping[ConstructId | EdgeId | IndicatorId, tuple[str, ...]] = Field(
+        description="Model-dependent data and inference failures attributed to their scientific entities."
+    )
+    validation_report: ValidationReportArtifact | None = Field(
+        description="Compatibility findings for the model and selected observation history."
+    )
+    question_checks: QuestionCheckReport | None = Field(
+        description="Question findings evaluated against the selected observation history."
+    )
+    likelihood_diagnostics: Mapping[IndicatorId, tuple[HistogramBin, ...]] = Field(
+        description="Observed histograms for the fitted model's indicator likelihoods."
+    )
+    edge_estimates: Mapping[EdgeId, ParameterRef] = Field(
+        description="Posterior parameter coordinates displayed on causal edges."
+    )
+    decay_estimates: Mapping[ConstructId, ParameterRef] = Field(
+        description="Posterior parameter coordinates displayed on construct dynamics."
+    )
+    prior_densities: Mapping[ParameterId, DensityCurve] = Field(
+        description="Conditioned input laws on the posterior parameters' quantity scale."
     )
     inference_report: InferenceReport | None = Field(
         description="Full diagnostic report, when one was retained."
@@ -314,10 +295,10 @@ class FitOutput(Value):
             "draws are unavailable."
         )
     )
-    arrays: Mapping[str, JsonValue] = Field(  # noqa: FIELD003 -- External callers consume this action's full numerical evidence without another read route.
+    arrays: Mapping[str, NumericalArray] = Field(  # noqa: FIELD003 -- External callers consume this action's full numerical evidence without another read route.
         description=(
-            "Numerical evidence keyed by its stored array reference. Non-finite elements are "
-            "represented by JSON nulls."
+            "Numerical evidence keyed by its stored array reference. Shape and dtype are retained; "
+            "non-finite scalars use nan, +inf and -inf tags."
         )
     )
 
@@ -346,12 +327,6 @@ class SimulateInput[RevisionT](Value):
 class SimulateOutput(Value):
     """The generated observation histories, paths, report, and retained arrays."""
 
-    simulation: ModelSimulationResult = Field(  # noqa: FIELD003 -- External callers read generated coordinates and provenance even when no simulation report is retained.
-        description=(
-            "Generation result with the input references, coordinates, and references to the "
-            "retained numerical evidence."
-        )
-    )
     report: SimulationReport | None = Field(
         description="Simulation findings, when a report was retained."
     )
@@ -364,10 +339,10 @@ class SimulateOutput(Value):
             " absent if path evidence is unavailable."
         )
     )
-    arrays: Mapping[str, JsonValue] = Field(  # noqa: FIELD003 -- External callers consume this action's full numerical evidence without another read route.
+    arrays: Mapping[str, NumericalArray] = Field(  # noqa: FIELD003 -- External callers consume this action's full numerical evidence without another read route.
         description=(
-            "Retained numerical evidence keyed by its stored array reference. Non-finite "
-            "elements are represented by JSON nulls."
+            "Retained numerical evidence keyed by its stored array reference. Shape and dtype "
+            "are retained; non-finite scalars use nan, +inf and -inf tags."
         )
     )
 
@@ -423,6 +398,9 @@ class ModelDiffInput[RevisionT](Value):
 class ModelDiffOutput(Value):
     """Compare model definitions and scientific evidence at two selections."""
 
+    arrays: Mapping[str, NumericalArray] = Field(
+        description="Exact numerical laws referenced by either compared model."
+    )
     before: GitRef | None = Field(
         description="Artifact reference for the earlier model, if one is selected."
     )

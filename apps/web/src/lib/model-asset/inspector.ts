@@ -45,16 +45,18 @@ export function indicatorPresentation(context: ScopeContext, id: IndicatorId) {
   const indicator = context.entities.indicatorById.get(id);
   if (!indicator) return null;
   const disposition = context.model.dispositions?.find((item) => item.target.id === id);
-  const data = context.model.validation_report?.data ?? context.model.profile;
-  const audit = data?.indicators[id];
+  const profile = context.model.profile?.indicators[id];
+  const compatibility = context.model.validation_report?.data.indicators[id];
+  const audit =
+    profile || compatibility
+      ? {
+          profile: profile?.profile ?? null,
+          checks: { ...profile?.checks, ...compatibility?.checks },
+          issues: [...(profile?.issues ?? []), ...(compatibility?.issues ?? [])],
+        }
+      : null;
   const counts = context.model.measurements?.per_indicator_counts[id];
   const likelihood = indicator.likelihood;
-  const predictive = context.model.predictive;
-  const checks =
-    (predictive?.evaluation.kind === "evaluated"
-      ? predictive.evaluation.predictive_checks?.per_variable_warnings
-      : []
-    )?.filter((item) => item.subject.target.id === id) ?? [];
   const issues = audit?.issues.filter((issue) => issue.severity !== "info") ?? [];
   return {
     indicator,
@@ -62,8 +64,6 @@ export function indicatorPresentation(context: ScopeContext, id: IndicatorId) {
     audit,
     counts,
     likelihood,
-    predictive,
-    checks,
     issues,
   };
 }

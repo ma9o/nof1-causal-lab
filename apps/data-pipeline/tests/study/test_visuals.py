@@ -11,15 +11,15 @@ import numpy as np
 import polars as pl
 import pytest
 
+from nof1_causal_lab.actions.output_builder import OutputBuilder
 from nof1_causal_lab.artifacts.availability import Available
 from nof1_causal_lab.artifacts.construct import replace_constructs
 from nof1_causal_lab.artifacts.identity import ConstructId, IndicatorId
 from nof1_causal_lab.artifacts.scenarios import CausalEffectResult
 from nof1_causal_lab.models.model_structure import StructuralSelection, selected_state_ids
 from nof1_causal_lab.study.errors import StudyLookupError
-from nof1_causal_lab.study.snapshots import ModelReader
 from tests.inference_fixtures import compile_model_fixture
-from tests.model_fixtures import load_model_fixture, x_y_model
+from tests.model_fixtures import load_model_fixture
 
 
 def _x_y_z_model() -> ModelSpec:
@@ -47,14 +47,16 @@ def test_observations_keep_irregular_anchors_support_missingness_and_empirical_m
         id=identity, name="Observed", ordinal_levels=None, categorical_levels=None
     )
     reader = Mock(
-        spec=ModelReader,
+        spec=OutputBuilder,
         data_history=SimpleNamespace(
-            variables=[variable], time_origin=origin.replace(tzinfo=UTC), frame=table
+            variables=[variable],
+            time_origin=origin.replace(tzinfo=UTC),
+            observations=SimpleNamespace(recorded=SimpleNamespace(frame=table)),
         ),
         state=SimpleNamespace(current={"panel": SimpleNamespace(revision="pinned")}),
         store=SimpleNamespace(read_parquet_file=lambda *_args: table),
     )
-    view = ModelReader.observation_history(reader, identity)
+    view = OutputBuilder.observation_history(reader, identity)
     assert view is not None
     assert view.times == (0, 0.25, 8, 10, 11)
     assert view.values == (-4, -4, None, 5, 5)
@@ -98,8 +100,8 @@ def test_paging_original_paths_preserves_opposite_modes_and_paired_effects(monke
         causal=Available(value=CausalEffectResult(outcome=state_id, labels={state_id: "State"})),
     )
     reader = Mock(
-        spec=ModelReader,
-        simulation=lambda: SimpleNamespace(value=report),
+        spec=OutputBuilder,
+        simulation=lambda: report,
         store=SimpleNamespace(read_array=arrays.__getitem__),
     )
     monkeypatch.setattr(
@@ -111,7 +113,7 @@ def test_paging_original_paths_preserves_opposite_modes_and_paired_effects(monke
     report.evidence = SimpleNamespace(
         **{key: value for key, value in vars(report).items() if key != "causal"}
     )
-    view = ModelReader.simulation_paths(reader, start=0, count=2)
+    view = OutputBuilder.simulation_paths(reader, start=0, count=2)
     assert view is not None
     assert view.effect is not None
     assert view.times == report.times
@@ -121,12 +123,12 @@ def test_paging_original_paths_preserves_opposite_modes_and_paired_effects(monke
     assert [p.values for p in view.states[state_id].action] == [(-5, -4, -5), (5, 4, 5)]
     assert [p.values for p in view.effect.action] == [(1, 1, 1), (3, 3, 3)]
     assert view.indicators[indicator].action[0].values == (-5, None, -5)
-    last = ModelReader.simulation_paths(reader, start=2, count=128)
+    last = OutputBuilder.simulation_paths(reader, start=2, count=128)
     assert last is not None
     assert last.count == 1
     assert last.states[state_id].action[0].draw == 2
     with pytest.raises(StudyLookupError, match="past"):
-        ModelReader.simulation_paths(reader, start=3, count=1)
+        OutputBuilder.simulation_paths(reader, start=3, count=1)
 
 
 @pytest.mark.inference(concern="sampling")
@@ -160,54 +162,26 @@ def test_every_parameter_coordinate_and_joint_draw_survives_the_read(monkeypatch
         lambda *_args: SimpleNamespace(kind="fitted"),
     )
     reader = Mock(
-        spec=ModelReader,
+        spec=OutputBuilder,
         model=model,
         selection=StructuralSelection(model, None),
-        store=None,
+        store=SimpleNamespace(write_array=lambda _: "a" * 64),
         state=SimpleNamespace(current={"model": None}),
     )
     monkeypatch.setattr(
         "nof1_causal_lab.models.ssm.compile.inputs.compile_executable_model",
         lambda *_args: pytest.fail("Raw draws must remain readable without the compiler"),
     )
-    view = ModelReader.parameter_draws(reader)
+    from nof1_causal_lab.study.action_arrays import array_value, resolve_vector
+
+    view = OutputBuilder.parameter_draws(reader)
     assert view.kind == "available"
     assert len(view.value) > 6
     assert {column.subject.element_id for column in view.value} == set(layout.parameter_columns)
     for column in view.value:
         np.testing.assert_array_equal(
-            column.values, atoms[:, layout.parameter_columns[column.subject.element_id]]
+            resolve_vector(column.values, {"a" * 64: array_value(atoms)}),
+            atoms[:, layout.parameter_columns[column.subject.element_id]],
         )
-        assert len(column.values) == 503
+        assert len(resolve_vector(column.values, {"a" * 64: array_value(atoms)})) == 503
         assert column.empirical[-1].probability == 1
-
-
-@pytest.mark.contract
-def test_predictive_overlay_uses_pinned_schedule_including_support_boundaries(monkeypatch):
-    from nof1_causal_lab.artifacts.posterior_diagnostics import PPCOverlay
-
-    model = x_y_model()
-    identity = model.indicators[0].observation.id
-    overlay = PPCOverlay(
-        indicator_id=identity,
-        times=(0, 1, 9, 10),
-        time_origin=datetime(2026, 1, 1, tzinfo=UTC),
-        standardized=True,
-        observed=[None, 1.0, None, 1.0],
-        median=[None, 2.0, None, 2.0],
-        spaghetti_draws=[[None, 3.0, None, 3.0]],
-    )
-    check = SimpleNamespace(
-        evaluation=SimpleNamespace(
-            kind="evaluated", predictive_checks=SimpleNamespace(overlays=[overlay])
-        )
-    )
-    monkeypatch.setattr(
-        "nof1_causal_lab.study.store.read_model",
-        lambda *_args: pytest.fail("Overlay reads must not reconstruct their schedule"),
-    )
-    reader = Mock(spec=ModelReader, checks=(SimpleNamespace(predictive=check), None, None))
-    view = ModelReader.predictive_history(reader, identity)
-    assert view is overlay
-    assert view.times == (0, 1, 9, 10)
-    assert view.standardized is True

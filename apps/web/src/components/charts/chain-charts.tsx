@@ -1,6 +1,8 @@
 "use client";
 
-import type { InferenceReportDetail, RankHistogram } from "@nof1-causal-lab/api-types";
+import type { InferenceDetailView } from "@/lib/model-asset/result-values";
+
+import type { RankHistogram } from "@nof1-causal-lab/api-types";
 import { useEffect, useMemo, useRef } from "react";
 import { CHART_COLORS, chainColor, cssColor, resolveColor } from "./chart-tokens";
 import {
@@ -226,7 +228,7 @@ export function StepSizeChart({
   detail,
   height = 96,
 }: {
-  detail: InferenceReportDetail;
+  detail: InferenceDetailView;
   height?: number;
 }) {
   const [container, size] = useChartSize<HTMLDivElement>();

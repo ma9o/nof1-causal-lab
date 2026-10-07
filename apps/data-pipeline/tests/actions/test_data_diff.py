@@ -269,7 +269,7 @@ def test_reads_saved_draws_without_generation_or_writing_models(tmp_path, monkey
             seed=0,
             state_ids=(),
             parameter_draws={},
-            latent_paths="unreadable-latent-array",
+            latent_paths=store.write_array(np.zeros((3, 3, 0))),
             observations=store.write_array(values),
             observation_layout=SimulationObservationLayout(
                 variables=tuple(series.variable for series in observed.series.values()),
@@ -281,6 +281,7 @@ def test_reads_saved_draws_without_generation_or_writing_models(tmp_path, monkey
     )
     commit = history.append(
         applied_record(
+            store.workspace_id,
             Applied(
                 result=ModelSimulationResult(evidence=(report).evidence), effects=ActionEffects()
             ),
@@ -378,6 +379,7 @@ def test_reads_saved_draws_without_generation_or_writing_models(tmp_path, monkey
         commits.append(
             history.append(
                 applied_record(
+                    store.workspace_id,
                     Applied(
                         result=ModelSimulationResult(evidence=saved),
                         effects=ActionEffects(),

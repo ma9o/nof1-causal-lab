@@ -1,6 +1,7 @@
 import type {
   ActionSuccess,
   EditModelOutput,
+  FitOutput,
   ModelSnapshot,
   PrepareDataOutput,
   RecordDependency,
@@ -9,17 +10,15 @@ import type {
 import { questionCall } from "./call-dependencies";
 
 export function callModel(result: ActionSuccess | undefined): EditModelOutput | null {
-  return result?.action === "edit_model"
-    ? result.body
-    : result?.action === "fit"
-      ? result.body.model
-      : null;
+  return result?.action === "edit_model" ? result.body : null;
 }
 
 interface ViewParts {
   artifacts: ModelSnapshot["state"]["current"];
   question: ModelSnapshot["question"];
   model: EditModelOutput | null;
+  definition: ModelSnapshot["model"];
+  fitOutput: FitOutput | null;
   prepared: PrepareDataOutput | null;
   data: ModelSnapshot["state"]["data"];
   fit: ModelSnapshot["fit"];
@@ -30,6 +29,8 @@ const empty: ViewParts = {
   artifacts: {},
   question: null,
   model: null,
+  definition: null,
+  fitOutput: null,
   prepared: null,
   data: null,
   fit: null,
@@ -86,6 +87,7 @@ export function composeCallView(
           question: question.question,
           artifacts: { ...question.artifacts, ...produced },
           model: result.body,
+          definition: result.body.model,
         };
         break;
       }
@@ -103,6 +105,7 @@ export function composeCallView(
             ...produced,
           },
           prepared: result.body,
+          fitOutput: null,
           data: panel ? { revision: panel.revision, replicate_index: 0 } : null,
           simulation: null,
         };
@@ -131,13 +134,22 @@ export function composeCallView(
               : {}),
             ...produced,
           },
-          model: result.body.model,
+          model: model.model,
+          definition: result.body.model,
+          fitOutput: result.body,
           prepared: dataCall.record.attempt.action === "prepare_data" ? data.prepared : null,
           data: {
             revision: request.input.data_ref,
             replicate_index: request.input.replicate_index,
           },
-          fit: result.body.summary,
+          fit: result.body.inference_report
+            ? {
+                report: result.body.inference_report.core,
+                edge_estimates: result.body.edge_estimates,
+                decay_estimates: result.body.decay_estimates,
+                prior_densities: result.body.prior_densities,
+              }
+            : null,
         };
         break;
       }
@@ -189,7 +201,7 @@ export function composeCallView(
       current: view.artifacts,
       data: view.data,
     },
-    model: model?.model ?? null,
+    model: view.definition,
     can_simulate: model?.can_simulate ?? false,
     graph: model?.graph ?? {
       construct_ids: [],
@@ -203,15 +215,29 @@ export function composeCallView(
     profile: prepared?.profile ?? null,
     identification: model?.identification ?? null,
     dispositions: model?.dispositions ?? null,
-    entity_failures: model?.entity_failures ?? {},
-    validation_report: model?.validation_report ?? null,
-    specification: model?.specification ?? null,
-    question_checks: model?.question_checks ?? null,
-    predictive: model?.predictive ?? null,
+    entity_failures: Object.fromEntries(
+      [
+        ...new Set([
+          ...Object.keys(model?.entity_failures ?? {}),
+          ...Object.keys(view.fitOutput?.entity_failures ?? {}),
+        ]),
+      ].map((id) => [
+        id,
+        [
+          ...(Object.entries(model?.entity_failures ?? {}).find(([key]) => key === id)?.[1] ?? []),
+          ...(Object.entries(view.fitOutput?.entity_failures ?? {}).find(
+            ([key]) => key === id,
+          )?.[1] ?? []),
+        ],
+      ]),
+    ),
+    validation_report: view.fitOutput?.validation_report ?? null,
+    specification: model?.checks?.specification ?? null,
+    question_checks: view.fitOutput?.question_checks ?? model?.checks?.question ?? null,
     confounder_equations: model?.confounder_equations ?? {},
     state_equations: model?.state_equations ?? {},
     observation_equations: model?.observation_equations ?? {},
-    likelihood_diagnostics: model?.likelihood_diagnostics ?? {},
+    likelihood_diagnostics: view.fitOutput?.likelihood_diagnostics ?? {},
     authoring_prior_densities: model?.authoring_prior_densities ?? {},
     fit: view.fit,
     simulation: view.simulation,

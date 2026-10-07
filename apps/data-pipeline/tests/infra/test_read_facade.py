@@ -77,6 +77,7 @@ def test_saved_call_serves_pinned_artifacts_without_starting_new_actions(monkeyp
         )
         revision = repository.append(
             applied_record(
+                "WS-ART",
                 Applied(result=None, effects=ActionEffects(produced=(artifact,))),
                 seq=repository.latest_seq() + 1,
                 request=request,
@@ -125,6 +126,7 @@ def test_saved_call_returns_promoted_traces(monkeypatch, tmp_path):
     logs = collect_run_traces("WS-TRACE", 2)
     StudyRepository("WS-TRACE").append(
         applied_record(
+            "WS-TRACE",
             Applied(result=None, effects=ActionEffects(produced=(model,))),
             seq=2,
             request=request,

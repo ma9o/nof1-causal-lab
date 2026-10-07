@@ -21,7 +21,7 @@ from nof1_causal_lab.artifacts.identity import (
     ParameterId,
     ParameterRef,
 )
-from nof1_causal_lab.artifacts.model_checks import ModelPredictiveReport, QuestionCheckReport
+from nof1_causal_lab.artifacts.model_checks import QuestionCheckReport
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.posterior import InferenceReportCore
 from nof1_causal_lab.artifacts.posterior_diagnostics import (
@@ -102,7 +102,6 @@ class ModelSnapshot(Value):
     specification: tuple[SpecificationAssessment, ...] | None = None
     question_checks: QuestionCheckReport | None = None
     simulation: SimulationReport | None = None
-    predictive: ModelPredictiveReport | None = None
 
     @model_validator(mode="after")
     def validate_ownership(self) -> ModelSnapshot:

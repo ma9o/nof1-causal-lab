@@ -5,9 +5,6 @@ from __future__ import annotations
 from functools import cache
 from typing import TYPE_CHECKING
 
-from pydantic import TypeAdapter
-
-from nof1_causal_lab.actions.contracts import call_identity
 from nof1_causal_lab.actions.io import DataDiffOutput
 from nof1_causal_lab.artifacts.data_ref import DataRef
 from nof1_causal_lab.artifacts.simulation import SimulationEvidence
@@ -57,13 +54,5 @@ def _compute_data_diff(workspace_id: str, request: DataDiffRequest[GitOid]) -> D
 
 
 def read_data_diff(workspace_id: str, request: DataDiffRequest[GitOid]) -> DataDiffOutput:
-    """Compute a comparison for publication, reusing the current-code preparation cache."""
-    from nof1_causal_lab.study.store import cached_value
-
-    value, _ = cached_value(
-        workspace_id,
-        ("data-diff", call_identity(request)),
-        TypeAdapter(DataDiffOutput),
-        lambda: _compute_data_diff(workspace_id, request),
-    )
-    return value
+    """Compute the comparison once during its owning action."""
+    return _compute_data_diff(workspace_id, request)

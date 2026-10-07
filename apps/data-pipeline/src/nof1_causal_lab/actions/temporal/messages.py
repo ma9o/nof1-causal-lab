@@ -43,7 +43,7 @@ from nof1_causal_lab.llm_specs import (
     HarnessLLMSpec,
     LLMProfileSpec,
 )
-from nof1_causal_lab.study.records import ActionMessage, Applied, AttemptRecord
+from nof1_causal_lab.study.records import ActionMessage, Applied, AttemptRecord, StagedActionAttempt
 from nof1_causal_lab.study.state import (
     StudyState,
 )
@@ -476,6 +476,13 @@ class ChecksResult(Value):
 
     reports: Mapping[ActionReportName, GitOid]
     messages: tuple[ActionMessage, ...]
+
+
+class CompleteResultInput(Value):
+    """The completed execution whose full scientific result must be saved before publication."""
+
+    workspace_id: str
+    attempt: StagedActionAttempt
 
 
 class AttemptPublication(Value):

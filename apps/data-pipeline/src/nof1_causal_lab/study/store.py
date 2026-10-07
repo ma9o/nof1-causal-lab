@@ -1,8 +1,8 @@
 """Immutable artifact payloads and access to commit-local execution records.
 
-Git owns study state and history in ``study/history.git``. Artifact trees
-contain JSON payloads and input references; ``store/`` contains content-addressed
-numerical arrays and external tables. Git OIDs identify exact scientific inputs.
+Git owns complete action results in ``study/history.git``. Published artifacts
+select those bodies; ``store/`` holds uploaded tables and temporary execution
+buffers. Git OIDs identify exact scientific inputs.
 """
 
 from __future__ import annotations
@@ -14,7 +14,6 @@ import re
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import TYPE_CHECKING
-from uuid import uuid4
 
 import numpy as np
 import polars as pl
@@ -22,54 +21,23 @@ import pyarrow as pa
 import pyarrow.parquet as pq
 import pygit2
 
-from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid
+from nof1_causal_lab.artifacts.identity import ArtifactId, GitOid, GitRef
 from nof1_causal_lab.study.errors import StudyLookupError
 from nof1_causal_lab.study.git_objects import object_tree, open_repository, read_file, write_tree
-from nof1_causal_lab.study.state import ArtifactRecord
+from nof1_causal_lab.study.state import ArtifactRecord, ArtifactResult
 from nof1_causal_lab.study.view_models import DataPoint, DataRef, DataSeries, Dataset
 from nof1_causal_lab.utils import data as data_module
 from nof1_causal_lab.utils import storage
 
 if TYPE_CHECKING:
-    from collections.abc import Callable
-
     from jax.typing import ArrayLike
-    from pydantic import BaseModel, TypeAdapter
+    from pydantic import BaseModel
 
     from nof1_causal_lab.artifacts.measurements import ObservationRecord
     from nof1_causal_lab.artifacts.model_spec import ModelSpec
     from nof1_causal_lab.artifacts.observation_data import ObservationDataset
     from nof1_causal_lab.artifacts.question import QuestionSpec
     from nof1_causal_lab.json_types import JsonObject
-
-
-_CODE_DIGEST = hashlib.sha256(
-    b"".join(path.read_bytes() for path in sorted(Path(__file__).parents[1].rglob("*.py")))
-).hexdigest()
-
-
-def cached_read[T](
-    workspace_id: str, key: tuple[str, ...], adapter: TypeAdapter[T], render: Callable[[], T]
-) -> tuple[bytes, bool]:
-    """One atomic cache for projections of immutable inputs and current package code."""
-    digest = hashlib.sha256("\0".join((_CODE_DIGEST, *key)).encode()).hexdigest()
-    path = Path(data_module.cache_dir(workspace_id)) / "reads" / f"{digest}.json"
-    reused = path.exists()
-    if not reused:
-        body = adapter.dump_json(render(), by_alias=True)
-        path.parent.mkdir(parents=True, exist_ok=True)
-        partial = path.with_name(f"{digest}.{uuid4().hex}.partial")
-        partial.write_bytes(body)
-        partial.replace(path)
-    return path.read_bytes(), reused
-
-
-def cached_value[T](
-    workspace_id: str, key: tuple[str, ...], adapter: TypeAdapter[T], render: Callable[[], T]
-) -> tuple[T, bool]:
-    """Read or render a typed cached value and return it with a cache-reuse flag."""
-    body, reused = cached_read(workspace_id, key, adapter, render)
-    return adapter.validate_json(body), reused
 
 
 def utc_now_iso() -> str:
@@ -112,15 +80,38 @@ class ArtifactStore:
 
     def write_array(self, values: ArrayLike) -> str:
         """Persist numerical values in the workspace array store and return their content identity."""
-        from nof1_causal_lab.utils.arrays import write_array
+        from nof1_causal_lab.utils.arrays import encode_array, write_array
 
-        return write_array(storage.join(self._root, "arrays"), np.asarray(values))
+        array = np.asarray(values)
+        identity, _ = encode_array(array)
+        if f"refs/arrays/{identity}" in self.repo.references:
+            return identity
+        return write_array(storage.join(self._root, "arrays"), array)
 
     def read_array(self, identity: str) -> np.ndarray:
         """Load and verify a numerical array using its retained content identity."""
+        from nof1_causal_lab.artifacts.arrays import NumericalArray
+        from nof1_causal_lab.study.action_arrays import decode_array
         from nof1_causal_lab.utils.arrays import read_array
 
+        ref = f"refs/arrays/{identity}"
+        if ref in self.repo.references:
+            payload = json.loads(self.repo[self.repo.references[ref].target].peel(pygit2.Blob).data)
+            return decode_array(NumericalArray.model_validate(payload["arrays"][identity]))
         return read_array(storage.join(self._root, "arrays"), identity)
+
+    def write_result(self, result: BaseModel) -> GitOid:
+        """Store the exact public result, including display values evaluated during execution."""
+        from nof1_causal_lab.artifacts.arrays import NumericalArray
+        from nof1_causal_lab.study.action_arrays import check_result_vectors
+
+        payload = result.model_dump(mode="json")
+        arrays = {
+            ref: NumericalArray.model_validate(value)
+            for ref, value in payload.get("arrays", {}).items()
+        }
+        check_result_vectors(payload, arrays)
+        return GitOid(str(self.repo.create_blob(result.model_dump_json().encode())))
 
     def write_report(self, report: BaseModel) -> GitOid:
         """Retain the computed report as a Git blob for the action's publication."""
@@ -129,7 +120,11 @@ class ArtifactStore:
     def read_report[ReportT: BaseModel](self, revision: GitOid, target: type[ReportT]) -> ReportT:
         """Parse a retained Git report blob with the caller's expected report schema."""
         payload = self.repo[pygit2.Oid(hex=revision)].peel(pygit2.Blob).data
-        return target.model_validate_json(payload)
+        from functools import cache
+
+        return target.model_validate_json(
+            payload, context={"distribution_array_loader": cache(self.read_array)}
+        )
 
     def write_artifact(
         self,
@@ -176,6 +171,26 @@ class ArtifactStore:
         )
         return ArtifactRecord.model_validate({**metadata, "revision": str(revision)})
 
+    def result_artifact(self, info: ArtifactRecord, result: GitOid) -> ArtifactRecord:
+        """Point a scientific artifact at its owning result without copying its payload."""
+        if info.artifact_id == "raw_data":
+            return info
+        metadata = info.revised(source=ArtifactResult(result=result)).model_dump(
+            mode="json", exclude={"revision"}
+        )
+        tree = self.repo.TreeBuilder()
+        tree.insert(
+            "meta.json",
+            self.repo.create_blob(json.dumps(metadata, sort_keys=True).encode()),
+            pygit2.GIT_FILEMODE_BLOB,
+        )
+        tree.insert("result.json", pygit2.Oid(hex=result), pygit2.GIT_FILEMODE_BLOB)
+        revision = GitOid(str(tree.write()))
+        self.repo.references.create(
+            f"refs/artifacts/{info.artifact_id}/{revision}", pygit2.Oid(hex=revision), force=True
+        )
+        return ArtifactRecord(**metadata, revision=revision)
+
     def read_record(self, revision: str) -> ArtifactRecord:
         """Read an artifact's identity and provenance without presupposing its kind."""
         metadata = json.loads(read_file(self.repo, revision, "meta.json"))
@@ -190,16 +205,31 @@ class ArtifactStore:
             )
         return info
 
+    def model_ref(self, revision: GitOid) -> GitRef:
+        """Locate the file that owns a staged or published model's scientific value."""
+        info = self.read_meta("model", revision)
+        return GitRef(
+            workspace_id=self.workspace_id,
+            revision=revision,
+            path="result.json" if isinstance(info.source, ArtifactResult) else "model.json",
+        )
+
     def read_value[ValueT: BaseModel](
         self, artifact_id: ArtifactId, revision: str, name: str, target: type[ValueT]
     ) -> ValueT:
         """Check artifact ownership and parse a named JSON payload with its production schema."""
-        self.read_meta(artifact_id, revision)
-        return target.model_validate_json(read_file(self.repo, revision, name))
+        return target.model_validate(self.read_json_file(artifact_id, revision, name))
 
     def read_json_file(self, artifact_id: ArtifactId, revision: str, name: str) -> JsonObject:
         """Check artifact ownership and read a named JSON object from the selected revision."""
-        self.read_meta(artifact_id, revision)
+        info = self.read_meta(artifact_id, revision)
+        if isinstance(info.source, ArtifactResult):
+            output = json.loads(
+                self.repo[pygit2.Oid(hex=info.source.result)].peel(pygit2.Blob).data
+            )
+            key = {"model": "model", "question": "question", "panel": "metadata"}[artifact_id]
+            selected: JsonObject = output[key]
+            return selected
         value: JsonObject = json.loads(read_file(self.repo, revision, name))
         return value
 
@@ -228,6 +258,13 @@ class ArtifactStore:
         """Read an artifact's retained Parquet file into a Polars dataframe."""
         import polars as pl
 
+        info = self.read_meta(artifact_id, revision)
+        if isinstance(info.source, ArtifactResult):
+            from nof1_causal_lab.actions.io import PrepareDataOutput
+            from nof1_causal_lab.study.data import prepared_frame
+
+            assert artifact_id == "panel"
+            return prepared_frame(self.read_report(info.source.result, PrepareDataOutput))
         return pl.read_parquet(self.file_path(artifact_id, revision, name))
 
     def read_parquet_table(self, artifact_id: ArtifactId, revision: str, name: str) -> pa.Table:

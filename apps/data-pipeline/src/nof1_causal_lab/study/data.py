@@ -22,6 +22,7 @@ if TYPE_CHECKING:
     from collections.abc import Callable
     from datetime import datetime
 
+    from nof1_causal_lab.actions.io import PrepareDataOutput
     from nof1_causal_lab.artifacts.measurements import ObservationRecord
     from nof1_causal_lab.artifacts.observations import ResolvedObservationSpec
     from nof1_causal_lab.artifacts.simulation import SimulationEvidence
@@ -123,7 +124,7 @@ def read_data_source(
     store: ArtifactStore, revision: GitOid
 ) -> PreparedDataMetadata | SimulationEvidence:
     """Resolve a prepared panel tree or an applied data-producing action commit."""
-    from nof1_causal_lab.artifacts.simulation import ModelSimulationResult
+    from nof1_causal_lab.actions.io import SimulateOutput
     from nof1_causal_lab.study.git_objects import object_tree
     from nof1_causal_lab.study.history import StudyRepository
     from nof1_causal_lab.study.lineage import read_data_metadata
@@ -147,8 +148,10 @@ def read_data_source(
         if panel is None:
             raise StudyLookupError("The selected preparation produced no observation history")
         return read_data_metadata(store, panel.revision)
-    if isinstance(attempt.outcome.result, ModelSimulationResult):
-        return attempt.outcome.result.evidence
+    if attempt.action == "simulate":
+        result = store.read_report(attempt.outcome.result, SimulateOutput)
+        assert result.report is not None
+        return result.report.evidence
     raise StudyLookupError("Data must select an applied prepare_data or simulate call")
 
 
@@ -231,3 +234,40 @@ def read_data_histories(
         )
         for index in indices
     )
+
+
+def prepared_frame(result: PrepareDataOutput) -> pl.DataFrame:
+    """Decode the preparation's saved history into the scientific observation table."""
+    from nof1_causal_lab.study.action_arrays import resolve_vector
+
+    assert result.metadata is not None
+    rows = []
+    for variable in result.metadata.variables:
+        history = result.data[variable.id]
+        origin = ObservationInstant.origin(history.time_origin)
+
+        def instant(day: float | None, origin: ObservationInstant = origin) -> datetime | None:
+            return ModelTime(day).at(origin).value.replace(tzinfo=None) if day is not None else None
+
+        starts = resolve_vector(history.support_start, {})
+        ends = resolve_vector(history.support_end, {})
+        values = resolve_vector(history.values, {})
+        rows.extend(
+            {
+                "indicator_id": variable.id,
+                "value": value,
+                "anchor_time": instant(day),
+                "support_start": instant(start),
+                "support_end": instant(end),
+                "support_kind": variable.support_kind.value,
+                "summary_operator": variable.summary_operator.value,
+                "anchor_policy": variable.anchor_policy.value,
+                "observation_window": str(variable.observation_window),
+            }
+            for day, start, end, value in zip(history.times, starts, ends, values, strict=True)
+        )
+    schema = observation_row_schema() | {
+        "value": pl.Float64,
+        **{name: pl.Datetime("us") for name in ("anchor_time", "support_start", "support_end")},
+    }
+    return pl.DataFrame(rows, schema=schema).sort("indicator_id", "anchor_time")

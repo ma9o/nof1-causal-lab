@@ -68,7 +68,7 @@ See the [dev setup guide](docs/guides/dev_setup.md) for full details including e
 ## Documentation
 
 - **How each action works:** [`edit_question`](docs/assets/action-flows/edit-question.svg), [edit_model](docs/assets/action-flows/edit-model.svg), [prepare_data](docs/assets/action-flows/prepare-data.svg), [fit](docs/assets/action-flows/fit.svg), [simulate](docs/assets/action-flows/simulate.svg), [data_diff](docs/assets/action-flows/data-diff.svg) and [model_diff](docs/assets/action-flows/model-diff.svg).
-- **[Bayesian workflow](docs/assets/bayesian-workflow.svg):** the book's workflow mapped onto the edit, prepare, fit and simulate actions and the two read-only comparisons, including what is still missing.
+- **[Bayesian workflow](docs/assets/bayesian-workflow.svg):** the book's workflow mapped onto the seven actions, including what is still missing.
 - **[Assumptions and limits](docs/assumptions.md):** the modeling commitments behind every result.
 - **Supported laws:** [likelihoods](docs/reference/statistical-model-spec/likelihoods.md) and [priors](docs/reference/statistical-model-spec/parameters.md), generated from the code.
 - **API:** one POST per action returns running progress or the complete saved result; the remaining routes serve the slim timeline, workspaces and uploads. See the Swagger UI at `http://localhost:8100/api/docs` while the tool server runs, and the generated [agent skill](.agents/skills/nof1-study-api/SKILL.md).

@@ -12,12 +12,29 @@ cross serialization boundaries verbatim: Temporal update/activity payloads
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
+from typing import Annotated, Literal
 
 from pydantic import Field
 
 from nof1_causal_lab.artifacts.base import Value
 from nof1_causal_lab.artifacts.data_ref import DataRef
 from nof1_causal_lab.artifacts.identity import ARTIFACT_IDS, ArtifactId, GitOid, ScientificActionId
+
+
+class ArtifactFiles(Value):
+    """Execution staging or an uploaded input owns its physical files."""
+
+    kind: Literal["files"] = "files"
+
+
+class ArtifactResult(Value):
+    """A published scientific artifact selects a field of its owning action result."""
+
+    kind: Literal["result"] = "result"
+    result: GitOid
+
+
+type ArtifactSource = Annotated[ArtifactFiles | ArtifactResult, Field(discriminator="kind")]
 
 
 class ArtifactRecord(Value):
@@ -33,6 +50,7 @@ class ArtifactRecord(Value):
     derived_from: Mapping[ArtifactId, GitOid] = Field(default_factory=dict)
     produced_by: str | None = None
     created_at: str = ""
+    source: ArtifactSource = Field(default_factory=ArtifactFiles)
 
 
 class StudyState(Value):
@@ -113,7 +131,7 @@ def apply_effects(
 def is_stale(state: StudyState, artifact_id: ArtifactId) -> bool:
     """Whether an artifact's input chain references superseded versions.
 
-    Derived findings are separate cached reads. This query follows only the
+    Findings belong to complete saved action results. This query follows only the
     immutable execution facts selected by the journal.
     """
     if artifact_id == "model":

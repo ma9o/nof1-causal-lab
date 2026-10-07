@@ -1,5 +1,7 @@
 "use client";
 
+import { inferenceView } from "@/lib/model-asset/result-values";
+
 import type { ModelSnapshot } from "@nof1-causal-lab/api-types";
 import { useActionResult } from "./use-model-snapshot";
 
@@ -10,5 +12,5 @@ export function useInferenceReport(model: ModelSnapshot) {
     model.state.current.model?.revision,
     model.fit != null,
   );
-  return { ...query, data: query.data?.action === "fit" ? query.data.body.inference_report : null };
+  return { ...query, data: query.data?.action === "fit" ? inferenceView(query.data.body) : null };
 }

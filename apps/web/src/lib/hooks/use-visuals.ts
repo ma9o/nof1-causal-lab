@@ -1,15 +1,16 @@
 "use client";
 
-import type {
-  IndicatorId,
-  ModelSnapshot,
-  PathSeries,
-  SimulationPaths,
-} from "@nof1-causal-lab/api-types";
+import type { IndicatorId, ModelSnapshot } from "@nof1-causal-lab/api-types";
+import {
+  historyView,
+  pathsView,
+  drawsView,
+  type PathSeriesView,
+  type SimulationPathsView,
+} from "@/lib/model-asset/result-values";
 import { presentEntries } from "@/lib/model-accessors";
 import { viewedSimulation } from "@/lib/simulation-report";
 import { useActionResult, useViewedSimulationResult } from "./use-model-snapshot";
-import { callModel } from "@/lib/model-asset/compose-call-view";
 
 export function useObservationHistory(model: ModelSnapshot, id: IndicatorId) {
   const query = useActionResult(model.workspace_id, model.state.data?.revision ?? model.commit_id);
@@ -20,16 +21,13 @@ export function useObservationHistory(model: ModelSnapshot, id: IndicatorId) {
       : result?.action === "prepare_data"
         ? result.body.data
         : null;
-  return { ...query, data: history?.[id] ?? null };
-}
-
-export function usePredictiveHistory(model: ModelSnapshot, id: IndicatorId) {
-  const query = useActionResult(
-    model.workspace_id,
-    model.state.current.model?.revision,
-    model.predictive !== null,
-  );
-  return { ...query, data: callModel(query.data)?.predictive_overlays[id] ?? null };
+  const selected = history?.[id];
+  return {
+    ...query,
+    data: selected
+      ? historyView(selected, result?.action === "simulate" ? result.body.arrays : {})
+      : null,
+  };
 }
 
 /** Which saved draws a chart shows: a contiguous page, or every draw. */
@@ -47,14 +45,19 @@ export const ALL_DRAWS: DrawSelection = { start: 0, count: Number.POSITIVE_INFIN
 export function useSimulationPaths(model: ModelSnapshot, selection: DrawSelection = ALL_DRAWS) {
   const simulation = viewedSimulation(model);
   const query = useViewedSimulationResult(model, simulation !== null);
-  const paths = query.data?.action === "simulate" ? query.data.body.paths : null;
+  const paths =
+    query.data?.action === "simulate"
+      ? query.data.body.paths
+        ? pathsView(query.data.body.paths, query.data.body.arrays)
+        : null
+      : null;
   const { start, count } = selection;
-  const page = (series: PathSeries): PathSeries => ({
+  const page = (series: PathSeriesView): PathSeriesView => ({
     ...series,
     action: series.action.slice(start, start + count),
     reference: series.reference.slice(start, start + count),
   });
-  const data: SimulationPaths | null =
+  const data: SimulationPathsView | null =
     paths && simulation
       ? {
           ...paths,
@@ -78,5 +81,5 @@ export function useParameterDraws(model: ModelSnapshot) {
     model.state.current.model?.revision,
     model.fit != null,
   );
-  return { ...query, data: query.data?.action === "fit" ? query.data.body.parameter_draws : null };
+  return { ...query, data: query.data?.action === "fit" ? drawsView(query.data.body) : null };
 }

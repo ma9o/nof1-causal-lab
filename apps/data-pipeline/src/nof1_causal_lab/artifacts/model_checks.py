@@ -20,8 +20,6 @@ from .identity import ConstructRef, GitOid
 from .posterior_diagnostics import PosteriorPredictiveChecks
 from .predictive_provenance import PredictiveLawProvenance
 
-type CheckGroup = Literal["specification", "identification", "compatibility", "question"]
-
 
 class OutcomeSubject(Value):
     """Whether the model defines the question's outcome as a measured, modeled course."""
@@ -110,9 +108,7 @@ class ModelPredictiveReport(Value):
 
 
 class ModelCheckReport(Value):
-    """Current-code findings selected by their consumed scientific inputs."""
+    """Findings evaluated by the action against its pinned scientific inputs."""
 
     specification: tuple[SpecificationAssessment, ...]
     question: QuestionCheckReport | None = None
-    predictive: ModelPredictiveReport | None = None
-    reused: tuple[CheckGroup | Literal["predictive"], ...] = Field(default=())

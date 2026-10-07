@@ -78,6 +78,7 @@ def seed(root, workspace, options):
         )
         repository.append(
             applied_record(
+                workspace,
                 applied,
                 seq=repository.latest_seq() + 1,
                 ts=stamp,

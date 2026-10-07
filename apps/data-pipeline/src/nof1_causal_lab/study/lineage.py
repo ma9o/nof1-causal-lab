@@ -51,13 +51,11 @@ def fitted_law_report(
         raise ValueError("Fitted model laws require their committed inference report")
     assert fitted.record.attempt.action == "fit"
     assert fitted.record.attempt.outcome.status == "applied"
-    result = fitted.record.attempt.outcome.result
-    assert result is not None
-    from nof1_causal_lab.artifacts.posterior import InferenceReport
+    from nof1_causal_lab.actions.io import FitOutput
 
-    return store.read_report(
-        fitted.record.attempt.outcome.effects.reports["inference"], InferenceReport
-    ).core
+    result = store.read_report(fitted.record.attempt.outcome.result, FitOutput)
+    assert result.inference_report is not None
+    return result.inference_report.core
 
 
 def law_provenance(
@@ -93,9 +91,11 @@ def law_provenance(
                     raise ValueError("Fitted laws require their recorded data selection")
                 assert fit.record.attempt.action == "fit"
                 assert isinstance(fit.record.attempt.outcome, Applied)
-                result = fit.record.attempt.outcome.result
-                assert result is not None
-                fitted_data = result.data
+                from nof1_causal_lab.actions.io import FitOutput
+
+                result = store.read_report(fit.record.attempt.outcome.result, FitOutput)
+                assert result.inference is not None
+                fitted_data = result.inference.data
                 if inherited != set(laws):
                     return MixedLawProvenance(
                         fitted_data=fitted_data,

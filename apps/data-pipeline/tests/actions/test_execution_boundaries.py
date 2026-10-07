@@ -74,7 +74,9 @@ def test_partial_model_revisions_remain_readable_with_capability_findings(worksp
         )
         state = state.with_artifacts(effects.effects.produced)
         journal.append(
-            applied_record(effects, seq=revision + 1, ts="2026-09-14T12:00:00Z", trace_ids=[])
+            applied_record(
+                workspace, effects, seq=revision + 1, ts="2026-09-14T12:00:00Z", trace_ids=[]
+            )
         )
         snapshot = ModelReader(workspace, at=StudyRepository(workspace).head()).snapshot()
         assert snapshot.model is not None

@@ -234,8 +234,9 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                 from nof1_causal_lab.study.snapshots import ModelReader
 
                 assert ModelReader(workspace_id, at=prepared.commit_id).data_profile is not None
-                saved_checks = ModelReader(workspace_id, at=edited.commit_id).checks
-                assert saved_checks is not None
+                saved_model = ModelReader(workspace_id, at=edited.commit_id).model_output()
+                assert saved_model is not None
+                assert saved_model.checks is not None
                 model_revision = state(edited).current["model"].revision
                 before = state().current
 
@@ -319,7 +320,7 @@ def test_study_workflow_journey(machine_env, monkeypatch):
                 assert all("move" not in record.model_dump() for record in records)
                 assert read_model(store, state(rewritten).current["model"].revision) == revised
                 assert state(rewritten).current["question"] == state(root).current["question"]
-                assert ModelReader(workspace_id, at=edited.commit_id).checks == saved_checks
+                assert ModelReader(workspace_id, at=edited.commit_id).model_output() == saved_model
                 from nof1_causal_lab.actions.contracts import ModelDiffRequest
 
                 head = StudyRepository(workspace_id).head()

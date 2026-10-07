@@ -9,8 +9,6 @@ from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
     from nof1_causal_lab.actions.contracts import DataDiffRequest, ModelDiffRequest
-    from nof1_causal_lab.actions.effects import ActionReportName
-    from nof1_causal_lab.artifacts.base import Value
     from nof1_causal_lab.artifacts.identity import ArtifactId
     from nof1_causal_lab.study.records import AttemptRecord
 
@@ -58,18 +56,6 @@ class StudyRepository:
         """Read a named file from an exact Git revision without changing the working selection."""
         return read_file(self.repo, revision, name)
 
-    def read_report[ReportT: Value](
-        self, revision: str, name: ActionReportName, target: type[ReportT]
-    ) -> ReportT | None:
-        """Load an action's saved findings; absent reports remain absent."""
-        outcome = self.record(revision).record.attempt.outcome
-        if not isinstance(outcome, Applied):
-            return None
-        report = outcome.effects.reports.get(name)
-        if report is None:
-            return None
-        return target.model_validate_json(self.repo[pygit2.Oid(hex=report)].peel(pygit2.Blob).data)
-
     def state(self, revision: str) -> StudyState:
         """Reconstruct artifact selections and the most recent selected data history at a checkpoint."""
         tree = self._commit(revision).tree
@@ -90,8 +76,12 @@ class StudyRepository:
             attempt = record.record.attempt
             if not isinstance(attempt.outcome, Applied):
                 continue
-            if attempt.action == "fit" and attempt.outcome.result is not None:
-                data = attempt.outcome.result.data
+            if attempt.action == "fit":
+                assert isinstance(attempt.request, FitRequest)
+                data = DataRef[GitOid, int](
+                    revision=attempt.request.input.data_ref,
+                    replicate_index=attempt.request.input.replicate_index,
+                )
                 break
             if attempt.action == "prepare_data" and any(
                 info.artifact_id == "panel" for info in attempt.outcome.effects.produced
@@ -282,6 +272,7 @@ class StudyRepository:
         attempt_ref = f"refs/attempts/{record.seq}"
         head_ref = "refs/heads/main"
         log = record.model_dump(mode="json", round_trip=True)
+        array_ids: tuple[str, ...] = ()
         with self.repo.transaction() as transaction:
             transaction.lock_ref(attempt_ref)
             call_ref = None
@@ -350,11 +341,17 @@ class StudyRepository:
                 .encode()
             )
             log_tree = self.repo.TreeBuilder(write_tree(self.repo, log_files))
-            if isinstance(outcome, Applied) and outcome.effects.reports:
-                reports = self.repo.TreeBuilder()
-                for name, report in outcome.effects.reports.items():
-                    reports.insert(f"{name}.json", pygit2.Oid(hex=report), pygit2.GIT_FILEMODE_BLOB)
-                log_tree.insert("reports", reports.write(), pygit2.GIT_FILEMODE_TREE)
+            if isinstance(outcome, Applied):
+                tree.insert("result.json", pygit2.Oid(hex=outcome.result), pygit2.GIT_FILEMODE_BLOB)
+                result = json.loads(
+                    self.repo[pygit2.Oid(hex=outcome.result)].peel(pygit2.Blob).data
+                )
+                array_ids = tuple(result.get("arrays", {}))
+                for identity in array_ids:
+                    array_ref = f"refs/arrays/{identity}"
+                    transaction.lock_ref(array_ref)
+                    if array_ref not in self.repo.references:
+                        transaction.set_target(array_ref, pygit2.Oid(hex=outcome.result))
             tree.insert("logs", log_tree.write(), pygit2.GIT_FILEMODE_TREE)
             timestamp = int(datetime.fromisoformat(record.ts).timestamp())
             signature = pygit2.Signature("nof1-causal-lab", "study@local", timestamp, 0)
@@ -374,6 +371,15 @@ class StudyRepository:
                 transaction.set_target(action_ref, oid)
             if advances:
                 transaction.set_target(head_ref, oid, message=f"{action} ({outcome.status})")
+        if isinstance(outcome, Applied):
+            from nof1_causal_lab.utils import data as data_module
+
+            # Publication now owns these buffers; execution copies are expendable.
+            arrays = Path(data_module.store_dir(self.workspace_id)) / "arrays"
+            for identity in array_ids:
+                path = arrays / f"{identity}.npy"
+                if path.exists():
+                    path.unlink()
         return StudyRevision(
             commit_id=GitOid(str(oid)), parent_ids=(GitOid(str(parent)),), record=record
         )

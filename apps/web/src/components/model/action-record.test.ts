@@ -73,7 +73,13 @@ describe("action reasoning", () => {
       call_id: `call:${"2".repeat(64)}`,
       request,
       messages: [
-        { kind: "log", timestamp: tick.record.ts, level: "info", label: "SIMULATE_STARTED" },
+        {
+          kind: "log",
+          timestamp: tick.record.ts,
+          level: "info",
+          label: "SIMULATE_STARTED",
+          details: {},
+        },
       ],
     });
     expect(html.indexOf('aria-label="Reasoning"')).toBeLessThan(html.indexOf("SIMULATE_STARTED"));

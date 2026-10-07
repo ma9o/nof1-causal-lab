@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from typing import TYPE_CHECKING, Annotated, Literal, Self, cast
 from uuid import UUID
 
@@ -23,6 +24,7 @@ from nof1_causal_lab.artifacts.data_preparation import ExtractionWorkerResult, F
 from nof1_causal_lab.artifacts.identity import GitOid
 from nof1_causal_lab.artifacts.posterior import ModelFitResult
 from nof1_causal_lab.artifacts.simulation import ModelSimulationResult
+from nof1_causal_lab.json_types import JsonValue
 from nof1_causal_lab.study.state import StudyState
 
 if TYPE_CHECKING:
@@ -38,6 +40,7 @@ class ActionMessage(Value):
     timestamp: AwareDatetime
     level: Literal["debug", "info", "warn", "error"]
     label: str = Field(pattern=r"^[A-Z][A-Z0-9]*(?:_[A-Z0-9]+)*$")
+    details: Mapping[str, JsonValue] = Field(default_factory=dict)  # noqa: FIELD003 -- External action clients retain structured execution facts through messages.
 
 
 class DataPreparationResult(Value):
@@ -55,7 +58,7 @@ class Applied[ResultT](Value):
     )
     result: ResultT = Field(
         description=(
-            "Action-specific retained result; some actions publish only effects and use null here."
+            "Complete saved result reference, or the transient evidence awaiting completion."
         )
     )
     effects: ActionEffects = Field(
@@ -116,15 +119,36 @@ class Attempt[ActionT: str, RequestT: Value, ResultT](Value):
     outcome: Annotated[Applied[ResultT] | Rejected | Raised, Field(discriminator="status")]
 
 
-EditQuestionAttempt = Attempt[Literal["edit_question"], EditQuestionRequest, None]
-EditAttempt = Attempt[Literal["edit_model"], EditModelRequest[GitOid], None]
-PrepareAttempt = Attempt[
+StagedEditQuestionAttempt = Attempt[Literal["edit_question"], EditQuestionRequest, None]
+StagedEditAttempt = Attempt[Literal["edit_model"], EditModelRequest[GitOid], None]
+StagedPrepareAttempt = Attempt[
     Literal["prepare_data"], PrepareDataRequest[GitOid, FileSourceRef], DataPreparationResult
 ]
-FitAttempt = Attempt[Literal["fit"], FitRequest[GitOid], ModelFitResult | None]
-SimulateAttempt = Attempt[Literal["simulate"], SimulateRequest[GitOid], ModelSimulationResult]
-DataDiffAttempt = Attempt[Literal["data_diff"], DataDiffRequest[GitOid], None]
-ModelDiffAttempt = Attempt[Literal["model_diff"], ModelDiffRequest[GitOid], None]
+StagedFitAttempt = Attempt[Literal["fit"], FitRequest[GitOid], ModelFitResult | None]
+StagedSimulateAttempt = Attempt[Literal["simulate"], SimulateRequest[GitOid], ModelSimulationResult]
+StagedDataDiffAttempt = Attempt[Literal["data_diff"], DataDiffRequest[GitOid], None]
+StagedModelDiffAttempt = Attempt[Literal["model_diff"], ModelDiffRequest[GitOid], None]
+
+
+type StagedActionAttempt = Annotated[
+    StagedEditQuestionAttempt
+    | StagedEditAttempt
+    | StagedPrepareAttempt
+    | StagedFitAttempt
+    | StagedSimulateAttempt
+    | StagedDataDiffAttempt
+    | StagedModelDiffAttempt,
+    Field(discriminator="action"),
+]
+
+
+EditQuestionAttempt = Attempt[Literal["edit_question"], EditQuestionRequest, GitOid]
+EditAttempt = Attempt[Literal["edit_model"], EditModelRequest[GitOid], GitOid]
+PrepareAttempt = Attempt[Literal["prepare_data"], PrepareDataRequest[GitOid, FileSourceRef], GitOid]
+FitAttempt = Attempt[Literal["fit"], FitRequest[GitOid], GitOid]
+SimulateAttempt = Attempt[Literal["simulate"], SimulateRequest[GitOid], GitOid]
+DataDiffAttempt = Attempt[Literal["data_diff"], DataDiffRequest[GitOid], GitOid]
+ModelDiffAttempt = Attempt[Literal["model_diff"], ModelDiffRequest[GitOid], GitOid]
 
 
 type ActionAttempt = Annotated[
@@ -206,57 +230,106 @@ def failed_attempt(
     raise TypeError("Unknown action request")
 
 
+def failed_staged_attempt(
+    request: ScientificActionRequest | DataDiffRequest[GitOid] | ModelDiffRequest[GitOid],
+    outcome: FailedOutcome,
+) -> StagedActionAttempt:
+    """Carry an expected execution refusal before result publication."""
+    match request:
+        case EditQuestionRequest():
+            return StagedEditQuestionAttempt(
+                action="edit_question", request=request, outcome=outcome
+            )
+        case EditModelRequest():
+            return StagedEditAttempt(action="edit_model", request=request, outcome=outcome)
+        case PrepareDataRequest():
+            return StagedPrepareAttempt(action="prepare_data", request=request, outcome=outcome)
+        case FitRequest():
+            return StagedFitAttempt(action="fit", request=request, outcome=outcome)
+        case SimulateRequest():
+            return StagedSimulateAttempt(action="simulate", request=request, outcome=outcome)
+        case DataDiffRequest():
+            return StagedDataDiffAttempt(action="data_diff", request=request, outcome=outcome)
+        case ModelDiffRequest():
+            return StagedModelDiffAttempt(action="model_diff", request=request, outcome=outcome)
+    raise TypeError("Unknown action request")
+
+
 def applied_attempt[ResultT](
     request: ScientificActionRequest | DataDiffRequest[GitOid] | ModelDiffRequest[GitOid],
     applied: Applied[ResultT],
-) -> ActionAttempt:
+) -> StagedActionAttempt:
     """The execution transport is closed again before publication; mismatches are bugs."""
     result = applied.result
     match request, result:
         case EditQuestionRequest(), None:
-            return EditQuestionAttempt(
+            return StagedEditQuestionAttempt(
                 action="edit_question",
                 request=request,
                 outcome=Applied(result=result, effects=applied.effects),
             )
         case EditModelRequest(), None:
-            return EditAttempt(
+            return StagedEditAttempt(
                 action="edit_model",
                 request=request,
                 outcome=Applied(result=result, effects=applied.effects),
             )
         case PrepareDataRequest(), DataPreparationResult():
-            return PrepareAttempt(
+            return StagedPrepareAttempt(
                 action="prepare_data",
                 request=request,
                 outcome=Applied(result=result, effects=applied.effects),
             )
         case FitRequest(), ModelFitResult() | None:
-            return FitAttempt(
+            return StagedFitAttempt(
                 action="fit",
                 request=request,
                 outcome=Applied(result=result, effects=applied.effects),
             )
         case SimulateRequest(), ModelSimulationResult():
-            return SimulateAttempt(
+            return StagedSimulateAttempt(
                 action="simulate",
                 request=request,
                 outcome=Applied(result=result, effects=applied.effects),
             )
         case DataDiffRequest(), None:
-            return DataDiffAttempt(
+            return StagedDataDiffAttempt(
                 action="data_diff",
                 request=request,
                 outcome=Applied(result=result, effects=applied.effects),
             )
         case ModelDiffRequest(), None:
-            return ModelDiffAttempt(
+            return StagedModelDiffAttempt(
                 action="model_diff",
                 request=request,
                 outcome=Applied(result=result, effects=applied.effects),
             )
         case _:
             raise TypeError("Action result does not match its request")
+
+
+def retained_attempt(
+    attempt: StagedActionAttempt, result: GitOid, effects: ActionEffects
+) -> ActionAttempt:
+    """Close the saved action/result relationship after execution completes its body."""
+    outcome = Applied(result=result, effects=effects)
+    match attempt.action:
+        case "edit_question":
+            return EditQuestionAttempt(
+                action=attempt.action, request=attempt.request, outcome=outcome
+            )
+        case "edit_model":
+            return EditAttempt(action=attempt.action, request=attempt.request, outcome=outcome)
+        case "prepare_data":
+            return PrepareAttempt(action=attempt.action, request=attempt.request, outcome=outcome)
+        case "fit":
+            return FitAttempt(action=attempt.action, request=attempt.request, outcome=outcome)
+        case "simulate":
+            return SimulateAttempt(action=attempt.action, request=attempt.request, outcome=outcome)
+        case "data_diff":
+            return DataDiffAttempt(action=attempt.action, request=attempt.request, outcome=outcome)
+        case "model_diff":
+            return ModelDiffAttempt(action=attempt.action, request=attempt.request, outcome=outcome)
 
 
 def argument_revisions(attempt: ActionAttempt) -> tuple[tuple[str, GitOid], ...]:
@@ -295,8 +368,6 @@ def record_dependencies(revisions: Sequence[StudyRevision]) -> list[RecordDepend
         producers[revision.commit_id] = record.seq
         for artifact in outcome.effects.produced:
             producers.setdefault(artifact.revision, record.seq)
-        for report in outcome.effects.reports.values():
-            producers.setdefault(report, record.seq)
     dependencies: list[RecordDependency] = []
     for revision in revisions:
         record = revision.record
@@ -328,7 +399,6 @@ def inference_record[T: StudyRevision](records: Iterable[T], model_revision: Git
             for record in reversed(list(records))
             if record.record.attempt.action == "fit"
             and isinstance(record.record.attempt.outcome, Applied)
-            and isinstance(record.record.attempt.outcome.result, ModelFitResult)
             and any(
                 info.artifact_id == "model" and info.revision == model_revision
                 for info in record.record.attempt.outcome.effects.produced

@@ -20,7 +20,7 @@ from nof1_causal_lab.actions.io import (
 from nof1_causal_lab.artifacts.availability import NotApplicable
 from nof1_causal_lab.artifacts.data_preparation import FileSourceRef
 from nof1_causal_lab.artifacts.data_ref import DataRef
-from nof1_causal_lab.artifacts.identity import GitOid
+from nof1_causal_lab.artifacts.identity import GitOid, GitRef
 from nof1_causal_lab.artifacts.model_spec import ModelSpec
 from nof1_causal_lab.artifacts.predictive_provenance import AuthoredLawProvenance
 from nof1_causal_lab.artifacts.simulation import SimulationEvidence
@@ -57,6 +57,7 @@ def _record(seq, *, outcome=None, attempt_id=None, **effects):
             attempt=PrepareAttempt(request=None, outcome=outcome, action="prepare_data"),
         )
     return applied_record(
+        "STUDY",
         Applied(result=DataPreparationResult(), effects=ActionEffects(**effects)),
         seq=seq,
         attempt_id=attempt_id,
@@ -121,7 +122,9 @@ def test_comparison_is_a_saved_leaf_of_the_journal(study, monkeypatch, fails, co
     root = question_root("STUDY").commit_id
     head = repository.append(
         applied_record(
-            Applied(result=None, effects=ActionEffects(produced=(_model(store, "2d"),))), seq=2
+            "STUDY",
+            Applied(result=None, effects=ActionEffects(produced=(_model(store, "2d"),))),
+            seq=2,
         )
     ).commit_id
     left = DataRef[GitOid, int](replicate_index=0, revision=root)
@@ -140,6 +143,7 @@ def test_comparison_is_a_saved_leaf_of_the_journal(study, monkeypatch, fails, co
         DataDiffOutput(left=(left,), right=(right,), variables=())
         if comparison_action == "data_diff"
         else ModelDiffOutput(
+            arrays={},
             before=None,
             after=None,
             before_model=None,
@@ -174,6 +178,10 @@ def test_comparison_is_a_saved_leaf_of_the_journal(study, monkeypatch, fails, co
             return await read_inputs_activity(payload)
         if name == "run_action_activity":
             return await run_action_activity(payload)
+        if name == "complete_result_activity":
+            from nof1_causal_lab.actions.temporal.activities import complete_result_activity
+
+            return await complete_result_activity(payload)
         if name == "journal_activity":
             try:
                 # A journal activity retry reads the saved report rather than comparing again.
@@ -220,15 +228,12 @@ def test_comparison_is_a_saved_leaf_of_the_journal(study, monkeypatch, fails, co
         assert "no saved observations" in outcome.detail
     else:
         assert isinstance(outcome, Applied)
-        assert outcome.result is None
+        assert len(outcome.result) == 40
         assert outcome.effects.produced == outcome.effects.retracted == ()
         assert leaf.record.attempt.request == request
-        report_name = comparison_action.replace("_", "-")
-        assert tuple(outcome.effects.reports) == (report_name,)
+        assert outcome.effects.reports == {}
         assert (
-            type(report).model_validate_json(
-                repository.read_file(leaf.commit_id, f"logs/reports/{report_name}.json")
-            )
+            type(report).model_validate_json(repository.read_file(leaf.commit_id, "result.json"))
             == report
         )
 
@@ -236,7 +241,6 @@ def test_comparison_is_a_saved_leaf_of_the_journal(study, monkeypatch, fails, co
         cache = Path(data_module.cache_dir("STUDY"))
         cache.mkdir(parents=True, exist_ok=True)
         shutil.rmtree(cache)
-        monkeypatch.setattr("nof1_causal_lab.study.store._CODE_DIGEST", "new-comparison-code")
 
         def unexpected_comparison(*_args, **_kwargs):
             pytest.fail("A saved comparison must not recompute")
@@ -244,7 +248,9 @@ def test_comparison_is_a_saved_leaf_of_the_journal(study, monkeypatch, fails, co
         monkeypatch.setattr(data_diff, "read_data_diff", unexpected_comparison)
         monkeypatch.setattr(revisions, "read_model_diff", unexpected_comparison)
         restarted = StudyRepository("STUDY")
-        assert restarted.read_report(leaf.commit_id, report_name, type(report)) == report
+        assert restarted.read_file(leaf.commit_id, "result.json") == repository.read_file(
+            leaf.commit_id, "result.json"
+        )
         from nof1_causal_lab.tool_server import app
 
         monkeypatch.setenv("READ_ONLY_FACADE", "1")
@@ -280,14 +286,25 @@ def test_timeline_links_only_declared_refs_to_published_outputs():
         ModelDiffRequest,
         SimulateRequest,
     )
-    from nof1_causal_lab.artifacts.identity import GitRef
     from nof1_causal_lab.artifacts.simulation import (
         ModelSimulationResult,
         SimulationReport,
         SimulationSpec,
     )
     from nof1_causal_lab.study.records import FitAttempt
-    from tests.inference_fixtures import inference_log
+    from tests.inference_fixtures import inference_evidence
+
+    def dependency_record(applied, *, seq, request=None, **metadata):
+        from nof1_causal_lab.study.records import applied_attempt, retained_attempt
+
+        assert request is not None
+        return AttemptRecord(
+            seq=seq,
+            ts="2026-10-01T00:00:00Z",
+            attempt=retained_attempt(
+                applied_attempt(request, applied), oid(500 + seq), applied.effects
+            ),
+        )
 
     def revision(seq, action, inputs, *produced, status="applied"):
         artifacts = tuple(
@@ -303,7 +320,7 @@ def test_timeline_links_only_declared_refs_to_published_outputs():
                 result=None,
                 effects=ActionEffects(produced=artifacts),
             )
-            record = applied_record(
+            record = dependency_record(
                 result,
                 seq=seq,
                 request=EditModelRequest[GitOid](
@@ -314,7 +331,7 @@ def test_timeline_links_only_declared_refs_to_published_outputs():
                 ),
             )
         elif action == "prepare_data":
-            record = applied_record(
+            record = dependency_record(
                 Applied(
                     result=DataPreparationResult(),
                     effects=ActionEffects(produced=artifacts),
@@ -347,7 +364,7 @@ def test_timeline_links_only_declared_refs_to_published_outputs():
                     },
                 ),
             )
-            record = applied_record(
+            record = dependency_record(
                 Applied(
                     result=ModelSimulationResult(evidence=(report).evidence),
                     effects=ActionEffects(),
@@ -376,13 +393,16 @@ def test_timeline_links_only_declared_refs_to_published_outputs():
                 from tests.model_fixtures import load_model_fixture
 
                 model = load_model_fixture("causal_proofs/conditioned_treatment_outcome.json")
-                result = inference_log(
-                    model, prior_revision=inputs["model_ref"], seq=seq
-                ).record.attempt.outcome.result
-                result = result.revised(
-                    data=DataRef[GitOid, int](revision=inputs["data_ref"], replicate_index=0)
+                from nof1_causal_lab.artifacts.posterior import ModelFitResult
+
+                result = ModelFitResult(
+                    model=GitRef(
+                        workspace_id="STUDY", revision=inputs["model_ref"], path="model.json"
+                    ),
+                    data=DataRef[GitOid, int](revision=inputs["data_ref"], replicate_index=0),
+                    evidence=inference_evidence(model),
                 )
-                record = applied_record(
+                record = dependency_record(
                     Applied(result=result, effects=ActionEffects(produced=artifacts)),
                     seq=seq,
                     request=request,
@@ -393,7 +413,7 @@ def test_timeline_links_only_declared_refs_to_published_outputs():
                 if action == "model_diff"
                 else DataDiffRequest[GitOid](input=DataDiffInput[GitOid](**inputs))
             )
-            record = applied_record(
+            record = dependency_record(
                 Applied(
                     result=None,
                     effects=ActionEffects(),

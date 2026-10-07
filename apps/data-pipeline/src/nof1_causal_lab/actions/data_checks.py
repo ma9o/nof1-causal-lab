@@ -1,26 +1,24 @@
-"""Cache data-only findings and bind models to their selected observations."""
+"""Compute data-only findings while preparing observations."""
 
 from __future__ import annotations
 
 from typing import TYPE_CHECKING
 
-from pydantic import TypeAdapter
-
 from nof1_causal_lab.artifacts.data_ref import DataRef
 from nof1_causal_lab.artifacts.identity import GitOid
-from nof1_causal_lab.artifacts.validation_report import DataProfileArtifact
 from nof1_causal_lab.compilation_errors import IncompleteModelError
 from nof1_causal_lab.study.data import read_data_history
 from nof1_causal_lab.study.state import apply_effects
-from nof1_causal_lab.study.store import ArtifactStore, cached_value
+from nof1_causal_lab.study.store import ArtifactStore
 
 if TYPE_CHECKING:
+    from nof1_causal_lab.artifacts.validation_report import DataProfileArtifact
     from nof1_causal_lab.study.records import Applied, DataPreparationResult
     from nof1_causal_lab.study.state import StudyState
 
 
 def read_data_profile(store: ArtifactStore, source: DataRef[GitOid, int]) -> DataProfileArtifact:
-    """Read or compute the empirical data profile for one exact replicate selection."""
+    """Compute the empirical data profile for one exact replicate selection."""
     from nof1_causal_lab.actions.validation.flow import profile_data
 
     def render() -> DataProfileArtifact:
@@ -31,13 +29,7 @@ def read_data_profile(store: ArtifactStore, source: DataRef[GitOid, int]) -> Dat
             metadata=history.metadata,
         )
 
-    value, _ = cached_value(
-        store.workspace_id,
-        ("data-profile", source.revision, str(source.replicate_index)),
-        TypeAdapter(DataProfileArtifact),
-        render,
-    )
-    return value
+    return render()
 
 
 def evaluate_data_checks(
